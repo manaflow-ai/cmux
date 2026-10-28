@@ -1009,8 +1009,10 @@ impl Peer {
                 _ = wake_check.tick() => {
                     if let Some(slept) = wake_watch.check() {
                         tracing::info!(peer = %self.name, "this computer slept {}s; checking the link", slept.as_secs());
-                        match tokio::time::timeout(WAKE_PROBE, sink.send(Frame::Ping(Vec::new().into()))).await {
-                            Ok(Ok(())) => wake_probe = Some(tokio::time::Instant::now() + WAKE_PROBE),
+                        // One deadline for the ping to go out and its answer to come back.
+                        let deadline = tokio::time::Instant::now() + WAKE_PROBE;
+                        match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
+                            Ok(Ok(())) => wake_probe = Some(deadline),
                             Ok(Err(e)) => break Err(e.to_string()),
                             Err(_) => break Err(stopped_reading(WAKE_PROBE)),
                         }

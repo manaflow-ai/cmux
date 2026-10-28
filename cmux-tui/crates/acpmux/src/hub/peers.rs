@@ -201,10 +201,11 @@ impl Hub {
         self.reconnect_peer_with(name, wait, true).await
     }
 
-    /// ``reconnect_peer``; without `force`, a peer whose link is open (connected, or `degraded`:
-    /// open and slow, or still in its handshake) is left alone, so a client that only saw it
-    /// down, or a send to a slow machine, never cuts a working link and the requests on it
-    /// (`peer_disconnected`). The app's picks and sends ask this way; `host reconnect` forces.
+    /// ``reconnect_peer``; without `force`, a peer whose link is ready (connected, or `degraded`
+    /// because a ping went unanswered) or still in a handshake younger than the connect deadline
+    /// is left alone, so a client that only saw it down, or a send to a slow machine, never cuts
+    /// a working link and the requests on it (`peer_disconnected`). An older handshake is
+    /// replaced. The app's picks and sends ask this way; `host reconnect` forces.
     pub async fn reconnect_peer_with(
         &self,
         name: &str,
@@ -215,11 +216,10 @@ impl Hub {
         let Some(peer) = peer else {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
+        // A ready link, or a handshake younger than the connect deadline, is left to finish.
+        let young = crate::peer_link::LinkTimings::from_env().connect;
         let open = self.peer(name).is_some_and(|running| {
-            matches!(
-                running.link().state(),
-                crate::peer_link::PeerState::Connected | crate::peer_link::PeerState::Degraded
-            )
+            running.link().keeps_on_reconnect(crate::store::now_ms(), young)
         });
         if open && !force {
             return Ok(());

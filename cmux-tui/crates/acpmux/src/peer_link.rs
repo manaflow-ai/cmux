@@ -203,6 +203,8 @@ pub struct Link {
     pub attempts: u32,
     /// When the link last became ready.
     ready_at: Option<u64>,
+    /// When the WebSocket last opened, while it is open.
+    opened_at: Option<u64>,
 }
 
 impl Link {
@@ -220,6 +222,17 @@ impl Link {
         self.open && self.ready
     }
 
+    /// Whether an unforced reconnect leaves this link alone (`Hub::reconnect_peer_with`): it is
+    /// ready (connected, or slow to answer a ping), or its handshake began less than `young` ago.
+    /// A handshake older than that may never finish, so a reconnect replaces it.
+    pub fn keeps_on_reconnect(&self, now: u64, young: Duration) -> bool {
+        if !self.open {
+            return false;
+        }
+        self.ready
+            || self.opened_at.is_some_and(|at| now.saturating_sub(at) < young.as_millis() as u64)
+    }
+
     /// A saved `lastSeen` from an earlier run of this daemon.
     pub fn seed(&mut self, last_seen: Option<u64>) {
         if self.last_seen.is_none() {
@@ -229,6 +242,7 @@ impl Link {
 
     /// The WebSocket opened; the handshake runs.
     pub fn opened(&mut self, now: u64) {
+        self.opened_at = Some(now);
         self.open = true;
         self.ready = false;
         self.overdue = false;
@@ -267,6 +281,7 @@ impl Link {
         self.ready = false;
         self.overdue = false;
         self.ready_at = None;
+        self.opened_at = None;
         self.attempts = self.attempts.saturating_add(1);
         self.down_since.get_or_insert(now);
         stable
@@ -348,6 +363,21 @@ mod tests {
         assert_eq!(slept, Some(Duration::from_secs(600)));
         // The watch counts from the wake on.
         assert_eq!(watch.check_at(1_625_000, start + Duration::from_secs(19)), None);
+    }
+
+    #[test]
+    fn an_unforced_reconnect_keeps_a_ready_link_and_a_young_handshake() {
+        let young = Duration::from_secs(30);
+        let mut link = Link::default();
+        assert!(!link.keeps_on_reconnect(1_000, young), "a link that never opened is replaced");
+        link.opened(1_000);
+        assert!(link.keeps_on_reconnect(20_000, young), "a handshake 19 s old is left to finish");
+        assert!(!link.keeps_on_reconnect(40_000, young), "a handshake 39 s old may never finish");
+        link.ready(40_000);
+        link.overdue();
+        assert!(link.keeps_on_reconnect(500_000, young), "a ready link slow to answer is kept");
+        link.down(600_000, STABLE);
+        assert!(!link.keeps_on_reconnect(600_001, young), "a link that is down is replaced");
     }
 
     #[test]
