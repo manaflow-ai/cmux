@@ -86,3 +86,22 @@ fn a_shared_word_alone_is_no_match() {
         GroupChoice::New("Chief app audit".to_owned())
     );
 }
+
+#[test]
+fn a_shared_second_word_prefers_the_group_named_by_that_topic_first() {
+    // Lawrence's sidebar has both: "Cloud" belongs with "Cloud & fleet", not
+    // "Billing & cloud", whose topic is billing.
+    let groups: Vec<String> = ["Billing & cloud", "Cloud & fleet", "Accounts & billing"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    assert_eq!(
+        group_choice("Cloud", &groups),
+        GroupChoice::Existing("Cloud & fleet".to_owned())
+    );
+    // Either billing group is right for "Billing"; it must not make a third one.
+    assert!(matches!(
+        group_choice("Billing", &groups),
+        GroupChoice::Existing(_)
+    ));
+}

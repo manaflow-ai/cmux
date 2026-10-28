@@ -251,7 +251,10 @@ macro_rules! home_rule {
   workspace group <group> add --workspace <ws_…>`. A subagent's workspace
   is named after its title and grouped by topic for you: start each spawn
   task with a `Title: <2-5 words>` line (never \"User (u…)\") and, to pick
-  the group, a `Group: <name>` line. Home stays on top, ungrouped. Collapse a group
+  the group, a `Group: <name>` line: a group the sidebar already has (the host
+  puts a close name into the group it matches), a new short topic name only for
+  a new topic. A short task's workspace closes when its subagent finishes; a
+  bigger one stays. Home stays on top, ungrouped. Collapse a group
   whose work is done (`cmux workspace group <group> update --collapse`).
   Never close or rename the user's workspaces to group them.
 - Processes: signal only a process you started and still track (its pid

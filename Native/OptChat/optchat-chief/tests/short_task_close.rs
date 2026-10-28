@@ -36,6 +36,10 @@ impl Workspaces for Recorder {
         self.closed.lock().unwrap().push(key.to_owned());
         Ok(())
     }
+    fn close_idle(&self, key: &str) -> Result<bool, String> {
+        self.closed.lock().unwrap().push(key.to_owned());
+        Ok(true)
+    }
     fn place(&self) -> String {
         "the test".into()
     }
