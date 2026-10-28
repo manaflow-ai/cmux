@@ -310,6 +310,7 @@ export function ComposerQueue({
     // The edited prompt left, or turned out to be a teammate's (its authored record came in while
     // the editor was open): the editor closes, and what was typed goes back to the composer.
     if (
+      ready &&
       editing &&
       draft.current?.id === editing &&
       !queue.some((entry) => entry.id === editing && queuedEditMatches(draft.current!.value, entry))

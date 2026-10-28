@@ -38,9 +38,7 @@ public final class AgentPaneQueuedEdits {
         try await queued { file in
             let data = Data(value.compactText.utf8)
             let draft = try JSONDecoder().decode(Draft.self, from: data)
-            guard !draft.revision.isEmpty, draft.text.utf8.count <= 4_000_000,
-                  draft.originalPrompt.utf8.count <= 4_000_000,
-                  draft.originalImages.count <= 1_000, draft.droppedImages.count <= 1_000 else {
+            guard !draft.revision.isEmpty else {
                 throw CocoaError(.fileWriteInapplicableStringEncoding)
             }
             var saved = try Self.load(file)

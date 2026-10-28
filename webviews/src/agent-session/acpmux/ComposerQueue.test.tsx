@@ -1027,12 +1027,15 @@ test.each(["removed", "steered"])("an inactive recovered edit clears when its ro
   await startEdit(container, "p-2");
   expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("second");
 });
-
 test("a provisional empty queue cannot discard a saved edit before the daemon attaches", async () => {
   const container = await render();
   const kept = draftHost();
   await startEdit(container, "p-1");
   await typeQueueEdit(container, "survive attach");
+  await act(async () =>
+    root!.render(<ComposerQueue queue={[]} chat="c" ready={false} t={t} onChange={async () => true} />),
+  );
+  expect(kept.size).toBe(1);
   await act(async () => root!.unmount());
   await act(async () => {
     root = createRoot(container);
