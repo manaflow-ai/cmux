@@ -125,8 +125,9 @@ public protocol OverlayPlaneHosting: AnyObject {
     /// Stops managing `plane`. The caller puts it back in its home.
     func releasePlane(_ plane: OverlayPlane)
     /// The interactive overlay rects or divider mouse areas of a plane
-    /// changed (`LayoutRootView.interactiveOverlayRects`, `dividerMouseAreas`).
-    func interactiveOverlayRectsDidChange(_ plane: OverlayPlane)
+    /// changed (`LayoutRootView.interactiveOverlayRects`, `dividerMouseAreas`); `shapesChanged`: a pane's strip
+    /// clip changed too, so content drawn outside the view tree re-reads its clip (one update for both).
+    func interactiveOverlayRectsDidChange(_ plane: OverlayPlane, shapesChanged: Bool)
     /// The plane's home finished a layout pass (its size or position may
     /// have changed); not called on animation frames.
     func planeDidLayout(_ plane: OverlayPlane)

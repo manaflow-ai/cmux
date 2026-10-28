@@ -215,14 +215,14 @@ final class WindowOverlayLayer {
         requestPageUpdate()
     }
 
-    func interactiveRectsDidChange() {
-        // Inside the window's layout pass: pages and catcher panels follow
-        // after it (`windowDidLayout`), not from inside a view's layout.
+    /// `shapesChanged`: a pane's strip clip changed too; the pages hear both in one update (one per overlay sync).
+    func interactiveRectsDidChange(shapesChanged: Bool = false) {
+        // Inside the window's layout pass: pages and catcher panels follow after it (`windowDidLayout`).
         guard layoutDepth == 0 else {
-            rectsChangedInLayout = true
+            (rectsChangedInLayout, pageUpdateAfterLayout) = (true, pageUpdateAfterLayout || shapesChanged)
             return
         }
-        updateInteractiveRects()
+        updateInteractiveRects(shapesChanged: shapesChanged)
         // The plane syncs on every layout step: a cheap moment to confirm
         // no page window was re-added above the overlay meanwhile.
         evaluate()
@@ -251,7 +251,7 @@ final class WindowOverlayLayer {
         }
     }
 
-    private func updateInteractiveRects() {
+    private func updateInteractiveRects(shapesChanged: Bool = false) {
         var rects: [CGRect] = []
         var areas: [LayoutMouseArea] = []
         for plane in planes {
@@ -265,15 +265,15 @@ final class WindowOverlayLayer {
         }
         dividerAreas = areas
         if let sidebarResizeArea { areas.append(sidebarResizeArea) }
-        // A spring moves the dividers on every display frame until it lands: the catcher panels
-        // (one window move each, a new panel for a new divider) follow once, at the landing,
-        // which the root reports even when no rect changes then (`isInLayoutMotion`).
+        // A spring or a divider drag moves the dividers on every display frame or pointer event: the catcher panels
+        // (one window move each) follow once, at the landing or release, which the root reports even when no rect
+        // changes then (`isInLayoutMotion`). The pressed panel keeps the drag's events and cursor where it is.
         let springing = planes.contains { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }
         if areas != catcherAreas, !springing {
             catcherAreas = areas
             syncCatchers()
         }
-        guard rects != interactiveRects else { return }
+        guard rects != interactiveRects || shapesChanged else { return }
         interactiveRects = rects
         requestPageUpdate()
     }

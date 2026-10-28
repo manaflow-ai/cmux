@@ -134,6 +134,9 @@ final class DividerMouseCatcherView: NSView {
     private(set) var pendingCursorSet: Task<Void, Never>?
     /// Between this catcher's enter and its exit.
     private var isEntered = false
+    /// Between a press here and its release: the drag's events come here wherever the pointer goes, and this
+    /// panel stays where the press found it until the release (`WindowOverlayLayer`, `isInLayoutMotion`).
+    private var isPressed = false
 
     override func cursorUpdate(with event: NSEvent) { cursor.set() }
     override func mouseEntered(with event: NSEvent) {
@@ -156,12 +159,23 @@ final class DividerMouseCatcherView: NSView {
     }
     override func mouseExited(with event: NSEvent) {
         isEntered = false
+        // A drag that carried the pointer past this panel keeps its resize cursor until the release.
+        if isPressed { cursor.set() }
         onHover?(false)
     }
 
-    override func mouseDown(with event: NSEvent) { forward(event) }
-    override func mouseDragged(with event: NSEvent) { forward(event) }
-    override func mouseUp(with event: NSEvent) { forward(event) }
+    override func mouseDown(with event: NSEvent) {
+        isPressed = true
+        forward(event)
+    }
+    override func mouseDragged(with event: NSEvent) {
+        if isPressed, !isEntered { cursor.set() }
+        forward(event)
+    }
+    override func mouseUp(with event: NSEvent) {
+        isPressed = false
+        forward(event)
+    }
     override func rightMouseDown(with event: NSEvent) { forward(event) }
     override func rightMouseUp(with event: NSEvent) { forward(event) }
     override func otherMouseDown(with event: NSEvent) { forward(event) }
@@ -173,7 +187,7 @@ final class DividerMouseCatcherView: NSView {
         content.hitTest(point)?.scrollWheel(with: event)
     }
 
-    /// The event's screen point. The panel moves while a divider drags, so
+    /// The event's screen point. The pointer leaves the panel while a divider drags, so
     /// the event's own global location is used, not the panel's frame.
     private func screenPoint(of event: NSEvent) -> NSPoint {
         guard let location = event.cgEvent?.location, let height = NSScreen.screens.first?.frame.height else {

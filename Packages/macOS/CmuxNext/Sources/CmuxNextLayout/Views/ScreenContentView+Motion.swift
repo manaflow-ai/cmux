@@ -58,8 +58,6 @@ extension ScreenContentView {
         }
         if !moving { scrollRidesFrames = false }
         applyPresentation()
-        // A zoom that landed in this frame lets go of the panes it covered.
-        releaseCovered()
         return moving
     }
     /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and
@@ -137,11 +135,14 @@ extension ScreenContentView {
     /// Work per frame is O(what changed): a host whose placed frame, alpha, clip and covers are as
     /// they were is not touched, nor is a divider that kept its frame, and a pass that changed
     /// nothing asks for no overlay sync and no hover refresh (`PaneMotionBench`, perf-lead issue 3).
-    /// `force`: a structural or style change; everything is re-placed and the overlay syncs.
+    /// `force` (or a structural change's `forcesPresentation`): everything is re-placed and the overlay syncs.
     func applyPresentation(force: Bool = false) { // perf-hot: 4ms motion-frame
         // Every presentation shows the latest pan: no pan event waits after it.
         panPresentationPending = false
         presentationPasses += 1
+        let force = force || forcesPresentation
+        forcesPresentation = false
+        defer { releaseCovered() } // A zoom that landed in this pass lets go of the panes it covered.
         let strip = stripShift, restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
         let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks), zooming = zoomMotion.pane
         var clips: [(host: PaneHostView, scrolls: Bool)] = []

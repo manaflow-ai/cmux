@@ -154,10 +154,8 @@ public final class LayoutRootView: NSView {
             self.setLayoutInMotion(false)
         }
         context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
-        context.stripClipsDidChange = { [weak self] in
-            guard let self else { return }
-            planeHost?.paneShapesDidChange(overlayPlane)
-        }
+        context.animatesScroll = { [weak self] in self.map { $0.canAnimate && $0.context.animatesPaneLayout } ?? false }
+        context.dragPreviewShown = { [weak self] in self?.updateVisibility() }
         highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
@@ -438,7 +436,7 @@ public final class LayoutRootView: NSView {
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
-        if needsFrames || snapshot.gestureActive { driver.start() }
+        if needsFrames { driver.start() }
         // A change that starts springs (a split, a close) is in motion from the frame it lands in.
         if needsFrames && driver.isRunning { setLayoutInMotion(true) }
     }

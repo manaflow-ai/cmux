@@ -187,6 +187,8 @@ final class PaneOverlayView: NSView {
         focusFlash.borderWidth = max(focusRing.width, Self.flashMinimumWidth)
         glow.borderWidth = focusRing.width
         glow.shadowRadius = max(2, focusRing.width * LayoutTunables.focusGlowRadiusFactor.value)
+        // The shadow of the border it strokes, given: Core Animation needs no offscreen pass to find it (as `attention`).
+        glow.shadowPath = Self.ringOutline(size: rect.size, radius: ringRadius, width: focusRing.width)
         attention.borderWidth = attentionSettings.width
         attention.shadowPath = Self.ringOutline(size: rect.size, radius: radius, width: attentionSettings.width)
         CATransaction.commit()
