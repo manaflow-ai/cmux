@@ -78,7 +78,12 @@ async fn only_a_streamed_calls_usage_is_marked_as_a_call() {
         .filter_map(|e| e.msg.pointer("/params/update"))
         .filter(|u| u.pointer("/_meta/acpmux/call") == Some(&json!(true)))
         .map(|u| {
-            json!([u["inputTokens"], u["cachedReadTokens"], u["cachedWriteTokens"], u["outputTokens"]])
+            json!([
+                u["inputTokens"],
+                u["cachedReadTokens"],
+                u["cachedWriteTokens"],
+                u["outputTokens"]
+            ])
         })
         .collect();
     assert_eq!(splits, vec![json!([1200, 3000, 0, 300])]);
