@@ -110,7 +110,7 @@ const manyHarnesses: ModelPickerProps["catalog"] = [
   ].map(([id, name]) => ({ id: id!, name: name!, models: [{ id: `${id}-default`, name: "Default" }] })),
 ];
 
-/// The open picker stays at most MODEL_PICKER_MAX_HEIGHT (480px) on a tall stage, and its content
+/// The open picker stays within the available anchor room on a tall stage, and its content
 /// scrolls inside it (the harness rail) instead of stretching the menu.
 const cappedHeight: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Model" });
@@ -121,7 +121,7 @@ const cappedHeight: Play = async (ctx) => {
     const scrolls = [menu, ...menu.querySelectorAll<HTMLElement>("*")].some(
       (node) => node.scrollHeight > node.clientHeight + 100,
     );
-    return height > 300 && height <= 481 && scrolls;
+    return height > 300 && height <= Number.parseFloat(menu.style.maxHeight) + 1 && scrolls;
   });
 };
 

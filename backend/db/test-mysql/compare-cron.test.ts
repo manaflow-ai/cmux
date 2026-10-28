@@ -99,4 +99,48 @@ run("projection compare cron", () => {
       logs.mockRestore()
     }
   }, 60_000)
+  it("a lasting row missing or stale in the MySQL shadow is repaired from Postgres; extra MySQL rows stay and Postgres is never written", async () => {
+    // Drift left by the earlier cases (hosts/host_p1 missing) plus a stale row and a MySQL-only row.
+    await my.query("UPDATE teams SET display_name = 'drifted' WHERE id = 'team_p1'")
+    await my.query("INSERT INTO teams (id, kind, display_name, source_stream, source_seq) VALUES ('team_only_mysql', 'personal', 'x', 's:9', 1)")
+    const pgWrites: Array<string> = []
+    const d = deps()
+    const readOnlyPg = { query: (sql: string, values?: Array<unknown>) => (/^\s*(insert|update|delete)/i.test(sql) ? (pgWrites.push(sql), Promise.reject(new Error("write"))) : d.postgres.query(sql, values)) }
+    const errors = spyOn(console, "error").mockImplementation(() => {})
+    const logs = spyOn(console, "log").mockImplementation(() => {})
+    try {
+      const report = await runProjectionCompare({ ...d, postgres: readOnlyPg, repair: d.mysql })
+      expect(report.repaired).toEqual({ hosts: 1, teams: 1 })
+      const events = [...errors.mock.calls, ...logs.mock.calls].map((c) => JSON.parse(String(c[0])))
+      expect(events).toContainEqual(expect.objectContaining({ event: "projection.compare.repaired", table: "teams", rows: 1 }))
+      expect(JSON.stringify(events)).not.toContain("drifted")
+      // The next run sees only the MySQL-only row, which a repair never deletes.
+      const again = await runProjectionCompare({ ...d, postgres: readOnlyPg, repair: d.mysql })
+      expect(again.diffs).toEqual([expect.objectContaining({ table: "teams", missing_in_postgres: ["team_only_mysql"], missing_in_mysql: [], changed: [] })])
+      expect(again.repaired).toEqual({})
+      const [[left]] = (await my.query("SELECT count(*) AS n FROM teams WHERE id = 'team_only_mysql'")) as [Array<{ n: number }>]
+      expect(Number(left?.n)).toBe(1)
+      expect(pgWrites).toEqual([])
+    } finally {
+      errors.mockRestore()
+      logs.mockRestore()
+      await my.query("DELETE FROM teams WHERE id = 'team_only_mysql'")
+    }
+  }, 60_000)
+
+  it("a newer MySQL row (the shadow ahead of a slow primary) is never overwritten by an older Postgres row", async () => {
+    await my.query("UPDATE teams SET display_name = 'ahead', source_seq = 99 WHERE id = 'team_p1'")
+    const d = deps()
+    const errors = spyOn(console, "error").mockImplementation(() => {})
+    const logs = spyOn(console, "log").mockImplementation(() => {})
+    try {
+      await runProjectionCompare({ ...d, repair: d.mysql })
+      const [[row]] = (await my.query("SELECT display_name AS n, source_seq AS s FROM teams WHERE id = 'team_p1'")) as [Array<{ n: string; s: number }>]
+      expect(row).toMatchObject({ n: "ahead" })
+      expect(Number(row?.s)).toBe(99)
+    } finally {
+      errors.mockRestore()
+      logs.mockRestore()
+    }
+  }, 60_000)
 })

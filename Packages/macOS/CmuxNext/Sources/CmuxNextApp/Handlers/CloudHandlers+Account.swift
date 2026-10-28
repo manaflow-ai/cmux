@@ -132,7 +132,22 @@ extension CloudHandlers {
                   cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
             try await wizard.offerCredentialSetup(machine: session.machine.title,
                 account: cloud.auth.activeTeam.team?.displayName ?? CloudWorkspaceSetupWizard.personalAccountTitle, present: present) { provider in
-                let transfer = CloudCredentialTransfer(provider: provider == .claude ? .claude : .codex,
+                try Task.checkCancellation()
+                guard !creation.isTornDown, cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else {
+                    throw CancellationError()
+                }
+                if provider == .codex {
+                    guard let windowID = window?.id, let originalWindow = services.windows.controller(for: windowID)?.window else {
+                        throw CancellationError()
+                    }
+                    try await cloud.codexBroker.run(machineID: session.machineID,
+                        scope: .init(userID: userID, teamID: teamID), confirmed: true,
+                        presentDeviceCode: { prompt in
+                            await CloudPresenter.presentCodexDeviceCode(prompt, in: originalWindow)
+                        })
+                    return
+                }
+                let transfer = CloudCredentialTransfer(provider: .claude,
                     machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
                     })
@@ -158,10 +173,13 @@ extension CloudHandlers {
     /// The machine New Cloud Workspace opens on, nil for a new one. It keeps the
     /// active-window fallback for any caller (it only opens a workspace, and with
     /// no machine a CLI run starts a new one), but a named `--target machine:<id>`
-    /// that is not there is refused, never answered with a new machine.
+    /// that is not there is refused, never answered with a new machine. With several
+    /// machines and none in view, it opens on the first one in sidebar order that is
+    /// connected or ``CloudMachine/takesUnnamedWorkspaces`` (the workspace joins that
+    /// machine's group); only with none a new VM starts and bills (Lawrence msg 1334).
     static func workspaceMachine(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> CloudMachineSession? {
         if invocation.target?.kind == .machine { return try machine(invocation, context) }
-        return try? machine(invocation, context, fallsBack: true)
+        return (try? machine(invocation, context, fallsBack: true)) ?? context.services.machines.cloud.first { $0.daemon.connection != nil || $0.machine.takesUnnamedWorkspaces }
     }
 
     // MARK: cloud new-machine with options

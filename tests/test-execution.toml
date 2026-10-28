@@ -1818,6 +1818,10 @@ path = "tests/test_merge_freeze.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_gh_pages.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_release_changelog_lines.py"
 lane = "linux-guard"
 
