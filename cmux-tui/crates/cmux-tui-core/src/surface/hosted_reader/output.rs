@@ -127,7 +127,7 @@ impl HostedReader {
         drop(journal_update.take());
         surface.post_pending_publications();
         pty.stream_progress.notify();
-        pty.request_frame(generation);
+        pty.request_frame_from_reader(generation);
         if let Some(title) = title_update
             && let Some(mux) = mux.upgrade()
         {
