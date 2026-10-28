@@ -195,6 +195,7 @@ impl UnixChildExitSignal {
         let (action_sender, action_receiver) = mpsc::sync_channel(1);
         // A helper child's exit (hooks, helper commands): Utility, as the
         // child itself runs (cmux_threads::HELPER_CHILD).
+        // supervise-allow: owned by UnixChildExitSignal, which keeps the handle; a panic drops `sender`, so the waiter's recv ends with an error at once instead of at its deadline.
         let observer = cmux_threads::spawn("cmux-child-exit", ThreadQos::Utility, move || {
             let result = wait_for_child_exit_without_reaping(pid);
             let observed = result.is_ok();
@@ -660,7 +661,13 @@ impl ProcessScopeTracker {
             return Ok(());
         }
         let tracker = self.clone();
-        cmux_threads::spawn("cmux-process-scopes", ThreadQos::Utility, move || tracker.run())?;
+        // supervise-allow: the process-wide scope tracker; a panic in a scan clears `started`, so the next registration starts a new tracker that scans every registered scope, and finalize waits only inside its own budget meanwhile.
+        cmux_threads::spawn("cmux-process-scopes", ThreadQos::Utility, move || {
+            let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tracker.run()));
+            if ran.is_err() {
+                *tracker.started.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
+            }
+        })?;
         *started = true;
         Ok(())
     }

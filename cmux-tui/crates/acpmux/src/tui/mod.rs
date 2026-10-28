@@ -13,6 +13,7 @@
 
 pub mod actions;
 mod answering;
+mod background;
 mod events;
 mod run;
 mod scheduler;
@@ -458,7 +459,7 @@ impl App {
     pub(super) fn refresh_harnesses(&mut self) {
         let client = self.client.clone();
         let tx = self.tx.clone();
-        tokio::spawn(async move {
+        self.background(async move {
             if let Ok(v) = client.request(method::MUX_HARNESSES, json!({})).await {
                 let names: Vec<String> = v
                     .get("harnesses")
@@ -499,7 +500,7 @@ impl App {
         let client = self.client.clone();
         let tx = self.tx.clone();
         let id = id.to_owned();
-        tokio::spawn(async move {
+        self.background(async move {
             let mut params = json!({"sessionId": id, "limit": 3000});
             if let Some(after) = after_seq {
                 params["afterSeq"] = json!(after);
@@ -535,7 +536,7 @@ impl App {
     pub(super) fn refresh_sessions(&self) {
         let client = self.client.clone();
         let tx = self.tx.clone();
-        tokio::spawn(async move {
+        self.background(async move {
             if let Ok(v) = client.request(method::MUX_SESSIONS, json!({})).await {
                 let _ = tx.send(AppMsg::Sessions(
                     v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default(),
@@ -561,7 +562,7 @@ impl App {
     ) {
         let client = self.client.clone();
         let tx = self.tx.clone();
-        tokio::spawn(async move {
+        self.background(async move {
             let ok = Self::run_request(&client, &tx, m, params, ok_msg).await;
             if ok {
                 reread.run(&client, &tx).await;
@@ -666,7 +667,7 @@ impl App {
     pub(super) fn cancel(&mut self) {
         if let Some(id) = self.selected_id() {
             let client = self.client.clone();
-            tokio::spawn(async move {
+            self.background(async move {
                 let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
             });
             self.status = "cancel sent".into();

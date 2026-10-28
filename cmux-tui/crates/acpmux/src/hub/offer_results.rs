@@ -25,6 +25,7 @@ use super::{Hub, PromptOptions, Session};
 use crate::no_panic::JsonExt;
 use crate::rpc::method;
 use crate::store::EventRecord;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -55,7 +56,7 @@ impl Hub {
         }
         let (hub, child) = (self.clone(), child.clone());
         // Off the turn's path: the logs are read from disk, and the parent's turn runs.
-        tokio::spawn(async move {
+        self.supervise("hub.offer-result", Fatal, ShutdownBehavior::Skip, async move {
             if !hub.offer_result(&child, &parent_id).await {
                 hub.offers.results.lock().unwrap_or_else(|e| e.into_inner()).remove(&child.id);
             }
