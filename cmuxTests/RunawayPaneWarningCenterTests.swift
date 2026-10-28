@@ -285,8 +285,12 @@ struct RunawayPaneWarningCenterTests {
             ttyName: nil, foregroundPID: nil
         )
         center.paneProvider = { [unavailable] }
-        await evaluate(center)
-        #expect(center.warnings.count == (dismissed ? 0 : 1))
+        // Several missing samples do not establish recovery. The complete
+        // census still contains this terminal's runaway processes throughout.
+        for _ in 0..<8 {
+            await evaluate(center)
+            #expect(center.warnings.count == (dismissed ? 0 : 1))
+        }
 
         let live = descriptor
         center.paneProvider = { [live] }
@@ -303,9 +307,10 @@ struct RunawayPaneWarningCenterTests {
     }
 
     @Test
-    func persistentlyUnavailableTTYEventuallyClearsWarning() async throws {
+    func exitedSessionClearsWarningWithoutWaitingForMoreSamples() async throws {
+        let source = WarningSnapshotSource(census(workers: 1_200))
         let center = makeCenter(
-            source: WarningSnapshotSource(census(workers: 1_200)),
+            source: source,
             recorder: WarningSignalRecorder()
         )
         var notified = 0
@@ -320,13 +325,14 @@ struct RunawayPaneWarningCenterTests {
             ttyName: nil, foregroundPID: nil
         )
         center.paneProvider = { [exited] }
-        for _ in 0..<RunawayPaneWarningCenter.maximumUnavailableSamples {
-            await evaluate(center)
-            #expect(center.warnings.count == 1, "a brief gap keeps the warning")
-        }
+        source.set(CmuxTopProcessSnapshot(
+            processes: [], sampledAt: Date(), includesProcessDetails: false,
+            includesCMUXScope: false, enumerationIsComplete: true
+        ))
         await evaluate(center)
-        #expect(center.warnings.isEmpty, "a frozen warning must not outlive its session")
+        #expect(center.warnings.isEmpty, "a complete empty census confirms the session ended")
 
+        source.set(census(workers: 1_200))
         let live = descriptor
         center.paneProvider = { [live] }
         await evaluate(center)
