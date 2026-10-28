@@ -52,6 +52,13 @@ impl Watcher {
     }
 
     async fn call(&mut self, m: &str, params: Value) -> Value {
+        let (result, error) = self.answer(m, params).await;
+        assert!(error.is_none(), "{m}: {error:?}");
+        result
+    }
+
+    /// The reply to `m`: its result, and its error's message.
+    async fn answer(&mut self, m: &str, params: Value) -> (Value, Option<String>) {
         self.next += 1;
         let id = self.next;
         self.tx.send(Message::request(id, m, params).to_line()).await.unwrap();
@@ -63,8 +70,7 @@ impl Watcher {
             if let Ok(Message::Response { id: got, result, error }) = Message::parse(&line)
                 && got == json!(id)
             {
-                assert!(error.is_none(), "{m}: {error:?}");
-                return result.unwrap_or(Value::Null);
+                return (result.unwrap_or(Value::Null), error.map(|e| e.message));
             }
         }
     }
@@ -109,13 +115,15 @@ async fn a_peer_connection_hears_and_lists_none_of_this_hosts_peers() {
     assert!(leaked.is_empty(), "a peer's connection heard this host's peers: {leaked:?}");
 
     // Fell behind: more changes than the feed holds, sent before either watcher runs (this
-    // test's runtime has one thread), so each lags and gets the snapshot instead.
+    // test's runtime has one thread), so each lags and gets the snapshot instead. `y` changes
+    // once, first, so its note is pushed out of the feed: only the snapshot carries it.
+    a.peer_states().register("y", 1, seen(PeerLinkState::Connected, None));
     for i in 0..600u32 {
         let state = if i % 2 == 0 { PeerLinkState::Reconnecting } else { PeerLinkState::Connected };
         a.peer_states().changed("x", 1, seen(state, Some("connection refused")));
     }
     let heard = local.notes(quiet).await;
-    assert!(heard.len() > 1, "the unix socket hears the snapshot and the rest: {heard:?}");
+    assert!(heard.iter().any(|n| n["peer"] == "y"), "the unix socket gets the snapshot: {heard:?}");
     let leaked = peer.notes(quiet).await;
     assert!(leaked.is_empty(), "a lagging peer connection got the snapshot: {leaked:?}");
 
@@ -130,4 +138,12 @@ async fn a_peer_connection_hears_and_lists_none_of_this_hosts_peers() {
     assert_eq!(peer_names(&status["peers"]), Vec::<String>::new(), "{status}");
     let status = local.call(method::MUX_STATUS, json!({})).await;
     assert_eq!(peer_names(&status["peers"]), ["gone"], "{status}");
+
+    // Nor does the not-found error of `_acpmux/resolve`, which names where it looked.
+    let query = json!({"query": "no-such-session"});
+    let (_, mine) = local.answer(method::MUX_RESOLVE, query.clone()).await;
+    assert!(mine.as_deref().is_some_and(|e| e.contains("gone")), "{mine:?}");
+    let (_, theirs) = peer.answer(method::MUX_RESOLVE, query).await;
+    let theirs = theirs.expect("not found");
+    assert!(!theirs.contains("gone"), "a peer's resolve named this host's peers: {theirs}");
 }
