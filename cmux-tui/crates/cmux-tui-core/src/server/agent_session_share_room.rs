@@ -385,10 +385,14 @@ enum Held {
 /// room's own alarm has ended it.
 fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
     let link_shares = shares(mux);
-    if !link_shares.claim_room_delete(share_id) {
+    let handoff = match &held {
+        Some(Held::Host(url, token)) => Some((url.clone(), token.clone())),
+        _ => None,
+    };
+    if !link_shares.claim_room_delete(share_id, handoff) {
         if let Some(Held::Host(url, token)) = &held {
             // A late PUT may carry the only host token while another cleanup worker is in
-            // flight. Preserve it in the record so that worker can use it before it exits.
+            // flight. It is handed to that worker (kept in memory, should this write fail).
             let _ = retire(mux, share_id, url, token);
         }
         return;
@@ -398,12 +402,13 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
     link_shares.rearm();
     let bridge = &link_shares.bridge;
     let Some(runtime) = bridge.runtime() else {
-        link_shares.release_room_delete(share_id);
+        let _ = link_shares.release_room_delete(share_id);
         link_shares.rearm();
         return;
     };
     let (timing, weak, id) = (bridge.timing(), Arc::downgrade(mux), share_id.to_owned());
     let fallback = bridge.room().map(|room| room.url);
+    let mut held = held;
     runtime.spawn(async move {
         struct DeleteGuard {
             mux: Weak<Mux>,
@@ -414,8 +419,12 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
             fn drop(&mut self) {
                 if let Some(mux) = self.mux.upgrade() {
                     let shares = shares(&mux);
-                    shares.release_room_delete(&self.share_id);
+                    let handoff = shares.release_room_delete(&self.share_id);
                     shares.rearm();
+                    // A host token handed over as this worker ended starts the next one.
+                    if let Some((url, token)) = handoff {
+                        delete(&mux, &self.share_id, Some(Held::Host(url, token)));
+                    }
                 }
             }
         }
@@ -444,6 +453,9 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
             }
             let target = {
                 let Some(mux) = weak.upgrade() else { return };
+                if let Some((url, token)) = shares(&mux).take_room_handoff(&id) {
+                    held = Some(Held::Host(url, token));
+                }
                 let mut unsaved = false;
                 if let Some(Held::Host(url, token)) = &held {
                     unsaved = !retire(&mux, &id, url, token);
@@ -562,23 +574,45 @@ pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
     }
     shares.serve(mux);
     let Some(directory) = mux.session_state_directory() else { return };
-    let bridged = shares.with(Some(directory.as_path()), |all, _| {
+    let directory = Some(directory.as_path());
+    // The revoke may fail to write; the cleanup below runs from what the shares hold either way.
+    let _ = shares.with(directory, |all, _| {
         let mut changed = false;
         for share in all.iter_mut().filter(|s| s.state == ShareState::Provisioning) {
             let bridged = share.room.is_some();
             abandon_share(share, bridged);
             changed = true;
         }
-        let ids = all
-            .iter()
-            .filter(|s| s.pending_room_ops.iter().any(|o| o["op"] == "delete"))
-            .map(|s| s.share_id.clone());
-        Ok((ids.collect::<Vec<_>>(), changed))
+        Ok(((), changed))
     });
-    for id in bridged.unwrap_or_default() {
+    let (queued, unsaved) = shares
+        .with(directory, |all, _| {
+            let queued = all
+                .iter()
+                .filter(|s| s.pending_room_ops.iter().any(|o| o["op"] == "delete"))
+                .map(|s| s.share_id.clone())
+                .collect::<Vec<_>>();
+            // A provisioning share whose revoke was not written: its room's host token is held.
+            let unsaved = all
+                .iter()
+                .filter(|s| s.state == ShareState::Provisioning)
+                .filter_map(|s| {
+                    let room = s.room.as_ref()?;
+                    let url = room["url"].as_str()?.to_owned();
+                    let token = Zeroizing::new(room["host_token"].as_str()?.to_owned());
+                    Some((s.share_id.clone(), url, token))
+                })
+                .collect::<Vec<_>>();
+            Ok(((queued, unsaved), false))
+        })
+        .unwrap_or_default();
+    for id in queued {
         if view(mux, &id).is_some_and(|v| v.delete) {
             delete(mux, &id, None);
         }
+    }
+    for (id, url, token) in unsaved {
+        delete(mux, &id, Some(Held::Host(url, token)));
     }
     expired(shares);
     shares.settle(mux);

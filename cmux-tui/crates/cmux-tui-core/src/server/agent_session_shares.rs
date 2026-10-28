@@ -20,7 +20,7 @@
 //! goes to the room (`pending_room_ops`, retried until acknowledged). Without one a share is
 //! `active` from its create and `url` is null.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -39,6 +39,9 @@ use crate::server::agent_transfer::state_file::{read_trusted, save};
 
 #[path = "agent_session_share_room.rs"]
 pub(in crate::server) mod room;
+
+/// A late room's url and host token, handed to the share's running DELETE worker.
+pub(super) type RoomHandoff = (String, zeroize::Zeroizing<String>);
 
 pub(super) const GUEST_PREFIX: &str = "guest:";
 const FILE: &str = "agent-session-shares.json";
@@ -143,7 +146,8 @@ pub(in crate::server) struct LinkShares {
     ended: Mutex<Vec<(String, Option<String>)>>,
     /// Room DELETE workers currently dispatched, one per share. Expiry can race a worker that is
     /// still waiting for the room's response; do not start a second worker for the same record.
-    room_deletes: Mutex<HashSet<String>>,
+    /// Each holds a late room's url and host token handed to it (one its record could not save).
+    room_deletes: Mutex<HashMap<String, Option<RoomHandoff>>>,
     /// The daemon the timer's job runs for (set by the first verb or bind).
     mux: Mutex<Weak<Mux>>,
     /// The hosted room each share is bridged to.
@@ -327,12 +331,33 @@ impl LinkShares {
         directory.map(|d| save(d, FILE, &shares))
     }
 
-    pub(super) fn claim_room_delete(&self, share_id: &str) -> bool {
-        self.room_deletes.lock().unwrap_or_else(|e| e.into_inner()).insert(share_id.to_owned())
+    /// Claims the share's one DELETE worker. False when one runs already: `handoff` (a late room's
+    /// url and host token) is then left for it, so that worker uses it or restarts with it.
+    pub(super) fn claim_room_delete(&self, share_id: &str, handoff: Option<RoomHandoff>) -> bool {
+        let mut deletes = self.room_deletes.lock().unwrap_or_else(|e| e.into_inner());
+        match deletes.get_mut(share_id) {
+            Some(slot) => {
+                if handoff.is_some() {
+                    *slot = handoff;
+                }
+                false
+            }
+            None => {
+                deletes.insert(share_id.to_owned(), None);
+                true
+            }
+        }
     }
 
-    pub(super) fn release_room_delete(&self, share_id: &str) {
-        self.room_deletes.lock().unwrap_or_else(|e| e.into_inner()).remove(share_id);
+    /// The handoff left for the share's running worker, if any.
+    pub(super) fn take_room_handoff(&self, share_id: &str) -> Option<RoomHandoff> {
+        let mut deletes = self.room_deletes.lock().unwrap_or_else(|e| e.into_inner());
+        deletes.get_mut(share_id).and_then(Option::take)
+    }
+
+    /// Ends the worker's claim, answering a handoff it never took (its caller restarts with it).
+    pub(super) fn release_room_delete(&self, share_id: &str) -> Option<RoomHandoff> {
+        self.room_deletes.lock().unwrap_or_else(|e| e.into_inner()).remove(share_id).flatten()
     }
 
     /// Queues what was live in `start` and is not in `now`.
@@ -553,10 +578,11 @@ impl LinkShares {
             .iter()
             .flatten()
             .filter(|s| {
-                !room_deletes.contains(&s.share_id)
-                    && s.expires_at > now
+                // An open share past its expiry that no `with` has marked yet is armed too (the
+                // timer fires at once and ends it); an ended one's overdue room operation is not.
+                !room_deletes.contains_key(&s.share_id)
                     && (matches!(s.state, ShareState::Active | ShareState::Provisioning)
-                        || !s.pending_room_ops.is_empty())
+                        || (s.expires_at > now && !s.pending_room_ops.is_empty()))
             })
             .map(|s| s.expires_at)
             .min();
