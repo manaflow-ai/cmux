@@ -240,6 +240,27 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await context.close();
   });
 
+  test("a long Codex draft keeps the footer in a short chat pane", async () => {
+    const context = await browser.newContext({ viewport: { width: 760, height: 400 } });
+    const page = await context.newPage();
+    await open(page, "agent-pane.composer", "quiet-chips");
+    await pickDot(page, ".acpmux-composer", "codex");
+    await page.waitForSelector('.acpmux-composer[data-composer-look="codex"]');
+    await page.locator('.acpmux-composer [contenteditable="true"]').first().fill(
+      Array.from({ length: 20 }, (_, i) => `Long draft line ${i + 1} in a short pane.`).join("\n"),
+    );
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    const bounds = await page.$eval(".acpmux-main", (main) => {
+      const footer = main.querySelector(".acpmux-composer-foot")!.getBoundingClientRect();
+      const box = main.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+      const pane = main.getBoundingClientRect();
+      return { footerBottom: footer.bottom, boxTop: box.top, paneBottom: pane.bottom };
+    });
+    expect(bounds.footerBottom).toBeLessThanOrEqual(bounds.paneBottom);
+    expect(bounds.boxTop).toBeGreaterThanOrEqual(44);
+    await context.close();
+  });
+
   test("in a chat the dots switch the look by keys both ways, and Escape goes back to the prompt", async () => {
     const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
     const page = await context.newPage();
