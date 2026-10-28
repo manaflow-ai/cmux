@@ -456,6 +456,7 @@ impl Inner {
         }
         for follow_up in applied.follow_ups {
             let inner = self.clone();
+            // supervise-allow: one target's setup calls; a panic ends that target's setup only, which leaves the target as a failed setup call does.
             let spawned = std::thread::Builder::new()
                 .name("cmux-browser-host-cdp-setup".into())
                 .spawn(move || inner.run_follow_up(follow_up));
