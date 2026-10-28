@@ -252,9 +252,11 @@ struct CodexAutoNamingArguments: Sendable {
     /// including a leading tilde, remain unchanged for the child CLI to
     /// interpret consistently.
     static func configHome(from env: [String: String]) -> String? {
-        let home = env["CODEX_HOME"] ??
-            ((env["HOME"].map { $0 + "/.codex" }) ?? "")
-        return home.isEmpty ? nil : home
+        if let configured = env["CODEX_HOME"], !configured.isEmpty {
+            return configured
+        }
+        guard let home = env["HOME"], !home.isEmpty else { return nil }
+        return home + "/.codex"
     }
 
     static func removingComment(from rawLine: Substring) -> Substring {
