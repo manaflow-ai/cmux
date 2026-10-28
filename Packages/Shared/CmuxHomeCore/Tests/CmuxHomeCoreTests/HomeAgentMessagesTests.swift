@@ -142,6 +142,22 @@ struct HomeAgentMessagesTests {
         #expect(rows.dropFirst().map(\.plainText) == (0..<12).map { "[a1 → agent_mux]\nfragment \($0)" })
     }
 
+    @Test(arguments: [false, true])
+    func nestedQuestionKeepsAgentMessagesInItsBranch(outgoing: Bool) throws {
+        var book = HomeAgentMessages()
+        var nested = question()
+        nested.threadRoot = MessageID("thread")
+        nested.replyTo = PartRef(message: MessageID("thread"), partIndex: 0)
+        var step = message(revision: 1, text: "Nested assignment")
+        step.outgoing = outgoing
+        _ = book.apply(run(revision: 1, messages: [step]))
+        let rows = book.inserting(into: [question("thread"), nested], summary: nil)
+        let projected = try #require(rows.last)
+        #expect(projected.isReadOnly)
+        #expect(projected.threadRoot == MessageID("thread"))
+        #expect(projected.replyTo?.message == MessageID("question"))
+    }
+
     @MainActor @Test func closeCancelsHydrationAndRejectsLateReports() async {
         let store = HomeStore(source: MockHomeSource(options: .immediate))
         store.start()
