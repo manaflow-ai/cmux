@@ -636,6 +636,14 @@
 .cv-received-actions:focus-within {
   opacity: 1;
 }
+.cv-received-actions:has([aria-haspopup="menu"][aria-expanded="true"]),
+.cv-received-actions:has([aria-haspopup="menu"][data-popup-open]) {
+  opacity: 1;
+}
+.cv-received-actions [aria-haspopup="menu"][data-popup-open] {
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+}
 /* Retry sends a prompt again: under every prompt (Leo's spec, as Claude's), at the end of another
    agent's message only on the last ended turn's (VirtualTranscript marks its row; MessageActions.tsx). */
 .cv-message-retry {
@@ -4009,7 +4017,7 @@ article.acpmux-row:empty {
   color: var(--cv-text);
 }
 /* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): one quiet caption at
-   the line's end, always shown, still. No spinner, no dot, no motion. */
+   the line's end, shown with its queued action group. No spinner, no dot, no motion. */
 .cv-received__queued {
   flex: none;
   color: var(--cv-text-dim);

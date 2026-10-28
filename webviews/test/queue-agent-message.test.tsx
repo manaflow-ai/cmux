@@ -4,6 +4,7 @@
 // the card's ⋯ menu. The queue's rows, its fold and its "N more queued" count are the person's own
 // prompts alone (ComposerQueue.tsx).
 import { afterAll, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -42,6 +43,12 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+const conversationStyle = dom.window.document.createElement("style");
+conversationStyle.textContent = readFileSync(
+  new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
+  "utf8",
+);
+dom.window.document.head.append(conversationStyle);
 const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
 
@@ -207,7 +214,14 @@ test("the received card says when it is read and keeps the queue row's actions i
   // The message's own card: the sender's chip, its text, the quiet note; no spinner, no queue row.
   expect(host.querySelector(".cv-received__name")?.textContent).toBe("lane-1");
   expect(host.querySelector(".cv-received__body")?.textContent).toContain("CI is green on #24001");
-  expect(host.querySelector(".cv-received__queued")?.textContent).toBe(t("message.readAfterTurn"));
+  const note = host.querySelector<HTMLElement>(".cv-received__queued");
+  const actionsGroup = note?.closest<HTMLElement>(".cv-received-actions");
+  expect(note?.textContent).toBe(t("message.readAfterTurn"));
+  expect(actionsGroup).not.toBeNull();
+  const trigger = actionsGroup!.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+  expect(getComputedStyle(actionsGroup!).opacity).toBe("0");
+  trigger.setAttribute("data-popup-open", "");
+  expect(getComputedStyle(actionsGroup!).opacity).toBe("1");
   expect(host.querySelector(".acpmux-queued, .cv-spinner, [data-spinner]")).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>("button.cv-received__name")!.click());
   expect(calls).toEqual(["open s-1"]);

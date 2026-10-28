@@ -99,6 +99,7 @@ export function QueuedMessageCard({
           {act && item("composer.queueDelete", () => void act.remove(promptId).catch(fail))}
         </MenuPopup>
       </Menu>
+      <span className="cv-received__queued">{t("message.readAfterTurn")}</span>
     </span>
   );
   return (
@@ -109,13 +110,7 @@ export function QueuedMessageCard({
         images={row.images}
         onOpen={onOpen}
         onReply={onReply}
-        actions={
-          <>
-            {menu}
-            {/* Last: a row's focus Copy (App.tsx) sits over the line's end, never over the menu. */}
-            <span className="cv-received__queued">{t("message.readAfterTurn")}</span>
-          </>
-        }
+        actions={menu}
         githubRepository={githubRepository}
       />
     </div>
