@@ -1831,10 +1831,15 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
 /// Puts a following view at the latest row. Anything past the browser's rounding is corrected: the
 /// stack's eased growth (the queue's max-height move, #24718) comes in steps under
 /// `FOLLOW_BOTTOM_DEADBAND_PX`, and a deadband here left the view resting up to that far from its end,
-/// the last row under the stack.
+/// the last row under the stack. A fractional end is rounded up: WebKit floors a fractional offset
+/// while it rounds the content's height, so the end as written rested a pixel short of the
+/// scroller's own; past it, the browser clamps the offset to that end.
 function settleFollowBottom(node: HTMLElement, latest: number): boolean {
-  if (Math.abs(latest - node.scrollTop) <= 1) return false;
-  node.scrollTop = latest;
+  const end = Math.ceil(latest - 0.01);
+  // Where the write lands: a scroller already clamped there is at its end.
+  const lands = Math.min(end, Math.max(0, node.scrollHeight - node.clientHeight));
+  if (Math.abs(lands - node.scrollTop) <= 0.5) return false;
+  node.scrollTop = end;
   return true;
 }
 
