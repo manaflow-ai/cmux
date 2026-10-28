@@ -452,15 +452,17 @@ test("pinned picker actions precede scrolling suggestions and remain keyboard se
   await key(field, "Enter");
   await key(field, "ArrowDown");
   await key(field, "ArrowDown");
+  await key(field, "ArrowDown");
+  await key(field, "ArrowDown");
   await key(field, "Enter");
   await key(field, "ArrowUp");
   await key(field, "ArrowUp");
   await key(field, "Enter");
-  expect(calls).toEqual(["No project", "Add project", "No project"]);
+  expect(calls).toEqual(["No project", "Atlas", "No project"]);
   await type(field, "Atlas");
   await key(field, "ArrowDown");
   await key(field, "Enter");
-  expect(calls).toEqual(["No project", "Add project", "No project", "Atlas"]);
+  expect(calls).toEqual(["No project", "Atlas", "No project", "Atlas"]);
 });
 
 test("an empty pinned action list does not add an orphan divider", async () => {
