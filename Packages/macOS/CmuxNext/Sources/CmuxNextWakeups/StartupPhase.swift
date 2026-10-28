@@ -112,6 +112,7 @@ public final class StartupPhase {
         /// The latest settle when a reference never comes.
         public var settleFailsafe: Duration
 
+        /// Deadlines; the defaults are the launch's.
         public init(revealDeadline: Duration = .milliseconds(1_500), settleFailsafe: Duration = .seconds(10)) {
             self.revealDeadline = revealDeadline
             self.settleFailsafe = settleFailsafe
@@ -123,9 +124,13 @@ public final class StartupPhase {
     public struct HeldAwait: Sendable, CustomStringConvertible {
         /// The held class.
         public let work: MainWorkClass
+        /// The awaited work's owner.
         public let owner: String
+        /// The phase when it was awaited.
         public let phase: Phase
+        /// The awaiting file's `#fileID`.
         public let file: String
+        /// The awaiting line.
         public let line: UInt
 
         public var description: String { "\(work) work of \(owner) awaited while \(phase) (\(file):\(line))" }

@@ -9,6 +9,7 @@ public import AppKit
 /// coalescers have work and which ones were handed out.
 @MainActor
 public final class FrameInputCoalescers {
+    /// Makes the coalescer of a window (the window's ``FrameScheduler/input``).
     public typealias Factory = @MainActor (NSWindow) -> FrameInputCoalescer
 
     private struct Weak {

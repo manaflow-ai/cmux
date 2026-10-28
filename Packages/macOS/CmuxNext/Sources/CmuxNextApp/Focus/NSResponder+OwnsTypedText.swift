@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTerminal
 
 extension NSResponder {
     /// A text input the person can type into has the keyboard: a text view
@@ -24,5 +25,26 @@ extension NSView {
     var isShownForInput: Bool {
         // visibility-walk-allow: key routing and hit tests follow AppKit's own hidden flags, which decide where a key goes
         window != nil && !isHiddenOrHasHiddenAncestor
+    }
+}
+
+extension WindowController {
+    /// A text input has this window's keyboard: an editable AppKit text view or field (empty or not; the person may have
+    /// just put the caret there), text an input method composes, or an editable element of the focused page (a web form
+    /// field, an editor). Automation does not take the window from it (CLAUDE.md, "Go past Chrome where cmux is
+    /// scripted"). A terminal is not a text input here: a person's `cmux open --focus` from a terminal moves on.
+    @MainActor var hasTextInputKeyboard: Bool {
+        // The person's keyboard is in this window only while the app is active and the key window is this window or one
+        // it owns (a Chromium page window, a sheet: the shell itself resigns key then). A CLI run from another app finds
+        // the keyboard elsewhere.
+        let facts = focus.currentState()
+        guard let window, facts.appActive else { return false }
+        guard facts.windowKey || NSApp.keyWindow.flatMap(services.windows.owner(of:)) === self else { return false }
+        if let responder = window.firstResponder {
+            if responder.ownsTypedText { return true }
+            if !(responder is TerminalSurfaceView), let client = responder as? any NSTextInputClient, client.hasMarkedText() { return true }
+        }
+        let router = services.keyRouter
+        return router.facts(in: window, controller: self).pageEditableFocused
     }
 }

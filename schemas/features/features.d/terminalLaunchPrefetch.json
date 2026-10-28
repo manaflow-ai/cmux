@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "terminalLaunchPrefetch",
+  "owner": "Performance Lead",
+  "description": "At launch a background thread opens the Metal device and loads the terminal's font, the emoji font and the fallback font list before the terminal runtime asks for them, so the first terminal waits less on the main thread.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["launch-cold", "launch-warm"],
+  "sticky": false,
+  "runtimeMutable": false
+}

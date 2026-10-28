@@ -36,7 +36,10 @@ extension CEFPaneHost {
         // The page's focus follows the view's first responder state (``CEFTab/applyFocus(_:browser:)``).
         page.onFocusChange = { [weak self] focused in self?.visibleTab?.hostedPageFocusChanged(focused) }
         // What the person sees of the page goes to the host (``postPageVisibility(browser:)``).
-        page.onPageVisibility = { [weak self] _ in self?.postPageVisibility() }
+        page.onPageVisibility = { [weak self] _ in
+            self?.postPageVisibility()
+            self?.hostPageShownChanged()  // the busy deadline runs only while a hosted page shows (p01-process-084)
+        }
         // The page's display follows the view's (task 221): the host places the page window there.
         // With no tab shown yet nothing goes out; ``showBrowser(of:activate:)`` places it then.
         page.onScreenInfo = { [weak self, weak page] _ in

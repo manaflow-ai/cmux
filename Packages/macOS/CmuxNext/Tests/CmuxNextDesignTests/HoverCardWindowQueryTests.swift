@@ -73,6 +73,28 @@ import CmuxNextDesignTokens
         #expect(queries.count == 3)
     }
 
+    /// A Zoom or a floating chat fold animates a window's frame (`Motion.beginFrameAnimation`): its content really
+    /// moves under the pointer, and no end notice hit-tests again when it lands, so each step still hit-tests and the
+    /// shown card follows its target (review of p03-rendering-105). Only a live resize or full screen drops them.
+    @Test func aWindowFrameAnimationStillHitTestsEachStep() {
+        _ = NSApplication.shared
+        let main = window(CGRect(x: 200, y: 200, width: 300, height: 100))
+        defer { main.close() }
+        let queries = Queries()
+        let point = CGPoint(x: main.frame.midX, y: main.frame.midY)
+        let coordinator = coordinator(main, queries: queries, pointer: { point })
+        let source = Source(window: main)
+        coordinator.register(source)
+        defer { coordinator.unregister(source) }
+        Motion.beginFrameAnimation(main)
+        defer { Motion.endFrameAnimation(main) }
+        coordinator.geometryChanged(in: main)
+        #expect(queries.count == 1, "a zoom step was dropped like a live resize: the card stays detached after it lands")
+        queries.now += 1.0 / 60
+        coordinator.geometryChanged(in: main)
+        #expect(queries.count == 2, "the next zoom step did not hit-test again")
+    }
+
     /// Another app's window or cmux's own non-key panel (a HUD) ordered front under a still pointer posts no
     /// notification this coordinator sees: the next frame asks the window server again and gets the panel, so the
     /// source under it no longer bridges (no card opens through the panel).

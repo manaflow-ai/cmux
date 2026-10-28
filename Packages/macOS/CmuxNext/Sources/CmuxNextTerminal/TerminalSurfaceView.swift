@@ -287,11 +287,15 @@ public final class TerminalSurfaceView: NSView {
             unsafe config.cursor_userdata = userdata
         }
         #endif
+        // The runtime's first surface pays the font discovery and the Metal device's first use: its phases are split.
+        var split = GhosttyRuntime.shared.firstSurfaceSplit.begin()
         // SAFETY: as above; `app` is the runtime's live app (never freed).
         guard let surface = unsafe ghostty_surface_new(app, &config) else {
+            split?.ended(.surfaceNew)
             GhosttyRuntime.logger.error("ghostty_surface_new failed")
             return
         }
+        split?.ended(.surfaceNew)
         // SAFETY: the new surface, owned by this view and freed once, in deinit (`surface`'s note).
         self.surface = unsafe surface
         // SAFETY: as above; deinit closes the pacer before the free.
@@ -317,10 +321,13 @@ public final class TerminalSurfaceView: NSView {
             TypingFrameProbe.install(on: layer, stages: stages, keyFlows: bridgeObject.typingSurface)
         }
         registerForDraggedTypes([.fileURL, .URL, .string])
+        split?.ended(.surfaceSetup)
         updateContentScale()
         updateSurfaceSize(forceReport: true)
+        split?.ended(.surfaceFit)
         updateOcclusion()
         updateFocus()
+        split?.ended(.surfaceState)
     }
 
     nonisolated public override var isFlipped: Bool { false }
