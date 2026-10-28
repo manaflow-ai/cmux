@@ -133,10 +133,14 @@ inner="$(field "${prefix}dir")"; inner="${inner:-$version}"
 [[ "$inner" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || fail "manifest $MANIFEST names no valid folder for $arch"
 
 refuse() { echo "error: $*" >&2; exit 1; }  # not softened by --optional
+# A shipped build (Release without CMUX_BENCH_HOOKS) embeds only a released pin. A bench build (Release plus
+# -DCMUX_BENCH_HOOKS: reload.sh --config bench, and --release of a dogfood tag) never ships: the release and nightly
+# pipelines refuse its marker (check-no-bench-hooks.sh), so it embeds a staging pin as a Debug build does.
+ships_release() { [[ "${CONFIGURATION:-}" == "Release" && " ${OTHER_SWIFT_FLAGS:-} " != *" -DCMUX_BENCH_HOOKS "* ]]; }
 staging=0
 if [[ -n "$(field staging)" ]]; then
   staging=1
-  [[ "${CONFIGURATION:-}" != "Release" ]] ||
+  ! ships_release ||
     refuse "the CEF pin $version is a staging pin (scripts/cmux-next/cef-pin-staging.sh): a Release build embeds only a released pin (publish-cef-r2.sh)"
   expires="$(field staging.store_expires)"
   days_left="$(python3 -c 'import datetime as d, sys; print((d.date.fromisoformat(sys.argv[1]) - d.date.fromisoformat(sys.argv[2])).days)' \
