@@ -134,6 +134,9 @@ public final class DaemonStore: StateResourceQueries {
     /// a create still in flight), by handle: the stand-in's public pane id, under which the
     /// daemon's pane takes it over with a new handle (``daemonHandle(showing:)``).
     @ObservationIgnored var standInTargets: [PaneID: String] = [:]
+    /// The same for Cmd-N's first pane, whose stand-in has no public pane id: the key of the
+    /// daemon's workspace whose first pane takes it over.
+    @ObservationIgnored var standInWorkspaces: [PaneID: WorkspaceKey] = [:]
     /// Creates aimed at a stand-in, waiting for the daemon's pane that takes it over (DaemonStore+StandInTarget.swift).
     @ObservationIgnored var standInWaiters: [StandInWaiter] = []
     /// True while daemon state applies to the confirmed records (the

@@ -71,6 +71,29 @@ struct InstantCreateIntentTests {
         #expect(shown.screens.flatMap(\.panes).flatMap(\.tabs).map(\.surface) == [SurfaceID(rawValue: 12)])
     }
 
+    /// Cmd-T right after Cmd-N, on the new workspace's pane (#26695): the tab stays shown once the
+    /// daemon's workspace brings its own pane, in that pane, and never vanishes for a round trip.
+    @Test func newTabOnAPendingWorkspaceStaysShownInTheDaemonsPane() throws {
+        let store = Self.store()
+        let key = WorkspaceKey.generate()
+        let workspace = ProvisionalWorkspace(key: key, name: "2", tab: Self.page())
+        let transaction = ClientTransactionID.generate()
+        store.intend(.createWorkspace(provisional: workspace, index: nil), transaction: transaction)
+        let tab = ProvisionalTab().terminal(.generate(), cwd: nil)
+        store.intend(.createTab(pane: workspace.pane, provisional: tab), transaction: .generate())
+        #expect(store.pane(workspace.pane)?.tabs.map(\.surface).contains(tab.surface) == true)
+        let pane = PaneID(rawValue: 10)
+        let created = WorkspaceSnapshot(
+            id: WorkspaceHandle(rawValue: 9), key: key, name: "2",
+            screens: [ScreenSnapshot(id: ScreenID(rawValue: 11), active: true, activePane: pane, layout: .leaf(pane),
+                                     panes: [PaneSnapshot(id: pane, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 12), kind: .conversation)])])])
+        store.noteSettledAtNextSnapshot(transaction)
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [Self.base, created]))
+        #expect(store.daemonHandle(showing: workspace.pane) == pane)
+        #expect(store.pane(pane)?.tabs.map(\.surface) == [SurfaceID(rawValue: 12), tab.surface], "the tab never left")
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
     @Test func refusedNewWorkspaceLeavesNothing() {
         let store = Self.store()
         let key = WorkspaceKey.generate()

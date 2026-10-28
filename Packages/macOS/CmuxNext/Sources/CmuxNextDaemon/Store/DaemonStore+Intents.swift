@@ -120,6 +120,7 @@ extension DaemonStore {
             intentSettlements.append((intent.transaction, .applied))
         }
         releaseSettledProvisionalPanes()
+        releaseStandInTargets()
         releaseSettledProvisionalWorkspaces()
         let confirmedTabs = debugTabCensus()
         restoreOverlay()
@@ -147,12 +148,11 @@ extension DaemonStore {
             return nil
         })
         provisionalPanes = provisionalPanes.filter { pending.contains($0.key) }
-        releaseStandInTargets()
     }
 
     /// A stand-in handle stays resolvable while a pending create names it as its target.
     private func releaseStandInTargets() {
-        guard !standInTargets.isEmpty else { return }
+        guard !standInTargets.isEmpty || !standInWorkspaces.isEmpty else { return }
         let targets = Set(intentLog.entries.compactMap { entry -> PaneID? in
             switch entry.kind {
             case .splitPane(let target, _, _, _), .createTab(let target, _): return target
@@ -160,6 +160,7 @@ extension DaemonStore {
             }
         })
         standInTargets = standInTargets.filter { targets.contains($0.key) }
+        standInWorkspaces = standInWorkspaces.filter { targets.contains($0.key) }
     }
 
     /// The daemon pane a command about `handle` must name: `handle` itself for a daemon pane, the

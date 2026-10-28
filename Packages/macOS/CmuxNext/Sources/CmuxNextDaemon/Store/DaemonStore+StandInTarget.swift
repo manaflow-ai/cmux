@@ -97,7 +97,7 @@ extension DaemonStore {
     }
 
     /// The key of the pending Cmd-N whose first pane is stand-in `handle`.
-    private func workspaceKey(minting handle: PaneID) -> WorkspaceKey? {
+    func workspaceKey(minting handle: PaneID) -> WorkspaceKey? {
         intentLog.entries.lazy.compactMap { entry -> WorkspaceKey? in
             if case .createWorkspace(let provisional, _) = entry.kind, provisional.pane == handle { return provisional.key }
             return nil
@@ -115,12 +115,17 @@ extension DaemonStore {
             guard let model = index.panesByResource[ResourceID(rawValue: paneID)], model.handle != target.handle else { return nil }
             return model.handle
         case .workspace(let key):
-            // The daemon's new workspace has one pane, which holds its first tab.
-            return workspacesByKey[key]?.screens.lazy.flatMap(\.panes)
-                .first { $0.handle.rawValue < ProvisionalPane.firstHandle && !$0.tabs.isEmpty }?.handle
+            return firstDaemonPane(of: key)
         case .gone:
             return nil
         }
+    }
+
+    /// The daemon's pane that takes Cmd-N's first pane over: its new workspace has one pane, which
+    /// holds its first tab.
+    func firstDaemonPane(of key: WorkspaceKey) -> PaneID? {
+        workspacesByKey[key]?.screens.lazy.flatMap(\.panes)
+            .first { $0.handle.rawValue < ProvisionalPane.firstHandle && !$0.tabs.isEmpty }?.handle
     }
 
     /// Whether the create that minted the stand-in was cancelled (its pane closed before the daemon made it).

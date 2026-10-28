@@ -77,7 +77,10 @@ import Foundation
         }).first {
             return store.index.panesByResource[ResourceID(rawValue: paneID)].flatMap { $0.handle != handle ? $0.handle : nil }
         }
-        return store.panesByHandle[handle] != nil ? handle : nil
+        if store.panesByHandle[handle] != nil { return handle }
+        // Cmd-N's first pane, once the daemon's workspace shows its own.
+        guard let key = store.standInWorkspaces[handle] ?? store.workspaceKey(minting: handle) else { return nil }
+        return store.firstDaemonPane(of: key)
     }
 
     /// The pane the overlay places beside: `target`, or the pane that shows a stand-in target now
@@ -91,8 +94,12 @@ import Foundation
     /// stays found once the daemon's pane takes the stand-in over under a new handle.
     static func rememberStandIn(_ target: PaneID, in store: DaemonStore) {
         guard target.rawValue >= ProvisionalPane.firstHandle, store.standInTargets[target] == nil,
-              let paneID = store.panesByHandle[target]?.resourceID?.rawValue else { return }
-        store.standInTargets[target] = paneID
+              store.standInWorkspaces[target] == nil, let model = store.panesByHandle[target] else { return }
+        if let paneID = model.resourceID?.rawValue {
+            store.standInTargets[target] = paneID
+        } else if let key = store.workspaceKey(minting: target) {
+            store.standInWorkspaces[target] = key
+        }
     }
 
     /// The daemon's pane under the split's public pane id, once its records hold it.
