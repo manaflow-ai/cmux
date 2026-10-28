@@ -198,7 +198,7 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
  */
 export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller, body: Record<string, unknown>, promptBytes: number, pin?: string | null): Promise<Response> => {
   const model = typeof body.model === "string" ? modelById(body.model) : undefined
-  if (!model) return err(404, "model.not_found", "unknown model; GET /v1/inference/models lists the models")
+  if (!model) return err(404, "model.not_found", `unknown model; the catalog allowlist is: ${MODELS.map((m) => m.id).join(", ")}`)
   if (!Array.isArray(body.messages) || body.messages.length === 0) return err(400, "validation.invalid", "messages must be a non-empty array")
   if (body.tools !== undefined && !model.tools) return err(400, "validation.invalid", "this model does not take tools")
   if (body.n !== undefined && body.n !== 1) return err(400, "validation.invalid", "n must be 1")
