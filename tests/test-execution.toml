@@ -338,6 +338,10 @@ path = "tests/test_ci_rust_cache_keeps_runner_bin.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_acpmux_job_home.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_signing_secrets_need_release_environment.py"
 lane = "linux-guard"
 
@@ -726,7 +730,7 @@ path = "tests/test_ci_quota_hold_gate.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_pr_size_advisory.py"
+path = "tests/test_ci_pr_size.py"
 lane = "linux-guard"
 
 [[test]]
@@ -886,6 +890,10 @@ path = "tests/test_release_homebrew_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_release_signer_sign_app.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_reload_tag_lock.py"
 lane = "legacy"
 
@@ -974,6 +982,10 @@ path = "tests/test_tui_publish_workflow_security.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_runs_on_labels.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_vm_scp.py"
 lane = "legacy"
 
@@ -1027,6 +1039,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_helper_prebuild_lifecycle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_killpg_tolerates_eperm.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1425,6 +1441,10 @@ path = "tests/test_base_red_excuse.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_guard_check_isolation.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_release_notes.py"
 lane = "linux-guard"
 
@@ -1714,11 +1734,19 @@ path = "tests/test_nightly_build_state.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ensure_setup_node.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_download_run_artifact_retries.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_gh_budget_wait.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_stop_if_publish_doomed.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1746,7 +1774,27 @@ path = "tests/test_nightly_sign_runner.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_signer_jobs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_signer_scripts.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_signer_nightly.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dev_app_linux.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_build_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_git_fetch_retry.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1767,6 +1815,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_merge_freeze.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_pages.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2047,6 +2099,10 @@ path = "tests/test_ci_linux_compile_runners.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_blacksmith_linux_failover.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_daemon_tests_gate.py"
 lane = "linux-guard"
 
@@ -2072,4 +2128,16 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_dev_landing_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runs_on_values.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_internal_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fleet_rule_lints.py"
 lane = "linux-guard"

@@ -302,7 +302,9 @@ import Testing
     /// drawn, and the buttons stay inside the row (`SidebarRowView.hitTest` routes clicks by frame).
     @Test(arguments: SidebarDensity.allCases)
     func hoverControlsSitLeftOfTheColumn(_ density: SidebarDensity) throws {
-        try SidebarGroupRailAlignmentTests.with(density, .off) {
+        // The ✕ between ⋮ and the chevron (`SidebarRowCloseSpot.middle`); at the row's end, the default since Leo
+        // 2026-10-27, it takes the column on hover and the mark gives way (SidebarTabGroupControlsTests).
+        try SidebarTabGroupControlsTests.withCloseSpot(.middle) { try SidebarGroupRailAlignmentTests.with(density, .off) {
             let h = KindHarness(width: 260)
             defer { h.window.close() }
             let column = try Self.columnX(h)
@@ -323,6 +325,6 @@ import Testing
                     #expect(control.frame.minX >= 0 && control.frame.maxX <= row.bounds.width, "\(label): a hover control leaves its row")
                 }
             }
-        }
+        } }
     }
 }

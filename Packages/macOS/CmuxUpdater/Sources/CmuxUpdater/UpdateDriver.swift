@@ -36,6 +36,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// The automatic install whose app quits for it (``UpdateActionDelegate/updaterQuitsForAutomaticInstall(build:)``):
     /// Sparkle's held reply, kept until the app ends so a refused quit can stage it again.
     var quitInstall: (item: SUAppcastItem, install: () -> Void, cancel: (() -> Void)?)?
+    /// The host's helper is quitting the app for ``quitInstall`` (``commitQuitInstall()``).
+    var quitInstallCommitted = false
     /// Replaces the baked feed when set (``UpdateController/feedOverride``).
     var feedOverride: String?
     /// The release ring whose `sparkle:channel` tags are accepted (``UpdateController/ring``).

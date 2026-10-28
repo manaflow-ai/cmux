@@ -178,6 +178,7 @@ extension WorkspaceRowView {
         // show; VoiceOver uses the row's custom action.
         setHoverShown(moreButton, showMore, fades: fades)
         moreButton.frame = closeButton.frame.offsetBy(dx: isClosable && !isShowingPlaceholder ? -(control + Metrics.space1) : 0, dy: 0)
+        let markGivesWay = placeCloseSpot(columnMark: columnMark?.view, rowWidth: b.width, cy: cy, control: control, showClose: showClose)
         let pinStart = layoutPin(showMore: showMore, control: control, fades: fades)
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
@@ -235,8 +236,8 @@ extension WorkspaceRowView {
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
         for mark in [activity, rowBadge, agentMark, mutedMark, machineMark, audioButton, presenceDots, timeLabel] as [NSView] {
-            // The column's mark sits right of every hover control, so none covers it.
-            let covered = mark !== columnMark?.view && overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
+            // The column's mark sits right of every hover control, so none covers it, unless the close takes its place.
+            let covered = mark === columnMark?.view ? markGivesWay : overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
             fadeOpacity(mark, to: covered ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)

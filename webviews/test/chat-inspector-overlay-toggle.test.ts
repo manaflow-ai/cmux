@@ -149,6 +149,45 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         }
       });
 
+  for (const name of browsers.keys())
+    for (const { name: row, tabRow } of rows)
+      test(`${name}, ${row}: Push always keeps every header tool in the native reserved strip`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width: 900, height: 640 });
+        try {
+          const { panel, toggle } = await openInspector(page, tabRow);
+          await toggle.click();
+          await panel.waitFor({ state: "detached" });
+          await inspectorPushAlways(page);
+          const positions = () =>
+            page.locator(".acpmux-header-tools button").evaluateAll((buttons) =>
+              buttons.map((button) => {
+                const box = button.getBoundingClientRect();
+                return { label: button.getAttribute("aria-label"), x: box.x, y: box.y, width: box.width };
+              }),
+            );
+          const closed = await positions();
+          await toggle.click();
+          await page.locator('aside.acpmux-chat-inspector[data-placement="push"][data-presence="shown"]').waitFor();
+          expect(await positions()).toEqual(closed);
+          // Native tabs cover everything left of this reserved strip. A real click at the old
+          // position must still reach the toggle after opening, including after a pane resize.
+          await page.setViewportSize({ width: 1050, height: 640 });
+          await page.waitForFunction(
+            (x) =>
+              Math.abs(document.querySelector(".acpmux-chat-inspector-toggle")!.getBoundingClientRect().x - x) < 0.5,
+            closed[0]!.x + 150,
+          );
+          const opened = await positions();
+          await page.mouse.click(opened[0]!.x + 12, opened[0]!.y + 12);
+          await panel.waitFor({ state: "detached" });
+          expect(await positions()).toEqual(opened);
+          expect(await toggle.getAttribute("aria-pressed")).toBe("false");
+        } finally {
+          await page.close();
+        }
+      });
+
   // Leo, 2026-10-22: "THIS BECAME A SIDEBAR FOR NO REASON, ALL THIS DEAD SPACE". Over the chat the
   // Inspector ran from under the header to the pane's foot (#22643), and as glass (#23477) its
   // empty foot was a slab of glass taller than its sections. It is a card as tall as its sections:

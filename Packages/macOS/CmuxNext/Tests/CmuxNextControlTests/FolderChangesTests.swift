@@ -24,9 +24,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: parent) }
         let missing = parent.appendingPathComponent("Backgrounds", isDirectory: true)
         let ledger = WakeupLedger()
+        // events() arms the watch before it returns, so the first write needs no head start.
         var changes = FolderChanges(folders: [missing], ledger: ledger).events().makeAsyncIterator()
-        // Let the watch arm before the first write (the loop task opens it when it starts).
-        try await Task.sleep(for: .milliseconds(100))
 
         // The app saves its own file next to the missing folder.
         try Data("{}".utf8).write(to: parent.appendingPathComponent("unsent-prompts.json"), options: .atomic)

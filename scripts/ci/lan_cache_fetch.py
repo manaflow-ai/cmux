@@ -29,8 +29,25 @@ SOCKET = Path(os.environ.get("CMUX_LAN_CACHE_SOCKET") or Path.home() / ".local/s
 TIMEOUT = float(os.environ.get("CMUX_LAN_CACHE_TIMEOUT") or 5420)
 OBJECT_RE = re.compile(r"v1/([A-Za-z0-9][A-Za-z0-9._-]{0,63})/objects/([A-Za-z0-9][A-Za-z0-9._-]{0,250}\.tar\.(?:zst|gz))")
 EXIT_HIT, EXIT_ERROR, EXIT_MISS = 0, 1, 3
-# A mini the LAN cache is not set up on yet, or a glaeda release without the cache verb: nothing to report.
-QUIET = ("no LAN cache config", "bad request", "no glaeda broker")
+# A mini the LAN cache is not set up on yet: nothing to report.
+QUIET = ("no LAN cache config", "no glaeda broker")
+# A broker that answers "bad request" is a glaeda release without the cache verb: every object then crosses
+# the site's uplink while the LAN cache host sits idle (2026-10-27: the R2 web-bundle restore went from 1-4 s
+# to a 25 s median). That is a fleet rollout gap, so it is a warning, once per job.
+OLD_BROKER = "bad request"
+
+
+def warn_old_broker_once() -> None:
+    marker_dir = os.environ.get("RUNNER_TEMP") or os.environ.get("TMPDIR") or "/tmp"
+    marker = Path(marker_dir) / f"cmux-lan-cache-old-broker-{os.environ.get('GITHUB_RUN_ID', '')}-{os.environ.get('GITHUB_JOB', '')}"
+    try:
+        os.close(os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+    except FileExistsError:
+        return
+    except OSError:
+        pass  # an unwritable temp dir still gets the warning, perhaps more than once
+    print("::warning title=LAN cache unused::r2-cache: this mini's glaeda-lan-fetch broker has no cache verb "
+          "(an older glaeda release), so cache objects download over the site's uplink; update glaeda on this mini")
 
 
 def request(public_url: str, obj: str, dest: Path, sock_path: Path = SOCKET, timeout: float = TIMEOUT) -> tuple[int, dict]:
@@ -80,6 +97,8 @@ def main(argv: list[str]) -> int:
     if code == EXIT_HIT:
         print(f"r2-cache: {argv[1].rsplit('/', 1)[-1]} from the LAN cache host: {record.get('bytes')} bytes in "
               f"{record.get('seconds')} s (waited {record.get('wait_seconds')} s)")
+    elif code == EXIT_ERROR and record.get("error") == OLD_BROKER:
+        warn_old_broker_once()
     elif code == EXIT_ERROR and record.get("error") not in QUIET:
         print(f"r2-cache: LAN cache host unavailable ({str(record.get('error') or record.get('reason') or '')[:160]});"
               " downloading directly")

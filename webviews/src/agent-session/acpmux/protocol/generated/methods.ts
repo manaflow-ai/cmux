@@ -105,6 +105,8 @@ export interface AcpmuxRequests {
   "_acpmux/file_put_chunk": { params: unknown; result: unknown };
   "_acpmux/file_put_finish": { params: unknown; result: unknown };
   "_acpmux/file_put_cancel": { params: unknown; result: unknown };
+  "_acpmux/file_put_status": { params: unknown; result: unknown };
+  "_acpmux/file_put_data": { params: unknown; result: unknown };
   "_acpmux/dispatch": { params: unknown; result: unknown };
   "_acpmux/steer": { params: unknown; result: unknown };
   "_acpmux/briefs": { params: unknown; result: unknown };
@@ -353,6 +355,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/file_put_chunk", kind: "request", acp: false, typed: false },
   { name: "_acpmux/file_put_finish", kind: "request", acp: false, typed: false },
   { name: "_acpmux/file_put_cancel", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/file_put_status", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/file_put_data", kind: "request", acp: false, typed: false },
   { name: "_acpmux/dispatch", kind: "request", acp: false, typed: false },
   { name: "_acpmux/steer", kind: "request", acp: false, typed: false },
   { name: "_acpmux/briefs", kind: "request", acp: false, typed: false },
