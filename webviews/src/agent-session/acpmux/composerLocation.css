@@ -217,6 +217,7 @@
 .acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
 .acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-location-menu .acpmux-location-search { height: var(--ui-row-height, var(--cmux-control-height, 32px)); margin: 0; padding-inline: var(--ui-row-padding-inline, 8px); box-sizing: border-box; }
 .acpmux-location-menu .ui-separator { flex: none; height: 1px; border: 0; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
 /* A started chat's Choose folder… under the folder field's rows (dogfood 09): a plain row, not a button face. */
 .acpmux-location-choose { border: 0; background: none; color: inherit; font: inherit; }
@@ -1026,8 +1027,9 @@
   box-sizing: border-box;
   width: 100%;
   height: 30px;
-  margin: 0 0 4px;
-  padding: 0 8px;
+  height: var(--ui-row-height, var(--cmux-control-height, 32px));
+  margin: 0;
+  padding: 0 var(--ui-row-padding-inline, 8px);
   border: 0;
   border-bottom: .5px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
   border-radius: 0;
@@ -1040,7 +1042,9 @@
 .acpmux-folder-popover .acpmux-location-folders { margin: 0; padding: 0; list-style: none; overflow: hidden; }
 .acpmux-folder-popover .acpmux-menu-item { display: flex; align-items: center; min-width: 0; border-radius: var(--ui-row-radius, 6px); }
 .acpmux-location-row,
-.acpmux-location-action { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.acpmux-location-action { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; min-height: 32px; box-sizing: border-box; }
+.acpmux-location-row > .acpmux-menu-text,
+.acpmux-location-action > .acpmux-menu-text { min-width: 0; }
 .acpmux-folder-popover .ui-combobox-pinned::after { content: ""; display: block; height: 1px; margin: 4px 6px 0; background: color-mix(in srgb, currentColor 12%, transparent); }
 .acpmux-folder-popover .acpmux-menu-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-location-check { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; min-height: 16px; margin-left: auto; color: var(--agent-text); }
@@ -1331,7 +1335,8 @@
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-env-row .acpmux-env-key + .acpmux-location-check { margin-left: 6px; }
-.acpmux-env-popover .acpmux-env-icon { flex: none; color: var(--agent-muted); }
+.acpmux-env-popover .acpmux-env-icon,
+.acpmux-location-menu .acpmux-env-icon { flex: none; width: 20px; height: 20px; padding: var(--ds-space-1); box-sizing: border-box; color: var(--agent-muted); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="ssh"] { color: var(--agent-ansi-2, currentColor); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="cloud"] { color: var(--agent-ansi-4, currentColor); }
 /* A remote machine's status, as acpmux last said: a filled dot when connected, a ring when not. */

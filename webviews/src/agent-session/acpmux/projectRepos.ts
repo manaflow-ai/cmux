@@ -71,7 +71,7 @@ export function guessProjectRepo(cwd: string): ProjectRepo | undefined {
 const GUESSED = "\u0000repo:";
 
 /// A folder the pickers offer: its path (`id`), name and, when known, its repository.
-export type RepoFolder = { id: string; label: string; repo?: ProjectRepo };
+export type RepoFolder = { id: string; label: string; repo?: ProjectRepo; scratch?: boolean };
 
 /// One repository's folders, in the order given (newest first). `lead` is what its row picks: the
 /// current folder when it is one of them, else the main checkout, else the newest.
@@ -148,8 +148,13 @@ export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current
   };
   const resolved = folders.flatMap((folder): T[] => {
     const repo = resolve(folder);
-    if (folder.id !== current && (isHomeFolder(folder.id) || (!repo && isScratchFolder(folder.id)))) return [];
-    return [repo && repo !== folder.repo ? { ...folder, repo } : folder];
+    if (folder.id !== current && isHomeFolder(folder.id)) return [];
+    return [
+      {
+        ...(repo && repo !== folder.repo ? { ...folder, repo } : folder),
+        ...(isScratchFolder(folder.id) ? { scratch: true } : {}),
+      },
+    ];
   });
   const guessed = new Set(
     resolved.flatMap((folder) => (folder.repo?.root.startsWith(GUESSED) ? [folder.repo.root] : [])),
@@ -166,7 +171,7 @@ export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current
     const key = keyOf(folder);
     groups.set(key, [...(groups.get(key) ?? []), folder]);
   }
-  return [...groups].map(([key, members]) => {
+  const result = [...groups].map(([key, members]) => {
     const repo = members.map((member) => member.repo).find(Boolean);
     const lead =
       members.find((member) => member.id === current) ??
@@ -181,6 +186,10 @@ export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current
       members,
     };
   });
+  // Keep the current project at the top while preserving the host's recency order for the rest.
+  if (!current) return result;
+  const currentIndex = result.findIndex((group) => group.members.some((member) => member.id === current));
+  return currentIndex > 0 ? [result[currentIndex]!, ...result.slice(0, currentIndex), ...result.slice(currentIndex + 1)] : result;
 }
 
 /// One project per repository for a picker that lists no worktrees (the New Tab hero and
@@ -240,13 +249,16 @@ export function shownRepoRows<T extends RepoFolder>(
   groups: readonly RepoGroup<T>[],
   query: string,
   expanded: ReadonlySet<string>,
+  current?: string,
 ): { group: RepoGroup<T>; worktrees: T[] }[] {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0)
-    return groups.map((group) => ({
-      group,
-      worktrees: expanded.has(group.key) ? group.members.filter((member) => member !== group.lead) : [],
-    }));
+    return groups
+      .filter((group) => !group.lead.scratch || group.lead.id === current || group.members.some((member) => !member.scratch))
+      .map((group) => ({
+        group,
+        worktrees: expanded.has(group.key) ? group.members.filter((member) => member !== group.lead) : [],
+      }));
   const rows: { group: RepoGroup<T>; worktrees: T[] }[] = [];
   for (const group of groups) {
     const shared = `${group.name} ${group.github ?? ""}`.toLowerCase();

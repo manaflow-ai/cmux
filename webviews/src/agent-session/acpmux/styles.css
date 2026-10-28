@@ -301,6 +301,8 @@
    and the rows line up. A framework's or language's mark (ProjectBadge.tsx) takes its brand color; a
    project with neither draws a muted folder. No corner dot on any row (Leo 2026-10-21). */
 .acpmux-project-badge{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--agent-muted);line-height:1}
+.acpmux-project-badge[data-project-folder]{background:none;border-radius:0;width:20px;color:var(--agent-muted);font-size:var(--text-caption);font-weight:600;letter-spacing:0}
+.acpmux-project-monogram{display:inline-flex;align-items:center;justify-content:center;line-height:var(--text-caption--line-height)}
 /* A brand color is pulled a quarter toward the text color: darker on a light tile, lighter on a dark
    one, so a pale mark (React's cyan) and a deep one (Flutter's blue) both read in either theme. */
 .acpmux-project-badge[data-project-glyph]{color:color-mix(in srgb,var(--acpmux-project-badge) 72%,var(--agent-text))}
@@ -313,7 +315,7 @@
 .acpmux-project-search input{flex:1;min-width:0;height:100%;padding:0;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-project-search input::placeholder{color:var(--acpmux-composer-dim)}
 /* The shared Combobox has the same project field as the old inline chooser, without a wrapper. */
-.acpmux-project-menu .acpmux-project-search-field{display:block;box-sizing:border-box;appearance:none;width:100%;min-width:0;height:32px;margin:0 0 4px;padding:0 var(--acpmux-project-menu-edge);border:0;border-bottom:.5px solid var(--acpmux-composer-edge);border-radius:0;background:none;color:var(--agent-text);font:inherit;outline:none}
+.acpmux-project-menu .acpmux-project-search-field{display:block;box-sizing:border-box;appearance:none;width:100%;min-width:0;height:var(--ui-row-height,var(--cmux-control-height,32px));margin:0;padding:0 var(--ui-row-padding-inline,var(--acpmux-project-menu-edge));border:0;border-bottom:.5px solid var(--acpmux-composer-edge);border-radius:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-project-menu .acpmux-project-search-field::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-project-empty{padding:6px 8px;color:var(--acpmux-composer-dim)}
 .acpmux-project-browse{display:block;width:100%;margin-top:4px;padding:7px 8px;border:0;border-top:.5px solid var(--acpmux-composer-edge);background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:pointer}
