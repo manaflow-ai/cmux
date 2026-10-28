@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSidebar
@@ -25,8 +26,43 @@ extension CloudService {
         return machines
     }
 
-    /// One `cloud.machine.create` through ``CloudMachineCreateFlow``.
-    func appServerCreate(name: String?, startedByPerson: Bool, askedBy: String?, onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
+    /// One `cloud.machine.create` (or `cloud.environment.boot` for `environment`) through ``CloudMachineCreateFlow``.
+    func appServerCreate(name: String?, startedByPerson: Bool, askedBy: String?, environment: String? = nil,
+                         onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
+        let flow = try await appServerFlow(onSent: onSent)
+        let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, gate: createGate, environment: environment)
+        guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "the create answered no machine") }
+        return machine
+    }
+
+    /// A money or destructive Cloud op a person started in this app (`cloud.environment.build`,
+    /// `.delete`) through the same approval loop as a create; `confirm` is its native confirmation.
+    func appServerApprovedCall(_ op: String, args: JSONValue, confirm: @MainActor () async -> Bool) async throws -> JSONValue {
+        try await appServerFlow(onSent: {}).approvedCall(op, args: args, confirm: confirm)
+    }
+
+    /// The team's Cloud environments for the New Cloud Workspace dialog; none when the list fails
+    /// (the dialog then offers only a new one).
+    func appServerEnvironmentOptions() async -> [CloudWorkspaceSetupWizard.EnvironmentOption] {
+        guard let answer = try? await appOps("cloud.environment.list", .object([:]), nil, .script) else { return [] }
+        return (answer["environments"]?.arrayValue ?? []).compactMap { value in
+            guard let id = value["id"]?.stringValue, let name = value["name"]?.stringValue else { return nil }
+            return CloudWorkspaceSetupWizard.EnvironmentOption(id: id, name: name)
+        }
+    }
+
+    /// Saves a new environment (`cloud.environment.set`) for the New Cloud Workspace dialog; its id.
+    func appServerSaveEnvironment(_ new: CloudWorkspaceSetupWizard.NewEnvironment) async throws -> String {
+        let args: JSONValue = .object(["name": .string(new.name), "repo": .string(new.repo.spec), "setup_script": .string(new.setupScript)])
+        let answer = try await appOps("cloud.environment.set", args, UUID().uuidString, .user)
+        guard let id = answer["environment"]?["id"]?.stringValue else {
+            throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.environment.set answered no environment")
+        }
+        return id
+    }
+
+    /// The approval-aware flow every person-confirmed app-server op runs through.
+    private func appServerFlow(onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachineCreateFlow {
         let approvals = CloudApprovalAnswer(call: sessionCall())
         let ops = appOps
         // The team the relay's create bills: the install token's team claim,
@@ -38,17 +74,15 @@ extension CloudService {
                 return try await ops(op, args, key, origin)
             },
             confirm: { [weak self] prompt in await self?.confirmCreate?(prompt) ?? false },
-            approve: { request, params in
-                try await approvals.approve(request: request, op: "cloud.machine.create", params: try JSONEncoder().encode(params), team: team)
+            approve: { request, op, params in
+                try await approvals.approve(request: request, op: op, params: try JSONEncoder().encode(params), team: team)
             },
             pause: { attempt in
                 // wakeup-allow: bounded same-key retry of a retryable approval.pending after the person approved (cx-t2rz)
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
             }
         )
-        let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, gate: createGate)
-        guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.create answered no machine") }
-        return machine
+        return flow
     }
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the

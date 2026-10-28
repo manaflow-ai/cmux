@@ -73,6 +73,36 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
     /// The shared window view's transcript list (a layer-only scroll view).
     var collection: UIScrollView? { demo?.collection }
 
+    /// cmux: a wheel or trackpad event over the transcript: true when the open thread view took it.
+    /// While a thread or reply view is open, every wheel is the view's (it scrolls when taller than its
+    /// space, MessagesWindowView.scrollThread) and the dimmed transcript under it never moves; with no
+    /// view open the transcript takes the wheel as before.
+    func routeThreadWheel(_ e: NSEvent) -> Bool {
+        guard let demo, demo.threadOpen else { return false }
+        let dy = e.hasPreciseScrollingDeltas ? e.scrollingDeltaY : e.scrollingDeltaY * verticalLineScroll
+        demo.scrollThread(by: dy)
+        return true
+    }
+
+    /// cmux: the thread view's wheel route. A local monitor, not a scrollWheel(_:) override, so the
+    /// transcript keeps responsive scrolling; only wheels over this scroll view (not the field above it).
+    private var threadWheelMonitor: Any?
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil, let m = threadWheelMonitor { NSEvent.removeMonitor(m); threadWheelMonitor = nil }
+        guard window != nil, threadWheelMonitor == nil else { return }
+        threadWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
+            guard let self, self.demo?.threadOpen == true, e.window === self.window, self.isUnderPointer(e) else { return e }
+            return self.routeThreadWheel(e) ? nil : e
+        }
+    }
+
+    /// cmux: the event's view is this scroll view or one of its subviews.
+    private func isUnderPointer(_ e: NSEvent) -> Bool {
+        guard let frameView = window?.contentView?.superview else { return false }
+        return frameView.hitTest(e.locationInWindow)?.isDescendant(of: self) ?? false
+    }
+
     func attach(_ demo: MessagesWindowView) {
         self.demo = demo
         // The window view stays the list's delegate through this bridge.

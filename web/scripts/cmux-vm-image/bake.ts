@@ -67,6 +67,7 @@ import {
   devboxWaitForDaemonCommand,
 } from "../devbox-image-common";
 import { devTreeCredentialCheckCommand, devTreeLock, devTreeSizes, devTreeUserPaths, setUpDevTree, uploadDevTreeScript, DEV_TREE_SCRIPT, FIRST_BUILD } from "./dev-tree";
+import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
 import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
@@ -119,7 +120,8 @@ const DAEMON_UNIT = HOST_UNIT;
 const DISABLED_TIMERS = ["apt-daily.timer", "apt-daily-upgrade.timer", "man-db.timer", "motd-news.timer"];
 /** Temp files left in the image; the provider's exec agent keeps its own per-exec scratch (.freestyle-exec-*). */
 export const TMP_LEFTOVERS = "find /tmp /var/tmp -mindepth 1 -maxdepth 1 ! -name '.freestyle-exec-*'";
-const STORE_PATH = `${CURRENT_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
+// The gh shim (github-auth.ts) comes first so plain `gh` gets a repo-scoped token.
+const STORE_PATH = `${GITHUB_SHIM_DIR}:${CURRENT_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
 
 export type BakeOptions = {
   tag: string;
@@ -205,8 +207,9 @@ function npmGlobals(json: string): Map<string, string> {
   return new Map(Object.entries(parsed.dependencies ?? {}).map(([name, dep]) => [name, dep.version ?? ""]));
 }
 
-function storeProfileScript(): string {
-  return `# cmux store: user-space programs (images/cmux-vm). Managed, do not edit.\ncase ":$PATH:" in *:${CURRENT_BIN}:*) ;; *) PATH=${CURRENT_BIN}:$PATH ;; esac\nexport PATH\n`;
+/** The login profile's PATH: the gh shim (github-auth.ts), then the store, ahead of the rest. */
+export function storeProfileScript(): string {
+  return `# cmux store: user-space programs (images/cmux-vm). Managed, do not edit.\ncase ":$PATH:" in *:${CURRENT_BIN}:*) ;; *) PATH=${CURRENT_BIN}:$PATH ;; esac\ncase ":$PATH:" in *:${GITHUB_SHIM_DIR}:*) ;; *) PATH=${GITHUB_SHIM_DIR}:$PATH ;; esac\nexport PATH\n`;
 }
 
 function coderouterProfileScript(): string {
@@ -402,6 +405,9 @@ async function installStore(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, "/etc/profile.d/00-cmux-store.sh", storeProfileScript(), 0o644);
   await writeGuestFile(vm, "/etc/profile.d/cmux-coderouter.sh", coderouterProfileScript(), 0o644);
   ctx.result.storeBytes = (await L.step(vm, "store-size", `du -sb ${STORE_DIR} | cut -f1`)).trim();
+  // git and gh with repo-scoped GitHub App tokens and no secret at rest (github-auth.ts).
+  for (const file of githubAuthFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  await L.step(vm, "github-auth", githubAuthLinkCommand(STORE_PATH));
 }
 
 /** The supervisor runs `$HOME/.cmux/bin/cmux-tui`: link it (and the hook helper beside it) into the store. */

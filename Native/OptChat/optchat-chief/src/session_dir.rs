@@ -584,8 +584,9 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         setup.chiefs_tool,
     );
     write_if_changed(&paths.session.join("AGENTS.md"), agents.as_bytes())?;
+    // The Mac host never runs the Cloud mode; it would take Claude's files.
     match setup.tools {
-        Tools::Mcp => {
+        Tools::Mcp | Tools::Cloud(_) => {
             let text = system_text(setup.instructions.as_deref(), &Tools::Mcp);
             write_if_changed(&paths.session.join("CLAUDE.md"), text.as_bytes())?;
         }
@@ -746,7 +747,7 @@ pub fn write_subagent(paths: &Paths, setup: &SessionSetup, text: &str) -> io::Re
         settings.as_bytes(),
     )?;
     match setup.tools {
-        Tools::Mcp => remove_if_present(&dir.join("AGENTS.md")),
+        Tools::Mcp | Tools::Cloud(_) => remove_if_present(&dir.join("AGENTS.md")),
         Tools::Cli(_) => write_if_changed(&dir.join("AGENTS.md"), text.as_bytes()),
     }
 }
