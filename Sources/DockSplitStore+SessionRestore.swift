@@ -441,10 +441,8 @@ extension DockSplitStore {
         let deferredAgentResumeCandidateInput: String? = if restoreStartupBlocked || liveSessionOwner != nil,
             hibernation == nil,
             restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
-            if let restorableAgent, restorableAgentCanAutoResume {
-                restorableAgent.resumeStartupInput(
-                    restoringWorkingDirectory: resumeSessionWorkingDirectory
-                )
+            if let agentRestoreStartupInput {
+                agentRestoreStartupInput
             } else {
                 policy
                     .approvedSurfaceResumeBinding(
@@ -464,24 +462,21 @@ extension DockSplitStore {
         // checkpoint owns it for the enclosing restore pass; later panels with
         // the same checkpoint stay manually recoverable but never start a
         // second writer. A live owner keeps the ordinary attach path.
-        let restorePassIdentity: (kind: String, sessionID: String)? =
-            hibernation == nil &&
+        let restorePassClaimResult = SurfaceResumeRunPromptBatch.shared.claimAgentRestore(
+            eligible: hibernation == nil &&
                 !suppressesResumeForBackgroundSession &&
                 liveSessionOwner == nil &&
-                !stablePanelHasLiveProcess
-                ? SurfaceResumeRunPromptBatch.agentRestoreIdentity(
-                    restorableAgent: restorableAgent,
-                    agentMayAutoResume: shouldAutoResumeAgent && restorableAgentCanAutoResume &&
-                        agentRestoreStartupInput != nil,
-                    resumeBinding: resumeBinding,
-                    bindingWillLaunch: unresolvedBindingLaunch != nil ||
-                        deferredAgentResumeCandidateInput != nil
-                )
-                : nil
-        let restorePassClaim = restorePassIdentity.map {
-            SurfaceResumeRunPromptBatch.shared.claimAgentRestore(kind: $0.kind, sessionID: $0.sessionID)
-        } ?? .unscoped
-        let duplicateRestoreOwner = restorePassClaim == .duplicate
+                !stablePanelHasLiveProcess,
+            restorableAgent: restorableAgent,
+            agentMayAutoResume: shouldAutoResumeAgent && restorableAgentCanAutoResume &&
+                agentRestoreStartupInput != nil,
+            resumeBinding: resumeBinding,
+            bindingWillLaunch: unresolvedBindingLaunch != nil ||
+                deferredAgentResumeCandidateInput != nil
+        )
+        let restorePassIdentity = restorePassClaimResult.identity
+        let restorePassClaim = restorePassClaimResult.claim
+        let duplicateRestoreOwner = restorePassClaimResult.isDuplicate
         let bindingLaunch = duplicateRestoreOwner ? nil : unresolvedBindingLaunch
         let tmuxStartCommand = localTmuxStartCommand
             ?? (!restoreStartupBlocked &&
@@ -611,15 +606,9 @@ extension DockSplitStore {
         }
         terminal.restoreRecovery.restore(from: terminalSnapshot.restoreRecovery)
         if duplicateRestoreOwner {
-            let duplicateRecoveryInput: String? = if let restorableAgent,
-                shouldAutoResumeAgent,
-                restorableAgentCanAutoResume {
-                restorableAgent.resumeStartupInput(
-                    restoringWorkingDirectory: resumeSessionWorkingDirectory
-                )
-            } else {
-                unresolvedBindingLaunch?.initialInput ?? deferredAgentResumeCandidateInput
-            }
+            let duplicateRecoveryInput = agentRestoreStartupInput
+                ?? unresolvedBindingLaunch?.initialInput
+                ?? deferredAgentResumeCandidateInput
             terminal.restoreRecovery.state = .failed(
                 reason: "duplicate-restore-owner",
                 recoveryInput: duplicateRecoveryInput

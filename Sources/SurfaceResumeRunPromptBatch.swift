@@ -22,11 +22,48 @@ final class SurfaceResumeRunPromptBatch {
     /// Outcome of claiming automatic startup for one agent checkpoint.
     typealias AgentRestoreClaim = RestorePassCheckpointClaimStore.Claim
 
+    /// Captures a candidate's canonical identity and ownership result.
+    struct RestorePassClaimResult {
+        /// The canonical identity, when the caller's eligibility predicate passes.
+        let identity: (kind: String, sessionID: String)?
+        /// The claim result recorded for the identity.
+        let claim: AgentRestoreClaim
+
+        /// Whether another panel already owns this checkpoint.
+        var isDuplicate: Bool { claim == .duplicate }
+    }
+
     /// Claims one agent checkpoint for the current restore pass. The first
     /// panel carrying a checkpoint owns automatic startup; every later panel
     /// with the same checkpoint is a duplicate.
     func claimAgentRestore(kind: String, sessionID: String) -> AgentRestoreClaim {
         claims.claim(agentRestoreKey(kind: kind, sessionID: sessionID))
+    }
+
+    /// Derives and records one eligible restore candidate's ownership.
+    ///
+    /// The caller supplies eligibility because hibernated panels, known live
+    /// owners, and persistent PTY attachments have surface-specific rules.
+    func claimAgentRestore(
+        eligible: Bool,
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        agentMayAutoResume: Bool,
+        resumeBinding: SurfaceResumeBindingSnapshot?,
+        bindingWillLaunch: Bool
+    ) -> RestorePassClaimResult {
+        guard eligible,
+              let identity = Self.agentRestoreIdentity(
+                  restorableAgent: restorableAgent,
+                  agentMayAutoResume: agentMayAutoResume,
+                  resumeBinding: resumeBinding,
+                  bindingWillLaunch: bindingWillLaunch
+              ) else {
+            return RestorePassClaimResult(identity: nil, claim: .unscoped)
+        }
+        return RestorePassClaimResult(
+            identity: identity,
+            claim: claims.claim(agentRestoreKey(kind: identity.kind, sessionID: identity.sessionID))
+        )
     }
 
     /// Releases a claim this panel took as `.owner` when the panel could not

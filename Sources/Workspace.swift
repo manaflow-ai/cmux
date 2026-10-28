@@ -1872,19 +1872,8 @@ extension Workspace {
                 restoreStartupBlocked || liveSessionOwner != nil,
                 restoredHibernation == nil,
                 restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
-                if let restorableAgent {
-                    if restoresRemoteWorkspaceTerminalSnapshot {
-                        // Same rule as the immediate remote resume above: only the trusted
-                        // remote cwd, never the recorded directory as a fallback.
-                        restorableAgent.resumeStartupInput(
-                            useLocalRestoreVerb: false,
-                            workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
-                        )
-                    } else {
-                        restorableAgent.resumeStartupInput(
-                            restoringWorkingDirectory: resumeSessionWorkingDirectory
-                        )
-                    }
+                if let agentRestoreStartupInput {
+                    agentRestoreStartupInput
                 } else {
                     sessionRestorePolicy
                         .approvedSurfaceResumeBinding(
@@ -1911,25 +1900,22 @@ extension Workspace {
             // the enclosing restore pass; later panels stay manually
             // recoverable but never start a second writer. A live owner keeps
             // the ordinary attach path, so it is never claimed here.
-            let restorePassIdentity: (kind: String, sessionID: String)? =
-                restoredRemotePTYSessionID == nil &&
-                restoredHibernation == nil &&
+            let restorePassClaimResult = SurfaceResumeRunPromptBatch.shared.claimAgentRestore(
+                eligible: restoredRemotePTYSessionID == nil &&
+                    restoredHibernation == nil &&
                     !suppressesResumeForBackgroundSession &&
                     liveSessionOwner == nil &&
-                    !stablePanelHasLiveProcess
-                    ? SurfaceResumeRunPromptBatch.agentRestoreIdentity(
-                        restorableAgent: restorableAgent,
-                        agentMayAutoResume: shouldAutoResumeAgent && restorableAgentCanAutoResume &&
-                            agentRestoreStartupInput != nil,
-                        resumeBinding: resumeBinding,
-                        bindingWillLaunch: unresolvedBindingLaunch != nil ||
-                            deferredAgentResumeCandidateInput != nil
-                    )
-                    : nil
-            let restorePassClaim = restorePassIdentity.map {
-                SurfaceResumeRunPromptBatch.shared.claimAgentRestore(kind: $0.kind, sessionID: $0.sessionID)
-            } ?? .unscoped
-            let duplicateRestoreOwner = restorePassClaim == .duplicate
+                    !stablePanelHasLiveProcess,
+                restorableAgent: restorableAgent,
+                agentMayAutoResume: shouldAutoResumeAgent && restorableAgentCanAutoResume &&
+                    agentRestoreStartupInput != nil,
+                resumeBinding: resumeBinding,
+                bindingWillLaunch: unresolvedBindingLaunch != nil ||
+                    deferredAgentResumeCandidateInput != nil
+            )
+            let restorePassIdentity = restorePassClaimResult.identity
+            let restorePassClaim = restorePassClaimResult.claim
+            let duplicateRestoreOwner = restorePassClaimResult.isDuplicate
             let restoredBindingLaunch = duplicateRestoreOwner ? nil : unresolvedBindingLaunch
             let restorableTmuxStartCommand = localTmuxStartCommand
                 ?? (!restoreStartupBlocked &&
@@ -2188,20 +2174,9 @@ extension Workspace {
                 // Offer the same command this panel would have run, in the
                 // form its terminal needs (remote restores cannot reach the
                 // local `cmux restore` verb).
-                let duplicateRecoveryInput: String? = if let restorableAgent,
-                    shouldAutoResumeAgent,
-                    restorableAgentCanAutoResume {
-                    restoresRemoteWorkspaceTerminalSnapshot
-                        ? restorableAgent.resumeStartupInput(
-                            useLocalRestoreVerb: false,
-                            workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
-                        )
-                        : restorableAgent.resumeStartupInput(
-                            restoringWorkingDirectory: resumeSessionWorkingDirectory
-                        )
-                } else {
-                    unresolvedBindingLaunch?.initialInput ?? deferredAgentResumeCandidateInput
-                }
+                let duplicateRecoveryInput = agentRestoreStartupInput
+                    ?? unresolvedBindingLaunch?.initialInput
+                    ?? deferredAgentResumeCandidateInput
                 terminalPanel.restoreRecovery.state = .failed(
                     reason: "duplicate-restore-owner",
                     recoveryInput: duplicateRecoveryInput
