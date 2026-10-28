@@ -118,7 +118,8 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
           const element = node as HTMLElement;
           element.style.position = "fixed";
           element.style.left = "8px";
-          element.style.bottom = "8px";
+          element.style.top = "500px";
+          element.style.bottom = "auto";
         });
         const trigger = typeof triggerName === "string"
           ? page.getByRole("button", { name: triggerName, exact: true })
