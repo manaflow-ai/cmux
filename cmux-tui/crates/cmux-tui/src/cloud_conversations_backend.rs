@@ -10,11 +10,12 @@
 //! `bearer.<token>` subprotocol is retired: a 401 on the upgrade is final.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::Mux;
 use cmux_tui_core::cloud_conversations::{
-    CloudBackend, CloudWire, ConnectError, HttpReply, RangeReply, TransportError, WireRecv,
+    CloudBackend, CloudWire, ConnectError, HttpReply, PutBody, RangeReply, TransportError, WireRecv,
 };
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
@@ -31,8 +32,13 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 /// A Home read returns at most 200 messages of at most 64 KiB text each.
 const MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
 const CLIENT_VERSION_HEADER: &str = "x-cmux-client-version";
-/// An attachment upload (up to 100 MB) may take longer than a JSON call.
+/// A derived image upload (at most 2 MB) may take longer than a JSON call.
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// A streamed attachment file has no total deadline (it may be any size);
+/// it fails when no bytes moved, or no reply came after the last, this long.
+const UPLOAD_STALL: Duration = Duration::from_secs(2 * 60);
+/// One read of a streamed attachment file.
+const UPLOAD_CHUNK_BYTES: usize = 1024 * 1024;
 /// One ranged attachment read (at most 4 MiB).
 const RANGE_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) struct RemoteCloudBackend {
@@ -64,6 +70,45 @@ impl RemoteCloudBackend {
             .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
             .build()?;
         Ok(Self { runtime, http, files })
+    }
+}
+
+/// A staged attachment file as a streamed body, read a chunk at a time as
+/// the connection takes it. Each read stores, in `moved`, the milliseconds
+/// since `started` (hyper polls the body only when it can send more).
+fn file_body(file: std::fs::File, started: Instant, moved: Arc<AtomicU64>) -> reqwest::Body {
+    use tokio::io::AsyncReadExt;
+    let file = tokio::fs::File::from_std(file);
+    let chunks = futures_util::stream::try_unfold(file, move |mut file| {
+        let moved = moved.clone();
+        async move {
+            let mut chunk = vec![0; UPLOAD_CHUNK_BYTES];
+            let read = file.read(&mut chunk).await?;
+            moved.store(elapsed_ms(started), Ordering::Relaxed);
+            if read == 0 {
+                return Ok::<_, std::io::Error>(None);
+            }
+            chunk.truncate(read);
+            Ok(Some((chunk, file)))
+        }
+    });
+    reqwest::Body::wrap_stream(chunks)
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+/// Resolves once [`UPLOAD_STALL`] passed since the body last moved. It ends
+/// with its `select!`, when the upload answers first.
+async fn stalled(started: Instant, moved: Arc<AtomicU64>) {
+    let stall = u64::try_from(UPLOAD_STALL.as_millis()).unwrap_or(u64::MAX);
+    loop {
+        let idle = elapsed_ms(started).saturating_sub(moved.load(Ordering::Relaxed));
+        if idle >= stall {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(stall - idle)).await;
     }
 }
 
@@ -129,16 +174,44 @@ impl CloudBackend for RemoteCloudBackend {
         &self,
         url: &str,
         headers: &[(String, String)],
-        body: Vec<u8>,
+        body: PutBody,
     ) -> Result<HttpReply, TransportError> {
-        let mut request = self.files.put(url).timeout(UPLOAD_TIMEOUT).body(body);
+        let headers_have_length =
+            headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("content-length"));
+        let mut request = self.files.put(url);
         for (name, value) in headers {
             request = request.header(name.as_str(), value.as_str());
         }
         self.runtime.block_on(async move {
-            let response = request.send().await.map_err(|error| transport(&error))?;
+            let response = match body {
+                PutBody::Bytes(bytes) => request.timeout(UPLOAD_TIMEOUT).body(bytes).send().await,
+                PutBody::File { file, len } => {
+                    let started = Instant::now();
+                    let moved = Arc::new(AtomicU64::new(0));
+                    // A presigned object PUT needs a length, not a chunked body.
+                    let request = if headers_have_length {
+                        request
+                    } else {
+                        request.header(reqwest::header::CONTENT_LENGTH, len)
+                    };
+                    let request = request.body(file_body(file, started, moved.clone()));
+                    tokio::select! {
+                        response = request.send() => response,
+                        () = stalled(started, moved) => {
+                            return Err(TransportError(format!(
+                                "attachment upload made no progress for {} s",
+                                UPLOAD_STALL.as_secs()
+                            )));
+                        }
+                    }
+                }
+            };
+            let response = response.map_err(|error| transport(&error))?;
             let status = response.status().as_u16();
-            let bytes = response.bytes().await.map_err(|error| transport(&error))?;
+            let bytes = tokio::time::timeout(UPLOAD_STALL, response.bytes())
+                .await
+                .map_err(|_| TransportError("the upload reply did not finish".into()))?
+                .map_err(|error| transport(&error))?;
             if bytes.len() > MAX_BODY_BYTES {
                 return Err(TransportError(format!(
                     "reply of {} bytes exceeds the limit",

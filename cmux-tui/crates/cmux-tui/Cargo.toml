@@ -118,7 +118,8 @@ x25519-dalek.workspace = true
 tokio.workspace = true
 # Machine spend readout: one small JSON GET every few minutes from inside a
 # Cloud VM. chatmux-relay already uses reqwest for pairing bootstrap.
-reqwest.workspace = true
+# `stream`: attachment files upload from disk, never read whole.
+reqwest = { workspace = true, features = ["stream"] }
 rustls.workspace = true
 url.workspace = true
 async-trait.workspace = true
