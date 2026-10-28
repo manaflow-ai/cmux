@@ -76,4 +76,37 @@ import Testing
         try #require(second !== first)
         #expect(!second.session.frameHold.isHolding, "another terminal shows the old terminal's frame")
     }
+
+    /// bench-restore n=600 restart on the carry build (9ddfb4ee, cmux24): the carry worked after a cold start but
+    /// not after a daemon restart. While the new daemon adopts the terminal, it lists the tab with no runtime
+    /// surface: no `terminal_resource_id` and another surface handle, only the tab's `content_resource_id`
+    /// (server/tree_json.rs). The view of the same terminal must still carry its frame.
+    @Test func aTerminalStillAdoptingKeepsItsLastFrame() throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let cache = services.cache
+        let daemon = DaemonService()
+        let store = daemon.store
+        let term = ResourceID(rawValue: "term_0123456789abcdef0123456789abcdef")
+        let tabID = ResourceID(rawValue: "tab_0123456789abcdef0123456789abcdef")
+        func tree(_ generation: String, surface: UInt64, live: Bool) -> DaemonTree {
+            let tab = TabSnapshot(surface: SurfaceID(rawValue: surface), tabResourceID: tabID, contentResourceID: term,
+                                  terminalResourceID: live ? term : nil, title: "~")
+            let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [tab])
+            let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(PaneID(rawValue: 1)), panes: [pane])
+            return DaemonTree(generation: DaemonGeneration(rawValue: generation),
+                              workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil, name: "w", screens: [screen])])
+        }
+        store.connectionState = .connected(try Self.connected("g1"))
+        store.apply(snapshot: tree("g1", surface: 7, live: true))
+        let first = cache.terminal(for: try #require(store.tab(surface: SurfaceID(rawValue: 7))), daemon: daemon)
+        #expect(TerminalLaunchFrame(try Self.frame()).show(on: first.session))
+
+        // The restarted daemon lists the tab while it adopts the terminal: no runtime surface yet.
+        store.connectionState = .connected(try Self.connected("g2"))
+        store.apply(snapshot: tree("g2", surface: 9, live: false))
+        let adopting = try #require(store.tab(surface: SurfaceID(rawValue: 9)))
+        let second = cache.terminal(for: adopting, daemon: daemon)
+        try #require(second !== first)
+        #expect(second.session.frameHold.isHolding, "the adopting terminal's new view shows an empty pane")
+    }
 }
