@@ -1,9 +1,8 @@
 import type { SqlStore } from "@cmux/ownership"
 import { execKind } from "@cmux/cloud-env"
-import type { GuestExecResult } from "./cloud-driver-exec.ts"
 import { DriverError } from "./team-vm-driver.ts"
 import { LIST_PAGE } from "./cloud-driver.ts"
-import { vmTagMetadata, type CloudProvider, type CreateOptions, type EdgeTlsRule, type VmResources, type VmTag } from "./providers/contract.ts"
+import { vmTagMetadata, type CloudProvider, type CreateOptions, type EdgeTlsRule, type GuestExecResult, type VmResources, type VmTag } from "./providers/contract.ts"
 
 /**
  * Test provider (ENVIRONMENT=test, CLOUD_DRIVER=fake): VMs in the object's own SQLite.
