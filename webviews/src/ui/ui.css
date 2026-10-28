@@ -397,3 +397,8 @@
   opacity: 0.9;
   letter-spacing: var(--text-caption--letter-spacing);
 }
+
+/* Pinned picker actions share the listbox's keyboard order but never its scrolling viewport. */
+.ui-combobox-pinned-list { display: flex; flex-direction: column; min-height: 0; }
+.ui-combobox-pinned { flex: none; border-bottom: .5px solid var(--ui-border, color-mix(in srgb, currentColor 12%, transparent)); margin-bottom: 4px; padding-bottom: 4px; }
+.ui-combobox-scroll { min-height: 0; }
