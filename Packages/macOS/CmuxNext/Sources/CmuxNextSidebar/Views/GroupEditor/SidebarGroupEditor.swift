@@ -330,7 +330,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         makeFirstResponder(nameField)
         nameField.currentEditor()?.selectAll(nil)
         styleFieldEditor()
-        openPopup(pivot: popupPivot(toward: anchor.rect))
+        openPopup(pivot: popupPivot(toward: anchor.rect), entrance: true)
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.

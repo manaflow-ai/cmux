@@ -3,8 +3,9 @@ public import Foundation
 /// The local CUA host socket: each request writes a line out, reads one reply
 /// line back within `deadline`, and returns the `result` object on `ok`.
 /// Shared by the activity pane and onboarding's computer use step
-/// (`permissions_status`).
-public struct CuaSocketClient: Sendable {
+/// (`permissions_status`). Nonisolated: a request runs where its caller runs, so a caller off the
+/// main actor (the live preview's frame loads, Computer Use Setup's grant request) also parses the reply there.
+public nonisolated struct CuaSocketClient: Sendable {
     public let configuration: AgentActivitySocketSource.Configuration
 
     public init(configuration: AgentActivitySocketSource.Configuration) {

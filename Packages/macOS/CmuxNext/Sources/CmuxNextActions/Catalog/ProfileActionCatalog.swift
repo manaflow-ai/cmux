@@ -154,6 +154,18 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], targets: [.profile], cliName: "space move-right"
             ),
             ActionDescriptor(
+                id: "space.moveToStart",
+                title: String(localized: "action.space.moveToStart", defaultValue: "Move Space to Start", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "reorder", "first", "start", "beginning", "left"], category: .workspace, symbol: "arrow.left.to.line",
+                surfaces: [.palette], targets: [.profile], cliName: "space move-to-start"
+            ),
+            ActionDescriptor(
+                id: "space.moveToEnd",
+                title: String(localized: "action.space.moveToEnd", defaultValue: "Move Space to End", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "reorder", "last", "end", "right"], category: .workspace, symbol: "arrow.right.to.line",
+                surfaces: [.palette], targets: [.profile], cliName: "space move-to-end"
+            ),
+            ActionDescriptor(
                 id: "space.move",
                 title: String(localized: "action.space.move", defaultValue: "Move Space to Position…", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "reorder"], category: .workspace, symbol: "arrow.left.arrow.right",

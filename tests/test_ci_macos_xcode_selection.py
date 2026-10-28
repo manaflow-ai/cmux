@@ -96,6 +96,18 @@ EXEMPT = {
     ("cmux-next-batch.yml", "build"):
         "submits the stack to the build fleet and waits; the build runs on a "
         "fleet worker, never with this runner's Xcode",
+    ("cmux-next.yml", "swift-canary-fleet"):
+        "build-fleet gateway: checks nothing out and only runs cmux-ci "
+        "compile-check; the compile runs on a fleet worker, never with this "
+        "runner's Xcode",
+    ("cmux-next.yml", "app-compile-fleet"):
+        "build-fleet gateway: checks nothing out and only runs cmux-ci "
+        "compile-check; the compile runs on a fleet worker, never with this "
+        "runner's Xcode",
+    ("cmux-next.yml", "release-compile-fast"):
+        "build-fleet gateway: checks nothing out and only runs cmux-ci "
+        "compile-check --release; the compile runs on a fleet worker, never "
+        "with this runner's Xcode",
 }
 
 # (workflow, job, step name) allowed to set CMUX_CI_XCODE_ALLOW_BELOW_FLOOR.
