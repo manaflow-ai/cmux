@@ -13,6 +13,11 @@ export const DEFAULT_INSPECTOR_ORDER = [
 export type InspectorOrderId = (typeof DEFAULT_INSPECTOR_ORDER)[number];
 export type InspectorOrder = readonly InspectorOrderId[];
 export const INSPECTOR_ORDER_KEY = "cmux.agentPane.inspector.order";
+/// Native cmux.json setting used when the pane host has a persistent settings store.
+export const INSPECTOR_ORDER_SETTING_KEY = "agentPane.display.inspector.order";
+
+let nativeOrder: InspectorOrder | undefined;
+let nativeWrite: ((value: InspectorOrder) => void) | undefined;
 
 function normalize(value: unknown): InspectorOrder {
   const known = (id: unknown): id is InspectorOrderId => DEFAULT_INSPECTOR_ORDER.includes(id as InspectorOrderId);
@@ -27,6 +32,18 @@ export function moveSection(order: InspectorOrder, id: InspectorOrderId, targetI
   return next;
 }
 
+/// The host's display event supplies the user's order before the pane draws. Gallery and older
+/// hosts can omit it and continue using the local fallback below.
+export function applyInspectorOrder(value: unknown): void {
+  nativeOrder = normalize(value);
+  order.applyExternal(nativeOrder);
+}
+
+export function registerInspectorOrderHost(write: ((value: InspectorOrder) => void) | undefined): void {
+  nativeWrite = write;
+  if (!write) nativeOrder = undefined;
+}
+
 // Order is a user preference shared by panes; collapse state remains per pane.
 export function createInspectorOrderStore(storage: () => Pick<Storage, "getItem" | "setItem"> = () => localStorage) {
   let state: InspectorOrder | undefined;
@@ -34,6 +51,7 @@ export function createInspectorOrderStore(storage: () => Pick<Storage, "getItem"
   const listeners = new Set<() => void>();
   const read = () => {
     if (unsaved && state) return state;
+    if (nativeOrder) return nativeOrder;
     try {
       return normalize(JSON.parse(storage().getItem(INSPECTOR_ORDER_KEY) ?? "null"));
     } catch {
@@ -64,6 +82,10 @@ export function createInspectorOrderStore(storage: () => Pick<Storage, "getItem"
     },
     set(value: InspectorOrder) {
       const next = normalize(value);
+      if (nativeWrite) {
+        nativeOrder = next;
+        nativeWrite(next);
+      }
       try {
         storage().setItem(INSPECTOR_ORDER_KEY, JSON.stringify(next));
         unsaved = false;
@@ -71,6 +93,10 @@ export function createInspectorOrderStore(storage: () => Pick<Storage, "getItem"
         unsaved = true;
       }
       update(next);
+    },
+    applyExternal(value: InspectorOrder) {
+      nativeOrder = value;
+      update(value);
     },
   };
 }

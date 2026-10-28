@@ -8,6 +8,7 @@ import { Disclosure } from "../../../ui/Disclosure";
 import { ScrollEdge } from "../../../ui/ScrollEdge";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
+import { useScrollEdges } from "../summary/scrollEdges";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -55,6 +56,7 @@ export function InspectorSection({
   bare?: boolean;
   children?: ReactNode;
 }) {
+  const edges = useScrollEdges();
   const head = (foldable: boolean) => (
     <>
       {icon && <Icon name={icon} size={ROW_ICON} row className="acpmux-chat-inspector-section__icon" />}
@@ -71,9 +73,11 @@ export function InspectorSection({
   );
   return (
     <section
+      ref={edges}
       className="acpmux-chat-inspector-section"
       data-section={id}
       data-bare={bare || undefined}
+      data-inspector-open={onOpenChange ? open : undefined}
       aria-label={title}
     >
       {bare ? (

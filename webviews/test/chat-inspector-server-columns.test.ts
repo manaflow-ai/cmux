@@ -99,6 +99,57 @@ await requireBrowserLane("chat-inspector-server-columns.test.ts", async () => {
     await page.close();
   });
 
+  test("sticky card headers reveal the edge only after scrolling, and not when folded", async () => {
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    const page = await browser!.newPage({ viewport: { width: 420, height: 900 } });
+    await page.goto(
+      `http://127.0.0.1:${port}${galleryFrame("agent-pane.chat-inspector", { variant: "cards-balanced", theme: "light" })}`,
+    );
+    const section = page.locator('section[data-section="outputs"]');
+    await section.waitFor();
+    await section.evaluate((node) => {
+      const list = node.querySelector<HTMLElement>(".acpmux-chat-inspector-scroll")!;
+      for (let index = 0; index < 24; index++) {
+        const row = document.createElement("div");
+        row.textContent = `scroll fixture ${index}`;
+        row.style.height = "28px";
+        list.append(row);
+      }
+    });
+    await page.waitForFunction(
+      (node) => (node as HTMLElement).scrollHeight > (node as HTMLElement).clientHeight,
+      await section.elementHandle(),
+    );
+    const scrollable = await section.evaluate((node) => {
+      const section = node as HTMLElement;
+      return { scrollHeight: section.scrollHeight, clientHeight: section.clientHeight };
+    });
+    expect(scrollable.scrollHeight).toBeGreaterThan(scrollable.clientHeight);
+    const edge = section.locator(".ui-scroll-edge-fade");
+    expect(await edge.evaluate((node) => getComputedStyle(node, "::after").opacity)).toBe("0");
+    if (process.env.CMUX_CAPTURE_DIR) {
+      await page.screenshot({ path: path.join(process.env.CMUX_CAPTURE_DIR, "session-info-scroll-0.png") });
+    }
+    await section.evaluate((node) => {
+      const section = node as HTMLElement;
+      section.scrollTop = section.scrollHeight;
+      section.dispatchEvent(new Event("scroll"));
+    });
+    await page.waitForFunction(
+      (node) => getComputedStyle(node as Element, "::after").opacity === "1",
+      await edge.elementHandle(),
+    );
+    if (process.env.CMUX_CAPTURE_DIR) {
+      await page.screenshot({ path: path.join(process.env.CMUX_CAPTURE_DIR, "session-info-scroll-scrolled.png") });
+    }
+    await section.locator(".ui-disclosure-trigger").click();
+    await page.waitForFunction(
+      (node) => getComputedStyle(node as Element, "::after").opacity === "0",
+      await edge.elementHandle(),
+    );
+    await page.close();
+  });
+
   test("Session Info wave variants use their declared durations", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     for (const [variant, duration] of [

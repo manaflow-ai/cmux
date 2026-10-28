@@ -42,6 +42,12 @@
   -webkit-backdrop-filter: blur(var(--cmux-scroll-edge-blur));
   backdrop-filter: blur(var(--cmux-scroll-edge-blur));
   mask-image: linear-gradient(to bottom, #000, transparent);
+  opacity: 0;
+}
+/* A sticky Inspector header reveals its band only after its own card has scrolled. The section
+   state also keeps a folded disclosure from leaving a band below its one-line header. */
+.acpmux-chat-inspector-section[data-inspector-open="true"][data-fade-top] .ui-scroll-edge-fade::after {
+  opacity: 1;
 }
 /* The gallery alternatives: balanced is the shipped treatment; subtle integrates most quietly. */
 [data-scroll-edge-variant="subtle"] .ui-scroll-edge-fade {

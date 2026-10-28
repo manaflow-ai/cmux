@@ -3,7 +3,9 @@ import {
   createInspectorOrderStore,
   DEFAULT_INSPECTOR_ORDER,
   INSPECTOR_ORDER_KEY,
+  applyInspectorOrder,
   moveSection,
+  registerInspectorOrderHost,
 } from "../src/agent-session/acpmux/inspector/sectionOrder";
 
 function memory(raw: string | null = null) {
@@ -14,13 +16,22 @@ function memory(raw: string | null = null) {
   };
 }
 
-test("Changes above Context survives a relaunch and is shared by a new pane", () => {
+test("Changes above Context writes through the native preference and survives a relaunch", () => {
+  const native: unknown[] = [];
+  registerInspectorOrderHost((value) => native.push(value));
   const storage = memory();
-  const first = createInspectorOrderStore(() => storage);
-  first.set(moveSection(first.current(), "changes", "context"));
-  expect(first.current().slice(0, 3)).toEqual(["environment", "changes", "context"]);
-  expect(createInspectorOrderStore(() => storage).current()).toEqual(first.current());
-  expect(storage.getItem("cmux.agentPane.inspector.sections")).toBeNull();
+  try {
+    const first = createInspectorOrderStore(() => storage);
+    first.set(moveSection(first.current(), "changes", "context"));
+    expect(first.current().slice(0, 3)).toEqual(["environment", "changes", "context"]);
+    expect(native).toEqual([first.current()]);
+    // A new page receives the persisted native value through its display event before mounting.
+    applyInspectorOrder(native[0]);
+    expect(createInspectorOrderStore(() => memory()).current()).toEqual(first.current());
+    expect(storage.getItem("cmux.agentPane.inspector.sections")).toBeNull();
+  } finally {
+    registerInspectorOrderHost(undefined);
+  }
 });
 
 test("old or malformed storage keeps known order and appends missing sections", () => {

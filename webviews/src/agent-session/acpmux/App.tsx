@@ -479,6 +479,7 @@ import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrolle
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
+import { INSPECTOR_ORDER_SETTING_KEY, registerInspectorOrderHost } from "./inspector/sectionOrder";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -885,6 +886,9 @@ const changesSource: ChangesSource = {
 registerComposerHost((method, show) => callNative(method, { show }));
 registerAttachmentViewHost((view) => callNative("pane.setAttachmentView", { view }));
 registerChatDisplayHost((key, value) => void callNative("pane.setDisplay", { key, value }).catch(() => undefined));
+registerInspectorOrderHost(
+  (value) => void callNative("pane.setDisplay", { key: INSPECTOR_ORDER_SETTING_KEY, value }).catch(() => undefined),
+);
 /// A folder's `git.status` from the native host, named by the folder: a new chat has no session to
 /// name it by (the header's worktree pill, cx-lyqio.3b).
 const readFolderStatus = (cwd: string) => postNative("git.status", { cwd });

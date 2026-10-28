@@ -120,6 +120,15 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 ]),
                 .string("compact"), ["minimap", "thread minimap", "map", "overview", "scroll", "vscode", "rail", "tick", "ticks",
                                  "wave", "prompt rail", "scroll rail", "prompts"]),
+            // The card order is a user preference written by the Session Info drag handle. It is
+            // intentionally hidden from Settings: the panel itself is its editor.
+            SettingDescriptor(
+                section + ["inspector", "order"], section: .appearance, group: group.text,
+                title: "Session Info order", help: "The order of Session Info cards.",
+                kind: .stringList,
+                default: .array(["environment", "context", "connectors", "changes", "sources", "outputs", "subagents", "tasks"].map(JSONValue.string)),
+                keywords: ["agent", "chat", "session", "info", "inspector", "cards", "order"]
+            ).hiddenFromSettingsPage("edited by dragging Session Info cards"),
         ]
     }
 }
