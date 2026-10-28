@@ -72,7 +72,7 @@ export function SubagentTrayMotionStage({ start = 0 }: { start?: number }) {
             <div
               key={message.id}
               className={message.live ? "acpmux-row--enter" : undefined}
-              style={{ padding: "6px 0", color: "var(--agent-text)", font: "13px/18px system-ui" }}
+              style={{ padding: "6px 0", color: "var(--agent-text)", fontSize: "var(--text-body)" }}
             >
               {message.text}
             </div>

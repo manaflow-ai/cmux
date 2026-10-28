@@ -71,8 +71,12 @@ const setVisibility = (state: string) => {
   visibility = state;
   dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
 };
-/// Two frames pass (pretendToBeVisual's frames are 60 Hz): the page's reveal settles.
-const frames = () => new Promise((resolve) => setTimeout(resolve, 80));
+/// The page's reveal settles after its two frames back: wait for those frames to paint (each
+/// requestAnimationFrame queued here runs after the reveal's own for that frame).
+const frame = () => new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(undefined)));
+const frames = async () => {
+  for (let painted = 0; painted < 3; painted++) await frame();
+};
 const cancelled = (node: Element) => node.dispatchEvent(new dom.window.Event("animationcancel", { bubbles: true }));
 Object.defineProperty(proto, "clientHeight", { configurable: true, get: () => 300 });
 // A ghost's exit is an 80 ms animation; nothing else animates in this document.

@@ -687,7 +687,7 @@ button.cv-subagent > :last-child {
   animation: var(--acpmux-tray-enter);
 }
 :is(.acpmux-dock, *) > .acpmux-running-tray.acpmux-running-tray--ghost {
-  z-index: 1;
+  z-index: var(--layer-raised);
   transform-origin: bottom center;
   animation: var(--acpmux-tray-leave);
 }
