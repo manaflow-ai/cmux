@@ -10,27 +10,36 @@ public actor SavedHostsStore {
     private let connection: DaemonConnection
     private var revision: UInt64 = 0
     public private(set) var document = SavedHostsDocument()
+    /// Set while the last load read a document this build cannot read: every write refuses with it.
+    private var unreadable: UnreadableProjection?
 
     public init(connection: DaemonConnection) {
         self.connection = connection
     }
 
-    /// Fetches the stored document (empty when none or schema unknown).
+    /// Fetches the stored document (empty when none or unreadable). A document this build cannot read (another
+    /// schema, or one that does not decode) shows as empty and is never written over (``UnreadableProjection``).
     @discardableResult
     public func load() async throws -> SavedHostsDocument {
         let projection = try await connection.frontendProjection(subject: Self.subject)
         revision = projection.projectionRevision
-        if projection.schemaVersion == SavedHostsDocument.schemaVersion, projection.projection != .null {
-            document = (try? SavedHostsDocument(jsonValue: projection.projection)) ?? SavedHostsDocument()
-        } else {
-            document = SavedHostsDocument()
+        unreadable = nil
+        document = SavedHostsDocument()
+        guard projection.projection != .null else { return document }
+        guard projection.schemaVersion == SavedHostsDocument.schemaVersion,
+              let stored = try? SavedHostsDocument(jsonValue: projection.projection) else {
+            unreadable = UnreadableProjection(subject: Self.subject, schemaVersion: projection.schemaVersion,
+                                              readableSchemaVersion: SavedHostsDocument.schemaVersion)
+            return document
         }
+        document = stored
         return document
     }
 
     /// Applies `change` to the latest document and writes it when it
     /// changed. A revision conflict (another window saved first) reloads and
-    /// reapplies, at most three times.
+    /// reapplies, at most three times. Throws ``UnreadableProjection`` instead of writing over a stored
+    /// document this build cannot read.
     @discardableResult
     public func update(_ change: @Sendable (inout SavedHostsDocument) -> Void) async throws -> SavedHostsDocument {
         var attempts = 0
@@ -39,6 +48,7 @@ public actor SavedHostsStore {
             var next = document
             change(&next)
             if next == document { return next }
+            if let unreadable { throw unreadable }
             do {
                 let stored = try await connection.putFrontendProjection(
                     subject: Self.subject, schemaVersion: SavedHostsDocument.schemaVersion,
