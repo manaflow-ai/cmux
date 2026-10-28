@@ -269,8 +269,7 @@ public final class ConversationSimBackend: ConversationBackend {
             }
         }
 
-        /// `object` comes `sending` so a reply's result can leave in a `JSONBox`.
-        private func handle(_ object: sending [String: Any]) {
+        private func handle(_ object: [String: Any]) {
             if let id = object["id"] as? Int, let waiter = pending.removeValue(forKey: id) {
                 if let error = object["error"] as? [String: Any] {
                     waiter.resume(throwing: ConversationBackendError(
@@ -385,14 +384,14 @@ public final class ConversationSimBackend: ConversationBackend {
 }
 
 /// A JSON object crossing into or out of `Core`: a request's params, a reply's result.
-/// The box takes its dictionary `sending`, so whoever built it keeps no reference, and
 /// `value` is a `let` that every holder only reads. Its leaves are JSON values (strings,
-/// numbers, booleans, NSNull); its nested containers are built fresh for the request or
-/// come from JSONSerialization without `.mutableContainers`, so they are immutable.
-// crash-allow: sent once, then only read; every container in it is immutable (see above).
+/// numbers, booleans, NSNull); its nested containers are Swift arrays and dictionaries
+/// built for the request, or come from JSONSerialization without `.mutableContainers`,
+/// so they are immutable, and concurrent reads of immutable containers are safe.
+// crash-allow: only read after it is made; every container in it is immutable (see above).
 struct JSONBox: @unchecked Sendable {
     let value: [String: Any]
-    init(_ value: sending [String: Any]) { self.value = value }
+    init(_ value: [String: Any]) { self.value = value }
 }
 
 enum WireDecoding {
