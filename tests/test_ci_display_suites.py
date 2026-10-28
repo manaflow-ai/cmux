@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""scripts/ci/display-suites.txt is the list scripts/ci/display_suites.py derives from the suites' display skip
-traits, and the derivation finds a suite by its own trait or a test's.
+"""scripts/ci/display-suites.txt declares the suites whose own display skip traits (or a test's) ask for a display,
+and scripts/ci/display_suites.py finds a suite by its own trait or a test's.
 
 cmux-ci reads the committed list at a step's ref to send a package-test-lane suite step that names a display
 suite to a display worker (the gui-session-v1 label), so a suite with a display trait missing from the list, or
@@ -81,7 +81,7 @@ class DerivationTest(unittest.TestCase):
         self.assertEqual(done.returncode, 1)
         self.assertIn("missing Packages/macOS/Pkg PkgTests.ZoomTests", done.stderr)
         self.assertIn("lists Packages/macOS/Pkg PkgTests.GoneTests, which has no display skip trait", done.stderr)
-        subprocess.run([sys.executable, str(ROOT / "scripts/ci/display_suites.py"), "--root", str(tmp), "--write"],
+        subprocess.run([sys.executable, str(ROOT / "scripts/ci/display_suites.py"), "--root", str(tmp), "--fix"],
                        check=True)
         self.assertEqual(subprocess.run([sys.executable, str(ROOT / "scripts/ci/display_suites.py"), "--root",
                                          str(tmp), "--check"]).returncode, 0)
