@@ -7,6 +7,15 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
+// diffGitSource installs the viewer's git strings over the agent pane's string tables and switches
+// the pane's language to the viewer's (diff-viewer/git.ts). Both are process-wide, and bun runs
+// every file in one process, so they are saved here, before anything changes them, and restored
+// after: left as they are, later files read a table with only the git strings, in Japanese, and
+// render raw keys.
+const paneI18n = await import("../src/agent-session/acpmux/i18n");
+const paneLanguageBefore = paneI18n.currentLanguage();
+const paneStringsBefore = globalThis.__cmuxPaneStrings;
+
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
   pretendToBeVisual: true,
@@ -64,6 +73,8 @@ afterAll(() => {
     if (had) scope[key] = value;
     else delete scope[key];
   }
+  globalThis.__cmuxPaneStrings = paneStringsBefore;
+  paneI18n.setPaneLanguage(paneLanguageBefore);
 });
 
 const HEAD = "0123456789abcdef0123456789abcdef01234567";
