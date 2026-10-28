@@ -105,15 +105,15 @@ function Table({ workflow, now }: { workflow: WorkflowSummary; now: number }) {
   return (
     <div className="acpmux-workflow-side-tab__table" role="table" aria-label={t("workflow.phases")}>
       <div className="acpmux-workflow-side-tab__table-head" role="row">
-        <span role="columnheader">{t("workflow.phases")}</span>
-        <span role="columnheader">{t("summary.subagents.active", { n: workflow.agents.length })}</span>
-        <span role="columnheader">State</span>
+        <div role="columnheader">{t("workflow.phases")}</div>
+        <div role="columnheader">{t("summary.subagents.active", { n: workflow.agents.length })}</div>
+        <div role="columnheader">State</div>
       </div>
       {workflow.phases.flatMap((phase) => phaseAgents(workflow, phase).map((agent) => (
         <div className="acpmux-workflow-side-tab__table-row" role="row" key={agent.id}>
-          <span role="cell">{phaseLabel(t, phase)}</span>
-          <span role="cell"><ul className="acpmux-workflow-side-tab__agents"><WorkflowAgentRow agent={agent} now={now} variant="grid" /></ul></span>
-          <span role="cell">{stateLabel(t, agent.state)}</span>
+          <div role="cell">{phaseLabel(t, phase)}</div>
+          <div role="cell"><ul className="acpmux-workflow-side-tab__agents"><WorkflowAgentRow agent={agent} now={now} variant="grid" /></ul></div>
+          <div role="cell">{stateLabel(t, agent.state)}</div>
         </div>
       )))}
     </div>
