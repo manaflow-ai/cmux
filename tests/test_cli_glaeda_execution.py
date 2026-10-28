@@ -35,15 +35,21 @@ class GlaedaExecutionCLITests(unittest.TestCase):
         )
 
     def test_standalone_usage_does_not_require_resource_bundles(self) -> None:
-        # Release installs can copy only the executable. Exercise that layout,
-        # rather than relying on resources beside the build product.
+        # Also deny the bundle at the original build path: SwiftPM's generated
+        # accessor can otherwise find that fallback after copying the binary.
+        sandbox = shutil.which("sandbox-exec")
+        self.assertIsNotNone(sandbox, "This native CLI regression requires sandbox-exec")
+        profile = (
+            '(version 1) (allow default) '
+            '(deny file-read* (regex #"/CmuxFoundation_CmuxFoundation[.]bundle(/|$)"))'
+        )
         with tempfile.TemporaryDirectory(prefix="cmux-cli-usage-") as tmp:
             executable = Path(tmp) / "cmux"
             shutil.copy2(CLI, executable)
             for args in ([], ["--help"]):
                 with self.subTest(args=args):
                     result = subprocess.run(
-                        [str(executable), *args],
+                        [sandbox, "-p", profile, str(executable), *args],
                         cwd=tmp,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
