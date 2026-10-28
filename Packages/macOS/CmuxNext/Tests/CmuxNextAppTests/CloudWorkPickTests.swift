@@ -13,7 +13,7 @@ struct CloudWorkPickTests {
     /// A working copy with `files` at its top, an `origin` (a bare repo here, then named by
     /// `remote`), and one commit pushed when `push`.
     private static func repo(_ files: [String], remote: String? = "https://github.com/Manaflow-AI/cmux.git", push: Bool = true,
-                             branch: String = "feature/pick") throws -> (folder: String, cleanup: () -> Void) {
+                             branch: String = "feature/pick", upstreamBranch: String? = nil) throws -> (folder: String, cleanup: () -> Void) {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-work-pick-\(UUID().uuidString)").path
         let folder = base + "/work", upstream = base + "/up.git"
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -27,7 +27,7 @@ struct CloudWorkPickTests {
         try git(folder, "add", "-A")
         try git(folder, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first")
         try git(folder, "remote", "add", "origin", upstream)
-        if push { try git(folder, "push", "-q", "--no-verify", "-u", "origin", branch) }
+        if push { try git(folder, "push", "-q", "--no-verify", "-u", "origin", branch + ":" + (upstreamBranch ?? branch)) }
         // The pushed copy is named like a hosted repo; a pick never talks to it.
         if let remote { try git(folder, "remote", "set-url", "origin", remote) }
         return (folder, { try? FileManager.default.removeItem(atPath: base) })
@@ -102,6 +102,20 @@ struct CloudWorkPickTests {
         #expect(pick.repo == CloudMachineRepo(owner: "Manaflow-AI", name: "cmux", ref: nil), "the machine clones the default branch")
     }
 
+    @Test func theCloneRefIsTheUpstreamsBranchAndALocalRemoteNamesNoRepo() async throws {
+        let (folder, cleanup) = try Self.repo(["Package.swift"], upstreamBranch: "topic/elsewhere")
+        defer { cleanup() }
+        let pick = await Self.pick(folder)
+        #expect(pick.branch == "feature/pick")
+        #expect(pick.repo?.ref == "topic/elsewhere", "the machine clones the branch the remote has")
+
+        let (local, cleanLocal) = try Self.repo(["Package.swift"], remote: "octo/paint")
+        defer { cleanLocal() }
+        let localPick = await Self.pick(local)
+        #expect(localPick.repoKey == nil)
+        #expect(localPick.repo == nil, "a relative path remote is not a GitHub spec")
+    }
+
     @Test func aFolderOutsideGitIsPickedAsItselfWithNoRepo() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-work-pick-plain-\(UUID().uuidString)").path
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -140,7 +154,7 @@ struct CloudWorkPickTests {
     }
 
     @Test func pushedReadsTheUpstreamTrack() {
-        #expect(CloudWorkPick.isPushed("origin/main\0"))
+        #expect(CloudWorkPick.isPushed("main\0"))
         #expect(CloudWorkPick.isPushed("origin/main\0[behind 2]"))
         #expect(!CloudWorkPick.isPushed("origin/main\0[ahead 1]"))
         #expect(!CloudWorkPick.isPushed("origin/main\0[ahead 1, behind 2]"))

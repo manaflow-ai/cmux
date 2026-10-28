@@ -17,9 +17,11 @@ struct CloudChatPick {
     let services: AppServices
 
     /// The pick for the chat in `folder` (its tab `tab`: the title for the task kind, the agent for
-    /// the Codex broker). Nil while Labs preview features are off, or for no absolute folder.
+    /// the Codex broker). Nil while Labs preview features are off, for no absolute folder, and on
+    /// the Cloud app server's link, whose create takes no `autosize` yet (``CloudService/createMachine``).
     func read(folder: String?, tab: TabModel?) async -> CloudWorkPick? {
-        guard services.settings?.snapshot.previewFeatures == true, let folder, folder.hasPrefix("/") else { return nil }
+        guard services.settings?.snapshot.previewFeatures == true, services.cloud.configuration.linkSource == .legacy,
+              let folder, folder.hasPrefix("/") else { return nil }
         return await CloudWorkPick.read(folder: folder, text: tab?.displayTitle, harness: tab?.agentSession?.harness, work: services.work)
     }
 

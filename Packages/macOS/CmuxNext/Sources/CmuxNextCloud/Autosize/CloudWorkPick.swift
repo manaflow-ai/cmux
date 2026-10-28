@@ -16,7 +16,8 @@ public struct CloudWorkPick: Equatable, Sendable {
     public var repo: CloudMachineRepo?
     /// The branch checked out; nil when detached or outside git.
     public var branch: String?
-    /// ``branch`` has an upstream that holds every commit of it.
+    /// ``branch`` has an upstream that holds every commit of it; the machine clones the upstream's
+    /// own branch name (``repo``'s ref), which may differ from ``branch``.
     public var pushed: Bool
     /// The repository's git objects in MiB; nil outside git.
     public var sizeMb: Int?
@@ -73,15 +74,18 @@ public struct CloudWorkPick: Equatable, Sendable {
         let root = top ?? folder
         let branch = top == nil ? nil : await run(["symbolic-ref", "--quiet", "--short", "HEAD"])
         let remote = top == nil ? nil : await run(["ls-remote", "--get-url"])
-        let upstream = branch == nil ? nil : await run(["for-each-ref", "--format=%(upstream:short)%00%(upstream:track)", "refs/heads/" + (branch ?? "")])
+        let upstream = branch == nil ? nil : await run(["for-each-ref", "--format=%(upstream:lstrip=3)%00%(upstream:track)", "refs/heads/" + (branch ?? "")])
         let objects = top == nil ? nil : await run(["count-objects", "-v"])
         let listing = try? await work.run(.userBlocking, mayBlock: .files) { listRoot(root) }
         let pushed = upstream.map(isPushed) ?? false
+        let remoteBranch = upstream?.split(separator: "\0", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init)
         // A branch name the repo step can't carry unquoted (git allows a `'`) clones the default branch.
-        let ref = branch.flatMap { pushed && CloudMachineRepo.isRef($0) ? $0 : nil }
-        let github = remote.flatMap { try? CloudMachineRepo.parse($0) }
+        let ref = remoteBranch.flatMap { pushed && CloudMachineRepo.isRef($0) ? $0 : nil }
+        // A local path remote (`../paint`, even `octo/paint`) has no key and names no GitHub repo.
+        let key = remote.flatMap(repoKey)
+        let github = key == nil ? nil : remote.flatMap { try? CloudMachineRepo.parse($0) }
         return CloudWorkPick(
-            root: root, repoKey: remote.flatMap(repoKey), repo: github.map { CloudMachineRepo(owner: $0.owner, name: $0.name, ref: ref) },
+            root: root, repoKey: key, repo: github.map { CloudMachineRepo(owner: $0.owner, name: $0.name, ref: ref) },
             branch: branch, pushed: pushed, sizeMb: objects.flatMap(objectsMb), rootFiles: listing?.files ?? [],
             taskKind: .inferred(from: text), hasMachineConfig: listing?.machineConfig ?? false, needsCodexBroker: harness == "codex")
     }
@@ -103,7 +107,7 @@ public struct CloudWorkPick: Equatable, Sendable {
         return (Array(files), FileManager.default.fileExists(atPath: config))
     }
 
-    /// `for-each-ref`'s `upstream:short NUL upstream:track`: pushed when there is an upstream and
+    /// `for-each-ref`'s `upstream:lstrip=3` (the remote's branch name) `NUL upstream:track`: pushed when there is an upstream and
     /// it is neither gone nor behind this branch (`[ahead N]`, `[ahead N, behind M]`).
     static func isPushed(_ line: String) -> Bool {
         let parts = line.split(separator: "\0", maxSplits: 1, omittingEmptySubsequences: false)
