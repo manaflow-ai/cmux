@@ -822,7 +822,8 @@ impl Hub {
         let mut waiting = queue_waiting::Waiting::default();
         let mut order = queue_waiting::Order::default();
         let mut held: std::collections::HashSet<String> = Default::default();
-        // The revision of each prompt the owner approved (`queue_approve.rs`).
+        // The revision the owner approved, by the queued prompt's turn id (`queue_approve.rs`):
+        // its incarnation, never its client-chosen prompt id, which a later prompt may reuse.
         let mut approved: HashMap<String, Option<u64>> = Default::default();
         // A move that began and neither committed nor aborted (`transfer_out.rs`); a chat
         // moved here was the source's until its `imported` record.
@@ -886,8 +887,8 @@ impl Hub {
                         waiting.remove_turn(turn_id);
                     }
                     "queue_approved" => {
-                        if let Some(id) = e.msg.get("promptId").and_then(Value::as_str) {
-                            approved.insert(id.to_owned(), e.msg["revision"].as_u64());
+                        if let Some(turn) = turn_id.and_then(Value::as_str) {
+                            approved.insert(turn.to_owned(), e.msg["revision"].as_u64());
                         }
                     }
                     // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
@@ -1002,6 +1003,11 @@ impl Hub {
             let from_agent = e.msg.get("fromAgent").and_then(Value::as_str);
             let agent = super::digest::agent_sender(provenance.as_ref(), from_agent);
             let supersede = crate::author::restored_supersede(&e.msg).map(str::to_owned);
+            // Its approval counts for this incarnation at the revision the owner saw, which an
+            // edit since replaced.
+            let revision = e.msg["revision"].as_u64();
+            let awaiting_owner = e.msg.get("awaitingOwner") == Some(&Value::Bool(true))
+                && approved.get(&turn_id) != Some(&revision);
             restored.push((prompt_id.clone(), turn_id.clone()));
             queue.push(QueuedPrompt {
                 prompt_id: prompt_id.clone(),
@@ -1026,11 +1032,8 @@ impl Hub {
                 resume: true,
                 steer: false,
                 held: held.contains(&prompt_id),
-                // Its approval counts for the revision the owner saw, which an edit since
-                // replaced.
-                awaiting_owner: e.msg.get("awaitingOwner") == Some(&Value::Bool(true))
-                    && approved.get(&prompt_id) != Some(&e.msg["revision"].as_u64()),
-                revision: e.msg["revision"].as_u64().unwrap_or(0),
+                awaiting_owner,
+                revision: revision.unwrap_or(0),
                 declined: Default::default(),
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),

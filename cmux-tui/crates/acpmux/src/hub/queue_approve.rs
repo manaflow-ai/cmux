@@ -69,7 +69,7 @@ impl Hub {
         if session.moving().is_some() {
             return Err(moving_error());
         }
-        let turn_id = {
+        {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let found = queue.iter_mut().find(|q| q.prompt_id == prompt_id && q.awaiting_owner);
             let Some(q) = found else {
@@ -82,13 +82,14 @@ impl Hub {
                 return Err(refused(-32602, "queue.stale", msg, data));
             }
             q.awaiting_owner = false;
-            q.turn_id.clone()
-        };
-        let msg = json!({"promptId": prompt_id, "turnId": turn_id, "revision": revision,
-                         "approvedAt": now_ms()});
-        // The session summary's queue changed (`awaitingOwner`), as a `queue_order` changes it.
-        session.state_seq.fetch_add(1, Ordering::SeqCst);
-        self.append(session, "mux", "queue_approved", msg);
+            let msg = json!({"promptId": prompt_id, "turnId": q.turn_id, "revision": revision,
+                             "approvedAt": now_ms()});
+            // The session summary's queue changed (`awaitingOwner`), as a `queue_order` changes it.
+            session.state_seq.fetch_add(1, Ordering::SeqCst);
+            // Logged under the lock that approved it: the author's removal, which takes this lock
+            // too, is logged after it, so the log's order is the queue's (`not_waiting`, restore).
+            self.append(session, "mux", "queue_approved", msg);
+        }
         session.queue_moved.notify_waiters();
         Ok(())
     }
@@ -111,31 +112,39 @@ impl Hub {
             session.queued.fetch_sub(1, Ordering::SeqCst);
             let removed = queue.remove(i);
             removed.declined.store(true, Ordering::SeqCst);
+            // Logged under the lock that took it out, as `queue_approved` is.
+            let msg = json!({"promptId": prompt_id, "turnId": removed.turn_id,
+                             "revision": removed.revision, "declinedAt": now_ms()});
+            self.append(session, "mux", "queue_declined", msg);
             (removed, ledger)
         };
-        let msg = json!({"promptId": prompt_id, "turnId": removed.turn_id,
-                         "revision": removed.revision, "declinedAt": now_ms()});
-        self.append(session, "mux", "queue_declined", msg);
         self.settle_removed(session, removed, &mut ledger, json!({"reason": "declined"}));
         Ok(())
     }
 
-    /// `queue.not_found` for an answer to a prompt that does not wait for the owner, with how it
-    /// was decided when the queue or the log says.
+    /// `queue.not_found` for an answer to a prompt that does not wait for the owner, with how its
+    /// latest incarnation (the turn id of the last `queued` record under that prompt id, which a
+    /// client may reuse) was decided: the last of its decision records, which are logged in the
+    /// order the queue changed (`approve_queued`).
     fn not_waiting(&self, session: &Session, prompt_id: &str) -> RpcError {
         let approved = session.queue().iter().any(|q| {
             q.prompt_id == prompt_id && crate::author::awaits_owner(q.run.provenance.as_ref())
         });
         let mut decided = approved.then_some("approved");
         if decided.is_none() {
-            let kinds = ["queue_approved", "queue_declined", "queue_removed"];
+            let mut turn: Option<String> = None;
+            let kinds = ["queued", "queue_approved", "queue_declined", "queue_removed"];
             let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
-                if e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) {
-                    let declined = e.msg.get("reason").and_then(Value::as_str) == Some("declined");
-                    decided = Some(match e.kind.as_str() {
-                        "queue_approved" => "approved",
-                        "queue_declined" => "declined",
-                        _ if declined => "declined",
+                let field = |k: &str| e.msg.get(k).and_then(Value::as_str);
+                if field("promptId") != Some(prompt_id) {
+                    return true;
+                }
+                if e.kind == "queued" {
+                    (turn, decided) = (field("turnId").map(str::to_owned), None);
+                } else if turn.is_some() && field("turnId") == turn.as_deref() {
+                    decided = Some(match (e.kind.as_str(), field("reason")) {
+                        ("queue_approved", _) => "approved",
+                        ("queue_declined", _) | (_, Some("declined")) => "declined",
                         _ => "removed",
                     });
                 }
