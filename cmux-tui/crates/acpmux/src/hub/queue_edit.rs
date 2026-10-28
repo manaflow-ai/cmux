@@ -194,11 +194,6 @@ impl Hub {
         // `resume` changes no one prompt.
         let author = crate::author::author(params)?;
         let editor = crate::author::editor(author.as_ref());
-        // A prompt that waits for the owner runs only in its place, once approved
-        // (`queue_approve.rs`).
-        if matches!(op, "move" | "send_now" | "interrupt") {
-            self.refuse_awaiting_owner(session, prompt_id)?;
-        }
         let mut reply = json!({"sessionId": session.id, "promptId": prompt_id, "op": op});
         reply["ok"] = match op {
             "update" => {
@@ -347,6 +342,9 @@ impl Hub {
                 return Ok(false);
             };
             crate::author::may_change(editor, queue[from].sender())?;
+            // A prompt that waits for the owner runs only in its place, once approved: checked
+            // under the lock that changes it (`queue_approve.rs`).
+            super::queue::released(&queue[from])?;
             let q = queue.remove(from);
             let to = index.min(queue.len());
             queue.insert(to, q);
@@ -387,6 +385,8 @@ impl Hub {
                     return Ok(None);
                 };
                 crate::author::may_change(editor, q.sender())?;
+                // Under the lock that makes it a steer (`queue_approve.rs`).
+                super::queue::released(q)?;
                 let run = PromptRun {
                     blocks: q.run.blocks.clone(),
                     display_parts: q.run.display_parts.clone(),
