@@ -5,7 +5,8 @@ import Testing
 
 /// A fresh profile's sidebar is pinned: shown, and its Settings and profile row visible with
 /// the pointer elsewhere. Hover-reveal is opt-in (`sidebar.minimalMode`). With one space the
-/// footer holds one switcher, the profile control: no spaces strip beside it (Leo 2026-10-11).
+/// footer holds one switcher, the profile control: no space dot beside it (Leo 2026-10-11), only the
+/// "+" for a new space (Lawrence 2026-10-27).
 @MainActor
 struct SidebarPinnedDefaultTests {
     private func restingSidebar(spaces: Int = 1) -> (SidebarModel, SidebarView) {
@@ -29,9 +30,20 @@ struct SidebarPinnedDefaultTests {
         #expect(!sidebar.minimalHiddenBands.top && !sidebar.minimalHiddenBands.bottom)
     }
 
-    @Test func aLoneSpaceShowsNoStripBesideTheProfileControl() {
+    /// A lone space draws no dot (Leo 2026-10-11: it read as a duplicate switcher beside the profile
+    /// control), but the "+" for a new space shows at rest, centered where the dot would be
+    /// (Lawrence 2026-10-27: "the plus button for new space needs to be visible by default too").
+    @Test func aLoneSpaceShowsOnlyThePlusBesideTheProfileControl() {
         let (_, sidebar) = restingSidebar()
-        #expect(sidebar.profileBar.isHidden)
+        let bar = sidebar.profileBar
+        #expect(!bar.isHidden && bar.alphaValue == 1, "the strip with the + shows at rest")
+        #expect(bar.drawnDotCount == 0, "a lone space draws no dot")
+        #expect(bar.showsPlus)
+        let plus = bar.slotRects()[1]
+        let lone = bar.slotRects()[0]
+        #expect(lone.width == 0, "the lone space's slot takes no room: \(lone)")
+        let center = bar.centerX ?? bar.bounds.midX
+        #expect(abs(plus.midX - center) <= 1, "the + \(plus) centers on the strip's middle \(center)")
     }
 
     /// Two spaces keep the strip: it is their only on-screen switcher.

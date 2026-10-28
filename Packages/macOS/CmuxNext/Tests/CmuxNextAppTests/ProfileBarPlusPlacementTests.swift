@@ -72,6 +72,18 @@ import Testing
         expectPlusFollowsLastDot(view, "two spaces removed")
     }
 
+    /// Lawrence 2026-10-27: "the plus button for new space needs to be visible by default too". The
+    /// "+" draws, takes clicks and has its tooltip with the pointer away from the strip.
+    @Test func thePlusShowsWithThePointerAway() {
+        let (view, window) = makeBar(count: 3, width: 240)
+        defer { window.close() }
+        view.setPointerInside(false)
+        #expect(view.showsPlus, "the + hides with the pointer away")
+        let plus = view.slotRects()[view.model.profiles.count]
+        #expect(plus.width > 0 && view.bounds.intersects(plus), "the + \(plus) is off the bar \(view.bounds)")
+        expectPlusFollowsLastDot(view, "pointer away")
+    }
+
     @Test func showingThePlusMovesNoDot() {
         let (view, window) = makeBar(count: 5, width: 240)
         defer { window.close() }
