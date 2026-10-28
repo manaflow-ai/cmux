@@ -564,13 +564,15 @@ impl Mux {
         reason: &str,
         options: &SurfaceOptions,
     ) -> anyhow::Result<()> {
-        let ended = self.mark_terminal_ended_with_marker(terminal_id, reason, options);
+        self.mark_terminal_ended_with_marker(terminal_id, reason, options)?;
         // The tab reads pending until the end committed (and a respawn's
-        // marker replaced this one), so no tree read shows it dead first.
+        // marker replaced this one), so no tree read shows it dead first. A
+        // failed end keeps it: its retry is still queued, and the adoption's
+        // end clears it when that retry ends (`AdoptionEnd`).
         if self.clear_pending_terminal(terminal_id) {
             self.emit(MuxEvent::TreeChanged);
         }
-        ended
+        Ok(())
     }
 
     #[cfg(any(unix, windows))]

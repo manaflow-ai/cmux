@@ -394,7 +394,7 @@ impl Mux {
         self.pending_terminals.lock().unwrap_or_else(PoisonError::into_inner).retain(
             |_, (id, pending)| id != &terminal_id || *pending != PendingTerminal::Respawning,
         );
-        self.terminal_respawn_ended();
+        self.terminal_respawn_ended(&terminal_id);
         match outcome {
             Ok(Some((surface, prefill))) => {
                 self.forget_terminal_end(public_id.as_str());

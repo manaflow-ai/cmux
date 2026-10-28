@@ -10,9 +10,10 @@
 //!   no one has seen since the start) runs at `BestEffort`; one that had a
 //!   runtime here (a host lost while it ran, a restart a person asked for)
 //!   runs at `UserVisible`, as before;
-//! - a request that waits on a respawn ([`Mux::wait_for_terminal_respawn`],
-//!   an attach to a tab the app shows) promotes it: it goes before the
-//!   queued ones, at `UserBlocking`.
+//! - a request that waits on a respawn ([`Mux::wait_for_restored_terminal`],
+//!   an attach to a tab the app shows) promotes it before its end commits:
+//!   it is posted at `UserBlocking` and goes before the queued ones. It does
+//!   not wait for a respawn whose backoff ends after its bound.
 
 use super::*;
 use crate::mux::mux_work::{Permits, Retry};
@@ -25,9 +26,10 @@ const RESPAWN_LAUNCHES: usize = 4;
 /// The owner's respawn launches and their waiters.
 pub(crate) struct RespawnLaunches {
     permits: Arc<Permits>,
-    // Lock carve-out: guards nothing; it pairs `ended` with its waiters. A
-    // waiter takes `pending_terminals` (a leaf) under it, never the reverse.
-    waits: Mutex<()>,
+    /// When each posted respawn is due to launch (its backoff's end), by host
+    /// id; it pairs `ended` with its waiters. A waiter takes
+    /// `pending_terminals` (a leaf) under it, never the reverse.
+    due: Mutex<HashMap<String, Instant>>,
     /// Notified when a respawn ends (its `Respawning` marker left).
     ended: Condvar,
 }
@@ -36,7 +38,7 @@ impl Default for RespawnLaunches {
     fn default() -> Self {
         Self {
             permits: Permits::new(RESPAWN_LAUNCHES),
-            waits: Mutex::new(()),
+            due: Mutex::default(),
             ended: Condvar::new(),
         }
     }
@@ -63,8 +65,14 @@ impl Mux {
             .is_some_and(|plan| plan.old_runtime.is_none() && !plan.user_restart);
         let priority = if restored { Priority::BestEffort } else { Priority::UserVisible };
         let launches = &self.terminal_respawns.launches;
+        launches
+            .due
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(terminal_id.to_owned(), Instant::now() + delay);
         // Dropped unrun (shutdown, or the mux is gone), `PendingRespawn`
-        // abandons the attempt.
+        // abandons the attempt. A waiter that promoted the key first
+        // (`wait_for_restored_terminal`) has it posted at `UserBlocking`.
         self.post_mux_retry_limited(
             delay,
             priority,
@@ -84,9 +92,9 @@ impl Mux {
 
     /// A respawn of `terminal_id` ended: wake the requests waiting on it.
     #[cfg(any(unix, windows))]
-    pub(super) fn terminal_respawn_ended(&self) {
+    pub(super) fn terminal_respawn_ended(&self, terminal_id: &str) {
         let launches = &self.terminal_respawns.launches;
-        drop(launches.waits.lock().unwrap_or_else(PoisonError::into_inner));
+        launches.due.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
         launches.ended.notify_all();
     }
 
@@ -96,33 +104,38 @@ impl Mux {
     #[cfg(any(unix, windows))]
     pub(crate) fn wait_for_restored_terminal(&self, terminal_id: &str, bound: Duration) {
         let deadline = Instant::now() + bound;
-        self.wait_for_terminal_adoption(terminal_id, bound);
-        self.wait_for_terminal_respawn(
-            terminal_id,
-            deadline.saturating_duration_since(Instant::now()),
-        );
-    }
-
-    /// Waits, at most `bound`, until the respawn of `terminal_id` (a host id)
-    /// ended, and has it launch before the queued ones. Holds no other lock
-    /// while it waits.
-    #[cfg(any(unix, windows))]
-    pub(crate) fn wait_for_terminal_respawn(&self, terminal_id: &str, bound: Duration) {
+        // Promoted before the end commits: the respawn that end posts runs
+        // at `UserBlocking` and ahead of the queued launches. Posted at its
+        // background priority first, it waited in the System lane behind
+        // every queued end (cp/restore-cold-start review, item 1).
         let launches = &self.terminal_respawns.launches;
         launches.permits.promote(terminal_id);
-        let deadline = Instant::now() + bound;
-        let mut waits = launches.waits.lock().unwrap_or_else(PoisonError::into_inner);
+        self.wait_for_terminal_adoption(terminal_id, bound);
+        self.wait_for_promoted_respawn(terminal_id, deadline);
+        launches.permits.demote(terminal_id);
+    }
+
+    /// Waits, until `deadline`, for the respawn of `terminal_id` (a host id)
+    /// whose launch key the caller promoted. Returns at once when that
+    /// respawn is due only after `deadline` (its backoff: 2, 10, 30 or 60 s
+    /// after a repeated loss): waiting could not see it. Holds no other lock
+    /// while it waits.
+    #[cfg(any(unix, windows))]
+    fn wait_for_promoted_respawn(&self, terminal_id: &str, deadline: Instant) {
+        let launches = &self.terminal_respawns.launches;
+        let mut due = launches.due.lock().unwrap_or_else(PoisonError::into_inner);
         while self.terminal_is_respawning(terminal_id) {
+            if due.get(terminal_id).is_some_and(|at| *at > deadline) {
+                break;
+            }
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
                 break;
             }
             // wakeup-allow: deadline the attach's one bound; the respawn's end wakes it first
-            waits = cmux_threads::checked::sync::wait_timeout(&launches.ended, waits, left)
+            due = cmux_threads::checked::sync::wait_timeout(&launches.ended, due, left)
                 .unwrap_or_else(PoisonError::into_inner)
                 .0;
         }
-        drop(waits);
-        launches.permits.demote(terminal_id);
     }
 }
