@@ -293,3 +293,40 @@ async fn a_day_old_outage_retries_hourly_and_still_refuses_requests_at_once() {
     let refusal = refusal.expect("a parked peer refuses immediately").unwrap_err();
     assert_eq!(reason(&refusal), Some("peer_unreachable"));
 }
+
+/// The watch list is published before ready: a cache write of that list must not leave
+/// yesterday's outage persisted after the handshake recovers.
+#[tokio::test]
+async fn recovery_clears_an_outage_saved_before_the_handshake_completed() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ro");
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Local;
+    let store = crate::store::open(&cfg.store, dir.path()).unwrap();
+    let hub = crate::hub::Hub::new(cfg, store);
+    let (tx, _rx) = mpsc::channel(8);
+    let peer = Peer::new("box", "invalid://peer", None, None, tx);
+    hub.peers.lock().unwrap().insert("box".into(), peer.clone());
+    let old = crate::store::now_ms() - 86_400_001;
+    peer.with_link(|l| {
+        l.down(old, Duration::ZERO);
+    });
+    hub.apply_peer_notice("box", peer.generation, PeerNotice::Disconnected("gone".into()));
+    peer.with_link(|l| l.opened(crate::store::now_ms()));
+    hub.apply_peer_notice("box", peer.generation, PeerNotice::Sessions(vec![]));
+    let read = || -> Value {
+        serde_json::from_slice(&std::fs::read(dir.path().join("peers/box.json")).unwrap()).unwrap()
+    };
+    assert_eq!(read()["downSince"], old, "watch list preceded ready");
+    peer.with_link(|l| l.ready(crate::store::now_ms()));
+    hub.apply_peer_notice("box", peer.generation, PeerNotice::Connected);
+    let saved = read();
+    assert!(saved["downSince"].is_null(), "resolved outage persisted: {saved}");
+    // A fresh process restores this cache and has one transient failure: normal cadence.
+    let mut restored = Link::default();
+    restored.seed(saved["lastSeen"].as_u64());
+    restored.seed_outage(saved["downSince"].as_u64());
+    restored.down(crate::store::now_ms(), Duration::ZERO);
+    assert!(
+        restored.retry_delay(&mut Backoff::default(), crate::store::now_ms(), 1.0) <= Backoff::CAP
+    );
+}

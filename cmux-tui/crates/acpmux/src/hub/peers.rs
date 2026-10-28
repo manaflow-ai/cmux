@@ -551,7 +551,17 @@ impl Hub {
         let peer = peer.to_owned();
         {
             match notice {
-                PeerNotice::Connected => tracing::info!(peer = %peer, "peer ready"),
+                PeerNotice::Connected => {
+                    tracing::info!(peer = %peer, "peer ready");
+                    // Sessions can be saved before the handshake marks the link ready.
+                    // Persist its cleared outage once, without rewriting an already-clear cache.
+                    if self.peer(&peer).is_some_and(|p| {
+                        p.generation == generation
+                            && p.cache_saved_outage.load(std::sync::atomic::Ordering::SeqCst)
+                    }) {
+                        self.save_peer_cache(&peer, generation, true);
+                    }
+                }
                 PeerNotice::Restarting => {
                     // A planned restart never enters the disconnect/flap-grace path. Keep
                     // every row unchanged, but retire the old link's purge tombstones.
