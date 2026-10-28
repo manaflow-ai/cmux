@@ -6964,12 +6964,25 @@ jobs:
       LEGACY_DMG_PREFIX: cmux-nightly-next-macos-nightlyid-arm64-
       LEGACY_APPCAST: appcast-arm64.xml
     steps:
+      # First, before the checkout's token or any secret: on an owned Mac this job holds the whole
+      # mini (glaeda's exclusive class) or fails here (tests/test_ci_signing_owned_mac.py CLAIM_GATE).
+      - name: Hold the whole Mac before any credential
+        shell: bash
+        run: |
+          owned=""
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ -n "$owned" ] && [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+            echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; its re-run takes Blacksmith."
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
-      # Before any secret: on an owned Mac this job must hold the whole mini (tests/test_ci_signing_owned_mac.py).
+      # Before any secret: the same check again, and a signing keychain a killed job left is removed.
       - name: Claim the whole Mac for signing
         run: ./scripts/ci/signing-runner-claim.sh
 

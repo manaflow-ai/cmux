@@ -12,11 +12,15 @@ Blacksmith macOS last. On an owned Mac a signing job must:
    so a re-run leaves the fleet. Every picker output a signing job's runs-on
    reads comes from that script or from nightly_sign_runner.py, which prints
    Blacksmith labels only; any other source fails here;
-2. claim the whole Mac before any secret is read: a step that runs
-   scripts/ci/signing-runner-claim.sh comes before every step that names a
-   secret. glaeda's hook gives the job's (workflow, job) the exclusive class
-   (glaeda SIGNING_JOBS, the same list as SIGNING_JOBS here) and writes
-   GLAEDA_JOB_CLAIM=exclusive; the claim script fails on an owned Mac without it;
+2. claim the whole Mac before any credential is in reach: its first step is
+   CLAIM_GATE, inline and unconditional, before the checkout (which holds the
+   job token) and every other step. glaeda's hook gives the job's (workflow,
+   job) the exclusive class (glaeda SIGNING_JOBS, the same list as
+   SIGNING_JOBS here) and writes GLAEDA_JOB_CLAIM=exclusive; the gate fails
+   on an owned Mac without it. A step that runs
+   scripts/ci/signing-runner-claim.sh (the same check, and it removes a
+   signing keychain a killed job left) comes before every step that names a
+   secret, and neither the job's nor the workflow's env names a secret;
 3. make its keychain with scripts/ci/signing-keychain.sh create (the
    certificate is decoded to a private temporary file that create itself
    removes, and delete removes again) and delete it in an `if: always()` step.
@@ -55,6 +59,16 @@ SIGNING_JOBS = {
 OWNED_PICKER = "scripts/ci/signing_runner.py"
 BLACKSMITH_PICKER = "scripts/ci/nightly_sign_runner.py"
 CLAIM = "scripts/ci/signing-runner-claim.sh"
+CLAIM_GATE_NAME = "Hold the whole Mac before any credential"
+# The first step of an owned-routed signing job, word for word: it needs no checkout.
+CLAIM_GATE = """owned=""
+case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+if [ -n "$owned" ] && [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+  echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; its re-run takes Blacksmith."
+  exit 1
+fi
+"""
 NEEDS_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.([\w-]+)")
 STEP_OUTPUT = re.compile(r"steps\.([\w-]+)\.outputs\.")
 KEYCHAIN_DELETE = re.compile(r"signing-keychain\.sh\s+delete\b")
@@ -123,6 +137,11 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                                     f"fromJSON({read})`, so a re-run could stay on the fleet")
             steps = [step for step in keychain_guard.inline_step_scripts(job).get("steps") or []
                      if isinstance(step, dict)]
+            gate = steps[0] if steps else {}
+            if (str(gate.get("run", "")).strip() != CLAIM_GATE.strip() or set(gate) - {"name", "run", "shell"}
+                    or str(gate.get("shell", "bash")) != "bash"):
+                failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}): CLAIM_GATE word "
+                                "for word, with no if, uses, env or continue-on-error, before the checkout's token")
             claim = next((index for index, step in enumerate(steps) if CLAIM in str(step.get("run", ""))), None)
             first_secret = next((index for index, step in enumerate(steps) if "secrets." in json.dumps(step)), None)
             if claim is None:
@@ -133,12 +152,14 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                 if steps[claim].get("if") is not None or str(steps[claim].get("continue-on-error", "false")) != "false":
                     failures.append(f"{label}: the claim step must run unconditionally and fail the job "
                                     "(no `if`, no continue-on-error)")
-                for index, step in enumerate(steps[claim + 1:], claim + 1):
+                for index, step in enumerate(steps[1:], 1):
                     if "secrets." in json.dumps(step) and RUNS_AFTER_FAILURE.search(str(step.get("if", ""))):
                         failures.append(f"{label}: step {index} names a secret and runs after a failed claim "
                                         f"(if: {step.get('if')})")
             if "secrets." in json.dumps(job.get("env") or {}):
                 failures.append(f"{label}: job-level env names a secret, which every step (the claim's too) holds")
+            if "secrets." in json.dumps(document.get("env") or {}):
+                failures.append(f"{label}: workflow-level env names a secret, which every step (the claim's too) holds")
             text = json.dumps(steps)
             if "security import" in text:
                 failures.append(f"{label}: imports a certificate inline; use scripts/ci/signing-keychain.sh create")
@@ -167,23 +188,31 @@ class SigningOwnedMacTests(unittest.TestCase):
                   "steps": [{"id": "pick", "run": f"python3 {OWNED_PICKER} owned"}]}
         good = {"runs-on": "${{ github.run_attempt == 1 && needs.pick.outputs.owned && "
                            "fromJSON(needs.pick.outputs.owned) || 'blacksmith-6vcpu-macos-26' }}",
-                "steps": [{"run": CLAIM},
+                "steps": [{"name": CLAIM_GATE_NAME, "run": CLAIM_GATE}, {"run": CLAIM},
                           {"env": {"APPLE_CERTIFICATE_BASE64": "${{ secrets.APPLE_CERTIFICATE_BASE64 }}"},
                            "run": "scripts/ci/signing-keychain.sh create"},
                           {"if": "always()", "run": "scripts/ci/signing-keychain.sh delete"}]}
         self.assertEqual(check({"release.yml": {"jobs": {"pick": picker, "build-sign-notarize": good}}}), ([], 1))
         cases = {
             "not in SIGNING_JOBS": ("other.yml", "sign", good),
-            "without a step that runs": ("release.yml", "build-sign-notarize", {**good, "steps": good["steps"][1:]}),
+            "without a step that runs": ("release.yml", "build-sign-notarize",
+                                         {**good, "steps": [good["steps"][0], *good["steps"][2:]]}),
             "names a secret before the claim": ("release.yml", "build-sign-notarize",
-                                                {**good, "steps": [good["steps"][1], good["steps"][0], good["steps"][2]]}),
+                                                {**good, "steps": [good["steps"][0], good["steps"][2], good["steps"][1],
+                                                                   good["steps"][3]]}),
             "without an `if: always()` step": ("release.yml", "build-sign-notarize",
-                                               {**good, "steps": good["steps"][:2]}),
+                                               {**good, "steps": good["steps"][:3]}),
             "must run unconditionally": ("release.yml", "build-sign-notarize",
-                                         {**good, "steps": [{"run": CLAIM, "continue-on-error": True}, *good["steps"][1:]]}),
+                                         {**good, "steps": [good["steps"][0], {"run": CLAIM, "continue-on-error": True},
+                                                            *good["steps"][2:]]}),
             "runs after a failed claim": ("release.yml", "build-sign-notarize",
-                                          {**good, "steps": [good["steps"][0], {**good["steps"][1], "if": "always()"},
-                                                             good["steps"][2]]}),
+                                          {**good, "steps": [*good["steps"][:2], {**good["steps"][2], "if": "always()"},
+                                                             good["steps"][3]]}),
+            "the first step must be the claim gate": ("release.yml", "build-sign-notarize",
+                                                      {**good, "steps": [{"uses": "actions/checkout@v6"},
+                                                                         *good["steps"]]}),
+            "the first step must be the claim gate (Hold": ("release.yml", "build-sign-notarize",
+                                      {**good, "steps": [{**good["steps"][0], "if": "success()"}, *good["steps"][1:]]}),
             "a re-run could stay": ("release.yml", "build-sign-notarize",
                                     {**good, "runs-on": "${{ needs.pick.outputs.owned || 'blacksmith-6vcpu-macos-26' }}"}),
         }
@@ -191,6 +220,9 @@ class SigningOwnedMacTests(unittest.TestCase):
             with self.subTest(needle):
                 failures, _ = check({workflow: {"jobs": {"pick": picker, name: job}}})
                 self.assertTrue(any(needle in failure for failure in failures), failures)
+        failures, _ = check({"release.yml": {"env": {"K": "${{ secrets.K }}"},
+                                             "jobs": {"pick": picker, "build-sign-notarize": good}}})
+        self.assertTrue(any("workflow-level env names a secret" in failure for failure in failures), failures)
         other = {"outputs": {"owned": "${{ steps.pick.outputs.owned }}"},
                  "steps": [{"id": "pick", "run": "python3 scripts/ci/nightly_build_runner.py verify"}]}
         failures, _ = check({"release.yml": {"jobs": {"pick": other, "build-sign-notarize": good}}})
@@ -273,6 +305,23 @@ class ClaimScriptTests(unittest.TestCase):
             self.assertIn("holds the whole mini", claimed.stdout)
             self.assertIn("removed the signing keychain build.keychain", claimed.stdout)
             self.assertFalse((tmp / "keychains" / "build.keychain-db").exists())
+
+
+class ClaimGateTests(unittest.TestCase):
+    def test_gate(self) -> None:
+        def gate(**env: str) -> subprocess.CompletedProcess:
+            return subprocess.run(["bash", "-e", "-c", CLAIM_GATE], env={"PATH": "/usr/bin:/bin", **env},
+                                  capture_output=True, text=True, timeout=30, check=False)
+
+        fleet = Path("/Users/Shared/cmux-build-fleet").is_dir()
+        if not fleet:
+            self.assertEqual(gate(RUNNER_NAME="blacksmith-6vcpu-macos-26-abc").returncode, 0)
+        for env in ({"RUNNER_NAME": "cmux12-glaeda-3"}, {"RUNNER_NAME": "cmux12-glaeda", "GLAEDA_JOB_CLAIM": "light"}):
+            with self.subTest(env):
+                refused = gate(**env)
+                self.assertEqual(refused.returncode, 1, refused.stdout)
+                self.assertIn("did not give the job the whole mini", refused.stdout)
+        self.assertEqual(gate(RUNNER_NAME="cmux12-glaeda-3", GLAEDA_JOB_CLAIM="exclusive").returncode, 0)
 
 
 if __name__ == "__main__":
