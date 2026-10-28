@@ -319,7 +319,7 @@ test("⌥⌘2 in the composer picks the second environment and its folder there"
   // Option changes `key` on a Mac; the physical digit is `code`.
   await press(prompt, { key: "™", code: "Digit2", altKey: true, metaKey: true });
   expect(calls).toEqual([["project", "/home/dev/model", "gpu-box"]]);
-  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: gpu-box`);
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: gpu-box, ${t("composer.envConnected")}`);
 });
 
 test("⌥⌘ digits do nothing while focus is outside the composer", async () => {
@@ -594,7 +594,7 @@ test("New Tab, previews on: a worktree reply after a machine pick doesn't take t
   const devbox = machineRows().find((row) => row.textContent?.includes("devbox"))!;
   await act(async () => devbox.click());
   await act(async () => replies[0]!("/Users/you/wt/app-red-owl"));
-  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: devbox`);
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: devbox, ${t("composer.envConnected")}`);
   expect(folderName()).not.toContain("owl");
 });
 
@@ -758,7 +758,7 @@ test("previews on: every machine the daemon lists, grouped; the ones not connect
   await openPicker();
   await act(async () => machineRows().find((row) => label(row) === "ci-vm-10")!.click());
   expect(computers.at(-1)).toBe("ci-vm-10");
-  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ci-vm-10`);
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ci-vm-10, ${t("composer.envConnected")}`);
   expect(computerButton()?.querySelector(".acpmux-link-mark")?.getAttribute("data-link")).toBe("connected");
 });
 
