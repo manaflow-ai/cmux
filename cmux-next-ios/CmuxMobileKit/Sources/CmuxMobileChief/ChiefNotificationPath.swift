@@ -1,3 +1,4 @@
+#if os(iOS)
 import SwiftUI
 
 extension NavigationPath {
@@ -22,3 +23,4 @@ extension NavigationPath {
         }
     }
 }
+#endif

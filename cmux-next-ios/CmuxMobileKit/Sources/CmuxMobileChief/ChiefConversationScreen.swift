@@ -294,28 +294,11 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         for recognizer in sendButton?.gestureRecognizers ?? [] where recognizer is UILongPressGestureRecognizer {
             recognizer.isEnabled = sends
         }
-        updateCloudHandOff()
     }
 
-    /// With the Mac offline (the Mac Chief on its cloud copy), one tap hands the
-    /// composer's text, or my newest message, to the Cloud Chief with the recent
-    /// messages as context (``ChiefSources/askCloudChief(_:)``).
-    private func updateCloudHandOff() {
-        let offlineMac = session === ChiefSources.shared.mac && session.backend is ChiefReplicaBackend
-        guard offlineMac else {
-            if navigationItem.rightBarButtonItem?.accessibilityIdentifier == "chief.askCloudChief" {
-                navigationItem.rightBarButtonItem = nil
-            }
-            return
-        }
-        guard navigationItem.rightBarButtonItem?.accessibilityIdentifier != "chief.askCloudChief" else { return }
-        let item = UIBarButtonItem(title: String(localized: "Ask Cloud Chief"), primaryAction: UIAction { [weak self] _ in
-            self?.askCloudChief()
-        })
-        item.accessibilityIdentifier = "chief.askCloudChief"
-        navigationItem.rightBarButtonItem = item
-    }
-
+    /// With the Mac offline (the Mac Chief on its cloud copy), the bar's Ask
+    /// Cloud Chief hands the composer's text, or my newest message, to the
+    /// Cloud Chief with the recent messages as context (``ChiefSources/askCloudChief(_:)``).
     private func askCloudChief() {
         let typed = composerTextView?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let mine = session.store.messages.last { $0.senderID == session.identity.meID }?.text ?? ""
@@ -354,6 +337,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
             self?.presentQuestion(question.id)
         }
         bar.resized = { [weak self] in self?.view.setNeedsLayout() }
+        bar.askCloudChief = { [weak self] in self?.askCloudChief() }
         bar.fading = { [weak self] out, duration in
             guard let self else { return }
             UIView.animate(withDuration: duration) { self.topBand.alpha = out ? 0 : 1 }
@@ -859,10 +843,9 @@ public final class ChiefDemoHook {
     }
 }
 #endif
-#endif
-
 extension ChiefSession {
     /// The conversation a Chief screen shows now, nil when none is on screen:
     /// a notification about it needs no banner.
     public static var conversationOnScreen: String? { ChiefConversationContainer.shownConversation }
 }
+#endif

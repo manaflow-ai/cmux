@@ -259,4 +259,7 @@ public enum ChiefBarItem: Equatable, Sendable {
     case failure(id: String, ChiefTurnFailure)
     /// The Mac's Chief can't be reached: why, and whether Try Again is running.
     case unavailable(reason: String, retrying: Bool)
+    /// The Mac is away and Chief reads its cloud copy: messages wait for the
+    /// Mac, and the bar offers the Cloud Chief now.
+    case macAway(reason: String)
 }

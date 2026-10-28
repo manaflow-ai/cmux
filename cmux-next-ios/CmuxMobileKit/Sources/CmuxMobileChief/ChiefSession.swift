@@ -138,9 +138,9 @@ public final class ChiefSession {
         waiting = outboxStore.load()
         self.backend = backend
         outboxTarget = Self.target(of: backend, macID: nil, previous: nil)
-        refreshOutbox()
         store = ConversationStore(backend: backend)
         control = (backend as? ChiefDaemonBackend)?.control
+        refreshOutbox()
         ChiefAlerts.shared.install()
         attach()
         #if canImport(UIKit)
@@ -228,8 +228,12 @@ public final class ChiefSession {
         // The Mac's Chief refused or is missing (D2): say why, instead of
         // the conversation's endless first-load spinner.
         if !isConnected, let status { return .unavailable(reason: status, retrying: isReconnecting) }
-        guard let id = lastTurnFailureID, let failure = lastTurnFailure, id != retriedFailureID, isConnected else { return nil }
-        return .failure(id: id, failure)
+        if let id = lastTurnFailureID, let failure = lastTurnFailure, id != retriedFailureID, isConnected {
+            return .failure(id: id, failure)
+        }
+        // The Mac is away (its cloud copy): say so, with the Cloud Chief hand-off.
+        if isConnected, backend is ChiefReplicaBackend, let status { return .macAway(reason: status) }
+        return nil
     }
 
     /// Try Again on the unavailable bar has something to try.
