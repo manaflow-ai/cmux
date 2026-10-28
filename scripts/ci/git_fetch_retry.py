@@ -210,7 +210,7 @@ def gitfile_target(worktree: Path) -> Path | None:
     if not text.startswith("gitdir:"):
         return None
     target = Path(text.removeprefix("gitdir:").strip())
-    return Path(os.path.normpath(target if target.is_absolute() else worktree / target))
+    return target if target.is_absolute() else worktree / target  # not normalized: the OS walks it as git does
 
 
 def inside(path: Path, root: Path) -> bool:
@@ -245,7 +245,6 @@ def drop_dangling_submodules(repo: Path, log: Callable[[str], None] = print) -> 
     modules = repo / ".git" / "modules"
     own_modules = (repo / ".git").is_dir() and not (repo / ".git").is_symlink()
     for worktree in submodule_worktrees(repo):
-        worktree = Path(os.path.normpath(worktree))
         if any(parent in removed for parent in worktree.parents) or not inside(worktree, repo):
             continue
         target = gitfile_target(worktree)
@@ -255,8 +254,11 @@ def drop_dangling_submodules(repo: Path, log: Callable[[str], None] = print) -> 
             remove_tree(worktree)
             worktree.mkdir(parents=True, exist_ok=True)  # as a fresh checkout leaves an uninitialized submodule
             removed.append(worktree)
-            if own_modules and target.is_dir() and inside(target, modules):
-                remove_tree(target)
+            # the git dir as git reaches it (symlinks followed), and only under the real .git/modules
+            real = Path(os.path.realpath(target))
+            if own_modules and not modules.is_symlink() and modules.is_dir() and real.is_dir() \
+                    and modules.resolve() in real.parents:
+                remove_tree(real)
         except OSError as error:
             log(f"git_fetch_retry: could not remove {worktree}: {error}")
             continue

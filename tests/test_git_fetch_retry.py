@@ -245,11 +245,26 @@ class DanglingSubmodules(unittest.TestCase):
         (outside / "victim").mkdir(parents=True)
         (outside / "victim" / "keep").write_text("x\n")
         (outside / "victim" / ".git").write_text("gitdir: ../nowhere\n")
+        (self.repo / "keep").mkdir()
+        (self.repo / "keep" / ".git").write_text("gitdir: ../nowhere\n")
+        (self.repo / "keep" / "work").write_text("x\n")
         (self.repo / ".gitmodules").write_text('[submodule "a"]\n\tpath = ../outside/victim\n'
-                                               '[submodule "b"]\n\tpath = link/victim\n')
+                                               '[submodule "b"]\n\tpath = link/victim\n'
+                                               '[submodule "c"]\n\tpath = link/../keep\n')
         (self.repo / "link").symlink_to(outside)
         self.assertEqual(retry.drop_dangling_submodules(self.repo, self.logs.append), [])
         self.assertEqual((outside / "victim" / "keep").read_text(), "x\n")
+        self.assertEqual((self.repo / "keep" / "work").read_text(), "x\n")
+
+    def test_a_gitdir_reached_through_a_symlink_is_judged_where_git_reaches_it(self) -> None:
+        live = Path(self.temp.name) / "outside" / "child"
+        live.mkdir(parents=True)
+        shutil.move(str(self.repo / ".git" / "modules" / "ghostty"), str(live.parent / "live"))
+        (self.repo / ".git" / "modules" / "link").symlink_to(live)
+        (self.repo / "ghostty" / ".git").write_text("gitdir: ../.git/modules/link/../live\n")
+        (self.repo / "ghostty" / "work").write_text("x\n")
+        self.assertEqual(retry.drop_dangling_submodules(self.repo, self.logs.append), [])
+        self.assertEqual((self.repo / "ghostty" / "work").read_text(), "x\n")
 
     def test_a_symlinked_modules_root_is_never_emptied(self) -> None:
         outside = Path(self.temp.name) / "elsewhere"
