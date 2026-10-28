@@ -58,7 +58,7 @@ export function useWorkflowTranscript(
       : (!reader || reader.loading) && !reader?.rows.length
         ? t("replay.loading")
         : reader?.truncated
-          ? t("inspector.olderDropped")
+          ? t("workflow.historyLimited")
           : undefined;
     return [
       pill,
