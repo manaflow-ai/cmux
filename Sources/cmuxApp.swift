@@ -1749,6 +1749,7 @@ private struct MainWindowBootstrapView: View {
 enum MainWindowBootstrapWindowPolicy {
     static let identifier = "cmux.bootstrap"
 
+    @MainActor
     static func owns(_ window: NSWindow, objectIdentifier: ObjectIdentifier) -> Bool {
         ObjectIdentifier(window) == objectIdentifier
             && window.identifier?.rawValue == identifier

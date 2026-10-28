@@ -204,6 +204,7 @@ struct WindowAccessorSwiftTestingTests {
 
     @Test
     func bootstrapCloseDoesNotAcceptAReusedIdentityForAMainWindow() {
+        _ = NSApplication.shared
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
             styleMask: [.titled, .closable],
