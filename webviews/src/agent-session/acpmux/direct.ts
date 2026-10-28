@@ -6677,6 +6677,8 @@ export class AcpmuxDirectClient {
     }
   }
   private async reconnectPeerNow(name: string, wait: boolean, dropped: boolean): Promise<void> {
+    const shown = this.peerStates;
+    const applied = this.peerReadApplied;
     if (dropped || this.peerDown(name)) {
       this.peerStates = { ...this.peerStates, [name]: "connecting" };
       if (!this.snapshotHold) this.emit();
@@ -6688,7 +6690,15 @@ export class AcpmuxDirectClient {
     // may say the machine as it was before, and answer before or after this reply. This read
     // starts last, so it wins whichever order they answer in (`snapshotPeers` drops an older one).
     if (reply !== undefined && !this.snapshotHold) this.emit();
-    return this.refreshPeers();
+    await this.refreshPeers();
+    // Neither acpmux nor a push said anything since (both reads failed): the spinner goes back to
+    // what was shown before, and the next open reads the list again.
+    if (this.peerReadApplied === applied && this.peerStates[name] === "connecting" && shown[name] !== "connecting") {
+      const { [name]: _connecting, ...rest } = this.peerStates;
+      this.peerStates = shown[name] !== undefined ? { ...rest, [name]: shown[name] } : rest;
+      this.peersRead = false;
+      if (!this.snapshotHold) this.emit();
+    }
   }
   /// This connection may read acpmux's peer list: this machine's own acpmux, or an older one that
   /// names no origin. One acpmux calls `peer` or `remote` is another host's, whose peers are not

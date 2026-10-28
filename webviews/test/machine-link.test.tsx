@@ -86,6 +86,8 @@ function daemon(
   { dropped = false, chat = false, gone = false, cut = false, events = false, origin = "local", failStatus = 0 } = {},
 ) {
   let statusFailures = failStatus;
+  /// `_acpmux/peer_reconnect` fails while set (acpmux unreachable for a moment).
+  let reconnectFails = false;
   let cutNext = cut;
   const asked: { method: string; params: Record<string, unknown> }[] = [];
   let peerState = state;
@@ -119,6 +121,7 @@ function daemon(
         }
         return peers();
       case "_acpmux/peer_reconnect":
+        if (reconnectFails) throw new Error("acpmux unavailable");
         if (gone) {
           listed = false;
           return peers();
@@ -192,7 +195,11 @@ function daemon(
     reconnectWaits = false;
     for (const settle of waitingReconnects.splice(0)) settle();
   };
-  return { asked, open, notify, hold, release, add, waitReconnects, settleReconnect };
+  const failNext = (statusReads: number) => {
+    reconnectFails = true;
+    statusFailures = statusReads;
+  };
+  return { asked, open, notify, hold, release, add, waitReconnects, settleReconnect, failNext };
 }
 
 async function client(state: string, options: Parameters<typeof daemon>[1] = {}) {
@@ -219,6 +226,7 @@ async function client(state: string, options: Parameters<typeof daemon>[1] = {})
     add: fake.add,
     waitReconnects: fake.waitReconnects,
     settleReconnect: fake.settleReconnect,
+    failNext: fake.failNext,
     last: () => latest,
   };
 }
@@ -380,6 +388,18 @@ test("a list read while a reconnect waits that answers after it never leaves the
   release(true);
   await Promise.all([reconnect, open]);
   expect(states.at(-1)?.["gpu-box"]).toBe("connected");
+});
+
+test("a reconnect whose every read fails puts the mark back, never a spinner that stays", async () => {
+  const { client: pane, asked, states, failNext } = await client("offline", { events: true });
+  failNext(1);
+  await pane.reconnectPeer("gpu-box", true);
+  expect(states).toContainEqual(expect.objectContaining({ "gpu-box": "connecting" }));
+  expect(states.at(-1)?.["gpu-box"]).toBe("offline");
+  // The next open reads the list again, with acpmux's pushes on too.
+  const reads = asked.filter((message) => message.method === "_acpmux/status").length;
+  await pane.refreshPeersOnOpen();
+  expect(asked.filter((message) => message.method === "_acpmux/status")).toHaveLength(reads + 1);
 });
 
 test("a lagging watcher's older note never replaces a newer one", async () => {
