@@ -567,7 +567,8 @@ public final class MobileSSHComputers {
         let terminals = surfaceIDs
             .filter { MobileSSHIdentifier($0).hostID == hostID }
             .compactMap { removeAttachment(surfaceID: $0) }
-        let panelIDs = browserSessions.keys.filter { MobileSSHIdentifier($0).hostID == hostID }
+        let panelIDs = Set(browserSessions.keys).union(browserGenerations.keys)
+            .filter { MobileSSHIdentifier($0).hostID == hostID }
         let browsers = panelIDs.compactMap { panelID -> (any MobileSSHAttachedBrowser)? in
             browserGenerations[panelID] = nil
             return browserSessions.removeValue(forKey: panelID)
