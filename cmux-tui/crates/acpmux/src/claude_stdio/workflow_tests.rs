@@ -172,7 +172,7 @@ async fn a_workflow_sends_its_phases_and_agents_then_only_what_changed() {
     assert_eq!(
         second[0]["workflowAgents"],
         json!([
-            {"index": 1, "state": "completed", "tokens": 1500, "result": "Verdict: SHIP"},
+            {"index": 1, "state": "completed", "tokens": 1500, "result": "Verdict: SHIP", "effort": null, "lastMessage": null},
             {"index": 2, "state": "running", "startedAt": 5100},
         ])
     );
