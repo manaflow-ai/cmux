@@ -22,7 +22,7 @@ extension WorkstreamPersistence {
         guard limit > 0 else {
             return Page(items: [], hasMoreBefore: false, startOffset: nil)
         }
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+        guard fileManager.fileExists(atPath: fileURL.path) else {
             return Page(items: [], hasMoreBefore: false, startOffset: nil)
         }
         let fh = try FileHandle(forReadingFrom: fileURL)
@@ -68,7 +68,7 @@ extension WorkstreamPersistence {
             tail.append(chunk)
         }
         try checkReadDeadline(deadlineNanoseconds)
-        var lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
+        var lineRanges = lineRanges(in: tail, baseOffset: offset)
         try checkReadDeadline(deadlineNanoseconds)
         // A window that starts away from byte zero may contain only the tail
         // of an oversized unterminated row. Inspect the byte immediately
@@ -200,7 +200,7 @@ extension WorkstreamPersistence {
         if let deadline, uptimeNanoseconds() >= deadline { throw WorkstreamReadDeadline.exceeded }
     }
 
-    static func lineRanges(
+    func lineRanges(
         in data: Data,
         baseOffset: UInt64
     ) -> [(range: Range<Int>, startOffset: UInt64)] {

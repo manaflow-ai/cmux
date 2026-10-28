@@ -12,12 +12,16 @@ import Glibc
 /// gives readers a complete value, and flock serializes writers across processes.
 final class WorkstreamRevisionFile: @unchecked Sendable {
     private let url: URL
+    private let fileManager: FileManager
     // A kernel file lock can wait for another process. Bridge that blocking I/O
     // on one dedicated GCD queue, never on a Swift cooperative executor. Store
     // flush awaits the continuation, including time spent waiting for the lock.
     private let queue = DispatchQueue(label: "com.cmuxterm.workstream-revision")
 
-    init(url: URL) { self.url = url }
+    init(url: URL, fileManager: FileManager) {
+        self.url = url
+        self.fileManager = fileManager
+    }
 
     func read() -> UInt64 {
         guard let file = try? FileHandle(forReadingFrom: url) else { return 0 }
@@ -45,7 +49,7 @@ final class WorkstreamRevisionFile: @unchecked Sendable {
     }
 
     private func recordLocked(_ revision: Int) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         // Never unlink this sibling: every writer must lock the same inode even
         // while the revision value itself is replaced atomically.
         let descriptor = open(url.appendingPathExtension("lock").path,

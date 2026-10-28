@@ -11,6 +11,7 @@ import Glibc
 public let WorkstreamDefaultRingCapacity = 2_000
 public let WorkstreamDefaultInitialLoadLimit = 300
 public let WorkstreamDefaultHistoryPageSize = 300
+/// Diagnostic threshold for a bounded startup read.
 public let WorkstreamDefaultStartupBudgetNanoseconds: UInt64 = 2_000_000_000
 /// Bounds one user-triggered walk through malformed or duplicate history. A
 /// later request can continue from the durable byte cursor without allowing a
@@ -36,12 +37,11 @@ public final class WorkstreamStore {
     public private(set) var hasMorePersistedItems = false
     public private(set) var isLoadingOlderItems = false
     /// Non-fatal startup evidence for diagnosing bounded persistence loads.
-    private(set) var lastPersistenceDiagnostic: WorkstreamPersistence.StartupDiagnostics?
+    private(set) var lastPersistenceDiagnostic: WorkstreamStartupDiagnostics?
     /// A persistence error never prevents the live transport from starting,
     /// but remains observable instead of being silently treated as empty state.
-    private(set) var lastPersistenceError: PersistenceFailure?
+    private(set) var lastPersistenceError: WorkstreamPersistenceFailure?
 
-    enum PersistenceFailure: Equatable { case startupRead }
 
     /// Monotonic generation bumped on every item mutation (ingest, resolve,
     /// expire, history load). It starts from the journal's byte-count

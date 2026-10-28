@@ -63,7 +63,7 @@ extension WorkstreamStore {
                 .toolResult(toolName: titleProvider(event) ?? event.hookEventName.rawValue, resultJSON: toolInput, isError: false)
             )
         case .userPromptSubmit:
-            let prompt = Self.promptText(from: event.toolInputJSON)
+            let prompt = promptText(from: event.toolInputJSON)
             return (
                 .userPrompt,
                 .userPrompt(text: prompt.isEmpty ? (event.context?.lastUserMessage ?? "") : prompt)
@@ -73,9 +73,9 @@ extension WorkstreamStore {
         case .sessionEnd:
             return (.sessionEnd, .sessionEnd)
         case .stop:
-            return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))
+            return (.stop, .stop(reason: stopReason(from: event.toolInputJSON)))
         case .todoWrite:
-            return (.todos, .todos(Self.todos(from: event.toolInputJSON)))
+            return (.todos, .todos(todos(from: event.toolInputJSON)))
         case .notification:
             return (.toolResult, .toolResult(toolName: "notification", resultJSON: toolInput, isError: false))
         }
@@ -88,12 +88,12 @@ extension WorkstreamStore {
         return titleProvider(event)
     }
 
-    private static func jsonObject(from json: String?) -> Any? {
+    private func jsonObject(from json: String?) -> Any? {
         guard let json, let data = json.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
     }
 
-    private static func promptText(from json: String?) -> String {
+    private func promptText(from json: String?) -> String {
         if let dict = jsonObject(from: json) as? [String: Any] {
             return (dict["prompt"] as? String)
                 ?? (dict["text"] as? String)
@@ -103,7 +103,7 @@ extension WorkstreamStore {
         return json ?? ""
     }
 
-    private static func stopReason(from json: String?) -> String? {
+    private func stopReason(from json: String?) -> String? {
         if let dict = jsonObject(from: json) as? [String: Any] {
             return (dict["reason"] as? String)
                 ?? (dict["message"] as? String)
@@ -112,7 +112,7 @@ extension WorkstreamStore {
         return nil
     }
 
-    private static func todos(from json: String?) -> [WorkstreamTaskTodo] {
+    private func todos(from json: String?) -> [WorkstreamTaskTodo] {
         let rawTodos: [Any]
         if let dict = jsonObject(from: json) as? [String: Any] {
             rawTodos = dict["todos"] as? [Any] ?? []

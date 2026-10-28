@@ -7,50 +7,6 @@ import Foundation
 /// without awaiting disk IO. Reads and decoding run on this actor, away
 /// from the main-actor store.
 public actor WorkstreamPersistence {
-    public struct StartupDiagnostics: Sendable, Equatable {
-        public let elapsedNanoseconds: UInt64
-        public let fileBytes: UInt64
-        public let exceededBudget: Bool
-        public let missingFile: Bool
-
-        public init(
-            elapsedNanoseconds: UInt64,
-            fileBytes: UInt64,
-            exceededBudget: Bool,
-            missingFile: Bool
-        ) {
-            self.elapsedNanoseconds = elapsedNanoseconds
-            self.fileBytes = fileBytes
-            self.exceededBudget = exceededBudget
-            self.missingFile = missingFile
-        }
-    }
-
-    /// The startup state loaded without scanning the complete log.
-    public struct StartupSnapshot: Sendable {
-        public let items: [WorkstreamItem]
-        public let revision: Int
-        public let page: Page
-        public let diagnostics: StartupDiagnostics
-
-        public init(
-            items: [WorkstreamItem],
-            revision: Int,
-            page: Page,
-            diagnostics: StartupDiagnostics = StartupDiagnostics(
-                elapsedNanoseconds: 0,
-                fileBytes: 0,
-                exceededBudget: false,
-                missingFile: false
-            )
-        ) {
-            self.items = items
-            self.revision = revision
-            self.page = page
-            self.diagnostics = diagnostics
-        }
-    }
-
     public struct Page: Sendable, Equatable {
         public let items: [WorkstreamItem]
         public let hasMoreBefore: Bool
@@ -71,6 +27,7 @@ public actor WorkstreamPersistence {
     let revisionFile: WorkstreamRevisionFile
     private let encoder: JSONEncoder
     let decoder: JSONDecoder
+    let fileManager: FileManager
     private var handle: FileHandle?
     let uptimeNanoseconds: @Sendable () -> UInt64
 
@@ -90,13 +47,16 @@ public actor WorkstreamPersistence {
     /// - Parameters:
     ///   - fileURL: The journal to read and append.
     ///   - uptimeNanoseconds: Monotonic uptime used to budget recovery work.
+    ///   - fileManager: Filesystem adapter used for journal metadata and removal.
     public init(
         fileURL: URL,
-        uptimeNanoseconds: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
+        uptimeNanoseconds: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
+        fileManager: FileManager = .default
     ) {
         self.uptimeNanoseconds = uptimeNanoseconds
+        self.fileManager = fileManager
         self.fileURL = fileURL
-        self.revisionFile = WorkstreamRevisionFile(url: fileURL.appendingPathExtension("revision"))
+        self.revisionFile = WorkstreamRevisionFile(url: fileURL.appendingPathExtension("revision"), fileManager: fileManager)
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         self.encoder = enc
@@ -139,18 +99,12 @@ public actor WorkstreamPersistence {
         try loadBoundedLatest(limit: limit).items
     }
 
-    private struct BoundedLatestResult {
-        let items: [WorkstreamItem]
-        let exceededBudget: Bool
-        let startOffset: UInt64?
-    }
-
     private func loadBoundedLatest(
         limit: Int,
         deadlineNanoseconds: UInt64? = nil
-    ) throws -> BoundedLatestResult {
-        guard limit > 0, FileManager.default.fileExists(atPath: fileURL.path) else {
-            return BoundedLatestResult(items: [], exceededBudget: false, startOffset: nil)
+    ) throws -> WorkstreamBoundedLatestResult {
+        guard limit > 0, fileManager.fileExists(atPath: fileURL.path) else {
+            return WorkstreamBoundedLatestResult(items: [], exceededBudget: false, startOffset: nil)
         }
         let tail = try readTail(limit: limit, deadlineNanoseconds: deadlineNanoseconds)
         var latestByID: [UUID: (sequence: Int, item: WorkstreamItem, offset: UInt64)] = [:]
@@ -166,7 +120,7 @@ public actor WorkstreamPersistence {
                 let cursor = latestByID.values.map(\.offset).min()
                     ?? oldestExaminedOffset
                     ?? tail.endOffset
-                return BoundedLatestResult(
+                return WorkstreamBoundedLatestResult(
                     items: latestByID.values.sorted { $0.sequence < $1.sequence }.map(\.item),
                     exceededBudget: true,
                     startOffset: cursor > 0 ? cursor : nil
@@ -178,11 +132,11 @@ public actor WorkstreamPersistence {
             if latestByID[item.id] == nil { latestByID[item.id] = (sequence, item, line.offset) }
             if latestByID.count >= limit { break }
         }
-        return BoundedLatestResult(
+        return WorkstreamBoundedLatestResult(
             items: latestByID.values.sorted { $0.sequence < $1.sequence }.map(\.item),
             exceededBudget: tail.exceededBudget,
             startOffset: latestByID.isEmpty
-                ? Self.emptyTailCursor(tail)
+                ? emptyTailCursor(tail)
                 : (latestByID.values.map(\.offset).min() ?? tail.startOffset)
         )
     }
@@ -191,7 +145,7 @@ public actor WorkstreamPersistence {
     /// start can sit inside a row, and paging from there would decode only
     /// that row's head; the first complete line lets the next page read the
     /// cut row whole.
-    private static func emptyTailCursor(_ tail: Tail) -> UInt64? {
+    private func emptyTailCursor(_ tail: WorkstreamJournalTail) -> UInt64? {
         let cursor = tail.lines.first?.offset ?? tail.startOffset
         return cursor > 0 ? cursor : nil
     }
@@ -200,22 +154,22 @@ public actor WorkstreamPersistence {
     /// log. The revision is the maximum of the file-byte generation and the
     /// durable high-water sidecar, so non-writing transitions remain monotonic
     /// across restart.
-    public func loadStartupSnapshot(
+    func loadStartupSnapshot(
         limit: Int,
         budgetNanoseconds: UInt64? = nil,
         hardBudgetNanoseconds: UInt64? = nil
-    ) throws -> StartupSnapshot {
+    ) throws -> WorkstreamStartupSnapshot {
         let started = uptimeNanoseconds()
         guard limit > 0 else {
             let empty = Page(items: [], hasMoreBefore: false, startOffset: nil)
-            let fileExists = FileManager.default.fileExists(atPath: fileURL.path)
+            let fileExists = fileManager.fileExists(atPath: fileURL.path)
             let fileBytes = (try? fileSize()) ?? 0
             let revision = (try? loadRevision()) ?? Int(min(fileBytes, Self.maximumRevision))
-            return StartupSnapshot(
+            return WorkstreamStartupSnapshot(
                 items: [],
                 revision: revision,
                 page: empty,
-                diagnostics: StartupDiagnostics(
+                diagnostics: WorkstreamStartupDiagnostics(
                     elapsedNanoseconds: uptimeNanoseconds() - started,
                     fileBytes: fileBytes,
                     exceededBudget: false,
@@ -223,14 +177,14 @@ public actor WorkstreamPersistence {
                 )
             )
         }
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+        guard fileManager.fileExists(atPath: fileURL.path) else {
             let empty = Page(items: [], hasMoreBefore: false, startOffset: nil)
             let revision = (try? loadRevision()) ?? 0
-            return StartupSnapshot(
+            return WorkstreamStartupSnapshot(
                 items: [],
                 revision: revision,
                 page: empty,
-                diagnostics: StartupDiagnostics(
+                diagnostics: WorkstreamStartupDiagnostics(
                     elapsedNanoseconds: uptimeNanoseconds() - started,
                     fileBytes: 0,
                     exceededBudget: false,
@@ -249,7 +203,7 @@ public actor WorkstreamPersistence {
         )
         if latest.exceededBudget || deadline.map({ uptimeNanoseconds() >= $0 }) == true {
             let elapsed = uptimeNanoseconds() - started
-            return StartupSnapshot(
+            return WorkstreamStartupSnapshot(
                 items: latest.items,
                 revision: try loadRevision(),
                 page: Page(
@@ -257,7 +211,7 @@ public actor WorkstreamPersistence {
                     hasMoreBefore: (latest.startOffset ?? 0) > 0,
                     startOffset: latest.startOffset
                 ),
-                diagnostics: StartupDiagnostics(
+                diagnostics: WorkstreamStartupDiagnostics(
                     elapsedNanoseconds: elapsed,
                     fileBytes: size,
                     exceededBudget: true,
@@ -296,92 +250,16 @@ public actor WorkstreamPersistence {
         }
         let revision = try loadRevision()
         let elapsed = uptimeNanoseconds() - started
-        return StartupSnapshot(
+        return WorkstreamStartupSnapshot(
             items: items,
             revision: revision,
             page: page,
-            diagnostics: StartupDiagnostics(
+            diagnostics: WorkstreamStartupDiagnostics(
                 elapsedNanoseconds: elapsed,
                 fileBytes: size,
                 exceededBudget: fallbackExceededBudget || (budgetNanoseconds.map { elapsed >= $0 } ?? false),
                 missingFile: false
             )
-        )
-    }
-
-    private struct Tail {
-        struct Line {
-            let data: Data
-            let offset: UInt64
-        }
-        let lines: [Line]
-        let exceededBudget: Bool
-        let startOffset: UInt64
-        /// The file size when the window was read, which is where it ends.
-        let endOffset: UInt64
-    }
-
-    private func readTail(
-        limit: Int,
-        deadlineNanoseconds: UInt64? = nil
-    ) throws -> Tail {
-        guard limit > 0, FileManager.default.fileExists(atPath: fileURL.path) else {
-            return Tail(lines: [], exceededBudget: false, startOffset: 0, endOffset: 0)
-        }
-        let fh = try FileHandle(forReadingFrom: fileURL)
-        defer { try? fh.close() }
-        let fileSize = try fh.seekToEnd()
-        guard fileSize > 0 else { return Tail(lines: [], exceededBudget: false, startOffset: 0, endOffset: 0) }
-        let chunkSize = 64 * 1024
-        // Include the terminating newline so a valid row at the byte cap is
-        // not mistaken for a partial leading row.
-        let maximumTailBytes = Self.maximumPersistedRowBytes + 1
-        var offset = fileSize
-        var chunks: [Data] = []
-        var totalBytes = 0
-        var newlineCount = 0
-        let maximumRows = 10_000
-        var exceededBudget = false
-        while offset > 0, newlineCount < maximumRows {
-            if let deadlineNanoseconds,
-               uptimeNanoseconds() >= deadlineNanoseconds {
-                exceededBudget = true
-                break
-            }
-            let readSize = min(chunkSize, min(Int(offset), maximumTailBytes - totalBytes))
-            guard readSize > 0 else { break }
-            offset -= UInt64(readSize)
-            try fh.seek(toOffset: offset)
-            guard let chunk = try fh.read(upToCount: readSize), !chunk.isEmpty else { break }
-            newlineCount += chunk.reduce(into: 0) { if $1 == 0x0A { $0 += 1 } }
-            totalBytes += chunk.count
-            chunks.append(chunk)
-        }
-        var data = Data()
-        for chunk in chunks.reversed() { data.append(chunk) }
-        var lineRanges = Self.lineRanges(in: data, baseOffset: offset)
-        let precedingByte: UInt8?
-        if offset > 0 {
-            try fh.seek(toOffset: offset - 1)
-            precedingByte = try fh.read(upToCount: 1)?.first
-        } else {
-            precedingByte = nil
-        }
-        let hasLeadingPartialLine = offset > 0
-            && !data.isEmpty
-            && data.first != 0x0A
-            && precedingByte != 0x0A
-        if hasLeadingPartialLine, !lineRanges.isEmpty {
-            lineRanges.removeFirst()
-        }
-        let lines = lineRanges.map { range in
-            Tail.Line(data: data.subdata(in: range.range), offset: range.startOffset)
-        }
-        return Tail(
-            lines: lines,
-            exceededBudget: exceededBudget,
-            startOffset: offset,
-            endOffset: fileSize
         )
     }
 
@@ -398,7 +276,7 @@ public actor WorkstreamPersistence {
         }
         handle = nil
         do {
-            try FileManager.default.removeItem(at: fileURL)
+            try fileManager.removeItem(at: fileURL)
         } catch {
             let nsError = error as NSError
             if nsError.domain == NSCocoaErrorDomain,
@@ -413,14 +291,14 @@ public actor WorkstreamPersistence {
     }
 
     func fileSize() throws -> UInt64 {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return 0 }
-        let size = try FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber
+        guard fileManager.fileExists(atPath: fileURL.path) else { return 0 }
+        let size = try fileManager.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber
         return size?.uint64Value ?? 0
     }
 
     private func handleForWriting() throws -> FileHandle {
         if let handle { return handle }
-        let fm = FileManager.default
+        let fm = fileManager
         try fm.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -452,4 +330,130 @@ public actor WorkstreamPersistence {
     }
 
 
+}
+
+private extension WorkstreamItem {
+    func redactedForPersistence() -> WorkstreamItem {
+        var copy = self
+        copy.payload = payload.redactedForPersistence()
+        return copy
+    }
+}
+
+private extension WorkstreamPayload {
+    func redactedForPersistence() -> WorkstreamPayload {
+        switch self {
+        case .permissionRequest(let requestId, let toolName, let toolInputJSON, let pattern):
+            return .permissionRequest(
+                requestId: requestId,
+                toolName: toolName,
+                toolInputJSON: WorkstreamPersistenceRedactor.redactToolInputJSON(toolInputJSON),
+                pattern: pattern
+            )
+        case .toolUse(let toolName, let toolInputJSON):
+            return .toolUse(
+                toolName: toolName,
+                toolInputJSON: WorkstreamPersistenceRedactor.redactToolInputJSON(toolInputJSON)
+            )
+        case .toolResult(let toolName, let resultJSON, let isError):
+            return .toolResult(
+                toolName: toolName,
+                resultJSON: WorkstreamPersistenceRedactor.redactToolInputJSON(resultJSON),
+                isError: isError
+            )
+        default:
+            return self
+        }
+    }
+}
+
+private enum WorkstreamPersistenceRedactor {
+    private static let sensitiveFragments = [
+        "token",
+        "secret",
+        "password",
+        "passwd",
+        "api_key",
+        "apikey",
+        "access_key",
+        "private_key",
+        "authorization",
+        "cookie",
+        "credential",
+        "env",
+    ]
+
+    static func redactToolInputJSON(_ input: String) -> String {
+        guard let data = input.data(using: .utf8),
+              let value = try? JSONSerialization.jsonObject(
+                with: data,
+                options: [.fragmentsAllowed]
+              )
+        else {
+            return redactString(input)
+        }
+
+        let redacted = redactJSONValue(value, key: nil)
+        guard JSONSerialization.isValidJSONObject(redacted) || redacted is String
+        else { return redactString(input) }
+        guard let out = try? JSONSerialization.data(
+            withJSONObject: redacted,
+            options: [.fragmentsAllowed, .sortedKeys]
+        ),
+              let string = String(data: out, encoding: .utf8)
+        else { return redactString(input) }
+        return string
+    }
+
+    private static func redactJSONValue(_ value: Any, key: String?) -> Any {
+        if let key, isSensitiveKey(key) {
+            return "<redacted>"
+        }
+        if let dict = value as? [String: Any] {
+            var out: [String: Any] = [:]
+            for (k, v) in dict {
+                out[k] = redactJSONValue(v, key: k)
+            }
+            return out
+        }
+        if let array = value as? [Any] {
+            return array.map { redactJSONValue($0, key: nil) }
+        }
+        if let string = value as? String {
+            return redactString(string)
+        }
+        return value
+    }
+
+    private static func isSensitiveKey(_ key: String) -> Bool {
+        let normalized = key
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+        return sensitiveFragments.contains { normalized.contains($0) }
+    }
+
+    private static func redactString(_ string: String) -> String {
+        var out = string
+        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        if !homePath.isEmpty {
+            out = out.replacingOccurrences(of: homePath, with: "~")
+        }
+        return redactEnvironmentAssignments(in: out)
+    }
+
+    private static func redactEnvironmentAssignments(in string: String) -> String {
+        let pattern = #"(?i)\b([A-Z_][A-Z0-9_]*(TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY|AUTHORIZATION|COOKIE|CREDENTIAL)[A-Z0-9_]*)=("[^"]*"|'[^']*'|[^\s]+)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return string
+        }
+        var out = string
+        let range = NSRange(out.startIndex..<out.endIndex, in: out)
+        for match in regex.matches(in: out, range: range).reversed() {
+            guard match.numberOfRanges >= 4,
+                  let valueRange = Range(match.range(at: 3), in: out)
+            else { continue }
+            out.replaceSubrange(valueRange, with: "<redacted>")
+        }
+        return out
+    }
 }
