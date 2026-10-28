@@ -115,16 +115,19 @@ impl Facts {
             return out;
         }
         match self.check {
-            Some((at, Ok((auth, detail)))) if auth != Auth::Unknown => {
+            // A check that ran is the evidence, whatever it said; one that could not reach its
+            // provider says unknown, never signed out.
+            Some((at, Ok((auth, detail)))) => {
                 out.state = match auth {
                     Auth::SignedIn => State::Ready,
                     Auth::Expired => State::Expired,
+                    Auth::Unknown => State::Unknown,
                     _ => State::SignedOut,
                 };
                 out.source = Source::AuthCheck;
                 out.evidence_at = Some(at);
                 out.detail = detail;
-                if out.state != State::Ready {
+                if matches!(out.state, State::SignedOut | State::Expired) {
                     out.login = Some(terminal(&self.login));
                 }
             }
@@ -288,6 +291,7 @@ mod tests {
             (facts(None, Some(Ok(Auth::SignedOut))), State::SignedOut, Source::AuthCheck, Some(9)),
             (facts(None, Some(Ok(Auth::SignedIn))), State::Ready, Source::AuthCheck, Some(9)),
             (facts(None, None), State::Unknown, Source::None, None),
+            (facts(None, Some(Ok(Auth::Unknown))), State::Unknown, Source::AuthCheck, Some(9)),
         ] {
             let out = f.decide();
             assert_eq!((out.state, out.source, out.evidence_at), (state, source, at), "{out:?}");
