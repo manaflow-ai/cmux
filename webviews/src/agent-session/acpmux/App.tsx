@@ -4377,6 +4377,13 @@ function AcpmuxPane() {
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
   const [draftAttachments, setDraftAttachments] = useState<ComposerAttachment[] | undefined>();
+  const pendingNewTabDraftWrite = useRef<Promise<void> | undefined>(undefined);
+  const persistNewTabDraft = (text: string, attachments: ComposerAttachment[]) => {
+    pendingNewTabDraftWrite.current = callNative("chat.unsentDraft", { text, attachments }).then(
+      () => undefined,
+      () => undefined,
+    );
+  };
   const [newSession, setNewSession] = useState(false);
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
@@ -7121,6 +7128,12 @@ function AcpmuxPane() {
           if (composerHandle.current) composerHandle.current.wake(wake.composer);
           else pendingWake.current = wake.composer;
         }
+        // A restored unsent New Tab is a new chat until its first prompt. Its chips go to that composer.
+        if (!reconnect && !host.newTab && Array.isArray(host.draftAttachments) && host.draftAttachments.length) {
+          const kept = { ...(pendingWake.current ?? {}), attachments: host.draftAttachments };
+          if (composerHandle.current) composerHandle.current.wake(kept);
+          else pendingWake.current = kept;
+        }
         if (!reconnect && host.sessionId) {
           // The released page's place is newer than the kept one: a scroll that settled while
           // hidden was never reported. Keep it for a relaunch too.
@@ -7805,6 +7818,17 @@ function AcpmuxPane() {
           // on at most DRAFT_SETTLE_MS so the host's one-second ask still gets the chips and the place.
           "pane.wakeState": async () => {
             await settleDraftWithin(composerHandle.current, DRAFT_SETTLE_MS);
+            // A New Tab has no composer handle. Its ordinary edit may still be in the native queue
+            // when quit asks for wake state, so wait briefly for that write as well.
+            const pending = pendingNewTabDraftWrite.current;
+            if (pending) {
+              let timeout: ReturnType<typeof setTimeout> | undefined;
+              await Promise.race([
+                pending,
+                new Promise<void>((resolve) => { timeout = setTimeout(resolve, DRAFT_SETTLE_MS); }),
+              ]);
+              if (timeout) clearTimeout(timeout);
+            }
             const anchor = transcriptAnchor.current?.();
             return {
               ...composerHandle.current?.wakeState(),
@@ -9764,12 +9788,12 @@ function AcpmuxPane() {
               initialDraft={draft}
               initialAttachments={draftAttachments}
               onDraftChanged={(text, attachments) => {
-                void callNative("chat.unsentDraft", { text, attachments }).catch(() => undefined);
+                persistNewTabDraft(text, attachments);
               }}
               onLeaveDraft={(text, attachments) => {
                 // Persist the New Tab's pre-session text through the tab-owned unsent store
                 // before the page is replaced. Attachments are handed to the wake store below.
-                void callNative("chat.unsentDraft", { text, attachments }).catch(() => undefined);
+                persistNewTabDraft(text, attachments);
                 // A Sandboxed send from the page already took its prompt (or held it back).
                 const handed = newTabSandboxSent.current;
                 newTabSandboxSent.current = false;
@@ -9887,7 +9911,7 @@ function AcpmuxPane() {
               initialDraft={draft}
               initialAttachments={draftAttachments}
               onDraftChanged={(text, attachments) => {
-                void callNative("chat.unsentDraft", { text, attachments }).catch(() => undefined);
+                persistNewTabDraft(text, attachments);
               }}
               omnibar={newTab.omnibar}
               projects={newTabProjects}
