@@ -19,7 +19,8 @@ import Testing
     }
 
     /// AppKit's input context reaches the view through the protocol on the
-    /// main thread; the main-actor conformance answers there.
+    /// main thread; the main-actor conformance answers there (coverage for
+    /// the isolated conformance, not a red test: the old one answered too).
     @Test func textInputClientConformanceAnswersOnTheMainActor() {
         let input = MacEmojiInputView()
         var picked: [String] = []

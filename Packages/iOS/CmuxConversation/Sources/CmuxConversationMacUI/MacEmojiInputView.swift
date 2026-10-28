@@ -8,8 +8,10 @@ import CmuxConversationCore
 ///
 /// The view is main-actor (NSView) and so is every requirement it implements;
 /// AppKit's input context calls them on the main thread. The conformance says
-/// so (an isolated conformance, checked by the compiler) rather than turning
-/// the isolation check off.
+/// so (an isolated conformance, SE-0470) rather than turning the isolation
+/// check off: the compiler refuses a Swift use of it off the main actor, and
+/// an Objective-C call reaches the main-actor methods through thunks that
+/// check the main actor at run time.
 final class MacEmojiInputView: NSView, @MainActor NSTextInputClient {
     var onEmoji: ((String) -> Void)?
 

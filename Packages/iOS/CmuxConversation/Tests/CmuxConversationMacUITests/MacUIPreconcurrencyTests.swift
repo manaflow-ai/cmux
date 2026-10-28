@@ -11,26 +11,30 @@ import Testing
 /// A main-actor type that adopts a nonisolated AppKit protocol states that
 /// with an isolated conformance (`@MainActor NSTextInputClient`, as
 /// `RemoteInputCaptureView` does), which the compiler checks. The cmux-next
-/// stability plan keeps `@preconcurrency` to the Sparkle seam only, so this
-/// module has none.
+/// stability plan keeps `@preconcurrency` to the Sparkle seam only, so no
+/// source of this package has one.
 @Suite struct MacUIPreconcurrencyTests {
-    @Test func macUIHasNoPreconcurrencyEscape() throws {
+    @Test func conversationSourcesHaveNoPreconcurrencyEscape() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/CmuxConversationMacUI")
-        let files = try FileManager.default.contentsOfDirectory(at: sources, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "swift" }
-        #expect(!files.isEmpty)
+            .appendingPathComponent("Sources")
+        let enumerator = try #require(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
+        let files = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
+        #expect(files.contains { $0.lastPathComponent == "MacEmojiInputView.swift" })
         var offenders: [String] = []
         for file in files {
             let lines = try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n")
             for (index, line) in lines.enumerated() {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("*") || trimmed.hasPrefix("/*") { continue }
                 let code = line.range(of: "//").map { String(line[..<$0.lowerBound]) } ?? line
-                if code.contains("@preconcurrency") { offenders.append("\(file.lastPathComponent):\(index + 1)") }
+                if code.contains("@preconcurrency") {
+                    offenders.append("\(file.deletingLastPathComponent().lastPathComponent)/\(file.lastPathComponent):\(index + 1)")
+                }
             }
         }
-        #expect(offenders.isEmpty, "@preconcurrency in CmuxConversationMacUI: \(offenders.sorted())")
+        #expect(offenders.isEmpty, "@preconcurrency in CmuxConversation sources: \(offenders.sorted())")
     }
 }
