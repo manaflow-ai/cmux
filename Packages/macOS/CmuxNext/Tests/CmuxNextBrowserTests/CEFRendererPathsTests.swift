@@ -258,10 +258,10 @@ import Testing
 
     // MARK: Surface copy (p13-webui-078)
 
-    /// From fork API 38 a tab's picture is the fork's surface copy, with no DevTools call: the request leaves in the
+    /// From fork API 40 a tab's picture is the fork's surface copy, with no DevTools call: the request leaves in the
     /// caller's turn (before a hide that follows it), sized to whole pixels, and the CMUX_SHIM_REPLY under its reply
     /// id brings the PNG and its size; a reply with no size is no picture.
-    @Test func aTabOnForkAPI38CopiesItsSurfaceWithNoDevToolsCall() async throws {
+    @Test func aTabOnForkAPI40CopiesItsSurfaceWithNoDevToolsCall() async throws {
         let rig = try Rig(forkAPI: CEFForkFeatures.surfaceCopyForkAPI)
         defer { rig.close() }
         let tab = try rig.attachedTab()
@@ -323,10 +323,10 @@ import Testing
         }
     }
 
-    /// From fork API 38 a scripted hover is the fork's native mouse move (`SendMouseMoveEvent`, no button), with no
+    /// From fork API 40 a scripted hover is the fork's native mouse move (`SendMouseMoveEvent`, no button), with no
     /// DevTools call; below it, or with the export missing, the tab says no and the caller uses DevTools input.
     @Test(arguments: [CEFForkFeatures.mouseMoveForkAPI - 1, CEFForkFeatures.mouseMoveForkAPI])
-    func aTabMovesTheMouseNativelyFromForkAPI38(forkAPI: Int32) async throws {
+    func aTabMovesTheMouseNativelyFromForkAPI40(forkAPI: Int32) async throws {
         let rig = try Rig(forkAPI: forkAPI)
         defer { rig.close() }
         let tab = try rig.attachedTab()
@@ -340,7 +340,7 @@ import Testing
         #expect(!tab.sendMouseMove(x: 1, y: 1), "a closed tab moved the mouse")
     }
 
-    /// Below fork API 38 there is no surface copy: no picture at once, no shim call and no DevTools.
+    /// Below fork API 40 there is no surface copy: no picture at once, no shim call and no DevTools.
     @Test func aForkBeforeTheSurfaceCopyAnswersNoPictureAtOnce() async throws {
         let rig = try Rig(forkAPI: CEFForkFeatures.surfaceCopyForkAPI - 1)
         defer { rig.close() }

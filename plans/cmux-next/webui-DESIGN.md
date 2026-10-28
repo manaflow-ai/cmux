@@ -109,12 +109,13 @@ cmux.33 line `c382c63b`). Nobody has built it or run its test, so 077 is not don
   (`CefBrowserHost::SendMouseClickEvent`, view points, `CEFTab.sendClick`, host op `kOpTabSendClick`). Debug hovers
   use a move with no button, `cmux_shim_tab_send_mouse_move(browser_id, x, y, modifiers)`
   (`CefBrowserHost::SendMouseMoveEvent`, view points, `CEFTab.sendMouseMove`, host op `kOpTabSendMouseMove`): a
-  `post` optional export with `fork_api` 38, which 077's fork line adds next to the capture and the train (086)
-  numbers with it. A drag (a move with a button held) has no native path, so 078 keeps DevTools input for it.
+  `post` optional export with `fork_api` 40, the capture's number in the fork train (086), which gates it with the
+  capture. A drag (a move with a button held) has no native path, so 078 keeps DevTools input for it.
 - Binding (078, as built). The shim wraps the capture export as
   `cmux_shim_tab_copy_surface(browser_id, reply, max_width, max_height, format, jpeg_quality)`, an `async` entry in
-  `optional_exports` of [chromium-host-ops.json](chromium-host-ops.json) with `fork_api` 38: the app's claimed numbers
-  end at 37 (`CEFForkFeatures.tabVisibilityForkAPI`), and 086 confirms 38 or moves `surfaceCopyForkAPI` with the pin.
+  `optional_exports` of [chromium-host-ops.json](chromium-host-ops.json) with `fork_api` 40: the fork train (086,
+  manaflow-ai/cef `cp/p13-webui-086`) numbers the capture 40 (`CEFForkFeatures.surfaceCopyForkAPI`); that line lacks
+  API 28 and 29, so 40 alone does not mean the API 29 click.
   Its answer is a `CMUX_SHIM_REPLY` under the caller's reply id, as `cmux_shim_download_favicon` answers its image:
   value = width | height << 32 in pixels (0: no picture), json = the image in base64. The site-reply path already
   carries that event through the generated host wire, so no new event kind is needed. `CEFTab.copySurface` sends
@@ -125,12 +126,12 @@ cmux.33 line `c382c63b`). Nobody has built it or run its test, so 077 is not don
   (services/data_decoder/public/cpp/decode_image.h).
   Its answer comes in a synchronous turn (`CEFSurfaceCopies`, as the built-in extension loads: the reply, a refused
   start, a deadline on the main deadline queue, or the browser's close), with no task waiting. It gates on
-  `CEFForkFeatures.surfaceCopy` (the fork API at least 38, plus the shim export), never on a raw dlsym of the fork.
+  `CEFForkFeatures.surfaceCopy` (the fork API at least 40, plus the shim export), never on a raw dlsym of the fork.
 - The page host's DevTools sites (MQ3, 078). Window image, cover snapshot and debug snapshot use the surface copy
   (`PageWebView.chromiumPictureData`); the debug press uses the native click and the debug hover the native move,
   and both report the path in `delivered` (`native` or `devtools`); the menu's Copy sends `execCommand('copy')`
   through `tabEvaluate` with a user gesture and no waiter (`CEFTab.perform`); the selected text goes through
-  `evaluate`. DevTools stays only in the fallback of a fork without the path (pictures and hovers below API 38,
+  `evaluate`. DevTools stays only in the fallback of a fork without the path (pictures and hovers below API 40,
   clicks and Copy below 29).
 - Gate. A fork build must pass `ceftests --gtest_filter=CmuxTabSurfaceTest.*` in its own process, in order. Every
   page test fails at once if the ever-attached flag is already set when its page draws. The capture test then checks
@@ -166,9 +167,9 @@ passes `ceftests --gtest_filter=CmuxPageProcessTest.*` and `ceftests --cmux-page
   moves off a full renderer.
 - Without a registered group, a host the switch names shares only with its own host (085's agent page). A one-label
   host (`passwords`, `diff`) never shares. cmux-page never uses process-per-site.
-- API number: none yet. This ref keeps `CMUX_CEF_API_VERSION` 27, because it has none of API 28-30. The fork train
-  (086) numbers the export on a line that has 28-30; no ref has that number yet. The app finds the export with
-  dlsym (012).
+- API 42, from the fork train (086, manaflow-ai/cef `cp/p13-webui-086`, on the API 31 line, which lacks 28 and 29).
+  The app finds the export with dlsym (012); the switch goes only to a fork at 42 or later
+  (`CEFForkFeatures.pageSiteSharingForkAPI`).
 - What the WebUI scheme changes, which the fork build must show to be harmless (`content/browser/loader/
   navigation_url_loader_impl.cc` `Start`, `render_frame_host_impl.cc` subresource factories): a cmux-page
   navigation skips the navigation interceptors (service worker, DevTools network), and its terminal loader is
@@ -205,8 +206,8 @@ passes `ceftests --gtest_filter=CmuxPageProcessTest.*` and `ceftests --cmux-page
 - A renderer crash marks every page of its group: shown pages reload once, hidden pages reload when shown, with a
   crash budget of 3 per 600 s per group.
 
-Fork in-place discard (task 018, manaflow-ai/cef `cp/p13-webui-018` at `f844f729`; not built or run yet; no API
-number until the train, 086, so the app finds the exports with dlsym). `cmux_tab_discard(browser_id)` does what
+Fork in-place discard (task 018, manaflow-ai/cef `cp/p13-webui-018` at `f844f729`; not built or run yet; API 39
+in the fork train, 086; the app finds the exports with dlsym). `cmux_tab_discard(browser_id)` does what
 Chrome does with `WebContentsDiscard` (`chrome/browser/resource_coordinator/tab_lifecycle_unit.cc`
 `FinishDiscardAndPreserveWebContents`): `AttemptFastKillForDiscard`, then `WebContents::Discard`. The fast kill ends
 the renderer only when `RenderProcessHostImpl::FastShutdownIfPossible` allows it: no other page in the process, and
@@ -273,7 +274,7 @@ insertion, so in a tabbed embedder window it owns the window's BrowserView, and 
 plain tabs that load as before. `CefBrowserHostBase::Create` removes the key from extra_info in both runtime styles, so
 no renderer sees it. `cmux_tab_renderer_state(browser_id)` reports whether the main frame's own RenderFrame is live
 (`RenderFrameHost::IsRenderFrameLive`): a placeholder whose frame Chromium put in a shared live process above the
-renderer process limit still reports 0. No API number yet (the train, 086, gives one); the app honors the key only
+renderer process limit still reports 0. API 38 in the fork train (086); the app honors the key only
 when it finds `cmux_tab_renderer_state` with dlsym (019, which also passes the key from the shim's window create).
 On a fork build, `ceftests --gtest_filter=CmuxPlaceholderTest.*` (a regular Chrome window, the key in both styles)
 and `scripts/test-cmux-embedder.sh <cef> placeholder placeholder-shared` (the tabbed embedder window the spare

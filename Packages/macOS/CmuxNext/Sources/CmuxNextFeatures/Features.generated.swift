@@ -1691,12 +1691,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// On a Chromium fork with the page push channel (API 39), cmux pages get their host events and replies as data handed to a receiver the page registered, instead of a script evaluated for each delivery.
+    /// On a Chromium fork with the page push channel (API 43), cmux pages get their host events and replies as data handed to a receiver the page registered, instead of a script evaluated for each delivery.
     public static let pagePushChannel = Feature(
         index: 97,
         name: "pagePushChannel",
         owner: "PL-webui",
-        description: "On a Chromium fork with the page push channel (API 39), cmux pages get their host events and replies as data handed to a receiver the page registered, instead of a script evaluated for each delivery.",
+        description: "On a Chromium fork with the page push channel (API 43), cmux pages get their host events and replies as data handed to a receiver the page registered, instead of a script evaluated for each delivery.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
