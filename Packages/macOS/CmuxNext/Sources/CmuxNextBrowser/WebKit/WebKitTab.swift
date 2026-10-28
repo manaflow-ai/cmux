@@ -120,6 +120,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         container = WebKitPageContainer(page: webView, visibility: WebKitPageVisibility(followsContent: engine.hidesHiddenTabs))
         super.init()
         inspectorWatch.attach(webView: webView, container: container, events: engine.appEvents)
+        container.needsPageBackdrop = { [weak self] in self?.samplePageBackdrop() }
 
         webView.owner = self
         webView.navigationDelegate = self
