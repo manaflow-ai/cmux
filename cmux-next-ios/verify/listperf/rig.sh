@@ -44,6 +44,10 @@ case "${1:-}" in
     remote "mkdir -p $DIR/vendor"
     rsync -a -e "$rsh" "$repo/vendor/stack-auth-swift-sdk-prerelease" "$dest:$DIR/vendor/"
     rsync -a -e "$rsh" "$repo/AppIcon.icon" "$dest:$DIR/"
+    # Specs the package tests read from the repo (deep links, Full access modes).
+    rsync -a --delete -e "$rsh" "$repo/schemas" "$dest:$DIR/"
+    remote "mkdir -p $DIR/cmux-tui"
+    rsync -a --delete -e "$rsh" "$repo/cmux-tui/spec" "$dest:$DIR/cmux-tui/"
     # rsync keeps mtimes; touch so SwiftPM never reuses an older build of a changed file.
     remote "find $DIR/cmux-next-ios/CmuxMobileKit/Sources -name '*.swift' -newer $DIR/.synced -exec touch {} + 2>/dev/null; touch $DIR/.synced"
     ;;
