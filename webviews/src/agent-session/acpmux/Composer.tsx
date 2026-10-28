@@ -1882,6 +1882,7 @@ export function Composer({
                 // Codex's short tooltip (Leo, 2026-10-21): "Add files and more", not the menu's list.
                 tooltip={t("composer.addTooltip")}
                 className="acpmux-composer-plus"
+                alignmentColumn="left-icon"
                 button={<PlusIcon />}
                 align="start"
                 returnFocus={false}

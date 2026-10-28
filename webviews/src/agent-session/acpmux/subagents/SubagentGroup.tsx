@@ -232,6 +232,7 @@ export function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string
     <button
       type="button"
       className="cv-subagent__stop"
+      data-alignment-column="right-action"
       data-state={state}
       disabled={state === "stopping"}
       aria-label={label}

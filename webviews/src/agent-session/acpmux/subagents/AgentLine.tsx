@@ -102,6 +102,7 @@ export function AgentLine({
       <span
         className={shimmer.className ? `acpmux-lineage__icon ${shimmer.className}` : "acpmux-lineage__icon"}
         style={shimmer.style}
+        data-alignment-column="left-icon"
         data-state={status}
       >
         {working ? (
@@ -121,7 +122,7 @@ export function AgentLine({
       {/* Running turns to Waiting or Done with a tick, never a jump (trayMotion.tsx). */}
       <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
       {chevron && onOpen && (
-        <span className="acpmux-agent-line__chevron" aria-hidden="true">
+        <span className="acpmux-agent-line__chevron" data-alignment-column="right-action" aria-hidden="true">
           <Icon name="disclosure.collapsed" size={12} />
         </span>
       )}

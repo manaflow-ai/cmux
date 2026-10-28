@@ -503,6 +503,56 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__finished > svg {
   flex: none;
 }
+/* The tray shares the composer's measured columns: a 28px left icon lane and a 28px right action lane,
+   each centered 22px from the surrounding surface edge (the same +/mic geometry). */
+.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__head {
+  display: grid;
+  grid-template-columns: var(--acpmux-composer-action-size) minmax(0, 1fr) auto var(--acpmux-composer-action-size);
+  column-gap: 8px;
+  padding-inline: var(--acpmux-composer-column-inset);
+}
+.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__head > .acpmux-lineage__icon,
+.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__right-action {
+  width: var(--acpmux-composer-action-size);
+  justify-content: center;
+}
+.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__right-action {
+  display: inline-flex;
+  align-items: center;
+  grid-column: 4;
+}
+.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: 0;
+}
+.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line:has(> [data-alignment-column="right-action"]) {
+  grid-template-columns: minmax(0, 1fr) var(--acpmux-composer-action-size);
+}
+.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line__button {
+  display: grid;
+  grid-template-columns: var(--acpmux-composer-action-size) minmax(0, 1fr) auto auto var(--acpmux-composer-action-size);
+  column-gap: 8px;
+  padding-inline: var(--acpmux-composer-column-inset);
+}
+.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__head > [data-alignment-column="left-icon"],
+.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line__button > [data-alignment-column="left-icon"] {
+  width: var(--acpmux-composer-action-size);
+  justify-content: center;
+}
+.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line__button > [data-alignment-column="right-action"] {
+  width: var(--acpmux-composer-action-size);
+  justify-content: center;
+  margin-inline: 0;
+  grid-column: 5;
+}
+.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line > [data-alignment-column="right-action"] {
+  position: static;
+  width: var(--acpmux-composer-action-size);
+  height: var(--acpmux-composer-action-size);
+  margin: 0 var(--acpmux-composer-column-inset) 0 0;
+}
+
 /* A line (AgentLine.tsx) is its button and, for a running subagent or a registry command, its
    stop button (SubagentGroup.tsx, inspector/TasksSection.tsx). */
 .acpmux-agent-line {
@@ -733,4 +783,4 @@ button.cv-subagent > :last-child {
     opacity: 0;
     translate: 0 -0.4em;
   }
-}
+

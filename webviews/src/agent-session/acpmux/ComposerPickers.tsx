@@ -1546,6 +1546,7 @@ export function Picker({
   returnFocus = true,
   heading,
   tooltip,
+  alignmentColumn,
 }: {
   label: string;
   className: string;
@@ -1560,6 +1561,8 @@ export function Picker({
   /// What the menu holds, as the trigger's tooltip: only a trigger that draws an icon and no text
   /// passes one (a picker showing its choice's name needs none).
   tooltip?: string;
+  /** Stable geometry hook for shared composer/tray columns. */
+  alignmentColumn?: "left-icon" | "right-action";
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -1684,6 +1687,7 @@ export function Picker({
     <span
       ref={root}
       className={`acpmux-picker ${className}`}
+      data-alignment-column={alignmentColumn}
       style={{ position: "relative" }}
       onBlur={(event) => {
         if (open && !root.current?.contains(event.relatedTarget as Node | null)) setOpen(false);

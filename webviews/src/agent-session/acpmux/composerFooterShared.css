@@ -9,6 +9,9 @@
   --acpmux-permission-pill-inset: 8px;
   --acpmux-permission-pill-radius: 999px;
   --acpmux-permission-pill-gap: 16px;
+  /* Shared by the composer and the running-work tray; keep both columns measured from the same edge. */
+  --acpmux-composer-column-inset: 8px;
+  --acpmux-composer-action-size: 28px;
 }
 
 /* Codex's composer-permission-mode-picker.png: the capsule keeps its own inset in either look,
