@@ -141017,6 +141017,78 @@
             "state": "translated",
             "value": "작업 공간의 상세 정보 표시"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži detaljne informacije o radnom prostoru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis detaljer om arbejdsområdet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra dettagli estesi dello spazio di lavoro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញព័ត៌មានលម្អិតអំពីកន្លែងធ្វើការ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis detaljer om arbeidsområdet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż szczegóły obszaru roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar detalhes ampliados do espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать подробные сведения о рабочем пространстве"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงรายละเอียดพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayrıntılı çalışma alanı bilgilerini göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати докладні відомості про робочий простір"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị chi tiết không gian làm việc"
+          }
         }
       }
     },
@@ -141075,6 +141147,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "작업 공간에 포인터를 올리면 내부 탭 대신 프롬프트, 입력 대기 상태 및 작업 공간 정보를 표시합니다。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pri zadržavanju pokazivača iznad radnog prostora prikaži upite, stanje čekanja na unos i informacije o radnom prostoru umjesto njegovih kartica."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis prompts, status for afventende input og oplysninger om arbejdsområdet i stedet for dets faner, når markøren holdes over det."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando il puntatore passa su uno spazio di lavoro, mostra i prompt, lo stato di attesa di input e le informazioni sullo spazio anziché le schede interne."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលដាក់ព្រួញកណ្ដុរលើកន្លែងធ្វើការ បង្ហាញសំណើ ស្ថានភាពរង់ចាំការបញ្ចូល និងព័ត៌មានអំពីកន្លែងធ្វើការ ជំនួសឱ្យផ្ទាំងខាងក្នុង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis ledetekster, status for ventende inndata og informasjon om arbeidsområdet i stedet for fanene når pekeren holdes over det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po najechaniu na obszar roboczy pokazuj polecenia, stan oczekiwania na dane i informacje o obszarze zamiast jego kart."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao passar o cursor sobre um espaço de trabalho, mostrar os prompts, o estado de espera por entrada e as informações do espaço em vez das abas internas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При наведении на рабочее пространство показывать запросы, состояние ожидания ввода и сведения о пространстве вместо его вкладок."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อวางตัวชี้เหนือพื้นที่ทำงาน ให้แสดงพรอมต์ สถานะรอการป้อนข้อมูล และข้อมูลพื้นที่ทำงานแทนแท็บภายใน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir çalışma alanının üzerine gelindiğinde iç sekmeler yerine istemleri, girdi bekleme durumunu ve çalışma alanı bilgilerini göster."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Під час наведення на робочий простір показувати запити, стан очікування введення та відомості про простір замість його вкладок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi di chuột lên không gian làm việc, hiển thị lời nhắc, trạng thái chờ nhập và thông tin không gian thay cho các thẻ bên trong."
           }
         }
       }
