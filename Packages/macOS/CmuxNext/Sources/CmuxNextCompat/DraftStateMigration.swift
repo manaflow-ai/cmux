@@ -19,32 +19,50 @@ public enum DraftStateMigration {
         try? fileManager.createDirectory(at: destination, withIntermediateDirectories: true,
                                          attributes: [.posixPermissions: 0o700])
         let marker = destination.appending(path: ".adopted-v1")
-        guard !fileManager.fileExists(atPath: marker.path) else { return }
+        if fileManager.fileExists(atPath: marker.path) {
+            // Upgrade the old global marker into per-artifact tombstones before returning.
+            for artifact in artifacts {
+                let settled = destination.appending(path: ".adopted-v1-\(artifact)")
+                try? settle(settled, fileManager: fileManager)
+            }
+            return
+        }
         var failed = false
         for artifact in artifacts {
+            let settled = destination.appending(path: ".adopted-v1-\(artifact)")
+            // A settled artifact is a tombstone as well as a completion record: if the person
+            // clears its restored data, a later launch must not resurrect the old source.
+            guard !fileManager.fileExists(atPath: settled.path) else { continue }
             let target = destination.appending(path: artifact)
             let source = roots
                 .filter { $0.standardizedFileURL != destination.standardizedFileURL }
                 .map { $0.appending(path: artifact) }
                 .filter { isNonEmpty($0, fileManager: fileManager) }
                 .max { modificationDate($0, fileManager: fileManager) < modificationDate($1, fileManager: fileManager) }
-            guard let source else { continue }
             do {
-                if artifact == "agent-unsent-drafts.json" || artifact == "agent-composer-drafts.json" {
-                    try mergeDrafts(from: source, to: target, unsent: artifact == "agent-unsent-drafts.json", fileManager: fileManager)
-                } else if artifact != "quick-composer-draft.json" || !fileManager.fileExists(atPath: target.path) {
-                    try copyMissing(from: source, to: target, fileManager: fileManager)
+                if let source {
+                    if artifact == "agent-unsent-drafts.json" || artifact == "agent-composer-drafts.json" {
+                        try mergeDrafts(from: source, to: target, unsent: artifact == "agent-unsent-drafts.json", fileManager: fileManager)
+                    } else if artifact != "quick-composer-draft.json" || !fileManager.fileExists(atPath: target.path) {
+                        try copyMissing(from: source, to: target, fileManager: fileManager)
+                    }
                 }
+                try settle(settled, fileManager: fileManager)
             } catch {
                 failed = true
-                // A broken source never blocks launch; the next launch can retry it.
+                // A broken source or marker never blocks launch; the next launch can retry it.
             }
         }
 
-        if !failed {
+        if !failed && artifacts.allSatisfy({ fileManager.fileExists(atPath: destination.appending(path: ".adopted-v1-\($0)").path) }) {
             try? Data("1".utf8).blockingWrite(to: marker, options: [.atomic])
             try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: marker.path)
         }
+    }
+
+    private static func settle(_ marker: URL, fileManager: CheckedFileManager) throws {
+        try Data("1".utf8).blockingWrite(to: marker, options: [.atomic])
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: marker.path)
     }
 
     /// Recovers only composer_draft fields from old daemon session metadata. It does
