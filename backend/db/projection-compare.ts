@@ -86,23 +86,26 @@ export const TEAM_COLUMN: Readonly<Record<string, string>> = {
   home_conversations: "team_id"
 }
 
-/** A Postgres WHERE clause that leaves out the rows of `exclude` teams (a row with no team stays). */
-const pgScope = (table: string, exclude: ReadonlyArray<string>, values: Array<unknown>): string => {
+/** A Postgres condition that leaves out the rows of `exclude` teams (a row with no team stays); "" when nothing is left out. */
+export const pgExcludeTeams = (table: string, exclude: ReadonlyArray<string>, values: Array<unknown>): string => {
   const col = TEAM_COLUMN[table]
   if (!col || exclude.length === 0) return ""
   values.push([...exclude])
-  return ` WHERE ("${col}" IS NULL OR NOT ("${col}" = ANY($${values.length}::text[])))`
+  return `("${col}" IS NULL OR NOT ("${col}" = ANY($${values.length}::text[])))`
 }
-/** The MySQL form of pgScope. */
-const myScope = (table: string, exclude: ReadonlyArray<string>, values: Array<unknown>): string => {
+/** The MySQL form of pgExcludeTeams. */
+export const myExcludeTeams = (table: string, exclude: ReadonlyArray<string>, values: Array<unknown>): string => {
   const col = TEAM_COLUMN[table]
   if (!col || exclude.length === 0) return ""
   values.push(...exclude)
-  return ` WHERE (\`${col}\` IS NULL OR \`${col}\` NOT IN (${exclude.map(() => "?").join(", ")}))`
+  return `(\`${col}\` IS NULL OR \`${col}\` NOT IN (${exclude.map(() => "?").join(", ")}))`
 }
+const where = (cond: string) => (cond ? ` WHERE ${cond}` : "")
+const pgScope = (table: string, exclude: ReadonlyArray<string>, values: Array<unknown>): string => where(pgExcludeTeams(table, exclude, values))
+const myScope = (table: string, exclude: ReadonlyArray<string>, values: Array<unknown>): string => where(myExcludeTeams(table, exclude, values))
 
 /** Key columns that are numbers, not ASCII ids. */
-const NUMERIC_KEYS: ReadonlySet<string> = new Set(["n", "seq"])
+export const NUMERIC_KEYS: ReadonlySet<string> = new Set(["n", "seq"])
 
 export interface PgLike {
   query(sql: string, values?: Array<unknown>): Promise<{ rows: Array<Record<string, unknown>> }>
