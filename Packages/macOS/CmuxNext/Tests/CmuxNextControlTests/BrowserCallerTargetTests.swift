@@ -125,13 +125,21 @@ import Testing
     }
 
     /// `cmux browser reload-page` (and the MCP action tool) from the agent reloads its
-    /// browser: a pane target when its pane shows it, never the focused pane in window A.
+    /// browser: the pane that shows it, never the focused pane in window A. A browser its
+    /// pane does not show is refused (the pane-only action would reach the pane's terminal).
     @Test func aBrowserActionWithoutATargetRunsOnTheCallersBrowser() async throws {
         var shown = Self.snapshot()
         shown.topology.workspaces[1].screens[0].panes[1].selectedTabID = "tab-own"
         let (router, executor) = install(shown)
         _ = try await router.handle(ControlRequest(method: "action.run", params: ["action": "browserReload", "caller": Self.agent])).get()
         #expect(executor.last?.target == ControlTargetRef(kind: "pane", id: "pane-beside"))
+
+        let (hidden, hiddenExecutor) = install(Self.snapshot())
+        let unshown = await hidden.handle(ControlRequest(method: "action.run", params: ["action": "browserReload", "caller": Self.agent]))
+        guard case .failure(let notShown) = unshown else { Issue.record("ran \(unshown)"); return }
+        #expect(notShown.code == "unavailable")
+        #expect(notShown.data?["tab"] == "tab-own")
+        #expect(hiddenExecutor.last == nil)
 
         let (alone, _) = install(Self.snapshot(ownBrowser: false, neighbors: false))
         let refused = await alone.handle(ControlRequest(method: "action.run", params: ["action": "browserReload", "caller": Self.agent]))

@@ -148,8 +148,9 @@ struct ControlCallerLocation: Sendable, Equatable {
         }
         members["caller"] = location.callerJSON
         members["beside"] = location.besideJSON
-        // The browser its `browser.page.*` and `current` browser commands drive (#26648).
-        members["browser"] = BrowserCallerTarget.resolve(near: location, in: topology)?.json ?? .null
+        // The browser its `current` browser commands drive (#26648), in its own session: the
+        // daemon the CLI and MCP address.
+        members["browser"] = BrowserCallerTarget.resolve(near: location, in: topology, sameSession: true)?.json ?? .null
     }
 }
 

@@ -147,7 +147,7 @@ pub(super) fn apply(
                 #[cfg(unix)]
                 if caller_route
                     && super::caller_browser::wants(params)
-                    && let Some(identity) = caller_identity(socket)?
+                    && let Some(identity) = caller_identity(socket)
                 {
                     super::caller_browser::apply(params, &identity).map_err(Failure::Resource)?;
                 }
@@ -485,17 +485,15 @@ fn agent_caller_path(socket: &SocketRoute<'_>) -> Result<Option<Map<String, Valu
 }
 
 /// The app's `system.identify` answer for this caller (agent session, Chief
-/// turn or terminal), or `None` when nothing names a caller or no app owns
-/// this daemon.
+/// turn or terminal), or `None` when nothing names a caller, no app owns
+/// this daemon, or the app does not answer (down, restarting, slow): the
+/// `current` chain then goes to the daemon as before.
 #[cfg(unix)]
-fn caller_identity(socket: &SocketRoute<'_>) -> Result<Option<Value>, Failure> {
-    let Some(app) = &socket.app else { return Ok(None) };
-    if super::app::caller_from(|key| std::env::var(key).ok()).is_none() {
-        return Ok(None);
-    }
-    let mut stream = super::app::connect(app).map_err(Failure::Transport)?;
-    let reply = super::app::request(&mut stream, "system.identify", json!({}), APP_IDENTIFY_WAIT);
-    reply.map_err(Failure::Transport)?.map_err(Failure::Resource).map(Some)
+fn caller_identity(socket: &SocketRoute<'_>) -> Option<Value> {
+    let app = socket.app.as_ref()?;
+    super::app::caller_from(|key| std::env::var(key).ok())?;
+    let mut stream = super::app::connect(app).ok()?;
+    super::app::request(&mut stream, "system.identify", json!({}), APP_IDENTIFY_WAIT).ok()?.ok()
 }
 
 #[cfg(unix)]

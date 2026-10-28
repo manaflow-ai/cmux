@@ -19,10 +19,15 @@ struct BrowserCallerTarget: Sendable, Equatable {
     var screen: ControlScreenInfo
     var pane: ControlPaneInfo
     var tab: ControlTabInfo
+    /// The pane that shows the tab now: its own pane when it is that pane's selected tab, the
+    /// mirroring pane for a mirrored tab it shows; nil when no pane shows it.
+    var shownIn: ControlPaneInfo?
 
     /// The browser nearest `location`, nil when none is in its workspace, group or window.
-    static func resolve(near location: ControlCallerLocation, in topology: ControlTopology) -> Self? {
-        for workspace in nearbyWorkspaces(of: location.workspace, in: topology) {
+    /// `sameSession` keeps to the caller's own session (the daemon the CLI and MCP address).
+    static func resolve(near location: ControlCallerLocation, in topology: ControlTopology, sameSession: Bool = false) -> Self? {
+        for workspace in nearbyWorkspaces(of: location.workspace, in: topology)
+        where !sameSession || workspace.sessionID == location.workspace.sessionID {
             if let found = browser(in: workspace, near: workspace.id == location.workspace.id ? location : nil, topology: topology) {
                 return found
             }
@@ -75,7 +80,7 @@ struct BrowserCallerTarget: Sendable, Equatable {
     static func browser(in workspace: ControlWorkspaceInfo, near location: ControlCallerLocation?, topology: ControlTopology) -> Self? {
         let panes = orderedPanes(of: workspace, near: location)
         func found(_ tab: ControlTabInfo, _ screen: ControlScreenInfo, _ pane: ControlPaneInfo) -> Self {
-            Self(workspace: workspace, screen: screen, pane: pane, tab: tab)
+            Self(workspace: workspace, screen: screen, pane: pane, tab: tab, shownIn: pane.selectedTabID == tab.id ? pane : nil)
         }
         if let focused = topology.focus.tabID {
             for (screen, pane) in panes {
@@ -87,7 +92,10 @@ struct BrowserCallerTarget: Sendable, Equatable {
             guard let selected = pane.selectedTabID else { continue }
             if let tab = pane.tabs.first(where: { $0.id == selected }), isBrowser(tab) { return found(tab, screen, pane) }
             // A mirrored tab is reported where it lives, so its path names its own pane.
-            if pane.mirroredTabIDs.contains(selected), let shown = locate(selected, in: topology), isBrowser(shown.tab) { return shown }
+            if pane.mirroredTabIDs.contains(selected), var shown = locate(selected, in: topology), isBrowser(shown.tab) {
+                shown.shownIn = pane
+                return shown
+            }
         }
         for (screen, pane) in panes {
             if let tab = pane.tabs.last(where: isBrowser) { return found(tab, screen, pane) }
@@ -100,7 +108,9 @@ struct BrowserCallerTarget: Sendable, Equatable {
         for workspace in topology.workspaces {
             for screen in workspace.screens {
                 for pane in screen.panes {
-                    if let tab = pane.tabs.first(where: { $0.id == id }) { return Self(workspace: workspace, screen: screen, pane: pane, tab: tab) }
+                    if let tab = pane.tabs.first(where: { $0.id == id }) {
+                        return Self(workspace: workspace, screen: screen, pane: pane, tab: tab, shownIn: pane.selectedTabID == id ? pane : nil)
+                    }
                 }
             }
         }
@@ -129,10 +139,13 @@ struct BrowserCallerTarget: Sendable, Equatable {
 
 extension ControlRouter {
     /// Aims a browser action (`browser back`, `browser screenshot-page`: it requires a focused
-    /// browser or browser page) that an agent or a cmux terminal runs without a target at the browser nearest
-    /// its caller (#26648), so it never acts on the person's focused browser in another window.
-    /// A pane-target action gets the pane when that pane shows the browser, else the tab. A caller
-    /// with no browser near it is refused; a run with a target or no caller is left as it is.
+    /// browser or browser page) that an agent or a cmux terminal runs without a target at the
+    /// browser nearest its caller (#26648), so it never acts on the person's focused browser in
+    /// another window. A pane-target action gets the pane that shows that browser (the mirroring
+    /// pane for a mirrored tab), a tab-target action the tab. A browser no pane shows, or one an
+    /// untargeted action cannot name while the person's focus is elsewhere, is refused with the
+    /// page verb that reaches it; so is a caller with no browser near it. A run with a target or
+    /// no caller is left as it is.
     static func aimBrowserActionAtCaller(_ request: inout ControlActionRequest, action: ControlActionInfo,
                                          topology: ControlTopology) throws {
         let browserAction = action.requires.contains("browserFocused")
@@ -145,12 +158,16 @@ extension ControlRouter {
         guard let near = BrowserCallerTarget.resolve(near: location, in: topology) else {
             throw BrowserCallerTarget.notFound(near: location)
         }
-        if action.targets.contains("pane"), near.pane.selectedTabID == near.tab.id {
-            request.target = ControlTargetRef(kind: "pane", id: near.pane.id)
+        if action.targets.contains("pane"), let shown = near.shownIn {
+            request.target = ControlTargetRef(kind: "pane", id: shown.id)
         } else if action.targets.contains("tab") {
             request.target = ControlTargetRef(kind: "tab", id: near.tab.id)
-        } else if action.targets.contains("pane") {
-            request.target = ControlTargetRef(kind: "pane", id: near.pane.id)
+        } else if action.targets.contains("pane") || topology.focus.tabID != near.tab.id {
+            throw ControlError(code: "unavailable",
+                               message: ControlStrings.format("control.error.callerBrowserNotShown",
+                                                              "%1$@ cannot reach your browser %2$@: no pane shows it, or it is not the focused tab; use a page verb on it: `cmux browser %2$@ <verb>`",
+                                                              action.id, near.tab.id),
+                               data: ["action": .string(action.id), "tab": .string(near.tab.id)])
         }
     }
 }
