@@ -131,6 +131,8 @@ final class MessageLayoutCache {
         var model: MessageRowModel
         var layout: MessageCellLayout
         var text: NSAttributedString
+        /// The pixel grid the layout rounds to: the measuring traits' scale.
+        var displayScale: CGFloat
     }
 
     /// Of `models`, those this cache has no layout for at `width` and
@@ -154,12 +156,15 @@ final class MessageLayoutCache {
     nonisolated static func measure(_ model: MessageRowModel, width: CGFloat, margin: CGFloat) -> Measured {
         let text = MessageCellLayout.attributedBody(attributedInputs(model))
         let layout = MessageCellLayout.compute(model: model, width: width, margin: margin, text: text)
-        return Measured(model: model, layout: layout, text: text)
+        return Measured(model: model, layout: layout, text: text, displayScale: ConversationTheme.displayScale)
     }
 
-    /// Adopts rows measured ahead, unless the cache moved on meanwhile.
+    /// Adopts rows measured ahead, unless the cache moved on meanwhile. Rows
+    /// measured for another screen scale (the window moved to another
+    /// display while they were measured) are dropped and measure here.
     func adopt(_ measured: [Measured], width: CGFloat, margin: CGFloat) {
-        for item in measured {
+        let scale = ConversationTheme.displayScale
+        for item in measured where item.displayScale == scale {
             let model = item.model
             let key = Key(model: model, width: width, margin: margin)
             if let (cachedKey, _) = cache[model.rowID], cachedKey == key { continue }
