@@ -10,12 +10,14 @@ import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRows } from "./TurnRows";
 import * as toolFailure from "./toolFailure";
 import * as thoughts from "./thoughts";
+import { thoughtLayout } from "./ThoughtRow";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
+type GroupEntry = { item: AcpmuxActivity };
 
 async function render(node: ReactNode): Promise<HTMLElement> {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
@@ -230,6 +232,24 @@ for (const [kind, toolKind] of [
     const initial = shown();
     const stable = initial.items!.filter((item) => item.tool?.id !== "nested-stream");
     const parsed: string[] = [];
+    let mapped = 0;
+    let thoughtRenders = 0;
+    const arrayMap = Array.prototype.map;
+    const mapProbe = spyOn(Array.prototype, "map").mockImplementation(function <U>(
+      this: GroupEntry[],
+      callback: (value: GroupEntry, index: number, array: GroupEntry[]) => U,
+      context?: unknown,
+    ): U[] {
+      return arrayMap.call(this, (value, at, array) => {
+        if (value?.item?.kind === "tool" || value?.item?.kind === "thought") mapped += 1;
+        return callback.call(context, value, at, array);
+      }) as U[];
+    });
+    const enabled = thoughtLayout.enabled;
+    const renderProbe = spyOn(thoughtLayout, "enabled").mockImplementation(() => {
+      thoughtRenders += 1;
+      return enabled();
+    });
     const thoughtParts = thoughts.thoughtParts;
     const thoughtProbe = spyOn(thoughts, "thoughtParts").mockImplementation((text) => {
       parsed.push(text);
@@ -261,7 +281,13 @@ for (const [kind, toolKind] of [
         const next = shown();
         rendered.length = 0;
         parsed.length = 0;
+        mapped = thoughtRenders = 0;
         await act(async () => root!.render(<ToolRows row={next} sessionId={`nested-${kind}`} />));
+        console.log(
+          `expanded-work ${kind} mapped=${mapped} rowRenders=${rendered.length} thoughtRenders=${thoughtRenders}`,
+        );
+        expect(mapped).toBeLessThanOrEqual(1);
+        expect(thoughtRenders).toBe(0);
         expect(rendered).toEqual(["nested-stream"]);
         expect(parsed).toEqual([]);
         expect(
@@ -280,5 +306,7 @@ for (const [kind, toolKind] of [
     } finally {
       probe.mockRestore();
       thoughtProbe.mockRestore();
+      mapProbe.mockRestore();
+      renderProbe.mockRestore();
     }
   });
