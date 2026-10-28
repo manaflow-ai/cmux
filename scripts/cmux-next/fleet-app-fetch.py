@@ -24,8 +24,18 @@ def fetch(sha, dest):
                 subprocess.run(["ditto", apps[0], target], check=True)
             print(f"fleet-app-fetch: {sha[:12]} from the worker cache", file=sys.stderr)
             return target
-    with urllib.request.urlopen(f"{CONTROLLER}/v1/artifacts/sha256:{sha}/url", timeout=30) as reply:
-        url = json.load(reply)["url"]
+    url = None
+    for attempt in range(8):  # the controller times out under load: retry with a longer read
+        try:
+            with urllib.request.urlopen(f"{CONTROLLER}/v1/artifacts/sha256:{sha}/url", timeout=120) as reply:
+                url = json.load(reply)["url"]
+            break
+        except (OSError, ValueError) as error:
+            print(f"fleet-app-fetch: artifact url attempt {attempt + 1}: {error}", file=sys.stderr)
+            import time
+            time.sleep(15)
+    if url is None:
+        sys.exit("fleet-app-fetch: the controller gave no artifact url")
     os.makedirs(dest, exist_ok=True)
     zip_path = os.path.join(dest, f"{sha}.zip")
     subprocess.run(["curl", "--fail", "--silent", "--show-error", "--location", "--retry", "3", "--max-time", "1200",
