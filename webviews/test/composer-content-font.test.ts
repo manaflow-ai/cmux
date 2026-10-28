@@ -49,7 +49,7 @@ await requireBrowserLane("composer-content-font.test.ts", async () => {
           if (capture) await page.screenshot({ path: path.join(capture, `${context}-${theme}.png`) });
           for (const size of [21, 14, 28]) {
             await page.evaluate(async (size) => {
-              const modulePath = "/src/agent-session/acpmux/chatDisplay.ts";
+              const modulePath = "/gallery/src/agent-session/acpmux/chatDisplay.ts";
               const { setChatDisplay } = await import(modulePath);
               setChatDisplay({ "agentPane.display.font.size": size });
             }, size);
