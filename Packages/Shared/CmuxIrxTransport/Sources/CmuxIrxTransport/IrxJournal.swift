@@ -55,7 +55,9 @@ public final class IrxJournal: Sendable {
         var terminalTraceEventsInWindow = 0
     }
 
-    /// The append-only JSONL file this journal writes, when one was configured.
+    /// The append-only JSONL file this journal writes: the configured one,
+    /// or nil when none was configured or it could not be opened safely
+    /// (``openPrivateAppending(_:)``).
     public let fileURL: URL?
     private let logger: Logger
     private let state = Mutex(State())
@@ -72,21 +74,52 @@ public final class IrxJournal: Sendable {
 
     public init(subsystem: String, category: String, journalFileURL: URL? = nil) {
         logger = Logger(subsystem: subsystem, category: category)
-        fileURL = journalFileURL
-        fileHandle = journalFileURL.flatMap(IrxJournal.openAppending)
+        let handle = journalFileURL.flatMap(IrxJournal.openPrivateAppending)
+        fileHandle = handle
+        fileURL = handle == nil ? nil : journalFileURL
     }
 
-    private static func openAppending(_ journalFileURL: URL) -> FileHandle? {
+    /// Opens the journal for appending, readable and writable only by this
+    /// user, or returns nil (the journal then keeps only its ring and the
+    /// system log). The journal holds session identifiers, and its path may
+    /// be predictable, so:
+    /// - its directory must belong to this user and be writable by no one
+    ///   else (another user cannot swap the file between checks);
+    /// - the last path component is never followed (`O_NOFOLLOW`): a link
+    ///   planted in its place is refused, not written through;
+    /// - the file is created `0600`, or an existing one must be a regular file
+    ///   of this user with one link (no hard link to another file), and is
+    ///   set to `0600`.
+    static func openPrivateAppending(_ journalFileURL: URL) -> FileHandle? {
+        let directory = journalFileURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(
-            at: journalFileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+            at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        guard isPrivateDirectory(directory) else { return nil }
         let descriptor = journalFileURL.withUnsafeFileSystemRepresentation { path -> Int32 in
             guard let path else { return -1 }
-            return open(path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o644)
+            let flags = O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW
+            let created = open(path, flags | O_CREAT | O_EXCL, 0o600)
+            if created >= 0 || errno != EEXIST { return created }
+            return open(path, flags)
         }
         guard descriptor >= 0 else { return nil }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_uid == geteuid(),
+              info.st_nlink == 1, fchmod(descriptor, 0o600) == 0 else {
+            close(descriptor)
+            return nil
+        }
         return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+    }
+
+    /// A directory (not a link) of this user that no other user can write.
+    private static func isPrivateDirectory(_ directory: URL) -> Bool {
+        directory.withUnsafeFileSystemRepresentation { path -> Bool in
+            guard let path else { return false }
+            var info = stat()
+            return lstat(path, &info) == 0 && info.st_mode & S_IFMT == S_IFDIR && info.st_uid == geteuid()
+                && info.st_mode & (S_IWGRP | S_IWOTH) == 0
+        }
     }
 
     /// Records one event. `attributes` values must already be privacy-safe:

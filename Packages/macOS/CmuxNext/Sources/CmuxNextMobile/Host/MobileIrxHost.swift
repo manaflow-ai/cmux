@@ -84,7 +84,20 @@ public actor MobileIrxHost {
         self.makeBackend = makeBackend
         self.clock = clock
         journal = IrxJournal(subsystem: "com.cmuxterm.app.next", category: "irx-host",
-                             journalFileURL: URL(fileURLWithPath: "/tmp/cmux-next-irx-journal-\(configuration.tag).jsonl"))
+                             journalFileURL: Self.journalFile(tag: configuration.tag,
+                                                              temporaryDirectory: FileManager.default.temporaryDirectory))
+    }
+
+    /// The transport journal of a build tag: in this user's own temporary
+    /// directory (`$TMPDIR`, which macOS makes per user and private), never the
+    /// shared /tmp. The tag keeps only file-name characters, so it cannot name
+    /// another directory. IrxJournal opens it 0600 and never through a link.
+    static func journalFile(tag: String, temporaryDirectory: URL) -> URL {
+        let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+        let name = String(tag.map { allowed.contains($0) ? $0 : "_" })
+        return temporaryDirectory
+            .appending(path: "cmux-next-irx", directoryHint: .isDirectory)
+            .appending(path: "irx-journal-\(name.isEmpty ? "_" : name).jsonl", directoryHint: .notDirectory)
     }
 
     /// Provisions the v2 device and starts listening. Idempotent.

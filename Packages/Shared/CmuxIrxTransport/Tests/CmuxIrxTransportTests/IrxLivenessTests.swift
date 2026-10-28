@@ -199,7 +199,8 @@ private actor IrxLivenessTestHost {
         self.client = client
         self.behavior = behavior
         journal = IrxJournal(subsystem: "dev.cmux.tests", category: "liveness",
-            journalFileURL: URL(fileURLWithPath: "/tmp/iroh-v2-liveness-test-\(UUID().uuidString).jsonl"))
+            journalFileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("iroh-v2-liveness-test-\(UUID().uuidString).jsonl"))
     }
 
     static func make(behavior: Behavior) async throws -> IrxLivenessTestHost {

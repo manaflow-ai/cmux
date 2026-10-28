@@ -6,8 +6,9 @@ import Testing
 @Suite struct IrxJournalTests {
     @Test func endpointIDsAreRedactedBeforeRetentionAndRendering() throws {
         let endpoint = V2IdentityKey().endpointID
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("irx-private-journal-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: file) }
+        let dir = try Self.privateDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("irx-private-journal")
         let journal = IrxJournal(subsystem: "dev.cmux.tests", category: "privacy", journalFileURL: file)
         journal.record("endpoint", "bound", ["endpoint_id": endpoint, "error": "peer \(endpoint) closed", "generation": "3"])
         let event = try #require(journal.tail().first)
