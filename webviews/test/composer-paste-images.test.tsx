@@ -587,3 +587,59 @@ test("sending, undoing the clear, and resending never sends a sent attachment's 
   expect(resent.text).not.toContain(image.id);
   expect(JSON.stringify(promptBlocks(resent.text, resent.attachments))).not.toContain(image.id);
 });
+
+// Review of #26545: a failed attachment's Retry read its file again as a new paste under a new id,
+// so the failed tile's node left the text and the retried attachment went in at the caret wherever
+// it was by then. The retried attachment is the same one, where it was pasted, and goes with the
+// prompt there.
+test("a retried attachment keeps its id and its place in the text, wherever the caret is", async () => {
+  let uploads = 0;
+  // The host refuses the first upload and takes the retry.
+  const upload = async (files: File[]) => {
+    uploads += 1;
+    return uploads === 1 ? { error: "The upload failed." } : { paths: files.map((file) => `/tmp/${file.name}`) };
+  };
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent, { upload });
+  await act(async () => composer.current!.restore("before after", []));
+  await until(() => field().textContent?.includes("before after") === true, "the prompt");
+  await act(async () => markdownField().setCaret("before ".length));
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  const archive = new File([new Uint8Array(64)], "notes.bin", { type: "application/octet-stream" });
+  Object.defineProperty(event, "clipboardData", {
+    value: { files: [archive], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => {
+    field().dispatchEvent(event);
+  });
+  const retry = () => field().querySelector<HTMLElement>('[data-state="failed"] .acpmux-md-inline-retry');
+  await until(() => Boolean(retry()), "the failed tile");
+  const original = field().querySelector("[data-inline-attachment]")!.getAttribute("data-inline-attachment")!;
+  const placedAt = markdownField().value();
+  expect(placedAt.indexOf("before")).toBeLessThan(placedAt.indexOf(MARK));
+  expect(placedAt.indexOf(MARK)).toBeLessThan(placedAt.indexOf("after"));
+  // The caret moves on before the Retry.
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  await act(async () => {
+    retry()!.click();
+  });
+  await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the retried attachment");
+  await until(() => Boolean(field().querySelector('[data-inline-attachment] [data-state="ready"]')), "its chip");
+  expect(uploads).toBe(2);
+  const [attachment] = composer.current!.wakeState().attachments!;
+  expect(attachment!.id).toBe(original);
+  expect(attachment!.path).toBe("/tmp/notes.bin");
+  const nodes = [...field().querySelectorAll("[data-inline-attachment]")].map((node) =>
+    node.getAttribute("data-inline-attachment"),
+  );
+  expect(nodes).toEqual([original]);
+  expect(markdownField().value()).toBe(placedAt);
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.text).toBe(placedAt);
+  expect(sent[0]!.attachments.map((each) => [each.id, each.path])).toEqual([[original, "/tmp/notes.bin"]]);
+  const blocks = promptBlocks(sent[0]!.text, sent[0]!.attachments);
+  expect(blocks[0]).toEqual({ type: "text", text: "before " });
+  // Pasted at "before |after": nothing between the attachment and "after".
+  expect(blocks.at(-1)).toEqual({ type: "text", text: "after" });
+});
