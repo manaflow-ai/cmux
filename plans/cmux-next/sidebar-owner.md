@@ -484,3 +484,7 @@ A user requested “remove app store for now” and “Remove what's new?”. Ap
 follow the existing, default-off Preview Features setting. Hiding App Store covers band rows,
 machine rows and group members, without deleting their stored placement. The sidebar keeps its
 existing colors, glass, row geometry and drag behavior.
+
+## Footer height (2026-10-27)
+
+- Lawrence 2026-10-27 (message 13901): "this thing (bottom part with my profile pic and search icon and spaces) is still too tall". The footer line is one row: the Search button takes the sidebar row height (24 pt at compact, was a 28 pt minimum), and the padding under the line is the one lens drop (0.5 pt, was 2.5 pt). Bottom stack at compact: 34.5 pt before, 32.5 pt after (the 8 pt margin unchanged). Test: `SidebarFooterAlignmentTests` (`theFooterIsOneRowWithNoPaddingUnderIt`). Not yet checked in a live capture.
