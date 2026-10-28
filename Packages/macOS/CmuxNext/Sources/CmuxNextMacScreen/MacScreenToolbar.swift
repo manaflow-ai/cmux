@@ -146,7 +146,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         statsSlot = shown.stats != nil
         if let line = shown.stats { stats.stringValue = line }
         let viewOnly = shown.viewOnly
-        setToolTip(viewOnly
+        setThemedTip(viewOnly
             ? String(format: L.t("macScreen.toolbar.viewOnlyHelpNamed", "You can see %@ but not control it. Your clicks, keys and scrolling aren’t sent."), shown.name)
             : nil, on: badge)
         badge.isHidden = !viewOnly
