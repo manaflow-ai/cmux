@@ -6,10 +6,10 @@ import { FakeLifecycleDocument, FakePollClock } from "../../../test/support/page
 import { PageLifecycle } from "./pageLifecycle";
 import { startPageTimeout } from "./pagePoll";
 
-function setup(options: { parked?: boolean; hidden?: boolean } = {}) {
+function setup(options: { hidden?: boolean } = {}) {
   const doc = new FakeLifecycleDocument();
   if (options.hidden) doc.visibilityState = "hidden";
-  const lifecycle = new PageLifecycle(doc, options.parked ?? false);
+  const lifecycle = new PageLifecycle(doc);
   const clock = new FakePollClock();
   const runs = { count: 0 };
   return { doc, lifecycle, clock, runs, run: () => void (runs.count += 1) };
@@ -73,16 +73,6 @@ describe("startPageTimeout", () => {
     await clock.advance(MINUTE);
     expect(runs.count).toBe(0);
     doc.resume();
-    expect(runs.count).toBe(1);
-  });
-
-  test("a parked document arms nothing until the host claims it", async () => {
-    const { lifecycle, clock, runs, run } = setup({ parked: true });
-    startPageTimeout(run, 1000, { lifecycle, timers: clock, onResume: "wait" });
-    await clock.advance(MINUTE);
-    expect(clock.started).toBe(0);
-    lifecycle.claimed();
-    await clock.advance(1000);
     expect(runs.count).toBe(1);
   });
 
