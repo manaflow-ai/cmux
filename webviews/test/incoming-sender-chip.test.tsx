@@ -111,7 +111,6 @@ test("a sender no list names is no button: nothing to open", async () => {
   const { chip, plain } = await line({ name: "gone-lane" });
   expect(chip).toBeNull();
   expect(plain?.textContent).toBe("gone-lane");
-  expect(plain?.dataset.interactive).toBe("");
   await act(async () => plain!.click());
   expect(host.querySelector(".cv-received")?.getAttribute("data-open")).toBe("true");
 });

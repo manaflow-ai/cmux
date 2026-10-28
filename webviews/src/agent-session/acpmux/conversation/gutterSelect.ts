@@ -79,8 +79,10 @@ type CaretDocument = Document & {
   caretRangeFromPoint?: (x: number, y: number) => Range | null;
 };
 
+// Non-semantic pointer controls mark their own hit area with data-interactive, including their
+// padding and descendants; the selection handler need not know each row component's classes.
 const INTERACTIVE_TARGETS =
-  'button, a[href], input, textarea, select, label, summary, [contenteditable="true"], [draggable="true"], [data-interactive], [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="dialog"], .cv-worked, .cv-activity, .cv-tool, .cv-iconbtn, .acpmux-row__copy, .acpmux-turn-preview-frame';
+  'button, a[href], input, textarea, select, label, summary, [contenteditable="true"], [draggable="true"], [data-interactive], [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="dialog"], .cv-worked, .cv-activity, .cv-tool, .cv-iconbtn, .acpmux-row__copy';
 
 /// The caret at a client point: the standard caretPositionFromPoint, else WebKit's and older
 /// Chromium's caretRangeFromPoint.
