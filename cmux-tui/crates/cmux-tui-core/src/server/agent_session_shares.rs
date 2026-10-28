@@ -149,6 +149,9 @@ pub(in crate::server) struct LinkShares {
     /// Runs once between a guest bind's check and its registration (tests).
     #[cfg(test)]
     pub(super) bind_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Every write fails while set (tests).
+    #[cfg(test)]
+    pub(super) refuse_writes: std::sync::atomic::AtomicBool,
 }
 
 impl Drop for LinkShares {
@@ -288,14 +291,16 @@ impl LinkShares {
         let mut slot = self.shares.lock().unwrap_or_else(|e| e.into_inner());
         let shares = slot.get_or_insert_with(|| load(directory));
         let start = shares.clone();
+        // Expiry ends a share that is not yet active too: a late room answer never opens it.
         for share in shares.iter_mut() {
-            if share.state == ShareState::Active && now >= share.expires_at {
+            let open = matches!(share.state, ShareState::Active | ShareState::Provisioning);
+            if open && now >= share.expires_at {
                 share.state = ShareState::Expired;
             }
         }
         let before = shares.clone();
         let answer = match change(shares, now) {
-            Ok((value, true)) => match directory.map(|d| save(d, FILE, shares)) {
+            Ok((value, true)) => match self.save(directory, shares) {
                 Some(Err(error)) => {
                     *shares = before;
                     eprintln!("cmux-tui: link shares not written: {error}");
@@ -308,6 +313,14 @@ impl LinkShares {
         };
         self.note_ended(&start, shares);
         answer
+    }
+
+    fn save(&self, directory: Option<&Path>, shares: &[LinkShare]) -> Option<std::io::Result<()>> {
+        #[cfg(test)]
+        if self.refuse_writes.load(Ordering::Relaxed) {
+            return Some(Err(std::io::Error::other("writes refused (test)")));
+        }
+        directory.map(|d| save(d, FILE, &shares))
     }
 
     /// Queues what was live in `start` and is not in `now`.

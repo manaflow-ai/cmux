@@ -143,19 +143,34 @@ fn view(mux: &Mux, share_id: &str) -> Option<View> {
     })
 }
 
-/// Records the room a `PUT` answered. A share still provisioning becomes active when `activate`
-/// (true); otherwise it ends and its room is deleted (false).
-fn adopt(mux: &Mux, share_id: &str, url: &str, host_token: String, activate: bool) -> bool {
-    change(mux, share_id, |s| {
-        s.room = Some(json!({"url": url, "host_token": host_token}));
-        if activate && s.state == ShareState::Provisioning {
-            s.state = ShareState::Active;
-            return (true, true);
+/// Opens a share still provisioning (not expired, revoked or closed meanwhile) in the room a
+/// `PUT` answered. Anything else (`Err`, its code) leaves the room to [`delete`].
+fn adopt(mux: &Mux, share_id: &str, url: &str, host_token: &str) -> Result<(), &'static str> {
+    let directory = mux.session_state_directory();
+    shares(mux).with(directory.as_deref(), |all, _| {
+        let s = find(all, share_id)?;
+        if s.state != ShareState::Provisioning {
+            return Err(s.live().err().unwrap_or("share.revoked"));
         }
-        abandon_share(s, true);
-        (false, true)
+        s.room = Some(json!({"url": url, "host_token": host_token}));
+        s.state = ShareState::Active;
+        Ok(((), true))
     })
-    .unwrap_or(false)
+}
+
+/// Keeps the room a `PUT` answered for a share that will not open: its host token and a queued
+/// `DELETE`, written once (false while the write fails: [`delete`] holds the token meanwhile).
+fn retire(mux: &Mux, share_id: &str, url: &str, host_token: &str) -> bool {
+    change(mux, share_id, |s| {
+        let kept = s.room.as_ref().is_some_and(|r| r["host_token"] == host_token)
+            && s.pending_room_ops.iter().any(|o| o["op"] == "delete");
+        if !kept {
+            s.room = Some(json!({"url": url, "host_token": host_token}));
+            abandon_share(s, true);
+        }
+        ((), !kept)
+    })
+    .is_some()
 }
 
 /// A share whose provision failed ends; `delete` queues its room's `DELETE`.
@@ -250,9 +265,9 @@ pub(super) fn provision(
     };
     match runtime.block_on(put(&room, &share_id, &token, &body)) {
         Put::Done { host_token, url_base } => {
-            if !adopt(mux, &share_id, &room.url, host_token, true) {
-                delete(mux, &share_id, None);
-                return Err("share.revoked");
+            if let Err(code) = adopt(mux, &share_id, &room.url, &host_token) {
+                delete(mux, &share_id, Some(Held::Host(room.url, Zeroizing::new(host_token))));
+                return Err(code);
             }
             let secret = created["secret"].as_str().unwrap_or_default().to_owned();
             created["url"] = json!(format!("{url_base}#{secret}"));
@@ -285,13 +300,14 @@ async fn retry(
         if tokio::time::Instant::now() >= deadline {
             let Some(mux) = mux.upgrade() else { return };
             abandon(&mux, &share_id, true);
-            return delete(&mux, &share_id, Some(token));
+            return delete(&mux, &share_id, Some(Held::Owner(token)));
         }
         match put(&room, &share_id, &token, &body).await {
+            // Create already answered that it failed: this room's link was never handed out.
             Put::Done { host_token, .. } => {
                 let Some(mux) = mux.upgrade() else { return };
-                adopt(&mux, &share_id, &room.url, host_token, false);
-                return delete(&mux, &share_id, None);
+                let held = Held::Host(room.url, Zeroizing::new(host_token));
+                return delete(&mux, &share_id, Some(held));
             }
             Put::Refused(_) => {
                 return mux.upgrade().map_or((), |mux| abandon(&mux, &share_id, false));
@@ -301,9 +317,21 @@ async fn retry(
     }
 }
 
-/// Runs the share's queued `DELETE` until the room answers it (with its host token, else the
-/// owner's token while it is held); the share's expiry ends it at the room anyway.
-fn delete(mux: &Arc<Mux>, share_id: &str, owner: Option<Zeroizing<String>>) {
+/// A credential [`delete`] holds in memory.
+enum Held {
+    /// A room's host token the share's record may not hold yet (its write failed): kept until a
+    /// write succeeds, then the record's.
+    Host(String, Zeroizing<String>),
+    /// The owner's token, for a room that never answered with a host token. Never written.
+    Owner(Zeroizing<String>),
+}
+
+/// Runs the share's queued `DELETE` until the room acknowledges it (2xx, or 404/410: gone),
+/// retrying any other answer (401/403 included) with backoff, with the host token (the record's,
+/// else the one held) or the owner's. The queued op survives a restart. With no credential at
+/// all (the owner's token, lost to a restart) it stays queued until the share's expiry, when the
+/// room's own alarm has ended it.
+fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
     let bridge = &shares(mux).bridge;
     let Some(runtime) = bridge.runtime() else { return };
     let (timing, weak, id) = (bridge.timing(), Arc::downgrade(mux), share_id.to_owned());
@@ -314,18 +342,33 @@ fn delete(mux: &Arc<Mux>, share_id: &str, owner: Option<Zeroizing<String>>) {
         loop {
             let target = {
                 let Some(mux) = weak.upgrade() else { return };
-                let Some(v) = view(&mux, &id).filter(|v| v.delete) else { return };
-                let bearer = v.host_token.map(Zeroizing::new).or_else(|| owner.clone());
-                match (v.url.or_else(|| fallback.clone()), bearer) {
-                    (Some(url), Some(bearer)) if shares(&mux).now() < v.expires_at => (url, bearer),
-                    _ => return done(&mux, &id, &op),
+                let mut unsaved = false;
+                if let Some(Held::Host(url, token)) = &held {
+                    unsaved = !retire(&mux, &id, url, token);
+                }
+                let Some(v) = view(&mux, &id) else { return };
+                if !v.delete && !unsaved {
+                    return;
+                }
+                let (url, bearer) = match &held {
+                    Some(Held::Host(url, token)) if unsaved => {
+                        (Some(url.clone()), Some(token.clone()))
+                    }
+                    Some(Held::Owner(token)) if v.host_token.is_none() => {
+                        (v.url, Some(token.clone()))
+                    }
+                    _ => (v.url, v.host_token.map(Zeroizing::new)),
+                };
+                match (url.or_else(|| fallback.clone()), bearer) {
+                    (Some(url), Some(bearer)) => (url, bearer),
+                    // No credential (the owner's, lost to a restart): the room's expiry ends it.
+                    _ if shares(&mux).now() >= v.expires_at => return done(&mux, &id, &op),
+                    _ => return,
                 }
             };
             let url = format!("{}/v1/chat-shares/{id}", target.0);
             let reply = call(reqwest::Method::DELETE, &url, &target.1, None, timing.request).await;
-            // Answered: deleted, already gone, or this credential can never delete it.
-            if reply.is_some_and(|(status, _)| matches!(status, 200..=299 | 401 | 403 | 404 | 410))
-            {
+            if reply.is_some_and(|(status, _)| matches!(status, 200..=299 | 404 | 410)) {
                 return weak.upgrade().map_or((), |mux| done(&mux, &id, &op));
             }
             tokio::time::sleep(wait).await;

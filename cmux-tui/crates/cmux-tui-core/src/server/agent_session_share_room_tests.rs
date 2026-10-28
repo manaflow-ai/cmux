@@ -25,11 +25,16 @@ enum Seen {
 struct Shared {
     /// Statuses the next `PUT`s answer; then 200 with a new host token.
     puts: Mutex<VecDeque<u16>>,
+    /// Statuses the next `DELETE`s answer; then 200.
+    deletes: Mutex<VecDeque<u16>>,
+    /// Runs once as the next `PUT` is answered.
+    on_put: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     host_tokens: AtomicU64,
 }
 
 struct FakeRoom {
     url: String,
+    shared: Arc<Shared>,
     seen: Receiver<Seen>,
     buffer: RefCell<VecDeque<Seen>>,
 }
@@ -41,7 +46,7 @@ impl FakeRoom {
         let shared = Arc::new(Shared::default());
         shared.puts.lock().unwrap().extend(puts);
         let (sender, seen) = channel();
-        let (server, base) = (shared, url.clone());
+        let (server, base) = (shared.clone(), url.clone());
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { return };
@@ -49,7 +54,7 @@ impl FakeRoom {
                 std::thread::spawn(move || serve(stream, &shared, &sender, &base));
             }
         });
-        Self { url, seen, buffer: RefCell::default() }
+        Self { url, shared, seen, buffer: RefCell::default() }
     }
 
     /// The next thing seen that `wanted` accepts; others stay buffered in order.
@@ -117,6 +122,15 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
     let body = serde_json::from_slice(&body).unwrap_or(Value::Null);
     let (status, reply) = match method.as_str() {
         "PUT" => match shared.puts.lock().unwrap().pop_front() {
+            None if shared.on_put.lock().unwrap().is_some() => {
+                shared.on_put.lock().unwrap().take().unwrap()();
+                let n = shared.host_tokens.fetch_add(1, Ordering::SeqCst) + 1;
+                let id = path.rsplit('/').next().unwrap_or_default();
+                (
+                    200,
+                    json!({"host_token": format!("host-token-{n}"), "url_base": format!("{base}/g/{id}")}),
+                )
+            }
             Some(status) => (status, json!({})),
             None => {
                 let n = shared.host_tokens.fetch_add(1, Ordering::SeqCst) + 1;
@@ -127,7 +141,7 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
                 )
             }
         },
-        _ => (200, json!({"state": "revoked"})),
+        _ => (shared.deletes.lock().unwrap().pop_front().unwrap_or(200), json!({})),
     };
     let _ = seen.send(Seen::Request { method, path, bearer, body });
     let reply = reply.to_string();
@@ -251,4 +265,73 @@ fn a_create_without_sign_in_or_that_the_room_refuses_opens_nothing() {
     room.request("PUT");
     room.request("PUT");
     room.none("a DELETE", |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"));
+}
+
+fn shares_of(mux: &Mux) -> &LinkShares {
+    &mux.control_clients.agent_sessions.link_shares
+}
+
+#[test]
+fn a_room_that_answers_after_the_share_expired_never_opens_it() {
+    let room = FakeRoom::start(&[503, 503, 503]);
+    let (_fake, mux, surface, mut owner) = bridged("room-expired", &room);
+    assert_code(&create(&mut owner, surface), "share.room_unreachable");
+    // The share's day passes while the PUT is retried; then the room answers.
+    shares_of(&mux).advance(Duration::from_secs(2 * 86_400));
+    for _ in 0..4 {
+        room.request("PUT");
+    }
+    let (_, bearer, _) = room.request("DELETE");
+    assert_eq!(bearer, "host-token-1", "the late room is deleted with its own token");
+    let listed = state(&mut owner);
+    assert_eq!(listed["state"], "expired", "never active: {listed}");
+    room.none(
+        "a second DELETE",
+        |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"),
+    );
+}
+
+#[test]
+fn a_delete_the_room_refuses_stays_queued_and_is_retried_until_acknowledged() {
+    let room = FakeRoom::start(&[]);
+    room.shared.deletes.lock().unwrap().extend([403, 401, 503]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-delete", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    room.request("PUT");
+    let revoke = json!({"cmd":"agent-session-share-revoke", "share_id":share["share_id"]});
+    assert_eq!(owner.request(revoke)["ok"], true);
+    for _ in 0..4 {
+        let (_, bearer, _) = room.request("DELETE");
+        assert_eq!(bearer, "host-token-1");
+    }
+    room.none(
+        "a DELETE after the room's 200",
+        |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"),
+    );
+}
+
+#[test]
+fn a_room_whose_answer_could_not_be_written_is_still_deleted_with_its_host_token() {
+    let room = FakeRoom::start(&[]);
+    room.shared.deletes.lock().unwrap().push_back(503);
+    let (_fake, mux, surface, mut owner) = bridged("room-unsaved", &room);
+    // The room answers the PUT, and the write of its answer fails.
+    let refusing = mux.clone();
+    *room.shared.on_put.lock().unwrap() = Some(Box::new(move || {
+        shares_of(&refusing).refuse_writes.store(true, Ordering::Relaxed);
+    }));
+    assert_code(&create(&mut owner, surface), "share.unsaved");
+    room.request("PUT");
+    let (_, bearer, _) = room.request("DELETE");
+    assert_eq!(bearer, "host-token-1", "the host token the write lost is held");
+    assert_eq!(state(&mut owner)["state"], "provisioning", "the record never opened");
+    // Once a write succeeds the room and its DELETE are the record's.
+    shares_of(&mux).refuse_writes.store(false, Ordering::Relaxed);
+    let (_, bearer, _) = room.request("DELETE");
+    assert_eq!(bearer, "host-token-1");
+    let listed = state(&mut owner);
+    assert_eq!(
+        (listed["state"].clone(), listed["room"].clone()),
+        (json!("revoked"), json!(room.url))
+    );
 }
