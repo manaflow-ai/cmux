@@ -44,7 +44,9 @@ extension TabDragSession {
             retargeted = true
         }
         var moving = current.motion.step(dt)
-        if current === drag, current.autoscrollIdleAt != current.point {
+        // A still pointer's autoscroll is asked again while the ghost moves (a column may have come,
+        // momentum may have ended), and not once both rest.
+        if current === drag, moving || current.autoscrollIdleAt != current.point {
             if autoscroll(current, dt: dt) {
                 current.autoscrollIdleAt = nil
                 track(current.point, drag: current)
@@ -65,10 +67,17 @@ extension TabDragSession {
             }
             ticking = true
         }
-        if moving || retargeted { current.ghost.render(current.motion) }
+        // The step that lands a spring returns false with the value it snapped to, and a preview's arrival
+        // snaps the card under Reduce Motion: render whenever the motion differs from the one shown.
+        if retargeted || current.motion != current.renderedMotion { render(current) }
         guard !ticking else { return true }
         if current === landing { finishLanding() }
         return false
+    }
+
+    func render(_ drag: Drag) {
+        drag.ghost.render(drag.motion)
+        drag.renderedMotion = drag.motion
     }
 
     /// Auto-scrolls the columns screen under the pointer. Strips and the
@@ -149,7 +158,7 @@ extension TabDragSession {
             finishLanding()
             return
         }
-        drag.ghost.render(drag.motion)
+        render(drag)
         wake(drag)
     }
 

@@ -74,8 +74,9 @@ final class TabDragSession: NSObject {
         let aspect = content.width > 0 ? (content.height - Metrics.tabStripHeight) / content.width : nil
         let scale = window?.window?.backingScaleFactor ?? 2
         // A strip's tab image stands on its strip's rounded card (`TabSnapshotRenderer`): the shadow follows it.
-        // A group's image (chip and members) keeps the alpha shadow.
-        let card: TabStripMetrics? = if case .tab = item { pane?.view.stripView.metrics } else { nil }
+        // A group's image (chip and members) keeps the alpha shadow, and a drag with no image (a sidebar
+        // row's handoff) has no card to shadow.
+        let card: TabStripMetrics? = if case .tab = item, image != nil { pane?.view.stripView.metrics } else { nil }
         let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale, onGlass: onGlass,
                                       tabCard: card.map { (rect: $0.pillFrame(slotWidth: frame.width, height: frame.height), cornerRadius: $0.cornerRadius) })
         var motion = TabDragGhostMotion(rect: frame, cardness: 0, reduceMotion: !Motion.tabs.animatesMovement,
@@ -209,7 +210,7 @@ final class TabDragSession: NSObject {
         guard let drag else { return }
         track(point, drag: drag)
         resolve(drag)
-        drag.ghost.render(drag.motion)
+        render(drag)
     }
 
     /// A drag event. The pointer is recorded now (the release velocity samples every event) and hit

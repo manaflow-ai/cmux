@@ -56,6 +56,8 @@ extension TabDragSession {
         let lifecycle: TabDragLifecycle
         let ghost: TabDragGhostPanel
         var motion: TabDragGhostMotion
+        /// The motion the ghost last rendered; a frame renders only when it differs (`tick`).
+        var renderedMotion: TabDragGhostMotion?
         var point: CGPoint
         /// Pointer velocity in points per second, from `samplePointer`.
         var pointerVelocity = CGVector.zero
