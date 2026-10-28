@@ -855,7 +855,7 @@ impl Hub {
         rows
     }
 
-    /// The visitor runs under the remote-row lock: it must not call back into the hub.
+    /// Capture immutable row handles under the lock, then normalize and visit outside it.
     fn visit_remote_rows(&self, keep: impl Fn(&Value) -> bool, mut visit: impl FnMut(Value)) {
         let states: HashMap<String, &'static str> = self
             .peers
@@ -864,8 +864,15 @@ impl Hub {
             .values()
             .map(|p| (p.name.clone(), p.state().as_str()))
             .collect();
-        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-        for r in map.values().filter(|r| keep(&r.summary)) {
+        let rows: Vec<_> = self
+            .remote_sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .filter(|r| keep(&r.summary))
+            .cloned()
+            .collect();
+        for r in rows {
             let mut summary = r.summary.clone();
             summary["stale"] = Value::Bool(summary["stale"] == true);
             if let Some(state) = states.get(&r.peer) {
@@ -876,7 +883,6 @@ impl Hub {
     }
 
     /// Each summary once, local before remote, without retaining the JSON trees.
-    /// The visitor must not call back into the hub (remote rows hold their lock).
     pub(super) fn visit_session_summaries(&self, mut visit: impl FnMut(Value)) {
         for session in self.sessions() {
             visit(self.session_summary(&session));
@@ -966,6 +972,33 @@ mod tests {
             }),
         );
         assert_eq!(summary["lane"]["step"], "push [GitHub Personal Access Token]", "{summary}");
+    }
+
+    #[test]
+    fn streamed_remote_rows_release_the_lock_and_keep_the_captured_versions() {
+        let hub = Hub::new(
+            crate::config::Config::default(),
+            Box::new(crate::store::MemoryStore::default()),
+        );
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("builder".into(), peer.clone());
+        let rows = (0..3).map(|i| json!({"sessionId": format!("r{i}"), "status": "closed", "updatedAt": i, "tools": [{"id": "kept"}]})).collect();
+        hub.apply_peer_notice("builder", peer.generation, crate::peer::PeerNotice::Sessions(rows));
+        let expected = hub.all_session_summaries();
+        let mut actual = Vec::new();
+        hub.visit_session_summaries(|row| {
+            // A writer can remove rows during serialization without changing this snapshot.
+            hub.remote_sessions
+                .try_lock()
+                .expect("visitor must not hold row lock")
+                .retain(|_, _| false);
+            actual.push(row);
+        });
+        super::super::session_pages::sort_session_summaries(&mut actual);
+        assert_eq!(actual, expected);
+        assert_eq!(actual.len(), 3);
+        assert!(hub.remote_sessions.lock().unwrap().is_empty());
     }
 
     /// A wait reads the row the full list puts first for each id: a peer's newer chat
