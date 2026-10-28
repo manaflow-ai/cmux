@@ -97,7 +97,9 @@ import Testing
             work.frameDidFire(timestamp: Double(frame), refreshInterval: 1.0 / 60)
             work.budget.noteTickRenderEnded()
         }
-        let floor = Self.burstInterval + 2 * BatchClock.frame + 1_000_000
+        // The interval, then the next frame, one more when an open input response holds the due task, and the visible
+        // work that runs before it in its frame (its 2.5 ms share under input, plus one task).
+        let floor = Self.burstInterval + 2 * BatchClock.frame + 4_000_000
         for workClass in [BudgetedWorkClass.automation, .background] {
             let gap = starts.longestGap(workClass, from: start, to: end)
             #expect(starts.count(workClass) >= 12, "\(workClass) ran \(starts.count(workClass)) tasks in 2 s of typing")
@@ -115,7 +117,10 @@ import Testing
     /// closes: the batch runs in the common modes.
     @Test func postsRunInsideAMenuTrackingLoopThatAPostedTaskStarted() {
         Self.trackEventsAsTheAppDoes()
-        let work = MainWorkScheduler.testing(budget: MainFrameBudget()) { _ in BatchLink() }
+        // The budget's clock stands still: the menu's open time is not the outer task's frame budget (the app's turn
+        // meter parks a task that runs a nested loop; this test has none).
+        let clock = BatchClock()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read)) { _ in BatchLink() }
         let ran = BatchRecorder()
         work.post(.visible, owner: "menu.open") {
             ran.append("menu opens")
@@ -201,8 +206,9 @@ import Testing
     private static let burstInterval: UInt64 = 100_000_000
     private static let responseCap: UInt64 = 100_000_000
     /// Two 60 Hz frames, plus the time the higher classes' tasks of a frame took before a class's first task (a frame
-    /// holds at most 4 ms of scheduled work): what "every other frame" allows between two starts.
-    private static let everyOtherFrame: UInt64 = 2 * BatchClock.frame + 5_000_000
+    /// holds at most 4 ms of scheduled work, and each class's first task runs past it): what "every other frame"
+    /// allows between two starts.
+    private static let everyOtherFrame: UInt64 = 2 * BatchClock.frame + 6_000_000
 
     /// AppKit's event-tracking mode (menu tracking, live resize, drag sessions).
     private static let eventTracking = RunLoop.Mode("NSEventTrackingRunLoopMode")
