@@ -417,7 +417,7 @@ export class SubagentFold {
     // The call that named it (`-n`) or asked it what it was asked: never a guess, since a child the
     // start_session tool started meanwhile has the same parent. A call that says neither (its
     // prompt in a file) stays its command.
-    const name = text(record.shortName);
+    const name = daemonShortName(record.shortName);
     const asked = promptKey(record.prompt);
     // A name is the surer of the two: a different explicit name cannot fall back to its prompt.
     // The daemon allocates `base-2`, `base-3`, ... when a requested short name is taken. A
@@ -859,14 +859,14 @@ function startsSession(update: any): ChildIdentity | undefined {
   const input = update?.rawInput;
   const args = input && typeof input.arguments === "object" && input.arguments !== null ? input.arguments : input;
   return {
-    ...(text(args?.name) && { name: text(args.name) }),
+    ...(daemonShortName(args?.name) && { name: daemonShortName(args.name) }),
     ...(promptKey(args?.prompt) && { prompt: promptKey(args.prompt) }),
   };
 }
 
 function runIdentity(run: AgentRun): ChildIdentity {
   return {
-    ...(text(run.session) && { name: text(run.session) }),
+    ...(daemonShortName(run.session) && { name: daemonShortName(run.session) }),
     ...(promptKey(run.prompt) && { prompt: promptKey(run.prompt) }),
   };
 }
@@ -885,6 +885,25 @@ function identitiesOverlap(a: ChildIdentity, b: ChildIdentity): boolean {
 /// independent, while alpha, alpha-2 and alpha-2-2 cannot be paired safely.
 function nameFamily(name: string): string {
   return name.replace(/(?:-\d+)+$/, "");
+}
+
+/// Mirrors acpmux `short_name_of`: Unicode words, lowercased and joined by dashes, capped at
+/// forty characters. Matching the daemon's claimed spelling is required before family matching;
+/// raw request text (`Alpha`, `review/router`) is not protocol identity.
+function daemonShortName(value: unknown): string | undefined {
+  const source = text(value);
+  if (!source) return undefined;
+  let out = "";
+  for (const word of source.split(/[^\p{Letter}\p{Number}]+/u).filter(Boolean)) {
+    const lower = word.toLowerCase();
+    const next = out ? `${out}-${lower}` : lower;
+    if (Array.from(next).length > 40) {
+      if (!out) out = Array.from(next).slice(0, 40).join("");
+      break;
+    }
+    out = next;
+  }
+  return out || "task";
 }
 
 function isDaemonRenamedName(name: string): boolean {
