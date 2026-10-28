@@ -447,8 +447,9 @@ final class AppServices {
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
     /// The app's one memory coordinator (consumers register in AppServices+Memory.swift); it releases in background work.
     private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, deadlines: mainDeadlines)
-    /// Every window's parked workspaces: torn down one per release slice at critical memory pressure, and
-    /// held to the Mac's budget with `memoryDiscardParkedWorkspaces`.
+    /// Every window's parked workspaces: at most the Mac's `SubsystemBudget.parkedWorkspaces`, least recently
+    /// shown torn down first, none at critical memory pressure (one per release slice), and scaled by the
+    /// memory limit with `memoryDiscardParkedWorkspaces`.
     private(set) lazy var parkedWorkspaceBudget: ParkedWorkspaceBudget = makeParkedWorkspaceBudget()
     /// The app-wide list of hidden terminal frames (Chrome's FrameEvictionManager, p03-rendering-099):
     /// nil unless `memoryHiddenFrameLRU`.

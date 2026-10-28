@@ -121,16 +121,23 @@ extension AppServices {
         return scriptOpeners.openers { keys[ObjectIdentifier($0)] }
     }
 
-    /// The parked workspaces of every window: none at critical memory pressure, one teardown per release
-    /// slice (p07-memory-096). With `memoryDiscardParkedWorkspaces` (p07-memory-032) also
-    /// `SubsystemBudget.parkedWorkspaces` across every window and the 15 min idle timeout with
-    /// `memoryDiscardParkedIdleTimeout`; off, every parked workspace stays until critical pressure. Its
-    /// look runs as background work on one deadline.
+    /// The parked workspaces of every window: always at most `SubsystemBudget.parkedWorkspaces` across
+    /// every window, an LRU whose least recently shown one past the cap is torn down (audit H8: a window
+    /// kept every workspace it showed mounted, so 200 visits kept 200), and none at critical memory
+    /// pressure, one teardown per release slice (p07-memory-096). The cap is the budget the labs switch
+    /// already uses, sized from RAM (RAM/2048 MiB, 4 to 16: 8 on a 16 GB Mac): a small fixed count of
+    /// warm switches back, as Chrome's back-forward cache keeps a small fixed count of pages left behind
+    /// (content/browser/renderer_host/back_forward_cache_impl.cc, `GetCacheSize()`); a workspace past
+    /// it mounts again when shown, with its `WorkspaceViewRecord`. With `memoryDiscardParkedWorkspaces`
+    /// (p07-memory-032) the budget also shrinks with the memory limit (warning: the Memory Saver mode's
+    /// share), and `memoryDiscardParkedIdleTimeout` adds the 15 min idle timeout. Its look runs as
+    /// background work on one deadline.
     func makeParkedWorkspaceBudget() -> ParkedWorkspaceBudget {
         let budget = SubsystemBudget.forThisMac(gpuResidentAvailable: false)
         let held = features.isEnabled(.memoryDiscardParkedWorkspaces)
         return ParkedWorkspaceBudget(
             capacity: held ? budget.parkedWorkspaces : nil,
+            maxParked: budget.parkedWorkspaces,
             idleTimeout: held && features.isEnabled(.memoryDiscardParkedIdleTimeout) ? budget.parkedIdleTimeout : nil,
             deadline: MainDeadline(owner: "ParkedWorkspaceBudget", workClass: .background, scheduler: mainDeadlines),
             memory: memoryCoordinator)

@@ -31,9 +31,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private(set) var content: WorkspaceContentController?
     /// Every workspace this window showed, by id, kept mounted and paused (plans/cmux-next/tab-lifecycle.md):
     /// a switch back swaps its view in within the frame. Only its GPU surfaces leave, under the one memory
-    /// budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6). With
-    /// `memoryDiscardParkedWorkspaces` the app's `ParkedWorkspaceBudget` tears the least recently parked
-    /// ones down past the Mac's budget or idle timeout (`WindowController+Parking`).
+    /// budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6). The app's
+    /// `ParkedWorkspaceBudget` tears the least recently parked ones down past the Mac's cap, and with
+    /// `memoryDiscardParkedWorkspaces` past its memory-scaled budget or idle timeout (`WindowController+Parking`).
     /// With `sidebar.multiView` the ones `state.viewSet` shows beside `content` stay on screen (`arrangeOnScreen`).
     var parked: [String: WorkspaceContentController] = [:]
     /// Orders `parked` by when each was parked (`mountedContents`).

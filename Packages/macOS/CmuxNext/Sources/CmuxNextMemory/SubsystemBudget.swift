@@ -42,7 +42,8 @@ public nonisolated struct SubsystemBudget: Hashable, Sendable {
     public let chromiumRendererLimit: Int
     /// Hidden terminal surfaces kept warm beyond the visible ones (one LRU per app).
     public let warmTerminalSurfaces: Int
-    /// Hidden workspaces kept mounted; the least recently shown ones past this are torn down.
+    /// Hidden workspaces kept mounted across all windows, always (the parked LRU's cap); the least recently
+    /// shown ones past this are torn down.
     public let parkedWorkspaces: Int
     /// A parked workspace hidden this long is torn down even within ``parkedWorkspaces``.
     public let parkedIdleTimeout: Duration

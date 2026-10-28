@@ -115,7 +115,7 @@ public nonisolated struct MemoryDiscardToggles: Sendable {
 
     public static let parkedWorkspaces = Tunable<Bool>.toggle(
         "memory.discard.parkedWorkspaces", section, "Hold parked workspaces to the budget",
-        help: "Overrides memoryDiscardParkedWorkspaces: at most this Mac's budget of hidden workspaces stay mounted across all windows; past it the least recently parked one lets its views go. Applies at the next launch.",
+        help: "Overrides memoryDiscardParkedWorkspaces: the cap on hidden workspaces kept mounted across all windows (this Mac's budget, always on) also shrinks at warning memory pressure. Applies at the next launch.",
         default: false, code: "MemoryDiscardToggles.parkedWorkspaces")
 
     public static let pageTabs = Tunable<Bool>.toggle(

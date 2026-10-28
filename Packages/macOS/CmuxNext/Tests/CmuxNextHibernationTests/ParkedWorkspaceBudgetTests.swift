@@ -10,8 +10,10 @@ import Testing
     private let clock = FakeClock()
     private let deadline = FakeDeadline()
 
-    private func makeBudget(capacity: Int?, idleTimeout: Duration? = nil, memory: (any MemoryConsumerRegistry)? = nil) -> ParkedWorkspaceBudget {
-        ParkedWorkspaceBudget(capacity: capacity, idleTimeout: idleTimeout, deadline: deadline, memory: memory) { [clock] in clock.now }
+    /// `maxParked`: the always-on cap; unbounded by default so a test sees the budget alone.
+    private func makeBudget(capacity: Int?, maxParked: Int = .max, idleTimeout: Duration? = nil,
+                            memory: (any MemoryConsumerRegistry)? = nil) -> ParkedWorkspaceBudget {
+        ParkedWorkspaceBudget(capacity: capacity, maxParked: maxParked, idleTimeout: idleTimeout, deadline: deadline, memory: memory) { [clock] in clock.now }
     }
 
     /// Runs the armed looks, as the deadline would, until none is due at once (at most `limit`).
@@ -249,8 +251,8 @@ import Testing
         #expect(shown.discarded == ["s0", "s1"])
     }
 
-    /// With no budget (`memoryDiscardParkedWorkspaces` off) a park arms no look and nothing goes
-    /// until critical pressure, which tears every workspace down one per slice.
+    /// With no budget (`memoryDiscardParkedWorkspaces` off) and a cap above the count, a park arms no
+    /// look and nothing goes until critical pressure, which tears every workspace down one per slice.
     @Test func withNoBudgetOnlyCriticalPressureTearsDown() {
         let budget = makeBudget(capacity: nil)
         let window = FakeWindow()
@@ -266,6 +268,32 @@ import Testing
         while budget.releaseMemory(within: slice) == .yield { slices += 1 }
         #expect(slices == 19)
         #expect(window.discarded == (0..<20).map { "w\($0)" })
+    }
+
+    /// Audit H8: with no budget (`memoryDiscardParkedWorkspaces` off, its default) the cap still holds:
+    /// past it the least recently parked one that may go is torn down, one per look after the park's
+    /// turn, a kept one counts but stays, and a park within the cap arms no look.
+    @Test func withNoBudgetTheCapStillTearsDownTheLeastRecentlyParked() {
+        let budget = makeBudget(capacity: nil, maxParked: 2)
+        let left = FakeWindow(), right = FakeWindow()
+        left.park("covered", in: budget)
+        left.keep(["covered"], in: budget)
+        right.park("a", in: budget)
+        #expect(!deadline.armed, "a park within the cap with no timeout armed a look")
+        left.park("b", in: budget)
+        right.park("c", in: budget)
+        #expect(left.discarded.isEmpty && right.discarded.isEmpty, "a teardown ran in the park's turn")
+        #expect(budget.currentCapacity == 2)
+
+        runDueLooks()
+        #expect(right.discarded == ["a"] && left.discarded == ["b"], "the least recently parked ones that may go did not go first")
+        #expect(left.parked == ["covered"] && right.parked == ["c"])
+        #expect(budget.parkedCount == 2)
+        #expect(!deadline.armed, "a look within the cap with no timeout armed a deadline")
+
+        // A warning limit scales no budget it does not have: the cap stays.
+        budget.updateMemoryLimit(MemoryLimit(percent: 25))
+        #expect(budget.currentCapacity == 2)
     }
 
     @Test func aWorkspaceParkedAtCriticalGoesOnTheNextLook() {

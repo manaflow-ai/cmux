@@ -31,10 +31,17 @@ extension MainDeadline: ParkedWorkspaceDeadline {}
 /// Holds the parked workspaces of every window to the Mac's budget (p07-memory.md 3.B
 /// `parkedWorkspaces`, 3.C "Hidden workspace past the parked budget or idle timeout").
 ///
-/// - **Budget.** At most ``capacity`` parked workspaces across all windows, scaled by the memory
-///   limit (critical: none); with no budget (`memoryDiscardParkedWorkspaces` off) only critical
-///   pressure tears down. Past it the least recently parked one that may go is torn down, as
-///   Chrome's `FrameEvictionManager` culls the oldest unlocked saved frame
+/// - **Cap.** At most ``maxParked`` parked workspaces across all windows, always, with no feature
+///   switch: a window keeps every workspace it showed mounted (views, pane controllers,
+///   observations), so without a cap a person who visits 200 workspaces keeps 200 mounted. Leaving a
+///   workspace must release what it owns in bounded time; only a cache with an explicit size may
+///   stay, as Chrome's back-forward cache holds a fixed count of pages left behind and evicts the
+///   least recently used one past it (content/browser/renderer_host/back_forward_cache_impl.cc,
+///   `EnforceCacheSizeLimit` over `GetCacheSize()`).
+/// - **Budget.** With `memoryDiscardParkedWorkspaces`, also at most ``capacity``, scaled by the
+///   memory limit (warning: the Memory Saver mode's share); with no budget only the cap and
+///   critical pressure (none) tear down. Past either the least recently parked one that may go is
+///   torn down, as Chrome's `FrameEvictionManager` culls the oldest unlocked saved frame
 ///   (components/viz/client/frame_eviction_manager.cc, `CullUnlockedFrames`): one its holder keeps
 ///   (a `sidebar.multiView` companion on screen, the workspace under a top page) still counts.
 /// - **Idle timeout.** A parked workspace hidden ``idleTimeout`` goes even within the budget, as
@@ -60,9 +67,12 @@ package final class ParkedWorkspaceBudget {
         estimatedUsage: .large, dataAccess: .none, retention: .lossy, recreateCost: .expensive,
         releaseCPUCost: .high, isStateful: true, supportsMemoryLimit: true)
 
-    /// Parked workspaces across all windows at normal pressure (`SubsystemBudget.parkedWorkspaces`);
-    /// `Int.max` with no budget.
+    /// Parked workspaces across all windows at normal pressure (`SubsystemBudget.parkedWorkspaces`),
+    /// scaled by the memory limit; `Int.max` with no budget.
     package let capacity: Int
+    /// The most parked workspaces across all windows at any limit above critical, budget or not: the
+    /// cap of the LRU (`SubsystemBudget.parkedWorkspaces` in the app).
+    package let maxParked: Int
     /// How long a parked workspace may stay hidden in the current Memory Saver mode; nil: only the
     /// budget and pressure tear down.
     package var idleTimeout: Duration? { mediumIdleTimeout.flatMap { saverMode.proactiveTimeout($0) } }
@@ -98,15 +108,17 @@ package final class ParkedWorkspaceBudget {
     private var memoryRegistration: MemoryConsumerRegistration?
 
     /// - Parameters:
-    ///   - capacity: Parked workspaces across all windows at normal pressure; nil for no budget (only
-    ///     critical pressure tears down).
+    ///   - capacity: Parked workspaces across all windows at normal pressure, scaled by the memory
+    ///     limit; nil for no budget (only `maxParked` and critical pressure tear down).
+    ///   - maxParked: The cap of parked workspaces across all windows, at every limit but critical.
     ///   - idleTimeout: How long one may stay hidden in Memory Saver's medium mode; nil for no timeout.
     ///   - deadline: The one deadline of the next look.
     ///   - memory: The app's memory coordinator; nil keeps the limit at 100 %.
     ///   - now: The clock of hidden times (tests set it).
-    package init(capacity: Int?, idleTimeout: Duration?, deadline: any ParkedWorkspaceDeadline,
+    package init(capacity: Int?, maxParked: Int, idleTimeout: Duration?, deadline: any ParkedWorkspaceDeadline,
                  memory: (any MemoryConsumerRegistry)? = nil, now: @escaping () -> ContinuousClock.Instant = { .now }) {
         self.capacity = capacity.map { max($0, 0) } ?? .max
+        self.maxParked = max(maxParked, 0)
         mediumIdleTimeout = idleTimeout
         self.deadline = deadline
         self.now = now
@@ -115,8 +127,11 @@ package final class ParkedWorkspaceBudget {
         }
     }
 
-    /// The budget at the current limit.
-    package var currentCapacity: Int { limit.scale(capacity) }
+    /// The budget at the current limit: the scaled budget, never past the cap.
+    package var currentCapacity: Int { capacity(at: limit) }
+
+    /// The budget at `limit`: ``capacity`` scaled by it, at most ``maxParked`` (critical: none).
+    private func capacity(at limit: MemoryLimit) -> Int { min(limit.scale(capacity), maxParked) }
 
     /// Parked workspaces whose holder is alive.
     package var parkedCount: Int { entries.values.count(where: { $0.holder != nil }) }
@@ -142,8 +157,8 @@ package final class ParkedWorkspaceBudget {
         if released, lookCanTearDown { deadline.schedule(after: .zero) { [weak self] in self?.plan() } }
     }
 
-    /// Whether a look may tear anything down: past the budget, or with a timeout to watch. With no
-    /// budget at normal pressure a park arms nothing.
+    /// Whether a look may tear anything down: past the budget or the cap, or with a timeout to watch.
+    /// A park within both, with no timeout, arms nothing.
     private var lookCanTearDown: Bool {
         idleTimeout != nil || entries.count > currentCapacity
     }
@@ -227,7 +242,7 @@ extension ParkedWorkspaceBudget: MemoryConsumer {
     /// recently parked one that may go of a window off screen, else of a window on screen.
     package func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
         let order = liveEntriesLeastRecentFirst()
-        let budget = slice.limit.scale(capacity)
+        let budget = capacity(at: slice.limit)
         guard order.count > budget else { return .done }
         let releasable = order.filter { !isKept($0) }
         guard let victim = releasable.first(where: { $0.holder?.showsOnScreen == false }) ?? releasable.first else { return .done }

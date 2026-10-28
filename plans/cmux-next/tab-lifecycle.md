@@ -70,15 +70,18 @@ tab's page window covers the pane (`foreign_pages`).
   only their GPU surfaces leave, under the terminal warm set's LRU. Switching
   back swaps the view in within the frame: no pane controller rebuild, no
   blank frame. One `ParkedWorkspaceBudget` follows every window's parked
-  workspaces. By default it has no budget: a window keeps every workspace it
-  showed until it closes, and critical memory pressure tears the parked
+  workspaces. It always caps them at `SubsystemBudget.parkedWorkspaces`
+  (RAM/2048 MiB, 4 to 16) across every window, an LRU like Chrome's
+  back-forward cache: past the cap the least recently parked one that is not
+  kept is torn down (audit H8: before, a window kept every workspace it
+  showed until it closed). Critical memory pressure tears the parked
   workspaces down through the memory coordinator, one per release slice
   (p07-memory-096), off-screen windows' first, then the least recently
   parked, except the ones the window keeps: the workspace under a top page
   and the ones on screen beside the shown one (`sidebar.multiView`).
 - With `memoryDiscardParkedWorkspaces` (labs, default off; p07-memory-032,
-  taking back 6f04ec90105) the budget is `SubsystemBudget.parkedWorkspaces`
-  (RAM/2048 MiB, 4 to 16) across every window: past it the least recently
+  taking back 6f04ec90105) the same budget also scales with the memory
+  limit (warning: the Memory Saver mode's share): past it the least recently
   parked one that is not kept is torn down, as Chrome's
   `FrameEvictionManager` culls saved frames; kept ones count but stay. With
   `memoryDiscardParkedIdleTimeout` too, one hidden 15 minutes goes even

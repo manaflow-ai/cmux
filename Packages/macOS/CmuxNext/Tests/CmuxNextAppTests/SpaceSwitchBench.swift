@@ -36,8 +36,9 @@ final class SpaceSwitchBench {
     /// - Parameters:
     ///   - total: workspaces in the window, split evenly across `spaces` rooms.
     ///   - panes: each workspace holds one pane with a terminal tab (shown) and a browser tab.
-    ///   - parked: workspaces visited once before the timed switches, so they stay mounted and
-    ///     parked as in a long-running window (`WindowController.park`).
+    ///   - parked: workspaces visited once before the timed switches, so they are parked as in a
+    ///     long-running window (`WindowController.park`): the most recently shown ones stay mounted, up to
+    ///     the app's cap (`SubsystemBudget.parkedWorkspaces`), the others mount again when shown.
     init(total: Int, spaces: Int = 2, panes: Bool = false, parked: Int = 0) async throws {
         _ = NSApplication.shared
         services = AppServices(environment: AppEnvironment.current([:]))

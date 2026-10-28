@@ -63,7 +63,7 @@ import Testing
     private let deadline = FakeParkDeadline()
 
     private func makeBudget(mode: MemorySaverMode) -> ParkedWorkspaceBudget {
-        let budget = ParkedWorkspaceBudget(capacity: 8, idleTimeout: .seconds(15 * 60), deadline: deadline)
+        let budget = ParkedWorkspaceBudget(capacity: 8, maxParked: 8, idleTimeout: .seconds(15 * 60), deadline: deadline)
         budget.memorySaverModeDidChange(mode)
         return budget
     }

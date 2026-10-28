@@ -269,7 +269,7 @@ private final class SlicedReleaseRig {
         cache.warmSetRelease = warm
         self.warm = warm
         urgent = FakeUrgentPass(registry: coordinator)
-        parked = ParkedWorkspaceBudget(capacity: nil, idleTimeout: nil, deadline: NoLook(), memory: coordinator)
+        parked = ParkedWorkspaceBudget(capacity: nil, maxParked: .max, idleTimeout: nil, deadline: NoLook(), memory: coordinator)
         self.windows = layout.map { FakeParkedWindow(onScreen: $0.onScreen) }
         urgent.frame = { [unowned self] in self.frames }
         for window in self.windows {

@@ -3,8 +3,9 @@ import CmuxNextHibernation
 
 // Parked workspaces (plans/cmux-next/tab-lifecycle.md): a workspace this window showed stays mounted and
 // paused, so a switch back swaps its view in within the frame. The app's `ParkedWorkspaceBudget` follows them
-// across every window: critical memory pressure tears them down one per release slice, and with
-// `memoryDiscardParkedWorkspaces` (default off) it holds them to the Mac's budget and idle timeout.
+// across every window: past the Mac's cap (`SubsystemBudget.parkedWorkspaces`, always on) it tears the least
+// recently shown one down, critical memory pressure tears them down one per release slice, and with
+// `memoryDiscardParkedWorkspaces` (default off) the budget also follows the memory limit and idle timeout.
 extension WindowController {
     /// The shown workspace, then the parked ones from the most recently shown, each with its theme scope.
     var mountedContents: [WorkspaceContentController] {
