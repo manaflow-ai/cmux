@@ -17,7 +17,9 @@ extension PageWebView {
         -> (configuration: WKWebViewConfiguration, inputReadiness: PageInputReadiness) {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = dataStore ?? .nonPersistent()
-        configuration.processPool = PageProcessPool.forNewView
+        // No process pool here: the WebKit engine binds it when it is built (``PageWebKitEngine``). A page that shows
+        // in Chromium never builds one, and the shared pool's first `-[WKProcessPool init]` waits on notifyd for
+        // seconds on the main thread (2.7 s after Cmd-Shift-N, first-5s bench 2026-10-28).
         if options.fullFrameRate { WebKitRenderRate.apply(fullRate: true, to: configuration.preferences) }
         configuration.setURLSchemeHandler(handler, forURLScheme: PageDescriptor.scheme)
         let inputReadiness = PageInputReadiness(configuration: configuration)

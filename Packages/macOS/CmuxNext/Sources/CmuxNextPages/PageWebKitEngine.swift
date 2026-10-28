@@ -17,7 +17,8 @@ struct PageWebKitProcessGroup {
     let membership: WebProcessGroups.Membership
 }
 
-/// The WebKit side of one ``PageWebView``: its WKWebView, the bridge into it and its UI delegate.
+/// The WebKit side of one ``PageWebView``: its WKWebView, the bridge into it and its UI delegate. It binds the
+/// configuration's process pool (``PageProcessPool``) when it is built, so only a page that uses WebKit makes the pool.
 ///
 /// A WebKit page builds it with the view. A page shown in Chromium builds it only when it falls back
 /// (``PageWebView/fallBackToWebKit(_:detail:)``), so it holds no WKWebView and starts no WebKit
@@ -35,6 +36,9 @@ final class PageWebKitEngine {
 
     init(recipe: PageWebKitRecipe) {
         ui = PageUIDelegate(fileInputs: recipe.openPanel.map { PageOpenPanel(openPanel: $0) })
+        // The pool is bound here, the first time this page needs WebKit, and before the process group keys on it: a
+        // Chromium page never makes WebKit's shared pool (its first init waits on notifyd on the main thread).
+        recipe.configuration.processPool = PageProcessPool.forNewView
         // webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
         let make: (WKWebViewConfiguration) -> PageWKWebView = { PageWKWebView(frame: .zero, configuration: $0) }
         // A page that shares a process joins its group (WebProcessGroups); configuration has the group's store.
