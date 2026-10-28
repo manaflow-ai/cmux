@@ -105,6 +105,39 @@ const selectionRows = [
   summary(4.9, { id: "gallery-selection-summary", status: "completed" }),
 ];
 
+// Activity-tone review fixture: a primary exchange alongside tool work, a worked fold and a
+// received peer message. The same fixture is captured in light and dark for every tone arm.
+const activityToneChat = chat([
+  user("Review the latest change and tell the lane what you found", 6, { id: "activity-tone-user" }),
+  activity(
+    [
+      tool("Read conversation.css", "read", "completed", { locations: [{ path: "webviews/conversation.css" }] }),
+      tool("Run the transcript checks", "execute", "completed", { command: "bun test conversation" }),
+    ],
+    5.8,
+  ),
+  assistant("The transcript stays readable while background work remains visibly secondary.", 5.2, {
+    id: "activity-tone-answer",
+  }),
+  user(
+    "The lane reports that the checks are green. The expanded message remains readable.",
+    4.8,
+    {
+      id: "activity-tone-received",
+      incoming: {
+        kind: "message",
+        message: {
+          name: "review-lane",
+          text: "The checks are green. I also verified the dark and light transcript captures.",
+          raw: "The checks are green. I also verified the dark and light transcript captures.",
+        },
+      },
+      untyped: true,
+    },
+  ),
+  summary(4.8, { status: "completed", durationMs: 72_000, toolCount: 2 }),
+]);
+
 const keyboardRows = [
   user("Open the work details with the keyboard", 4, { id: "gallery-keyboard-user" }),
   activity(
@@ -1158,6 +1191,20 @@ export default agentPaneEntry({
     "agent-session/acpmux/chips/BareReferenceChip.tsx#BareReferenceChip",
   ],
   variants: {
+    "activity-tone-secondary": {
+      note: "Selected activity hierarchy: tool calls, Worked for and received peer cards use one AA-readable secondary tone; prompts and assistant text stay primary. Capture in light and dark.",
+      snapshot: activityToneChat,
+    },
+    "activity-tone-tertiary": {
+      note: "Gallery arm: a stronger tertiary dimming for background activity, checked against the same light/dark fixture.",
+      snapshot: activityToneChat,
+      documentAttributes: { "transcript-activity-tone": "tertiary" },
+    },
+    "activity-tone-readable": {
+      note: "Gallery arm: the most readable secondary tone, compared with the selected middle value before landing.",
+      snapshot: activityToneChat,
+      documentAttributes: { "transcript-activity-tone": "readable" },
+    },
     conversation: {
       note: "A finished exchange: prompt, markdown reply, turn footer.",
       snapshot: completedFooterSnapshot,
