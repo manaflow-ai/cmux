@@ -139,19 +139,22 @@ public final class DividerMouseCatchers {
     public func intercept(_ event: NSEvent) -> Bool {
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-            // A new press: any press sent on before has ended, whoever took its release (a menu, a modal).
+            let button = Self.button(of: event)
+            // Another button pressed during a forwarded press (a chord) leaves that press held and is not the divider's.
+            if let held = forwardedButton, held != button { return false }
+            // The same button pressed again: its last release never came here (a menu or a modal took it).
             forwardedButton = nil
             // A press on the window itself reaches the divider without help.
             guard !wanted.isEmpty, let source = event.window, source !== window else { return false }
             let point = window.convertPoint(fromScreen: source.convertPoint(toScreen: event.locationInWindow))
             guard let piece = wanted.first(where: { $0.area.rect.contains(point) }) else { return false }
-            forwardedButton = event.buttonNumber
+            forwardedButton = button
             DividerMouseCatcherView.forward(event, at: point, to: window)
             // The press is on its way first; the panel (a window-server change) waits for no click.
             if let index = waiting.firstIndex(of: piece) { place(waiting.remove(at: index)) }
             return true
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .leftMouseUp, .rightMouseUp, .otherMouseUp:
-            guard let button = forwardedButton, button == event.buttonNumber, let source = event.window else { return false }
+            guard let held = forwardedButton, held == Self.button(of: event), let source = event.window else { return false }
             if event.type == .leftMouseUp || event.type == .rightMouseUp || event.type == .otherMouseUp { forwardedButton = nil }
             let point = source === window ? event.locationInWindow
                 : window.convertPoint(fromScreen: source.convertPoint(toScreen: event.locationInWindow))
@@ -159,6 +162,15 @@ public final class DividerMouseCatchers {
             return true
         default:
             return false
+        }
+    }
+
+    /// The button of a mouse event: left 0 and right 1 by its type, any other by its number.
+    private static func button(of event: NSEvent) -> Int {
+        switch event.type {
+        case .leftMouseDown, .leftMouseDragged, .leftMouseUp: 0
+        case .rightMouseDown, .rightMouseDragged, .rightMouseUp: 1
+        default: max(event.buttonNumber, 2)
         }
     }
 
