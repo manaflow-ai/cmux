@@ -71,23 +71,28 @@ while True:
 
 # A `defaults` stand-in: export writes the domain's file, delete removes it, import restores it.
 DEFAULTS = r'''#!PYTHON
-import os, shutil, sys
+import os, plistlib, shutil, sys
 store = os.environ["FAKE_DEFAULTS_DIR"]
 verb, domain = sys.argv[1], sys.argv[2]
 path = os.path.join(store, domain + ".plist")
 with open(os.path.join(store, "calls.log"), "a") as log:
     log.write(" ".join(sys.argv[1:3]) + "\n")
-if verb == "export":
+if os.environ.get("FAKE_DEFAULTS_FAIL") == verb:
+    sys.exit(1)
+if verb == "export":  # as macOS does: a missing domain exports as an empty dictionary
+    if os.path.exists(path):
+        plistlib.dump({"stored": open(path, "rb").read()}, open(sys.argv[3], "wb"))
+    else:
+        plistlib.dump({}, open(sys.argv[3], "wb"))
+elif verb == "delete" or verb == "read":
     if not os.path.exists(path):
         sys.exit(1)
-    shutil.copyfile(path, sys.argv[3])
-elif verb == "delete":
-    if os.path.exists(path):
+    if verb == "delete":
         os.remove(path)
 elif verb == "import":
-    if os.environ.get("FAKE_DEFAULTS_FAIL_IMPORT") == "1":
-        sys.exit(1)
-    shutil.copyfile(sys.argv[3], path)
+    data = plistlib.load(open(sys.argv[3], "rb"))
+    if data:
+        open(path, "wb").write(data["stored"])
 '''
 
 
@@ -173,7 +178,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         domain = self.defaults_dir / f"{BUNDLE}.plist"
         domain.write_bytes(b"what the killed run's app wrote")
         aside = self.dir / f"cmux-fresh-smoke-{BUNDLE}.aside.plist"
-        aside.write_bytes(b"account defaults")
+        aside.write_bytes(plistlib.dumps({"stored": b"account defaults"}))
         status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(domain.read_bytes(), b"account defaults")
@@ -181,22 +186,38 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
 
     def test_a_domain_that_did_not_exist_is_removed_again(self):
         domain = self.defaults_dir / f"{BUNDLE}.plist"
-        domain.write_bytes(b"what the killed run's app wrote")
-        absent = self.dir / f"cmux-fresh-smoke-{BUNDLE}.aside-absent"
-        absent.touch()
         status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
         self.assertFalse(domain.exists())
-        self.assertFalse(absent.exists())
+        self.assertFalse((self.dir / f"cmux-fresh-smoke-{BUNDLE}.aside.plist").exists())
+
+    def test_an_export_that_fails_is_cannot_run_and_touches_nothing(self):
+        domain = self.defaults_dir / f"{BUNDLE}.plist"
+        domain.write_bytes(b"account defaults")
+        status, output, report = self.run_smoke("healthy", "--seconds", "1",
+                                                env={**self.env, "FAKE_DEFAULTS_FAIL": "export"})
+        self.assertEqual(status, smoke.CANNOT_RUN, output)
+        self.assertNotIn("pid", report)
+        self.assertEqual(domain.read_bytes(), b"account defaults")
+
+    def test_a_delete_that_fails_keeps_the_copy_and_does_not_launch(self):
+        domain = self.defaults_dir / f"{BUNDLE}.plist"
+        domain.write_bytes(b"account defaults")
+        status, output, report = self.run_smoke("healthy", "--seconds", "1",
+                                                env={**self.env, "FAKE_DEFAULTS_FAIL": "delete"})
+        self.assertEqual(status, smoke.CANNOT_RUN, output)
+        self.assertNotIn("pid", report)
+        aside = self.dir / f"cmux-fresh-smoke-{BUNDLE}.aside.plist"
+        self.assertEqual(plistlib.loads(aside.read_bytes()), {"stored": b"account defaults"})
 
     def test_defaults_that_cannot_be_put_back_fail_closed_and_stay_aside(self):
         domain = self.defaults_dir / f"{BUNDLE}.plist"
         domain.write_bytes(b"account defaults")
         status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10",
-                                                env={**self.env, "FAKE_DEFAULTS_FAIL_IMPORT": "1"})
+                                                env={**self.env, "FAKE_DEFAULTS_FAIL": "import"})
         self.assertEqual(status, smoke.CANNOT_RUN, output)
         aside = self.dir / f"cmux-fresh-smoke-{BUNDLE}.aside.plist"
-        self.assertEqual(aside.read_bytes(), b"account defaults")
+        self.assertEqual(plistlib.loads(aside.read_bytes()), {"stored": b"account defaults"})
         self.assert_cleaned_up(report)
 
     def test_the_app_sees_an_empty_home_and_none_of_the_runner_environment(self):

@@ -156,10 +156,11 @@ def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
 class DefaultsAside:
     """The bundle's defaults domain, set aside for the run under a per-bundle lock and put back after it.
 
-    The set-aside copy lives beside the lock, outside the run's temp root, so a harness that is killed
-    mid-run (a step timeout) leaves it for the next run to put back before it sets anything aside. A
-    domain that did not exist is recorded too, so the next run deletes what the app wrote. A delete or
-    import that fails is CannotRun: the gate fails closed and the copy stays for the next run."""
+    `defaults export` of a domain that does not exist writes an empty dictionary, so the copy always
+    exists and putting it back also removes whatever the app wrote. The copy lives beside the lock,
+    outside the run's temp root, so a harness that is killed mid-run (a step timeout) leaves it for the
+    next run to put back before it sets anything aside. Any export, delete or import that fails is
+    CannotRun: the gate fails closed and the copy stays for the next run."""
 
     def __init__(self, bundle_id: str, root: Path):
         self.bundle_id = bundle_id
@@ -168,23 +169,40 @@ class DefaultsAside:
         stem = os.path.join(lock_dir, f"cmux-fresh-smoke-{bundle_id}")
         self.lock_path = stem + ".lock"
         self.backup = Path(stem + ".aside.plist")
-        self.absent = Path(stem + ".aside-absent")
         self.lock = None
 
     def defaults(self, *args: str) -> int:
         return subprocess.run([self.tool, *args], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                               timeout=60).returncode
 
+    def holds_keys(self) -> bool:
+        """Whether the domain still has any key (cfprefsd answers an emptied domain as {}, exit 0)."""
+        probe = self.backup.with_name(self.backup.name + ".probe")
+        try:
+            if self.defaults("export", self.bundle_id, str(probe)) != 0 or not probe.exists():
+                return True  # cannot tell: treat it as not cleared
+            try:
+                with open(probe, "rb") as handle:
+                    return bool(plistlib.load(handle))
+            except Exception:
+                return True
+        finally:
+            probe.unlink(missing_ok=True)
+
+    def clear(self) -> None:
+        """Delete the domain (it fails when there is nothing to delete) and confirm it holds no key."""
+        self.defaults("delete", self.bundle_id)
+        if self.holds_keys():
+            raise CannotRun(f"could not delete the {self.bundle_id} defaults; the copy stays in {self.backup}")
+
     def put_back(self) -> None:
-        """Restore whatever is set aside (this run's, or one a killed run left), then forget it."""
-        if self.backup.exists():
-            self.defaults("delete", self.bundle_id)
-            if self.defaults("import", self.bundle_id, str(self.backup)) != 0:
-                raise CannotRun(f"could not put back the {self.bundle_id} defaults; they stay set aside in {self.backup}")
-            self.backup.unlink()
-        if self.absent.exists():
-            self.defaults("delete", self.bundle_id)  # nonzero when the app wrote nothing: nothing to remove
-            self.absent.unlink()
+        """Restore the copy set aside (this run's, or one a killed run left), then forget it."""
+        if not self.backup.exists():
+            return
+        self.clear()
+        if self.defaults("import", self.bundle_id, str(self.backup)) != 0:
+            raise CannotRun(f"could not put back the {self.bundle_id} defaults; they stay set aside in {self.backup}")
+        self.backup.unlink()
 
     def __enter__(self):
         if not self.tool:
@@ -203,20 +221,16 @@ class DefaultsAside:
                     raise CannotRun(f"another fresh-home smoke of {self.bundle_id} held {self.lock_path} for {wait:.0f}s")
                 time.sleep(1)
         try:
-            if self.backup.exists() or self.absent.exists():
+            if self.backup.exists():
                 log(f"note: putting back the {self.bundle_id} defaults an earlier smoke left set aside")
                 self.put_back()
             partial = self.backup.with_name(self.backup.name + ".partial")
             partial.unlink(missing_ok=True)
-            if self.defaults("export", self.bundle_id, str(partial)) == 0 and partial.exists():
-                os.replace(partial, self.backup)
-                if self.defaults("delete", self.bundle_id) != 0:
-                    # The copy stays: the delete may have half-run, and the next run puts it back first.
-                    raise CannotRun(f"could not set the {self.bundle_id} defaults aside (defaults delete failed); "
-                                    f"the copy stays in {self.backup}")
-            else:
+            if self.defaults("export", self.bundle_id, str(partial)) != 0 or not partial.exists():
                 partial.unlink(missing_ok=True)
-                self.absent.touch()
+                raise CannotRun(f"could not export the {self.bundle_id} defaults; nothing was set aside")
+            os.replace(partial, self.backup)
+            self.clear()  # on failure the copy stays: the delete may have half-run
         except BaseException:
             self.release()
             raise
