@@ -17,8 +17,11 @@ The controls are accepted only on a local, person-proven connection:
 The state stream is event-driven from the node's IPN bus. It has no polling
 timer. A failed watch clears the node so a later explicit start can retry; a
 generation fence prevents an old watch from changing a replacement node's
-state. Daemon shutdown closes the node but leaves its saved login for the next
-explicit start.
+state. Each start, login, logout and shutdown runs on its own task, so a caller
+that goes away mid-request never leaves the controller half-changed. Daemon
+shutdown closes the node but leaves its saved login for the next explicit start.
+Builds with the `tailnet` feature list the four methods in `initialize`'s
+`extensions`; other builds answer them with `not_built`.
 
 Tailnet ingress receives the controller's live `Node` and the daemon's same
 `Arc<Hub>`. Pairing tickets are minted and redeemed by that Hub's one pairing

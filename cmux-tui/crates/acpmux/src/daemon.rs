@@ -547,6 +547,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    // A node a person started closes with the daemon; its saved login stays.
+    #[cfg(all(unix, feature = "tailnet"))]
+    if let Some(tailnet) = hub.tailnet_controller.get() {
+        match tokio::time::timeout(SHUTDOWN_BUDGET, tailnet.shutdown()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => tracing::warn!("embedded tailnet close: {error}"),
+            Err(_) => tracing::warn!("embedded tailnet did not close within {SHUTDOWN_BUDGET:?}"),
+        }
+    }
     hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon.
     let _ = std::fs::remove_file(socket_path());

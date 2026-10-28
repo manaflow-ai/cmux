@@ -193,6 +193,29 @@ impl Controller {
     /// Start the node without waiting for login. A saved login resumes; an
     /// unsigned node reports `needs_login` and its URL through `state`.
     pub async fn start(self: &Arc<Self>) -> Result<Snapshot, String> {
+        let this = Arc::clone(self);
+        detached(async move { this.start_detached().await }).await
+    }
+
+    /// Request an explicit browser sign-in URL for a running unsigned node.
+    pub async fn login(self: &Arc<Self>) -> Result<Snapshot, String> {
+        let this = Arc::clone(self);
+        detached(async move { this.login_detached().await }).await
+    }
+
+    /// Sign out and close all ingress listeners that hold this node.
+    pub async fn logout(self: &Arc<Self>) -> Result<Snapshot, String> {
+        let this = Arc::clone(self);
+        detached(async move { this.logout_detached().await }).await
+    }
+
+    /// Close without deleting the saved login, used by daemon shutdown.
+    pub async fn shutdown(self: &Arc<Self>) -> Result<(), String> {
+        let this = Arc::clone(self);
+        detached(async move { this.shutdown_detached().await }).await
+    }
+
+    async fn start_detached(self: Arc<Self>) -> Result<Snapshot, String> {
         let _lifecycle = self.lifecycle.lock().await;
         let generation;
         {
@@ -231,7 +254,7 @@ impl Controller {
             inner.starting = false;
             inner.node = Some(node.clone());
         }
-        let this = Arc::clone(self);
+        let this = Arc::clone(&self);
         let watch_node = node.clone();
         if let Err(error) = std::thread::Builder::new()
             .name("acpmux-tailnet-watch".into())
@@ -242,11 +265,12 @@ impl Controller {
             self.update(|snapshot| snapshot.error = Some(error.to_string()));
             return Err(error.to_string());
         }
+        // A watch that already ended has cleared the node: this may be the last handle.
+        release_node(node);
         Ok(self.snapshot())
     }
 
-    /// Request an explicit browser sign-in URL for a running unsigned node.
-    pub async fn login(&self) -> Result<Snapshot, String> {
+    async fn login_detached(self: Arc<Self>) -> Result<Snapshot, String> {
         let _lifecycle = self.lifecycle.lock().await;
         let node = self.node().ok_or_else(|| "tailnet is not started".to_owned())?;
         let result = tokio::task::spawn_blocking(move || node.login_interactive().map_err(|e| e.0))
@@ -256,8 +280,7 @@ impl Controller {
         Ok(self.snapshot())
     }
 
-    /// Sign out and close all ingress listeners that hold this node.
-    pub async fn logout(&self) -> Result<Snapshot, String> {
+    async fn logout_detached(self: Arc<Self>) -> Result<Snapshot, String> {
         let _lifecycle = self.lifecycle.lock().await;
         {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
@@ -283,8 +306,7 @@ impl Controller {
         Ok(self.snapshot())
     }
 
-    /// Close without deleting the saved login, used by daemon shutdown.
-    pub async fn shutdown(&self) -> Result<(), String> {
+    async fn shutdown_detached(self: Arc<Self>) -> Result<(), String> {
         let _lifecycle = self.lifecycle.lock().await;
         {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
@@ -375,6 +397,15 @@ impl Controller {
     fn publish_locked(&self, snapshot: &Snapshot) {
         let _ = self.changes.send(snapshot.clone());
     }
+}
+
+/// Lifecycle work runs on its own task: a request whose caller goes away
+/// (a closed connection drops its future) still finishes and reconciles the
+/// controller, so `starting` or a closed node never outlives it.
+async fn detached<T: Send + 'static>(
+    work: impl std::future::Future<Output = Result<T, String>> + Send + 'static,
+) -> Result<T, String> {
+    tokio::spawn(work).await.map_err(|error| error.to_string())?
 }
 
 // Logout can fail remotely, but the local node and its watchers must still close.
@@ -490,6 +521,27 @@ mod tests {
         assert!(snapshot.dns_name.is_none());
         assert!(snapshot.ips.is_empty());
         assert_eq!(snapshot.error.as_deref(), Some("watch ended"));
+    }
+
+    #[tokio::test]
+    async fn a_dropped_caller_does_not_cancel_lifecycle_work() {
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        let caller = tokio::spawn(detached(async move {
+            let _ = started_tx.send(());
+            let _ = release_rx.await;
+            let _ = done_tx.send(());
+            Ok::<_, String>(())
+        }));
+        started_rx.await.unwrap();
+        caller.abort();
+        let _ = caller.await;
+        release_tx.send(()).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), done_rx)
+            .await
+            .expect("detached lifecycle work finished after its caller was dropped")
+            .unwrap();
     }
 
     #[test]
