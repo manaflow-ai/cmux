@@ -755,6 +755,20 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
 
+      # The glaeda-route App installation's budget around the reads below (a free
+      # rate_limit read): the installation is shared, so the delta between `before`
+      # and `after` is this step's reads plus whatever else ran meanwhile.
+      - name: Log the glaeda-route App budget before
+        if: ${{ (steps.route-token.outputs.token || steps.route-token-repo.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          PROBE: ${{ github.workflow }}/changes-route/before
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
       - name: Choose the pull request macOS pool
         id: macos-pool
         # Fail-safe: any error leaves the outputs empty, which is today's route.
@@ -800,6 +814,17 @@ jobs:
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
           OWNED_WARM_DISTANCE: ${{ vars.CI_OWNED_WARM_DISTANCE }}
         run: python3 scripts/ci/simple_pool_picker.py
+
+      - name: Log the glaeda-route App budget after
+        if: ${{ !cancelled() && (steps.route-token.outputs.token || steps.route-token-repo.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          PROBE: ${{ github.workflow }}/changes-route/after
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
 
       # A job queued on a persistent pool (owned Macs) waits for it however long
       # it stays busy. ci-owned-pool-rescue.yml's sweeper, running from main,
@@ -1041,6 +1066,21 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-actions: read
           permission-pull-requests: read
+          skip-token-revoke: true
+
+      # The glaeda-route App installation's budget around the reads below (a free
+      # rate_limit read): the installation is shared, so the delta between `before`
+      # and `after` is this step's reads plus whatever else ran meanwhile.
+      - name: Log the glaeda-route App budget before
+        if: ${{ (steps.admitted-read-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.admitted-read-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/changes-admitted/before
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
 
       - name: Look for an earlier run that compiled these inputs
         id: admitted
@@ -1054,6 +1094,17 @@ jobs:
           set -euo pipefail
           python3 scripts/ci/find_admitted_build.py --repository "$GITHUB_REPOSITORY" --branch "$BRANCH" \
             --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
+
+      - name: Log the glaeda-route App budget after
+        if: ${{ !cancelled() && (steps.admitted-read-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.admitted-read-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/changes-admitted/after
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
 
       # Route the report-only reverse impact job from a trusted base helper.
       # A missing base helper or changed-path list fails open, so this optional

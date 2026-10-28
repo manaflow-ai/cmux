@@ -208,7 +208,13 @@ const readTreeMarker = async (sha) => {
   return marker || { status: 200, body: { commit: sha, key: 'f'.repeat(40), publishedBy: 'e'.repeat(40), markedBy: 'https://github.com/manaflow-ai/cmux/actions/runs/1' } };
 };
 let newest = null;
-const decision = scenario.newest
+const decision = scenario.request !== undefined
+  ? (newest = await guard.decideRequest({
+      requested: scenario.request, actor: scenario.requestActor,
+      github, core, owner: 'manaflow-ai', repo: 'cmux', runId: 1,
+      surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker,
+    })).decision
+  : scenario.newest
   ? (newest = await guard.decideNewest({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha, runId: 1,
       surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker,
@@ -869,6 +875,60 @@ def test_an_unreadable_eviction_list_decides_the_request_alone() -> None:
     assert any("cancelled in the promote queue" in notice for notice in out["notices"]), out["notices"]
 
 
+# The cadence (decideRequest): only the 30-minute tick ("tick:" prefix) or a
+# person promotes; a landing's request (github-actions[bot], no prefix) is skipped.
+LANDING = "github-actions[bot]"
+
+
+def test_a_burst_of_landings_promotes_nothing() -> None:
+    for sha in (SHA, NEWER, MID):
+        out = run(scenario(request=sha, requestActor=LANDING))
+        assert out["decision"]["action"] == "skip", out["decision"]
+        assert "nightly-next tick" in out["decision"]["reason"], out["decision"]
+        # Skipped before any read: no eviction scan, no guard.
+        assert out["calls"]["dispatchStatuses"] == [] and out["calls"]["comparePages"] == 0, out["calls"]
+
+
+def test_the_tick_promotes_through_the_newest_request_guard() -> None:
+    out = run(scenario(request=f"tick:{SHA}", requestActor=LANDING))
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+    assert out["newest"]["tick"] and not out["newest"]["dryRun"], out["newest"]
+    assert out["calls"]["dispatchStatuses"] == ["cancelled"], out["calls"]
+
+
+def test_a_tick_with_nothing_new_does_nothing() -> None:
+    out = run(scenario(request=f"tick:{CURRENT}", requestActor=LANDING, sha=CURRENT, onSource={CURRENT: "ahead"}))
+    assert out["decision"]["action"] == "skip" and "already at" in out["decision"]["reason"], out["decision"]
+
+
+def test_a_persons_dispatch_still_promotes() -> None:
+    out = run(scenario(request=SHA, requestActor="teamleaderleo"))
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+
+
+def test_a_dry_run_tick_parses_both_prefixes_in_either_order() -> None:
+    for request in (f"dry-run:tick:{SHA}", f"tick:dry-run:{SHA}"):
+        out = run(scenario(request=request, requestActor=LANDING))
+        assert out["newest"]["dryRun"] and out["newest"]["tick"], out["newest"]
+        assert out["decision"]["sha"] == SHA, out["decision"]
+
+
+def test_an_evicted_landing_request_is_not_decided() -> None:
+    case = with_evicted(NEWER)
+    case["request"], case["requestActor"] = f"tick:{SHA}", LANDING
+    case["dispatchRuns"][0]["triggering_actor"] = {"login": LANDING}
+    out = run(case)
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+
+
+def test_an_evicted_tick_request_is_decided() -> None:
+    case = with_evicted(NEWER, title=f"Promote nightly-next to tick:{NEWER}")
+    case["request"], case["requestActor"] = f"tick:{SHA}", LANDING
+    case["dispatchRuns"][0]["triggering_actor"] = {"login": LANDING}
+    out = run(case)
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == NEWER, out["decision"]
+
+
 def test_an_older_evicted_request_does_not_replace_the_request() -> None:
     out = run(with_evicted(MID))
     assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
@@ -908,12 +968,12 @@ def test_the_request_title_names_its_commit() -> None:
 def test_workflow_runs_the_guard_from_main_and_gates_the_move() -> None:
     assert "environment: nightly-next-promote" in WORKFLOW
     assert "&& 'release-surface-ack' || ''" in WORKFLOW
-    assert "requested.startsWith('dry-run:')" in WORKFLOW
+    assert "guard.decideRequest({" in WORKFLOW and "TRIGGERING_ACTOR: ${{ github.triggering_actor }}" in WORKFLOW
     assert "ref: ${{ github.sha }}" in WORKFLOW
     assert "if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'" in WORKFLOW
     assert "if: needs.await-release-surface-ack.result == 'success' && needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'" in WORKFLOW
     assert "group: nightly-next-promote-ack-${{ github.run_id }}" in WORKFLOW
-    assert "guard.decideNewest({" in WORKFLOW
+    assert "guard.decideRequest({" in WORKFLOW
 
 
 def test_non_macos_nightly_next_orchestration_uses_the_trusted_fast_check_fallback() -> None:

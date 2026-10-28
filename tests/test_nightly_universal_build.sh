@@ -602,7 +602,7 @@ assert "workflow_dispatch:" in auto
 assert "source_run_id:" in auto and "source_run_attempt:" in auto
 assert "poll:" in auto
 assert "poll-notary-submission.py" in auto
-assert "runs-on: ubuntu-24.04" in auto
+assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}" in auto
 assert "sleep 300" in auto
 assert "exact recovery artifacts for manual continuation" in auto
 assert "needs.poll.outputs.all_accepted == 'true'" in auto
