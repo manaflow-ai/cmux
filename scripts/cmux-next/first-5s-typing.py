@@ -325,6 +325,25 @@ class NextApp:
     def hangs_clear(self):
         self.control.rpc("debug.hangs", {"clear": True}, timeout=20)
 
+    def journal_mark(self, marker):
+        self.control.rpc("debug.journal", {"marker": marker, "last": 1}, timeout=20)
+
+    def journal_since(self, marker, limit=400):
+        """The input journal after `marker` (ms from it): focus, responder, holds, content events."""
+        out = []
+        got = self.control.rpc("debug.journal", {"last": 4000}, timeout=30) or {}
+        entries = got.get("entries") or [] if isinstance(got, dict) else []
+        start = next((i for i, e in enumerate(entries) if marker in json.dumps(e.get("kind"))), None)
+        if start is None:
+            return [{"ms": None, "kind": f"marker not found in {len(entries)} entries"}]
+        base_ns = entries[start].get("uptimeNanos") or 0
+        for e in entries[start + 1:]:
+            kind = json.dumps(e.get("kind"), separators=(",", ":"))
+            if "debug.focus" in kind or '"resize:' in kind or "debug.journal" in kind:
+                continue
+            out.append({"ms": round(((e.get("uptimeNanos") or 0) - base_ns) / 1e6, 2), "kind": kind[:240]})
+        return out[:limit]
+
     def hangs(self, start_ns, end_ns):
         reply = self.control.rpc("debug.hangs", {}, timeout=30) or {}
         if not isinstance(reply, dict) or reply.get("error"):
@@ -419,7 +438,15 @@ class ClassicApp:
                 dbg = open(self.log).read()[-2000:]
             except OSError:
                 pass
-            note(f"first5s: classic DIED after its socket answered: exit {self.process.poll()}\n--- app log tail\n{tail}\n--- debug log tail\n{dbg}")
+            crash = ""
+            reports = sorted(glob.glob(os.path.expanduser("~/Library/Logs/DiagnosticReports/*cmux*")), key=os.path.getmtime)
+            if reports and time.time() - os.path.getmtime(reports[-1]) < 300:
+                try:
+                    text = open(reports[-1]).read()
+                    crash = reports[-1] + "\n" + text[:6000]
+                except OSError:
+                    pass
+            note(f"first5s: classic DIED after its socket answered: exit {self.process.poll()}\n--- app log tail\n{tail}\n--- debug log tail\n{dbg}\n--- crash report\n{crash}")
             raise LaunchError("classic: the app stopped answering 6 s after launch", {"exit": self.process.poll()})
         hid_input.bring_front(self.pid)
         note(f"first5s: classic activate {self._send(self.sock, 'activate_app')}")
@@ -492,6 +519,12 @@ class ClassicApp:
     def hangs_clear(self):
         pass
 
+    def journal_mark(self, marker):
+        pass
+
+    def journal_since(self, marker, limit=400):
+        return None
+
     def hangs(self, start_ns, end_ns):
         return None
 
@@ -556,6 +589,11 @@ def run_round(app, scenario, index, sampled):
     rows_before = app.probe_rows()
     base = max([int(r["index"]) for r in rows_before if (r.get("index") or "").isdigit()], default=-1)
     app.hangs_clear()
+    marker = f"first5s-{scenario}-{index}-{time.time_ns()}"
+    try:
+        app.journal_mark(marker)
+    except Exception:  # an app without the journal: the round still runs
+        pass
     sampler = sample_main_thread(app.pid, opts.seconds + 0.5, os.path.join(app.out, f"sample-{scenario}-{index}.txt")) if sampled else None
     if sampler:
         time.sleep(0.6)  # sample attaches before the open key
@@ -570,6 +608,10 @@ def run_round(app, scenario, index, sampled):
     end_ns = NOW_NS()
     line = app.line()
     hangs = app.hangs(open_ns, end_ns)
+    try:
+        journal = app.journal_since(marker)
+    except Exception as error:
+        journal = [{"ms": None, "kind": repr(error)}]
     if sampler:
         try:
             sampler.wait(15)
@@ -607,7 +649,7 @@ def run_round(app, scenario, index, sampled):
            "shells_loaded": shells_loaded(app.zdot), "probe_rows": len(rows), "keys": keys, "hangs": hangs,
            "first_frame_ms": round(first_any, 1) if first_any is not None else None,
            "first_big_frame_ms": round(first_big, 1) if first_big is not None else None,
-           "frames": frames}
+           "frames": frames, "journal": journal}
     if sampled:
         rec["sample"] = main_thread_tree(os.path.join(app.out, f"sample-{scenario}-{index}.txt"), min_share=0.01, limit=400)
         tree = (rec["sample"] or {}).get("tree") or []
@@ -620,6 +662,9 @@ def run_round(app, scenario, index, sampled):
          f"{'ok' if ok else 'LINE ' + repr(line[-50:])}; probe max {max(probe) if probe else None} photon max "
          f"{max(photon) if photon else None}; first frame {rec['first_frame_ms']} big {rec['first_big_frame_ms']}; "
          f"hangs {len((hangs or {}).get('window') or []) if isinstance(hangs, dict) else None}")
+    if index == 0 and journal:
+        for item in journal[:70]:
+            note(f"      J {item['ms']} {item['kind'][:200]}")
     for h in ((hangs or {}).get("window") or [])[:12] if isinstance(hangs, dict) else []:
         note(f"      hang +{h['at_ms']} ms {h['ms']} ms cpu {h['cpu_ms']} [{h['list']}] {h.get('task') or h.get('name') or ''} "
              f"{' < '.join(f[:150] for f in h['frames'][:5])}")
