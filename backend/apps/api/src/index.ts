@@ -187,7 +187,7 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
   return Response.json({ ok: true, value: reply.value })
 }
 
-/** The projection compare's cron expression (wrangler.jsonc staging and development triggers). */
+/** The projection compare's cron expression (wrangler.jsonc triggers of every environment). */
 const PROJECTION_COMPARE_CRON = "*/15 * * * *"
 
 export default {
@@ -271,6 +271,8 @@ export default {
     // A Chief's upsell link: a Stripe Checkout page for a plan (plan-checkout.ts, test mode only).
     const planCheckout = url.pathname.match(PLAN_PATH)
     if (planCheckout) return handlePlanCheckout(request, env, planCheckout[1]!)
+    // The console's billing page: plan, usage, credits, upgrades (billing-summary.ts, paid-plans-DESIGN.md §3).
+    if (url.pathname === "/v1/billing/summary") return (await import("./billing-summary.ts")).handleBillingSummary(request, env)
     if (url.pathname === CREDITS_WEBHOOK_PATH) return handleCreditsWebhook(request, env)
     if (url.pathname === CREDITS_ADMIN_PATH) return handleCreditsAdmin(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
@@ -299,7 +301,7 @@ export default {
     return apiHandler(request)
   },
   // Cron (wrangler triggers): every 5 minutes the Cloud Home health probe (home-health.ts), the feed text sweep (feed-sweep.ts), and every 15 minutes the
-  // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts).
+  // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts) and the shadow-read probe (shadow-read-probe.ts).
   // Awaited, not waitUntil: the run gets the cron limit, and a throw shows as a failed run.
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     // Cloud Home health (home-health.ts): a probe round trip and a Sentry Cron check-in; it never throws.
@@ -309,7 +311,16 @@ export default {
     }
     if (controller.cron === PROJECTION_COMPARE_CRON) {
       // The usage sync (cx-y79zh S4) runs beside the projection compare; a failure of one does not stop the other.
-      const [compare, usage] = await Promise.allSettled([(async () => (await import("./projection-compare-cron.ts")).compareFromEnv(env))(), env.STRIPE_USAGE_KEY ? (async () => (await import("./billing-usage-sync.ts")).syncUsage(env))() : Promise.resolve(null)])
+      // Never in production yet: production runs this cron for the Vitess dual write, and the usage sync's live switch is its
+      // own reviewed change with the live key (plans/cmux-next/usage-billing.md section 10), which removes this condition.
+      const usageSync = env.STRIPE_USAGE_KEY && env.ENVIRONMENT !== "production"
+      const [compare, usage, probe] = await Promise.allSettled([
+        (async () => (await import("./projection-compare-cron.ts")).compareFromEnv(env))(),
+        usageSync ? (async () => (await import("./billing-usage-sync.ts")).syncUsage(env))() : Promise.resolve(null),
+        // Shadow-read soak traffic (shadow-read-probe.ts): every user id through the feed.users shadow read.
+        (async () => (await import("./shadow-read-probe.ts")).shadowReadProbe(env, sweepDeps(env).listUsers))()
+      ])
+      if (probe.status === "rejected") console.error(JSON.stringify({ msg: "projection.read.probe_failed", error: String(probe.reason).slice(0, 200) }))
       if (usage.status === "rejected") console.error(JSON.stringify({ msg: "billing.usage_sync.run_failed", error: String(usage.reason).slice(0, 200) }))
       if (compare.status === "rejected") throw compare.reason
       return

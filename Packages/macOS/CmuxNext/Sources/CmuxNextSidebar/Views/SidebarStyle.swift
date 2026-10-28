@@ -40,6 +40,10 @@ enum SidebarStyle {
         if swatch { return leading + iconSide + Metrics.space3 + Metrics.space1 }
         return leading + iconSide + Metrics.space3 - Swift.max(0, (iconSide - kindGlyphSize) / 2)
     }
+    /// The one text column after a leading glyph in a row whose first ink starts at `leading`: Home's and every
+    /// band row's label, a pinned row's title (after its pin), a workspace row's title after its icon. Lawrence
+    /// 2026-10-28: "home and pinned are not aligned".
+    static func leadingTextX(leading: CGFloat) -> CGFloat { titleTextX(leading: leading, iconSide: iconBox) }
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }

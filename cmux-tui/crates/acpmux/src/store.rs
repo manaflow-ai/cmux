@@ -229,6 +229,11 @@ pub struct SessionMeta {
     /// with "No conversation found with session ID".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub claude_unstored: bool,
+    /// When (Unix ms) the idle exit hibernated its agent, 0 when no start woke it since
+    /// (`hub/idle.rs`): after a restart, opening it wakes it and its wake draws no row, as
+    /// before the restart, and the wake's log says how long it slept.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub hibernated_ms: u64,
     /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the current Claude
     /// conversation: the one that started or forked it. A respawn on another profile (a failover)
     /// resumes only when that profile's store has the conversation, else starts fresh (E1).
@@ -1681,6 +1686,10 @@ mod permission_tests {
 
 #[cfg(all(test, unix))]
 mod line_rev_tests;
+
+fn is_zero(v: &u64) -> bool {
+    *v == 0
+}
 
 #[cfg(test)]
 mod head_tests;
