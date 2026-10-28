@@ -5,13 +5,14 @@ import Testing
 /// Reply validity is native request data only. It confers no person gesture: renderer redemption
 /// and a fresh current-generation check are separate requirements at the eventual send boundary.
 struct AgentPaneQuestionReplyTests {
-    static func prompt(harness: String = "claude", allowsOther: Bool = true, multi: Bool = false,
+    static func prompt(harness: String = "claude", allowsOther: Any? = true, multi: Bool = false,
                        label: String = "Glass", preview: String = "<b>preview</b>") -> [String: Any] {
         let options: [[String: Any]] = [["id": "glass", "label": label,
                                         "preview": ["text": preview.trimmingCharacters(in: .whitespacesAndNewlines), "format": "html"]],
                                        ["id": "paper", "label": "Paper"]]
-        let question: [String: Any] = ["harness": harness, "items": [
-            ["id": "q", "prompt": "Choose?", "options": options, "multiSelect": multi, "allowsOther": allowsOther]]]
+        var item: [String: Any] = ["id": "q", "prompt": "Choose?", "options": options, "multiSelect": multi]
+        if let allowsOther { item["allowsOther"] = allowsOther }
+        let question: [String: Any] = ["harness": harness, "items": [item]]
         let request: [String: Any] = [
             "options": [["optionId": "yes", "kind": "allow_once"], ["optionId": "no", "kind": "reject_once"]],
             "toolCall": ["toolCallId": "call", "_meta": ["acpmux": ["question": question], "claude": ["tool": "AskUserQuestion"]],
@@ -50,6 +51,31 @@ struct AgentPaneQuestionReplyTests {
         #expect(reply.intent.params["permissionId"] == .string("p"))
         #expect(reply.intent.params["answers"] == AcpmuxSecretKey.canonicalDigest(["Choose?": text]).map(AgentPaneJSONScalar.string))
         #expect(reply.canonicalJSON == AcpmuxSecretKey.canonicalJSON(body))
+    }
+
+    @Test(arguments: ["claude", "chief", "codex"])
+    func omittedOrNullAllowsOtherDefaultsToFreeText(harness: String) throws {
+        // Options remain present: omission must not silently make this a choice-only question.
+        let text = "Keep this Other answer exactly as typed."
+        let answers: [String: Any] = harness == "codex"
+            ? ["q": ["answers": [text]]] : ["Choose?": text]
+        let flags: [Any?] = [nil, NSNull()]
+        for flag in flags {
+            let question = try Self.fixture(Self.prompt(harness: harness, allowsOther: flag))
+            let body: [String: Any] = ["optionId": "yes", "answers": answers]
+            let reply = try AgentPaneQuestionReply(input: question, replyJSON: Self.json(body))
+            #expect(reply.intent.params["answers"] == AcpmuxSecretKey.canonicalDigest(answers).map(AgentPaneJSONScalar.string))
+            #expect(reply.canonicalJSON == AcpmuxSecretKey.canonicalJSON(body))
+        }
+    }
+
+    @Test func malformedAllowsOtherCannotEnableFreeText() throws {
+        let flags: [Any] = ["true", ["enabled": true]]
+        for flag in flags {
+            let question = try Self.fixture(Self.prompt(allowsOther: flag))
+            #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Other"]],
+                                    question: question) == .answers)
+        }
     }
 
     @Test func codexAndClaudeRequireTheirOwnCompleteShape() throws {
