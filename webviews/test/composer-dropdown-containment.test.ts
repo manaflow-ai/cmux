@@ -124,6 +124,13 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         const trigger = typeof triggerName === "string"
           ? page.getByRole("button", { name: triggerName, exact: true })
           : page.getByRole("button", { name: triggerName });
+        await trigger.evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          Object.defineProperty(node, "getBoundingClientRect", {
+            configurable: true,
+            value: () => new DOMRect(rect.x, 700, rect.width, rect.height),
+          });
+        });
         await trigger.dispatchEvent("pointerdown", { button: 0 });
         await trigger.dispatchEvent("click", { detail: 1 });
         const popup = page.locator(popupSelector);
