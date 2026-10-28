@@ -30,7 +30,7 @@ enum TabUnreadMark {
         case .read:
             if tab.hasUnread { try NotificationHandlers.acknowledge([tab.surface], context) }
             if tab.markedUnread { try set(false, tab: tab, daemon: daemon) }
-            if tab.attention != nil { clearAttention(tab: tab, daemon: daemon) }
+            if tab.attention != nil { try clearAttention(tab: tab, daemon: daemon) }
         case .markUnread:
             try set(true, tab: tab, daemon: daemon)
         }
@@ -53,10 +53,13 @@ enum TabUnreadMark {
     }
 
     /// Mark as Read on a tab an agent marked (tab-attention-v1) drops that mark too: the person
-    /// saw what the agent asked. A daemon without the capability holds no mark to clear.
-    static func clearAttention(tab: TabModel, daemon: DaemonService) {
-        guard daemon.supports(DaemonCapability.tabAttentionConditionalClear.rawValue), daemon.store.servesStateResources,
-              let resource = tab.resourceID, let request = tab.expectAttentionClear() else { return }
+    /// saw what the agent asked. A daemon without conditional-clear support refuses rather than
+    /// risking an unconditional delayed clear.
+    static func clearAttention(tab: TabModel, daemon: DaemonService) throws {
+        guard daemon.supports(DaemonCapability.tabAttentionConditionalClear.rawValue), daemon.store.servesStateResources else {
+            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.tabAttentionConditionalClear.rawValue))
+        }
+        guard let resource = tab.resourceID, let request = tab.expectAttentionClear() else { return }
         daemon.send("tab.update", onFailure: { _ in tab.dropExpectedAttentionClear(request) }) {
             try await $0.state.updateTabRecord(resource, clearsAttentionAtMs: request.atMs)
         }
