@@ -58,6 +58,32 @@ struct SidebarRowsMoveOnRenderServerTests {
         #expect(Self.positionSprings(view) == 0)
     }
 
+    @Test
+    func anOldCloseCannotFinishTheReusedRowsNewClose() throws {
+        let list = SidebarListView(model: SidebarModel())
+        let key = SidebarRowKey.workspace(WorkspaceID("reused"))
+        let view = list.dequeue(key)
+        list.addSubview(view)
+        let oldClose = view.reuseGeneration
+        list.recycle(view)
+        let reused = list.dequeue(key)
+        try #require(reused === view)
+        // It left rowViews for a second close before the first close's completion arrived.
+        reused.closingEnd = .zero
+        list.fadingRows[ObjectIdentifier(reused)] = reused
+        let spring = CASpringAnimation(keyPath: "position")
+        spring.isAdditive = true
+        reused.layer?.add(spring, forKey: "\(SidebarDragSpring.batchKey).position.test")
+        list.finishLeaving(view, generation: oldClose)
+        #expect(!reused.isHidden)
+        #expect(Self.positionSprings(reused) == 1)
+        #expect(list.fadingRows[ObjectIdentifier(reused)] === reused)
+        list.finishLeaving(reused, generation: reused.reuseGeneration)
+        #expect(reused.isHidden && reused.closingEnd == nil)
+        #expect(Self.positionSprings(reused) == 0)
+        #expect(list.fadingRows.isEmpty)
+    }
+
     /// The rows and group lines that still carry a row move's spring.
     private static func springing(_ list: SidebarListView) -> [String] {
         list.subviews.filter { $0 is SidebarRowView || $0 is GroupLineView }.compactMap { view in
