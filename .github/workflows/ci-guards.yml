@@ -181,6 +181,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_merge_freeze.py
 
+      - name: Validate bounded GitHub list reads (no gh api paginate flag under scripts/)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_gh_pages.py
+
       - name: Validate main compile attribution
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_main_compile_attribution.py
