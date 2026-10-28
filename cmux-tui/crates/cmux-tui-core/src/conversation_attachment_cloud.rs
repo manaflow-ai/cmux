@@ -242,7 +242,7 @@ mod memory_tests {
         // Isolate VmHWM from other parallel tests. Sparse files make the fixture cheap;
         // the old read_to_end path still has to allocate and touch their entire contents.
         for size in [64_u64 << 20, 256_u64 << 20] {
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
+            let output = cmux_process::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "attachment_cloud_handoff_memory_is_independent_of_file_size",
                     "--nocapture",
