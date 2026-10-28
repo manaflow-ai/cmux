@@ -5,7 +5,12 @@ import CmuxConversationCore
 /// An invisible text input that receives the Character Viewer's insertion
 /// for a custom emoji tapback. It accepts exactly one emoji; Escape and other
 /// commands pass up the responder chain (Escape closes the picker).
-final class MacEmojiInputView: NSView, @preconcurrency NSTextInputClient {
+///
+/// The view is main-actor (NSView) and so is every requirement it implements;
+/// AppKit's input context calls them on the main thread. The conformance says
+/// so (an isolated conformance, checked by the compiler) rather than turning
+/// the isolation check off.
+final class MacEmojiInputView: NSView, @MainActor NSTextInputClient {
     var onEmoji: ((String) -> Void)?
 
     override var acceptsFirstResponder: Bool { true }

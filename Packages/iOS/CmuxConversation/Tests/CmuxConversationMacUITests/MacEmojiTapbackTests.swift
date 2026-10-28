@@ -18,6 +18,19 @@ import Testing
         #expect(picked == ["\u{1F525}", "\u{1F44F}\u{1F3FD}"])
     }
 
+    /// AppKit's input context reaches the view through the protocol on the
+    /// main thread; the main-actor conformance answers there.
+    @Test func textInputClientConformanceAnswersOnTheMainActor() {
+        let input = MacEmojiInputView()
+        var picked: [String] = []
+        input.onEmoji = { picked.append($0) }
+        let client: any NSTextInputClient = input
+        #expect(!client.hasMarkedText())
+        #expect(client.markedRange().location == NSNotFound)
+        client.insertText("\u{1F525}", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(picked == ["\u{1F525}"])
+    }
+
     @Test func pickerOffersTheCustomCircleAndMyCustomEmojiSelected() throws {
         var picked: ConversationReaction?
         let picker = MacReactionPickerView(current: .emoji("\u{1F680}"), offersCustomEmoji: true) { picked = $0 }
