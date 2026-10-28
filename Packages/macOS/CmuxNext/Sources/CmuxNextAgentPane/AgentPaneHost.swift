@@ -1,5 +1,6 @@
 public import CmuxNextDesign
 public import Foundation
+import CmuxNextCompat
 import os
 
 /// Produces the handshake for a pane. The App picks the live acpmux host or
@@ -149,6 +150,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// `restartsUnresponsive` (the `agent.restartUnresponsiveAcpmux` toggle) is on.
     private let unresponsive: AcpmuxUnresponsiveWatch
     private let restartsUnresponsive: @Sendable () -> Bool
+    /// Sends the Computer Use endpoint to the daemon (`AcpmuxComputerUse.enroll`; a recorder in tests).
+    private let enrollComputerUse: @Sendable (AcpmuxEnvironment) async -> Void
 
     /// - Parameters:
     ///   - healReplaced: called once per daemon pid when a daemon this
@@ -172,6 +175,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.agentPairGuard = { environment?.agentPairGuard ?? true }
         self.agentPairCap = { (environment?.agentPairCap ?? 20, environment?.agentPairWindowSeconds ?? 600) }
         self.daemonReady = { _ in }
+        self.enrollComputerUse = { await AcpmuxComputerUse.enroll($0) }
         self.startsDaemons = startsDaemons
         self.healReplaced = healReplaced
         self.startOwner = startOwner
@@ -189,17 +193,50 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                     (Int(AgentPaneTunables.agentPairCap.value), Int(AgentPaneTunables.agentPairWindow.value))
                 },
                 daemonReady: (@Sendable (String) async -> Void)? = nil) {
+        self.init(resolve: resolve, computerUse: computerUse, offersSessionTools: offersSessionTools,
+                  agentPairGuard: agentPairGuard, agentPairCap: agentPairCap, daemonReady: daemonReady,
+                  enrollComputerUse: { await AcpmuxComputerUse.enroll($0) })
+    }
+
+    /// `enrollComputerUse` sends the Computer Use endpoint (a recorder in tests).
+    init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
+         computerUse: @escaping @Sendable () -> [String: String] = { [:] },
+         offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneSuggestedTasks.forNextDaemon.isOn },
+         agentPairGuard: @escaping @Sendable () -> Bool = { AgentPaneTunables.agentPairGuard.value },
+         agentPairCap: @escaping @Sendable () -> (messages: Int, windowSeconds: Int) = {
+             (Int(AgentPaneTunables.agentPairCap.value), Int(AgentPaneTunables.agentPairWindow.value))
+         },
+         daemonReady: (@Sendable (String) async -> Void)? = nil,
+         enrollComputerUse: @escaping @Sendable (AcpmuxEnvironment) async -> Void) {
         self.resolveEnvironment = resolve
         self.computerUse = computerUse
         self.offersSessionTools = offersSessionTools
         self.agentPairGuard = agentPairGuard
         self.agentPairCap = agentPairCap
         self.daemonReady = daemonReady ?? { _ in }
+        self.enrollComputerUse = enrollComputerUse
         self.startsDaemons = true
         self.healReplaced = nil
         self.startOwner = nil
         self.unresponsive = .shared
         self.restartsUnresponsive = { AgentPaneTunables.restartUnresponsiveAcpmux.value }
+    }
+
+    /// The Computer Use endpoint changed (`ComputerUseHelperDaemon.onEndpointChange`: a replaced
+    /// agent token, or the endpoint published or withdrawn): gives it to this app's running acpmux
+    /// now. acpmux reads it only at a lookup, and connected panes do not look again, so it kept a
+    /// replaced token and the helper refused every new chat until a pane reconnected. Chats already
+    /// running keep the token their computer use server started with. Only a signed daemon this
+    /// host owns and that runs: an attached daemon keeps its owner's endpoint, and an unsigned DEV
+    /// daemon took its endpoint at spawn and refuses enrollment.
+    public func computerUseChanged() async {
+        if environment == nil { environment = resolveEnvironment() }
+        guard startsDaemons, var environment, !environment.isAttached, !environment.passesPersonKeyAtSpawn else { return }
+        // A lookup in flight enrolls the endpoint it read when it started: send the current one after it.
+        for task in inFlight.values { _ = try? await task.value }
+        guard FileManager.checked.fileExists(atPath: environment.socketPath) else { return }
+        environment.computerUse = computerUse()
+        await enrollComputerUse(environment)
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {

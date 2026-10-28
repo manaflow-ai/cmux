@@ -165,7 +165,7 @@ class RealTree(unittest.TestCase):
     def test_no_shipped_package_target_lives_under_tests(self):
         # Packages/*/Tests is excluded. A non-test target there must be test support only; review a
         # new one before adding it here (the app must not link it).
-        test_support = {"CmuxNextTestExitTrace", "CmuxHomeCoreTestSupport"}
+        test_support = {"CmuxNextTestExitTrace", "CmuxNextTestSupport", "CmuxHomeCoreTestSupport"}
         found = set()
         for manifest in ROOT.glob("Packages/**/Package.swift"):
             text = manifest.read_text()

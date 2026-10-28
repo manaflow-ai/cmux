@@ -1,0 +1,303 @@
+name: Cloud devbox image rebake
+
+# Rebakes the cmux Cloud devbox image (web/services/vms/images/devbox/) when its
+# inputs change, and on demand. One run:
+#   1. plan (web/scripts/devbox-rebake.ts): bake when the image inputs (REBAKE_INPUTS,
+#      every file the bake reads or ships) differ from the ones the last published
+#      rebake recorded in rebake-state.json, or a Freestyle default in the manifest
+#      was not baked from this commit's sources (devboxSourceDriftProblems). Skip when
+#      an open devbox-rebake/<inputs key 12> PR already publishes these inputs.
+#      The version is <UTC yyyymmddHHMM>-<commit 10>-<inputs key 12>.
+#   2. promote-devbox-image.ts: bake, verify (boots a machine and checks the whole
+#      devbox contract), derive every ladder size, write the manifest rows. Every
+#      snapshot is slugged cmux-devbox-ci-<version>[-<size>].
+#   3. settle awaiting-rebake.json, record rebake-state.json, re-check the manifest.
+#   4. smoke: boot the new md desktop default, require its /etc/cmux/image-stamp
+#      to be the expected line and a cmux-tui client round trip to the daemon.
+#   5. publish: push devbox-rebake/<inputs key 12> and open a PR into the branch the
+#      run baked; older open devbox-rebake PRs are closed as superseded. The
+#      manifest rows record the version; merging the PR is the promotion (README
+#      "Promote"), through the normal review.
+#   6. prune: keep the newest N rebake versions and every snapshot a manifest row
+#      names; delete older cmux-devbox-ci-* snapshots. Nothing else is touched.
+on:
+  push:
+    branches: [feat-cmux-next]
+    # Exactly REBAKE_INPUTS (tests/vm-devbox-rebake.test.ts), plus the two files
+    # that change how it bakes.
+    paths:
+      - web/services/vms/images/devbox/**
+      - web/services/vms/images/shell/**
+      - web/services/vms/images/desktop.ts
+      - web/services/vms/images/identity.ts
+      - web/services/vms/images/metadataGuard.ts
+      - web/services/vms/images/sizes.ts
+      - web/services/vms/images/workUser.ts
+      - web/services/vms/drivers/cmuxTuiDaemon.ts
+      - web/services/vms/drivers/types.ts
+      - web/services/vms/clientGrant.ts
+      - web/services/vms/guest*.ts
+      - web/services/vms/guestCliDistribution.json
+      - web/services/vms/networkPolicy.ts
+      - web/services/vms/promptName.ts
+      - web/services/vms/hygiene/**
+      - web/services/coderouter/vmGuestEnv.ts
+      - web/scripts/build-devbox-freestyle.ts
+      - web/scripts/devbox-image-common.ts
+      - web/scripts/cmux-vm-image/machine-health.ts
+      - web/scripts/cmux-vm-image/dns.ts
+      - images/cmux-vm/machine-health/**
+      - "!web/services/vms/images/**/*.md"
+      - web/scripts/devbox-rebake.ts
+      - .github/workflows/cloud-devbox-image-rebake.yml
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Bake even when the inputs match the last published rebake and the manifest, or an open rebake PR already has them
+        required: false
+        default: false
+        type: boolean
+      keep:
+        description: Unpromoted rebake versions to keep on the Freestyle account (older cmux-devbox-ci-* snapshots no manifest row names are deleted)
+        required: false
+        default: "5"
+        type: string
+
+permissions:
+  contents: read
+
+# A started bake is never cancelled for a newer push: it holds live provider
+# machines and its own cleanup runs at the end. A newer push waits for it.
+concurrency:
+  group: cloud-devbox-image-rebake
+  cancel-in-progress: false
+
+jobs:
+  rebake:
+    # One canonical branch: the Freestyle account and the devbox-rebake/* PRs
+    # are shared, so a dispatch from any other ref does nothing.
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # A full bake + ladder takes about 20 minutes (run 40399656939); a run still
+    # going after 6 hours is stuck, the one case a started bake may end.
+    timeout-minutes: 360
+    environment: cloud-vm-image-checks
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Read-only, for the open-PR lookup; the job's own token stays contents: read.
+      - name: Mint the lookup token
+        id: lookup-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-pull-requests: read
+
+      - name: Plan
+        id: plan
+        env:
+          FORCE: ${{ inputs.force == true }}
+          GH_TOKEN: ${{ steps.lookup-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "$FORCE" = "true" ]; then args+=(--force); fi
+          bun scripts/devbox-rebake.ts plan "${args[@]}" > "$RUNNER_TEMP/plan.env"
+          cat "$RUNNER_TEMP/plan.env" | tee -a "$GITHUB_OUTPUT"
+          key="$(sed -n 's/^key=//p' "$RUNNER_TEMP/plan.env")"
+          branch="devbox-rebake/${key:0:12}"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          open="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=${GITHUB_REF_NAME}&head=${GITHUB_REPOSITORY_OWNER}:${branch}" --jq '.[0].html_url // empty')"
+          if [ "$FORCE" != "true" ] && [ -n "$open" ]; then
+            echo "$open already publishes these inputs; nothing to do"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          elif grep -qx 'needed=true' "$RUNNER_TEMP/plan.env"; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "the last published rebake and the manifest already match these inputs; nothing to do"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Confirm provider credential
+        if: steps.plan.outputs.go == 'true'
+        env:
+          HAS_KEY: ${{ secrets.FREESTYLE_API_KEY != '' }}
+        run: |
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "::error::cloud-vm-image-checks has no FREESTYLE_API_KEY"
+            exit 1
+          fi
+
+      # main's rolling cmux-tui/latest has no acpmux, which the bake requires;
+      # bake, verify and smoke against this branch's newest published build.
+      - name: Pin the cmux-tui build
+        id: cmux-tui
+        if: steps.plan.outputs.go == 'true'
+        run: bun scripts/devbox-rebake.ts pin-cmux-tui | tee -a "$GITHUB_OUTPUT"
+
+      - name: Bake, verify, derive sizes, and write the manifest
+        if: steps.plan.outputs.go == 'true'
+        env:
+          CMUX_VM_CMUX_TUI_MANIFEST_URL: ${{ steps.cmux-tui.outputs.cmux_tui_manifest }}
+          CMUX_BAKE_ALLOW_BRANCH: "1"
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          SLUG: ${{ steps.plan.outputs.slug }}
+          OUT: ${{ runner.temp }}/devbox-promotion.json
+        run: |
+          set -euo pipefail
+          bun run devbox:promote -- freestyle --slug "$SLUG" --pointer-slug none --out "$OUT"
+
+      - name: Settle, record, and re-check the manifest
+        if: steps.plan.outputs.go == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          bun scripts/devbox-rebake.ts settle
+          bun scripts/devbox-rebake.ts record --version "$VERSION"
+          bun run devbox:manifest:check
+          bun test tests/vm-image-manifest.test.ts tests/vm-devbox-rebake.test.ts
+
+      - name: Smoke test the new image
+        if: steps.plan.outputs.go == 'true'
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          OUT: ${{ runner.temp }}/devbox-promotion.json
+          STAMP: ${{ steps.plan.outputs.stamp }}
+          CMUX_VM_CMUX_TUI_MANIFEST_URL: ${{ steps.cmux-tui.outputs.cmux_tui_manifest }}
+        run: |
+          set -euo pipefail
+          image="$(jq -r '[.entries[] | select(.kind == "desktop" and .size.name == "md") | .imageId][0] // empty' "$OUT")"
+          if [ -z "$image" ]; then
+            echo "::error::the promotion wrote no md desktop row"
+            exit 1
+          fi
+          bun scripts/check-devbox-image-reachable.ts --image "$image" --expect-stamp "$STAMP"
+
+      # Apps push and open the PR so its CI runs; the job's own token stays
+      # read-only. The autofix App already pushes to this repository
+      # (cmux-next-base-autofix.yml); the route App opens PRs
+      # (ci-guard-attribution.yml).
+      - name: Mint the push token
+        id: push-token
+        if: steps.plan.outputs.go == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Mint the pull request token
+        id: app-token
+        if: steps.plan.outputs.go == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-pull-requests: write
+
+      - name: Publish the manifest pull request
+        id: publish
+        if: steps.plan.outputs.go == 'true'
+        env:
+          PUSH_TOKEN: ${{ steps.push-token.outputs.token }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          BASE: ${{ github.ref_name }}
+          BRANCH: ${{ steps.plan.outputs.branch }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          COMMIT: ${{ steps.plan.outputs.commit }}
+          OUT: ${{ runner.temp }}/devbox-promotion.json
+        run: |
+          set -euo pipefail
+          git add services/vms/images/manifest.json services/vms/images/awaiting-rebake.json services/vms/images/rebake-state.json
+          title="Cloud: promote devbox image $VERSION"
+          git -c user.name="cmux devbox rebake" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "$title" -m "Baked from $COMMIT by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID."
+          auth="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git push --force --quiet "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$BRANCH"
+          rows="$(jq -r '.entries[] | "| \(.kind) | \(.size.name // "-") | `\(.version)` | `\(.imageId)` |"' "$OUT")"
+          body="$(printf '%s\n' \
+            "Rebaked devbox image \`$VERSION\` from $COMMIT (run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)." \
+            "" \
+            "The run verified the bake (verify-devbox-image.ts), derived and re-booted every size, and smoke-tested the md desktop default (image-stamp plus a cmux-tui round trip). Merging this is the promotion; rollback is a revert." \
+            "" \
+            "| kind | size | version | snapshot |" \
+            "|---|---|---|---|" \
+            "$rows")"
+          url="$(GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=${BASE}&head=${GITHUB_REPOSITORY_OWNER}:${BRANCH}" --jq '.[0].html_url // empty')"
+          if [ -z "$url" ]; then
+            url="$(GH_TOKEN="$APP_TOKEN" gh api -X POST "repos/$GITHUB_REPOSITORY/pulls" \
+              -f head="$BRANCH" -f base="$BASE" -f title="$title" -f body="$body" --jq .html_url)"
+          else
+            GH_TOKEN="$APP_TOKEN" gh api -X PATCH "repos/$GITHUB_REPOSITORY/pulls/${url##*/}" -f title="$title" -f body="$body" >/dev/null
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          # An older open rebake PR would promote snapshots prune may delete: close it.
+          GH_TOKEN="$APP_TOKEN" gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=open&base=$BASE&per_page=100" \
+            --jq ".[] | select(.head.repo.full_name == \"$GITHUB_REPOSITORY\" and (.head.ref | startswith(\"devbox-rebake/\")) and .head.ref != \"$BRANCH\") | .number" |
+            while read -r old; do
+              GH_TOKEN="$APP_TOKEN" gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$old/comments" -f body="Superseded by $url (devbox image $VERSION)." >/dev/null
+              GH_TOKEN="$APP_TOKEN" gh api -X PATCH "repos/$GITHUB_REPOSITORY/pulls/$old" -f state=closed >/dev/null
+              echo "closed superseded rebake PR #$old"
+            done
+          {
+            echo "### Devbox image $VERSION"
+            echo
+            echo "Manifest PR: $url"
+            echo
+            echo "| kind | size | version | snapshot |"
+            echo "|---|---|---|---|"
+            echo "$rows"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prune old rebake snapshots
+        if: steps.plan.outputs.go == 'true'
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          KEEP: ${{ inputs.keep || '5' }}
+        # Every deployed branch's manifest as it is now (rows merged while this
+        # run baked included) is protected, not only this checkout's.
+        run: |
+          set -euo pipefail
+          args=()
+          for branch in feat-cmux-next main; do
+            git fetch --quiet origin "$branch"
+            git show "origin/$branch:web/services/vms/images/manifest.json" > "$RUNNER_TEMP/manifest-$branch.json"
+            args+=(--also-manifest "$RUNNER_TEMP/manifest-$branch.json")
+          done
+          bun scripts/devbox-rebake.ts prune --keep "$KEEP" "${args[@]}"
+
+      - name: Upload the promotion receipt
+        if: always() && steps.plan.outputs.go == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: devbox-rebake-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 3
+          path: ${{ runner.temp }}/devbox-promotion.json
