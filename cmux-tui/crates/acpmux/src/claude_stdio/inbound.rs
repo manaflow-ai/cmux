@@ -667,9 +667,11 @@ impl Translator {
                 if unread && self.prompt_echo.lock().await.is_none() {
                     return out;
                 }
+                // Out of the turn first: a steer that takes the steer locks after `fail_steers`
+                // finds it ended and is not left waiting (`steer_batch.rs` `write_steer`).
+                self.in_turn.store(false, Ordering::SeqCst);
                 out.extend(self.fail_steers().await);
                 *self.prompt_echo.lock().await = None;
-                self.in_turn.store(false, Ordering::SeqCst);
                 // A Ctrl-B still unanswered leaves no mark past its turn.
                 self.end_background_asks(false, |_, _| true).await;
                 // What the context holds now, as Claude Code's /context breaks it down; its

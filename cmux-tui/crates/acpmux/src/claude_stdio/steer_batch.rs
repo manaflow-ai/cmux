@@ -107,20 +107,22 @@ impl Translator {
             Part { id: id.to_string(), prompt_id, from: from.unwrap_or("").to_owned(), content };
         let mut batches = self.batches.lock().await;
         let mut steers = self.steers.lock().await;
+        // The turn ended since `outbound` looked (its result sets `in_turn` before it fails what
+        // waits, under these locks): nothing would ever answer this steer, so the hub queues it.
+        if !self.in_turn.load(Ordering::SeqCst) {
+            return Outbound::Reply(Message::err(
+                id.clone(),
+                RpcError::invalid_params(STEER_NO_TURN),
+            ));
+        }
         if from.is_some() {
-            let last = steers.back().map(|(uuid, _)| uuid.clone());
-            // A line being written again that is the newest waiting, or that Claude Code read
-            // meanwhile: this message waits with the ones held for it, so none overtakes another.
-            let waits = batches
-                .rewrites
-                .keys()
-                .find(|u| last.as_ref() == Some(*u) || !steers.iter().any(|(s, _)| s == *u));
-            if let Some(u) = waits.cloned()
-                && let Some(rewrite) = batches.rewrites.get_mut(&u)
-            {
+            // One line is written again at a time: while one is, every other session's message
+            // waits with it, so the lines go to Claude Code in the order their messages came.
+            if let Some(rewrite) = batches.rewrites.values_mut().next() {
                 rewrite.held.push(part);
                 return Outbound::Lines(Vec::new());
             }
+            let last = steers.back().map(|(uuid, _)| uuid.clone());
             if let Some(last) = last.filter(|l| !batches.no_drop && batches.lines.contains_key(l)) {
                 batches.rewrites.insert(last.clone(), Rewrite { held: vec![part], drops: vec![] });
                 return Outbound::Lines(vec![drop_request(&last)]);
@@ -191,6 +193,11 @@ impl Translator {
             if steers.iter().filter(|(u, _)| u == uuid).count() < 2 {
                 return None;
             }
+            // Another line is being written again: this one is not dropped too (one at a time),
+            // and the message stays, as one Claude Code read first does.
+            if !batches.rewrites.is_empty() {
+                return Some(Outbound::Reply(Message::ok(id.clone(), json!({"withdrawn": false}))));
+            }
             batches.rewrites.insert(uuid.to_owned(), Rewrite { held: vec![], drops: vec![asked] });
             Outbound::Lines(vec![drop_request(uuid)])
         };
@@ -246,11 +253,11 @@ impl Translator {
         out
     }
 
-    /// At a turn's end or a lost answer: the lines' records go, and the messages held for a line
-    /// being written again, which never reached Claude Code, are answered `message` (one withdrawn
-    /// meanwhile `STEER_WITHDRAWN`). A withdraw still in `pending` is answered here.
-    pub(super) async fn end_batches(&self, message: &str) -> Vec<Message> {
-        let mut batches = self.batches.lock().await;
+    /// At a turn's end or a lost answer, with `batches` locked (before `steers`): the lines'
+    /// records go, and the messages held for a line being written again, which never reached
+    /// Claude Code, are answered `message` (one withdrawn meanwhile `STEER_WITHDRAWN`). A withdraw
+    /// still in `pending` is answered here.
+    pub(super) async fn end_batches(&self, batches: &mut Batches, message: &str) -> Vec<Message> {
         batches.lines.clear();
         let mut out = Vec::new();
         for (_, rewrite) in batches.rewrites.drain() {
@@ -262,7 +269,7 @@ impl Translator {
                         withdrawn.insert(withdraw.clone());
                         RpcError::internal(STEER_WITHDRAWN)
                     }
-                    None => RpcError::invalid_params(message),
+                    None => RpcError::internal(message),
                 };
                 out.push(Message::err(acp_id(&part.id), why));
             }

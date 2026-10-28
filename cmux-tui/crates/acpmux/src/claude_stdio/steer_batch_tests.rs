@@ -241,3 +241,40 @@ async fn a_lost_answer_answers_the_held_messages_too() {
     let answers = q.settle(&t).await;
     assert!(answers.is_empty(), "answered twice: {answers:?}");
 }
+
+/// One line is written again at a time (review 1 of #26707): with a drop on its way, a person's
+/// steer goes in at once, and the next session's message waits with the held one instead of
+/// asking a second drop, so the messages reach Claude Code in the order they came.
+#[tokio::test]
+async fn one_line_is_written_again_at_a_time() {
+    let (t, mut q) = stepping().await;
+    write(&t, &mut q, &from(2, "lane-a", "first")).await;
+    write(&t, &mut q, &from(3, "lane-b", "second")).await;
+    write(&t, &mut q, &steer(4, "use Rust", json!({"steer": true, "promptId": "p4"}))).await;
+    write(&t, &mut q, &from(5, "lane-c", "third")).await;
+    write(&t, &mut q, &from(6, "lane-a", "fourth")).await;
+    assert_eq!(q.drops.len(), 1, "a second drop was asked: {:?}", q.drops);
+    q.settle(&t).await;
+    let texts: Vec<String> = q.waiting.iter().map(text_of).collect();
+    assert_eq!(texts.len(), 2, "{texts:?}");
+    assert_eq!(texts[0], "use Rust");
+    let at = |s: &str| texts[1].find(s).unwrap_or_else(|| panic!("{s:?} missing: {}", texts[1]));
+    assert!(texts[1].starts_with("4 messages from 3 sessions"), "{}", texts[1]);
+    assert!(at("first") < at("second") && at("second") < at("third") && at("third") < at("fourth"));
+}
+
+/// The turn ended between `outbound`'s look and the steer's locks (review 1 of #26707): the steer
+/// answers `STEER_NO_TURN`, so the hub queues it, never left waiting for an echo.
+#[tokio::test]
+async fn a_steer_after_the_turn_ended_answers_no_turn() {
+    let (t, _) = stepping().await;
+    t.in_turn.store(false, Ordering::SeqCst);
+    let meta = json!({"steer": true, "promptId": "p2", "batch": {"from": "lane-a"}});
+    let p = json!({"sessionId": "acp-1", "_meta": meta});
+    let content = vec![json!({"type": "text", "text": "late"})];
+    let Outbound::Reply(reply) = t.write_steer(&json!(2), &p, content).await else {
+        panic!("a steer was written after its turn ended")
+    };
+    assert!(answer(&[reply], 2).unwrap().unwrap_err().starts_with(STEER_NO_TURN));
+    assert!(t.steers.lock().await.is_empty());
+}

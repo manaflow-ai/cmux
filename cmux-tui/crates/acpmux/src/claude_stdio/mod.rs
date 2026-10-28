@@ -591,17 +591,20 @@ impl Translator {
     /// are dropped: used when Claude's answer cannot be carried (a line over
     /// the agent host's frame limit), so no turn waits forever.
     pub async fn fail_pending(&self, message: &str) -> Vec<Message> {
-        // Drain pending replies before taking the steers lock. A withdrawal reply removes its
-        // pending entry before it inspects the steers, so holding steers while awaiting pending
-        // would invert the lock order used by the withdrawal path.
-        let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
-        let mut held = self.end_batches(message).await;
+        // Under `batches` and `steers`, the order every steer path takes them, and only then
+        // `pending`: a withdraw registers its pending entry while it holds `steers`
+        // (`steer_withdraw.rs`), so it is either drained here or finds no steer left to take
+        // back. A withdrawal reply holds neither lock while it removes its entry.
+        let mut batches = self.batches.lock().await;
         // Hold steers while clearing its prompt-id index: an outbound steer either keeps both
         // records or waits until the stale index has been cleared.
         let mut steers = self.steers.lock().await;
+        let mut held = self.end_batches(&mut batches, message).await;
+        let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
         ids.extend(steers.drain(..).map(|(_, id)| id));
         self.steer_lines.lock().await.clear();
         drop(steers);
+        drop(batches);
         held.extend(ids.into_iter().map(|id| {
             let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
             Message::err(id, RpcError::internal(message))
@@ -612,12 +615,14 @@ impl Translator {
     /// Error answers for the steered prompts Claude Code never echoed: the
     /// turn ended without reading them (no echo support).
     async fn fail_steers(&self) -> Vec<Message> {
-        // Held for a line being written again, never written: they go in the next turn.
-        let held = self.end_batches(STEER_NO_TURN).await;
+        let mut batches = self.batches.lock().await;
         let mut steers = self.steers.lock().await;
+        // Held for a line being written again, never written: they go in the next turn.
+        let held = self.end_batches(&mut batches, STEER_NO_TURN).await;
         let failed: Vec<_> = steers.drain(..).collect();
         self.steer_lines.lock().await.clear();
         drop(steers);
+        drop(batches);
         let failed = failed.into_iter().map(|(_, id)| {
             let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
             Message::err(
