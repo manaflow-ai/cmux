@@ -22,6 +22,9 @@ public struct ControlPeerClient {
         /// classic build does for a client its socket mode does not admit.
         case refused(String)
         case peer(ControlError)
+        /// The socket's server does not run as this user (another user can
+        /// make a socket in the shared /tmp first): nothing was sent.
+        case notOwnUser
 
         public var description: String {
             switch self {
@@ -31,21 +34,24 @@ public struct ControlPeerClient {
             case .invalidResponse: "peer control response was invalid"
             case .refused(let message): "peer refused the connection: \(message)"
             case .peer(let error): "peer control request failed: \(error.message)"
+            case .notOwnUser: "peer socket is not served by this user"
             }
         }
     }
 
-    /// Sends one v2 control request to `path` and returns its result.
+    /// Sends one v2 control request to `path` and returns its result. The
+    /// server must run as `expectedUID` (this user; tests pass another),
+    /// read on the connection before the request is written.
     public static func request(path: String, method: String, params: [String: JSONValue] = [:],
-                               timeout: Duration = .seconds(2)) async throws -> JSONValue {
+                               timeout: Duration = .seconds(2), expectedUID: uid_t = getuid()) async throws -> JSONValue {
         let seconds = max(1, timeout.wholeMilliseconds)
         return try await Task.detached(priority: .utility) {
-            try exchange(path: path, method: method, params: params, timeoutMilliseconds: seconds)
+            try exchange(path: path, method: method, params: params, timeoutMilliseconds: seconds, expectedUID: expectedUID)
         }.value
     }
 
     private static func exchange(path: String, method: String, params: [String: JSONValue],
-                                timeoutMilliseconds: Int) throws -> JSONValue {
+                                timeoutMilliseconds: Int, expectedUID: uid_t) throws -> JSONValue {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw Failure.socket(POSIXErrorText(errno).description) }
         defer { close(descriptor) }
@@ -63,6 +69,12 @@ public struct ControlPeerClient {
         guard address.connect(descriptor) == 0 else {
             if errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT { throw Failure.timeout }
             throw Failure.socket(POSIXErrorText(errno).description)
+        }
+        var peerUID: uid_t = 0
+        var peerGID: gid_t = 0
+        // SAFETY: getpeereid writes one uid_t and one gid_t into the locals, live for the call.
+        guard unsafe getpeereid(descriptor, &peerUID, &peerGID) == 0, peerUID == expectedUID else {
+            throw Failure.notOwnUser
         }
 
         let request = JSONValue.object([
