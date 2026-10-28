@@ -5,7 +5,7 @@ public import Foundation
 /// <upload>/...` under `~/Library/Application Support/cmux`, or `<upload>/...` at the top for a chat
 /// with no session yet or not on this Mac. An upload folder is a UUID; the App's launch sweep
 /// removes it after 30 days, and a chat's folder goes when this Mac's acpmux deletes the chat.
-public struct ChatUploadFolders: Sendable, Equatable {
+public nonisolated struct ChatUploadFolders: Sendable, Equatable {
     /// The folder every chat upload goes under.
     public let root: URL
     /// The folder under ``root`` that holds a folder per chat (session ids are UUIDs, as upload
