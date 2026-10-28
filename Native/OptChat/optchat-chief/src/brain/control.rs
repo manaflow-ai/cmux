@@ -321,15 +321,6 @@ impl Brain {
             ));
             return;
         };
-        // Its slot comes right after its start: a show before it would open
-        // a second workspace beside the one the spawn may open.
-        if sub.workspace_slot.is_none() && sub.status == SubStatus::Starting {
-            let _ = reply.send(outcome(
-                "refused",
-                format!("{id} is still starting; show it once it runs"),
-            ));
-            return;
-        }
         let mut record = sub.clone();
         if record.workspace_slot.is_none() {
             retire_slot_key(&mut record);

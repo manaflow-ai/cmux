@@ -807,6 +807,29 @@ impl Spawner {
                 "subagent {id}: {e}; its cmux calls may be sandboxed"
             ));
         }
+        // Where its workspace opens, recorded before it counts as started: a
+        // `control show` can only come after it, never open a second one.
+        // The terminal beside the chat runs on this Mac: a peer session's
+        // folder is on the VM (/home/agent/work), and a PTY spawned in a
+        // folder missing here fails, so the subagent got no workspace (a511).
+        let slot_place = (
+            crate::workspaces::topic_group(task),
+            match &peer {
+                Some(_) => self.settings.cwd.clone(),
+                None => s.cwd.clone(),
+            },
+        );
+        if let Some(key) = &key {
+            let _ = self.to_brain(Input::SubagentWorkspaceSlot {
+                id: id.to_owned(),
+                name: name.clone(),
+                slot: crate::state::WorkspaceSlot {
+                    key: key.clone(),
+                    group: slot_place.0.clone(),
+                    cwd: slot_place.1.clone(),
+                },
+            });
+        }
         // Registered before its prompt: its turn end can only follow.
         self.to_brain(Input::SubagentStarted {
             id: id.to_owned(),
@@ -836,24 +859,8 @@ impl Spawner {
             );
             return Ok(format!("no cmux workspace ({})", self.no_workspace_reason));
         };
-        let group = crate::workspaces::topic_group(task);
+        let (group, term_cwd) = slot_place;
         let key = key.unwrap_or_else(crate::workspaces::new_key);
-        // The terminal beside the chat runs on this Mac: a peer session's
-        // folder is on the VM (/home/agent/work), and a PTY spawned in a
-        // folder missing here fails, so the subagent got no workspace (a511).
-        let term_cwd = match &peer {
-            Some(_) => &self.settings.cwd,
-            None => &s.cwd,
-        };
-        let _ = self.to_brain(Input::SubagentWorkspaceSlot {
-            id: id.to_owned(),
-            name: name.clone(),
-            slot: crate::state::WorkspaceSlot {
-                key: key.clone(),
-                group: group.clone(),
-                cwd: term_cwd.clone(),
-            },
-        });
         // Hidden by default (#26386: subagents' workspaces cluttered the
         // sidebar between the user's own): its link in the Chief's reply
         // opens its chat, and `control show` adds its workspace. One that
@@ -869,7 +876,7 @@ impl Spawner {
                 crate::chief_settings::SHOW_SUBAGENT_WORKSPACES
             ));
         }
-        match workspaces.open(&key, &session, &name, &group, term_cwd) {
+        match workspaces.open(&key, &session, &name, &group, &term_cwd) {
             Ok(key) => {
                 let place = workspaces.place();
                 // a313: the real ws_ id, so the CLI can list, move and pin it.
