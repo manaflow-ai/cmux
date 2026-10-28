@@ -69,6 +69,15 @@ import Testing
         #expect(machine.status == .connecting)
     }
 
+    @Test func anAutomaticAttemptDoesNotReopenAnAuthFailureGate() {
+        var machine = SSHConnectionMachine()
+        machine.handle(.connect)
+        machine.handle(.failed(.authFailed("denied")))
+        machine.handle(.attemptStarted)
+        #expect(machine.status == .authFailed("denied"))
+        #expect(!machine.mayAttempt)
+    }
+
     @Test func userRetryLeavesARecoverableFailureForTheNewAttempt() {
         var machine = SSHConnectionMachine()
         machine.handle(.connect)

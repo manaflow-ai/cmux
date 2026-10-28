@@ -1,7 +1,10 @@
 @testable import CmuxNextApp
 import CmuxNextActions
+@testable import CmuxNextDaemonService
 import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextWakeups
+import Foundation
 import Testing
 
 @Suite struct RemoteConnectRecoveryTests {
@@ -9,19 +12,40 @@ import Testing
         #expect(!RemoteHandlers.shouldEndConnectionObservation(status: .connecting))
     }
 
-    @Test func aDaemonFailureClearsRetrySuppression() {
-        #expect(RemoteHandlers.shouldClearRetrySuppression(for: "daemon handshake failed"))
+    @Test func aWindowlessNoHostFailureRequestsARecoveryWindow() {
+        let failure = SSHMachineSession.DaemonFailure(attemptID: 1, error: "Could not resolve hostname nohost.invalid")
+        #expect(RemoteHandlers.shouldOpenRecoveryWindow(loaded: false, hasWindow: false,
+                                                        status: .connecting, failure: failure,
+                                                        currentAttemptID: 1))
+    }
+
+    @Test @MainActor func retryFromUnavailableStartsANewAttemptBeforeWakingTheDaemon() throws {
+        let host = try SSHHost(destination: SSHDestination(parsing: "nohost.invalid"))
+        let session = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
+                                        paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/remote-recovery-tests")),
+                                        environment: { [:] }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        session.daemon.noteStartupFailure(.timedOut("old daemon failure"))
+        session.daemonFailure = .init(attemptID: 1, error: "old daemon failure")
+        let service = SSHService(machines: MachineRegistry(local: DaemonService()), bundleID: nil,
+                                 mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        service.reconnect(session)
+        #expect(session.connectionAttemptID == 1)
+        #expect(session.daemon.startup == .connecting)
+        #expect(session.daemonFailure == nil)
     }
 
     @Test func aRetryChangesTheDaemonObservationForAnIdenticalFailure() {
         let failure = DaemonStartupState.unavailable(.timedOut("daemon handshake"))
-        let first = SSHMachineSession.daemonObservationKey(startup: failure, recoveryAttempt: 0)
-        let retry = SSHMachineSession.daemonObservationKey(startup: failure, recoveryAttempt: 1)
+        let first = SSHMachineSession.daemonObservationKey(startup: failure, attemptID: 1)
+        let retry = SSHMachineSession.daemonObservationKey(startup: failure, attemptID: 2)
         #expect(first != retry)
     }
 
-    @Test func retryResetsAnUnavailableDaemonBeforeWakingIt() {
-        #expect(DaemonService.startupAfterRetry(.unavailable(.timedOut("daemon handshake"))) == .connecting)
+    @Test func anIdenticalDaemonErrorOnANewAttemptIsARecoveryFailure() {
+        let first = SSHMachineSession.DaemonFailure(attemptID: 1, error: "same daemon error")
+        let retry = SSHMachineSession.DaemonFailure(attemptID: 2, error: "same daemon error")
+        #expect(first != retry)
+        #expect(RemoteHandlers.shouldPresentDaemonFailure(retry, currentAttemptID: 2))
     }
 
     @Test func remoteGroupMarkingSurvivesRecoverableLinkFailures() {
