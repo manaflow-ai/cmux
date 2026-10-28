@@ -19,12 +19,15 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// Chrome every pane draws above its content (the tab strip). Token:
     /// `Metrics.tabStripHeight`, so the minimum pane height follows density.
     public var paneChromeHeight: CGFloat = 28
-    /// Smallest content area a pane keeps below its chrome: about 25 columns
-    /// by 4 rows of a 13 pt terminal cell (8 x 16 pt). The width also keeps
-    /// one tab plus the strip's trailing buttons visible (a 96 pt pane showed
-    /// only the buttons). Split geometry, divider drags, column widths and
-    /// the split room check all honor it.
-    public var minimumPaneContentSize = CGSize(width: 200, height: 64)
+    /// `layout.minimumPaneWidth` / `layout.minimumPaneHeight`: the content a pane keeps. 0 (the default, Lawrence
+    /// 2026-10-28: "we should let panes be even smaller") is no minimum beyond what drawing needs: one cell of
+    /// content (``minimumDrawableContentSize``), and below that the pane folds into a bar along that axis
+    /// (``collapsesPanes(along:)``). A positive width is the pane's least content width; a positive height the
+    /// least content height below its chrome (the tab strip), and such a pane never folds along that axis.
+    /// Split geometry, divider drags, column widths and the split room check all honor it.
+    public var minimumPaneContentSize = CGSize.zero
+    /// The smallest content a pane draws: one terminal cell (`PaneChromeFit.drawableContent`, 8 x 16 pt).
+    public var minimumDrawableContentSize = PaneChromeFit.drawableContent
     /// Smallest content width of a docked agent chat column (``DockRole/agentChat``): the Home
     /// list at its avatar-only minimum (76 pt), its divider and a transcript of about 30
     /// characters (280 pt, `HomeSidebarWidth.transcriptMinimum`). The generic pane minimum let
@@ -105,12 +108,25 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
 
     public init() {}
 
-    /// Smallest frame a pane gets while its screen has room: the minimum
-    /// content area plus the chrome above it and the padding around both.
+    /// Smallest frame an unfolded pane gets while its screen has room, padding included: one cell of content by
+    /// default, where the pane's chrome gives way (`PaneChromeFit`: no strip below the strip and one row), or the
+    /// user's minimum content, a positive height with the chrome above it.
     public var minimumPaneSize: CGSize {
-        CGSize(width: minimumPaneContentSize.width + panePadding * 2,
-               height: paneChromeHeight + minimumPaneContentSize.height + panePadding * 2)
+        let floor = minimumDrawableContentSize
+        let width = minimumPaneContentSize.width > 0 ? max(minimumPaneContentSize.width, floor.width) : floor.width
+        let height = minimumPaneContentSize.height > 0 ? paneChromeHeight + max(minimumPaneContentSize.height, floor.height) : floor.height
+        return CGSize(width: width + panePadding * 2, height: height + panePadding * 2)
     }
+
+    /// Whether a pane thinner than ``minimumPaneSize`` along `axis` folds into a bar
+    /// (``collapsedPaneExtent``): the minimum along it is 0.
+    public func collapsesPanes(along axis: SplitAxis) -> Bool {
+        (axis == .horizontal ? minimumPaneContentSize.width : minimumPaneContentSize.height) <= 0
+    }
+
+    /// The extent of a folded pane across its bar: a divider's hit width ("about 6 pt", Lawrence 2026-10-28)
+    /// plus the padding around the content.
+    public var collapsedPaneExtent: CGFloat { max(1, dividerHitThickness) + panePadding * 2 }
 }
 
 extension LayoutStyle {

@@ -381,6 +381,21 @@ Off by default: hovering or scrolling over a pane leaves keyboard focus where yo
 
 With it on, focus still stays where it is for momentum (the coast after a flick that started in another pane), for a scroll that moves columns or rows, while a mouse button is held, within a second of typing, and over a window that is not active. A pointer that stays inside one pane does not undo a keyboard move to another pane. Change it in **Settings > General > Columns**, with **Focus Follows Mouse** in the command palette (Cmd+Shift+P), or with `cmux settings set layout.focusFollowsMouse true`. It replaces `layout.focusPaneOnScroll`, which was on by default.
 
+## `layout.minimumPaneWidth` and `layout.minimumPaneHeight`
+
+How small a pane can get, in points. Both are `0` by default: a pane can shrink to one character of content, and smaller than that it collapses into a thin bar.
+
+```json
+{
+  "layout": { "minimumPaneWidth": 0, "minimumPaneHeight": 0 }
+}
+```
+
+- `0` (default): no minimum beyond one character. As a pane gets narrower, its tab bar gets compact: under about 160 points each tab shows its icon only, and the **+** and the pinned buttons move into the pane's **…** menu. A pane shorter than its tab bar and one line hides the tab bar. Drag a divider to the edge, or press Ctrl-Cmd-Left or Ctrl-Cmd-Right past the last step, and the pane collapses into a bar that shows its tab's icon when there is room. Click the bar, or press Ctrl-Cmd-X (**Expand Collapsed Panes**), to open it again. A collapsed terminal keeps running.
+- A number above `0`: the pane never gets smaller than that. `minimumPaneHeight` counts the content below the tab bar, so the tab bar always shows.
+
+Change them in **Settings > General > Columns**, or with `cmux settings set layout.minimumPaneWidth 40`.
+
 ## `layout.scrollAreas`
 
 Side-by-side panes that do not fit scroll sideways instead of shrinking below **Minimum Pane Width** (`layout.minimumPaneWidth`). This works in docked columns, in columns of the strip and on a screen without columns.

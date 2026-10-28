@@ -26,7 +26,9 @@ public nonisolated enum ColumnWidthPreset: Double, CaseIterable, Sendable {
     }
 }
 
-/// Daemon-accepted split ratio range.
+/// Daemon-accepted split ratio range (cmux-tui `clamp_split_ratio`). Its ends are a folded side: a pane can be
+/// dragged or stepped to the edge, where it folds into a bar at any container size (`SplitGeometry.firstExtent`),
+/// and the daemon keeps the ratio there.
 public nonisolated enum SplitRatio {
-    public static let range: ClosedRange<Double> = 0.05...0.95
+    public static let range: ClosedRange<Double> = 0.001...0.999
 }

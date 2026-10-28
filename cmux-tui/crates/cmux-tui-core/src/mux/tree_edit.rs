@@ -62,8 +62,11 @@ pub(super) fn most_recent_pane(state: &State, panes: &[PaneId]) -> Option<PaneId
         .map(|(id, _)| id)
 }
 
+/// A split ratio a client may set: 0.001 to 0.999. The ends fold a side into a bar in the app (a pane can be as
+/// small as drawing allows, Lawrence 2026-10-28), so the daemon keeps a ratio there instead of widening it to 5%.
+/// Strictly inside 0..1, as every resource layout check requires.
 pub(super) fn clamp_split_ratio(ratio: f32) -> f32 {
-    ratio.clamp(0.05, 0.95)
+    ratio.clamp(0.001, 0.999)
 }
 
 pub(super) fn append_to_auto_layout(

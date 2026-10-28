@@ -179,7 +179,8 @@ final class PaneToolbar {
         let own = contentMenu()
         if !own.isEmpty, !menu.items.isEmpty { menu.insertItem(.separator(), at: 0) }
         for (index, item) in own.enumerated() { menu.insertItem(item, at: index) }
-        let buttons = shownPins()
+        // A compact strip shows "…" alone: the pinned actions are rows here too.
+        let buttons = view.isCompact ? [] : shownPins()
         let tabOwn = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
                                               entries: tabActions().filter { !buttons.contains($0) }.map { .action($0) })
         if !menu.items.isEmpty, !tabOwn.items.isEmpty { menu.addItem(.separator()) }

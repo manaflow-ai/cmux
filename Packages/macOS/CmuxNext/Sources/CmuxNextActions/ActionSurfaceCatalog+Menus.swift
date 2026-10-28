@@ -168,6 +168,7 @@ nonisolated extension ActionSurfaceCatalog {
         "newPaneAutoLayout": [p(.pane, .create, 8, folder: .new)],
         "toggleSplitZoom": [p(.pane, .layout, 100), p(.terminalSelection, .layout, 104, folder: .layout)],
         "equalizeSplits": [p(.pane, .layout, 101, folder: .layout)],
+        "pane.expandCollapsed": [p(.pane, .layout, 104, folder: .layout)],
         "pane.toggleTabBar": [p(.pane, .layout, 103, folder: .layout)],
         "triggerFlash": [p(.pane, .inspect, 500, folder: .tools)],
         "palette.swapWithSession": [p(.pane, .connection, 200, folder: .connection)],

@@ -280,6 +280,19 @@ public final class LayoutRootView: NSView {
         return view.splitPlacement(splitting: pane, axis: axis, removing: removing)
     }
 
+    /// Expand Collapsed Panes (`pane.expandCollapsed`, Ctrl-Cmd-X or a collapsed bar's click): each split that
+    /// collapses a side holding `pane` gets its equal share again; when `pane` is open, every split on its screen
+    /// that collapses a side does. Local, then reported like Equalize Splits. Returns whether a split changed.
+    @discardableResult
+    public func expandCollapsedPanes(around pane: PaneID) -> Bool {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return false }
+        let collapse = PaneCollapse(layout: screen.layout, dividers: view.geometry.dividers)
+        var splits = collapse.collapsedSplits(holding: pane)
+        if splits.isEmpty { splits = collapse.collapsedSplits() }
+        for split in splits { model.equalizeSplit(split) }
+        return !splits.isEmpty
+    }
+
     /// Pane frames of the active screen for directional focus: docked
     /// columns placed before and after the strip (one logical line).
     public var navigationFrames: [PaneID: CGRect] {

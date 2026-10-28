@@ -10,6 +10,8 @@ enum Strings {
     }
     /// A pane's "…" at the tab bar's trailing end (`PaneToolbarView`).
     static var paneMore: String { String(localized: "paneToolbar.more", defaultValue: "More", bundle: .module) }
+    /// A folded pane's bar (`CollapsedPaneBarView`): its tooltip and VoiceOver label.
+    static var expandFoldedPane: String { String(localized: "tabs.collapsedPane.expand", defaultValue: "Expand Pane", bundle: .module) }
     static var axClose: String { String(localized: "tabs.ax.close", defaultValue: "Close Tab", bundle: .module) }
     static func axOnMachine(_ name: String) -> String {
         String(localized: "tabs.ax.onMachine", defaultValue: "on \(name)", bundle: .module)

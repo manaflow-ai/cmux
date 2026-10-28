@@ -35,6 +35,7 @@ extension ScreenContentView {
                 let start = divider.axis == .horizontal ? divider.frame.minX : divider.frame.minY
                 activeDrag = DividerDragState(kind: kind, transaction: .make(), grabOffset: pointer - start, container: divider.container,
                                         axis: divider.axis, minimumA: divider.minimumA, minimumB: divider.minimumB,
+                                        collapsedA: divider.collapsedA, collapsedB: divider.collapsedB,
                                         snaps: DividerDragState.snaps(equalShare: layout.tree(containing: id)?.equalizedRatio(for: id)))
             case let .columnEdge(id):
                 guard let frame = geometry.columns[id] else { return }

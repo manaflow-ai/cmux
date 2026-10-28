@@ -110,6 +110,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.attachHoverCards(services.hoverCards, memory: services.memoryCoordinator, thumbnailPages: services.cache.imageCaches.pictureAllocator, energy: services.cache.hibernation?.highEnergy) // p07-memory-005, p07-memory-107, p14-energy-125
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
         view.stripView.newTabShortcut = { [weak services] in services?.registry.shortcutDisplay(for: StripNewTab.action) }
+        // A click on the folded bar runs the action Ctrl-Cmd-X runs, on this pane (one path, every entrypoint).
+        view.onExpandCollapsed = { [weak services, paneKey] in
+            _ = services?.registry.perform("pane.expandCollapsed",
+                                           invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: paneKey), origin: .user))
+        }
         view.onResize = { [weak services, weak paneView = view] in
             services?.surfaceInvariant.noteChange()
             services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare follows

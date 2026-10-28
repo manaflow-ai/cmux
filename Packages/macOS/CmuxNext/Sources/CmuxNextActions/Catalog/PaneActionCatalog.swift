@@ -77,6 +77,17 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 symbol: "equal.square", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane equalize-splits", mainMenu: .view
             ),
+            // A pane thinner than one cell collapses into a bar (Lawrence 2026-10-28: "a collapsed bar ... that
+            // expands on click or a shortcut"); its bar's click runs this on its pane. Ctrl-Cmd-X: no Ghostty default
+            // and no other cmux default.
+            ActionDescriptor(
+                id: "pane.expandCollapsed",
+                title: String(localized: "action.pane.expandCollapsed", defaultValue: "Expand Collapsed Panes", bundle: .module),
+                keywords: ["collapse", "collapsed", "fold", "unfold", "restore", "open", "small", "bar", "resize"],
+                defaultShortcut: Shortcut("x", modifiers: [.control, .command]), category: .pane,
+                symbol: "arrow.left.and.right.square", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
+                cliName: "pane expand-collapsed", mainMenu: .view
+            ),
             ActionDescriptor(
                 id: "resizePaneLeft",
                 title: String(localized: "action.resizePaneLeft", defaultValue: "Resize Pane Left", bundle: .module),

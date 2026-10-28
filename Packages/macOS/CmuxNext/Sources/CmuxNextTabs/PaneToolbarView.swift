@@ -44,6 +44,16 @@ public final class PaneToolbarView: NSView {
     /// Buttons' room the bar keeps even while fewer show (``show(_:more:lit:reserving:)``).
     public private(set) var reservedCount = 0
     public private(set) var buttons: [TitlebarBandButton] = []
+    /// A compact strip (`PaneChromeFit.Strip.compact`): "…" alone, its menu holding the pinned actions too.
+    public var isCompact = false {
+        didSet {
+            guard isCompact != oldValue else { return }
+            for button in buttons { button.isHidden = isCompact }
+            invalidateIntrinsicContentSize()
+            needsLayout = true // invalidate: the pinned buttons show or go (the guard above)
+            superview?.needsLayout = true // invalidate: the strip takes or gives up their width
+        }
+    }
     /// The app's one more button (⋮, OverflowButton); its menu opens on press.
     public let moreButton = OverflowButton(label: Strings.paneMore)
     /// The tab bar's tracking area (``refreshCorner()``) reports the pointer.
@@ -123,6 +133,7 @@ public final class PaneToolbarView: NSView {
             button.themedToolTip = item.title
             button.themedToolTipShortcut = item.shortcut
             button.state = item.lit ? .on : .off
+            button.isHidden = isCompact
             addSubview(button)
             reveal.add(button)
             return button
@@ -131,7 +142,7 @@ public final class PaneToolbarView: NSView {
 
     /// Nothing to offer: no width, so the strip keeps the whole bar.
     override public var intrinsicContentSize: NSSize {
-        let count = max(shownCount, reservedCount)
+        let count = isCompact ? (hasMore || reservedCount > 0 ? 1 : 0) : max(shownCount, reservedCount)
         guard count > 0 else { return NSSize(width: 0, height: NSView.noIntrinsicMetric) }
         let side = TitlebarBandButton.side
         let inset = Self.edgeInset(height: PaneChromeMetrics.current.resolvedStripHeight(scale: 2))

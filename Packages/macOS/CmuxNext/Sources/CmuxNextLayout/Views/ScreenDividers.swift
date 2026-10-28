@@ -149,6 +149,9 @@ struct DividerDragState {
     /// Minimum extents of the two sides (split) or of the column.
     var minimumA: CGFloat = 0
     var minimumB: CGFloat = 0
+    /// What the two sides of a split take folded (``DividerGeometry/collapsedA``); nil: that side does not fold.
+    var collapsedA: CGFloat?
+    var collapsedB: CGFloat?
     /// A docked column's handle: on the right edge it grows leftward.
     var dockEdge: DockEdge?
     /// A row edge: the column's rows and their frames when the drag
@@ -204,7 +207,7 @@ struct DividerDragState {
     private func pointerRatio(_ point: CGPoint, style: LayoutStyle, snaps: [Double]) -> Double {
         SplitGeometry.ratio(forPointer: axis == .horizontal ? point.x : point.y, grabOffset: grabOffset, container: container,
                             axis: axis, style: style, minimumA: minimumA, minimumB: minimumB,
-                            snaps: snaps, snapDistance: Self.snapDistance)
+                            collapsedA: collapsedA, collapsedB: collapsedB, snaps: snaps, snapDistance: Self.snapDistance)
     }
 }
 

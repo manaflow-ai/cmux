@@ -217,8 +217,9 @@ public final class DesignSettings {
     /// pane under the pointer (`command`, default), or the rule before it (`none`).
     public var layoutScrollModifier: LayoutScrollModifier = .command
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
-    /// content area a pane keeps below its chrome, in points.
-    public var minimumPaneContentSize = CGSize(width: 200, height: 64)
+    /// content area a pane keeps below its chrome, in points. 0 (the default)
+    /// is one cell, below which the pane folds into a bar (`LayoutStyle`).
+    public var minimumPaneContentSize = CGSize.zero
     /// `focusRing.*`: the focused pane's ring or glow.
     public var focusRing = FocusRingSettings()
     /// `sidebar.border` and `sidebar.borderWidth`.

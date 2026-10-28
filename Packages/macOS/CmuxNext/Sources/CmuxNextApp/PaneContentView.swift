@@ -49,6 +49,15 @@ final class PaneContentView: NSView, PaneContentChrome {
     var swapDrag: PaneSwapDrag?
     /// The acting agent's name tag (`PaneContentView+AgentTag`).
     let agentTag = AgentPresenceTagView()
+    /// The bar a pane thinner than one cell folds into (`PaneChromeFit`), over its hidden content.
+    let collapsedBar = CollapsedPaneBarView()
+    /// The fit the last layout applied (`applyFit`).
+    private var appliedFit: PaneChromeFit?
+    /// A click on the folded bar: the pane runs `pane.expandCollapsed` (`PaneController`), as Ctrl-Cmd-X does.
+    var onExpandCollapsed: (() -> Void)? {
+        get { collapsedBar.onExpand }
+        set { collapsedBar.onExpand = newValue }
+    }
     private var agentTagObservation: VisibleObservation<TabPresence?>?
     /// No strip: the person hid this pane's tab bar (``PaneTabBar``).
     var hidesStrip = false {
@@ -123,6 +132,8 @@ final class PaneContentView: NSView, PaneContentChrome {
         contentHost.layer?.masksToBounds = true
         addSubview(contentHost)
         addSubview(stripView)
+        collapsedBar.isHidden = true
+        addSubview(collapsedBar)
         paneScope.root(self)
         stripScope.root(stripView)
         reveal.hold(stripView, until: .tabs)
@@ -157,6 +168,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
+        let fit = chromeFit
+        applyFit(fit)
         let stripHeight = self.stripHeight
         let contentHeight = max(0, bounds.height - stripHeight)
         let onTop = barPosition == .top
@@ -224,6 +237,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     }
 
     var paneHeaderHeight: CGFloat {
+        // Folded: the bar is the whole pane, with no header to trace.
+        if chromeFit.isCollapsed { return 0 }
         if hiddenAgentHeaderHeight > 0 { return hiddenAgentHeaderHeight }
         // The band is inside the browser, under its toolbar.
         return (barPosition == .top && !isBandActive ? shownStripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
@@ -231,13 +246,38 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     /// The strip below the content (`tabs.barPosition` bottom); else 0. In a browser's band
     /// (between its page and a bottom toolbar) it is inside the content area.
-    var paneFooterHeight: CGFloat { barPosition == .bottom && !isBandActive ? shownStripHeight : 0 }
+    var paneFooterHeight: CGFloat { barPosition == .bottom && !isBandActive && !chromeFit.isCollapsed ? shownStripHeight : 0 }
 
     /// The strip's height: its tabs sit with equal gaps above (from the
     /// pane cell's top, through the pane padding) and below (to the content
-    /// border), on this window's pixel grid (`PaneChromeMetrics`).
+    /// border), on this window's pixel grid (`PaneChromeMetrics`). 0 while the
+    /// pane is too short for it and one row of content, or folded (`chromeFit`).
     var stripHeight: CGFloat {
+        chromeFit.strip == .hidden ? 0 : fullStripHeight
+    }
+
+    /// The strip's height when it shows; 0 when the person hid it.
+    private var fullStripHeight: CGFloat {
         hidesStrip ? 0 : PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
+    }
+
+    /// What the chrome shows at this pane's size: the full strip, a compact one, none, or a folded bar.
+    var chromeFit: PaneChromeFit { PaneChromeFit(paneSize: bounds.size, stripHeight: fullStripHeight) }
+
+    /// A compact strip under 160 pt, and a folded bar over hidden content when thinner than a cell: a hidden
+    /// terminal keeps its grid and its process, a hidden page lets its host view go (as a parked tab).
+    private func applyFit(_ fit: PaneChromeFit) {
+        // A browser's band holds the strip's place: it opens or closes with the strip.
+        if (fit.strip == .hidden) != (appliedFit?.strip == .hidden) { refreshBandHeight() }
+        appliedFit = fit
+        stripView.isCompact = fit.strip == .compact
+        toolbar?.view.isCompact = fit.strip == .compact
+        if contentHost.isHidden != fit.isCollapsed { contentHost.isHidden = fit.isCollapsed }
+        if collapsedBar.isHidden == fit.isCollapsed { collapsedBar.isHidden = !fit.isCollapsed }
+        guard fit.isCollapsed else { return }
+        if collapsedBar.frame != bounds { collapsedBar.frame = bounds }
+        let model = stripView.model
+        collapsedBar.show(model.selectedID.flatMap { id in model.tabs.first { $0.id == id } } ?? model.tabs.first)
     }
 
     override func viewDidChangeBackingProperties() {

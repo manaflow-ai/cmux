@@ -22,8 +22,9 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
   shrinks), the other modes never resize except fitScreen's visible scrolling columns.
 - `layout.dockColumnEdge` (nearest: Dock Column's nearest-edge rule; or right, left, top,
   bottom), `layout.dockColumnMode` (docked); when set they are Dock Column's defaults too, `layout.minimumPaneWidth`
-  (200 pt), `layout.minimumPaneHeight` (64 pt): Settings window (General > Columns) and cmux.json;
-  `ColumnLayoutSettingsTests` checks each default in the parser, the schema and `DesignSettings`.
+  and `layout.minimumPaneHeight` (0 pt: one cell of content, below which a pane collapses into a bar that
+  Ctrl-Cmd-X or a click expands; Lawrence 2026-10-28): Settings window (General > Columns) and cmux.json;
+  `MinimumPaneSizeSettingTests` checks each default in the parser and the schema.
   The pre-R87 keys `layout.stickyColumnEdge` and `layout.stickyColumnMode` (nightly-next only) are
   read for one release when the dock key is absent; the dock key wins.
 - New Pane (Auto Layout) (Ctrl-Cmd-N, CLI `pane new-auto-layout`) is Zellij's new pane

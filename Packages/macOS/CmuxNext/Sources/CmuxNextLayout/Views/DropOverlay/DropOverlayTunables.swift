@@ -110,11 +110,11 @@ public nonisolated enum LayoutTunables {
         "panes.inactiveDimming", .panes, "Inactive pane dim", help: "Dim of unfocused panes when dimming is on (theme token ThemeTokens.inactivePaneDim).", default: 0.10, range: 0...0.8, step: 0.01,
         unit: .fraction, code: "LayoutTunables.inactivePaneDimming")
     public static let minimumContentWidth = Tunable<CGFloat>.number(
-        "panes.minimumContentWidth", .panes, "Minimum pane width", help: "Smallest content width a pane keeps (about 25 columns).", default: 200,
-        range: 60...600, step: 2, unit: .points, code: "LayoutTunables.minimumContentWidth")
+        "panes.minimumContentWidth", .panes, "Minimum pane width", help: "Smallest content width a pane keeps; 0: one cell, then the pane folds into a bar.", default: 0,
+        range: 0...600, step: 2, unit: .points, code: "LayoutTunables.minimumContentWidth")
     public static let minimumContentHeight = Tunable<CGFloat>.number(
-        "panes.minimumContentHeight", .panes, "Minimum pane height", help: "Smallest content height a pane keeps below its tab strip (about 4 rows).",
-        default: 64, range: 16...400, step: 2, unit: .points, code: "LayoutTunables.minimumContentHeight")
+        "panes.minimumContentHeight", .panes, "Minimum pane height", help: "Smallest content height a pane keeps below its tab strip; 0: one row with no strip, then the pane folds into a bar.",
+        default: 0, range: 0...400, step: 2, unit: .points, code: "LayoutTunables.minimumContentHeight")
     public static let focusRingAlpha = Tunable<CGFloat>.number(
         "focus.ringAlpha", .focus, "Focus ring alpha", help: "Alpha of the theme focus color for the ring (when focusRing.color is unset). Overrides focusRing.contrast: subtle 0.2, standard 0.55, strong 0.85.",
         default: 0.2, range: 0...1, step: 0.01, unit: .fraction, code: "LayoutTunables.focusRingAlpha")

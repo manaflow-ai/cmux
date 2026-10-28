@@ -53,6 +53,19 @@ public final class TabStripView: NSView {
     /// Metrics in effect. Re-read from the tokens on every settings change.
     public private(set) var metrics: TabStripMetrics = .standard
 
+    /// A compact strip (`PaneChromeFit.Strip.compact`, a pane under 160 pt): icon-only tabs and no +; the pane's
+    /// "…" offers what the + did. Set by the pane from its width.
+    public var isCompact = false {
+        didSet {
+            guard isCompact != oldValue else { return }
+            newTabButton.isHidden = !showsNewTabButton
+            applyTokens(animated: false)
+        }
+    }
+
+    /// The + shows: the pane takes new tabs and the strip is not compact.
+    var showsNewTabButton: Bool { model.showsNewTabButton && !isCompact }
+
     /// Empty strip space in the window's top row acts as a titlebar (`actsAsTitlebar`).
     public var dragsWindowFromEmptySpace = true
     /// The + button's tooltip ("New Tab (hold for more)"); nil: none.
@@ -342,7 +355,8 @@ public final class TabStripView: NSView {
     }
 
     func applyTokens(animated: Bool) {
-        metrics = customMetrics ?? TabStripMetrics()
+        let base = customMetrics ?? TabStripMetrics()
+        metrics = isCompact ? base.compacted() : base
         hoverCard.tokensChanged()
         geometryDidChange()
         let font = Typography.body
@@ -372,7 +386,7 @@ public final class TabStripView: NSView {
         if glassView == nil { contentView.frame = bounds }
         let padding = metrics.stripHorizontalPadding
         windowControlsInset = computeWindowControlsInset()
-        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? metrics.newTabButtonWidth : 0))
+        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (showsNewTabButton ? metrics.newTabButtonWidth : 0))
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5); a narrower strip (a split) keeps the selected tab in view.

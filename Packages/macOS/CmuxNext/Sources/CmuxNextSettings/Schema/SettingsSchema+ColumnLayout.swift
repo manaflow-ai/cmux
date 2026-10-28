@@ -99,14 +99,18 @@ nonisolated enum ColumnLayoutSettingsSchema {
             SettingDescriptor(
                 ColumnLayoutSettings.minimumPaneWidthPath, section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.minimumPaneWidth", "Minimum Pane Width"),
+                help: SettingsText.keyed("settings.layout.minimumPaneWidth.help",
+                                        "The narrowest a pane gets. At 0, a pane can be one character wide, and narrower than that it collapses into a thin bar; click the bar or press Control-Command-X to open it again."),
                 kind: .number(SettingNumber(ColumnLayoutSettings.minimumPaneWidthRange, step: 10, unit: .points)),
-                default: .number(ColumnLayoutSettings.minimumPaneWidthFallback), keywords: ["split", "size", "width"]
+                default: .number(ColumnLayoutSettings.minimumPaneWidthFallback), keywords: ["split", "size", "width", "collapse", "fold", "small"]
             ),
             SettingDescriptor(
                 ColumnLayoutSettings.minimumPaneHeightPath, section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.minimumPaneHeight", "Minimum Pane Height"),
+                help: SettingsText.keyed("settings.layout.minimumPaneHeight.help",
+                                        "The shortest a pane's content gets below its tab bar. At 0, a pane can be one line tall with its tab bar hidden, and shorter than that it collapses into a thin bar; click the bar or press Control-Command-X to open it again."),
                 kind: .number(SettingNumber(ColumnLayoutSettings.minimumPaneHeightRange, step: 4, unit: .points)),
-                default: .number(ColumnLayoutSettings.minimumPaneHeightFallback), keywords: ["split", "size", "height"]
+                default: .number(ColumnLayoutSettings.minimumPaneHeightFallback), keywords: ["split", "size", "height", "collapse", "fold", "small"]
             ),
         ]
     }

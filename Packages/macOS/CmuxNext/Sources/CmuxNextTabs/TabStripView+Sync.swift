@@ -167,8 +167,8 @@ extension TabStripView {
             cell?.style = model.style
         }
         applyMultiSelection()
-        if newTabButton.isHidden == model.showsNewTabButton {
-            newTabButton.isHidden = !model.showsNewTabButton
+        if newTabButton.isHidden == showsNewTabButton {
+            newTabButton.isHidden = !showsNewTabButton
             needsLayout = true // invalidate: the + button shows or goes (the check above)
         }
 

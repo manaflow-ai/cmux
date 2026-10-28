@@ -34,7 +34,8 @@ public struct TabChromeVisibility: Hashable, Sendable {
         style: TabStripStyle,
         metrics: TabStripMetrics = .standard
     ) -> TabChromeVisibility {
-        if isPinned {
+        // A compact strip's tabs show their icon alone, as a pinned tab does (Cmd-W and a middle click still close).
+        if isPinned || metrics.iconOnly {
             return TabChromeVisibility(showsIcon: true, showsTitle: false, showsClose: false, centersContent: true)
         }
         // Narrower than an icon-only tab (Chrome's inactive minimum, 32; an opening or closing tab): nothing

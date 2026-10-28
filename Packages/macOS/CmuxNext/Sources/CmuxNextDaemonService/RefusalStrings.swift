@@ -171,6 +171,8 @@ public nonisolated enum RefusalStrings {
     public static var screenHasOnePane: String { text("handlers.refusal.screenHasOnePane", "the screen has one pane") }
     public static func noDividerToMove(_ direction: String) -> String { format("handlers.refusal.noDividerToMove", "no divider to move %@ (or it is at its limit)", direction) }
     public static var screenHasNoSplits: String { text("handlers.refusal.screenHasNoSplits", "the screen has no splits") }
+    /// Expand Collapsed Panes on a screen where every pane is open.
+    public static var noCollapsedPane: String { text("handlers.refusal.noCollapsedPane", "no pane on the screen is collapsed") }
     /// A canvas action on a screen that shows its split or column layout.
     public static var canvasNotShown: String { text("handlers.refusal.canvasNotShown", "this screen is not a canvas; use Toggle Canvas Layout first") }
     /// A canvas arrangement with nothing to move, or an overview of an empty canvas.

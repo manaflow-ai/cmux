@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.layout.minimumPaneHeight.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The shortest a pane's content gets below its tab bar. At 0, a pane can be one line tall with its tab bar hidden, and shorter than that it collapses into a thin bar; click the bar or press Control-Command-X to open it again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバーの下にあるペインの内容の最小の高さです。0 ではタブバーを隠して 1 行の高さまで低くでき、それより低くすると細いバーに折りたたまれます。バーをクリックするか Control-Command-X を押すと元に戻ります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أقصر ارتفاع لمحتوى الجزء أسفل شريط علاماته. عند 0 يمكن أن يكون الجزء بارتفاع سطر واحد مع إخفاء شريط العلامات، وإذا صار أقصر من ذلك يُطوى في شريط رفيع؛ انقر الشريط أو اضغط Control-Command-X لفتحه مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najmanja visina sadržaja okna ispod trake kartica. Na 0 okno može biti visoko jedan red sa skrivenom trakom kartica, a niže od toga skuplja se u tanku traku; kliknite traku ili pritisnite Control-Command-X da ga ponovo otvorite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den mindste højde for en rudes indhold under fanelinjen. Ved 0 kan en rude være én linje høj med fanelinjen skjult, og lavere end det klappes den sammen til en tynd bjælke; klik på bjælken eller tryk på Control-Kommando-X for at åbne den igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die geringste Höhe des Inhalts eines Bereichs unter seiner Tableiste. Bei 0 kann ein Bereich eine Zeile hoch sein, seine Tableiste ausgeblendet; niedriger wird er zu einer dünnen Leiste eingeklappt. Klicke auf die Leiste oder drücke Control-Befehl-X, um ihn wieder zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La altura mínima del contenido de un panel bajo su barra de pestañas. Con 0, un panel puede tener una línea de alto con la barra de pestañas oculta y, si es más bajo, se contrae en una barra fina; haz clic en la barra o pulsa Control-Comando-X para abrirlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La hauteur minimale du contenu d’une sous-fenêtre sous sa barre d’onglets. À 0, une sous-fenêtre peut faire une ligne de haut, sa barre d’onglets masquée ; plus basse, elle se réduit en une fine barre. Cliquez sur la barre ou appuyez sur Contrôle-Commande-X pour la rouvrir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’altezza minima del contenuto di un riquadro sotto la barra dei pannelli. A 0 un riquadro può essere alto una riga con la barra dei pannelli nascosta e, se più basso, si comprime in una barra sottile; fai clic sulla barra o premi Control-Comando-X per riaprirlo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្ពស់ទាបបំផុតនៃខ្លឹមសារផ្ទាំងនៅក្រោមរបារផ្ទាំងរង។ នៅ 0 ផ្ទាំងអាចមានកម្ពស់មួយបន្ទាត់ដោយលាក់របារផ្ទាំងរង ហើយបើទាបជាងនេះ វានឹងបង្រួមទៅជារបារស្តើង។ ចុចរបារ ឬចុច Control-Command-X ដើម្បីបើកវាវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 막대 아래 패널 내용의 최소 높이입니다. 0이면 탭 막대를 숨기고 한 줄 높이까지 줄일 수 있고, 그보다 낮으면 얇은 막대로 접힙니다. 막대를 클릭하거나 Control-Command-X를 누르면 다시 펼쳐집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den minste høyden for en rutes innhold under fanelinjen. Ved 0 kan en rute være én linje høy med fanelinjen skjult, og lavere enn det slås den sammen til en tynn linje; klikk på linjen eller trykk Control-Kommando-X for å åpne den igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najmniejsza wysokość zawartości panelu pod paskiem kart. Przy 0 panel może mieć wysokość jednego wiersza z ukrytym paskiem kart, a niższy zwija się w cienki pasek; kliknij pasek lub naciśnij Control-Command-X, aby go ponownie otworzyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A menor altura do conteúdo de um painel abaixo da barra de abas. Em 0, um painel pode ter uma linha de altura com a barra de abas oculta e, mais baixo que isso, recolhe em uma barra fina; clique na barra ou pressione Control-Command-X para abri-lo de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наименьшая высота содержимого панели под строкой вкладок. При 0 панель может быть высотой в одну строку со скрытой строкой вкладок, а ниже этого она сворачивается в тонкую полосу; нажмите на полосу или Control-Command-X, чтобы снова её открыть."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความสูงที่น้อยที่สุดของเนื้อหาบานหน้าต่างใต้แถบแท็บ เมื่อเป็น 0 บานหน้าต่างจะเตี้ยได้ถึงหนึ่งบรรทัดโดยซ่อนแถบแท็บ และถ้าเตี้ยกว่านั้นจะยุบเป็นแถบบาง คลิกแถบหรือกด Control-Command-X เพื่อเปิดอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir bölmenin sekme çubuğunun altındaki içeriğinin en kısa yüksekliği. 0 olduğunda bölme, sekme çubuğu gizlenerek bir satır yüksekliğinde olabilir, daha kısa olursa ince bir çubuğa daralır; yeniden açmak için çubuğa tıklayın ya da Control-Command-X tuşlarına basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найменша висота вмісту панелі під смугою вкладок. При 0 панель може мати висоту в один рядок із прихованою смугою вкладок, а нижча згортається в тонку смугу; клацніть смугу або натисніть Control-Command-X, щоб знову її відкрити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiều cao nhỏ nhất của nội dung ngăn bên dưới thanh tab. Ở 0, ngăn có thể cao một dòng khi ẩn thanh tab, và thấp hơn thế thì thu gọn thành một thanh mảnh; nhấp vào thanh hoặc nhấn Control-Command-X để mở lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格标签栏下方内容的最小高度。设为 0 时，窗格可在隐藏标签栏后矮到一行，再矮就会折叠成一条细栏；点按细栏或按 Control-Command-X 即可再次展开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格標籤列下方內容的最小高度。設為 0 時，窗格可在隱藏標籤列後矮到一行，再矮就會收合成一條細列；按一下細列或按 Control-Command-X 即可再次展開。"
+          }
+        }
+      }
+    },
+    "settings.layout.minimumPaneWidth.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The narrowest a pane gets. At 0, a pane can be one character wide, and narrower than that it collapses into a thin bar; click the bar or press Control-Command-X to open it again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインの最小の幅です。0 では 1 文字の幅まで狭くでき、それより狭くすると細いバーに折りたたまれます。バーをクリックするか Control-Command-X を押すと元に戻ります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أضيق عرض للجزء. عند 0 يمكن أن يكون الجزء بعرض حرف واحد، وإذا صار أضيق من ذلك يُطوى في شريط رفيع؛ انقر الشريط أو اضغط Control-Command-X لفتحه مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najmanja širina okna. Na 0 okno može biti široko jedan znak, a uže od toga skuplja se u tanku traku; kliknite traku ili pritisnite Control-Command-X da ga ponovo otvorite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den mindste bredde for en rude. Ved 0 kan en rude være ét tegn bred, og smallere end det klappes den sammen til en tynd bjælke; klik på bjælken eller tryk på Control-Kommando-X for at åbne den igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die geringste Breite eines Bereichs. Bei 0 kann ein Bereich ein Zeichen breit sein; schmaler wird er zu einer dünnen Leiste eingeklappt. Klicke auf die Leiste oder drücke Control-Befehl-X, um ihn wieder zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El ancho mínimo de un panel. Con 0, un panel puede tener un carácter de ancho y, si es más estrecho, se contrae en una barra fina; haz clic en la barra o pulsa Control-Comando-X para abrirlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La largeur minimale d’une sous-fenêtre. À 0, une sous-fenêtre peut faire un caractère de large ; plus étroite, elle se réduit en une fine barre. Cliquez sur la barre ou appuyez sur Contrôle-Commande-X pour la rouvrir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La larghezza minima di un riquadro. A 0 un riquadro può essere largo un carattere e, se più stretto, si comprime in una barra sottile; fai clic sulla barra o premi Control-Comando-X per riaprirlo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទទឹងតូចបំផុតរបស់ផ្ទាំង។ នៅ 0 ផ្ទាំងអាចមានទទឹងមួយតួអក្សរ ហើយបើតូចជាងនេះ វានឹងបង្រួមទៅជារបារស្តើង។ ចុចរបារ ឬចុច Control-Command-X ដើម្បីបើកវាវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패널의 최소 너비입니다. 0이면 패널을 한 글자 너비까지 줄일 수 있고, 그보다 좁으면 얇은 막대로 접힙니다. 막대를 클릭하거나 Control-Command-X를 누르면 다시 펼쳐집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den minste bredden for en rute. Ved 0 kan en rute være ett tegn bred, og smalere enn det slås den sammen til en tynn linje; klikk på linjen eller trykk Control-Kommando-X for å åpne den igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najmniejsza szerokość panelu. Przy 0 panel może mieć szerokość jednego znaku, a węższy zwija się w cienki pasek; kliknij pasek lub naciśnij Control-Command-X, aby go ponownie otworzyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A menor largura de um painel. Em 0, um painel pode ter um caractere de largura e, mais estreito que isso, recolhe em uma barra fina; clique na barra ou pressione Control-Command-X para abri-lo de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наименьшая ширина панели. При 0 панель может быть шириной в один символ, а уже этого она сворачивается в тонкую полосу; нажмите на полосу или Control-Command-X, чтобы снова её открыть."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความกว้างที่แคบที่สุดของบานหน้าต่าง เมื่อเป็น 0 บานหน้าต่างจะแคบได้ถึงหนึ่งตัวอักษร และถ้าแคบกว่านั้นจะยุบเป็นแถบบาง คลิกแถบหรือกด Control-Command-X เพื่อเปิดอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir bölmenin en dar genişliği. 0 olduğunda bölme bir karakter genişliğinde olabilir, daha dar olursa ince bir çubuğa daralır; yeniden açmak için çubuğa tıklayın ya da Control-Command-X tuşlarına basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найменша ширина панелі. При 0 панель може мати ширину в один символ, а вужча згортається в тонку смугу; клацніть смугу або натисніть Control-Command-X, щоб знову її відкрити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Độ rộng nhỏ nhất của một ngăn. Ở 0, ngăn có thể rộng một ký tự, và hẹp hơn thế thì thu gọn thành một thanh mảnh; nhấp vào thanh hoặc nhấn Control-Command-X để mở lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格的最小宽度。设为 0 时，窗格可窄到一个字符宽，再窄就会折叠成一条细栏；点按细栏或按 Control-Command-X 即可再次展开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格的最小寬度。設為 0 時，窗格可窄到一個字元寬，再窄就會收合成一條細列；按一下細列或按 Control-Command-X 即可再次展開。"
+          }
+        }
+      }
+    },
     "settings.memory.saver.unavailable.featureOff": {
       "extractionState": "manual",
       "localizations": {

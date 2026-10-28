@@ -39,10 +39,13 @@ public nonisolated enum ColumnLayoutSettings {
     /// `layout.scrollModifier` defaults to Command: Command + scroll moves the layout, a plain
     /// scroll goes to the pane under the pointer (Lawrence 2026-10-24).
     public static let scrollModifierFallback: LayoutScrollModifier = .command
-    public static let minimumPaneWidthFallback: Double = 200
-    public static let minimumPaneHeightFallback: Double = 64
-    public static let minimumPaneWidthRange: ClosedRange<Double> = 80...800
-    public static let minimumPaneHeightRange: ClosedRange<Double> = 32...600
+    /// `layout.minimumPaneWidth` / `layout.minimumPaneHeight` default to 0: no minimum beyond one cell of content,
+    /// below which a pane folds into a bar (Lawrence 2026-10-28: "we should let panes be even smaller, idk what use
+    /// cases people might have, but we should support it"). A positive value is a floor the pane never folds below.
+    public static let minimumPaneWidthFallback: Double = 0
+    public static let minimumPaneHeightFallback: Double = 0
+    public static let minimumPaneWidthRange: ClosedRange<Double> = 0...800
+    public static let minimumPaneHeightRange: ClosedRange<Double> = 0...600
 
     static func choice<T: RawRepresentable & CaseIterable>(_ root: JSONValue, _ path: [String], fallback: T,
                                                            diagnostics: inout [SettingsDiagnostic]) -> T where T.RawValue == String {

@@ -14,6 +14,10 @@ public nonisolated struct DividerGeometry: Hashable, Sendable {
     /// and child `b` need so every pane inside keeps `LayoutStyle.minimumPaneSize`.
     public var minimumA: CGFloat = 0
     public var minimumB: CGFloat = 0
+    /// The extent child `a` (`b`) takes folded into bars (``LayoutStyle/collapsesPanes(along:)``); nil when it
+    /// cannot fold along `axis`. A side laid out below its minimum shows folded (`PaneChromeFit`).
+    public var collapsedA: CGFloat?
+    public var collapsedB: CGFloat?
 }
 
 /// Frames for one split tree.
@@ -34,7 +38,7 @@ public nonisolated enum SplitGeometry {
         // deep tree cost O(N * depth), a same-axis chain O(N^2).
         // A split id can repeat in one tree (`split@<firstPane>` from a daemon
         // without split ids, LayoutHandleMap): those splits use the recursive path.
-        var minimums: [SplitID: (a: CGSize, b: CGSize)] = [:]
+        var minimums: [SplitID: SplitMinimums] = [:]
         var repeated: Set<SplitID> = []
         _ = collectMinimums(node, style: style, into: &minimums, repeated: &repeated)
         for id in repeated { minimums[id] = nil }
@@ -42,17 +46,33 @@ public nonisolated enum SplitGeometry {
         return result
     }
 
-    private static func collectMinimums(_ node: SplitNode, style: LayoutStyle, into minimums: inout [SplitID: (a: CGSize, b: CGSize)],
-                                        repeated: inout Set<SplitID>) -> CGSize {
+    /// A split's children's minimum sizes, unfolded and folded (``collapsedSize(of:style:)``).
+    struct SplitMinimums {
+        var a: CGSize
+        var b: CGSize
+        var collapsedA: CGSize
+        var collapsedB: CGSize
+    }
+
+    private static func collectMinimums(_ node: SplitNode, style: LayoutStyle, into minimums: inout [SplitID: SplitMinimums],
+                                        repeated: inout Set<SplitID>) -> (minimum: CGSize, collapsed: CGSize) {
         switch node {
         case .leaf:
-            return style.minimumPaneSize
+            return (style.minimumPaneSize, collapsedLeaf(style))
         case let .split(id, axis, _, a, b):
             let first = collectMinimums(a, style: style, into: &minimums, repeated: &repeated)
             let second = collectMinimums(b, style: style, into: &minimums, repeated: &repeated)
-            if minimums.updateValue((first, second), forKey: id) != nil { repeated.insert(id) }
-            return combine(first, second, axis: axis, divider: style.dividerThickness)
+            let entry = SplitMinimums(a: first.minimum, b: second.minimum, collapsedA: first.collapsed, collapsedB: second.collapsed)
+            if minimums.updateValue(entry, forKey: id) != nil { repeated.insert(id) }
+            return (combine(first.minimum, second.minimum, axis: axis, divider: style.dividerThickness),
+                    combine(first.collapsed, second.collapsed, axis: axis, divider: style.dividerThickness))
         }
+    }
+
+    /// One pane folded: the bar's extent along each axis it folds on, infinite along one it cannot.
+    private static func collapsedLeaf(_ style: LayoutStyle) -> CGSize {
+        CGSize(width: style.collapsesPanes(along: .horizontal) ? style.collapsedPaneExtent : .infinity,
+               height: style.collapsesPanes(along: .vertical) ? style.collapsedPaneExtent : .infinity)
     }
 
     private static func combine(_ first: CGSize, _ second: CGSize, axis: SplitAxis, divider t: CGFloat) -> CGSize {
@@ -65,7 +85,7 @@ public nonisolated enum SplitGeometry {
     }
 
     private static func layout(_ node: SplitNode, in rect: CGRect, style: LayoutStyle, scale: CGFloat,
-                               minimums: [SplitID: (a: CGSize, b: CGSize)], into result: inout SplitLayoutResult) {
+                               minimums: [SplitID: SplitMinimums], into result: inout SplitLayoutResult) {
         switch node {
         case let .leaf(pane):
             result.panes[pane] = rect
@@ -73,10 +93,15 @@ public nonisolated enum SplitGeometry {
             let t = style.dividerThickness
             let extent = axis == .horizontal ? rect.width : rect.height
             let available = max(0, extent - t)
-            let childMinimums = minimums[id] ?? (minimumSize(of: a, style: style), minimumSize(of: b, style: style))
+            let childMinimums = minimums[id] ?? SplitMinimums(a: minimumSize(of: a, style: style), b: minimumSize(of: b, style: style),
+                                                              collapsedA: collapsedSize(of: a, style: style),
+                                                              collapsedB: collapsedSize(of: b, style: style))
             let minimumA = childMinimums.a.extent(along: axis)
             let minimumB = childMinimums.b.extent(along: axis)
-            let aExtent = firstExtent(ratio: ratio, available: available, minimumA: minimumA, minimumB: minimumB, scale: scale)
+            let collapsedA = finite(childMinimums.collapsedA.extent(along: axis))
+            let collapsedB = finite(childMinimums.collapsedB.extent(along: axis))
+            let aExtent = firstExtent(ratio: ratio, available: available, minimumA: minimumA, minimumB: minimumB,
+                                      collapsedA: collapsedA, collapsedB: collapsedB, scale: scale)
             let aRect: CGRect
             let divider: CGRect
             let bRect: CGRect
@@ -95,7 +120,7 @@ public nonisolated enum SplitGeometry {
                                   crossStart: axis == .horizontal ? rect.minY : rect.minX,
                                   crossLength: axis == .horizontal ? rect.height : rect.width, scale: scale).hit
             result.dividers.append(DividerGeometry(id: id, axis: axis, frame: divider, hitFrame: hit, container: rect,
-                                                   minimumA: minimumA, minimumB: minimumB))
+                                                   minimumA: minimumA, minimumB: minimumB, collapsedA: collapsedA, collapsedB: collapsedB))
             layout(a, in: aRect, style: style, scale: scale, minimums: minimums, into: &result)
             layout(b, in: bRect, style: style, scale: scale, minimums: minimums, into: &result)
         }
@@ -114,13 +139,39 @@ public nonisolated enum SplitGeometry {
         }
     }
 
+    /// Smallest size `node` takes with every pane folded into a bar (``LayoutStyle/collapsedPaneExtent``), the
+    /// way ``minimumSize(of:style:)`` adds a chain; infinite along an axis on which its panes cannot fold.
+    public static func collapsedSize(of node: SplitNode, style: LayoutStyle) -> CGSize {
+        switch node {
+        case .leaf:
+            return collapsedLeaf(style)
+        case let .split(_, axis, _, a, b):
+            return combine(collapsedSize(of: a, style: style), collapsedSize(of: b, style: style), axis: axis,
+                           divider: style.dividerThickness)
+        }
+    }
+
+    private static func finite(_ value: CGFloat) -> CGFloat? { value.isFinite ? value : nil }
+
     /// Extent of child `a`: `ratio` of the available space, clamped so `a`
-    /// keeps `minimumA` and `b` keeps `minimumB`. When both cannot fit (a
-    /// tree deeper than its container, built by another client), space is
-    /// shared in proportion to the minimums, so every pane shrinks evenly
-    /// and none collapses to zero. Pixel-rounded.
-    static func firstExtent(ratio: Double, available: CGFloat, minimumA: CGFloat, minimumB: CGFloat, scale: CGFloat) -> CGFloat {
+    /// keeps `minimumA` and `b` keeps `minimumB`. A side whose share is below
+    /// its minimum and that can fold (`collapsedA`, `collapsedB` non-nil) folds
+    /// to that extent and the other side takes the rest; when both would, the
+    /// smaller share folds. When neither folds and both cannot fit (a tree
+    /// deeper than its container, built by another client), space is shared in
+    /// proportion to the minimums, so every pane shrinks evenly and none
+    /// collapses to zero. Pixel-rounded.
+    static func firstExtent(ratio: Double, available: CGFloat, minimumA: CGFloat, minimumB: CGFloat,
+                            collapsedA: CGFloat? = nil, collapsedB: CGFloat? = nil, scale: CGFloat) -> CGFloat {
         var value = available * CGFloat(ratio)
+        let foldsA = collapsedA != nil && value < minimumA - 0.5
+        let foldsB = collapsedB != nil && available - value < minimumB - 0.5
+        if foldsA, let collapsedA, !foldsB || value <= available - value {
+            return ceilToPixel(min(collapsedA, available), scale: scale)
+        }
+        if foldsB, let collapsedB {
+            return floorToPixel(max(0, available - collapsedB), scale: scale)
+        }
         if available >= minimumA + minimumB {
             value = min(max(value, minimumA), available - minimumB)
             // Rounding must not take a pixel from either minimum.
@@ -140,7 +191,11 @@ public nonisolated enum SplitGeometry {
     /// `minimumA` and `minimumB` are the children's minimum extents
     /// (`DividerGeometry`); nil means a single pane on that side. A divider
     /// within `snapDistance` points of one of `snaps` (ratios) lands on it,
-    /// if both sides keep their minimums there.
+    /// if both sides keep their minimums there. A side that can fold
+    /// (`collapsedA`, `collapsedB`; for a single pane, ``LayoutStyle/collapsesPanes(along:)``)
+    /// folds once the pointer passes halfway from its minimum to its folded
+    /// extent: the ratio goes to the end of ``SplitRatio/range``, so the fold
+    /// stays at any container size, and dragged back the side unfolds at its minimum.
     public static func ratio(
         forPointer pointer: CGFloat,
         grabOffset: CGFloat = 0,
@@ -149,6 +204,8 @@ public nonisolated enum SplitGeometry {
         style: LayoutStyle,
         minimumA: CGFloat? = nil,
         minimumB: CGFloat? = nil,
+        collapsedA: CGFloat? = nil,
+        collapsedB: CGFloat? = nil,
         snaps: [Double] = [],
         snapDistance: CGFloat = 0
     ) -> Double {
@@ -158,7 +215,11 @@ public nonisolated enum SplitGeometry {
         guard available > 0 else { return 0.5 }
         let leaf = style.minimumPaneSize.extent(along: axis)
         let minA = minimumA ?? leaf, minB = minimumB ?? leaf
+        let leafFold = style.collapsesPanes(along: axis) ? style.collapsedPaneExtent : nil
+        let foldA = collapsedA ?? (minimumA == nil ? leafFold : nil), foldB = collapsedB ?? (minimumB == nil ? leafFold : nil)
         var aExtent = pointer - grabOffset - start
+        if let foldA, aExtent < minA, aExtent < (foldA + minA) / 2 { return SplitRatio.range.lowerBound }
+        if let foldB, available - aExtent < minB, available - aExtent < (foldB + minB) / 2 { return SplitRatio.range.upperBound }
         if available >= minA + minB {
             aExtent = min(max(aExtent, minA), available - minB)
         }

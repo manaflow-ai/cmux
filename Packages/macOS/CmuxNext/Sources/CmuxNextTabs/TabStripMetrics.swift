@@ -22,6 +22,8 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var compactTabWidth: CGFloat
     /// Extra space between the last pinned tab and the first unpinned tab.
     public var pinnedGroupGap: CGFloat
+    /// A compact strip (``compacted()``): every tab shows its icon alone.
+    public var iconOnly = false
 
     /// Contents width (the tab less both content insets) from which a
     /// hovered inactive tab shows its x. Chromium's
@@ -176,4 +178,15 @@ public struct TabStripMetrics: Equatable, Sendable {
 
     /// Token-derived metrics for the current density.
     public static var standard: TabStripMetrics { TabStripMetrics() }
+
+    /// These metrics for a compact strip (`PaneChromeFit.Strip.compact`, a pane under 160 pt): every tab icon-only
+    /// and as narrow as a pinned tab before the strip scrolls, so a narrow pane still shows its selected tab.
+    public func compacted() -> TabStripMetrics {
+        var metrics = self
+        metrics.iconOnly = true
+        let narrow = min(pinnedTabWidth, maxTabWidth)
+        metrics.minInactiveTabWidth = narrow
+        metrics.minActiveTabWidth = narrow
+        return metrics
+    }
 }
