@@ -285,6 +285,23 @@ class WastePatternTests(unittest.TestCase):
         # Without the runs (no head to compare with), every failure still counts, as before.
         self.assertEqual(report.repeated_job_failures(rows)[0].heads, 3)
 
+    def test_runs_with_an_unknown_head_repository_never_supersede_each_other(self):
+        # Two deleted forks' pull requests on the same branch name: no shared identity, so the older
+        # failure is not hidden as stale by the newer one.
+        base = self.fixture["runs"][2]
+        runs, rows = [], []
+        for n in range(3):
+            older = dict(base, id=8000 + n, head_branch="patch-1", head_sha=f"gone-a{n}", head_repository=None,
+                         created_at=f"2026-09-22T1{n}:00:00Z", conclusion="failure")
+            newer = dict(older, id=8100 + n, head_sha=f"gone-b{n}", created_at=f"2026-09-22T1{n}:30:00Z")
+            runs += [older, newer]
+            job = {"name": "lint", "labels": [LINUX], "status": "completed", "conclusion": "failure",
+                   "created_at": "2026-09-22T10:00:00Z", "started_at": "2026-09-22T10:00:10Z",
+                   "completed_at": "2026-09-22T10:01:00Z"}
+            rows += report.job_rows(older, [job], REPO) + report.job_rows(newer, [job], REPO)
+        self.assertEqual(report.pull_request_heads(runs), {})
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs)[0].heads, 6)
+
     def test_base_branch_failures_across_commits_still_count(self):
         base = self.fixture["runs"][5]
         runs = [dict(base, id=7000 + n, head_sha=f"main{n}", created_at=f"2026-09-22T1{n}:00:00Z",

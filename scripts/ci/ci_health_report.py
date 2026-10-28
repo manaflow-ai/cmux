@@ -469,16 +469,18 @@ def pull_request_heads(runs: Iterable[Mapping[str, Any]]) -> dict[tuple[str, str
     branch's newest pull request run (by creation, then id). A push creates its
     runs, queued ones included, the moment it lands, so the newest run names the
     head the pull request has now; a re-run keeps its run's creation time and
-    never makes an older head look current.
+    never makes an older head look current. A run that names no head repository
+    (a deleted fork) has no pull request identity to share, so it names no head.
     """
     newest: dict[tuple[str, str], tuple[tuple[str, int], str]] = {}
     for run in runs:
         if run.get("event") not in PULL_REQUEST_EVENTS:
             continue
         branch, sha = str(run.get("head_branch") or ""), str(run.get("head_sha") or "")
-        if not branch or not sha:
+        repo = str(((run.get("head_repository") or {}).get("full_name")) or "").lower()
+        if not branch or not sha or not repo:
             continue
-        key = (str(((run.get("head_repository") or {}).get("full_name")) or "").lower(), branch)
+        key = (repo, branch)
         stamp = (str(run.get("created_at") or ""), int(run.get("id") or 0))
         if key not in newest or stamp > newest[key][0]:
             newest[key] = (stamp, sha)
@@ -492,9 +494,11 @@ def superseded(row: JobRow, heads: Mapping[tuple[str, str], str]) -> bool:
     policy guard "identity mismatch" reds were stale events for heads already
     replaced, and every one of those pull requests was green at its head).
     Push and schedule runs are never superseded here: a base branch failing on
-    commit after commit is the main-broken signal itself.
+    commit after commit is the main-broken signal itself. Neither is a job whose
+    head repository is unknown: two such runs on one branch name need not be one
+    pull request, so neither can supersede the other.
     """
-    if row.event not in PULL_REQUEST_EVENTS:
+    if row.event not in PULL_REQUEST_EVENTS or not row.head_repo:
         return False
     head = heads.get((row.head_repo.lower(), row.branch))
     return head is not None and head != row.head_sha
