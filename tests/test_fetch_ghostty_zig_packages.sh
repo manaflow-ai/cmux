@@ -39,6 +39,11 @@ if [ "$count" -le $(( ${FAKE_ZIG_HANGS:-0} + ${FAKE_ZIG_FAILURES:-0} )) ]; then
   exit 1
 fi
 mkdir -p "$FAKE_CACHE/p/N-done"
+if [ "${FAKE_ZIG_ORPHAN:-0}" = 1 ]; then
+  # A downloader that outlives zig, holding the step's output open.
+  sleep 600 &
+  echo "$!" >> "${FAKE_ZIG_CHILDREN:?}"
+fi
 STUB
 chmod +x "$TMP/bin/zig"
 run() { # <hangs> <failures> -> status in $status, seconds in $elapsed
@@ -48,6 +53,8 @@ run() { # <hangs> <failures> -> status in $status, seconds in $elapsed
   mkdir -p "$TMP/src/zig-pkg/N-old"
   echo whole > "$TMP/cache/p/N-old.tar.gz"
   touch -t 202001010000 "$TMP/cache/p/N-old.tar.gz"
+  # Another job's download in progress: the global tmp/ is shared on a reused machine.
+  mkdir -p "$TMP/cache/tmp/other-job"
   status=0
   local start=$SECONDS
   env -u ZIG_GLOBAL_CACHE_DIR PATH="$TMP/bin:$PATH" FAKE_ZIG_COUNT="$TMP/count" FAKE_ZIG_HANGS="$1" FAKE_ZIG_FAILURES="$2" \
@@ -81,12 +88,18 @@ run 1 0
 [ "$(cat "$TMP/count")" = 2 ] || fail "expected 2 fetch attempts after one hang, got $(cat "$TMP/count")"
 grep -q "timed out after 2s (attempt 1 of 3)" "$TMP/out" || fail "the timeout was not reported"
 children_gone || fail "the hung attempt's child process outlived its deadline"
-[ -z "$(ls -A "$TMP/cache/tmp")" ] || fail "the hung attempt's partial download was left in Zig's scratch dir"
+[ -d "$TMP/cache/tmp/other-job" ] || fail "clearing a hung attempt removed another job's download from the shared tmp/"
 [ -z "$(ls -d "$TMP/src/zig-pkg"/.tmp-* 2>/dev/null)" ] || fail "the hung attempt's partial unpack was left in zig-pkg/"
 [ ! -e "$TMP/cache/p/N-cut-1.tar.gz" ] || fail "the hung attempt's cut-short archive was left in the cache"
 [ -d "$TMP/src/zig-pkg/N-old" ] && [ -e "$TMP/cache/p/N-old.tar.gz" ] || fail "clearing a hung attempt removed a finished package"
 [ -d "$TMP/cache/p/N-done" ] || fail "the second attempt did not fetch"
 (( elapsed < 20 )) || fail "one 2 s hang took ${elapsed}s"
+
+# A child that outlives a successful zig is stopped, and the fetch passes.
+FAKE_ZIG_ORPHAN=1 run 0 0
+[ "$status" = 0 ] || fail "a successful fetch that left a child running did not pass"
+children_gone || fail "a child zig left running outlived the fetch"
+(( elapsed < 10 )) || fail "stopping a leftover child took ${elapsed}s"
 
 # Three hangs give up with a clear error, well inside a job's timeout.
 run 5 0

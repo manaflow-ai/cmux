@@ -9,10 +9,10 @@
 # `zig build --fetch=all` for 58 minutes (cmux-tui publisher run 40630560459),
 # past the job's timeout; a mid-stream read error failed cargo builds that
 # fetch on their own (ReadFailed on pkg/highway). On the deadline the attempt's
-# whole process group is killed and Zig's scratch dir is cleared. Zig unpacks
-# into $ZIG_GLOBAL_CACHE_DIR/tmp and moves a package into p/<hash> only after
-# its hash checks, so a killed download never leaves a package that looks
-# complete.
+# whole process group is killed, and so is anything zig leaves running when it
+# exits. Zig stages an unpack (zig-pkg/.tmp-* on 0.16) and moves a package into
+# place only after its hash checks, so a killed download never leaves a package
+# that looks complete; its scratch and any archive it wrote are removed.
 #
 # usage: fetch-ghostty-zig-packages.sh [ghostty source dir]
 # CMUX_ZIG_FETCH_ATTEMPTS (default 3), CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT (seconds
@@ -31,35 +31,63 @@ zig_bin="${CMUX_ZIG:-zig}"
 cd "$source_dir"
 
 marker="$(mktemp "${TMPDIR:-/tmp}/zig-fetch-timeout.XXXXXX")"
+before="$(mktemp "${TMPDIR:-/tmp}/zig-fetch-before.XXXXXX")"
+trap 'rm -f "$marker" "$before"' EXIT
 
-started="$(mktemp "${TMPDIR:-/tmp}/zig-fetch-started.XXXXXX")"
-trap 'rm -f "$marker" "$started"' EXIT
+# Zig's global cache, where it keeps package archives (p/).
+cache="${ZIG_GLOBAL_CACHE_DIR:-}"
+if [[ -z "$cache" ]]; then
+  # `zig env` prints ZON (0.15 and later: `.global_cache_dir = "..."`) or JSON (older).
+  cache="$("$zig_bin" env 2>/dev/null | sed -n 's/.*global_cache_dir"\{0,1\} *[:=] *"\([^"]*\)".*/\1/p' | head -1)" || cache=""
+fi
 
-# What a killed attempt left: unfinished unpacks (Zig 0.16 stages them in
-# zig-pkg/.tmp-*, older Zig in <global cache>/tmp) and any package archive it
-# wrote to <global cache>/p, which the kill may have cut short. A finished
-# zig-pkg/<hash> was moved into place after its hash checked, and stays.
-clear_scratch() {
-  find zig-pkg -mindepth 1 -maxdepth 1 -name '.tmp-*' -exec rm -rf {} + 2>/dev/null || true
-  local cache="${ZIG_GLOBAL_CACHE_DIR:-}"
-  if [[ -z "$cache" ]]; then
-    # `zig env` prints ZON (0.15 and later: `.global_cache_dir = "..."`) or JSON (older).
-    cache="$("$zig_bin" env 2>/dev/null | sed -n 's/.*global_cache_dir"\{0,1\} *[:=] *"\([^"]*\)".*/\1/p' | head -1)" || cache=""
-  fi
+# The archives in p/ before an attempt, one name a line.
+list_archives() {
+  local entry
   [[ -n "$cache" ]] || return 0
-  if [[ -d "$cache/tmp" ]]; then
-    find "$cache/tmp" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
-  fi
-  if [[ -d "$cache/p" ]]; then
-    find "$cache/p" -mindepth 1 -maxdepth 1 -type f -newer "$started" -exec rm -f {} + 2>/dev/null || true
-  fi
+  for entry in "$cache"/p/*; do
+    [[ -f "$entry" ]] && printf '%s\n' "${entry##*/}"
+  done
+  return 0
 }
 
-# One fetch under the deadline. Returns zig's status, or 124 on the deadline.
+# What a killed attempt left in this checkout and from this attempt alone:
+# unfinished unpacks (Zig 0.16 stages them in zig-pkg/.tmp-*) and any package
+# archive that appeared in <global cache>/p during the attempt, which the kill
+# may have cut short. A finished zig-pkg/<hash> was moved into place after its
+# hash checked, and stays. The global cache's tmp/ is shared with other jobs on
+# a reused machine, and Zig never takes anything there for a package: it is
+# left alone.
+clear_scratch() {
+  local entry
+  for entry in zig-pkg/.tmp-*; do
+    if [[ -e "$entry" ]]; then rm -rf "$entry"; fi
+  done
+  [[ -n "$cache" ]] || return 0
+  for entry in "$cache"/p/*; do
+    if [[ -f "$entry" ]] && ! grep -qxF "${entry##*/}" "$before"; then rm -f "$entry"; fi
+  done
+}
+
+# Signal the attempt's process group: TERM, up to 5 s to exit, then KILL.
+stop_group() {
+  local pgid=$1
+  kill -0 -- "-$pgid" 2>/dev/null || return 0
+  kill -TERM -- "-$pgid" 2>/dev/null || true
+  for _ in 1 2 3 4 5; do
+    kill -0 -- "-$pgid" 2>/dev/null || return 0
+    sleep 1
+  done
+  kill -KILL -- "-$pgid" 2>/dev/null || true
+}
+
+# One fetch under the deadline. Returns zig's status, or 124 when the deadline
+# stopped a fetch that had not succeeded. A fetch that exits 0 succeeded even
+# at the deadline: Zig checked every package it moved into place.
 fetch_once() {
-  rm -f "$marker"; touch "$started"
+  rm -f "$marker"; list_archives > "$before"
   # Job control gives the background fetch a process group of its own, so the
-  # deadline kills zig and every child it started (bash on Linux and macOS).
+  # deadline reaches zig and every child it started (bash on Linux and macOS).
   set -m
   "$zig_bin" build --fetch=all &
   local pid=$!
@@ -69,13 +97,7 @@ fetch_once() {
     while kill -0 "$pid" 2>/dev/null; do
       if (( SECONDS >= deadline )); then
         : > "$marker"
-        kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
-        # Up to 5 s for the group to exit on TERM, then KILL whatever is left.
-        for _ in 1 2 3 4 5; do
-          kill -0 -- "-$pid" 2>/dev/null || exit 0
-          sleep 1
-        done
-        kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+        stop_group "$pid"
         exit 0
       fi
       sleep 1
@@ -84,8 +106,13 @@ fetch_once() {
   local watchdog=$!
   local status=0
   wait "$pid" || status=$?
+  # The watchdog goes as soon as zig is reaped, so it never signals a reused pid.
+  kill "$watchdog" 2>/dev/null || true
   wait "$watchdog" 2>/dev/null || true
-  if [[ -e "$marker" ]]; then
+  # Anything zig left running in its group (a downloader that outlived it) would
+  # hold the step's output open: stop it.
+  stop_group "$pid"
+  if (( status != 0 )) && [[ -e "$marker" ]]; then
     clear_scratch
     return 124
   fi
