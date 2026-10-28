@@ -177,7 +177,7 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(env.get("CMUX_NEXT_TUI_TERMINAL_HOST_MODEL"), "holder")
         self.assertNotIn("CMUX_TUI_TERMINAL_HOST_MODEL", env)
 
-    def relaunch(self, refused=False, new_daemon=False, exits=True, dropped=False):
+    def relaunch(self, refused=False, new_daemon=False, exits=True, dropped=False, status=0):
         run, records = make()
         app = run.app
         app.quit_refused = refused
@@ -188,9 +188,10 @@ class LaunchTests(unittest.TestCase):
 
         state = {"running": not exits}
 
-        def wait(seconds):  # subprocess.Popen.wait: times out while the app runs, returns once it ended
+        def wait(seconds):  # subprocess.Popen.wait: times out while the app runs, else its exit status
             if state["running"]:
                 raise TimeoutError("the app ran on")
+            return status
 
         def terminate():
             state["running"] = False
@@ -223,6 +224,12 @@ class LaunchTests(unittest.TestCase):
         self.assertFalse(step["ok"], "a relaunch on a new daemon (sessions not kept) passed")
         _, _, _, step = self.relaunch(exits=False)
         self.assertFalse(step["ok"], "an app that never quit (terminated by the script) passed")
+
+    def test_an_app_that_crashes_while_it_quits_fails_the_relaunch(self):
+        # A crash drops the reply too (no refusal), and the daemon runs on: only the exit status tells.
+        _, _, _, step = self.relaunch(dropped=True, status=-11)
+        self.assertFalse(step["ok"], "a crash (SIGSEGV) while quitting passed")
+        self.assertEqual(step["quit_status"], -11)
 
     def test_a_quit_that_closes_the_socket_before_its_reply_is_no_refusal(self):
         _, _, _, step = self.relaunch(dropped=True)
