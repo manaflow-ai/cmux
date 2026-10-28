@@ -1,20 +1,28 @@
 import type { SqlStore } from "@cmux/ownership"
+import { execKind } from "@cmux/cloud-env"
 import { DriverError } from "./team-vm-driver.ts"
-import { createBody, LIST_PAGE, type CreateOptions, type EdgeTlsRule, type ListedVm, type RawCloudDriver, type VmResources, type VmTag } from "./cloud-driver.ts"
+import { LIST_PAGE } from "./cloud-driver.ts"
+import { vmTagMetadata, type CloudProvider, type CreateOptions, type EdgeTlsRule, type GuestExecResult, type VmResources, type VmTag } from "./providers/contract.ts"
 
 /**
  * Test provider (ENVIRONMENT=test, CLOUD_DRIVER=fake): VMs in the object's own SQLite.
  * `fail_next` makes the next calls fail as retryable (a cut-off call).
  */
-export class FakeCloudDriver implements RawCloudDriver {
+export class FakeCloudDriver implements CloudProvider {
+  /** Like the production provider. Its guest is scripted (execStdin): the readiness probe, a build start and its poll answer; other commands are refused. */
+  readonly capabilities = { sizing: false, resize: true, snapshot: true, guestExec: true, edgeTls: true }
   constructor(private readonly sql: SqlStore) {
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_snapshot (slug TEXT PRIMARY KEY, id TEXT NOT NULL, source TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER, state TEXT NOT NULL DEFAULT 'running', cpu INTEGER NOT NULL DEFAULT 2, memory INTEGER NOT NULL DEFAULT 4096, storage INTEGER NOT NULL DEFAULT 16384, snapshot TEXT)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0, fail_list INTEGER NOT NULL DEFAULT 0, pauses INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, power_then_fail INTEGER NOT NULL DEFAULT 0, resizes INTEGER NOT NULL DEFAULT 0, resize_refuse INTEGER NOT NULL DEFAULT 0, resize_partial INTEGER NOT NULL DEFAULT 0, image_cpu INTEGER NOT NULL DEFAULT 2, image_memory INTEGER NOT NULL DEFAULT 4096, image_storage INTEGER NOT NULL DEFAULT 16384, state_reads INTEGER NOT NULL DEFAULT 0, power_refuse INTEGER NOT NULL DEFAULT 0, power_calls INTEGER NOT NULL DEFAULT 0, snapshot_delete_refuse INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO cloud_fake_ctl (id) VALUES (1)`)
-    // Like Freestyle: inline rules of a create, deleted with the VM (`rule` is the whole rule, as sent).
+    // Like the production provider: inline rules of a create, deleted with the VM (`rule` is the whole rule, as sent).
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_tls (id TEXT PRIMARY KEY, vm TEXT NOT NULL, domain TEXT NOT NULL, rule TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_file (vm TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL, mode INTEGER NOT NULL, PRIMARY KEY (vm, path))`)
+    // The scripted guest of environment builds: every exec in order, and how a detached build ends.
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_exec (n INTEGER PRIMARY KEY AUTOINCREMENT, vm TEXT NOT NULL, kind TEXT NOT NULL)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_guest (id INTEGER PRIMARY KEY CHECK (id = 1), build_exit INTEGER NOT NULL DEFAULT 0, log TEXT NOT NULL DEFAULT '')`)
+    sql.exec(`INSERT OR IGNORE INTO cloud_fake_guest (id) VALUES (1)`)
   }
 
   private maybeFail() {
@@ -25,9 +33,22 @@ export class FakeCloudDriver implements RawCloudDriver {
     }
   }
 
-  /** The fake has no guest: a guest exec (the keyed acpmux start) fails as the provider's refusal. */
-  async execStdin(): Promise<never> {
-    throw new DriverError("cloud.provider.refused", "fake provider: no guest exec", true)
+  /**
+   * A scripted guest for environment builds (the command as GuardedCloudSandbox sends it): the
+   * readiness probe passes, a detached build starts, and its poll answers the configured exit code
+   * and log. Any other command (the keyed acpmux start) fails as the provider's refusal, as before.
+   */
+  async execStdin(id: string, command: string): Promise<GuestExecResult> {
+    this.maybeFail()
+    const vm = this.sql.exec<{ name: string }>(`SELECT name FROM cloud_fake_vm WHERE id = ?`, id)[0]
+    if (!vm) throw new DriverError("cloud.provider.vm_missing", "fake provider: no such VM", true)
+    const kind = /bash -c 'true'$/.test(command) ? "probe" : execKind(command)
+    if (kind === "other") throw new DriverError("cloud.provider.refused", "fake provider: no guest exec", true)
+    this.sql.exec(`INSERT INTO cloud_fake_exec (vm, kind) VALUES (?, ?)`, vm.name, kind)
+    const g = this.sql.exec<{ build_exit: number; log: string }>(`SELECT build_exit, log FROM cloud_fake_guest WHERE id = 1`)[0]!
+    if (kind === "start") return { exitCode: 0, stdout: "started\n", stderr: "" }
+    if (kind === "poll") return { exitCode: 0, stdout: `exit ${Number(g.build_exit)}\n${g.log}`, stderr: "" }
+    return { exitCode: 0, stdout: "", stderr: "" }
   }
 
   async find(name: string) {
@@ -40,11 +61,12 @@ export class FakeCloudDriver implements RawCloudDriver {
 
   async create(name: string, tag: VmTag, opts: CreateOptions) {
     this.maybeFail()
-    const body = createBody(name, "fake", tag, opts)
-    // The image decides the size (Freestyle has no size at create); image_size in fakeControl sets it.
+    // The provider's own idle timer is always off (-1): idle is ours (cloud-do-idle.ts).
+    const body = { metadata: vmTagMetadata(tag), idleTimeoutSeconds: -1, rules: opts.edgeRules ?? [] }
+    // The image decides the size (no `sizing`: no size at create); image_size in fakeControl sets it.
     const img = this.sql.exec<{ image_cpu: number; image_memory: number; image_storage: number }>(`SELECT image_cpu, image_memory, image_storage FROM cloud_fake_ctl WHERE id = 1`)[0]!
     this.sql.exec(`INSERT INTO cloud_fake_vm (name, id, tag, idle, cpu, memory, storage, snapshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, name, `fs-${name}`, JSON.stringify(body.metadata), body.idleTimeoutSeconds, img.image_cpu, img.image_memory, img.image_storage, opts.snapshot ?? null)
-    for (const rule of body.tls?.rules ?? []) this.sql.exec(`INSERT INTO cloud_fake_tls (id, vm, domain, rule) VALUES (?, ?, ?, ?)`, crypto.randomUUID(), `fs-${name}`, rule.domain, JSON.stringify(rule))
+    for (const rule of body.rules) this.sql.exec(`INSERT INTO cloud_fake_tls (id, vm, domain, rule) VALUES (?, ?, ?, ?)`, crypto.randomUUID(), `fs-${name}`, rule.domain, JSON.stringify(rule))
     this.sql.exec(`UPDATE cloud_fake_ctl SET creates = creates + 1 WHERE id = 1`)
     return { id: `fs-${name}`, tag: null }
   }
@@ -86,7 +108,7 @@ export class FakeCloudDriver implements RawCloudDriver {
     this.power(id, "running", "starts")
   }
 
-  /** Like Freestyle: 409 when the VM is already in that state; `power_then_fail` changes the VM, then answers 409 (a lost answer, then a retry). */
+  /** Like the production provider: 409 when the VM is already in that state; `power_then_fail` changes the VM, then answers 409 (a lost answer, then a retry). */
   private power(id: string, target: string, counter: "pauses" | "starts") {
     this.maybeFail()
     this.sql.exec(`UPDATE cloud_fake_ctl SET power_calls = power_calls + 1 WHERE id = 1`)
@@ -111,7 +133,7 @@ export class FakeCloudDriver implements RawCloudDriver {
     return st === "<none>" ? null : st
   }
 
-  /** Like Freestyle: grow only (400), the disk only on a running VM (409); `resize_refuse` refuses the next call (400, final). */
+  /** Like the production provider: grow only (400), the disk only on a running VM (409); `resize_refuse` refuses the next call (400, final). */
   async resize(id: string, size: VmResources) {
     this.maybeFail()
     const vm = this.sql.exec<{ state: string; cpu: number; memory: number; storage: number }>(`SELECT state, cpu, memory, storage FROM cloud_fake_vm WHERE id = ?`, id)[0]

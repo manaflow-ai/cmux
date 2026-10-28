@@ -234,12 +234,13 @@ class SidebarItemRowView: NSView {
         let side = isRailButton ? SidebarStyle.railIconBox : SidebarStyle.iconBox
         // A text-only workspace item beside its title draws no glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON).
         let bare = info.textOnly && !style.isIconOnly
-        // The glyph lines up with the text of workspace rows (their inset plus the pill inset).
-        // A pinned workspace row's pin leads, and its icon and title follow it.
-        let pinSide = Metrics.smallIconSize
-        let pinFrame = info.leadingPin ? pinGlyphFrame(side: pinSide, leading: inset * 2, height: b.height) : .zero
-        let lead = (style == .chip ? Metrics.space2 : inset * 2) + (info.leadingPin ? pinFrame.maxX - inset * 2 + Metrics.space2 : 0)
-            + (style == .chip ? 0 : CGFloat(info.indent) * Metrics.space3)
+        // One leading inset for every row (Lawrence 2026-10-28, "home and pinned are not aligned"): the first ink
+        // (a band row's glyph, a pinned row's pin) starts where a workspace row's text starts (its inset plus the
+        // pill inset), and a title after that glyph starts at the one text column (`SidebarStyle.leadingTextX`).
+        // A pinned row's own icon or color dot, when it has one, takes the text column after the pin.
+        let rowLead = inset * 2 + CGFloat(info.indent) * Metrics.space3
+        let pinFrame = info.leadingPin ? pinGlyphFrame(side: Metrics.smallIconSize, leading: rowLead, height: b.height) : .zero
+        let lead = style == .chip ? Metrics.space2 : info.leadingPin ? SidebarStyle.leadingTextX(leading: rowLead) : rowLead
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
             : NSRect(x: lead, y: (b.height - side) / 2, width: side, height: side)
@@ -272,7 +273,10 @@ class SidebarItemRowView: NSView {
             icon.frame = frame
         } else {
             icon.image = glyphImage(side: glyphSide)
-            icon.frame = alignedGlyphFrame(side: glyphSide, centeredIn: iconFrame)
+            // A bare glyph beside a title (Home, the band's rows) starts its ink at the row's leading inset, as the pin
+            // does; a glyph in a well or a tile centers in it.
+            icon.frame = style == .builtIn && !isRailButton ? inkLeadingGlyphFrame(side: glyphSide, leading: iconFrame.minX, centeredIn: iconFrame)
+                : alignedGlyphFrame(side: glyphSide, centeredIn: iconFrame)
         }
         title.font = SidebarStyle.titleFont
         if style.isIconOnly {
@@ -296,7 +300,9 @@ class SidebarItemRowView: NSView {
         badge.frame = NSRect(x: badgeX, y: (b.height - badgeHeight) / 2, width: badgeWidth, height: badgeHeight)
         let th = ceil(title.intrinsicContentSize.height)
         let textX = showsSwatchDot ? chip.frame.maxX + Metrics.space3
-            : bare ? iconFrame.minX : iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
+            : bare ? iconFrame.minX
+            : style == .builtIn && !isRailButton ? SidebarStyle.titleTextX(leading: iconFrame.minX, iconSide: iconFrame.width)
+            : iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
         title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
     }
 
@@ -350,7 +356,7 @@ class SidebarItemRowView: NSView {
     }
 
     /// The cache key of the pin's ink (`SidebarGlyphInk`).
-    private static let pinGlyph = "pin|\(IconName.statePinned.rawValue)"
+    static let pinGlyph = "pin|\(IconName.statePinned.rawValue)"
 
     /// The leading pin's frame: its drawn ink, not its square, starts at `leading` (where an unpinned workspace
     /// row's icon or title starts) and centers on the row, on the device pixel grid. The pin's square leaves a
@@ -368,6 +374,19 @@ class SidebarItemRowView: NSView {
     var pinInkFrame: CGRect? {
         guard !pin.isHidden, let image = pin.image, let ink = SidebarGlyphInk.shared.box(of: image, glyph: Self.pinGlyph) else { return nil }
         return ink.offsetBy(dx: pin.frame.minX, dy: pin.frame.minY)
+    }
+
+    /// The drawn ink of the item's glyph in the row's coordinates; nil when no glyph draws (tests).
+    var glyphInkFrame: CGRect? {
+        guard !icon.isHidden, let image = icon.image, icon.frame.width > 0,
+              let ink = SidebarGlyphInk.shared.box(of: image, glyph: glyphKey) else { return nil }
+        return ink.offsetBy(dx: icon.frame.minX, dy: icon.frame.minY)
+    }
+
+    /// The cache key of the item's glyph ink (`SidebarGlyphInk`): what draws it, not its size.
+    var glyphKey: String {
+        let iconKey = info.icon == .notification ? "\(info.icon?.rawValue ?? "")#\(NotificationIconLook.tunable.value.rawValue)" : info.icon?.rawValue ?? ""
+        return "\(info.emoji ?? "")|\(info.brand.map { "\($0)" } ?? "")|\(iconKey)|\(info.symbol)|\(info.favicon == nil ? "" : info.title)"
     }
 
     /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.
@@ -430,6 +449,15 @@ class SidebarItemRowView: NSView {
         let scale = window?.backingScaleFactor ?? 2
         let snap = { (value: CGFloat) in (value * scale).rounded() / scale }
         return NSRect(x: snap(box.midX - side / 2), y: snap(box.midY - side / 2), width: side, height: side)
+    }
+
+    /// A `side` square whose drawn ink, not its square, starts at `leading`, centered on `box` vertically, on the device
+    /// pixel grid. Falls back to centering in `box` when the glyph draws nothing measurable.
+    private func inkLeadingGlyphFrame(side: CGFloat, leading: CGFloat, centeredIn box: NSRect) -> NSRect {
+        let centered = alignedGlyphFrame(side: side, centeredIn: box)
+        guard let image = icon.image, let ink = SidebarGlyphInk.shared.box(of: image, glyph: glyphKey) else { return centered }
+        let scale = window?.backingScaleFactor ?? 2
+        return NSRect(x: ((leading - ink.minX) * scale).rounded() / scale, y: centered.minY, width: side, height: side)
     }
 
     /// The glyph drawn now (tests).

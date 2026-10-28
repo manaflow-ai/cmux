@@ -255,6 +255,12 @@ public final class HomeNativeTranscriptView: NSView {
         set { transcript.avatarText = newValue }
     }
 
+    /// The header's name (a Chief's own name, its record's); nil shows the conversation's title.
+    public var headerTitle: String? {
+        get { transcript.headerTitle }
+        set { transcript.headerTitle = newValue }
+    }
+
     /// The header avatar's picture, over its text; nil shows the text.
     public var avatarPicture: NSImage? {
         get { transcript.avatarPicture }

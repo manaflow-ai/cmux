@@ -177,13 +177,13 @@
   transform: translateY(-50%);
 }
 /* Codex's look: the stable sibling host is positioned over the box's own dead-space row. The box
-   keeps the 16px row inside its glass; the parent has no extra bottom gutter, so the dots cannot
+   keeps a full 24px dot row inside its glass; the parent has no extra bottom gutter, so the dots cannot
    fall below the composer edge or remount when the look changes. */
 .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-under) {
   padding-bottom: 0;
 }
-.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box:has(+ .acpmux-composer-under) {
-  padding-bottom: 16px;
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box:has(~ .acpmux-composer-under) {
+  padding-bottom: var(--ds-space-5);
 }
 .acpmux-composer-under {
   position: relative;
@@ -196,6 +196,13 @@
   inset-inline: var(--cv-inset, max(18px, calc((100% - 760px) / 2)));
   bottom: 0;
   z-index: calc(var(--layer-raised, 1) + 1);
+}
+/* The shared model footer adds its 28px row and 8px margins above and below it. Keep Codex's dots
+   overlay on the box's dead-space edge, instead of at the bottom of that footer. (64px was measured
+   in a gallery that applied styles.css's 48px bar height to the row, which the app never does.) */
+.acpmux-composer[data-composer-look="codex"]:has(.acpmux-composer-foot) > .acpmux-composer-under {
+  bottom: 44px;
+  height: var(--ds-space-5);
 }
 .acpmux-composer-under:not([data-beside-foot]) .acpmux-look-slot {
   height: 16px;
@@ -210,6 +217,11 @@
 }
 .acpmux-composer-under[data-beside-foot] .acpmux-look-slot {
   bottom: 12px;
+}
+/* Codex's 24px dots fill the box's own row. The Claude-only 12px lift would overlap one-line
+   prompt actions when both looks share the footer. */
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-under[data-beside-foot] .acpmux-look-slot {
+  bottom: 0;
 }
 @media (prefers-reduced-motion: reduce) {
   .nt-style.acpmux-look-dots {

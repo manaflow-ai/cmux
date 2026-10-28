@@ -237,12 +237,16 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
         const last = rows.reduce((a, b) =>
           Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
         );
+        // Where the row is laid out: a row that arrives live rises 4px into place (`cv-enter`'s
+        // translate, #20003), which draws it and never moves layout, so it is not read as the row
+        // under the card. The turn's footer arrives so as the glide lands.
+        const rise = parseFloat(getComputedStyle(last).translate.split(" ")[1] ?? "0") || 0;
         frames.push({
           at: frame,
           top: scroller.scrollTop,
           height: scroller.scrollHeight,
           fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
-          rowAboveCard: Math.round(card.top - last.getBoundingClientRect().bottom),
+          rowAboveCard: Math.round(card.top - (last.getBoundingClientRect().bottom - rise)),
         });
       });
     });
