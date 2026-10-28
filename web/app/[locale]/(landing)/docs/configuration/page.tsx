@@ -143,6 +143,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
   //     "toggleFileExplorer": "cmd+opt+b",
+  //     "switchRightSidebarToCustom": "ctrl+7",
   //     "toggleFileEditorWordWrap": "opt+z",
   //     "newTab": ["ctrl+b", "c"],
   //     "commandPalettePrevious": null

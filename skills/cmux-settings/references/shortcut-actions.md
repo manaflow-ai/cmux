@@ -152,6 +152,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.switchRightSidebarToFiles`
 - `shortcuts.bindings.switchRightSidebarToFind`
 - `shortcuts.bindings.switchRightSidebarToMachines`
+- `shortcuts.bindings.switchRightSidebarToCustom`
 - `shortcuts.bindings.switchRightSidebarToSessions`
 - `shortcuts.bindings.toggleSidebar`
 

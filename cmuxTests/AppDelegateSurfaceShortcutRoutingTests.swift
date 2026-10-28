@@ -33,6 +33,63 @@ private final class CanvasViewportSpy: CanvasViewportControlling {
 @MainActor
 @Suite(.serialized)
 struct AppDelegateSurfaceShortcutRoutingTests {
+    @Test func customSidebarShortcutUsesConfiguredContextAndChord() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try withIsolatedShortcutSettings {
+                let appDelegate = try #require(AppDelegate.shared)
+                let defaults = UserDefaults.standard
+                let keys = ["customSidebars.beta.enabled", "rightSidebar.customSidebarName", "rightSidebar.mode"]
+                let saved = keys.map { defaults.object(forKey: $0) }
+                defer {
+                    for (key, value) in zip(keys, saved) {
+                        if let value { defaults.set(value, forKey: key) }
+                        else { defaults.removeObject(forKey: key) }
+                    }
+                }
+                defaults.set(true, forKey: keys[0])
+                defaults.set("status-board", forKey: keys[1])
+                let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: directory) }
+                let config = directory.appendingPathComponent("cmux.json")
+                let windowID = appDelegate.createMainWindow()
+                defer { closeWindow(withId: windowID) }
+                let window = try #require(mainWindow(for: windowID))
+                let mainContent = ShortcutUnrelatedResponderView(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
+                window.contentView?.addSubview(mainContent)
+                window.makeKeyAndOrderFront(nil)
+                #expect(window.makeFirstResponder(mainContent))
+                #expect(!appDelegate.shouldRouteRightSidebarModeShortcut(in: window))
+
+                let single = try #require(makeKeyDownEvent(key: "9", keyCode: 25, windowNumber: window.windowNumber))
+                try Data(#"{"shortcuts":{"bindings":{"switchRightSidebarToCustom":"ctrl+9"}}}"#.utf8).write(to: config)
+                KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+                    primaryPath: config.path, fallbackPath: nil, additionalFallbackPaths: [], startWatching: false
+                )
+                #expect(appDelegate.rightSidebarModeShortcut(for: single) == nil)
+
+                // The effective when clause can deliberately broaden the default sidebar scope.
+                try Data(#"{"shortcuts":{"bindings":{"switchRightSidebarToCustom":"ctrl+9"},"when":{"switchRightSidebarToCustom":"true"}}}"#.utf8).write(to: config)
+                KeyboardShortcutSettings.settingsFileStore.reload()
+                #expect(KeyboardShortcutSettings.settingsFileStore.configurationIssues.isEmpty)
+                #expect(appDelegate.debugHandleCustomShortcut(event: single))
+                #expect(appDelegate.fileExplorerState?.mode == .customSidebar)
+
+                appDelegate.fileExplorerState?.mode = .files
+                #expect(window.makeFirstResponder(mainContent))
+                try Data(#"{"shortcuts":{"bindings":{"switchRightSidebarToCustom":["ctrl+b","c"]},"when":{"switchRightSidebarToCustom":"true"}}}"#.utf8).write(to: config)
+                KeyboardShortcutSettings.settingsFileStore.reload()
+                #expect(KeyboardShortcutSettings.settingsFileStore.configurationIssues.isEmpty)
+                let prefix = try #require(makeKeyDownEvent(key: "b", keyCode: 11, windowNumber: window.windowNumber))
+                let suffix = try #require(makeKeyDownEvent(key: "c", modifiers: [], keyCode: 8, windowNumber: window.windowNumber))
+                #expect(appDelegate.debugHandleCustomShortcut(event: prefix))
+                #expect(appDelegate.fileExplorerState?.mode == .files)
+                #expect(appDelegate.debugHandleCustomShortcut(event: suffix))
+                #expect(appDelegate.fileExplorerState?.mode == .customSidebar)
+            }
+        }
+    }
+
     @Test func rightSidebarModeShortcutsDoNotFallThroughWhenResponderTemporarilyClears() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)

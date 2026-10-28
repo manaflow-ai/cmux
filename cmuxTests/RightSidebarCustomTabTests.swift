@@ -101,7 +101,7 @@ struct RightSidebarCustomTabTests {
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions(defaults: defaults)
             let customID = ContentView.commandPaletteRightSidebarModeCommandID(.customSidebar)
             let custom = try #require(contributions.first { $0.commandId == customID })
-            #expect(custom.title(CommandPaletteContextSnapshot()) == RightSidebarMode.customSidebar.label)
+            #expect(custom.title(CommandPaletteContextSnapshot()) == RightSidebarMode.customSidebar.shortcutAction?.label)
             #expect(Set(contributions.map(\.commandId)).count == contributions.count)
 
             defaults.set(false, forKey: "customSidebars.beta.enabled")
@@ -164,7 +164,7 @@ struct RightSidebarCustomTabTests {
             defaults.set(false, forKey: "customSidebars.beta.enabled")
             center.post(name: UserDefaults.didChangeNotification, object: defaults)
             #expect(matcher.modeShortcut(for: one, allowingAction: { _ in true }) == .files)
-            #expect(matcher.modeShortcut(for: two, allowingAction: { _ in true }) == nil)
+            #expect(matcher.modeShortcut(for: two, allowingAction: { _ in true }) == .find)
 
             let revision = observer.revision
             defaults.set("unrelated", forKey: "unrelated.preference")
@@ -205,6 +205,36 @@ struct RightSidebarCustomTabTests {
             // An explicit selection can still temporarily reveal the hidden tab.
             state.mode = .customSidebar
             #expect(state.mode == .customSidebar)
+        }
+    }
+
+    @Test func customChordRequiresItsPrefixAndContext() throws {
+        try withDefaults { defaults in
+            let action = try #require(RightSidebarMode.customSidebar.shortcutAction)
+            let binding = StoredShortcut(
+                key: "b", command: false, shift: false, option: false, control: true,
+                chordKey: "c"
+            )
+            let matcher = RightSidebarModeShortcutMatcher(
+                shortcutProvider: { $0 == action ? binding : .unbound },
+                availability: { $0.isAvailable(defaults: defaults) }
+            )
+            let suffix = try #require(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: 0, windowNumber: 0, context: nil,
+                characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8
+            ))
+            #expect(matcher.modeShortcut(for: suffix, allowingAction: { _ in true }) == nil)
+            #expect(matcher.modeShortcut(
+                for: suffix, activeChordPrefix: binding.firstStroke, allowingAction: { _ in true }
+            ) == .customSidebar)
+            #expect(matcher.modeShortcut(
+                for: suffix, activeChordPrefix: binding.firstStroke, allowingAction: { _ in false }
+            ) == nil)
+            defaults.set(false, forKey: "customSidebars.beta.enabled")
+            #expect(matcher.modeShortcut(
+                for: suffix, activeChordPrefix: binding.firstStroke, allowingAction: { _ in true }
+            ) == nil)
         }
     }
 }

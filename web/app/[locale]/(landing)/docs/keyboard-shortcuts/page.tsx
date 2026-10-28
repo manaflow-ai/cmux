@@ -14,6 +14,7 @@ const shortcutChordExample = `{
       "showNotifications": ["ctrl+b", "i"],
       "toggleSidebar": "cmd+b",
       "toggleFileExplorer": "cmd+opt+b",
+      "switchRightSidebarToCustom": "ctrl+7",
       "splitRight": "",
       "commandPalettePrevious": null
     }

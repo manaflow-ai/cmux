@@ -402,7 +402,7 @@ struct RightSidebarModeShortcutMatcherTests {
             #expect(matcher.modeShortcut(for: event, allowingAction: { _ in true }) == nil)
         }
 
-        #expect(initialLookupCount == 6)
+        #expect(initialLookupCount == 7)
         #expect(shortcutLookupCount == initialLookupCount)
         #expect(layoutLookupCount == 0)
     }
@@ -418,11 +418,11 @@ struct RightSidebarModeShortcutMatcherTests {
             layoutCharacterProvider: { _, _ in nil }
         )
 
-        #expect(shortcutLookupCount == 6)
+        #expect(shortcutLookupCount == 7)
         matcher.reload()
-        #expect(shortcutLookupCount == 12)
+        #expect(shortcutLookupCount == 14)
         _ = matcher.modeShortcut(for: makeKeyEvent(characters: "x", modifiers: []), allowingAction: { _ in true })
-        #expect(shortcutLookupCount == 12)
+        #expect(shortcutLookupCount == 14)
     }
 
     private func makeKeyEvent(

@@ -135,6 +135,8 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             let defaults = UserDefaults.standard
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+            defaults.set(true, forKey: "customSidebars.beta.enabled")
+            defaults.set("status-board", forKey: "rightSidebar.customSidebarName")
 
             for mode in RightSidebarMode.allCases {
                 XCTAssertEqual(

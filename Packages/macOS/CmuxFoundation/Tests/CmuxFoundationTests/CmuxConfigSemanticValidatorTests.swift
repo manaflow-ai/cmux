@@ -241,6 +241,17 @@ struct CmuxConfigSemanticValidatorTests {
         #expect(contains(result, path: "$.shortcuts.bindings.newWindwo", message: "must be one of"))
     }
 
+    @Test("custom sidebar shortcut accepts bindings, chords, and unbinding")
+    func customSidebarShortcutConfig() throws {
+        for binding: Any in ["ctrl+7", ["ctrl+b", "c"], NSNull()] {
+            let result = try issues([
+                "schemaVersion": 1,
+                "shortcuts": ["bindings": ["switchRightSidebarToCustom": binding]],
+            ])
+            #expect(result.isEmpty)
+        }
+    }
+
     @Test("open dictionary constraints apply to all keys in current and future schemas", arguments: [false, true])
     func openDictionaryConstraints(tolerateUnknown: Bool) {
         let validator = CmuxConfigSemanticValidator(scope: .global)

@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-/// Settings-invalidated snapshot for the five right-sidebar mode shortcuts.
+/// Settings-invalidated snapshot for right-sidebar mode shortcuts.
 /// Normal typing misses the modifier bucket without reading settings or the
 /// current keyboard layout.
 @MainActor
@@ -14,6 +14,7 @@ final class RightSidebarModeShortcutMatcher {
     private let availability: Availability
     private let layoutCharacterProvider: LayoutCharacterProvider
     private var entriesByModifierRawValue: [UInt: [RightSidebarModeShortcutEntry]] = [:]
+    private var chordEntriesByModifierRawValue: [UInt: [RightSidebarModeShortcutEntry]] = [:]
 
     init(
         shortcutProvider: @escaping ShortcutProvider = KeyboardShortcutSettings.shortcut(for:),
@@ -32,11 +33,13 @@ final class RightSidebarModeShortcutMatcher {
 
     func modeShortcut(
         for event: NSEvent,
+        activeChordPrefix: ShortcutStroke? = nil,
         allowingAction: (KeyboardShortcutSettings.Action) -> Bool
     ) -> RightSidebarMode? {
         guard event.type == .keyDown else { return nil }
         let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
-        guard let entries = entriesByModifierRawValue[flags.rawValue] else { return nil }
+        let bucket = activeChordPrefix == nil ? entriesByModifierRawValue : chordEntriesByModifierRawValue
+        guard let entries = bucket[flags.rawValue] else { return nil }
         var didResolveLayoutCharacter = false
         var layoutCharacter: String?
         let cachedLayoutCharacterProvider: LayoutCharacterProvider = { [layoutCharacterProvider] keyCode, modifiers in
@@ -46,10 +49,12 @@ final class RightSidebarModeShortcutMatcher {
             }
             return layoutCharacter
         }
+        let matcher = ConfiguredShortcutMatcher(layoutCharacterProvider: cachedLayoutCharacterProvider)
         for entry in entries {
-            guard entry.shortcut.matches(
+            guard matcher.matches(
                 event: event,
-                layoutCharacterProvider: cachedLayoutCharacterProvider
+                shortcut: entry.shortcut,
+                activeChordPrefix: activeChordPrefix
             ), availability(entry.mode), allowingAction(entry.action) else { continue }
             return entry.mode
         }
@@ -60,11 +65,17 @@ final class RightSidebarModeShortcutMatcher {
         let entries = RightSidebarMode.allCases.compactMap { mode -> RightSidebarModeShortcutEntry? in
             guard let action = mode.shortcutAction else { return nil }
             let shortcut = shortcutProvider(action)
-            guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
+            guard !shortcut.isUnbound else { return nil }
             return RightSidebarModeShortcutEntry(mode: mode, action: action, shortcut: shortcut)
         }
-        entriesByModifierRawValue = Dictionary(grouping: entries) {
-            $0.shortcut.modifierFlags.rawValue
+        entriesByModifierRawValue.removeAll(keepingCapacity: true)
+        chordEntriesByModifierRawValue.removeAll(keepingCapacity: true)
+        for entry in entries {
+            if let secondStroke = entry.shortcut.secondStroke {
+                chordEntriesByModifierRawValue[secondStroke.modifierFlags.rawValue, default: []].append(entry)
+            } else {
+                entriesByModifierRawValue[entry.shortcut.modifierFlags.rawValue, default: []].append(entry)
+            }
         }
     }
 }

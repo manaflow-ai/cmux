@@ -45,7 +45,8 @@ final class KeyboardShortcutSettingsObserver {
         self.shortcutProvider = shortcutProvider
         globalSearchShortcut = shortcutProvider(.globalSearch)
         rightSidebarModeShortcutMatcher = RightSidebarModeShortcutMatcher(
-            shortcutProvider: shortcutProvider
+            shortcutProvider: shortcutProvider,
+            availability: { $0.isAvailable(defaults: defaults) }
         )
         settingsObserver = notificationCenter.addObserver(
             forName: KeyboardShortcutSettings.didChangeNotification,
