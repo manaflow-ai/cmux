@@ -1,7 +1,8 @@
 import Foundation
 
 extension PageWebView {
-    /// Binds the agent pane's native pending question to one Return in its Other field. The page
+    /// Binds the agent pane's native pending question to Return in its Other field. Each key's
+    /// proof is single-use; an incomplete answer leaves the next genuine key available. The page
     /// must label its fieldset with `data-cmux-question-session` and `data-cmux-question-id`.
     /// Those public labels never carry the isolated channel's nonce.
     ///

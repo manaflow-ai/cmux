@@ -1,6 +1,6 @@
 import Foundation
 
-/// One-use Return proof from the pending question's Other field. Uses the CEF host's existing
+/// One-use proofs of Return in the pending question's Other field. Uses the CEF host's existing
 /// DevTools isolated-world primitives; no page-world callback or timestamp grants this proof.
 @MainActor
 final class ChromiumQuestionKeyChannel {
@@ -11,6 +11,7 @@ final class ChromiumQuestionKeyChannel {
     private var generation = 0
     private var context: Int?
     private var nonce: String?
+    private var sequence = 0
     private var target: PageQuestionKeyTarget?
     private var received: ((PageQuestionKeyTarget) -> Void)?
     private var setup: Task<Void, Never>?
@@ -79,9 +80,13 @@ final class ChromiumQuestionKeyChannel {
             return false
         }
         guard let call = ChromiumPageHostWire.BindingCall(event: json), call.name == binding else { return false }
-        guard let nonce, call.contextID == context, call.payload == nonce, let target, let received else { return true }
-        // Clear before calling the owner: a re-entrant or repeated binding call has no credit.
-        invalidate()
+        guard let nonce, call.contextID == context, call.payload.utf8.count < 256,
+              let report = ChromiumPageHostWire.object(call.payload), Set(report.keys) == ["nonce", "sequence"],
+              report["nonce"] as? String == nonce, report["sequence"] as? Int == sequence + 1,
+              let target, let received else { return true }
+        // Spend this key before calling the owner. The listener stays while this question stays:
+        // empty or incomplete answers must not spend the next genuine Return's proof.
+        sequence += 1
         received(target)
         return true
     }
@@ -93,6 +98,7 @@ final class ChromiumQuestionKeyChannel {
         setup?.cancel()
         setup = nil
         nonce = nil
+        sequence = 0
         target = nil
         received = nil
         let binding = binding

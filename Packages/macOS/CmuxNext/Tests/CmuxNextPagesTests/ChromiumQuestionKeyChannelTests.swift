@@ -103,12 +103,12 @@ struct ChromiumQuestionKeyChannelTests {
         #expect(accepted.isEmpty)
         #expect(channel.receive(try Self.event(binding: installed.binding, payload: nonce)))
         #expect(accepted == [Self.target])
-        #expect(!channel.receive(try Self.event(binding: installed.binding, payload: nonce)))
+        #expect(channel.receive(try Self.event(binding: installed.binding, payload: nonce)))
         #expect(accepted.count == 1)
         channel.invalidate()
     }
 
-    @Test func onlyOneTrustedReturnOnTheMatchingPendingOtherFieldReports() async throws {
+    @Test func onlyTrustedReturnsOnTheMatchingPendingOtherFieldReport() async throws {
         let page = page()
         let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
         let installed = try await install(channel, page: page) { _ in }
@@ -122,7 +122,26 @@ struct ChromiumQuestionKeyChannelTests {
         """)
         #expect(isolated.evaluateScript("reports.length").toInt32() == 0)
         isolated.evaluateScript("press(); press();")
-        #expect(isolated.evaluateScript("reports.length").toInt32() == 1)
+        #expect(isolated.evaluateScript("reports.length").toInt32() == 2)
+        channel.invalidate()
+    }
+
+    @Test func anEmptyReturnThenAnEditedAnswerUsesTwoDistinctKeysWithoutRebinding() async throws {
+        let page = page()
+        let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
+        var personKeys = 0
+        let installed = try await install(channel, page: page) { _ in personKeys += 1 }
+        let isolated = try scriptContext(binding: installed.binding, source: installed.source)
+        isolated.evaluateScript("field.value = ''; press(); field.value = 'My answer'; press();")
+        let first = try #require(isolated.evaluateScript("reports[0]").toString())
+        let second = try #require(isolated.evaluateScript("reports[1]").toString())
+        #expect(first != second)
+        #expect(channel.receive(try Self.event(binding: installed.binding, payload: first)))
+        #expect(personKeys == 1)
+        #expect(channel.receive(try Self.event(binding: installed.binding, payload: first)))
+        #expect(personKeys == 1, "the empty key cannot be replayed to grant the edited answer")
+        #expect(channel.receive(try Self.event(binding: installed.binding, payload: second)))
+        #expect(personKeys == 2)
         channel.invalidate()
     }
 
@@ -153,6 +172,6 @@ struct ChromiumQuestionKeyChannelTests {
         isolated.evaluateScript(older)
         isolated.evaluateScript("press()")
         #expect(isolated.exception == nil)
-        #expect(isolated.evaluateScript("reports.join(',')").toString() == "new")
+        #expect(isolated.evaluateScript("JSON.parse(reports[0]).nonce").toString() == "new")
     }
 }

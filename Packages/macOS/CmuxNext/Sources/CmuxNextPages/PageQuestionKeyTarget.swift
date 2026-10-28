@@ -34,6 +34,7 @@ nonisolated enum PageQuestionKeyScript {
           const nonce = \(value(nonce));
           const binding = \(value(binding));
           const post = globalThis[binding];
+          let sequence = 0;
           const key = (event) => {
             if (!event.isTrusted || event.repeat || event.isComposing || event.keyCode === 229 ||
                 event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey) return;
@@ -46,8 +47,7 @@ nonisolated enum PageQuestionKeyScript {
                 card.getAttribute('data-cmux-question-id') !== permission ||
                 card.getClientRects().length === 0) return;
             // Capture runs before the card's handler sends the answer. It grants no page API.
-            globalThis.\(cleanup)();
-            post(nonce);
+            post(JSON.stringify({ nonce, sequence: ++sequence }));
           };
           document.addEventListener('keydown', key, true);
           globalThis.\(cleanup) = (owner) => {
