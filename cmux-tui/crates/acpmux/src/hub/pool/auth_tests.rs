@@ -47,6 +47,21 @@ fn pool_auth_claude_saved_api_key_rotation_and_removal_change_the_key() {
 }
 
 #[test]
+fn pool_auth_claude_saved_key_uses_the_child_home() {
+    let daemon = LoginFiles::new("daemon-home");
+    let child = LoginFiles::new("child-home");
+    let cache = AuthCache::default();
+    let env = |key: &str| (key == "HOME").then(|| child.0.display().to_string());
+    child.write(".claude.json", json!({"primaryApiKey": "fixture-key-a"}));
+    let first = cache.fingerprint_with("claude", &env, &daemon.0);
+    child.write(".claude.json", json!({"primaryApiKey": "fixture-key-b"}));
+    let changed = cache.fingerprint_with("claude", &env, &daemon.0);
+    assert_ne!(first, changed, "the pooled child reads its configured HOME, not the daemon's");
+    child.write(".claude.json", json!({}));
+    assert_ne!(changed, cache.fingerprint_with("claude", &env, &daemon.0));
+}
+
+#[test]
 fn pool_auth_claude_refresh_preserves_the_key_but_account_switch_and_logout_do_not() {
     let files = LoginFiles::new("claude-oauth");
     let cache = AuthCache::default();
