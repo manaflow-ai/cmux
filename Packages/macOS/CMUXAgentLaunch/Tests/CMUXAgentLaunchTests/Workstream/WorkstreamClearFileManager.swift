@@ -4,8 +4,8 @@ import Foundation
 /// controls the filesystem boundary without sleeps or blocking Swift executors.
 final class WorkstreamClearFileManager: FileManager, @unchecked Sendable {
     private let condition = NSCondition()
-    private var armed = false
-    private var released = false
+    private var remaining = 0
+    private var permits = 0
     let entries: AsyncStream<Void>
     private let continuation: AsyncStream<Void>.Continuation
 
@@ -14,15 +14,15 @@ final class WorkstreamClearFileManager: FileManager, @unchecked Sendable {
         super.init()
     }
 
-    func arm() {
+    func arm(count: Int = 1) {
         condition.lock()
-        armed = true
+        remaining = count
         condition.unlock()
     }
 
     func release() {
         condition.lock()
-        released = true
+        permits += 1
         condition.broadcast()
         condition.unlock()
     }
@@ -33,10 +33,11 @@ final class WorkstreamClearFileManager: FileManager, @unchecked Sendable {
         attributes: [FileAttributeKey: Any]? = nil
     ) throws {
         condition.lock()
-        if armed {
-            armed = false
+        if remaining > 0 {
+            remaining -= 1
             continuation.yield(())
-            while !released { condition.wait() }
+            while permits == 0 { condition.wait() }
+            permits -= 1
         }
         condition.unlock()
         try super.createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: attributes)
