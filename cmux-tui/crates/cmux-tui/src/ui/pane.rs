@@ -272,8 +272,8 @@ fn tab_scroll_for_active(
 
 fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let Some(bar) = area.bar else { return };
-    let Some(screen_view) = app.tree.active_screen() else { return };
-    let Some(pane) = screen_view.pane(area.pane) else { return };
+    // A docked workspace's panes draw beside the active screen's.
+    let Some(pane) = app.tree.pane(area.pane) else { return };
     let tab_cfg = app.config.tabs.clone();
     let tabs: Vec<(String, Option<String>)> = pane
         .tabs
