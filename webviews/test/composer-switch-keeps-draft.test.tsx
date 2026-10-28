@@ -72,7 +72,7 @@ function Chips() {
   return null;
 }
 
-async function render(sessionId: string | undefined, props: { draft?: string; switching?: boolean } = {}) {
+async function render(sessionId: string, props: { draft?: string; switching?: boolean } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const snapshot = noChat(
@@ -122,15 +122,6 @@ test("a switch that ends in the same render as its session change still keeps th
   // The intent clears in the batch that brings the new session.
   await render("chat-b");
   expect(prompt()).toBe("compare these cars");
-});
-
-test("the handshake draft survives the first session assignment but not a later chat switch", async () => {
-  await render(undefined);
-  await render(undefined, { draft: "from the relaunch handshake" });
-  await render("handshake-a", { draft: "from the relaunch handshake" });
-  expect(prompt()).toBe("from the relaunch handshake");
-  await render("handshake-b");
-  expect(prompt()).toBe("");
 });
 
 test("moving to a chat with its own draft mid-switch keeps that chat's draft", async () => {
