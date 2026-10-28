@@ -333,6 +333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
                 settings?.managedPreferencesMayHaveChanged()
                 services?.windows.enterRestoredFullScreens()
+                await services?.paidPlanReturned() // an upgrade's payment page sends the person back here
             }
         }
         services.configActions.start(settings: settings)

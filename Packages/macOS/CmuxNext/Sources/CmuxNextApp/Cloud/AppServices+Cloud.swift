@@ -98,7 +98,6 @@ extension AppServices {
         cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil },
                                                                            openPricing: { [weak self] _ in Task { await self?.paidPlanUpgrade().start(source: .cloudCreate) } }) }
         cloud.planObserved = { [weak self] in self?.paidPlanObserved($0) }
-        followPaidPlanReturns()
         cloud.start()
         // Each Cloud machine follows the app's cmux-tui build by itself, also while an agent works there.
         CloudMachineUpdates.start(self)
