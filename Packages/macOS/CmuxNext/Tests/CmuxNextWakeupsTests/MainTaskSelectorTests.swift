@@ -169,6 +169,25 @@ import Testing
         #expect(ran == ["a1", "b1", "a1 continued", "a2"])
     }
 
+    @Test("The rest of a task posted before a fence continues; the tasks after the fence still wait")
+    func continuationOfATaskBeforeAFence() {
+        let (selector, _) = rig()
+        var ran: [String] = []
+        let queue = selector.queue(.visible, owner: board.owner("long"))
+        queue.post {
+            ran.append("a")
+            queue.postContinuation { ran.append("a continued") }
+        }
+        queue.insertFence(.now)
+        queue.post { ran.append("b") }
+        drain(selector)
+        #expect(ran == ["a", "a continued"])
+        #expect(queue.isBlockedByFence && queue.pendingCount == 1)
+        queue.removeFence()
+        drain(selector)
+        #expect(ran == ["a", "a continued", "b"])
+    }
+
     @Test("The selector skips a type the manager does not admit and takes the next priority")
     func admitsPredicate() {
         let (selector, _) = rig()
