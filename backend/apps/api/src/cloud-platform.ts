@@ -94,6 +94,7 @@ export const platformShape = (size: MachineRow["size"]): PlatformShape | null =>
     ? { vcpu: cpu, memGiB: memory_mb / 1024, diskGiB: disk_mb / 1024 } : null
 }
 export const platformMetadata = (m: MachineRow): PlatformReply<PlatformMachine> => {
+  if (m.transport === "vm-api") return refused("cloud.provider.unsupported", "this machine belongs to another provider transport", false)
   const shape = platformShape(m.size)
   if (!shape) return refused("cloud.machine.shape_unknown", "the provider has not reported the machine's resources yet", true)
   const state = m.status === "provisioning" || m.status === "starting" || m.status === "pausing" ? "starting" : m.status === "deleting" ? "stopped" : m.status
@@ -144,7 +145,8 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
     case "resume": {
       const m = own(call.machine)
       if ("ok" in m) return m
-      if (host.operations.busy(m.id)) return refused("mutation.indeterminate", "the machine is still provisioning", true)
+      if (host.operations.busy(host, m.id)) return refused("mutation.indeterminate", "the machine is still provisioning", true)
+      if (m.transport === "vm-api") return refused("cloud.provider.unsupported", "this machine belongs to another provider transport", false)
       const wantPause = call.op === "pause"
       if (wantPause && m.status === "paused") return host.operations.metadata(host, m.id)
       if (!wantPause && m.status === "running") return host.operations.metadata(host, m.id)
@@ -165,7 +167,7 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
     case "exec": {
       const m = own(call.machine)
       if ("ok" in m) return m
-      if (host.operations.busy(m.id)) return refused("mutation.indeterminate", "the machine is still provisioning", true)
+      if (host.operations.busy(host, m.id)) return refused("mutation.indeterminate", "the machine is still provisioning", true)
       if (m.status !== "running") return notRunning(m)
       const stdin = call.stdin ? new TextEncoder().encode(call.stdin) : null
       const r = await host.exec(m, asWorkUser(call.command), stdin, Math.min(Math.max(1, call.timeoutMs), PLATFORM_EXEC_MAX_MS))
@@ -193,7 +195,7 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       if (!m) return ok({ deleted: true })
       const mine = own(call.machine)
       if ("ok" in mine) return mine
-      host.operations.cancel(m.id, host.now)
+      host.operations.cancel(host, m.id, host.now)
       // Deleted only once the machine is gone (its tombstone): a delete still running is asked again.
       const deleting = refused("mutation.indeterminate", "the machine is still being deleted; retry", true)
       if (m.status === "deleting") return deleting
