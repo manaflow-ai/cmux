@@ -109,6 +109,7 @@ export function childRows(
       if (!known) activity = rowId;
       reply = undefined;
     }
+    if (settled) reply = activity = undefined;
   }
   if (reply && agents.get(id)?.state === "running") rows.get(reply)!.streaming = true;
   // Group rows list their subagents as they are now; a change redraws the group.
