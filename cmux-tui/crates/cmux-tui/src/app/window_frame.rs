@@ -113,13 +113,124 @@ pub(crate) struct FramePlacement {
 }
 
 /// Place the stage and the docks in `area`.
+///
+/// Docked docks carve the stage out of `area` in orientation order (column
+/// major: left, right, top, bottom; row major: top, bottom, left, right), so
+/// the docks placed first own the corners (G1). Floating docks are then
+/// placed the same way over the stage, which they never resize (G2, W8). The
+/// first dock of an edge wins (W1) and hidden docks are not placed. Each
+/// extent is a permille of the frame, clamped to the client's share: a side
+/// dock at most 1/2 (2/5 beside the other side dock), a band at most 1/2 (1/3
+/// beside the other band), never below one pane (W6). A Docked dock that would
+/// leave the stage smaller than one pane is not placed.
 pub(crate) fn place_frame(
     area: Rect,
     docks: &[WindowDock],
     orientation: DockOrientation,
 ) -> FramePlacement {
-    let _ = (docks, orientation);
-    FramePlacement { stage: area, docks: Vec::new() }
+    let mut shown: [Option<&WindowDock>; 4] = [None; 4];
+    for dock in docks.iter().filter(|dock| !dock.hidden) {
+        let slot = &mut shown[edge_index(dock.edge)];
+        if slot.is_none() {
+            *slot = Some(dock);
+        }
+    }
+    let both_sides =
+        shown[edge_index(DockEdge::Left)].is_some() && shown[edge_index(DockEdge::Right)].is_some();
+    let both_bands =
+        shown[edge_index(DockEdge::Top)].is_some() && shown[edge_index(DockEdge::Bottom)].is_some();
+    let order = match orientation {
+        DockOrientation::ColumnMajor => DockEdge::ALL,
+        DockOrientation::RowMajor => {
+            [DockEdge::Top, DockEdge::Bottom, DockEdge::Left, DockEdge::Right]
+        }
+    };
+    let sized = |mode: DockMode| {
+        order.into_iter().filter_map(move |edge| {
+            let dock = shown[edge_index(edge)].filter(|dock| dock.mode == mode)?;
+            let (total, share, minimum) = if edge.is_side() {
+                (area.width, if both_sides { (2, 5) } else { (1, 2) }, MIN_DOCK_COLS)
+            } else {
+                (area.height, if both_bands { (1, 3) } else { (1, 2) }, MIN_DOCK_ROWS)
+            };
+            dock_extent(total, dock.extent_permille, share, minimum).map(|size| (edge, size))
+        })
+    };
+
+    let mut stage = area;
+    let mut placed = Vec::new();
+    for (edge, size) in sized(DockMode::Docked) {
+        let (remaining, minimum) = if edge.is_side() {
+            (stage.width, MIN_STAGE_COLS)
+        } else {
+            (stage.height, MIN_STAGE_ROWS)
+        };
+        if remaining.saturating_sub(size) < minimum {
+            continue;
+        }
+        placed.push(DockPlacement { edge, rect: carve(&mut stage, edge, size), floating: false });
+    }
+    let mut over = stage;
+    for (edge, size) in sized(DockMode::Floating) {
+        let (room, minimum) =
+            if edge.is_side() { (over.width, MIN_DOCK_COLS) } else { (over.height, MIN_DOCK_ROWS) };
+        if room < minimum {
+            continue;
+        }
+        let rect = carve(&mut over, edge, size.min(room));
+        placed.push(DockPlacement { edge, rect, floating: true });
+    }
+    FramePlacement { stage, docks: placed }
+}
+
+const fn edge_index(edge: DockEdge) -> usize {
+    match edge {
+        DockEdge::Left => 0,
+        DockEdge::Right => 1,
+        DockEdge::Top => 2,
+        DockEdge::Bottom => 3,
+    }
+}
+
+/// A dock's size in cells along its axis: `extent_permille` of `total`,
+/// rounded, clamped to `share` of `total` and to `minimum`. None when the
+/// share cannot hold `minimum`.
+fn dock_extent(total: u16, extent_permille: u16, share: (u32, u32), minimum: u16) -> Option<u16> {
+    let total = u32::from(total);
+    let permille = u32::from(extent_permille.clamp(MIN_EXTENT_PERMILLE, MAX_EXTENT_PERMILLE));
+    let wanted = (total * permille + 500) / 1000;
+    let most = total * share.0 / share.1;
+    let minimum = u32::from(minimum);
+    if most < minimum {
+        return None;
+    }
+    u16::try_from(wanted.clamp(minimum, most)).ok()
+}
+
+/// Cut `size` cells off `frame`'s `edge` and return the cut rect.
+fn carve(frame: &mut Rect, edge: DockEdge, size: u16) -> Rect {
+    match edge {
+        DockEdge::Left => {
+            let rect = Rect { width: size, ..*frame };
+            frame.x = frame.x.saturating_add(size);
+            frame.width = frame.width.saturating_sub(size);
+            rect
+        }
+        DockEdge::Right => {
+            frame.width = frame.width.saturating_sub(size);
+            Rect { x: frame.x.saturating_add(frame.width), width: size, ..*frame }
+        }
+        DockEdge::Top => {
+            let rect = Rect { height: size, ..*frame };
+            frame.y = frame.y.saturating_add(size);
+            frame.height = frame.height.saturating_sub(size);
+            rect
+        }
+        DockEdge::Bottom => {
+            frame.height = frame.height.saturating_sub(size);
+            Rect { y: frame.y.saturating_add(frame.height), height: size, ..*frame }
+        }
+    }
 }
 
 #[cfg(test)]
