@@ -208,7 +208,15 @@ def main():  # noqa: C901 - one live run of several scenarios
         # layout switch lags on a loaded mini).
         subprocess.run(["axe", "type", text, "--udid", udid], capture_output=True, timeout=60)
         time.sleep(0.3)
-        send = sim.wait(ident="conversation.composer.send", timeout=10)
+        send = sim.wait(ident="conversation.composer.send", timeout=5)
+        if not send:
+            # Found live (base and fix alike): the first tap on the composer after
+            # opening a conversation does not focus it; the second does.
+            result.setdefault("observations", []).append("first composer tap did not focus; tapped again")
+            sim.tap_el(field)
+            time.sleep(1.0)
+            subprocess.run(["axe", "type", text, "--udid", udid], capture_output=True, timeout=60)
+            send = sim.wait(ident="conversation.composer.send", timeout=10)
         if not send:
             now = sim.find(ident="conversation.composer.text")
             focus = [(e.kind, e.ident) for e in sim.tree() if e.get("AXFocused") or e.get("focused")]
@@ -247,21 +255,25 @@ def main():  # noqa: C901 - one live run of several scenarios
             value = mac.cmux("chief", "new", "--name", name, json_out=True) or {}
             chiefs[role] = (value.get("value") or value).get("id")
         convs = {}
-        listed = None
+        conversations = []
         for _ in range(30):
+            listed = None
             try:
                 listed = conv_cli("list")
-                break
             except RuntimeError as e:
                 log(f"conversation list: {e}")
-                time.sleep(2)
-        # Conversations (with participants), not the participant records inside them.
-        conversations = [c for c in records(listed) if isinstance(c.get("participants"), list)]
-        for c in conversations:
-            ids = [p.get("id") for p in c["participants"] if isinstance(p, dict)]
-            for role, chief in chiefs.items():
-                if chief in ids and len(ids) == 2:
-                    convs[role] = c["id"]
+            # Conversations (with participants), not the participant records inside them.
+            conversations = [c for c in records(listed) if isinstance(c.get("participants"), list)]
+            convs = {}
+            for c in conversations:
+                ids = [p.get("id") for p in c["participants"] if isinstance(p, dict)]
+                for role, chief in chiefs.items():
+                    if (chief in ids and len(ids) == 2) or (role not in convs and c.get("title") == names[role]):
+                        convs[role] = c["id"]
+            if len(convs) == 2:
+                break
+            # A new Chief's conversation shows up a moment after `chief new`.
+            time.sleep(2)
         result["conversation_titles"] = {c["id"]: c.get("title") for c in conversations}
         result.update(names=names, chiefs=chiefs, conversations=convs)
         log(f"Chiefs {chiefs}, conversations {convs}")
