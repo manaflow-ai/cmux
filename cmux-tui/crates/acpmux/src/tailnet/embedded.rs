@@ -133,12 +133,6 @@ struct LiveIdentity {
     ips: Vec<String>,
 }
 
-#[derive(Clone, Copy)]
-#[cfg(test)]
-struct ClosePlan {
-    logout: bool,
-}
-
 fn state_name(state: BackendState) -> &'static str {
     match state {
         BackendState::NoState => "no_state",
@@ -166,7 +160,7 @@ enum LifecycleState {
     Starting,
     Running(Arc<Node>),
     Retiring { node: Option<Arc<Node>>, phase: RetirementPhase },
-    LoggingOut { node: Option<Arc<Node>>, reopen: bool },
+    LoggingOut { node: Option<Arc<Node>>, remote_result: Option<Result<(), String>> },
 }
 
 #[cfg(test)]
@@ -354,9 +348,9 @@ impl Controller {
             Arc::clone(&self.retirement_gate),
             Arc::clone(&self.lifecycle),
             move || async move {
-                let plan = controller.begin_retirement_close(generation, &node);
+                let logout = controller.begin_retirement_close(generation, &node);
                 let result = tokio::task::spawn_blocking(move || {
-                    if plan.logout {
+                    if logout {
                         logout_and_close(
                             || cleanup_node.logout().map_err(|e| e.0),
                             || cleanup_node.close().map_err(|e| e.0),
@@ -367,7 +361,8 @@ impl Controller {
                 })
                 .await
                 .map_err(|error| error.to_string());
-                let logout_pending = controller.finish_retirement(generation, &node, result);
+                let logout_pending =
+                    controller.finish_retirement(generation, &node, logout, result);
                 controller.note_listener_error_if_current(generation);
                 if !logout_pending {
                     controller.pending_retirement.store(false, Ordering::Release);
@@ -518,8 +513,10 @@ impl Controller {
             } else if inner.generation != generation
                 || !matches!(&inner.state, LifecycleState::Starting)
             {
-                let reopen_logout =
-                    matches!(&inner.state, LifecycleState::LoggingOut { node: None, reopen: true });
+                let reopen_logout = matches!(
+                    &inner.state,
+                    LifecycleState::LoggingOut { node: None, remote_result: None }
+                );
                 inner.generation = inner.generation.wrapping_add(1);
                 let state_node = Arc::clone(&node);
                 inner.state = LifecycleState::Retiring {
@@ -602,9 +599,20 @@ impl Controller {
             self.abort_logout(&error).await;
             return Err(error);
         }
-        let reopen = self.logout_reopens();
+        let (reopen, completed) = {
+            let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            match &inner.state {
+                LifecycleState::LoggingOut { node: None, remote_result: Some(result) } => {
+                    (false, Some(result.clone()))
+                }
+                LifecycleState::LoggingOut { node: None, remote_result: None } => (true, None),
+                _ => (false, None),
+            }
+        };
         let node = self.state_node();
-        let result = if reopen {
+        let result = if let Some(completed) = completed {
+            Some(tokio::task::spawn_blocking(move || completed))
+        } else if reopen {
             let config = NodeConfig::new(self.state_dir.clone(), self.hostname.clone());
             Some(tokio::task::spawn_blocking(move || {
                 let node = Arc::new(Node::new(&config).map_err(|e| e.0)?);
@@ -726,6 +734,9 @@ impl Controller {
 
     fn request_logout(&self) {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if inner.closed {
+            return;
+        }
         let next = match &inner.state {
             LifecycleState::Running(node) => Some(Some(Arc::clone(node))),
             LifecycleState::Retiring { node, phase: RetirementPhase::Waiting } => {
@@ -748,9 +759,10 @@ impl Controller {
         };
         if let Some(node) = next {
             inner.generation = inner.generation.wrapping_add(1);
-            let reopen = node.is_none();
-            let previous =
-                std::mem::replace(&mut inner.state, LifecycleState::LoggingOut { node, reopen });
+            let previous = std::mem::replace(
+                &mut inner.state,
+                LifecycleState::LoggingOut { node, remote_result: None },
+            );
             if let LifecycleState::Running(previous_node)
             | LifecycleState::Retiring { node: Some(previous_node), .. } = &previous
             {
@@ -770,13 +782,6 @@ impl Controller {
                 _ => {}
             }
         }
-    }
-
-    fn logout_reopens(&self) -> bool {
-        matches!(
-            &self.inner.lock().unwrap_or_else(PoisonError::into_inner).state,
-            LifecycleState::LoggingOut { node: None, reopen: true }
-        )
     }
 
     async fn abort_logout(&self, error: &str) {
@@ -832,7 +837,7 @@ impl Controller {
         .map_err(|error| error.to_string())
     }
 
-    fn begin_retirement_close(&self, generation: u64, node: &Arc<Node>) -> ClosePlan {
+    fn begin_retirement_close(&self, generation: u64, node: &Arc<Node>) -> bool {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         match &inner.state {
             LifecycleState::Retiring { node: Some(current), phase: RetirementPhase::Waiting }
@@ -842,14 +847,18 @@ impl Controller {
                     node: Some(Arc::clone(node)),
                     phase: RetirementPhase::Closing,
                 };
-                ClosePlan { logout: false }
+                false
             }
-            LifecycleState::LoggingOut { node: Some(current), reopen: false }
+            LifecycleState::Retiring {
+                node: Some(current),
+                phase: RetirementPhase::ClosingForLogout,
+            } if Arc::ptr_eq(current, node) => true,
+            LifecycleState::LoggingOut { node: Some(current), remote_result: None }
                 if Arc::ptr_eq(current, node) =>
             {
-                ClosePlan { logout: true }
+                true
             }
-            _ => ClosePlan { logout: false },
+            _ => false,
         }
     }
 
@@ -857,6 +866,7 @@ impl Controller {
         &self,
         generation: u64,
         node: &Arc<Node>,
+        logout: bool,
         result: Result<Result<(), String>, String>,
     ) -> bool {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
@@ -874,19 +884,25 @@ impl Controller {
         let logout_pending = matches!(
             &inner.state,
             LifecycleState::Retiring { phase: RetirementPhase::ClosingForLogout, .. }
+                | LifecycleState::LoggingOut { .. }
         );
+        let result = result.and_then(|result| result);
         let retired = std::mem::replace(
             &mut inner.state,
             if logout_pending {
-                LifecycleState::LoggingOut { node: None, reopen: true }
+                LifecycleState::LoggingOut {
+                    node: None,
+                    remote_result: Some(if logout {
+                        result.clone()
+                    } else {
+                        Err(late_logout_error())
+                    }),
+                }
             } else {
                 LifecycleState::Stopped
             },
         );
-        let error = match result {
-            Ok(inner) => inner.err(),
-            Err(error) => Some(error),
-        };
+        let error = result.err();
         if let Some(error) = error {
             inner.snapshot.state = "error";
             inner.snapshot.error = Some(error);
@@ -928,7 +944,7 @@ impl Controller {
         let retired = std::mem::replace(
             &mut inner.state,
             if reopen_logout {
-                LifecycleState::LoggingOut { node: None, reopen: true }
+                LifecycleState::LoggingOut { node: None, remote_result: None }
             } else {
                 LifecycleState::Stopped
             },
@@ -1589,7 +1605,7 @@ mod tests {
             ),
             (
                 "logout-during-retire",
-                LifecycleState::LoggingOut { node: None, reopen: true },
+                LifecycleState::LoggingOut { node: None, remote_result: None },
                 "stopped",
             ),
             ("logout-during-start", LifecycleState::Starting, "starting"),
@@ -1610,7 +1626,7 @@ mod tests {
         controller.request_logout();
         assert!(matches!(
             &controller.inner.lock().unwrap().state,
-            LifecycleState::LoggingOut { node: None, reopen: true }
+            LifecycleState::LoggingOut { node: None, remote_result: None }
         ));
 
         let controller = Controller::new("/nonexistent/cmux-tailnet-test", "starting");
@@ -1622,7 +1638,7 @@ mod tests {
         controller.request_logout();
         assert!(matches!(
             &controller.inner.lock().unwrap().state,
-            LifecycleState::LoggingOut { node: None, reopen: true }
+            LifecycleState::LoggingOut { node: None, remote_result: None }
         ));
         assert!(controller.inner.lock().unwrap().generation > generation);
     }
@@ -1658,9 +1674,29 @@ mod tests {
     async fn no_node_starts_after_shutdown() {
         let controller = Controller::new("/nonexistent/cmux-tailnet-test", "test");
         controller.shutdown().await.unwrap();
+        controller.request_logout();
         assert_eq!(controller.start().await, Err("the daemon is shutting down".to_owned()));
         assert!(controller.node().is_none());
         assert_eq!(controller.snapshot().state, "stopped");
+        assert!(matches!(&controller.inner.lock().unwrap().state, LifecycleState::Stopped));
+    }
+
+    #[test]
+    fn retirement_preserves_completed_remote_logout() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = NodeConfig::new(temporary.path(), "test");
+        let node = Arc::new(Node::new(&config).unwrap());
+        let controller = Controller::new(temporary.path(), "test");
+        controller.inner.lock().unwrap().state =
+            LifecycleState::LoggingOut { node: Some(Arc::clone(&node)), remote_result: None };
+        assert!(controller.finish_retirement(0, &node, true, Ok(Ok(()))));
+        let inner = controller.inner.lock().unwrap();
+        assert!(matches!(
+            &inner.state,
+            LifecycleState::LoggingOut { node: None, remote_result: Some(Ok(())) }
+        ));
+        drop(inner);
+        release_node(node);
     }
 
     #[test]
