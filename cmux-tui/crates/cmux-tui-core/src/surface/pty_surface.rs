@@ -698,8 +698,7 @@ impl PtyTerminalRuntime {
     /// of the terminal at a later cut ([`AttachTap::request_replay`]). The
     /// caller holds the terminal lock.
     fn request_attach_replays(&self) {
-        let live = self.live_resize.load(Ordering::Acquire) != 0;
-        self.taps.lock().recover_poison().retain(|tap| tap.request_replay(live));
+        self.taps.lock().recover_poison().retain(AttachTap::request_replay);
     }
 
     /// A live resize starts or continues (`live`), or ends. While it runs,
@@ -757,6 +756,11 @@ impl PtyTerminalRuntime {
             self.live_resize.store(0, Ordering::Release);
             self.release_live_replays();
         }
+    }
+
+    /// Whether a live resize runs: byte mirrors' replays wait for its end.
+    pub(super) fn resizes_live(&self) -> bool {
+        self.live_resize.load(Ordering::Acquire) != 0
     }
 
     fn release_live_replays(&self) {

@@ -320,6 +320,30 @@ fn a_live_resize_without_its_end_settles_after_its_deadline() {
     assert_eq!(mirror.divergence(&surface), None);
 }
 
+/// The end of a live resize can race a geometry change that marks the
+/// mirror (review of 36a2a5a008f: a mark that read "live" before the end
+/// and set the viewer's held flag after the end's release left the replay
+/// held forever). Whatever wakes the viewer, its replay is due exactly
+/// when no live resize runs: here the live state is cleared with no
+/// release call at all (the release lost the race), and the replay must
+/// still come.
+#[test]
+fn a_replay_is_due_once_no_live_resize_runs_even_without_a_release() {
+    let mux = Mux::new_for_test("mirror-live-resize-race", SurfaceOptions::default());
+    let surface = mirror_test_surface(&mux);
+    let pty = surface.as_pty().unwrap();
+    let mut mirror = PinnedByteMirror::attach(&surface);
+    surface.set_live_resize(true);
+    assert!(surface.resize(90, 15).unwrap());
+    mirror.drain();
+    assert_eq!(mirror.replays, 0, "held during the live resize");
+    // The end's store lands; its release does not reach this viewer.
+    pty.live_resize.store(0, Ordering::Release);
+    mirror.drain();
+    assert_eq!(mirror.divergence(&surface), None, "the mirror's replay stayed held");
+    assert_eq!(mirror.replays, 1);
+}
+
 /// A long drag whose steps keep coming is not cut short by the settle
 /// deadline: it counts from the newest step, not from the first.
 #[test]

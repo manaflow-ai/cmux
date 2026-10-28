@@ -60,7 +60,11 @@ extension ScreenContentView {
                                         axis: .vertical, rows: RowDragStart(rows: column.rows, stack: stack, minimums: minimums))
             }
             model.setGestureActive(true)
-            if let window { Motion.beginResizeGesture(window) }
+            endResizeGesture()
+            if let window {
+                Motion.beginResizeGesture(window)
+                resizeGestureWindow = window
+            }
             context.requestFrames()
         case let .sampled(windowPoint, time):
             activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: time)
@@ -81,8 +85,15 @@ extension ScreenContentView {
             applyDrag(at: windowPoint, phase: .ended)
             activeDrag = nil
             model.setGestureActive(false)
-            if let window { Motion.endResizeGesture(window) }
+            endResizeGesture()
         }
+    }
+
+    /// Ends the live resize a divider drag began, in the window it began in, once.
+    private func endResizeGesture() {
+        guard let window = resizeGestureWindow else { return }
+        resizeGestureWindow = nil
+        Motion.endResizeGesture(window)
     }
 
     /// Ends a drag whose handle left the tree: no release will come. It is
@@ -93,7 +104,7 @@ extension ScreenContentView {
         rowDragPreview = nil
         context.model.cancelGesture(drag.transaction)
         context.model.setGestureActive(false)
-        if let window { Motion.endResizeGesture(window) }
+        endResizeGesture()
     }
 
     /// A new handle's drags read this screen's frame-aligned input (``LayoutRootView/dragFrameInput``)

@@ -99,6 +99,9 @@ final class ScreenContentView: NSView {
     /// The focus the scroll last followed; a window resize re-syncs with it.
     var lastFocused: PaneID?
     var activeDrag: DividerDragState?
+    /// The window a divider drag began its live resize in (`Motion.beginResizeGesture`): the end
+    /// goes to that window even if this view left it meanwhile.
+    weak var resizeGestureWindow: NSWindow?
     /// Overlay docked columns' glass rims, keyed by column.
     var backdrops: [ColumnID: DockBackdropView] = [:]
     /// The strip scrollbar; created on first use.
