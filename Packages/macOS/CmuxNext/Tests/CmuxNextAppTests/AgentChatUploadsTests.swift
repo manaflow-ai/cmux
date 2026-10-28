@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBridge
@@ -74,6 +75,31 @@ import Testing
         AgentChatUploads.remove(session: "../outside", in: root)
         #expect(manager.fileExists(atPath: outside.appending(path: "keep.txt").path))
         #expect(manager.fileExists(atPath: notes.path))
+    }
+
+    /// Attachments take arbitrarily large files of any type (Leo, 2026-10-26): a local chat's staged
+    /// upload begins at any size, and a batch whose files hold more than 1 GiB in all (one of them
+    /// the largest size there is) is taken, never refused. Each stage is cancelled, which deletes it.
+    @MainActor @Test func aStagedUploadOfAnySizeBegins() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.agentTabs.gitLink = { _ in services.agentGit.local }
+        let stage = try #require(AgentChatUploads.stager(tab: "tab-\(UUID().uuidString)", services: services))
+        func begun(_ reply: [String: Any]) -> [String: Any]? {
+            reply["ok"] as? Bool == true ? reply["value"] as? [String: Any] : nil
+        }
+        let gib = 1024 * 1024 * 1024
+        let largeReply = await stage(.begin(name: "disk.img", size: 2 * gib, batchToken: nil, batch: nil), nil)
+        let large = try #require(begun(largeReply), "\(largeReply)")
+        #expect(large["size"] as? Int == 2 * gib)
+
+        let manifest = [AgentPaneUploadBatchEntry(name: "a.mov", size: 600 * 1024 * 1024), AgentPaneUploadBatchEntry(name: "b.img", size: Int.max)]
+        let firstReply = await stage(.begin(name: "a.mov", size: 600 * 1024 * 1024, batchToken: nil, batch: manifest), nil)
+        let first = try #require(begun(firstReply), "\(firstReply)")
+        let batchToken = try #require(first["batchToken"] as? String)
+        let secondReply = await stage(.begin(name: "b.img", size: Int.max, batchToken: batchToken, batch: nil), nil)
+        let second = try #require(begun(secondReply), "\(secondReply)")
+        for token in [large, first, second].compactMap({ $0["token"] as? String }) { _ = await stage(.cancel(token: token), nil) }
     }
 
     @Test func aSessionIdIsOneFolderName() {
