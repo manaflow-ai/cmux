@@ -1,5 +1,5 @@
 import type { Principal } from "@cmux/ownership"
-import type { CloudEntitlements } from "./domains/cloud-plan.ts"
+import { cloudPlanId, companyPlanKey, paidPlanLimits, type CloudEntitlements } from "./domains/cloud-plan.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
 import type { Env } from "./env.ts"
 
@@ -54,16 +54,26 @@ export class CloudEntitlementStore implements CloudEntitlements {
     this.record(team, plan, now)
   }
 
-  /** The paid plan id, null for none, undefined when the plan service is unavailable. */
+  /**
+   * The team's entitlement key (cloud-plan.ts paidPlanLimits), null for none, undefined when the
+   * plan service is unavailable. As classic Cloud reads it: the paid plan, then the operator's
+   * `cmuxVmPlan` over it (cloudPlanId), and on a personal team of a verified company account the
+   * company grant (companyPlanKey). Billing and the model router keep reading the paid plan alone.
+   */
   private async read(team: string, principal: Principal): Promise<string | null | undefined> {
     const user = principal.user!
     // A personal team pays through its owner's personal plan (inference/route.ts does the same).
     const personal = team === personalTeamIdFor(user)
-    const stackUser = personal ? (principal.stack_user_id ?? (await this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).stackUserOf(user)) ?? undefined) : undefined
-    if (personal && !stackUser) return null
-    const answer = await this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).inferencePlan(team, user, stackUser)
-    if (!answer.ok) return undefined
-    return answer.paid ? (answer.plan ?? null) : null
+    const users = this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
+    const stackUser = personal ? (principal.stack_user_id ?? (await users.stackUserOf(user)) ?? undefined) : undefined
+    // The company grant follows the owner's verified email (UserDO's record), never a client claim.
+    const domain = personal ? await users.homeVerifiedEmailDomain(user) : null
+    if (personal && !stackUser) return companyPlanKey(domain, null)
+    const teams = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team))
+    const [answer, grant] = await Promise.all([teams.inferencePlan(team, user, stackUser), teams.cloudVmPlan(team, stackUser)])
+    if (!answer.ok || !grant.ok) return undefined
+    const own = cloudPlanId(answer.paid ? (answer.plan ?? null) : null, grant.vm_plan)
+    return companyPlanKey(domain, own) ?? (paidPlanLimits(own) ? own : null)
   }
 
   private record(team: string, plan: string | null, at: number) {

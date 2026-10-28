@@ -22,14 +22,17 @@ export interface StackServer {
   /**
    * The Stack team now, or null when Stack answers TEAM_NOT_FOUND (team webhooks, cx-3bi.43).
    * `plan` is the team's client_read_only_metadata.cmuxPlan (web billing's team plan mirror,
-   * inference-plans.ts), null when absent or not a string.
+   * inference-plans.ts), null when absent or not a string. `vm_plan` is its operator Cloud grant
+   * (client_read_only_metadata.cmuxVmPlan, cloud-plan.ts cloudPlanId), read for Cloud machine limits only.
    */
-  getTeam(teamId: string): Promise<{ display_name: string; plan: string | null; vm_personal_tenant?: boolean } | null>
+  getTeam(teamId: string): Promise<{ display_name: string; plan: string | null; vm_plan?: string | null; vm_personal_tenant?: boolean } | null>
   /**
    * A user's client_read_only_metadata.cmuxPlan (web billing's personal plan mirror,
    * inference-plans.ts): the plan id, null when absent, "user_gone" for USER_NOT_FOUND.
    */
   getUserPlan(userId: string): Promise<string | null | "user_gone">
+  /** A user's operator Cloud grant (client_read_only_metadata.cmuxVmPlan), null when absent, "user_gone" for USER_NOT_FOUND. Cloud machine limits only. */
+  getUserVmPlan(userId: string): Promise<string | null | "user_gone">
   /**
    * Every member Stack lists for the team now ("team_gone" for TEAM_NOT_FOUND), with each member's
    * team permission ids (GET /team-permissions?team_id&recursive=true, so contained permissions
@@ -61,12 +64,12 @@ export interface StackMember {
 const API = "https://api.stack-auth.com/api/v1"
 
 /**
- * `cmuxPlan` from client_read_only_metadata only: the server and web billing write it, a signed-in
+ * `cmuxPlan` (or the operator's `cmuxVmPlan`) from client_read_only_metadata only: the server and web billing write it, a signed-in
  * client cannot. client_metadata (client-writable) and server_metadata are never read for a plan.
  */
-const readOnlyPlan = (metadata: unknown): string | null => {
+const readOnlyPlan = (metadata: unknown, key: "cmuxPlan" | "cmuxVmPlan" = "cmuxPlan"): string | null => {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null
-  const plan = (metadata as Record<string, unknown>).cmuxPlan
+  const plan = (metadata as Record<string, unknown>)[key]
   return typeof plan === "string" && plan.length > 0 && plan.length <= 64 ? plan : null
 }
 
@@ -156,11 +159,15 @@ export const stackServer = (
       // Server-only metadata: a cmux VM personal tenant (team-vm-api-personal-stack.ts) is never mirrored as a cmux team.
       const meta = r.server_metadata
       const vm_personal_tenant = !!meta && typeof meta === "object" && !Array.isArray(meta) && (meta as Record<string, unknown>)[PERSONAL_TENANT_METADATA_KEY] != null
-      return { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata), vm_personal_tenant }
+      return { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata), vm_plan: readOnlyPlan(r.client_read_only_metadata, "cmuxVmPlan"), vm_personal_tenant }
     },
     getUserPlan: async (userId) => {
       const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])
       return isGone(r) ? "user_gone" : readOnlyPlan(r.client_read_only_metadata)
+    },
+    getUserVmPlan: async (userId) => {
+      const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])
+      return isGone(r) ? "user_gone" : readOnlyPlan(r.client_read_only_metadata, "cmuxVmPlan")
     },
     listTeamMembers: async (teamId) => {
       const out: Array<{ user_id: string; display_name: string | null; permissions: ReadonlyArray<string>; anonymous: boolean }> = []

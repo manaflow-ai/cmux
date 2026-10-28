@@ -10,6 +10,8 @@ import type { CloudTransport } from "../cloud-vm-api-config.ts"
  *   service's cmuxPlan that web billing writes from Stripe), mapped to PAID_PLAN_LIMITS. CloudDO
  *   keeps the last known plan (cloud-entitlements.ts) and hands it to the pure reducers through
  *   CloudConfig.entitlements.
+ * - Operator and company grants, as classic Cloud honours them (cloudPlanId, companyPlanKey): a
+ *   `cmuxVmPlan` on the sign-in record, and verified company-domain accounts. Machine limits only.
  * - STUB_PLAN: only in the stub environments (development, staging, test) and only for teams on
  *   CLOUD_ALLOWED_TEAMS.
  * Every other team gets no plan, so create answers cloud.plan.required and no provider VM is made
@@ -66,8 +68,45 @@ export const PAID_PLAN_LIMITS: Readonly<Record<string, PlanLimits>> = {
   max: { plan_id: "max", max_active: 20, max_saved: 50, memory_options_mb: [4 * GiB, 8 * GiB, 16 * GiB, 32 * GiB, 64 * GiB], locked_memory_options_mb: [], vm_hours_included: null, max_cpu: 32, max_disk_mb: 512 * GiB, upgrade_plan: null }
 }
 
-/** The paid limits of a plan id, or null (free, unknown, or no plan). */
-export const paidPlanLimits = (plan: string | null | undefined): PlanLimits | null => (plan && Object.hasOwn(PAID_PLAN_LIMITS, plan) ? PAID_PLAN_LIMITS[plan]! : null)
+/**
+ * Company accounts (classic web services/billing/companyPlan.ts hasCompanyPlanGrant): a verified email on
+ * one of these domains is Team by default, Max when the person's own plan is Max, with no machine cap.
+ * The same list as web services/admin/access.ts ADMIN_EMAIL_DOMAINS (test/cloud-plan-overrides.test.ts).
+ */
+export const COMPANY_EMAIL_DOMAINS: ReadonlySet<string> = new Set(["cmux.com", "manaflow.ai", "manaflow.com"])
+/** Classic gives company accounts no active-machine cap (maxActiveVms null); the reducers compare numbers, so the cap is out of reach. */
+export const COMPANY_MAX_ACTIVE = Number.MAX_SAFE_INTEGER
+/** Entitlement keys of the company grant (never a web plan id); their limits name the plan they are (team or max). */
+export const COMPANY_PLAN_LIMITS: Readonly<Record<string, PlanLimits>> = {
+  company: { ...PAID_PLAN_LIMITS.team!, max_active: COMPANY_MAX_ACTIVE },
+  company_max: { ...PAID_PLAN_LIMITS.max!, max_active: COMPANY_MAX_ACTIVE }
+}
+
+/** The limits of an entitlement key (a paid plan id or a company key), or null (free, unknown, or no plan). */
+export const paidPlanLimits = (plan: string | null | undefined): PlanLimits | null =>
+  plan && Object.hasOwn(PAID_PLAN_LIMITS, plan) ? PAID_PLAN_LIMITS[plan]! : plan && Object.hasOwn(COMPANY_PLAN_LIMITS, plan) ? COMPANY_PLAN_LIMITS[plan]! : null
+
+/** Plans a `cmuxVmPlan` grant does not lower below a paid Max (classic billingPlanIdFromMetadata). */
+const KEEPS_MAX: ReadonlySet<string | null> = new Set([null, "pro", "team", "founders", "max"])
+
+/**
+ * The Cloud plan id of one sign-in service record, as classic Cloud reads it (web
+ * services/billing/teamResolution.ts billingPlanIdFromMetadata): the operator's `cmuxVmPlan` wins
+ * over the billing `cmuxPlan`, except that a lower paid grant never hides a paid Max. An explicit
+ * `cmuxVmPlan` such as "free" is an operator restriction and stands. Machine limits only: the model
+ * router and billing keep reading `cmuxPlan` alone.
+ */
+export const cloudPlanId = (plan: string | null, vmPlan: string | null): string | null => {
+  const norm = (v: string | null) => (v && v.trim() ? v.trim().toLowerCase() : null)
+  const paid = norm(plan)
+  const override = norm(vmPlan)
+  if (paid === "max" && KEEPS_MAX.has(override)) return "max"
+  return override ?? paid
+}
+
+/** The company grant's entitlement key for a verified email domain, or null; Max stays Max (classic resolveVmEntitlements). */
+export const companyPlanKey = (verifiedDomain: string | null, ownPlan: string | null): string | null =>
+  verifiedDomain && COMPANY_EMAIL_DOMAINS.has(verifiedDomain.toLowerCase()) ? (ownPlan === "max" ? "company_max" : "company") : null
 
 /** The team's paid plan as CloudDO last knew it (cloud-entitlements.ts), read synchronously by the reducers. */
 export interface CloudEntitlements {
