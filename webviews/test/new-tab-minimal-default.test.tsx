@@ -375,6 +375,45 @@ test("a removed headline peer clears its selected folder even while historical s
   }
 });
 
+test("a saved SSH environment without a live host fails closed", async () => {
+  const snapshot = noChat([]);
+  const asked: unknown[][] = [];
+  const savedEnvironments: SavedEnvironmentHost = {
+    list: async () => [{ id: "malformed", name: "Missing host", kind: "ssh", folder: "/remote", updatedAt: 1 }],
+    save: async (draft) => ({ ...draft, id: "new", updatedAt: 2 }),
+    remove: async () => undefined,
+  };
+  const root = await render("minimal", ["greeting"], undefined, {
+    machineName: "studio",
+    snapshot,
+    environments: true,
+    savedEnvironments,
+    onAsk: (...args) => asked.push(args),
+  });
+  try {
+    const computer = [
+      ...host.querySelectorAll<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button'),
+    ].at(-1)!;
+    await act(async () => computer.click());
+    const savedRow = [...window.document.querySelectorAll<HTMLElement>(".acpmux-menu-label")].find((row) =>
+      row.textContent?.includes("Missing host"),
+    )!;
+    await act(async () => savedRow.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    await act(async () => {
+      setValue.call(field, "send safely");
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
+    expect(asked[0]?.[2]).toBeUndefined();
+    expect(asked[0]?.[4]).toBe(true);
+    expect(asked[0]?.[6]).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("switching machines clears a picked saved environment", async () => {
   const snapshot = noChat([
     {
