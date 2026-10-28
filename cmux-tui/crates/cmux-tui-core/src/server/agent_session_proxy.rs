@@ -3,6 +3,43 @@
 //! cannot bind; the host proxy never forwards this verb from a teammate.
 use super::*;
 
+#[path = "agent_session_shares.rs"]
+pub(super) mod shares;
+
+/// A teammate's verbs: the shared chat's own, never start, trust, media, children, permission,
+/// typing or view, whatever the proxy forwards.
+const TEAMMATE_VERBS: [&str; 6] = [
+    "agent-session-attach",
+    "agent-session-observe",
+    "agent-session-events",
+    "agent-session-prompt",
+    "agent-session-cancel",
+    "agent-session-detach",
+];
+
+/// A frame `check` accepted: a bound link's frame outside its verbs is refused; the owner's own
+/// verbs (`agent-session-of`, `agent-session-share-*`) are answered here. `None` goes on.
+pub(super) fn scope(
+    mux: &Arc<Mux>,
+    client: u64,
+    object: &mut serde_json::Map<String, Value>,
+    author: Option<&Value>,
+    writer: &MessageWriter,
+) -> Option<bool> {
+    let cmd = object.get("cmd").and_then(Value::as_str).unwrap_or_default().to_owned();
+    if author.is_some() && !TEAMMATE_VERBS.contains(&cmd.as_str()) {
+        return Some(refuse(writer, object.remove("id"), Refusal::NotTrusted));
+    }
+    if cmd == "agent-session-of" {
+        return Some(session_of(mux, client, std::mem::take(object), author.is_some(), writer));
+    }
+    if cmd.starts_with("agent-session-share-") {
+        let object = std::mem::take(object);
+        return Some(shares::handle(mux, client, &cmd, object, author.is_some(), writer));
+    }
+    None
+}
+
 pub(super) fn author(mux: &Mux, client: u64) -> Option<Value> {
     mux.control_clients
         .agent_sessions

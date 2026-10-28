@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import Darwin
 public import Foundation
 
 nonisolated struct BrokerRequest: Encodable, Sendable {
@@ -39,6 +40,7 @@ actor CodexBrokerSession {
     private var buffer = Data()
     private var stopped = false
     private var exited = false
+    private var stopDeadline: Task<Void, Never>?
     private var exitWaiters: [CheckedContinuation<Void, Never>] = []
     private var nextID = 0
     private var pending: [Int: CheckedContinuation<BrokerResult, any Swift.Error>] = [:]
@@ -81,6 +83,7 @@ actor CodexBrokerSession {
     }
 
     deinit {
+        stopDeadline?.cancel()
         try? input.close()
         try? output.close()
         if process.isRunning { process.terminate() }
@@ -154,12 +157,27 @@ actor CodexBrokerSession {
         let waiting = pending.values
         pending.removeAll()
         for continuation in waiting { continuation.resume(throwing: CancellationError()) }
-        if process.isRunning { process.terminate() }
         if exited || !process.isRunning { return }
+        if stopDeadline == nil {
+            process.terminate()
+            stopDeadline = Task { [weak self] in
+                // wakeup-allow: one graceful-stop deadline, cancelled on child exit.
+                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                await self?.forceStop()
+            }
+        }
         await withCheckedContinuation { exitWaiters.append($0) }
     }
 
+    private func forceStop() {
+        // Signal only the child this session launched, never a process group or
+        // a discovered PID. Keep waiting for its actual exit before replacement.
+        guard !exited, process.isRunning else { return }
+        kill(process.processIdentifier, SIGKILL)
+    }
+
     private func didExit() {
+        stopDeadline?.cancel(); stopDeadline = nil
         exited = true
         stopped = true
         // The reader drains final replies before failing remaining requests at

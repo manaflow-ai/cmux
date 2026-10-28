@@ -35,10 +35,11 @@ extension ActionRegistry {
         return chordOverrides[id] ?? LeaderLayer(registry: self).defaultChord(for: id)
     }
 
-    /// Sets a chord override (replacing any single-key override).
+    /// Sets a chord override (replacing any single-key override and alternates).
     public func setChordOverride(_ chord: ShortcutChord, for id: ActionID) {
         let id = canonicalID(for: id)
         shortcutOverrides.removeValue(forKey: id)
+        alternateShortcuts.removeValue(forKey: id)
         chordOverrides[id] = chord
     }
 

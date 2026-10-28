@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@cmux/vm": "workspace:*",
+    "@cmux/cloud-env": "workspace:*",
     "@cmux/db": "workspace:*",
     "@cmux/home-core": "workspace:*",
     "@cmux/ownership": "workspace:*",

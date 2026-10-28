@@ -362,7 +362,8 @@ async fn a_web_guarded_chat_asks_and_rules_or_policies_that_approve_are_refused(
     assert_eq!(finish(&mut dst, &rid, json!({})).await.unwrap()["policy"], "deny-all");
 
     for extra in [
-        json!({"permissionPolicy": "approve-all"}),
+        // Its owner's (an approve-all with no source asks here, `hub/policy_source.rs`).
+        json!({"permissionPolicy": "approve-all", "policySource": "set"}),
         json!({"permissionPolicy": "approve-edits"}),
         json!({"permissionRules": {"autoApprove": ["Bash"]}}),
         json!({"permissionRules": {"default": "approve"}}),
@@ -379,6 +380,27 @@ async fn a_web_guarded_chat_asks_and_rules_or_policies_that_approve_are_refused(
             assert_eq!(&s["policy"], policy, "{s}");
         }
         assert_eq!(s["rules"], extra.get("permissionRules").is_some(), "{s}");
+    }
+}
+
+/// A chat moved in with an approve-all an older daemon saved with no source (the approve-all
+/// vmHost gave, or one that could be), or with vmHost's, asks (`hub/policy_source.rs`); one whose
+/// source says its owner set it keeps its approve-all.
+#[tokio::test]
+async fn a_moved_in_approve_all_with_no_owner_source_asks() {
+    let root = Scratch::home("vmhost-grant");
+    let (_b, mut dst) = daemon(config("ask", json!({})), None).await;
+    for (extra, policy) in [
+        (json!({"remoteOrigin": true}), "ask"),
+        (json!({"remoteOrigin": false}), "ask"),
+        (json!({"remoteOrigin": true, "policySource": "vmHost"}), "ask"),
+        (json!({"remoteOrigin": true, "policySource": "set"}), "approve-all"),
+    ] {
+        let mut m = meta(root.path(), extra.clone());
+        m["permissionPolicy"] = json!("approve-all");
+        let rid = receive(&mut dst, guard("peer", &[root.path()]), &m, &[]).await.unwrap();
+        let s = finish(&mut dst, &rid, json!({})).await.unwrap();
+        assert_eq!(s["policy"], policy, "{extra}: {s}");
     }
 }
 
@@ -617,7 +639,7 @@ async fn a_chat_with_no_asking_mode_moves_under_peer_control_but_not_under_web()
     let modes = json!({"currentModeId": "strict", "availableModes": []});
     for (extra, error) in [
         (json!({"modes": modes}), "transfer.mode"),
-        (json!({"permissionPolicy": "approve-all"}), "transfer.policy"),
+        (json!({"permissionPolicy": "approve-all", "policySource": "set"}), "transfer.policy"),
     ] {
         let m = meta(root.path(), extra.clone());
         let rid = receive(&mut dst, guard("web", &[root.path()]), &m, &[]).await.unwrap();
