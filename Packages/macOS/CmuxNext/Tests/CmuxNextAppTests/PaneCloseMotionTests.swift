@@ -31,16 +31,16 @@ struct PaneCloseMotionTests {
         var intents: [LayoutIntent] = []
         var holds: [Bool] = []
 
-        /// `arrival`: the pane layout motion (``SplitArrival``); nil keeps the app's default (fade: one layout pass).
-        /// The spring tests of this suite pin `.grow`, the Debug choice that keeps the close spring.
-        init(_ layout: ScreenLayout, focused: PaneID? = nil, reduceMotion: Bool = false, arrival: SplitArrival? = .grow) {
+        /// `arrival`: the pane layout motion (``SplitArrival``), pinned (no global tunable read): the spring tests of
+        /// this suite pin `.grow`, the Debug choice that keeps the close spring; the default's test pins `.fade`.
+        init(_ layout: ScreenLayout, focused: PaneID? = nil, reduceMotion: Bool = false, arrival: SplitArrival = .grow) {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s",
                                 focusedPane: focused ?? layout.panes.first)
             model.splitSizingOverride = .even
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             // Pins the pane springs on (or off): the shared settings stay untouched.
             root.context.reduceMotionOverride = reduceMotion
-            if let arrival { root.context.splitArrival = { arrival } }
+            root.context.splitArrival = { arrival }
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
             window.contentView = root
@@ -118,7 +118,7 @@ struct PaneCloseMotionTests {
     /// turn, at its final layout. The neighbours take the closed pane's space at once and no display frame moves a
     /// pane (no per-frame layout of their terminals); the closed pane is gone in that turn.
     @Test func aCloseLaysOutOnceAtItsFinalLayoutByDefault() throws {
-        let screen = Screen(.splits(Self.row), arrival: nil)
+        let screen = Screen(.splits(Self.row), arrival: .fade)
         _ = try #require(screen.close("p2"))
         for pane: PaneID in ["p1", "p3"] {
             let rect = try #require(screen.rect(pane)), target = try #require(screen.target(pane))

@@ -253,13 +253,29 @@ struct PaneMotionPlanTests {
         let before = Self.geometry(.columns(columns)), after = Self.geometry(.columns(Array(columns.dropLast())))
         #expect(before.maxOffset > after.maxOffset)
         let plan = PaneMotionPlan.build(from: before, camera: .init(stripOffset: before.maxOffset),
-                                        to: after, camera: .init(stripOffset: after.maxOffset))
+                                        to: after, camera: .init(stripOffset: after.maxOffset), arrival: .grow)
         #expect(plan.kind == .close)
         #expect(Set(plan.panes.keys) == ["p-c3"])
         #expect(plan.panes["p-c3"]?.presence == .disappears)
         #expect(Set(plan.dividers.keys) == [.columnEdge("c3")])
         #expect(plan.camera.stripOffset == PaneMotionPlan.Travel<CGFloat>(from: before.maxOffset, to: after.maxOffset))
         #expect(plan.camera.token == PaneMotionVariant.standard.closeSpring)
+    }
+
+    /// The default choice (fade): the same close sets its camera at rest with it.
+    @Test func closingTheLastColumnSetsTheCameraAtRestByDefault() throws {
+        let columns = (0..<4).map { Self.leafColumn("c\($0)") }
+        let before = Self.geometry(.columns(columns)), after = Self.geometry(.columns(Array(columns.dropLast())))
+        let plan = PaneMotionPlan.build(from: before, camera: .init(stripOffset: before.maxOffset),
+                                        to: after, camera: .init(stripOffset: after.maxOffset), arrival: .fade)
+        #expect(plan.kind == .close)
+        #expect(plan.camera.stripOffset == PaneMotionPlan.Travel<CGFloat>(from: after.maxOffset, to: after.maxOffset))
+        #expect(plan.panes.values.allSatisfy { $0.from == $0.to })
+        // A close that lands while panes still spring is one layout too, as on the CPU path.
+        let inFlight = PaneMotionPlan.build(from: before, camera: .init(stripOffset: before.maxOffset),
+                                            to: after, camera: .init(stripOffset: after.maxOffset), inFlight: true, arrival: .fade)
+        #expect(inFlight.panes.values.allSatisfy { $0.from == $0.to })
+        #expect(inFlight.camera.stripOffset?.isStill ?? true)
     }
 
     @Test func aCameraOnlyChangeMovesNoPane() {
