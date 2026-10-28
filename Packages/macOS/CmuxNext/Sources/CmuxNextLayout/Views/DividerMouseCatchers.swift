@@ -110,9 +110,9 @@ public final class DividerMouseCatchers {
         }
         self.wanted = wanted
         // An area that appears under the pointer gets its panel now: no move may come before the click.
-        let pointer = wanted.contains(where: { panels[$0.key] == nil }) ? pointerLocation() : nil
+        let pointer = lazy && wanted.contains(where: { panels[$0.key] == nil }) ? pointerLocation() : nil
         for piece in wanted {
-            if panels[piece.key] == nil {
+            if lazy, panels[piece.key] == nil {
                 guard let pointer, window.convertToScreen(piece.area.rect).contains(pointer) else { continue }
             }
             place(piece)
@@ -133,7 +133,22 @@ public final class DividerMouseCatchers {
     /// the divider takes it, as the panel would have sent it; its drags and its release follow it there.
     /// Returns whether the event was sent on: the caller drops it then, so the page never sees it.
     public func intercept(_ event: NSEvent, atScreen point: CGPoint) -> Bool {
-        false // red: no press fallback yet
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            // A press on the window itself reaches the divider without help.
+            guard waiting > 0, !forwardingPress, let source = event.window, source !== window,
+                  placeWaiting(under: window.convertPoint(fromScreen: point)) else { return false }
+            forwardingPress = true
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            guard forwardingPress else { return false }
+        case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            guard forwardingPress else { return false }
+            forwardingPress = false
+        default:
+            return false
+        }
+        DividerMouseCatcherView.forward(event, atScreen: point, to: window)
+        return true
     }
 
     /// Makes the panel of the waiting area under `point` (window coordinates). Returns whether one was there.

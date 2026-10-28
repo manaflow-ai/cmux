@@ -463,7 +463,7 @@ final class WindowOverlayLayer {
     /// `cef.geometry` slice. With none, and no catcher panel left to hide, the sync costs no slice.
     private func syncCatchers() { // perf-hot: 1ms cef-geometry (one window move per divider catcher panel)
         // A catcher still waiting for the pointer hears that its page windows stopped taking the mouse too.
-        guard pageWindowsTakeMouse || (catchers?.shownCount ?? 0) > 0 else { return }
+        guard pageWindowsTakeMouse || (catchers?.shownCount ?? 0) > 0 || catchers?.wantsPointer == true else { return }
         inGeometrySlice(.catcherSync) { applyCatchers() }
     }
 
