@@ -430,17 +430,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .and_then(Value::as_str)
                 .unwrap_or(&id)
                 .to_owned();
-            // A failed sidebar step only warns: the prompt is still sent.
-            let show = || {
+            // A failed sidebar step is an error after the session has been
+            // created, so scripts can retry only the exact open command.
+            let show = || -> Result<()> {
                 if let Some(group) = &args.group {
                     // Only explicit names opt into the app's predecessor-row reuse.
                     // Generated names can be identical on independent peers.
                     let title =
                         launch.name.as_ref().map(|_| launch.title.as_deref().unwrap_or(&name));
-                    if let Err(e) = launch::show_in_group(&id, title, group) {
-                        eprintln!("acpmux: {e:#}");
-                    }
+                    launch::show_in_group(&id, &name, title, group)?;
                 }
+                Ok(())
             };
             if let Some(info) = &reused {
                 launch::check_reusable(
@@ -460,7 +460,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         warn_host_pressure(&accepted);
                     }
                 }
-                show();
+                show()?;
                 if json_out {
                     let mut info = info.clone();
                     info["reused"] = json!(true);
@@ -521,7 +521,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         retries: args.retries,
                         steer: false,
                     };
-                    show();
+                    show()?;
                     let outcome = collect_reply(client.clone(), &id, &text, opts, &prompt).await;
                     if ephemeral {
                         let _ = client
@@ -547,7 +547,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     if !json_out {
                         warn_host_pressure(&accepted);
                     }
-                    show();
+                    show()?;
                     return Ok(());
                 }
                 let opts = CollectOpts {
@@ -557,7 +557,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     retries: args.retries,
                     steer: false,
                 };
-                show();
+                show()?;
                 return stream_prompt(
                     client,
                     &id,
@@ -571,7 +571,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 )
                 .await;
             }
-            show();
+            show()?;
             if args.detach || json_out {
                 return Ok(());
             }

@@ -290,27 +290,37 @@ fn workspace_key(id: &str) -> String {
 /// ID here, without `--host`: the workspace belongs to this Mac and its
 /// acpmux forwards the chat to the peer. This also avoids a name lookup in
 /// the app's peer inventory, which may not have seen the new session yet.
-pub(super) fn show_in_group(id: &str, title: Option<&str>, group: &str) -> Result<()> {
+pub(super) fn show_in_group(
+    id: &str,
+    session_name: &str,
+    title: Option<&str>,
+    group: &str,
+) -> Result<()> {
     let key = workspace_key(id);
     let mut args = vec!["agent", "open", id];
     if let Some(title) = title {
         args.extend(["--name", title]);
     }
     args.extend(["--key", &key, "--group", group]);
-    let retry = std::iter::once("cmux")
+    // Prefer the app's bundled CLI when the daemon was started by the app.
+    // A plain shell can otherwise resolve an older standalone `cmux` first.
+    let cli = std::env::var_os(crate::login_env::BUNDLED_CLI_ENV)
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| "cmux".into());
+    let command = std::iter::once(cli.to_string_lossy().as_ref())
         .chain(args.iter().copied())
         .map(crate::harness_health::channel::quote)
         .collect::<Vec<_>>()
         .join(" ");
-    let out = std::process::Command::new("cmux").args(args).output().with_context(|| {
+    let out = std::process::Command::new(&cli).args(args).output().with_context(|| {
         format!(
-            "the session was created, but --group could not run cmux; put the running Mac app's \
-             bundled CLI on PATH, then retry on that Mac: {retry}"
+            "session {session_name} was created, but --group could not run cmux; put the running Mac app's \
+             bundled CLI on PATH, then retry on that Mac: {command}"
         )
     })?;
     if !out.status.success() {
         bail!(
-            "the session runs, but the cmux app did not show it: {retry}: {}",
+            "session {session_name} was created, but the cmux app did not show it: {command}: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }

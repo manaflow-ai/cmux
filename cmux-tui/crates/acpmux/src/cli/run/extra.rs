@@ -2,6 +2,14 @@
 
 use super::*;
 
+fn peer_add_params(name: &str, url: &str, token: Option<&str>) -> Value {
+    let mut params = json!({"name": name, "url": url, "wait": false});
+    if let Some(token) = token {
+        params["token"] = json!(token);
+    }
+    params
+}
+
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     match cmd {
         Command::Retention(args) => {
@@ -494,13 +502,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Add { name, url, token } => {
                     let url = url.unwrap_or_else(|| format!("ssh://{name}"));
                     let has_token = token.is_some();
-                    let mut p = json!({"name": name, "url": url});
-                    if let Some(t) = token {
-                        p["token"] = json!(t);
-                    }
-                    // `wait`: the daemon answers after the first connect attempt
-                    // settled, so the listing shows the real state.
-                    p["wait"] = json!(true);
+                    // Save and start reconnecting without waiting for ssh's
+                    // connect timeout. `host ls` reports the probe result.
+                    let p = peer_add_params(&name, &url, token.as_deref());
                     let reply = client.request("_acpmux/peer_add", p).await?;
                     let connected = reply
                         .get("peers")
@@ -522,34 +526,34 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         let (message, warning) = if url.starts_with("ssh://") && has_token {
                             (
                                 format!(
-                                    "peer {name} was saved and will keep reconnecting; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host ls` and retry after it shows connected (the saved WebSocket token is retained)"
+                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host ls` and retry after it shows connected (the saved WebSocket token is retained)"
                                 ),
                                 json!({
                                     "reason": "peer_unreachable",
                                     "try": format!("ssh -o BatchMode=yes {host} true"),
-                                    "detail": "the peer was saved and will keep reconnecting"
+                                    "detail": "the peer was saved and is probing in the background"
                                 }),
                             )
                         } else if url.starts_with("ssh://") {
                             (
                                 format!(
-                                    "peer {name} was saved and will keep reconnecting; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host doctor {name} --json`"
+                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host doctor {name} --json`"
                                 ),
                                 json!({
                                     "reason": "peer_unreachable",
                                     "try": format!("ssh -o BatchMode=yes {host} true"),
-                                    "detail": "the peer was saved and will keep reconnecting"
+                                    "detail": "the peer was saved and is probing in the background"
                                 }),
                             )
                         } else {
                             (
                                 format!(
-                                    "peer {name} was saved and will keep reconnecting; run `acpmux host ls` and retry after it shows connected"
+                                    "peer {name} was saved and is probing in the background; run `acpmux host ls` and retry after it shows connected"
                                 ),
                                 json!({
                                     "reason": "peer_unreachable",
                                     "try": "acpmux host ls",
-                                    "detail": "the peer was saved and will keep reconnecting"
+                                    "detail": "the peer was saved and is probing in the background"
                                 }),
                             )
                         };
@@ -787,4 +791,24 @@ fn config_text_without_tokens(text: &str) -> String {
         }
     }
     serde_json::to_string_pretty(&value).unwrap_or_else(|_| HIDDEN_TOKEN.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::peer_add_params;
+
+    #[test]
+    fn host_add_saves_without_waiting_for_the_first_probe() {
+        let params = peer_add_params("blackhole", "ssh://192.0.2.10", None);
+        assert_eq!(params["wait"], false);
+        assert_eq!(params["name"], "blackhole");
+        assert_eq!(params["url"], "ssh://192.0.2.10");
+    }
+
+    #[test]
+    fn host_add_keeps_a_supplied_peer_token() {
+        let params = peer_add_params("peer", "wss://peer.example", Some("secret"));
+        assert_eq!(params["token"], "secret");
+        assert_eq!(params["wait"], false);
+    }
 }
