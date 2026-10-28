@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextSettings
 public import CmuxNextWakeups
 import CryptoKit
@@ -107,7 +108,9 @@ public final class AgentPaneDraftAttachments {
         return AgentPaneAttachmentFiles.readBack(saved.attachments, files: saved.files ?? [:], in: folder, budget: &budget)
     }
 
-    private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], to folder: URL, in directory: URL, limit: Int) -> [String] {
+    private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], to folder: URL, in directory: URL, limit: Int) -> [String]? {
+        do { try DraftStateMigration.preserveOwnership(of: folder.lastPathComponent, in: directory) }
+        catch { return nil }
         let manager = FileManager.default
         let kept = saved(in: folder)?.files ?? [:]
         // A chat past the limit keeps nothing rather than some of its chips.
@@ -142,6 +145,8 @@ public final class AgentPaneDraftAttachments {
             (try? folder.appending(path: listName).resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
         }
         for folder in folders.sorted(by: { written($0) > written($1) }).dropFirst(limit) {
+            do { try DraftStateMigration.preserveOwnership(of: folder.lastPathComponent, in: directory) }
+            catch { continue }
             try? manager.removeItem(at: folder)
         }
     }

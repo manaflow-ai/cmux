@@ -19,8 +19,8 @@ public import Foundation
 /// text came back, its screenshots did not). The launch reads them back and removes both, so a chip
 /// sent or taken out later in that run is never saved again.
 public final class AgentPaneRelaunchWake {
-    public static let fileName = "agent-pane-wake-states.json"
-    public static let attachmentsDirectoryName = "agent-pane-wake-attachments"
+    public nonisolated static let fileName = "agent-pane-wake-states.json"
+    public nonisolated static let attachmentsDirectoryName = "agent-pane-wake-attachments"
     /// The JSON (shell commands, text files' text, file names): a tab holding more is not kept, and
     /// the file stops growing past ``maximumBytes`` (a larger file is not read).
     nonisolated static let maximumTabBytes = 4 * 1024 * 1024
@@ -113,6 +113,10 @@ public final class AgentPaneRelaunchWake {
     }
 
     private nonisolated static func readAndRemove(_ file: URL, attachments folder: URL?, budget: Int, reader: LaunchFileReader) -> [String: AgentPaneWakeState] {
+        if FileManager.checked.fileExists(atPath: file.path) || folder.map({ FileManager.checked.fileExists(atPath: $0.path) }) == true {
+            do { try DraftStateMigration.markCurrent([fileName, attachmentsDirectoryName], in: file.deletingLastPathComponent()) }
+            catch { return [:] }
+        }
         defer {
             try? FileManager.checked.removeItem(at: file)
             if let folder { try? FileManager.checked.removeItem(at: folder) }
@@ -165,6 +169,8 @@ public final class AgentPaneRelaunchWake {
     }
 
     private nonisolated static func write(_ states: [String: AgentPaneWakeState], to file: URL, attachments folder: URL, limit: Int) {
+        do { try DraftStateMigration.markCurrent([fileName, attachmentsDirectoryName], in: file.deletingLastPathComponent()) }
+        catch { return }
         let manager = FileManager.default
         // Only this save's files stay: the last save's are gone even when a tab drops out below.
         try? manager.removeItem(at: folder)

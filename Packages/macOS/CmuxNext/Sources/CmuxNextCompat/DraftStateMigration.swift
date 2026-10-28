@@ -13,6 +13,30 @@ public enum DraftStateMigration {
         "quick-composer-draft.json",
     ]
 
+    /// Records writer ownership outside the chat folder before a write, clear or prune can
+    /// remove it. Independent marker files let different chat queues claim keys concurrently.
+    public static func preserveOwnership(of name: String, in artifactDirectory: URL) throws {
+        guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\0") else {
+            throw MigrationError.invalidOwnedName
+        }
+        let manager = FileManager.checked
+        let root = artifactDirectory.deletingLastPathComponent()
+        let artifact = artifactDirectory.lastPathComponent
+        if manager.fileExists(atPath: root.appending(path: ".adopted-v1-\(artifact)").path) { return }
+        let markers = root.appending(path: ".owned-v1-\(artifact)")
+        try manager.createDirectory(at: markers, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try settle(markers.appending(path: name), fileManager: manager)
+    }
+
+    /// A whole-snapshot writer or consumer supersedes legacy copies before mutating its data.
+    /// Run on the writer's existing files owner; failure must leave the current snapshot intact.
+    public static func markCurrent(_ names: [String], in directory: URL) throws {
+        let manager = FileManager.checked
+        guard names.allSatisfy({ artifacts.contains($0) }) else { throw MigrationError.invalidOwnedName }
+        try manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        for name in names { try settle(directory.appending(path: ".adopted-v1-\(name)"), fileManager: manager) }
+    }
+
     /// Adopts each draft artifact from the newest prior build root. Draft dictionaries merge
     /// missing keys only; other existing artifacts and all source roots remain intact.
     public static func adopt(from roots: [URL], to destination: URL,
@@ -71,6 +95,10 @@ public enum DraftStateMigration {
                 let ledger = staging.appending(path: ".owned-v1-\(artifact).json")
                 if fileManager.fileExists(atPath: ledger.path) {
                     owned = Set(try JSONDecoder().decode([String].self, from: Data(blockingContentsOf: ledger)))
+                }
+                let markers = staging.appending(path: ".owned-v1-\(artifact)")
+                if fileManager.fileExists(atPath: markers.path) {
+                    owned.formUnion(try fileManager.contentsOfDirectory(atPath: markers.path))
                 }
                 let current = destination.appending(path: artifact)
                 if fileManager.fileExists(atPath: current.path) {
@@ -159,7 +187,7 @@ public enum DraftStateMigration {
         } catch { }
     }
 
-    private enum MigrationError: Error { case invalidDraftDictionary }
+    private enum MigrationError: Error { case invalidDraftDictionary, invalidOwnedName }
 
     /// Unsent drafts were strings before attachment records. Keep pure legacy files in that
     /// format; if records are present, promote strings so the record decoder can read every key.
