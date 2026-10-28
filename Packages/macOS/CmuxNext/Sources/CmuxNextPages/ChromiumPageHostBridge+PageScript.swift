@@ -16,7 +16,7 @@ extension ChromiumPageHostBridge {
         let names = ([PageHostTrust.handlerName] + handlers).map(ChromiumPageHostWire.jsonString).joined(separator: ", ")
         let replying = ChromiumPageHostWire.jsonString(PageHostTrust.handlerName)
         let event = channelEvent.map(ChromiumPageHostWire.jsonString) ?? "null"
-        let readyEvent = channelEvent.map { ChromiumPageHostWire.jsonString(readyEvent(for: $0)) } ?? "null"
+        let readyEvent = channelEvent.map { ChromiumPageHostWire.jsonString(Self.readyEvent(for: $0)) } ?? "null"
         return """
         (() => {
           if (globalThis.__cmuxPageHostInstalled) return;
