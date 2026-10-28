@@ -127,6 +127,76 @@ test("a later Bash send resolves only a prior same-turn recorded message write",
   if (standalone?.type === "send") expect(standalone.send.text).toBeUndefined();
 });
 
+test("wrapped sends retain a prior same-turn recorded message body", () => {
+  const writer = item({
+    title: "Bash",
+    kind: "execute",
+    command: "cat > /tmp/wrapped.md <<'EOF'\nwrapped body\nEOF",
+    startedAt: 1,
+    endedAt: 2,
+  });
+  for (const command of [
+    "reach box 'acpmux send lane - < /tmp/wrapped.md'",
+    "reach box acpmux send lane - < /tmp/wrapped.md",
+    "bash -c 'acpmux send lane - < /tmp/wrapped.md'",
+    "bash -c 'acpmux send lane -' < /tmp/wrapped.md",
+    `reach box "bash -c 'acpmux send lane - < /tmp/wrapped.md'"`,
+  ]) {
+    const send = item({ title: "Bash", kind: "execute", command, startedAt: 3, endedAt: 4 });
+    const group = toolGroups([writer, send]).find((entry) => entry.type === "send");
+    expect(group?.type).toBe("send");
+    if (group?.type === "send") expect(group.send.text).toBe("wrapped body\n");
+  }
+});
+
+test("successive sends retain a recorded body until a later uncertain mutation", () => {
+  const writer = item({
+    title: "Bash",
+    kind: "execute",
+    command: "cat > /tmp/reused.md <<'EOF'\nreused body\nEOF",
+    startedAt: 1,
+    endedAt: 2,
+  });
+  const sends = [
+    "acpmux send first - < /tmp/reused.md",
+    "bash -c 'acpmux send second - < /tmp/reused.md'",
+    "reach box 'acpmux send third - < /tmp/reused.md'",
+    "acpmux send fourth - < /tmp/reused.md",
+  ].map((command, index) =>
+    item({ title: "Bash", kind: "execute", command, startedAt: index * 2 + 3, endedAt: index * 2 + 4 }),
+  );
+  const groups = toolGroups([writer, ...sends]).filter((entry) => entry.type === "send");
+  expect(groups.map((group) => group.send.text)).toEqual(Array(4).fill("reused body\n"));
+  const after = item({
+    title: "Bash",
+    kind: "execute",
+    command: "acpmux send after - < /tmp/reused.md",
+    startedAt: 13,
+    endedAt: 14,
+  });
+  for (const command of [
+    "bash -c 'acpmux send unsafe - < /tmp/reused.md' > /tmp/reused.md",
+    "bash -c 'acpmux send unsafe - > /tmp/reused.md' < /tmp/reused.md",
+    "bash -c 'true || acpmux send unsafe -' < /tmp/reused.md",
+  ]) {
+    const unsafe = item({ title: "Bash", kind: "execute", command, startedAt: 11, endedAt: 12 });
+    const invalidated = toolGroups([writer, ...sends, unsafe, after]).filter((entry) => entry.type === "send");
+    expect(invalidated.slice(-2).map((group) => group.send.text)).toEqual([undefined, undefined]);
+  }
+  for (const fields of [{ status: "failed" }, { exitCode: 1 }, { startedAt: undefined }, { startedAt: 1 }]) {
+    const uncertain = item({
+      title: "Bash",
+      kind: "execute",
+      command: "acpmux send uncertain - < /tmp/reused.md",
+      startedAt: 11,
+      endedAt: 12,
+      ...fields,
+    });
+    const groups = toolGroups([writer, ...sends, uncertain, after]).filter((entry) => entry.type === "send");
+    expect(groups.at(-1)?.send.text).toBeUndefined();
+  }
+});
+
 test("a later accepted writer replaces all prior path spellings, and unknown timing drops bodies", () => {
   const first = item({
     title: "Bash",
@@ -192,9 +262,9 @@ test("background writers use their completion time for send provenance", () => {
   if (resolved?.type === "send") expect(resolved.send.text).toBe("finished later\n");
 });
 
-test("producer cache remains bounded across many completed writer replays", () => {
+test("live immutable snapshots do not reparse on full 65 and 100 row replays", () => {
   resetRecordedMessageBodyCacheForTests();
-  const rows = Array.from({ length: 65 }, (_, index) =>
+  const rows = Array.from({ length: 100 }, (_, index) =>
     item({
       title: "Bash",
       kind: "execute",
@@ -203,14 +273,18 @@ test("producer cache remains bounded across many completed writer replays", () =
       endedAt: index * 2 + 2,
     }),
   );
+  toolGroups(rows.slice(0, 65));
+  expect(recordedMessageBodyParseCountForTests()).toBe(65);
+  toolGroups(rows.slice(0, 65));
+  expect(recordedMessageBodyParseCountForTests()).toBe(65);
   toolGroups(rows);
-  expect(recordedMessageBodyParseCountForTests()).toBe(65);
-  toolGroups(rows.slice(1));
-  // WeakMap parsing by immutable tool object keeps all unchanged revisions from replaying.
-  expect(recordedMessageBodyParseCountForTests()).toBe(65);
+  expect(recordedMessageBodyParseCountForTests()).toBe(100);
+  // The memo follows live immutable tool snapshots without retaining them strongly.
+  toolGroups(rows);
+  expect(recordedMessageBodyParseCountForTests()).toBe(100);
 });
 
-test("parser cache evicts old immutable snapshots and can be reset", () => {
+test("parser memo can be reset for existing immutable snapshots", () => {
   resetRecordedMessageBodyCacheForTests();
   const rows = Array.from({ length: 65 }, (_, index) =>
     item({
@@ -223,15 +297,14 @@ test("parser cache evicts old immutable snapshots and can be reset", () => {
   );
   toolGroups(rows);
   expect(recordedMessageBodyParseCountForTests()).toBe(65);
-  // The 65th revision evicts the oldest entry from the 64-entry parser cache.
   toolGroups([rows[0]!]);
-  expect(recordedMessageBodyParseCountForTests()).toBe(66);
+  expect(recordedMessageBodyParseCountForTests()).toBe(65);
   resetRecordedMessageBodyCacheForTests();
   toolGroups([rows[0]!]);
   expect(recordedMessageBodyParseCountForTests()).toBe(1);
 });
 
-test("unchanged streamed tool revisions reuse the bounded body parser cache", () => {
+test("unchanged streamed tool revisions reuse the lifetime-owned parser memo", () => {
   resetRecordedMessageBodyCacheForTests();
   const writer = item({
     title: "Bash",

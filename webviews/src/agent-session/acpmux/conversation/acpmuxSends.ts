@@ -416,16 +416,29 @@ export function recordedMessageBodyChanges(line: string): RecordedMessageBodyCha
   // A heredoc line ends with the parser's synthetic `;`; with no second command it is still a
   // single executed writer. Any other operator means execution or directory state is uncertain.
   if (commands.length !== 1) return [{ reset: true }];
+  const command = commands[0]!;
+  // A successful standalone send only reads its input. Preserve a prior producer for another
+  // send, including through a shell/reach wrapper; writes and uncertain shell state still reset.
+  if (
+    !command.grouped &&
+    !command.writes &&
+    !command.runs?.length &&
+    !command.redirectUnsafe &&
+    !command.stdinUnsafe &&
+    (command.stdinRedirects ?? 0) <= 1
+  ) {
+    const send = acpmuxSend(line);
+    if (send?.ownsExit && !send.unsure && !send.others) return [];
+  }
   const change = recordedMessageBodyChange(commands[0]!);
   return change ? [change] : [];
 }
 
 // Tool rows are immutable snapshots but the enclosing turn is rebuilt as streamed calls arrive.
 // Keep parsing by tool snapshot identity plus command revision so appending a later call does not
-// reparse earlier shell lines. The LRU is bounded so a long transcript cannot retain one entry per
-// row; identity avoids stale reuse when a harness recycles a tool id for a new snapshot.
-const RECORDED_BODY_CACHE_LIMIT = 64;
-const recordedBodyCache = new Map<object, { command: string; changes: readonly RecordedMessageBodyChange[] }>();
+// reparse earlier shell lines, even for turns longer than a fixed cache cap. Weak ownership keeps
+// entries only as long as their tool snapshots are live; no cache entry retains a transcript row.
+let recordedBodyCache = new WeakMap<object, { command: string; changes: readonly RecordedMessageBodyChange[] }>();
 let recordedBodyParseCount = 0;
 
 export function recordedMessageBodyChangesForTool(tool: {
@@ -434,17 +447,10 @@ export function recordedMessageBodyChangesForTool(tool: {
 }): readonly RecordedMessageBodyChange[] {
   if (!tool.command) return [];
   const cached = recordedBodyCache.get(tool);
-  if (cached?.command === tool.command) {
-    recordedBodyCache.delete(tool);
-    recordedBodyCache.set(tool, cached);
-    return cached.changes;
-  }
+  if (cached?.command === tool.command) return cached.changes;
   recordedBodyParseCount += 1;
   const changes = recordedMessageBodyChanges(tool.command);
-  recordedBodyCache.delete(tool);
   recordedBodyCache.set(tool, { command: tool.command, changes });
-  while (recordedBodyCache.size > RECORDED_BODY_CACHE_LIMIT)
-    recordedBodyCache.delete(recordedBodyCache.keys().next().value!);
   return changes;
 }
 
@@ -459,13 +465,13 @@ function applyRecordedMessageBodyChange(command: ShellCommand, files: Map<string
   else files.set(change.path, { text: change.text, literal: true });
 }
 
-/** Test-only observability for the bounded revision cache. */
+/** Test-only observability for the lifetime-owned revision memo. */
 export function resetRecordedMessageBodyCacheForTests(): void {
-  recordedBodyCache.clear();
+  recordedBodyCache = new WeakMap();
   recordedBodyParseCount = 0;
 }
 
-/** Test-only observability for the bounded revision cache. */
+/** Test-only observability for the lifetime-owned revision memo. */
 export function recordedMessageBodyParseCountForTests(): number {
   return recordedBodyParseCount;
 }
@@ -704,12 +710,13 @@ export function acpmuxSend(
   host?: string,
   depth = 0,
   priorFiles?: ReadonlyMap<string, string>,
+  // A shell/reach wrapper's recorded stdin, inherited unless its inner command replaces it.
+  inheritedStdin?: ShellWord | "file",
 ): AcpmuxSend | undefined {
   if (depth > 3 || !/acp/.test(line)) return undefined;
   const commands = shellCommands(line);
-  // Keep file-backed message bodies inside this call only. This deliberately does not inspect
-  // the filesystem: a recorded `cat > file <<EOF … EOF` immediately followed by
-  // `acpmux send target - < file` is the one safe case where the transcript contains the body.
+  // File-backed bodies come only from recorded writers in this turn. Pass the current safe map
+  // through wrappers; resolving a path never reads the host filesystem.
   const recordedFiles = new Map<string, ShellWord>(
     [...(priorFiles ?? [])].map(([path, text]) => [path, { text, literal: true }]),
   );
@@ -717,7 +724,10 @@ export function acpmuxSend(
   // is only for a standalone writer; cross-tool Bash calls use the bounded turn map instead.
   const uncertainControlFlow =
     commands.length > 1 || commands.some((command) => command.op !== "" && command.op !== ";");
-  if (uncertainControlFlow) recordedFiles.clear();
+  if (uncertainControlFlow) {
+    recordedFiles.clear();
+    inheritedStdin = undefined;
+  }
   let found: AcpmuxSend | undefined;
   let at = -1;
   /// The send came from `acpmux send`'s own words here, not from a nested line.
@@ -734,15 +744,16 @@ export function acpmuxSend(
         commandWords.some((word) => word.text === "send")) ||
       (commandName === "cmux" && commandWords[1]?.text === "acp" && commandWords[2]?.text === "send");
     if (
-      isSendCommand &&
+      (isSendCommand || commandName === "reach" || SHELLS.has(commandName)) &&
       (command.grouped ||
         command.writes ||
         command.runs?.length ||
         command.redirectUnsafe ||
         (command.stdinUnsafe && command.stdin !== "file"))
-    )
+    ) {
       recordedFiles.clear();
-    if (!uncertainControlFlow && !isSendCommand) applyRecordedMessageBodyChange(command, recordedFiles);
+      inheritedStdin = undefined;
+    }
     const words = unwrapped(command.words);
     const name = program(words[0]);
     let send: AcpmuxSend | undefined;
@@ -756,7 +767,13 @@ export function acpmuxSend(
       const rest = words.slice(at);
       const inner = rest.slice(1);
       if (rest[0]?.literal && !rest[0].text.startsWith("-") && inner.length && inner.every((word) => word.literal))
-        send = acpmuxSend(inner.map((word) => word.text).join(" "), rest[0].text, depth + 1);
+        send = acpmuxSend(
+          inner.map((word) => word.text).join(" "),
+          rest[0].text,
+          depth + 1,
+          new Map([...recordedFiles].map(([path, body]) => [path, body.text])),
+          stdinOf(commands, index, recordedFiles, inheritedStdin),
+        );
     } else if (SHELLS.has(name)) {
       // `-c` among the options before the first operand (`bash script -c …` runs script).
       let flag = -1;
@@ -769,18 +786,26 @@ export function acpmuxSend(
         }
       }
       const script = flag > 0 ? words[flag + 1] : undefined;
-      if (script?.literal) send = acpmuxSend(script.text, host, depth + 1);
+      if (script?.literal)
+        send = acpmuxSend(
+          script.text,
+          host,
+          depth + 1,
+          new Map([...recordedFiles].map(([path, body]) => [path, body.text])),
+          stdinOf(commands, index, recordedFiles, inheritedStdin),
+        );
     } else if (name === "acpmux" || name === "acpmux-debug-cli") {
       let sub = 1;
       while (ACPMUX_FLAGS.has(words[sub]?.text ?? "")) sub += 1;
       if (words[sub]?.text === "send") {
         sends += 1;
-        send = sendArgs(words.slice(sub + 1), stdinOf(commands, index, recordedFiles), host);
+        send = sendArgs(words.slice(sub + 1), stdinOf(commands, index, recordedFiles, inheritedStdin), host);
       }
     } else if (name === "cmux" && words[1]?.text === "acp" && words[2]?.text === "send") {
       sends += 1;
-      send = sendArgs(words.slice(3), stdinOf(commands, index, recordedFiles), host);
+      send = sendArgs(words.slice(3), stdinOf(commands, index, recordedFiles, inheritedStdin), host);
     }
+    if (!uncertainControlFlow && !send) applyRecordedMessageBodyChange(command, recordedFiles);
     // A nested line counts its send, read or not: two messages keep the command row.
     const nested = name === "reach" || SHELLS.has(name);
     if (nested && (send || NESTED_SEND.test(command.words.map((word) => word.text).join(" ")))) sends += 1;
@@ -868,6 +893,7 @@ function stdinOf(
   commands: readonly ShellCommand[],
   index: number,
   recordedFiles: ReadonlyMap<string, ShellWord>,
+  inheritedStdin?: ShellWord | "file",
 ): ShellWord | "file" | undefined {
   const command = commands[index]!;
   // Any competing stdin source (including a later fd-0 output or here-string) makes the final
@@ -880,7 +906,8 @@ function stdinOf(
   }
   const before = commands[index - 1];
   // Its stdout sent elsewhere (`echo x >/dev/null | …`), nothing comes down the pipe.
-  if (before?.op !== "|" || before.stdout || before.stdinUnsafe) return undefined;
+  if (before?.op !== "|") return inheritedStdin;
+  if (before.stdout || before.stdinUnsafe) return undefined;
   const words = unwrapped(before.words);
   const name = program(words[0]);
   if (name === "cat" && words.length === 1) return before.stdin;
