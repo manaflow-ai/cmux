@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxUpdater
 
-/// A stable release goes out in stages (docs/release/cmux-next-rollout.md): the operator writes
+/// A stable release goes out in stages (docs/cmux-next/release-rollout.md): the operator writes
 /// `<cmux:rolloutPercent>` into its appcast item and raises it after each stage's crash-free
 /// gate. A scheduled check must take the build only on that share of installs; before this, an
 /// item reached every install at its next check whatever its percentage said.

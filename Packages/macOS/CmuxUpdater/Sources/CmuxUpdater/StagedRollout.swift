@@ -3,7 +3,7 @@ public import Foundation
 /// A staged rollout of one appcast item: the share of installs a scheduled check offers it to.
 ///
 /// The release operator writes `<cmux:rolloutPercent>P</cmux:rolloutPercent>` into the item
-/// (`scripts/cmux-next/release/stage-rollout.py`, docs/release/cmux-next-rollout.md) and raises
+/// (`scripts/cmux-next/release/stage-rollout.py`, docs/cmux-next/release-rollout.md) and raises
 /// it stage by stage once each stage's crash-free sessions pass. Chrome's updater does the same
 /// on its server (Omaha's staged rollout fraction); cmux has no update server, so the install
 /// decides from the published fraction and a seed of its own, as Sparkle's
