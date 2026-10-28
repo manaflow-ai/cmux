@@ -149,6 +149,45 @@ test("wrapped sends retain a prior same-turn recorded message body", () => {
   }
 });
 
+test("bare cat pipelines forward inherited wrapper stdin and preserve the producer", () => {
+  const writer = item({
+    title: "Bash",
+    kind: "execute",
+    command: "cat > /tmp/pipeline.md <<'EOF'\nforwarded body\nEOF",
+    startedAt: 1,
+    endedAt: 2,
+  });
+  for (const command of [
+    "bash -c 'cat | acpmux send lane -' < /tmp/pipeline.md",
+    "reach box 'cat | acpmux send lane -' < /tmp/pipeline.md",
+    "bash -c 'cat | cat | acpmux send lane -' < /tmp/pipeline.md",
+    `reach box "bash -c 'cat | acpmux send lane -'" < /tmp/pipeline.md`,
+  ]) {
+    const send = item({ title: "Bash", kind: "execute", command, startedAt: 3, endedAt: 4 });
+    const after = item({
+      title: "Bash",
+      kind: "execute",
+      command: "acpmux send after - < /tmp/pipeline.md",
+      startedAt: 5,
+      endedAt: 6,
+    });
+    const groups = toolGroups([writer, send, after]).filter((entry) => entry.type === "send");
+    expect(groups.map((group) => group.send.text)).toEqual(["forwarded body\n", "forwarded body\n"]);
+  }
+  for (const command of [
+    "bash -c 'cat 0<&- | acpmux send lane -' < /tmp/pipeline.md",
+    "bash -c 'cat > /tmp/pipeline.md | acpmux send lane -' < /tmp/pipeline.md",
+    "bash -c 'cat /tmp/other | acpmux send lane -' < /tmp/pipeline.md",
+    "bash -c 'cat < /tmp/other | acpmux send lane -' < /tmp/pipeline.md",
+    "bash -c 'false && cat | acpmux send lane -' < /tmp/pipeline.md",
+  ]) {
+    const send = item({ title: "Bash", kind: "execute", command, startedAt: 3, endedAt: 4 });
+    const group = toolGroups([writer, send]).find((entry) => entry.type === "send");
+    expect(group?.type).toBe("send");
+    if (group?.type === "send") expect(group.send.text).toBeUndefined();
+  }
+});
+
 test("quoted Markdown links and braces remain recorded message content", () => {
   const body = '[review](https://example.com)\n{"result":"pass"}\n';
   const writer = item({
