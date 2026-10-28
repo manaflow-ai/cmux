@@ -10,12 +10,10 @@
   --acpmux-permission-pill-radius: 999px;
   --acpmux-permission-pill-gap: 16px;
   --acpmux-permission-pill-icon-size: 18px;
+  /* The footer's shield center shares the leading + control's responsive column in Codex's look. */
   --acpmux-permission-column-control-size: 28px;
-  /* The footer's shield center shares the leading 28px control's column in Codex's look. */
-  --acpmux-permission-column-offset: calc(
-    var(--acpmux-permission-column-control-size) / 2 - var(--acpmux-permission-pill-inset) -
-      var(--acpmux-permission-pill-icon-size) / 2
-  );
+  /* Claude's footer starts from its existing -5px quiet-row inset at the default width. */
+  --acpmux-permission-footer-leading-margin: -5px;
 }
 
 /* Codex's composer-permission-mode-picker.png: the capsule keeps its own inset in either look,
@@ -35,9 +33,28 @@
 }
 
 /* ComposerBox keeps the chips in ComposerFoot for both looks (#26551), while Codex's + remains in
-   the box above. Anchor the footer shield to that leading control's shared center column. */
+   the box above. Resolve the center equation here so responsive token overrides reach this consumer. */
 .acpmux-composer[data-composer-look="codex"] .acpmux-composer-foot .acpmux-chips > .acpmux-access {
-  margin-inline-start: var(--acpmux-permission-column-offset);
+  margin-inline-start: calc(
+    var(--acpmux-permission-column-control-size) / 2 - var(--acpmux-permission-pill-inset) -
+      var(--acpmux-permission-pill-icon-size) / 2
+  );
+}
+
+/* The narrow control rail shrinks + to 24px; keep the footer's shield on that same center column. */
+@container composer (max-width: 260px) {
+  .acpmux-composer-bar {
+    --acpmux-permission-column-control-size: 24px;
+  }
+
+  /* The quiet Claude footer has an extra 2px left shift when row inset drops from 6px to 4px.
+     Derive that correction from the shared control and capsule dimensions rather than a new offset. */
+  .acpmux-composer:not([data-composer-look="codex"]) .acpmux-composer-foot .acpmux-chips > .acpmux-access {
+    margin-inline-start: calc(
+      var(--acpmux-permission-footer-leading-margin) -
+        (var(--acpmux-permission-pill-height) - var(--acpmux-permission-column-control-size)) / 2
+    );
+  }
 }
 
 .acpmux-context-ring {

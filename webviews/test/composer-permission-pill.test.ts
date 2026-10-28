@@ -29,46 +29,48 @@ await requireBrowserLane("composer-permission-pill.test.ts", async () => {
     await vite?.close();
   });
 
-  for (const look of ["claude", "codex"] as const) {
-    test(`${look}: permission control keeps the shared capsule geometry`, async () => {
-      const page = await browser!.newPage({ viewport: { width: 760, height: 360 } });
-      const port = (vite!.httpServer!.address() as { port: number }).port;
-      await page.goto(
-        `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-look", { variant: `${look}-chat` })}`,
-      );
-      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-      await page.waitForSelector(".acpmux-access-trigger");
-      const measure = () =>
-        page.$eval(".acpmux-access-trigger", (pill) => {
-          const css = getComputedStyle(pill);
-          const plus = document.querySelector(".acpmux-composer-plus .acpmux-icon")!;
-          return {
-            height: pill.getBoundingClientRect().height,
-            paddingStart: Number.parseFloat(css.paddingInlineStart),
-            paddingEnd: Number.parseFloat(css.paddingInlineEnd),
-            radius: Number.parseFloat(css.borderTopLeftRadius),
-            plusCenter: plus.getBoundingClientRect().left + plus.getBoundingClientRect().width / 2,
-            shieldCenter: (() => {
-              const shield = pill.querySelector("[data-shield]")!;
-              const rect = shield.getBoundingClientRect();
-              return rect.left + rect.width / 2;
-            })(),
-            shieldSize: Number.parseFloat(getComputedStyle(pill.querySelector("[data-shield]")!).width),
-            tokenIconSize: Number.parseFloat(
-              getComputedStyle(pill).getPropertyValue("--acpmux-permission-pill-icon-size"),
-            ),
-          };
-        });
-      const normal = await measure();
-      expect(normal.height).toBe(28);
-      expect(normal.paddingStart).toBe(8);
-      expect(normal.paddingEnd).toBe(8);
-      expect(normal.radius).toBeGreaterThanOrEqual(normal.height / 2);
-      expect(normal.shieldSize).toBe(normal.tokenIconSize);
-      expect(Math.abs(normal.plusCenter - normal.shieldCenter)).toBeLessThanOrEqual(1);
-      await page.hover(".acpmux-access-trigger");
-      expect(await measure()).toEqual(normal);
-      await page.close();
-    });
+  for (const width of [760, 260] as const) {
+    for (const look of ["claude", "codex"] as const) {
+      test(`${look} ${width}px: permission control keeps the shared capsule geometry`, async () => {
+        const page = await browser!.newPage({ viewport: { width, height: 360 } });
+        const port = (vite!.httpServer!.address() as { port: number }).port;
+        await page.goto(
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-look", { variant: `${look}-chat` })}`,
+        );
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        await page.waitForSelector(".acpmux-access-trigger");
+        const measure = () =>
+          page.$eval(".acpmux-access-trigger", (pill) => {
+            const css = getComputedStyle(pill);
+            const plus = document.querySelector(".acpmux-composer-plus .acpmux-icon")!;
+            return {
+              height: pill.getBoundingClientRect().height,
+              paddingStart: Number.parseFloat(css.paddingInlineStart),
+              paddingEnd: Number.parseFloat(css.paddingInlineEnd),
+              radius: Number.parseFloat(css.borderTopLeftRadius),
+              plusCenter: plus.getBoundingClientRect().left + plus.getBoundingClientRect().width / 2,
+              shieldCenter: (() => {
+                const shield = pill.querySelector("[data-shield]")!;
+                const rect = shield.getBoundingClientRect();
+                return rect.left + rect.width / 2;
+              })(),
+              shieldSize: Number.parseFloat(getComputedStyle(pill.querySelector("[data-shield]")!).width),
+              tokenIconSize: Number.parseFloat(
+                getComputedStyle(pill).getPropertyValue("--acpmux-permission-pill-icon-size"),
+              ),
+            };
+          });
+        const normal = await measure();
+        expect(normal.height).toBe(28);
+        expect(normal.paddingStart).toBe(8);
+        expect(normal.paddingEnd).toBe(8);
+        expect(normal.radius).toBeGreaterThanOrEqual(normal.height / 2);
+        expect(normal.shieldSize).toBe(normal.tokenIconSize);
+        expect(Math.abs(normal.plusCenter - normal.shieldCenter)).toBeLessThanOrEqual(1);
+        await page.hover(".acpmux-access-trigger");
+        expect(await measure()).toEqual(normal);
+        await page.close();
+      });
+    }
   }
 });
