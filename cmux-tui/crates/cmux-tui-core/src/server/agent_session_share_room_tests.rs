@@ -671,3 +671,48 @@ fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
     assert_eq!(path, format!("/v1/chat-shares/{id}"));
     assert_eq!(bearer, "late-host");
 }
+
+
+#[test]
+fn room_responses_are_bounded_with_or_without_content_length() {
+    // The response is small control-plane JSON, never an attachment or transcript.
+    let oversized = format!("{{\"padding\":\"{}\"}}", "x".repeat(64 * 1024));
+    for chunked in [false, true] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let body = oversized.clone();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap() == 0 || line.trim().is_empty() {
+                    break;
+                }
+            }
+            if chunked {
+                let _ = write!(stream,
+                    "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n");
+                for chunk in body.as_bytes().chunks(4096) {
+                    if write!(stream, "{:x}\r\n", chunk.len()).is_err()
+                        || stream.write_all(chunk).is_err()
+                        || stream.write_all(b"\r\n").is_err()
+                    {
+                        return;
+                    }
+                }
+                let _ = stream.write_all(b"0\r\n\r\n");
+            } else {
+                let _ = write!(stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(), body);
+            }
+        });
+        let bridge = Bridge::default();
+        let response = bridge.runtime().unwrap().block_on(call(
+            reqwest::Method::DELETE, &url, "host-token", None, Duration::from_secs(2),
+        ));
+        server.join().unwrap();
+        assert!(response.is_none(), "oversized response accepted (chunked={chunked})");
+    }
+}
