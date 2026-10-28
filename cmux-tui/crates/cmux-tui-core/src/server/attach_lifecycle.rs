@@ -3,11 +3,16 @@
 //! announcements), waiting for the initial browser resize, committing an
 //! attach and starting its stream worker, rollback and cleanup of failed
 //! attaches, detaching committed attaches, and view geometry replacement.
+//!
+//! A legacy attach's worker is a thread; an attach stream's is an
+//! [`attach_pump::AttachPump`] on the daemon-wide sequenced pool
+//! (p05-ipc-079).
 
 use super::MessageWriter;
 use super::OutboundStream;
 use crate::panic_free::JsonFields;
-use cmux_threads::checked::ipc_reply;
+use crate::server::request_hang_watch::ipc_reply;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::sync as waits;
 
 use super::INITIAL_BROWSER_RESIZE_TIMEOUT;
@@ -23,6 +28,36 @@ use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
 
+#[path = "attach_pump.rs"]
+pub(super) mod attach_pump;
+use attach_pump::AttachPump;
+
+/// The wire item of a surface notification or scroll change for the view of
+/// `surface`; `None` for any other event.
+pub(super) fn attach_notification_json(surface: SurfaceId, event: MuxEvent) -> Option<Value> {
+    match event {
+        MuxEvent::Notification(notification) if notification.surface == Some(surface) => {
+            Some(json!({
+                "event": "notification",
+                "notification": notification.notification,
+                "title": notification.title,
+                "body": notification.body,
+                "level": notification.level.as_str(),
+                "surface": notification.surface,
+            }))
+        }
+        MuxEvent::ScrollChanged { surface: changed, offset, at_bottom } if changed == surface => {
+            Some(json!({
+                "event": "scroll-changed",
+                "surface": changed,
+                "offset": offset,
+                "at_bottom": at_bottom,
+            }))
+        }
+        _ => None,
+    }
+}
+
 pub(super) fn spawn_attach_notification_stream(
     mux: Arc<Mux>,
     surface_id: SurfaceId,
@@ -31,9 +66,12 @@ pub(super) fn spawn_attach_notification_stream(
     outbound_stream: OutboundStream,
 ) -> std::io::Result<()> {
     let events = mux.subscribe_attached_surface(surface_id);
-    std::thread::Builder::new()
-        .name("mux-attach-notifications".into())
-        .spawn(move || {
+    supervised::spawn_at(
+        "mux-attach-notifications",
+        crate::thread_qos::ThreadType::Interactive.qos(),
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
             let interrupt = StreamInterrupt::new();
             writer.register_interrupt(&interrupt);
             outbound_stream.register_interrupt(&interrupt);
@@ -45,31 +83,7 @@ pub(super) fn spawn_attach_notification_stream(
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 };
-                let value = match event {
-                    MuxEvent::Notification(notification)
-                        if notification.surface == Some(surface_id) =>
-                    {
-                        json!({
-                            "event": "notification",
-                            "notification": notification.notification,
-                            "title": notification.title,
-                            "body": notification.body,
-                            "level": notification.level.as_str(),
-                            "surface": notification.surface,
-                        })
-                    }
-                    MuxEvent::ScrollChanged { surface, offset, at_bottom }
-                        if surface == surface_id =>
-                    {
-                        json!({
-                            "event": "scroll-changed",
-                            "surface": surface,
-                            "offset": offset,
-                            "at_bottom": at_bottom,
-                        })
-                    }
-                    _ => continue,
-                };
+                let Some(value) = attach_notification_json(surface_id, event) else { continue };
                 if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
                     handle_attach_send_error(&lifecycle, &error);
                     break;
@@ -79,8 +93,9 @@ pub(super) fn spawn_attach_notification_stream(
                 lifecycle.mark_overflow();
             }
             report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
-        })
-        .map(|_| ())
+        },
+    )
+    .map(|_| ())
 }
 
 pub(super) struct MarkedClientAttach {
@@ -302,6 +317,13 @@ pub(super) struct AttachWorkerCommit {
     pub(super) size_rollback: Option<crate::mux::ClientSizeRollback>,
 }
 
+/// What committing an attach needs besides its worker.
+pub(super) struct AttachCommit {
+    pub(super) lifecycle: AttachLifecycle,
+    pub(super) changed: Option<(Option<String>, Option<String>)>,
+    pub(super) size_rollback: Option<crate::mux::ClientSizeRollback>,
+}
+
 pub(super) fn commit_client_attach_and_start_worker(
     mux: &Mux,
     client: u64,
@@ -309,16 +331,41 @@ pub(super) fn commit_client_attach_and_start_worker(
     stream: u64,
     worker: AttachWorkerCommit,
 ) -> anyhow::Result<()> {
-    if let Err(error) =
-        commit_client_attach(mux, client, surface, stream, worker.changed, worker.size_rollback)
-    {
-        worker.lifecycle.cancel();
-        rollback_failed_attach(mux, client, surface, stream, worker.size_rollback);
+    let AttachWorkerCommit { start, lifecycle, changed, size_rollback } = worker;
+    let commit = AttachCommit { lifecycle, changed, size_rollback };
+    commit_and_start(mux, client, surface, stream, commit, || start.send(()).is_ok())
+}
+
+/// Commits an attach stream's view and starts its drain on the sequenced
+/// pool; a failed commit drops the pump unstarted.
+pub(super) fn commit_client_attach_and_start_pump(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    stream: u64,
+    commit: AttachCommit,
+    pump: AttachPump,
+) -> anyhow::Result<()> {
+    commit_and_start(mux, client, surface, stream, commit, || pump.start().is_ok())
+}
+
+fn commit_and_start(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    stream: u64,
+    commit: AttachCommit,
+    start: impl FnOnce() -> bool,
+) -> anyhow::Result<()> {
+    let AttachCommit { lifecycle, changed, size_rollback } = commit;
+    if let Err(error) = commit_client_attach(mux, client, surface, stream, changed, size_rollback) {
+        lifecycle.cancel();
+        rollback_failed_attach(mux, client, surface, stream, size_rollback);
         return Err(error);
     }
-    if worker.start.send(()).is_err() {
-        worker.lifecycle.cancel();
-        rollback_failed_attach(mux, client, surface, stream, worker.size_rollback);
+    if !start() {
+        lifecycle.cancel();
+        rollback_failed_attach(mux, client, surface, stream, size_rollback);
         anyhow::bail!("attach output worker exited before stream {stream} was committed");
     }
     Ok(())

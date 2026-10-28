@@ -914,6 +914,7 @@ impl FrameLink for LaneMuxLink {
         let incoming = self.incoming.clone();
         let links = self.links.clone();
         let completion = LinkCloseCompletionGuard::new(self.close_state.clone());
+        // supervise-allow: one link's close; a panic drops LinkCloseCompletionGuard, which publishes a failed close to every waiter.
         tokio::spawn(async move {
             let result: Result<(), LinkError> = async {
                 for task in &tasks {

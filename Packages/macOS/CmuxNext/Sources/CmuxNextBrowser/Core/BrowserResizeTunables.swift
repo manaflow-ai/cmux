@@ -65,5 +65,15 @@ public nonisolated struct BrowserResizeTunables {
         help: "While the window is resized, how long each Chromium page may hold a frame to draw at the new size, so it resizes with the window. Never more than half the shortest display frame. 0 never waits; the page then shows its last frame until it draws.",
         default: 0.016, range: 0...0.1, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.liveResizeDeadline")
 
-    public static var all: [TunableDescriptor] { [pageBackdrop.descriptor, layerHosting.descriptor, layerHostingEveryPage.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor] }
+    /// With the `pageSpringResizeOnce` feature, how a page resizes while its pane springs: `once` (the
+    /// default) at the spring's start, held at its top-left; `perFrame` on every frame, to compare.
+    public static let springPageResize = Tunable<SpringPageResize>.choice(
+        "browserResize.springPageResize", section, "Page resize in pane springs",
+        help: "With the pageSpringResizeOnce feature on, how a page resizes while its pane springs: once at the spring's start (default), held at its top-left with the page color beside it, or on every frame, to compare.",
+        default: .once, code: "BrowserResizeTunables.springPageResize")
+
+    public static var all: [TunableDescriptor] {
+        [pageBackdrop.descriptor, layerHosting.descriptor, layerHostingEveryPage.descriptor, syncDeadline.descriptor,
+         liveResizeDeadline.descriptor, springPageResize.descriptor]
+    }
 }

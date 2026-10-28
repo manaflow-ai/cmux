@@ -159,9 +159,9 @@ impl Drop for Wait {
         self.hub.cancel_trust_card(&self.session, &self.call);
         let Some(task) = task else { return };
         // The task may raise the card after the cancel above: once it has ended, the card goes.
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+        if tokio::runtime::Handle::try_current().is_ok() {
             let (hub, session, call) = (self.hub.clone(), self.session.clone(), self.call.clone());
-            runtime.spawn(async move {
+            self.hub.supervise("hub.trust-card-end", Fatal, ShutdownBehavior::Skip, async move {
                 let _ = task.await;
                 hub.cancel_trust_card(&session, &call);
             });
@@ -194,7 +194,7 @@ impl Hub {
         family: &str,
     ) -> Result<crate::trust::SessionTrust, crate::trust::Failure> {
         let (paths, cwd, family) = (paths.clone(), cwd.to_owned(), family.to_owned());
-        tokio::task::spawn_blocking(move || crate::trust::session_trust(&paths, &cwd, &family))
+        crate::daemon::spawn_blocking(move || crate::trust::session_trust(&paths, &cwd, &family))
             .await
             .unwrap_or_else(|e| Err(crate::trust::Failure::Record(e.to_string())))
     }
@@ -335,8 +335,14 @@ impl Hub {
         // Only a folder recorded as it resolves, or through links only root can change (`/tmp` on
         // macOS): through a link the agent could point elsewhere after it started, the folder it
         // runs in is not the one the link names now.
-        let Ok(own) = std::fs::canonicalize(&pm.cwd) else { return false };
-        if (own != pm.cwd && !only_root_links(&pm.cwd, 0)) || !cwd.starts_with(&own) {
+        let recorded = pm.cwd.clone();
+        let resolved = cmux_blocking::spawn_blocking(move || {
+            let own = cmux_blocking::fs::canonicalize(&recorded).ok()?;
+            let held = own == recorded || only_root_links(&recorded, 0);
+            Some((own, held))
+        });
+        let Ok(Some((own, held))) = resolved.await else { return false };
+        if !held || !cwd.starts_with(&own) {
             return false;
         }
         let family = self.trust_family(&pm.harness).await;
@@ -376,7 +382,7 @@ impl Hub {
     pub(super) async fn trust_made_worktree(&self, cwd: &Path) {
         let Some(paths) = self.trust_gate() else { return };
         let folder = cwd.to_string_lossy().into_owned();
-        let _ = tokio::task::spawn_blocking(move || {
+        let _ = crate::daemon::spawn_blocking(move || {
             let inherited = crate::trust::get(&paths, &folder).is_ok_and(|reply| {
                 reply["level"] == "trusted" && reply["decided"] == true && reply["via"].is_string()
             });
@@ -401,7 +407,7 @@ impl Hub {
         match option {
             Some("trust") => {
                 let (paths, folder) = (paths.clone(), key.to_owned());
-                let set = tokio::task::spawn_blocking(move || {
+                let set = crate::daemon::spawn_blocking(move || {
                     crate::trust::set(&paths, &folder, "trusted")
                 })
                 .await;
@@ -487,20 +493,26 @@ fn only_root_links(path: &Path, depth: u8) -> bool {
             return false;
         }
         at.push(part);
-        let Ok(meta) = std::fs::symlink_metadata(&at) else { return false };
+        let Ok(meta) = cmux_blocking::fs::symlink_metadata(&at) else { return false };
         if !meta.file_type().is_symlink() {
             continue;
         }
         let Some(folder) = at.parent().map(Path::to_path_buf) else { return false };
-        let Ok(held) = std::fs::metadata(&folder) else { return false };
-        let Ok(target) = std::fs::read_link(&at) else { return false };
+        let Ok(held) = cmux_blocking::fs::metadata(&folder) else { return false };
+        #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+        let target = cmux_blocking::scoped_blocking_call(
+            "fs::read_link",
+            cmux_blocking::BlockingKind::Fs,
+            || std::fs::read_link(&at),
+        );
+        let Ok(target) = target else { return false };
         if meta.uid() != 0 || held.uid() != 0 || held.mode() & 0o022 != 0 {
             return false;
         }
         if !only_root_links(&folder.join(target), depth + 1) {
             return false;
         }
-        let Ok(resolved) = std::fs::canonicalize(&at) else { return false };
+        let Ok(resolved) = cmux_blocking::fs::canonicalize(&at) else { return false };
         at = resolved;
     }
     true

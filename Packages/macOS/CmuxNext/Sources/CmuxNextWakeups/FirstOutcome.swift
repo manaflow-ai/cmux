@@ -15,8 +15,10 @@ public final class FirstOutcome<Value: Sendable>: Sendable {
     }
     private let phase = Mutex<Phase>(.pending([]))
 
+    /// An outcome nothing resolved yet.
     public init() {}
 
+    /// Delivers `value` when it is the first; any later value is dropped. Any thread.
     public func resolve(_ value: Value) {
         let waiters: [Waiter] = phase.withLock { phase in
             guard case .pending(let waiters) = phase else { return [] }
@@ -26,6 +28,7 @@ public final class FirstOutcome<Value: Sendable>: Sendable {
         for waiter in waiters { waiter.resume(returning: value) }
     }
 
+    /// The first resolved value: at once when one came, else when the first comes.
     public func value() async -> Value {
         // The phase holds each waiter until resolve, so none ends abandoned while this call keeps `self`;
         // if one did, the wait starts again from the phase.

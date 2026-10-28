@@ -12,9 +12,12 @@ mod agent_roster_restore;
 mod cell_pixel_fanout;
 mod cell_pixels;
 mod column_update;
+mod construct_errors;
 mod diagnostics;
 mod dock_columns;
 mod history_agent_fold;
+#[cfg(unix)]
+mod host_panic_sidecars;
 mod journal_roster;
 mod kitty_budget;
 mod kitty_budget_share;

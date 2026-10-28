@@ -46,8 +46,11 @@ fn same_content(a: &Path, b: &Path) -> io::Result<bool> {
         if n == 0 {
             return Ok(true);
         }
-        fb.read_exact(&mut bb[..n])?;
-        if ba[..n] != bb[..n] {
+        let (Some(read_a), Some(read_b)) = (ba.get(..n), bb.get_mut(..n)) else {
+            return Err(io::Error::other("read returned more bytes than the buffer holds"));
+        };
+        fb.read_exact(read_b)?;
+        if *read_a != *read_b {
             return Ok(false);
         }
     }

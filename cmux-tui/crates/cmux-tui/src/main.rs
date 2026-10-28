@@ -134,7 +134,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Context;
 use cmux_tui_core::resource::TerminalPublicId;
-use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions};
+use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions, echo_thread::ECHO_PATH_QOS};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::BearerToken;
 use machine::{
@@ -176,10 +176,13 @@ fn install_signal_handlers() -> io::Result<()> {
     for descriptor in [wake_reader.as_raw_fd(), wake_writer.as_raw_fd()] {
         // UnixStream currently creates close-on-exec descriptors, but enforce
         // the ownership contract before these descriptors become process-wide.
+        // SAFETY: `descriptor` belongs to a live UnixStream above; F_GETFD takes no pointer.
         let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
         if flags < 0 {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: `descriptor` belongs to a live UnixStream above; F_SETFD takes an integer flag
+        // set.
         if unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags | libc::FD_CLOEXEC) } != 0 {
             return Err(io::Error::last_os_error());
         }
@@ -188,6 +191,9 @@ fn install_signal_handlers() -> io::Result<()> {
     wake_writer.set_nonblocking(true)?;
     SIGNAL_WAKE_READER.store(wake_reader.as_raw_fd(), Ordering::Release);
     SIGNAL_WAKE_WRITER.store(wake_writer.as_raw_fd(), Ordering::Release);
+    // SAFETY: `action` is a zeroed plain-data sigaction filled in before use. `handle_signal` has
+    // the SA_SIGINFO signature and does only async-signal-safe work: atomics and one write(2) to
+    // the wake socket, which stays open for the process lifetime.
     unsafe {
         let mut action = std::mem::zeroed::<libc::sigaction>();
         action.sa_sigaction = signal_sender::handle_signal as *const () as libc::sighandler_t;
@@ -256,6 +262,8 @@ pub(crate) fn wait_for_shutdown_signal() {
         }
         if result < 0 && io::Error::last_os_error().kind() == io::ErrorKind::WouldBlock {
             let mut pollfd = libc::pollfd { fd: reader, events: libc::POLLIN, revents: 0 };
+            // SAFETY: the pointer names one live, exclusively borrowed pollfd and the count is 1.
+            // `reader` is the process-lifetime wake descriptor.
             let polled = unsafe { libc::poll(&mut pollfd, 1, -1) };
             if polled > 0
                 || (polled < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted)
@@ -300,10 +308,12 @@ pub(crate) async fn wait_for_shutdown_signal_peek_async() -> io::Result<()> {
             "shutdown wake reader unavailable",
         ));
     }
+    // SAFETY: dup takes no pointer; `reader` is the process-lifetime wake descriptor.
     let duplicate = unsafe { libc::dup(reader) };
     if duplicate < 0 {
         return Err(io::Error::last_os_error());
     }
+    // SAFETY: `dup` succeeded, so `duplicate` is a new descriptor that this function alone owns.
     let stream = unsafe { UnixStream::from_raw_fd(duplicate) };
     let stream = tokio::net::UnixStream::from_std(stream)?;
     stream.readable().await?;
@@ -322,10 +332,12 @@ pub(crate) async fn wait_for_shutdown_signal_async() -> io::Result<()> {
             "shutdown wake reader unavailable",
         ));
     }
+    // SAFETY: dup takes no pointer; `reader` is the process-lifetime wake descriptor.
     let duplicate = unsafe { libc::dup(reader) };
     if duplicate < 0 {
         return Err(io::Error::last_os_error());
     }
+    // SAFETY: `dup` succeeded, so `duplicate` is a new descriptor that this function alone owns.
     let stream = unsafe { UnixStream::from_raw_fd(duplicate) };
     let stream = match tokio::net::UnixStream::from_std(stream) {
         Ok(stream) => stream,
@@ -364,6 +376,8 @@ fn install_signal_handlers() -> io::Result<()> {
 
 #[cfg(target_os = "linux")]
 fn linux_environment_variable_present(name: &[u8]) -> bool {
+    // SAFETY: `environ` is a null-terminated array of NUL-terminated C strings, and startup calls
+    // this before the runtime starts threads that could change the environment while it is walked.
     unsafe {
         let mut cursor = environ;
         while !cursor.is_null() && !(*cursor).is_null() {
@@ -384,12 +398,14 @@ fn harden_provider_secret_process() -> io::Result<()> {
     {
         return Ok(());
     }
+    // SAFETY: PR_SET_DUMPABLE takes integer arguments only and touches no memory of this process.
     let result = unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
     if result == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
 }
 
 #[cfg(target_os = "linux")]
 fn require_non_dumpable_provider_process() -> anyhow::Result<()> {
+    // SAFETY: PR_GET_DUMPABLE takes integer arguments only and touches no memory of this process.
     let dumpable = unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) };
     if dumpable == 0 {
         Ok(())
@@ -411,6 +427,9 @@ fn scrub_initial_environment_variable(name: &str) {
     // Linux exposes the initial environment block through /proc even after
     // unsetenv. Clear the value in that original block before removing the
     // entry from the process environment.
+    // SAFETY: as in `linux_environment_variable_present`, startup walks `environ` before any thread
+    // can change it. A matched entry is a NUL-terminated string of at least `prefix.len() +
+    // value_length` bytes, so the zeroed range stays inside it.
     unsafe {
         let mut cursor = environ;
         while !cursor.is_null() && !(*cursor).is_null() {
@@ -434,6 +453,8 @@ fn remove_secret_environment_variable(name: &str) {
     scrub_initial_environment_variable(name);
     // Startup calls this before creating runtime threads. The connector or
     // provider-managed mux already owns any credential selected for this mode.
+    // SAFETY: startup calls this before it creates the runtime threads (see above), so no other
+    // thread reads the environment while the variable is removed.
     unsafe { std::env::remove_var(name) };
 }
 
@@ -1765,11 +1786,11 @@ fn run_main() {
     // semantics.
     // The one process that holds every PTY of this install (cmux-holder,
     // terminal-host-model-DESIGN.md). Same rule as the host: before any
-    // daemon signal handler.
+    // daemon signal handler. Panics go to holder-panics.jsonl (serve_process).
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__holder") {
         set_default_task_role();
-        if let Err(error) = cmux_holder::serve(&raw_args[1..]) {
+        if let Err(error) = cmux_holder::serve_process(&raw_args[1..]) {
             crate::client_log::stderr_log!("startup", "cmux-tui holder: {error}");
             client_log::exit(1);
         }
@@ -2081,7 +2102,8 @@ fn run_relay(args: Args) -> anyhow::Result<()> {
         crossterm::terminal::enable_raw_mode()?;
     }
 
-    let input = std::thread::Builder::new().name("relay-input".into()).spawn(move || {
+    // supervise-allow: this relay's stdin pump; it ends at stdin EOF or when the relay shuts its write side, and run_relay joins it once finished, returning a panic as an error.
+    let input = cmux_threads::spawn("relay-input", ECHO_PATH_QOS, move || {
         let result = io::copy(&mut io::stdin().lock(), &mut writer);
         let _ = writer.shutdown(Shutdown::Write);
         result
@@ -2116,14 +2138,10 @@ fn take_provider_management_listener() -> anyhow::Result<Option<std::os::unix::n
 
     const SYSTEMD_FIRST_FD: RawFd = 3;
     const FD_NAME: &str = "cmux-provider-authority";
-    let listen_pid = std::env::var("LISTEN_PID").ok();
-    let listen_fds = std::env::var("LISTEN_FDS").ok();
-    let listen_names = std::env::var("LISTEN_FDNAMES").ok();
-    unsafe {
-        std::env::remove_var("LISTEN_PID");
-        std::env::remove_var("LISTEN_FDS");
-        std::env::remove_var("LISTEN_FDNAMES");
-    }
+    // Taken from the environment as the first statement of `main`, before
+    // this function's caller started its threads.
+    let startup_env::SystemdListenEnv { pid: listen_pid, fds: listen_fds, names: listen_names } =
+        startup_env::take_systemd_listen_env();
     if listen_pid.is_none() && listen_fds.is_none() && listen_names.is_none() {
         return Ok(None);
     }
@@ -2142,12 +2160,17 @@ fn take_provider_management_listener() -> anyhow::Result<Option<std::os::unix::n
     if socket_type != libc::SOCK_STREAM || accepting != 1 {
         anyhow::bail!("provider management descriptor is not a listening stream socket");
     }
+    // SAFETY: F_GETFD takes no pointer; descriptor 3 was checked above to be the listening socket
+    // systemd passed to this process.
     let flags = unsafe { libc::fcntl(SYSTEMD_FIRST_FD, libc::F_GETFD) };
     if flags < 0
+        // SAFETY: F_SETFD takes an integer flag set; descriptor 3 is open (checked above).
         || unsafe { libc::fcntl(SYSTEMD_FIRST_FD, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0
     {
         return Err(io::Error::last_os_error().into());
     }
+    // SAFETY: systemd passed descriptor 3 to this process (LISTEN_PID and LISTEN_FDS checked
+    // above), and only the first take of the variables reaches this line, so this is its one owner.
     let owned = unsafe { OwnedFd::from_raw_fd(SYSTEMD_FIRST_FD) };
     Ok(Some(std::os::unix::net::UnixListener::from(owned)))
 }
@@ -2158,6 +2181,8 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
 
     let mut value = 0;
     let mut length = size_of::<libc::c_int>() as libc::socklen_t;
+    // SAFETY: getsockopt writes at most `length` bytes into `value` and updates `length`; both are
+    // live locals and `length` starts as the size of `value`.
     let result = unsafe {
         libc::getsockopt(fd, libc::SOL_SOCKET, option, (&raw mut value).cast(), &raw mut length)
     };
@@ -2247,7 +2272,7 @@ fn run_server(
     // Windows hosts get no orphan grace (no app bundles there to classify).
     #[cfg(unix)]
     host_orphan_policy::install();
-    owner_start::prepare(&args)?;
+    let supervisor = owner_start::start_server_process(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
@@ -2379,6 +2404,7 @@ fn run_server(
         surface_options.terminal_host_root = Some(
             cmux_tui_core::terminal_host_runtime::terminal_host_root(state_root, &args.session),
         );
+        surface_options.host_panic_log = owner_start::host_panic_log(args.headless, &args.session);
         // Set by the Cloud VM boot supervisor on a snapshot clone; see
         // SurfaceOptions::adopt_template_terminal.
         if let Some(template) = CLOUD_TEMPLATE_ENV.get() {
@@ -2423,14 +2449,14 @@ fn run_server(
                 Mux::open_persistent(args.session.clone(), surface_options, root)
             }
             (None, Some(authority), false) => {
-                Ok(Mux::new_provider_managed(args.session.clone(), surface_options, authority))
+                Mux::try_new_provider_managed(args.session.clone(), surface_options, authority)
             }
             (None, None, true) => Mux::new_provider_managed_pending(
                 args.session.clone(),
                 surface_options,
                 new_mux_generation()?,
             ),
-            (None, None, false) => Ok(Mux::new(args.session.clone(), surface_options)),
+            (None, None, false) => Mux::try_new(args.session.clone(), surface_options),
             (_, Some(_), true) => {
                 unreachable!("conflicting provider authority inputs rejected above")
             }
@@ -2464,6 +2490,13 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
+    drop(mux.start_metrics_file(state_root.as_deref()));
+    // The features each app's client hello is reconciled with, before the
+    // first client: this owner outlives the app that started it.
+    cmux_tui_core::server::install_daemon_features(
+        &mux,
+        cmux_features::Live::new(features.clone()),
+    );
     // After restore and adoption: a terminal that joins the catalog later
     // wakes the worker itself.
     if let Err(error) = mux.start_cold_scrollback(&features) {
@@ -2473,6 +2506,8 @@ fn run_server(
     if let Err(error) = mux.start_power_source(&features) {
         eprintln!("cmux-tui: power source reading did not start: {error}");
     }
+    // Long-lived SQLite connections free their page caches under pressure.
+    mux.start_sqlite_trim(&features);
     #[cfg(debug_assertions)]
     owner_start::hang_for_test(args.headless);
     local_owner::install_key_from_launcher(&mux, args.owner_install_key_fd);
@@ -2686,7 +2721,7 @@ fn run_server(
         }
         #[cfg(unix)]
         {
-            run_headless(&mux, &socket_path, || {
+            run_headless(&mux, &socket_path, &supervisor, || {
                 remote_runtime
                     .as_ref()
                     .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
@@ -2694,7 +2729,7 @@ fn run_server(
         }
         #[cfg(not(unix))]
         {
-            run_headless(&mux, &socket_path, || false)
+            run_headless(&mux, &socket_path, &supervisor, || false)
         }
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime, mux.clone(), config)
@@ -2712,6 +2747,7 @@ fn run_server(
             Err(error) => Err(error),
         }
     };
+    owner_start::stop_supervised(&supervisor, &result);
     // The owner's loop ended (a termination signal, shutdown-daemon or the
     // last client): record the session shutdown before any teardown, so a
     // shell that dies of the same logout signal is a host loss
@@ -2786,6 +2822,7 @@ fn start_local_owner_event_loop_with_completion(
     let weak_mux = Arc::downgrade(mux);
     let events = local_owner_reload_events(mux);
     let stop = events.clone();
+    // supervise-allow: owned by LocalOwnerEventLoop, which closes its events and joins it at finish, returning a panic as the owner's error.
     let thread = std::thread::spawn(move || {
         while let Ok(event) = events.recv() {
             let mux = weak_mux.upgrade();
@@ -3236,7 +3273,7 @@ fn run_provider_machine_client(
         Err(error) => runtime.placeholder(initial_provider_connection_notice(
             &localization::catalog().sidebar,
             &error,
-        )),
+        ))?,
     };
     runtime.sync_connections();
     let controller: Box<dyn MachineController> = Box::new(runtime);

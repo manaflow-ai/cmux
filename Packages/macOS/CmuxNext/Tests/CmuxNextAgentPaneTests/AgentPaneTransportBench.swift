@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextPages
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -21,6 +22,8 @@ private actor BenchHost: AgentPaneHostProviding {
 /// allowlisted notification, so every number is a round trip through the whole path (the host's
 /// allowlist check included). Workloads: `light`, 300 frames at 100 frames/s (no load); `paced`,
 /// 2,000 frames at 2,000 frames/s; `burst`, 2,000 frames back to back. Main-thread CPU is the host main thread's CPU time across the burst.
+/// With CMUX_PERF_RESULT_DIR each mode's raw round trips, burst totals and main CPU are result-v1 (lab story
+/// swift-agent-pane-transport).
 /// CMUX_PANE_TRANSPORT_BENCH_VISIBLE=1 puts the windows on screen (a live Mac).
 @MainActor
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_PANE_TRANSPORT_BENCH"] == "1"))
@@ -211,8 +214,19 @@ struct AgentPaneTransportBench {
                 flushes[rig.mode, default: []].append((rig.pane?.model.transport.flushes ?? 0) - flushed)
             }
         }
+        let results = try PerfResultWriter()
+        let ms = { (nanos: [UInt64]) in nanos.map { Double($0) / 1e6 } }
         var rows: [[String: Any]] = []
         for mode in Mode.allCases {
+            if let results {
+                let name = "swift.agent_pane_transport.\(mode.rawValue)"
+                try results.record("\(name).light", unit: .ms, samples: ms(light[mode]!))
+                try results.record("\(name).paced", unit: .ms, samples: ms(paced[mode]!))
+                try results.record("\(name).burst", unit: .ms, samples: ms(burst[mode]!))
+                try results.record("\(name).burst_total", unit: .ms, samples: ms(totals[mode]!))
+                try results.record("\(name).main_cpu", unit: .ms, samples: ms(cpu[mode]!))
+                try results.record("\(name).bridge_calls_per_burst", unit: .count, samples: flushes[mode]!)
+            }
             let d = Mode.direct
             var row: [String: Any] = ["mode": mode.rawValue, "rounds": Self.rounds, "visible": Self.visible]
             for (name, values, base) in [("light", light[mode]!, light[d]!), ("paced", paced[mode]!, paced[d]!),

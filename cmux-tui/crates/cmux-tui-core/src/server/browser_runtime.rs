@@ -48,6 +48,7 @@ use serde_json::{Value, json};
 use super::routes::{Route, RouteLine, RouteName};
 use super::{FrameStage, MessageWriter, Response, send_response};
 use crate::mux::Mux;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 pub const BROWSER_RUNTIME_CAPABILITY: &str = "browser-runtime-v1";
 /// Overrides the install directory (development and tests).
@@ -67,7 +68,6 @@ pub(crate) const MAX_STATUS_READS_PER_CLIENT: usize = 4;
 pub(crate) const MAX_STATUS_READS_TOTAL: usize = 16;
 const MAX_URL_BYTES: usize = 8 * 1024;
 const LOG_TAIL_BYTES: u64 = 2 * 1024;
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 struct Runtime {
     owner: u64,
@@ -503,17 +503,20 @@ fn launch(
     });
     let (line_tx, line_rx) = std::sync::mpsc::sync_channel(1);
     let reader = stdout.map(|stdout| {
-        std::thread::Builder::new()
-            .name("mux-browser-runtime-out".into())
-            .stack_size(THREAD_STACK_BYTES)
-            .spawn(move || {
+        supervised::spawn_at(
+            "mux-browser-runtime-out",
+            crate::thread_qos::ThreadType::Utility.qos(),
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
                 let mut reader = BufReader::new(stdout);
                 let mut line = String::new();
                 let read = reader.read_line(&mut line).map(|_| line);
                 let _ = line_tx.send(read.ok());
                 // Keep the pipe drained until the host exits.
                 let _ = std::io::copy(&mut reader, &mut std::io::sink());
-            })
+            },
+        )
     });
     let port = match (written, reader) {
         (Some(Ok(())), Some(Ok(_))) => match waits::recv_timeout(&line_rx, START_TIMEOUT) {

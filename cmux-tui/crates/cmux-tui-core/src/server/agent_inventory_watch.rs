@@ -19,6 +19,8 @@ use crate::server::agent_session_attach::agent_session_link::{AcpmuxLink, Inboun
 use crate::server::command_args::present_non_null;
 use crate::server::routes::{Route, RouteLine, RouteName};
 use crate::server::{FrameStage, MessageWriter};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
+use crate::thread_qos::ThreadType;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::sync::Arc;
@@ -112,28 +114,25 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
         let failure_watch = watch.clone();
         let worker_id = id.clone();
         let mux_for_refusal = Arc::downgrade(mux);
-        let spawned = std::thread::Builder::new()
-            .name("mux-inventory-watch".into())
-            .stack_size(256 * 1024)
-            .spawn(move || {
-                let result = start(&watch, worker_id.clone());
-                drop(slot);
-                match result {
-                    Ok(true) => {}
-                    Ok(false) => watch.stop(Failure::Unavailable, false),
-                    Err(error) => {
-                        watch.stop(error, false);
-                        refuse(
-                            mux_for_refusal.upgrade().as_deref(),
-                            client,
-                            &watch.writer,
-                            worker_id,
-                            error,
-                            receipt,
-                        );
-                    }
+        let spawned = spawn_thread(move || {
+            let result = start(&watch, worker_id.clone());
+            drop(slot);
+            match result {
+                Ok(true) => {}
+                Ok(false) => watch.stop(Failure::Unavailable, false),
+                Err(error) => {
+                    watch.stop(error, false);
+                    refuse(
+                        mux_for_refusal.upgrade().as_deref(),
+                        client,
+                        &watch.writer,
+                        worker_id,
+                        error,
+                        receipt,
+                    );
                 }
-            });
+            }
+        });
         if spawned.is_err() {
             failure_watch.stop(Failure::Busy, false);
             return Err(Failure::Busy);
@@ -199,6 +198,21 @@ fn start(watch: &Arc<state::Watch>, id: Option<Value>) -> Result<bool, Failure> 
     watch.activate(id, &initial)
 }
 
+/// Starts `body` on a `mux-inventory-watch` thread: a watcher, utility as
+/// Chromium's kUtility (p04-input-084), started through `spawn_raisable`
+/// so a ranked lock can raise it (p05-ipc-080).
+fn spawn_thread(
+    body: impl FnOnce() + Send + 'static,
+) -> std::io::Result<supervised::SupervisedThread<()>> {
+    supervised::spawn_raisable(
+        "mux-inventory-watch",
+        ThreadType::Utility.qos(),
+        Fatal,
+        ShutdownBehavior::Continue,
+        body,
+    )
+}
+
 fn revision(value: &Value) -> Result<u64, Failure> {
     if !agent_inventory::valid_snapshot(value) {
         return Err(Failure::InvalidResponse);
@@ -223,4 +237,22 @@ fn watch_ids_are_the_schema_bound() {
     let bound = Some(id.len() as u64);
     assert_eq!(schema::max_bytes("AgentInventoryWatchActive", "watch_id"), bound);
     assert_eq!(schema::request_max_bytes("agent-inventory-watch", "expected_watch_id"), bound);
+}
+
+/// The watch thread is declared at the raisable class of Utility
+/// (p04-input-084, p05-ipc-080): Utility where a lock can raise it.
+#[cfg(test)]
+#[test]
+fn the_watch_thread_is_a_utility_thread() {
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let thread = spawn_thread(move || {
+        let _ = released.recv();
+    })
+    .expect("the watch thread starts");
+    crate::thread_qos::tests::assert_declared(
+        "mux-inventory-watch",
+        cmux_tui_platform::qos::raisable_class(ThreadType::Utility.qos()),
+    );
+    drop(release);
+    thread.join().expect("the watch thread ends");
 }

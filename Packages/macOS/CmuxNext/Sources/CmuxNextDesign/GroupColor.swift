@@ -2,45 +2,8 @@ public import AppKit
 public import CmuxTheme
 public import CmuxNextDesignTokens
 
-/// The nine group colors, shared by tab groups and workspace groups so
-/// both render identically. The raw value is the stable token the daemon
-/// stores and `cmux.json` / the CLI accept.
-///
-/// Group colors are user content, so blue is allowed here (the no-blue rule
-/// covers app chrome). Every token is one hue at low saturation, tuned so a
-/// window full of groups still reads as calm gray chrome.
-public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sendable {
-    case grey
-    case blue
-    case red
-    case yellow
-    case green
-    case pink
-    case purple
-    case cyan
-    case orange
-
-    /// The color a new group, space or browser profile gets: the first of
-    /// `automaticOrder` not in `used`; never blue or grey. Nil when every
-    /// such color is in use.
-    public static func automatic(used: Set<String>) -> GroupColor? {
-        automaticOrder.first { !used.contains($0.rawValue) }
-    }
-
-    /// The color a group with no stored color draws in: one of `automaticOrder`, picked from
-    /// the group's id, so it is the same on every launch and machine (Leo 2026-10-20: groups
-    /// made by agents and the CLI store none and all drew grey, as Chrome never does). A
-    /// group someone colored grey keeps grey; only a missing color takes this.
-    public static func unset(id: String) -> GroupColor {
-        // FNV-1a: `hashValue` is seeded per process, so it would change the color each launch.
-        var hash: UInt64 = 0xCBF2_9CE4_8422_2325
-        for byte in id.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 0x0000_0100_0000_01B3
-        }
-        return automaticOrder[Int(hash % UInt64(automaticOrder.count))]
-    }
-
+/// A group color as AppKit draws it: by hue in Lawrence's fixed palette, light or dark.
+nonisolated extension GroupColor {
     /// The group color closest to an sRGB `0xRRGGBB` color by hue (another
     /// browser's profile color, so an imported profile keeps its look);
     /// grey for colors with almost no saturation.

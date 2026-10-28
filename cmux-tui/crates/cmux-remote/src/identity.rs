@@ -581,6 +581,7 @@ impl PersistenceCoordinator {
         let worker_shared = Arc::clone(&shared);
         // The durable writer that device connect, approve and revoke await:
         // the table's journal-writer-a-request-waits-on row, UserInitiated.
+        // supervise-allow: the coordinator keeps this handle; the body catches its own panic and fails the coordinator terminally, so every waiter gets a PersistenceFailure.
         let worker =
             cmux_threads::spawn(PERSISTENCE_THREAD_NAME, PERSISTENCE_THREAD_QOS, move || {
                 if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1198,6 +1199,7 @@ impl AuthDatabase {
             (pending.decision, persistence)
         };
         let (completed_tx, completed_rx) = oneshot::channel();
+        // supervise-allow: one denial's completion; a panic drops `completed_tx` and `decision`, so this caller and the waiting device both get an error.
         tokio::spawn(async move {
             let result = persistence.wait_result().await;
             let authorization = match &result {
@@ -1620,6 +1622,7 @@ impl Drop for PendingDecisionCleanup {
         let invitation_id = self.invitation_id.clone();
         let token = Arc::clone(&self.token);
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            // supervise-allow: Drop cannot await; one map removal under a tokio Mutex (no poison), and a panic leaves only this expired entry.
             runtime.spawn(async move {
                 let mut locked = state.lock().await;
                 remove_pending_decision(&mut locked, &invitation_id, &token);
@@ -1630,6 +1633,7 @@ impl Drop for PendingDecisionCleanup {
         let synchronous_fallback = Arc::clone(&state);
         let fallback_invitation_id = invitation_id.clone();
         let fallback_token = Arc::clone(&token);
+        // supervise-allow: Drop outside a runtime; one map removal, and a panic leaves only this expired entry.
         if cmux_threads::spawn(
             "cmux-pending-enrollment-cleanup",
             cmux_threads::ThreadQos::Utility,
@@ -2299,7 +2303,12 @@ mod tests {
         // state file's read, write and fsync left there panic in debug.
         let state_dir = tempfile::tempdir().unwrap();
         let store = ClientIdentityStore::load_or_create(state_dir.path().join("client")).unwrap();
-        let runtime = cmux_blocking::runtime::current_thread().build().unwrap();
+        let runtime = cmux_blocking::runtime::current_thread(
+            "cmux-remote-test",
+            cmux_threads::ThreadQos::Utility,
+        )
+        .build()
+        .unwrap();
         let public_key = [7_u8; 32];
         let fingerprint = public_key_fingerprint(&public_key);
         let stalled = cmux_blocking::counts().stalled;
@@ -2327,7 +2336,12 @@ mod tests {
                 .unwrap();
         let marker = state_dir.path().join("lifecycle-cleanup");
         let cleanup_marker = marker.clone();
-        let runtime = cmux_blocking::runtime::current_thread().build().unwrap();
+        let runtime = cmux_blocking::runtime::current_thread(
+            "cmux-remote-test",
+            cmux_threads::ThreadQos::Utility,
+        )
+        .build()
+        .unwrap();
         let stalled = cmux_blocking::counts().stalled;
 
         cmux_blocking::runtime::block_on(&runtime, async {
@@ -2355,7 +2369,12 @@ mod tests {
         let lock_path = sibling_lock_path(&path).unwrap();
         let public_key = [9_u8; 32];
         let fingerprint = public_key_fingerprint(&public_key);
-        let runtime = cmux_blocking::runtime::current_thread().build().unwrap();
+        let runtime = cmux_blocking::runtime::current_thread(
+            "cmux-remote-test",
+            cmux_threads::ThreadQos::Utility,
+        )
+        .build()
+        .unwrap();
 
         let (cached, on_disk) = cmux_blocking::runtime::block_on(&runtime, async {
             let (transaction, mut candidate) = store.reload_client_state().await.unwrap();

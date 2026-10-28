@@ -76,10 +76,11 @@ final class PaneContentView: NSView, PaneContentChrome {
     }
     /// The browser whose header band the strip uses (`PaneContentView+Band`).
     weak var bandHost: (any PaneHeaderBandHosting)?
-    /// The strip's constraints to that band; empty while it is not pinned.
-    var bandPins: [NSLayoutConstraint] = []
-    /// Whether the strip is pinned to a browser's header band.
-    var isBandActive: Bool { !bandPins.isEmpty }
+    /// The band in the band host's coordinates, as it last reported it (`onPaneHeaderBandLayout`);
+    /// nil while the strip is not on a band.
+    var bandRect: CGRect?
+    /// Whether the strip sits in a browser's header band.
+    var isBandActive: Bool { bandRect != nil }
     private var reportedChrome: (header: CGFloat, footer: CGFloat) = (-1, -1)
     /// The outgoing view kept while the shown one has not painted (`PaneContentView+PaintHold`).
     let paintHold: PanePaintHold
@@ -108,7 +109,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// - Parameter deadlines: The app's one main-thread deadline scheduler (`AppServices.mainDeadlines`); its
     ///   work scheduler runs the view's observations.
     init(stripModel: TabStripModel, reveal: LaunchReveal, input: InputEventTap, node: VisibilityNode, deadlines: MainDeadlineScheduler) {
-        stripView = TabStripView(model: stripModel, input: input)
+        stripView = TabStripView(model: stripModel, input: input, deadlines: deadlines, visibilityNode: node)
         self.node = node
         // The pane's limit for a page that never paints under its launch image: `visible` work.
         launchImageDeadline = MainDeadline(owner: "pane.launch-image", workClass: .visible, scheduler: deadlines)
@@ -159,8 +160,8 @@ final class PaneContentView: NSView, PaneContentChrome {
         let stripHeight = self.stripHeight
         let contentHeight = max(0, bounds.height - stripHeight)
         let onTop = barPosition == .top
-        // Pinned to a browser's band, the strip follows its constraints and
-        // the browser fills the pane (its band holds the strip's place).
+        // In a browser's band, the strip is framed on the band and the
+        // browser fills the pane (its band holds the strip's place).
         let shown = shownStripHeight
         stripView.isHidden = shown <= 0
         toolbar?.view.isHidden = shown <= 0
@@ -174,10 +175,11 @@ final class PaneContentView: NSView, PaneContentChrome {
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
-        // After the host frame: a strip pinned to a browser's band reads its
-        // frame from constraints that depend on the host frame.
+        // After the host frame: a strip in a browser's band is framed from the band in this pane's
+        // coordinates; a host resize lays the browser out below, which reports the band again.
+        if isBandActive { layoutBandStrip() }
         super.layout()
-        toolbar?.view.refreshCorner() // "…"'s hover spans the strip's frame, set above or by the band's constraints
+        toolbar?.view.refreshCorner() // "…"'s hover spans the strip's frame, set above or from the band
         // Restored terminal views are attached while the pane is still at
         // zero size. Reapply their frame after the host receives its launch
         // bounds so Ghostty and its find/glass overlays get a real first
@@ -318,22 +320,10 @@ final class PaneContentView: NSView, PaneContentChrome {
             // A toolbar or bookmarks bar height change only reshapes the
             // pane's rounded area and ring. It arrives from the browser
             // chrome's own layout(): this pane's frames do not depend on it
-            // (a pinned strip follows its band constraints), so no layout of
-            // this ancestor is requested from inside that pass.
-            inner.onPaneHeaderHeightChange = { [weak self] in
-                guard let self else { return }
-                self.reportHeaderIfChanged()
-                // A strip pinned to the browser's band follows the band's
-                // guide: one more layout of this pane, asked for after the
-                // window's pass, never from inside the browser's layout.
-                guard self.isBandActive else { return }
-                if let window = self.window as? ShellWindow {
-                    // invalidate: the browser's header changed height (it reports a change only); the band follows it.
-                    window.afterLayoutPass { [weak self] in self?.needsLayout = true }
-                } else {
-                    self.needsLayout = true // invalidate: as above, with no shell window to wait for.
-                }
-            }
+            // (a strip in its band follows the band's own report,
+            // `onPaneHeaderBandLayout`), so no layout of this ancestor is
+            // requested from inside that pass.
+            inner.onPaneHeaderHeightChange = { [weak self] in self?.reportHeaderIfChanged() }
         }
         applyCornerRadius()
         updateBand()
@@ -390,7 +380,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         // A hidden pane repaints once, when it shows (R-appear).
-        node.deferUntilVisible(key: "PaneContentView.appearance") { [weak self] in self?.themeDidChange() }
+        node.deferAppearance(owner: "PaneContentView") { [weak self] in self?.themeDidChange() }
     }
 
     /// The content background under the content only (the strip has its

@@ -34,7 +34,7 @@ use regex::Regex;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 use std::time::Instant;
 
@@ -127,16 +127,6 @@ pub(super) fn send(
     require_pty(&surface)?;
     // Bytes queued for this terminal while it was being created go first.
     mux.wait_for_creating_input_flush(&surface);
-    // A reply meant for the program that asked must not reach the shell that took the foreground
-    // back after it exited: checked here, right before the write, not a round trip earlier.
-    if let Some(expected) = expect_foreground {
-        let found = surface.process_id().and_then(platform::foreground_process_name);
-        if found.as_deref() != Some(expected.as_str()) {
-            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
-                "foreground changed: the expected program no longer runs in the foreground"
-            )));
-        }
-    }
     if let Some(expected) = expect_agent {
         // Only this surface's own terminal's record: a surface with no terminal id fails closed
         // (an unfiltered roster would name another terminal's agent).
@@ -160,24 +150,38 @@ pub(super) fn send(
             )));
         }
     }
+    let raw = bytes.map(|b64| base64::engine::general_purpose::STANDARD.decode(b64)).transpose()?;
+    // The whole send (text, bytes and Return) is one turn of the terminal's input FIFO: no
+    // other input, from this connection's streams or any other, lands inside it.
+    let turn = surface.input_turn().ok_or_else(|| anyhow::anyhow!("surface is not a terminal"))?;
+    // A reply meant for the program that asked must not reach the shell that took the foreground
+    // back after it exited: checked here, in the send's turn right before the write, not a
+    // round trip earlier.
+    if let Some(expected) = expect_foreground {
+        let found = surface.process_id().and_then(platform::foreground_process_name);
+        if found.as_deref() != Some(expected.as_str()) {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "foreground changed: the expected program no longer runs in the foreground"
+            )));
+        }
+    }
     if paste {
         let mut payload = text.unwrap_or_default().into_bytes();
-        if let Some(b64) = bytes {
-            payload.extend(base64::engine::general_purpose::STANDARD.decode(b64)?);
+        if let Some(raw) = raw {
+            payload.extend(raw);
         }
-        surface.write_paste(&payload)?;
+        surface.write_paste_in(&turn, &payload, None)?;
     } else {
         // The key press's flow goes with its first write, so one echo carries it.
         let flow = flow.unwrap_or(0);
         let mut echo_flow = flow;
         if let Some(text) = text {
             let text_flow = if text.is_empty() { 0 } else { std::mem::take(&mut echo_flow) };
-            surface.write_bytes_flow(text.as_bytes(), text_flow)?;
+            surface.write_bytes_in(&turn, text.as_bytes(), text_flow)?;
         }
-        if let Some(b64) = bytes {
-            let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
+        if let Some(raw) = raw {
             cmux_flow_trace::hop("daemon.send.write", flow, surface.flow_terminal_id());
-            surface.write_bytes_flow(&raw, echo_flow)?;
+            surface.write_bytes_in(&turn, &raw, echo_flow)?;
             cmux_flow_trace::hop("daemon.send.written", flow, surface.flow_terminal_id());
         }
     }
@@ -185,18 +189,107 @@ pub(super) fn send(
         // Return as its own key: a full-screen agent editor reads a pasted newline as a line
         // break, not a submit.
         // The text is already in: a failed Return must not read as "nothing was written".
-        surface.write_bytes(b"\r").map_err(|error| {
+        surface.write_bytes_in(&turn, b"\r", 0).map_err(|error| {
             anyhow::anyhow!("submit failed after the text was written: {error}")
         })?;
     }
+    // The turn ends before the state lock is taken (crate::lock_rank `PtyInput`).
+    drop(turn);
     mux.note_terminal_input(surface.id, client);
     Ok(json!({}))
+}
+
+/// The event an INPUT frame's failure sends on its stream (spec/events.md).
+pub(super) const INPUT_FAILED_EVENT: &str = "input-failed";
+
+/// Why an INPUT frame's bytes did not reach its terminal
+/// (`input-failed.reason`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum InputFailure {
+    /// The surface closed or its terminal ended.
+    TerminalEnded,
+    /// The stream views a browser surface, which takes no PTY bytes.
+    NotATerminal,
+    /// The terminal refused the write (a host that did not come back, a
+    /// write that timed out).
+    WriteFailed,
+    /// A daemon handoff is pending, so the daemon refused the bytes without
+    /// writing them, as it refuses a line meanwhile.
+    DaemonHandoff,
+}
+
+impl InputFailure {
+    pub(super) fn reason(self) -> &'static str {
+        match self {
+            Self::TerminalEnded => "terminal_ended",
+            Self::NotATerminal => "not_a_terminal",
+            Self::WriteFailed => "write_failed",
+            Self::DaemonHandoff => "daemon_handoff",
+        }
+    }
+
+    /// Whether later INPUT fails the same way until a write reaches a
+    /// terminal again (a respawned one) or the stream is opened again.
+    pub(super) fn is_final(self) -> bool {
+        matches!(self, Self::TerminalEnded | Self::NotATerminal)
+    }
+
+    /// `input-failed{stream, reason, bytes}` for `bytes` bytes of an INPUT
+    /// frame on `stream` not delivered.
+    pub(super) fn event(self, stream: u16, bytes: usize) -> Value {
+        json!({
+            "event": INPUT_FAILED_EVENT,
+            "stream": stream,
+            "reason": self.reason(),
+            "bytes": bytes,
+        })
+    }
+}
+
+/// An INPUT frame's bytes (p05-ipc-078): the raw bytes of `send`, with no
+/// JSON and no base64, written the way `send` writes them. `flow` (0: none)
+/// is the key press's flow id, carried by the frame header: its hops and
+/// the echo that answers it carry it, as `send`'s `flow` does. The mux is
+/// held only to find the surface, not across the write, which waits while
+/// the program does not read.
+pub(super) fn write_input(
+    mux: &Weak<Mux>,
+    client: u64,
+    surface: SurfaceId,
+    bytes: &[u8],
+    flow: u64,
+) -> Result<(), InputFailure> {
+    let surface = {
+        let Some(mux) = mux.upgrade() else { return Err(InputFailure::TerminalEnded) };
+        let Some(surface) = mux.surface(surface).filter(|surface| !surface.is_dead()) else {
+            return Err(InputFailure::TerminalEnded);
+        };
+        if require_pty(&surface).is_err() {
+            return Err(InputFailure::NotATerminal);
+        }
+        // Bytes queued for this terminal while it was being created go first.
+        mux.wait_for_creating_input_flush(&surface);
+        surface
+    };
+    cmux_flow_trace::hop("daemon.send.write", flow, surface.flow_terminal_id());
+    if surface.write_bytes_flow(bytes, flow).is_err() {
+        return Err(if surface.is_dead() {
+            InputFailure::TerminalEnded
+        } else {
+            InputFailure::WriteFailed
+        });
+    }
+    cmux_flow_trace::hop("daemon.send.written", flow, surface.flow_terminal_id());
+    if let Some(mux) = mux.upgrade() {
+        mux.note_terminal_input(surface.id, client);
+    }
+    Ok(())
 }
 
 pub(super) fn read_screen(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result<Value> {
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
-    let text = surface.try_with_terminal(|t| t.viewport_text())??;
+    let text = surface.try_with_terminal(|t| t.active_text())??;
     Ok(json!({ "text": text }))
 }
 
@@ -265,7 +358,7 @@ pub(super) fn wait_for(
     let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
     let start = Instant::now();
     let check = || -> anyhow::Result<Option<String>> {
-        let text = surface.try_with_terminal(|t| t.viewport_text())??;
+        let text = surface.try_with_terminal(|t| t.active_text())??;
         Ok(regex.is_match(&text).then_some(text))
     };
     if timeout_ms == 0 {
@@ -294,34 +387,38 @@ pub(super) fn wait_for(
             "elapsed_ms": start.elapsed().as_millis() as u64,
         }));
     }
-    loop {
-        if cancelled() {
-            anyhow::bail!("cancelled while waiting for pattern");
-        }
-        let now = Instant::now();
-        if now >= deadline {
-            anyhow::bail!("timeout waiting for pattern");
-        }
-        match attach.stream.recv_interruptible(&interrupt, Some(deadline)) {
-            Ok(_) => {
-                if let Some(text) = check()? {
-                    return Ok(json!({
-                        "matched": true,
-                        "text": text,
-                        "elapsed_ms": start.elapsed().as_millis() as u64,
-                    }));
-                }
+    // The wait blocks by design: a pool worker that runs it starts a
+    // temporary one meanwhile (sequenced_pool.rs).
+    crate::request_path::will_block(|| {
+        loop {
+            if cancelled() {
+                anyhow::bail!("cancelled while waiting for pattern");
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                if Instant::now() >= deadline {
+            let now = Instant::now();
+            if now >= deadline {
+                anyhow::bail!("timeout waiting for pattern");
+            }
+            match attach.stream.recv_interruptible(&interrupt, Some(deadline)) {
+                Ok(_) => {
+                    if let Some(text) = check()? {
+                        return Ok(json!({
+                            "matched": true,
+                            "text": text,
+                            "elapsed_ms": start.elapsed().as_millis() as u64,
+                        }));
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if Instant::now() >= deadline {
+                        anyhow::bail!("timeout waiting for pattern");
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     anyhow::bail!("timeout waiting for pattern");
                 }
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                anyhow::bail!("timeout waiting for pattern");
-            }
         }
-    }
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -416,7 +513,7 @@ pub(super) fn copy(mux: &Arc<Mux>, surface: SurfaceId, mode: String) -> anyhow::
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
     let text = match mode.as_str() {
-        "screen" => surface.try_with_terminal(|t| t.viewport_text())??,
+        "screen" => surface.try_with_terminal(|t| t.active_text())??,
         "scrollback" => surface.try_with_terminal(|t| t.plain_text())??,
         "selection" => surface.selection_text().ok_or_else(|| anyhow::anyhow!("no selection"))?,
         other => anyhow::bail!("bad mode {other}"),
@@ -531,3 +628,11 @@ fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
     };
     Ok(Rgb { r: hex(0)?, g: hex(2)?, b: hex(4)? })
 }
+
+#[cfg(test)]
+#[path = "pty_input_order_tests.rs"]
+mod pty_input_order_tests;
+
+#[cfg(all(test, unix))]
+#[path = "cmd_terminal_io_wire_tests.rs"]
+mod wire_tests;

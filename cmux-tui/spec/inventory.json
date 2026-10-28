@@ -552,6 +552,7 @@
       "trace-start",
       "trace-stop",
       "trace-status",
+      "memory-report",
       "subscribe-activity",
       "set-terminal-command-history",
       "list-terminal-commands",
@@ -866,6 +867,12 @@
       ]
     },
     {
+      "name": "input-failed",
+      "streams": [
+        "attach-byte"
+      ]
+    },
+    {
       "name": "keybindings-changed",
       "streams": [
         "subscribe"
@@ -879,6 +886,12 @@
     },
     {
       "name": "machine-usage-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "server-diagnostic-site",
       "streams": [
         "subscribe"
       ]
@@ -2078,7 +2091,8 @@
         "Activate": 110,
         "Detach": 111,
         "ClipboardReadReply": 112,
-        "TraceControl": 113
+        "TraceControl": 113,
+        "SetThreadQos": 114
       }
     },
     "machine_provider_v1": {

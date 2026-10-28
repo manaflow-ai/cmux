@@ -59,6 +59,38 @@ extension ShellWindow {
         controller.focus.responderDidChange(FocusResponderClassifier.classify(firstResponder, in: controller), source: .current)
     }
 
+    // MARK: Order-in (QA chrome-parity-v2-1 bug 1)
+
+    /// The first time a window is placed on screen with no first responder, AppKit makes its first key view the
+    /// first responder (`initialFirstResponder` unset). In a cmux window that is the sidebar's workspace list
+    /// whenever the focused pane's content is not a key view yet (a restored browser pane showing its launch
+    /// picture): the focus model heard a sidebar report, took it as the person's choice, and the next Return
+    /// opened the workspace's rename field. Nobody asked for that pick. While the window is ordered in with no
+    /// first responder, only the focus model's own move (its applier) takes the keyboard; it places the keyboard
+    /// on the restored target once that content is presented. A responder already set is left alone.
+    func refusesOrderInKeyView(_ responder: NSResponder?) -> Bool {
+        guard orderInDepth > 0, firstResponder === self, let view = responder as? NSView, view.window === self else { return false }
+        return focus?.isApplying != true
+    }
+
+    /// Runs `body` with `orderInDepth` counted when the window is not on screen yet (every ordering path below).
+    private func orderingIn(_ body: () -> Void) {
+        guard !isVisible else { return body() }
+        orderInDepth += 1
+        defer { orderInDepth -= 1 }
+        body()
+    }
+
+    override func order(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
+        guard place != .out else { return super.order(place, relativeTo: otherWin) }
+        orderingIn { super.order(place, relativeTo: otherWin) }
+    }
+
+    override func orderFront(_ sender: Any?) { orderingIn { super.orderFront(sender) } }
+    override func orderBack(_ sender: Any?) { orderingIn { super.orderBack(sender) } }
+    override func orderFrontRegardless() { orderingIn { super.orderFrontRegardless() } }
+    override func makeKeyAndOrderFront(_ sender: Any?) { orderingIn { super.makeKeyAndOrderFront(sender) } }
+
     override func becomeKey() {
         cursorRectHold?.windowKeyStateWillChange(self)
         super.becomeKey()
@@ -76,10 +108,22 @@ extension ShellWindow: HoverFrameInputHosting {
     var hoverFrameInput: FrameInputCoalescers? { (windowController as? WindowController)?.services.hoverFrameInput }
 }
 
+/// Its reorder drags (tab strip, sidebar rows and spaces, extension buttons) move once per frame on the app's
+/// coalescers (feature `pointerFrameDrags`), read on each press (``PointerFrameDrag``).
+extension ShellWindow: DragFrameInputHosting {
+    var dragFrameInput: FrameInputCoalescers? { (windowController as? WindowController)?.services.dragFrameInput }
+}
+
 /// Its find pills hold the app's input tap `findPillOpen` flag while their field edits, so a key-down
 /// asks no responder whether a pill takes it (`FindPillView.forwardArrowKeyDownToEditingPill`).
 extension ShellWindow: InputTapHosting {
     var inputTap: InputEventTap? { (windowController as? WindowController)?.services.inputTap }
+}
+
+/// Its terminals and omnibar field editor time their input method calls in the key's latency slot
+/// (`TextInputStage`), read when they join the window.
+extension ShellWindow: TextInputStageHosting {
+    var textInputStage: TextInputStage? { (windowController as? WindowController)?.services.inputLatency.textInput }
 }
 
 /// Overlays draw in the window's own top layer while no page child window shows (feature `overlayTopLayer`,
@@ -114,5 +158,31 @@ extension ShellWindow: OverlayTopLayerHosting {
 
     override func selectPreviousKeyView(_ sender: Any?) {
         if WindowOverlayHost.existingHost(for: self)?.cycleKeyViewInWindowTopLayer(forward: false) != true { super.selectPreviousKeyView(sender) }
+    }
+}
+
+/// The window's child windows: content children (page windows in process, content panels on either
+/// page surface) keep the overlay layer's placement and the overlay host's order current as they come and go.
+extension ShellWindow {
+    /// The Chromium fork adds each page window as a child ordered above
+    /// everything, the overlay panel included. Lift the overlay (and the app
+    /// panels above it) in the same call, before the window server shows a
+    /// frame with the page over the focus ring; the notifications that
+    /// follow the page would come a frame late.
+    override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
+        ChildWindowPolicy.check(childWin, parent: self)
+        super.addChildWindow(childWin, ordered: place)
+        if WindowOverlayLayer.isContent(childWin, of: self) { overlayLayer.evaluate() }
+        WindowOverlayHost.childWindowsDidChange(of: self)
+    }
+
+    /// A content child left (a page popup closed: `removeChildWindow`, then `orderOut`): the planes go
+    /// back into the view tree in the same call. With pages in the view tree no other window's notice
+    /// is watched, so nothing else would tell the overlay layer.
+    override func removeChildWindow(_ childWin: NSWindow) {
+        let wasContent = childWin.parent === self && WindowOverlayLayer.isContent(childWin, of: self)
+        super.removeChildWindow(childWin)
+        if wasContent { overlayLayer.evaluate() }
     }
 }

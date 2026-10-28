@@ -9,6 +9,7 @@
       "CmuxNextSignposts",
       "CmuxNextWakeups",
       "CmuxNextWakeupsTestSupport",
+      "CmuxNextTestSupport",
       "CmuxNextProcessEnvironment",
       "CCmuxAppFFILinux"
     ],
@@ -33,6 +34,7 @@
       "CmuxNextBrowserCore"
     ],
     [
+      "CmuxNextAppearance",
       "CmuxNextBridge",
       "CmuxNextWorkspaceNaming",
       "CmuxNextCloud",
@@ -89,6 +91,7 @@
       "CmuxNextSignposts",
       "CmuxNextWakeups",
       "CmuxNextWakeupsTestSupport",
+      "CmuxNextTestSupport",
       "CmuxNextProcessEnvironment",
       "CCmuxAppFFILinux",
       "CmuxNextActions",
@@ -109,6 +112,7 @@
       "CmuxNextVSCodeServer",
       "CmuxNextRemoteFetch",
       "CmuxNextBrowserCore",
+      "CmuxNextAppearance",
       "CmuxNextBridge",
       "CmuxNextWorkspaceNaming",
       "CmuxNextCloud",
@@ -123,6 +127,7 @@
       "CmuxNextRemoteLocalhost",
       "CmuxNextServerHelper",
       "CmuxNextCLIInstall",
+      "CmuxNextInputModel",
       "CZlib"
     ],
     "testTargets": [
@@ -223,14 +228,10 @@
         "CmuxNextLayout",
         "CmuxNextSidebar",
         "CmuxNextTabs"
-      ],
-      "CmuxNextSettings": [
-        "CmuxNextDesign"
       ]
     },
     "absent": [
       "CmuxNextOracle",
-      "CmuxNextInputModel",
       "OracleReplay",
       "OracleInputWalk",
       "OracleConfigDump",

@@ -2,6 +2,7 @@
 @testable import CmuxNextBrowser
 import CmuxNextInput
 import CmuxNextPages
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -80,7 +81,7 @@ import Testing
                 runtime.handle(.afterCreated(browser: browser, request: request, window: chromiumWindow))
             }
             try #require(tab.browserID != nil)
-            return CEFPageChromiumPage(tab: tab, pageID: "cmux.markdown")
+            return CEFPageChromiumPage(tab: tab, pageID: "cmux.markdown", mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         }
 
         func close() {
