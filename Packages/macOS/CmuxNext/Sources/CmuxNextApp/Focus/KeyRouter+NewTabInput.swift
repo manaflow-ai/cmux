@@ -253,6 +253,7 @@ final class NewTabInputCoordinator {
     /// monitor), so the agent pane that gets it judges the person's original key (`held`) here: a
     /// Return typed before the New Tab field was ready still runs its terminal line (cx-hnpxh).
     static func replay(_ event: NSEvent, held: NSEvent, in window: NSWindow, router: KeyRouter) {
+        router.services?.inputLatency.replayed(held, keyWindow: window) // its hold, when late (debug.input late_keys)
         router.dispatchingSynthetic(event) {
             guard !router.interceptKeyDown(event, in: window) else { return }
             // A page in Chromium has the keys in its own window, a child of this one: the key window,
