@@ -122,8 +122,11 @@
       // Logs also go to Axiom (dataset cmux-api-prod-logs, monitor cmux-api-production-kms-fallback); query strings removed first.
       // invocation_logs off (cx-dgsp), as staging: clients built before the retirement still send `bearer.<token>`.
       "observability": { "enabled": true, "redact_query_string": true, "logs": { "enabled": true, "invocation_logs": false, "persist": true, "destinations": ["axiom-cmux-api-production"] } },
-      // 23 */6: feed text sweep; */5: the Cloud Home health probe and its Sentry Cron check-in (home-health.ts, secret SENTRY_DSN).
-      "triggers": { "crons": ["23 */6 * * *", "*/5 * * * *"] },
+      // 23 */6: feed text sweep; */5: the Cloud Home health probe and its Sentry Cron check-in (home-health.ts, secret SENTRY_DSN);
+      // */15: the Postgres/MySQL projection compare during the dual write (projection-compare-cron.ts), as on staging:
+      // counts and per-row hashes, a lasting MySQL gap repaired from Postgres while Postgres is primary. The usage sync
+      // on the same cron stays off in production until its live switch (index.ts).
+      "triggers": { "crons": ["23 */6 * * *", "*/15 * * * *", "*/5 * * * *"] },
       "workers_dev": true,
       // Inference (Lawrence, 2026-10-12): paid teams on, 20 USD per provider per UTC day; the free tier stays OFF
       // (INFERENCE_FREE_ENABLED "0") until device attestation is live (cx-ds09i). Invite links open the production
