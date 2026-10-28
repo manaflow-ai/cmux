@@ -215,10 +215,14 @@ def appearance(j, label):
     pq.shot("appearance-after-collapsed")
     tap(j, "Expand Tab Group")
     out["expanded"], _ = wait_mac(mac_groups, key, lambda v: (group(v, "build") or {}).get("collapsed") is False, "the expand on the Mac")
+    back(j)
+    time.sleep(1)
+    pq.shot("appearance-after-card")  # the members' chip: purple, with the star
+    open_group_page(j, "p2tabs-t1")
     tap(j, "Remove Tab Group Icon")
     out["icon_removed"], _ = wait_mac(mac_groups, key, lambda v: not (group(v, "build") or {}).get("icon"), "the icon removed on the Mac")
-    back(j)
-    pq.shot("appearance-after-card")
+    time.sleep(1)
+    pq.shot("appearance-after-icon-removed")
     return out
 
 
