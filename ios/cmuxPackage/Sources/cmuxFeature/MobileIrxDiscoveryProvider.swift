@@ -53,7 +53,12 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
                 guard let self, !Task.isCancelled else { return }
                 let owner = await irx.directoryScopeID()
                 let directory = await irx.currentDirectory()
-                guard owner == (await irx.directoryScopeID()) else { continue }
+                let currentOwner = await irx.directoryScopeID()
+                guard owner == currentOwner else {
+                    _ = await applyDirectory(nil, owner: currentOwner)
+                    for observer in observers.values { observer.yield(()) }
+                    continue
+                }
                 guard await applyDirectory(directory, owner: owner) else { continue }
                 for observer in observers.values { observer.yield(()) }
             }
@@ -69,13 +74,14 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
             observedScope = owner
             lastAppliedDirectoryRevision = nil
         }
-        guard let owner, let directory else {
+        if directory == nil || owner == nil {
             guard ownerChanged || lastAppliedDirectoryRevision != nil else { return false }
             scope &+= 1
             lastAppliedDirectoryRevision = nil
             await routeCatalog.activate(scope: scope, owner: owner)
             return true
         }
+        guard let owner, let directory else { return false }
         guard lastAppliedDirectoryRevision.map({ directory.revision >= $0 }) ?? true else {
             return false
         }
