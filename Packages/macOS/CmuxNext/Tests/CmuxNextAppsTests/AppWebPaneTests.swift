@@ -96,7 +96,8 @@ struct AppWebPaneTests {
         let (refused, refusal) = AsyncStream.makeStream(of: Void.self)
         view.onRefusedNavigation = { refusal.yield() }
         _ = try? await view.webView.evaluateJavaScript("location.href = 'https://example.com/'")
-        _ = await refused.first { _ in true }
+        var refusals = refused.makeAsyncIterator()
+        _ = await refusals.next()
         #expect(view.webView.url == view.pane.entryURL, "the page stays on its own origin")
     }
 
