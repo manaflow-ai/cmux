@@ -192,6 +192,7 @@ on:
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/reset-stale-submodules.sh
+      - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
@@ -216,6 +217,9 @@ on:
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
       - tests/test_next_batch_groups.py
+      - scripts/ci/test_reds.py
+      - scripts/ci/base_red_excuse.py
+      - scripts/ci/next_batch.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_base_autofix_finishes.py
       - tests/test_cmux_next_pr_autofix_settings.py
@@ -274,6 +278,10 @@ on:
       - scripts/import-apple-developer-id-intermediates.sh
       - scripts/apple-developer-id-certs/**
       - scripts/prune_nightly_release_assets.py
+      # The push-only base-red classifier in the checks job (push only, never a
+      # pull request; the parity guard lists it in PUSH_ONLY_PATTERNS).
+      - scripts/ci/base_red_checks.py
+      - scripts/ci/tests/test_base_red_checks.py
       # Pull-request inputs that pushes must watch too (the parity guard,
       # tests/test_ci_workflow_path_filter_parity.py).
       - scripts/cmux-next/state-roots-baseline.tsv
@@ -283,8 +291,9 @@ on:
       - tests/test_ci_generator_input_freshness.sh
       - tests/test_cmux_next_base_autofix_finishes.py
       - tests/test_cmux_next_pr_autofix_settings.py
-      - scripts/ci/base_red_checks.py
-      - scripts/ci/tests/test_base_red_checks.py
+      - scripts/ci/test_reds.py
+      - scripts/ci/base_red_excuse.py
+      - scripts/ci/next_batch.py
       - .github/workflows/cmux-next-base-autofix.yml
       - App/**
       - cmux.xcodeproj/**
@@ -440,6 +449,7 @@ on:
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/reset-stale-submodules.sh
+      - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
@@ -709,6 +719,12 @@ jobs:
       # ready: the published tree its tree jobs fetch (CMUX_TUI_TREE_KEY).
       tree_fetch_key: ${{ steps.tree-final.outputs.tree_fetch_key || steps.tree.outputs.tree_fetch_key }}
       tree_reason: ${{ steps.marker-upload.outcome == 'failure' && 'the tree wait marker was not uploaded, so no publish would start the tree jobs; re-run this run' || steps.tree-final.outputs.tree_reason || steps.tree.outputs.tree_reason }}
+      # The one job that checks the generated files on its own package build (HQ#4724: skip compiles
+      # that add no signal). daemon-test on a push it runs on (a ready tree), else swift-test where it
+      # runs and builds (its targets), else daemon-test where it runs, else the generated-files job's
+      # own build. swift-test and daemon-test then never compete with a third
+      # `swift build --build-tests`; generated-verdict gives the folded verdict its own check.
+      generated_host: ${{ steps.route.outputs.generated != 'true' && 'none' || github.event_name == 'push' && steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && steps.route.outputs.swift == 'true' && steps.route.outputs.swift_targets != '' && 'swift-test' || steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || 'generated-files' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1673,6 +1689,7 @@ jobs:
             bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh
             bash scripts/cmux-next/tests/base-autofix-changed.test.sh
             bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
+            bash scripts/cmux-next/tests/judge-action-exports.test.sh
             bash scripts/cmux-next/tests/publish-bot-head-tree.test.sh
             bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
             bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
@@ -1889,6 +1906,16 @@ jobs:
           python3 tests/test_pr_capture_check_paths.py
           python3 tests/test_car_guards.py
 
+      # "Red on the base, so not ours" is judged per failing test, and a crash or a cut-short
+      # run is never the base's (scripts/ci/test_reds.py, after cmux#26346 landed with its own
+      # signal 6 behind a job-level base red).
+      - name: Base-red classifier (per test)
+        id: base-red-classifier
+        continue-on-error: true
+        run: |
+          python3 tests/test_test_reds.py
+          python3 tests/test_base_red_excuse.py
+
       # The cmux NEXT DEV update script (an unchanged build is left alone; an
       # update keeps sessions and reopens the app) and the classic session import.
       - name: DEV update and classic import scripts
@@ -2068,6 +2095,7 @@ jobs:
             ${{ steps.web-bundles-from.outcome }}|Prebuilt web bundles install and stamp
             ${{ steps.web-ota-pointer.outcome }}|Web update pointer
             ${{ steps.companion-workflows.outcome }}|Companion workflows
+            ${{ steps.base-red-classifier.outcome }}|Base-red classifier (per test)
             ${{ steps.dev-update-classic-import.outcome }}|DEV update and classic import scripts
             ${{ steps.routing-replay.outcome }}|Routing replay (router changes)
             ${{ steps.app-ffi-pin.outcome }}|Check the app FFI pin
@@ -2380,10 +2408,14 @@ jobs:
   # Release compiles). It compiles and links the app at the PR's head, the
   # commit the landing gate (require-cmux-guards) asks about, in about a
   # minute. A fleet compile error fails this job: the PR's own red. No verdict
-  # (no client, the fleet down, a timeout) is a notice, and release-compile
-  # runs on a Mac instead. A full-ci PR, a fork, and every push and dispatch
-  # keep the Mac Release compile; the base push compiles Release after the
-  # merge, and push-attribution names the PR on a red.
+  # (no client, the controller unreachable or timed out: any cmux-ci exit but
+  # 0 and 1, 69 included) fails this job too, because nothing compiled the
+  # head: it went green on exit 69 with no compile at all (PR #26741's head
+  # 292b43ef, 2026-10-28, whose change runs no Mac Release compile). The
+  # verdict output stays unavailable, so release-compile still runs on a Mac
+  # where path_route's mac_release sends it. A full-ci PR, a fork, and every
+  # push and dispatch keep the Mac Release compile; the base push compiles
+  # Release after the merge, and push-attribution names the PR on a red.
   app-compile-fleet:
     needs: [path_route, push-head-preflight, macos-placement]
     # It takes the gateway, or a wider class of it, only while macos-placement saw a runner idle
@@ -2406,20 +2438,31 @@ jobs:
         id: check
         env:
           REF: ${{ github.event.pull_request.head.sha }}
+          MAC_RELEASE: ${{ needs.path_route.outputs.mac_release }}
         run: |
           set -uo pipefail
+          # No verdict is never a pass: the job fails and says why, and release-compile (a Mac)
+          # takes over only where path_route's mac_release sends it.
+          no_verdict() {  # reason
+            local fallback="No Mac Release compile runs for this change; re-run this job once the build fleet answers."
+            [[ "${MAC_RELEASE:-}" == true ]] && fallback="The Mac Release compile (cmux-next Release compile (Xcode 26)) runs as the fallback; re-run this job once the build fleet answers."
+            local summary="No build-fleet verdict for \`$REF\` ($1), so nothing has compiled this head here. $fallback"
+            echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
+            echo "### Build fleet app compile: no verdict"$'\n\n'"$summary" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Build fleet compile: no verdict::$summary"
+            exit 1
+          }
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
           if ! [[ -x "$client" ]]; then
-            echo "::notice title=Build fleet compile::$client is not installed on runner $RUNNER_NAME; the Mac Release compile runs."
-            echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
-            exit 0
+            no_verdict "$client is not installed on runner $RUNNER_NAME"
+            exit 1  # no_verdict exits already; this keeps the guard's shape visible
           fi
           status=0
           "$client" compile-check --ref "$REF" --app --timeout 1200 --queue-timeout 300 || status=$?
           case "$status" in
             0) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` (Debug, swift.org toolchain). The Release compile runs on the base push after the merge." ;;
             1) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`; the errors are in this job's log above." ;;
-            *) verdict=unavailable; summary="No build-fleet verdict (exit $status); the Mac Release compile runs instead." ;;
+            *) no_verdict "controller unreachable or timed out: cmux-ci exit $status" ;;
           esac
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
           echo "### Build fleet app compile: $verdict"$'\n\n'"$summary" >> "$GITHUB_STEP_SUMMARY"
@@ -2427,7 +2470,6 @@ jobs:
             echo "::error title=Build fleet compile::$summary"
             exit 1
           fi
-          [[ "$verdict" == pass ]] || echo "::notice title=Build fleet compile::$summary"
 
   # Small package-only Swift edits get a mini-first type-check/build canary.
   # This uses the same placement and linked SwiftPM scratch as the other Mac
@@ -2869,6 +2911,13 @@ jobs:
           shared-key: cmux-next-fast-tier-cargo
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
+      # ghostty-vt-sys's build.rs runs zig, which downloads the packages itself, once and
+      # unretried: a mid-stream read error failed the job (pkg/highway ReadFailed). Fetch
+      # them first, each attempt under a deadline and retried.
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        uses: ./.github/actions/ghostty-zig-packages
+
       - name: Run the fast tier (cargo entries)
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         env:
@@ -2935,6 +2984,10 @@ jobs:
     # restore (~7 min) and the build (~6 min) used most of 60 before a full
     # broad pass (~860 s on a slow mini) ran, so 90.
     timeout-minutes: 90
+    outputs:
+      # The folded generated files verdict (generated-verdict reads it): fresh, stale or empty. A
+      # reused pass of a folded run was recorded only with the generated files fresh.
+      generated_files: ${{ steps.reuse.outputs.hit == 'true' && 'fresh' || steps.generated-files-verdict.outputs.verdict }}
     env:
       # This job's label (its runs-on): a glaeda-* label means a mini.
       CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.gui_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (needs.macos-placement.outputs.runner != '' && 'blacksmith-6vcpu-macos-26') || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
@@ -2945,6 +2998,9 @@ jobs:
       SWIFT_FILTER: ${{ needs.path_route.outputs.swift_filter }}
       SWIFT_PRIORITY_FILTER: ${{ needs.path_route.outputs.swift_priority_filter }}
       SWIFT_TARGETS: ${{ needs.path_route.outputs.swift_targets }}
+      # The generated files are checked here, on this job's package build, when path routing
+      # picks this job (generated_host): no generated-files job builds the same package and tests.
+      CMUX_NEXT_FOLD_GENERATED: ${{ needs.path_route.outputs.generated_host == 'swift-test' }}
     steps:
       # This job's tests can start acpmux daemons: they get a home of the job's
       # own, never the runner's ~/.acpmux, the mini's own daemon
@@ -3015,7 +3071,9 @@ jobs:
       # With vars.CI_NEXT_JOB_REUSE, a pass on the same inputs stands for this run: the
       # steps below skip and the summary names the run that passed. The key
       # (scripts/ci/job_input_fingerprint.py swift-test) is the commit's full tree hash, this
-      # workflow file, the toolchain and the env flags below; a missing value gives no key.
+      # workflow file, the toolchain and the env flags below; a missing value gives no key. A run that
+      # checks the generated files here (CMUX_NEXT_FOLD_GENERATED) also keys the base commit they are
+      # compared against (generated_base), and records a pass only when they are fresh.
       # Any change to the tree, a base move included, changes the key. Not on a fork pull
       # request, which could record a pass of its own under any key.
       - name: Fingerprint this job's inputs
@@ -3035,6 +3093,7 @@ jobs:
             --extra "swift_targets=$SWIFT_TARGETS" \
             --extra "swift_filter=$SWIFT_FILTER" \
             --extra "layout_reducer=${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') }}" \
+            --extra "generated_base=$([[ "$CMUX_NEXT_FOLD_GENERATED" != true ]] || git rev-parse HEAD^1)" \
             --extra "web_bundles=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
       - name: Look for a pass on the same inputs
@@ -3181,6 +3240,24 @@ jobs:
           path: ${{ runner.temp }}/cmux-next-build-metrics
           if-no-files-found: ignore
           retention-days: 3
+
+      # The generated files checks (CMUX_NEXT_FOLD_GENERATED), on the package and tests built above
+      # and before the catalogs are compiled into the resource bundles, as the generated-files job
+      # runs them. generated-verdict gives their verdict (this job's generated_files output).
+      - name: Check generated action catalog, surfaces and inventory
+        id: actions
+        if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_ACTION_SURFACES_SKIP_BUILD: "1"
+        run: ../../../scripts/cmux-next/judge-action-exports.sh "$PWD"
+
+      - name: Check the settings exports
+        id: settings
+        if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: scripts/cmux-next/check-settings-exports.sh
 
       - name: Compile string catalogs into the resource bundles
         if: ${{ (env.SWIFT_TARGETS != '') && steps.reuse.outputs.hit != 'true' }}
@@ -3343,6 +3420,74 @@ jobs:
           CMUX_NEXT_TEST_HANG_SECONDS: "480"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter BranchStateResourcesTests
 
+      - name: Regenerate stale files
+        id: regenerate
+        if: ${{ !cancelled() && (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure') && steps.reuse.outputs.hit != 'true' }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.actions.outcome }}" == failure ]]; then
+            scripts/cmux-next/regenerate-action-contracts.sh
+          fi
+          # A stale settings export was already written into the checkout by the
+          # check above.
+          # The defaults snapshot reads the action and settings exports, so it
+          # follows whichever of them was regenerated.
+          python3 scripts/ci/defaults_guard.py snapshot
+          # The regenerated files themselves, at their repository paths, so
+          # they copy onto the PR head. A diff would be against the merge
+          # commit, whose context the head may not have.
+          out="$RUNNER_TEMP/generated/files"
+          mkdir -p "$out"
+          generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
+            schemas/settings/settings-schema.json 'docs/mdm/*' schemas/defaults/cmux-next.json)
+          git add -N -- "${generated[@]}"
+          git diff --name-only -- "${generated[@]}" > "$RUNNER_TEMP/generated/paths.txt"
+          git diff --stat
+          while IFS= read -r path; do
+            mkdir -p "$out/$(dirname "$path")"
+            cp "$path" "$out/$path"
+          done < "$RUNNER_TEMP/generated/paths.txt"
+          cp "$RUNNER_TEMP/generated/paths.txt" "$out/.paths"
+          if [[ -s "$RUNNER_TEMP/generated/paths.txt" ]]; then
+            echo "patch=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload the regenerated files
+        if: ${{ !cancelled() && steps.regenerate.outputs.patch == 'true' && steps.reuse.outputs.hit != 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-generated-patch
+          path: ${{ runner.temp }}/generated/files
+          include-hidden-files: true
+          retention-days: 3
+
+      # The folded verdict, for generated-verdict: never this job's own result, so a stale file
+      # does not turn `cmux-next swift test` red, and a red `cmux-next swift test` does not hide a stale file.
+      - name: Give the generated files verdict
+        id: generated-files-verdict
+        if: ${{ !cancelled() && env.CMUX_NEXT_FOLD_GENERATED == 'true' && steps.reuse.outputs.hit != 'true' }}
+        env:
+          ACTIONS: ${{ steps.actions.outcome }}
+          SETTINGS: ${{ steps.settings.outcome }}
+        run: |
+          if [[ "$ACTIONS" == failure || "$SETTINGS" == failure ]]; then
+            verdict=stale
+            {
+              echo "### Generated cmux-next files are stale"
+              echo
+              [[ "$ACTIONS" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
+              [[ "$SETTINGS" != failure ]] || echo "- settings exports: scripts/cmux-next/regenerate-settings-exports.sh"
+              echo
+              echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [[ "$ACTIONS" == success && "$SETTINGS" == success ]]; then
+            verdict=fresh
+          else
+            # The build failed or the checks never ran: no verdict, which generated-verdict fails.
+            verdict=
+          fi
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+
       # Also after a failure or a cancel: end the daemon of this job's home and
       # its agents (shutdown never starts one), then delete the home.
       - name: Stop this job's acpmux daemons and remove its home
@@ -3372,13 +3517,13 @@ jobs:
       # takes only passes of this repository's own runs). Never from a fork pull request.
       # An uncached (no_reuse) run records too.
       - name: Record this pass for the same inputs
-        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         run: |
           mkdir -p "$RUNNER_TEMP/ci-job-pass"
           printf '%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > "$RUNNER_TEMP/ci-job-pass/pass.txt"
 
       - name: Save the pass
-        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -3413,6 +3558,9 @@ jobs:
       # statuses: write reports a same-tree mode result on the tested commit.
       statuses: write
     timeout-minutes: 60
+    outputs:
+      # The folded generated files verdict (generated-verdict reads it): fresh, stale or empty.
+      generated_files: ${{ steps.generated-files-verdict.outputs.verdict }}
     env:
       CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (needs.macos-placement.outputs.runner != '' && 'blacksmith-6vcpu-macos-26') || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
@@ -3420,11 +3568,10 @@ jobs:
       # A pull request that changes no cmux-tui path runs on the newest
       # published tree when its own is not ready (path routing's probe).
       CMUX_TUI_TREE_KEY: ${{ inputs.same_tree_sha == '' && needs.path_route.outputs.tree_fetch_key || '' }}
-      # A push whose generated files are routed checks them here, on this job's
-      # package build, instead of a second Mac building the same package and
-      # tests (generated-files skips such a push). Pull requests keep the
-      # generated-files job.
-      CMUX_NEXT_FOLD_GENERATED: ${{ github.event_name == 'push' && inputs.same_tree_sha == '' && needs.path_route.outputs.generated == 'true' }}
+      # The generated files are checked here, on this job's package build, when path routing
+      # picks this job (generated_host): a push it runs on, or a pull request swift-test does
+      # not build. No generated-files job builds the same package and tests.
+      CMUX_NEXT_FOLD_GENERATED: ${{ needs.path_route.outputs.generated_host == 'daemon-test' }}
     steps:
       # This job's tests can start acpmux daemons: they get a home of the job's
       # own, never the runner's ~/.acpmux, the mini's own daemon
@@ -3589,10 +3736,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-      # The generated files checks of a push (CMUX_NEXT_FOLD_GENERATED), on the
-      # package and tests built above and before the catalogs are compiled into
-      # the resource bundles, as the generated-files job runs them. Their
-      # verdict is the last steps of this job, after the daemon suites.
+      # The generated files checks (CMUX_NEXT_FOLD_GENERATED), on the package and tests built above
+      # and before the catalogs are compiled into the resource bundles, as the generated-files job
+      # runs them. generated-verdict gives their verdict (this job's generated_files output).
       - name: Check generated action catalog, surfaces and inventory
         id: actions
         if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' }}
@@ -3600,7 +3746,7 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_ACTION_SURFACES_SKIP_BUILD: "1"
-        run: ../../../scripts/cmux-next/check-action-surfaces.sh "$PWD"
+        run: ../../../scripts/cmux-next/judge-action-exports.sh "$PWD"
 
       - name: Check the settings exports
         id: settings
@@ -3696,19 +3842,32 @@ jobs:
           include-hidden-files: true
           retention-days: 3
 
-      - name: Fail on stale generated files
-        if: ${{ !cancelled() && (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure') }}
+      # The folded verdict, for generated-verdict: never this job's own result, so a stale file
+      # does not turn `cmux-next daemon tests` red, and a red `cmux-next daemon tests` does not hide a stale file.
+      - name: Give the generated files verdict
+        id: generated-files-verdict
+        if: ${{ !cancelled() && env.CMUX_NEXT_FOLD_GENERATED == 'true' }}
+        env:
+          ACTIONS: ${{ steps.actions.outcome }}
+          SETTINGS: ${{ steps.settings.outcome }}
         run: |
-          {
-            echo "### Generated cmux-next files are stale"
-            echo
-            [[ "${{ steps.actions.outcome }}" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
-            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports: scripts/cmux-next/regenerate-settings-exports.sh"
-            echo
-            echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
-          } | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "::error::Generated cmux-next files are stale. Regenerate them as the step summary says."
-          exit 1
+          if [[ "$ACTIONS" == failure || "$SETTINGS" == failure ]]; then
+            verdict=stale
+            {
+              echo "### Generated cmux-next files are stale"
+              echo
+              [[ "$ACTIONS" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
+              [[ "$SETTINGS" != failure ]] || echo "- settings exports: scripts/cmux-next/regenerate-settings-exports.sh"
+              echo
+              echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [[ "$ACTIONS" == success && "$SETTINGS" == success ]]; then
+            verdict=fresh
+          else
+            # The build failed or the checks never ran: no verdict, which generated-verdict fails.
+            verdict=
+          fi
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
 
       # Also after a failure or a cancel: end the daemon of this job's home and
       # its agents (shutdown never starts one), then delete the home.
@@ -3762,9 +3921,10 @@ jobs:
 
   generated-files:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles]
-    # A push that daemon-test runs on is checked there (CMUX_NEXT_FOLD_GENERATED): the clause after
-    # the fork clause is daemon-test's push condition, which the clauses before it already hold.
-    if: ${{ !cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && !(github.event_name == 'push' && inputs.same_tree_origin != 'push' && inputs.same_tree_sha == '' && needs.path_route.outputs.daemon == 'true' && needs.path_route.outputs.tree_state == 'ready') }}
+    # Only where path routing picks it (generated_host): a run that swift-test or daemon-test
+    # builds the package in checks its generated files there (CMUX_NEXT_FOLD_GENERATED), and
+    # generated-verdict gives that verdict.
+    if: ${{ !cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files' }}
     name: cmux-next generated files
     # Bind pushes to their exact source head. A stalled old head therefore
     # cannot occupy the one branch-wide pending slot for every newer head.
@@ -4001,7 +4161,7 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_ACTION_SURFACES_SKIP_BUILD: "1"
-        run: ../../../scripts/cmux-next/check-action-surfaces.sh "$PWD"
+        run: ../../../scripts/cmux-next/judge-action-exports.sh "$PWD"
 
       # The CI target graph is bot-only (scripts/cmux-next/generated_outputs.py,
       # #21946): it is stale on every event between a merge that adds a target
@@ -4108,6 +4268,35 @@ jobs:
           retention-days: 14
           overwrite: true
 
+  # The generated files verdict of a run whose swift-test or daemon-test checked them on its own
+  # package build (path_route's generated_host, CMUX_NEXT_FOLD_GENERATED): its own check, on Linux,
+  # so a stale file is never a red swift or daemon test and a red test never hides a stale file.
+  # A host that never gave a verdict (its build failed, it stopped early) fails this too.
+  generated-verdict:
+    needs: [path_route, swift-test, daemon-test]
+    if: ${{ !cancelled() && (needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.result != 'skipped' || needs.path_route.outputs.generated_host == 'daemon-test' && needs.daemon-test.result != 'skipped') }}
+    name: cmux-next generated files (shared build)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Read the generated files verdict of the shared build
+        env:
+          HOST: ${{ needs.path_route.outputs.generated_host }}
+          HOST_RESULT: ${{ needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.result || needs.daemon-test.result }}
+          VERDICT: ${{ needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.outputs.generated_files || needs.daemon-test.outputs.generated_files }}
+        run: |
+          case "$VERDICT" in
+            fresh)
+              echo "Generated cmux-next files are fresh ($HOST checked them on its package build)." | tee -a "$GITHUB_STEP_SUMMARY" ;;
+            stale)
+              echo "::error::Generated cmux-next files are stale. $HOST's step summary says how to regenerate them; its cmux-next-generated-patch artifact holds the regenerated files."
+              exit 1 ;;
+            *)
+              echo "::error::$HOST ($HOST_RESULT) gave no generated files verdict: its package build failed or it stopped before the checks. Fix or re-run $HOST."
+              exit 1 ;;
+          esac
+
   # The fleet compile check is the first Release gate. It checks the exact
   # source without occupying a Mac runner.
   # Keep the fast-check wrapper's name distinct from the admission gate below:
@@ -4141,7 +4330,7 @@ jobs:
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if [[ ! -x "$client" ]]; then
+          if ! [[ -x "$client" ]]; then
             echo "::warning title=Fast fleet compile check::cmux-ci is not installed on $RUNNER_NAME; the Mac fallback will run."
             echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
             exit 0
@@ -4181,7 +4370,7 @@ jobs:
     needs: release-compile-fast
     if: ${{ always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result != 'skipped' && needs.release-compile-fast.result != 'cancelled' && needs.release-compile-fast.outputs.verdict != 'unavailable' && needs.release-compile-fast.outputs.verdict != '' }}
     name: cmux-next Release compile (Xcode 26)
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       actions: write
       contents: read
@@ -4468,9 +4657,10 @@ jobs:
   # every tier, so on success the committed exports are the ones the Swift
   # tests checked.
   swift-exports-cache:
-    needs: [path_route, checks, generated-files, swift-test, daemon-test]
-    # generated-files skips a push whose generated files daemon-test checks (CMUX_NEXT_FOLD_GENERATED).
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result == 'success' && (needs.generated-files.result == 'success' || needs.generated-files.result == 'skipped' && needs.path_route.outputs.generated == 'true') && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
+    needs: [path_route, checks, generated-files, generated-verdict, swift-test, daemon-test]
+    # generated-files skips a push whose generated files daemon-test checks (CMUX_NEXT_FOLD_GENERATED);
+    # generated-verdict gives that verdict.
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result == 'success' && (needs.generated-files.result == 'success' || needs.generated-files.result == 'skipped' && needs.generated-verdict.result == 'success') && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
     name: cmux-next Swift exports cache
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -4525,7 +4715,7 @@ jobs:
   request-nightly-next-fast:
     needs: [release-compile-fast, release-compile-fast-admission]
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result == 'success' && needs.release-compile-fast.outputs.verdict == 'pass' && needs.release-compile-fast-admission.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write
@@ -4547,7 +4737,7 @@ jobs:
   request-nightly-next:
     needs: release-compile
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write
@@ -4993,7 +5183,7 @@ jobs:
           name: cmux-next-dev-cas-holder-${{ steps.dev-holder.outputs.holder }}
           path: ${{ runner.temp }}/cmux-next-dev-cas-holder/holder.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
           overwrite: true
 
       - name: Upload DEV daily compile timing
@@ -5524,7 +5714,7 @@ jobs:
           name: cmux-next-dev-cas-holder-${{ steps.report.outputs.holder }}
           path: ${{ runner.temp }}/cmux-next-dev-cas-holder/holder.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
           overwrite: true
 
   request-cmux-next-dev-publish:
@@ -5664,7 +5854,7 @@ jobs:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
   push-attribution:
-    needs: [checks, generated-files, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile]
+    needs: [checks, generated-files, generated-verdict, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile]
     # Also a same-tree mode run for a feat-cmux-next push: the tree jobs of a
     # push whose tree was published after its run probed it run there.
     if: ${{ failure() && inputs.dev_daily != true && (github.event_name == 'push' || inputs.same_tree_origin == 'push') && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}

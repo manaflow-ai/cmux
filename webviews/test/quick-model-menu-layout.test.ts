@@ -60,6 +60,31 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     expect(heights[1]!).toBeGreaterThan(heights[0]! + 200);
   });
 
+  test("search and model rows share height and padding without a second list inset", async () => {
+    for (const variant of ["claude-many-harnesses", "chat-flipped"]) {
+      const page = await open(variant);
+      try {
+        const geometry = await page.evaluate(() => {
+          const search = document.querySelector<HTMLElement>(".acpmux-quick-search")!;
+          const item = document.querySelector<HTMLElement>(".acpmux-quick-item")!;
+          const body = document.querySelector<HTMLElement>(".acpmux-quick-body")!;
+          return {
+            searchHeight: search.getBoundingClientRect().height,
+            itemHeight: item.getBoundingClientRect().height,
+            searchInset: getComputedStyle(search).paddingLeft,
+            itemInset: getComputedStyle(item).paddingLeft,
+            bodyInset: getComputedStyle(body).paddingLeft,
+          };
+        });
+        expect(geometry.searchHeight).toBe(geometry.itemHeight);
+        expect(geometry.searchInset).toBe(geometry.itemInset);
+        expect(geometry.bodyInset).toBe("0px");
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
   test("downward Claude menu ends immediately after Fast even with ten distinct harnesses", async () => {
     const page = await open("claude-many-harnesses");
     try {
@@ -90,7 +115,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         const nextRail = await bounds(page, ".acpmux-quick-rail");
         const nextMenu = await bounds(page, ".acpmux-quick-menu");
         expect(Math.abs(nextRail.x - rail.x)).toBeLessThan(1);
-        expect(Math.abs(nextRail.x - rail.x)).toBeLessThan(1);
+        expect(Math.abs(nextMenu.x - menu.x)).toBeLessThan(1);
         expect(nextMenu.width).toBe(menu.width);
         expect(nextMenu.height).toBeLessThan(menu.height);
         expect(await page.locator(".acpmux-quick-list").innerText()).toContain("GPT-6");
@@ -241,7 +266,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       expect(await body.getAttribute("data-scrolled")).toBeNull();
       const first = (await page.locator(".acpmux-quick-list [role=menuitemradio]").first().boundingBox())!;
       const inset = await bounds(page, ".acpmux-quick-body");
-      expect(first.y - inset.y).toBeGreaterThanOrEqual(6);
+      expect(first.y - inset.y).toBe(0);
       await body.evaluate((node) => {
         node.scrollTop = node.scrollHeight;
       });
