@@ -117,6 +117,21 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
         await page.close();
       }
     });
+  for (const variant of ["whitespace-reply", "streaming-fence-opener"])
+    test(`${variant} keeps the fallback PR pill`, async () => {
+      const page = await browser.newPage({ viewport: { width: 760, height: 660 } });
+      try {
+        const { port } = vite.httpServer!.address() as { port: number };
+        await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant, width: 760 })}`);
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        expect(await page.locator(".acpmux-assistant .cv-md").count()).toBe(1);
+        expect(await page.locator(".acpmux-assistant .cv-md").textContent()).toBe("");
+        expect(await page.locator(".acpmux-pr-fallback .acpmux-pr-dock").count()).toBe(1);
+        expect(await page.locator(".acpmux-pr-fallback .acpmux-pr-dock__bar").count()).toBe(1);
+      } finally {
+        await page.close();
+      }
+    });
   for (const variant of [
     "no-footer",
     "received",
@@ -170,4 +185,32 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
           await page.close();
         }
       });
+  for (const theme of ["Apple System Colors", "Apple System Colors Light"])
+    test(`table-tail at 760px in ${theme} resets the wrapped block margin`, async () => {
+      const page = await browser.newPage({ viewport: { width: 760, height: 660 } });
+      try {
+        const { port } = vite.httpServer!.address() as { port: number };
+        await page.goto(
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", {
+            variant: "table-tail",
+            width: 760,
+            theme,
+          })}`,
+        );
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        await page.locator(".cv-table-block").waitFor();
+        expect(await page.locator(".acpmux-pr-dock").count()).toBe(1);
+        await page.screenshot({
+          path: `${captures}/table-tail-${theme.endsWith("Light") ? "light" : "dark"}-760.png`,
+        });
+        const margins = await page.locator(".cv-table-block").evaluate((node) => {
+          const style = getComputedStyle(node);
+          return { top: style.marginTop, bottom: style.marginBottom };
+        });
+        expect(margins.top).toBe("0px");
+        expect(margins.bottom).toBe("0px");
+      } finally {
+        await page.close();
+      }
+    });
 });

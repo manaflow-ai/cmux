@@ -67,6 +67,18 @@ export default agentPaneEntry({
         assistant("| Result | State |\n| --- | --- |\n| Build | Passed |", 2, { streaming: true }),
       ]),
     },
+    "whitespace-reply": {
+      note: "A whitespace-only assistant row does not hide the fallback PR links.",
+      snapshot: chat([user("Open the pull request", 2), activity([create("Open PR", 128)], 1), assistant(" \n\t", 0)]),
+    },
+    "streaming-fence-opener": {
+      note: "A streaming fence opener has no rendered block and does not hide fallback PR links.",
+      snapshot: chat([
+        user("Open the pull request", 2),
+        activity([create("Open PR", 128)], 1),
+        assistant("```ts", 0, { streaming: true }),
+      ]),
+    },
     "math-tail": {
       note: "Footerless final math keeps PR links visible.",
       snapshot: chat([activity(four, 5), assistant("$$x^2 + y^2 = z^2$$", 2, { streaming: true })]),
