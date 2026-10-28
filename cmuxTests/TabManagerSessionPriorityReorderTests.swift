@@ -60,6 +60,43 @@ struct TabManagerSessionPriorityReorderTests {
         #expect(manager.sessionPriorityEffectiveOrder == [fixture.c, fixture.a, fixture.b, fixture.d])
     }
 
+    /// A notification bump shows d first under the pinned a while it ranks last. Move to Top,
+    /// which leaves the list as it is, affirms d's place (ruling R24).
+    @Test func moveToTopOfTheWorkspaceAlreadyAtTheTopPromotesIt() throws {
+        let fixture = try makeFixture()
+        let manager = fixture.manager
+        defer { manager.closeWorkspacesForTesting() }
+        manager.setPinned(try #require(manager.workspacesById[fixture.a]), pinned: true)
+        manager.moveTabToTopForNotification(fixture.d)
+        try #require(manager.tabs.map(\.id) == [fixture.a, fixture.d, fixture.b, fixture.c])
+        try #require(manager.sessionPriorityEffectiveOrder == [fixture.a, fixture.b, fixture.c, fixture.d])
+        let installed = SessionPriorityCoordinatorHook.userDidReorder
+        defer { SessionPriorityCoordinatorHook.userDidReorder = installed }
+        var reports = 0
+        SessionPriorityCoordinatorHook.userDidReorder = { _ in reports += 1 }
+
+        manager.moveTabToTop(fixture.d)
+
+        #expect(manager.tabs.map(\.id) == [fixture.a, fixture.d, fixture.b, fixture.c])
+        #expect(manager.sessionPriorityEffectiveOrder == [fixture.a, fixture.d, fixture.b, fixture.c])
+        #expect(reports == 1)
+    }
+
+    /// The sidebar menu's Move to Top of a selection already at the top affirms it the same way.
+    @Test func moveSelectionToTopThatLeavesTheOrderAffirmsIt() throws {
+        let fixture = try makeFixture()
+        let manager = fixture.manager
+        defer { manager.closeWorkspacesForTesting() }
+        manager.moveTabToTopForNotification(fixture.d)
+        manager.moveTabToTopForNotification(fixture.c)
+        try #require(manager.tabs.map(\.id) == [fixture.c, fixture.d, fixture.a, fixture.b])
+
+        manager.moveTabsToTop([fixture.c, fixture.d])
+
+        #expect(manager.tabs.map(\.id) == [fixture.c, fixture.d, fixture.a, fixture.b])
+        #expect(manager.sessionPriorityEffectiveOrder == [fixture.c, fixture.d, fixture.a, fixture.b])
+    }
+
     @Test func batchReorderRecordsTheListedOrder() throws {
         let fixture = try makeFixture()
         let manager = fixture.manager
