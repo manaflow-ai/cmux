@@ -20,7 +20,7 @@ import Testing
 /// EventLatency histograms (cc/metrics/compositor_frame_reporter.cc), never a pass/fail timer in a unit run.
 /// So this file asserts no time: the timing loop runs only with `CMUX_BENCH=1` (in Release:
 /// `CMUX_BENCH=1 swift test -c release --filter KeyRouterBench`), and the agent reads the numbers. The allocation count on the calling thread (libmalloc's `malloc_logger` hook, as
-/// KeyFrameSignpostAllocationTests) is the only check a plain unit run makes. It counts the router alone: the dispatch
+/// KeyFrameSignpostAllocationTests) is the only check a plain unit run makes: a plain key and each chord allocate nothing per press. It counts the router alone: the dispatch
 /// context around it (`InputDispatchContext`) is `CmuxApplication.sendEvent`'s and opens outside the count. With
 /// CMUX_PERF_RESULT_DIR each key kind's timed samples and counts are result-v1 (lab story swift-key-router).
 @MainActor @Suite(.serialized)
@@ -44,6 +44,16 @@ struct KeyRouterBench {
     ]
     /// The when-clause binding: a user entry that holds only in a terminal without a text field.
     private static let whenClause = WhenClause.and([.has("terminalFocused"), .not(.has(KeyContext.textInputFocus))])
+
+    /// The allocations a chord's press may make on the router's path: none. An allocation added to that path costs one per
+    /// press, ``allocationKeys`` in all, and fails ``withinBudget(_:perKey:)``; a table or cache that grows now and then over
+    /// the presses adds a few, far under half an allocation per press, so the check does not depend on when it grows.
+    static let chordAllocationsPerKey = 0
+
+    /// Whether `allocations` over ``allocationKeys`` presses stay under `perKey` and a half per press.
+    nonisolated static func withinBudget(_ allocations: Int, perKey: Int) -> Bool {
+        2 * allocations < (2 * perKey + 1) * allocationKeys
+    }
 
     private static let workspaceCount = 60
     private static let paneCount = 30
@@ -209,9 +219,9 @@ struct KeyRouterBench {
         let decoded = try #require(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
         for field in fields { #expect(decoded[field] != nil, "the report has no \(field)") }
         #expect(plainRow.allocations == 0, "a plain key in a terminal made \(plainRow.allocations) allocations in \(Self.allocationKeys) keys")
-        // p04-input-055 makes the chord path allocation-free and turns this into a plain expectation.
-        withKnownIssue("the chord path still allocates before p04-input-055", isIntermittent: true) {
-            #expect(chordAllocations == 0, "the chords made \(chordAllocations) allocations in \(Self.allocationKeys * chordRows.count) keys")
+        for (key, row) in chordRows {
+            #expect(Self.withinBudget(row.allocations, perKey: Self.chordAllocationsPerKey),
+                    "\(key.name) made \(row.allocations) allocations in \(Self.allocationKeys) keys: over \(Self.chordAllocationsPerKey) per key")
         }
     }
 
