@@ -178,3 +178,15 @@ test("a Retry goes under the id its prompt first went with, even when a turn is 
   await chat.retryPrompt("local-p-12").catch(() => undefined);
   expect(prompts.map(promptIdOf)).toEqual(["p-12", "p-12"]);
 });
+
+test("a turn this page already sent a prompt under is never named for another prompt", async () => {
+  const prompts: Record<string, unknown>[] = [];
+  const chat = await client(prompts);
+  // The store still says turn 2 is starting: the machine's reports of the first prompt are on their way.
+  chat.handoffTurn = async () => 2;
+  await chat.send("first", [], "p-13");
+  await chat.send("second", [], "p-14");
+  chat.handoffTurn = async () => 3;
+  await chat.send("third", [], "p-15");
+  expect(prompts.map(promptIdOf)).toEqual(["handoff-2-p-13", "p-14", "handoff-3-p-15"]);
+});

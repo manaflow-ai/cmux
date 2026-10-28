@@ -4790,6 +4790,9 @@ export class AcpmuxDirectClient {
   handoffTurn?: (sessionId: string) => Promise<number | undefined>;
   /// The hand-off turn each chat asks the app for now (sendNow), with the selection it was asked in.
   private handoffAsks = new Map<string, { generation: number; ask: Promise<number | undefined> }>();
+  /// The newest hand-off turn each chat sent a prompt under: the store may still say it is `starting`
+  /// (the machine's reports go on their own time), and another prompt never names it.
+  private handoffTurnsSent = new Map<string, number>();
   async ensureSession(): Promise<string | undefined> {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
@@ -4930,7 +4933,12 @@ export class AcpmuxDirectClient {
         } finally {
           if (this.handoffAsks.get(sessionId) === entry) this.handoffAsks.delete(sessionId);
         }
-        if (turn !== undefined) promptId = handoffPromptId(turn, promptId);
+        // A turn this page already sent a prompt under is that prompt's, even while the store has not
+        // heard it run yet; a turn the app opened after the wait ran out is named (nothing ran under it).
+        if (turn !== undefined && turn > (this.handoffTurnsSent.get(sessionId) ?? 0)) {
+          this.handoffTurnsSent.set(sessionId, turn);
+          promptId = handoffPromptId(turn, promptId);
+        }
       }
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId)
         throw new Error(translate("error.notOpen"));
