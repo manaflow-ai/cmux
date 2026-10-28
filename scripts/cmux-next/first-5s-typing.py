@@ -461,7 +461,10 @@ class ClassicApp:
         if self.process.poll() is not None or not self._send(self.sock, "ping", timeout=3).startswith("PONG"):
             tail = ""
             try:
-                tail = open(os.path.join(self.out, "app-classic.log")).read()[-3000:]
+                text = open(os.path.join(self.out, "app-classic.log"), errors="replace").read()
+                hits = [l for l in text.splitlines() if re.search(r"(?i)fatal|precondition|assert|terminat|exception|crash|trap|_exit|another instance", l)
+                        and "Breadcrumb" not in l]
+                tail = "\n".join(hits[-40:])
             except OSError:
                 pass
             dbg = ""
@@ -470,7 +473,9 @@ class ClassicApp:
             except OSError:
                 pass
             crash = ""
-            reports = sorted(glob.glob(os.path.expanduser("~/Library/Logs/DiagnosticReports/*cmux*")), key=os.path.getmtime)
+            time.sleep(5)  # ReportCrash writes the report a few seconds after the exit
+            reports = sorted(glob.glob(os.path.expanduser("~/Library/Logs/DiagnosticReports/*cmux*"))
+                             + glob.glob(os.path.expanduser("~/Library/Logs/DiagnosticReports/*/*cmux*")), key=os.path.getmtime)
             if reports and time.time() - os.path.getmtime(reports[-1]) < 300:
                 try:
                     text = open(reports[-1]).read()
