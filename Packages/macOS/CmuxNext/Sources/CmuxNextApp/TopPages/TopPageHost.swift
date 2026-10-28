@@ -331,6 +331,7 @@ final class TopPageHost {
 
     private func close(_ route: TopPageRoute, _ view: NSView) {
         view.removeFromSuperview()
+        (view as? InternalPageView)?.detachContent() // while it lives: no page leaves its hierarchy in a dealloc
         nodes.removeValue(forKey: route)?.set(.hidden)
         views[route] = nil
         installs.bump()
