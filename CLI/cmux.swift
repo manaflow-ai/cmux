@@ -32024,6 +32024,17 @@ struct CMUXCLI {
                     client: client,
                     telemetry: telemetry
                 )
+                // Independent of auto-naming (which may be disabled); it never
+                // throws and cannot affect the pass above or the hook's status.
+                runClaudeDifficultyAssessmentHook(
+                    parsedInput: parsedInput,
+                    mappedSession: mappedSession,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionStore: sessionStore,
+                    client: client,
+                    telemetry: telemetry
+                )
             } catch {
                 telemetry.breadcrumb("claude-hook.auto-name.error")
             }
