@@ -441,6 +441,8 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
+    # The post-publication canary's Mac job takes the side label on attempt 1.
+    ".github/workflows/nightly-next-canary.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
@@ -473,6 +475,10 @@ UNRESCUED_WORKFLOW_PATHS = {
         "cmux-tui nightly packages: a release step, so a person re-runs it",
     ".github/workflows/ios-internal-nightly.yml":
         "feat-cmux-next only; signs and uploads the internal iOS build: a release step, so a person re-runs it",
+    ".github/workflows/nightly-next-train.yml":
+        "the train's candidate Release compile takes an owned Mac only while one is idle (pick-train-runner); "
+        "the train's own drive (nightly_next_train_drive.py) re-runs a compile an owned Mac refused, and that "
+        "re-run takes Blacksmith",
     ".github/workflows/main-compile-probe.yml":
         "one optional compile data point for main's compile attribution; its dispatcher already sends a probe "
         "that has not started to Blacksmith, and nothing waits on it",
