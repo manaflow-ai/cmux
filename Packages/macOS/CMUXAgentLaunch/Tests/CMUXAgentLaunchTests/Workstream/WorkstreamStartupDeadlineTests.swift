@@ -47,7 +47,7 @@ struct WorkstreamStartupDeadlineTests {
     }
 
     @Test("An expired oversized-tail pass leaves all valid history reachable", arguments: [
-        1, 64, 130, 140, 260
+        UInt64(0), 1, 64, 130, 140, 260, 275
     ])
     func deadlineStopsEveryFallbackPhase(budget: UInt64) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
