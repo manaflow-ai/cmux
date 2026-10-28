@@ -1353,7 +1353,7 @@ export function isShortPlainUserPrompt(text: string, rowWidth?: number): boolean
   if (rowWidth === undefined) return false;
   const { measureFont, lineHeight } = metrics();
   const contentWidth = Math.max(80, USER_BUBBLE_SHARE * rowWidth - USER_BUBBLE_SIDES);
-  const key = `${measureFont}\n${contentWidth}\n${text}`;
+  const key = `${measureFont}\n${lineHeight}\n${contentWidth}\n${text}`;
   let prepared = plainPromptPrepared.get(key);
   if (prepared === undefined) {
     try {

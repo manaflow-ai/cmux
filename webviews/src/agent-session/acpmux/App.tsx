@@ -500,6 +500,8 @@ type RowProps = {
   sessionId?: string;
   /// The current transcript row width, used by prompt disclosure fast paths.
   rowWidth?: number;
+  /// The active chat font size, used to invalidate prompt geometry on a display change.
+  fontSize?: number;
   onToggleActivity: (id: string) => void;
   expanded: boolean;
   controls?: string;
@@ -1669,6 +1671,7 @@ const RowFrame = React.memo(function RowFrame({
   setSize: number;
   top: number;
   rowWidth: number;
+  fontSize: number;
   expanded: boolean;
   observer: ResizeObserver | undefined;
   report: ReportDrawn;
@@ -4113,6 +4116,7 @@ export function VirtualTranscript({
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}
                       rowWidth={transcriptRowWidth(width)}
+                      fontSize={chatLook.fontSize}
                       expanded={isExpanded}
                       observer={observer}
                       report={reportDrawn}
@@ -4138,6 +4142,7 @@ export function VirtualTranscript({
                         row={row}
                         sessionId={sessionId}
                         rowWidth={transcriptRowWidth(width)}
+                        fontSize={chatLook.fontSize}
                         onToggleActivity={toggleRow}
                         onOpenDiff={onOpenDiff}
                         expanded={isExpanded}
