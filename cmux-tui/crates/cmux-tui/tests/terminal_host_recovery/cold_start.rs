@@ -320,20 +320,20 @@ fn an_attach_while_the_ends_run_ends_and_respawns_its_terminal_first() {
     harness.restart();
     // The ends run: the owner said ready and some already committed.
     let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
-    loop {
-        let listed = request(&harness.socket, serde_json::json!({"cmd": "list-terminals"}));
-        let done = listed["terminals"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|terminal| terminal["lifecycle"] != "adopting")
-            .count();
-        if done >= 10 {
-            break;
+    let queued_before = loop {
+        let queued = ends_not_run(&harness.socket);
+        if COUNT - queued >= 10 {
+            break queued;
         }
-        assert!(Instant::now() < deadline, "the ends never started: {listed}");
+        assert!(Instant::now() < deadline, "the ends never started: {queued} of {COUNT} queued");
         std::thread::sleep(Duration::from_millis(50));
-    }
+    };
+    // The premise: most ends still wait when the app attaches.
+    assert!(
+        queued_before >= COUNT / 2,
+        "only {queued_before} of {COUNT} ends still waited when the app attached: the queue \
+         this test is about had already drained"
+    );
     let tree = request(&harness.socket, serde_json::json!({"cmd": "list-workspaces"}));
     let targets = tabs(&tree)
         .into_iter()
@@ -352,8 +352,17 @@ fn an_attach_while_the_ends_run_ends_and_respawns_its_terminal_first() {
             std::thread::spawn(move || attach(&socket, surface))
         })
         .collect::<Vec<_>>();
-    for ((surface, terminal_id), attach) in targets.iter().zip(attaches) {
-        let (response, attached) = attach.join().unwrap();
+    let answers = attaches.into_iter().map(|attach| attach.join().unwrap()).collect::<Vec<_>>();
+    let queued_after = ends_not_run(&harness.socket);
+    let slowest = answers.iter().map(|(_, attached)| *attached).max().unwrap_or_default();
+    // The premise again: the queue had not drained when the attaches ended.
+    assert!(
+        queued_after >= COUNT / 4,
+        "only {queued_after} of {COUNT} ends still waited when the attaches answered (slowest \
+         {slowest:?}; {queued_before} at the attach): the ends drained, so this run proves \
+         nothing about the order"
+    );
+    for ((surface, terminal_id), (response, attached)) in targets.iter().zip(answers) {
         assert_eq!(
             response["ok"], true,
             "the attach to {surface} while the ends ran failed after {attached:?}: its end or \
@@ -370,4 +379,14 @@ fn an_attach_while_the_ends_run_ends_and_respawns_its_terminal_first() {
         );
         assert_eq!(resolved["lifecycle"], "running", "{resolved}");
     }
+}
+
+/// How many terminals' ends have not run yet: rows still adopting.
+fn ends_not_run(socket: &Path) -> usize {
+    request(socket, serde_json::json!({"cmd": "list-terminals"}))["terminals"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|terminal| terminal["lifecycle"] == "adopting")
+        .count()
 }
