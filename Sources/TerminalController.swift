@@ -3780,6 +3780,12 @@ class TerminalController {
                         surfaceId: surfaceId,
                         tabManager: callerTabManager
                     )
+                } else if let surfaceId {
+                    // A window Dock terminal's workspace id is its window id.
+                    resolvedCaller = v2IdentifyWindowDockCallerPayload(
+                        ownerId: wsId,
+                        surfaceId: surfaceId
+                    )
                 }
             }
         }
