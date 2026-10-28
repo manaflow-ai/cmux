@@ -16,7 +16,7 @@ extension WorkstreamPersistence {
     func loadPage(
         endingBefore endOffset: UInt64?,
         limit: Int,
-        oversizedRowRecoveryDepth: Int,
+        oversizedRowRecoveryDepth: Int = 0,
         deadlineNanoseconds: UInt64? = nil
     ) throws -> Page {
         guard limit > 0 else {
