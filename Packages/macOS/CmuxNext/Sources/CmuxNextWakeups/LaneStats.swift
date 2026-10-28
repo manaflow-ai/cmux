@@ -83,13 +83,16 @@ final class LaneStats: Sendable {
 
 /// One lane and priority's queue wait and run time (``BackgroundWork/laneTimes(resetting:)``).
 public struct LaneTimes: Sendable, Equatable {
+    /// The blocking lane the items ran on.
     public var lane: BlockingLane
+    /// The priority they were submitted at.
     public var priority: WorkPriority
     /// Submit to start: how long items waited for a slot, including the hop to the slot's thread.
     public var wait: LaneHistogram
     /// Start to end of each item's body on its slot thread.
     public var run: LaneHistogram
 
+    /// The times of `lane` at `priority`.
     public init(lane: BlockingLane, priority: WorkPriority, wait: LaneHistogram, run: LaneHistogram) {
         self.lane = lane
         self.priority = priority
@@ -110,6 +113,7 @@ public struct LaneHistogram: Sendable, Equatable {
     /// The sum of every sample counted, in nanoseconds.
     public var sumNanos: UInt64
 
+    /// A histogram of `counts` per bucket and their `sumNanos`.
     public init(counts: [UInt64], sumNanos: UInt64) {
         self.counts = counts
         self.sumNanos = sumNanos
@@ -133,6 +137,7 @@ public struct LaneHistogram: Sendable, Equatable {
         (UInt64(1) << UInt64(max(0, bucket))) * 15_625 / 16
     }
 
+    /// Every sample counted, over all buckets.
     public var count: UInt64 { counts.reduce(0) { $0 &+ $1 } }
 
     /// The upper edge of the highest bucket with a sample, so the longest sample is below it and at least half

@@ -891,7 +891,7 @@ impl Hub {
             for q in restored {
                 let hub = self.clone();
                 let session = session.clone();
-                tokio::spawn(async move {
+                self.supervise("hub.queue-resume", Fatal, ShutdownBehavior::Skip, async move {
                     // After the login env and the catalog reload: its harness may need them.
                     hub.wait_startup().await;
                     let opts = PromptOptions {
