@@ -3,7 +3,8 @@
 // shows the tray (subagents/SubagentTray.tsx, trayMotion.tsx) moving in the real app: the showcase
 // mock never starts a subagent. `count` picks the step, and each call replaces the rows with that
 // step's, so the capture's own steps set the pace (and click the tray's header between them to fold
-// it). No timer: nothing runs between calls.
+// it). No timer: nothing runs between calls. Seed it in a chat that has a session (the capture state
+// sends a prompt first): the tray's entrance plays only in one (App.tsx trayEnters).
 //   0  the ask and the agent's answer, no subagent
 //   1  two background subagents start: the tray eases in, "2 subagents running"
 //   2  a received agent message arrives in the transcript beside the tray
