@@ -19,7 +19,9 @@ import Foundation
 //   CmuxNextBrowser -> Input, InputCore (page link clicks, swipes and mouse side buttons hear the app's input tap)
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
-//   CmuxNextCompat -> swift-atomics, CmuxSafeConcurrency, CmuxThreading, system frameworks (back-ports of newer system APIs for the
+//   CmuxNextCompatCore -> CmuxThreading, Foundation, Security (what the privileged server helper shares with the app:
+//     Process.runOnOwnThread, the running code's signing-team read; Compat re-exports it)
+//   CmuxNextCompat -> CompatCore, swift-atomics, CmuxSafeConcurrency, CmuxThreading, system frameworks (back-ports of newer system APIs for the
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
 //   CmuxNextWakeups -> Compat, CmuxSafeConcurrency, Signposts, Trace, Metrics, system frameworks (the only sanctioned wakeup
 //     primitives: FrameScheduler, DemandTimer, Backoff, WakeupLedger, the one main-thread scheduler's
@@ -159,7 +161,8 @@ import Foundation
 //   CmuxNextRemoteViewSessions -> Compat, Design, Icons, Settings, Browser, RemoteView, RemoteBrowser, CmuxVNC,
 //     CmuxVNCDemoServer (the remote_view browser tab and, in DEV builds, its live part: the mock desktop, the rd debug host, and `via=vnc`
 //     with its source, input sink, saved sign-ins and sign-in sheet; the App makes one per tab)
-//   CmuxNextServerHelper -> Compat (Mutex) and system frameworks (privileged helper XPC protocol,
+//   CmuxNextServerHelper -> CompatCore, CmuxThreading (Mutex), CmuxSafeConcurrency and system frameworks, never Compat
+//     (it is compiled whole by bundle-server-helper.sh, without swift-atomics) (privileged helper XPC protocol,
 //     fix allowlist, same-team listener; plans/cmux-next/server.md 9.4); the App links it for the client side
 //   CmuxNextServerHelperDaemon -> ServerHelper (the root helper executable; bundled by
 //     scripts/cmux-next/bundle-server-helper.sh, not linked into the App)
@@ -1365,8 +1368,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // protocol, the fixed allowlist of fixes and the same-team listener. No UI.
         .target(
             name: "CmuxNextServerHelper",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
-            dependencies: ["CmuxNextCompat", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+            // Only whole modules without swift-atomics, which "Bundle server helper" compiles with swiftc
+            // (scripts/cmux-next/bundle-server-helper.sh, HELPER_MODULES: keep it this target's closure):
+            // CmuxNextCompatCore (runOnOwnThread, the team read), CmuxThreading (Mutex), CmuxSafeConcurrency
+            // (OnceContinuation, p10-stability-089). Never CmuxNextCompat.
+            dependencies: [
+                "CmuxNextCompatCore",
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+                .product(name: "CmuxThreading", package: "CmuxThreading"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         // The helper executable. The app bundle does not link it: the Xcode phase
@@ -1485,6 +1495,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextCompat",
             dependencies: [
+                // Re-exported (CompatCore+Reexport.swift): the part of Compat the privileged helper links.
+                "CmuxNextCompatCore",
                 .product(name: "Atomics", package: "swift-atomics"),
                 // Mutex wraps the portable one (p10-stability-172), with the blocking detector as its wait observer.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
@@ -1493,9 +1505,18 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: daemonSwiftSettings
         ),
+        // The part of CmuxNextCompat a process without swift-atomics and the app's blocking detector links: the
+        // privileged server helper, whose Xcode phase compiles it whole with swiftc. Process.runOnOwnThread and the
+        // running code's signing-team read (through CmuxThreading's blockingCall seam). Foundation and Security
+        // only; never swift-atomics or another CmuxNext module.
+        .target(
+            name: "CmuxNextCompatCore",
+            dependencies: [.product(name: "CmuxThreading", package: "CmuxThreading")],
+            swiftSettings: daemonSwiftSettings
+        ),
         .testTarget(
             name: "CmuxNextCompatTests",
-            dependencies: [.target(name: "CmuxNextCompat"), .product(name: "CmuxThreading", package: "CmuxThreading")],
+            dependencies: [.target(name: "CmuxNextCompat"), "CmuxNextCompatCore", .product(name: "CmuxThreading", package: "CmuxThreading")],
             swiftSettings: uiSwiftSettings
         ),
         // The error journal (`cmux errors`): one bounded, deduplicated NDJSON log of the
