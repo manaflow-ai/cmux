@@ -14,7 +14,6 @@ mod aside;
 pub(crate) mod auto_resume;
 mod bg_tasks;
 mod bounded;
-pub(super) use bounded::{BoundedSuffix, Chars, TrimmedText};
 mod btw;
 mod exit_reason;
 pub(crate) mod session_auth;

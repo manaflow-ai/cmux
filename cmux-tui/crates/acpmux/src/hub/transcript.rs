@@ -1,5 +1,6 @@
 //! The bounded plain-text transcript a fresh agent session is seeded with.
 
+use super::bounded::{BoundedSuffix, Chars, TrimmedText};
 use super::*;
 
 const KINDS: &[&str] = &["user_message", "agent_message_chunk", "compaction_summary"];
