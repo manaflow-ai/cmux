@@ -173,19 +173,12 @@ public final class InputLatencyDispatch {
     ///
     /// Only a path that runs the key again through `NSApplication.sendEvent` (``KeyArrivalLedger/HoldPath/creation``)
     /// gets a second slot: a key the New Tab field or the launch picture runs straight into a window or view keeps its
-    /// first slot, and its hold is logged at that run (``replayed(_:keyWindow:)``).
+    /// first slot, and its hold is recorded at that run (``heldKeys``).
     public func held(_ event: NSEvent, by path: KeyArrivalLedger.HoldPath) {
         arrivals.held(event, by: path, at: InputLatencyTracker.uptimeNanos())
         guard path == .creation, let token = tracker.dispatchingKey, event.timestamp > 0,
               tracker.table.time(token, .generated) == InputLatencyTracker.eventNanos(event.timestamp) else { return }
         tracker.discard(token)
-    }
-
-    /// A held key-down a path runs now outside `sendEvent` (the New Tab field's or the launch picture's run): its hold
-    /// is logged when it was late (``KeyArrivalLedger/replayed(_:at:keyWindow:)``).
-    public func replayed(_ event: NSEvent, keyWindow: NSWindow?) {
-        guard event.type == .keyDown else { return }
-        arrivals.replayed(event, at: InputLatencyTracker.uptimeNanos(), keyWindow: keyWindow)
     }
 
     /// Finishes `slot` after its event's dispatch returned.
