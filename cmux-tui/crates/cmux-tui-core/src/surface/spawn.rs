@@ -397,10 +397,13 @@ fn spawn_end_wait(
 }
 
 /// Records the end the far side reports (`LocalEnd::Notify`). The report may
-/// come on any thread (a holder link's), so the record, a registry commit,
-/// runs on the owner's terminal work pool (inline only without one or with
-/// the pool full). The callback keeps the surface alive until the end, as a
-/// wait thread would. `completion` is the surface's reset `reaper_completion`.
+/// come on any thread, holding locks the record takes (the holder link's
+/// state, a surface's runtime during a shutdown detach), so the record, a
+/// registry commit, never runs on it: it goes to the owner's terminal work
+/// pool (never refused for a full queue), else, without an owner or with no
+/// pool worker able to start, to a supervised `terminal-end` thread. The
+/// callback keeps the surface alive until the end, as a wait thread would.
+/// `completion` is the surface's reset `reaper_completion`.
 #[cfg(unix)]
 fn notify_end(
     surface: &Arc<Surface>,
@@ -415,20 +418,23 @@ fn notify_end(
             let end = work();
             record_local_end(&ended, end, completion);
         });
-        // Never on the thread that reports the end: it may hold the locks
-        // the record takes (the holder link's state, a surface's runtime
-        // during a shutdown detach). Without the pool, a one-off thread.
         let record = match owner {
-            Some(owner) => match owner.submit_terminal_work(record) {
+            Some(owner) => match owner.submit_terminal_end(record) {
                 Ok(()) => return,
                 Err(record) => record,
             },
             None => record,
         };
-        if let Err(error) =
-            cmux_tui_platform::qos::spawn_outside_request("terminal-end".to_owned(), record)
-        {
-            eprintln!("cmux-tui: a terminal's end could not be recorded: {error}");
+        // No thread can start at all: the process cannot run the record
+        // anywhere without risking the reporter's locks; the shutdown
+        // deadline bounds every wait for it, and the error says why.
+        if let Err(error) = supervised::spawn(
+            "terminal-end",
+            supervised::Fatal,
+            supervised::ShutdownBehavior::Continue,
+            record,
+        ) {
+            eprintln!("cmux-tui: a terminal's end could not be recorded (no thread): {error}");
         }
     }));
 }

@@ -98,9 +98,21 @@ impl TerminalWorkPool {
     /// Queue `job`. Returns it when the queue is full or no worker thread
     /// could start, so the caller can run it inline.
     pub(crate) fn try_submit(&self, job: TerminalJob) -> Result<(), TerminalJob> {
+        self.submit(job, true)
+    }
+
+    /// Queue a terminal's end record, past the queue's bound: one per
+    /// terminal, so the terminals bound them, and none may be dropped (the
+    /// reporter cannot run it inline). Returns it only when no worker thread
+    /// could start.
+    pub(crate) fn submit_end(&self, job: TerminalJob) -> Result<(), TerminalJob> {
+        self.submit(job, false)
+    }
+
+    fn submit(&self, job: TerminalJob, bounded: bool) -> Result<(), TerminalJob> {
         let spawn = {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            if state.queue.len() >= MAX_QUEUED_TERMINAL_JOBS {
+            if bounded && state.queue.len() >= MAX_QUEUED_TERMINAL_JOBS {
                 return Err(job);
             }
             state.queue.push_back(job);
@@ -238,6 +250,15 @@ impl Mux {
         job: Box<dyn FnOnce() + Send>,
     ) -> Result<(), Box<dyn FnOnce() + Send>> {
         self.terminal_work.try_submit(job)
+    }
+
+    /// [`Self::submit_terminal_work`] of a terminal's end record: never
+    /// refused for a full queue (`TerminalWorkPool::submit_end`).
+    pub(crate) fn submit_terminal_end(
+        &self,
+        job: Box<dyn FnOnce() + Send>,
+    ) -> Result<(), Box<dyn FnOnce() + Send>> {
+        self.terminal_work.submit_end(job)
     }
 
     /// Launch the host of a `new-tab` into `pane` (the active pane when
