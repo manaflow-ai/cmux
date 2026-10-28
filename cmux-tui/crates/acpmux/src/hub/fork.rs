@@ -229,17 +229,22 @@ impl Hub {
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
             cwd,
-            agent_session_id: new_sid,
             // A fork is a new chat. Its parent transcript is authorized through parent_id; it
             // must not inherit the parent's historical native session ids as its own.
             previous_agent_session_ids: Vec::new(),
-            agent_session_family: parent_meta.family.clone(),
+            // The id was produced by this fork's actual harness, not by the parent's creation
+            // family (which can be stale after a profile switch).
+            agent_session_family: new_sid
+                .as_ref()
+                .map(|_| if is_claude { "claude".to_owned() } else { "non-claude".to_owned() }),
+            agent_session_id: new_sid,
             status: SessionStatus::Idle,
             created_at: now,
             updated_at: now,
             last_seq: 0,
             parent_id: Some(session.id.clone()),
             fork_seq: Some(fork_seq),
+            fork_parent_verified: Some(true),
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
             steering: parent_meta.steering,

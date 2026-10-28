@@ -55,7 +55,7 @@ static READS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 /// does not list it is never sent one (`peer_forward.rs`).
 pub const FEATURE: &str = "subagentTranscript";
 
-pub(crate) async fn handle(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
+pub(crate) async fn handle(hub: &std::sync::Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     let session = hub.resolve(crate::server::session_key(params)?)?;
     if session.purged.load(std::sync::atomic::Ordering::SeqCst) {
         return Err(RpcError::invalid_params("no such chat"));
@@ -88,12 +88,12 @@ pub(crate) async fn handle(hub: &Hub, params: &Value) -> Result<Value, RpcError>
     };
     let home = crate::harness_config::config_dir("CLAUDE_CONFIG_DIR", ".claude", &[&profile.env])
         .ok_or_else(|| refused("transcript.none", "the chat's Claude store is not known"))?;
+    let _turn = READS.acquire().await.map_err(|e| RpcError::internal(e.to_string()))?;
     let sessions = readable_claude_sessions(hub, meta, home).await;
     let number =
         |key: &str| params.get(key).and_then(Value::as_u64).and_then(|v| usize::try_from(v).ok());
     let limit = number("limit").unwrap_or(PAGE_LINES).clamp(1, MAX_LINES);
     let (before, after) = (number("before"), number("after"));
-    let _turn = READS.acquire().await.map_err(|e| RpcError::internal(e.to_string()))?;
     let (text, truncated) =
         tokio::task::spawn_blocking(move || read(&sessions, run.as_deref(), &agent))
             .await
@@ -134,7 +134,7 @@ pub(crate) async fn handle(hub: &Hub, params: &Value) -> Result<Value, RpcError>
 /// a peer (including a paired device) gains no local ancestor access from a remote cached chat.
 /// No name/prefix resolution, peer forwarding, event payload or workflow index participates.
 async fn readable_claude_sessions(
-    hub: &Hub,
+    hub: &std::sync::Arc<Hub>,
     mut meta: crate::store::SessionMeta,
     home: PathBuf,
 ) -> Vec<(PathBuf, String)> {
@@ -161,6 +161,9 @@ async fn readable_claude_sessions(
         let ancestor = hub.sessions.lock().unwrap().get(parent).cloned();
         let Some(ancestor) = ancestor else { break };
         if ancestor.purged.load(std::sync::atomic::Ordering::SeqCst) {
+            break;
+        }
+        if !super::fork_transcript_auth::verified_parent(hub, &meta, &ancestor).await {
             break;
         }
         meta = ancestor.meta();
@@ -448,7 +451,11 @@ mod tests {
         for (key, value_changed) in changes.as_object().unwrap() {
             value[key] = value_changed.clone();
         }
+        if value["parentId"].is_string() && value.get("forkParentVerified").is_none() {
+            value["forkParentVerified"] = json!(true);
+        }
         let meta = serde_json::from_value(value).unwrap();
+        hub.store.save(&meta).unwrap();
         if id == "chat" {
             *session.meta.lock().unwrap() = meta;
         } else {
@@ -628,6 +635,55 @@ mod tests {
         let sibling = handle(&hub, &transcript_request("wf_own")).await.unwrap_err();
         assert_eq!(serde_json::to_vec(&sibling).unwrap(), serde_json::to_vec(&missing).unwrap());
         let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[tokio::test]
+    async fn fork_transcript_legacy_links_need_both_local_journals_and_no_later_import() {
+        for (name, receipt, child_import, parent_import) in [
+            ("legacy-local", true, false, false),
+            ("legacy-forged", false, false, false),
+            ("legacy-child-import", true, true, false),
+            ("legacy-parent-import", true, false, true),
+        ] {
+            let home = scoped_store(name);
+            let hub = transcript_hub(&home);
+            replace_meta(&hub, "parent", json!({}));
+            replace_meta(
+                &hub,
+                "chat",
+                json!({
+                    "agentSessionId": "child-new", "parentId": "parent", "forkSeq": 0,
+                    "forkParentVerified": null
+                }),
+            );
+            let child = hub.resolve("chat").unwrap();
+            let parent = hub.resolve("parent").unwrap();
+            hub.append(&child, "mux", "forked", json!({"parentId": "parent", "forkSeq": 0}));
+            if receipt {
+                hub.append(&parent, "mux", "fork_child", json!({"childId": "chat"}));
+            }
+            if child_import {
+                hub.append(&child, "mux", "imported", json!({}));
+            }
+            if parent_import {
+                hub.append(&parent, "mux", "imported", json!({}));
+            }
+            let allowed = receipt && !child_import && !parent_import;
+            let page = handle(&hub, &transcript_request("wf_own")).await;
+            assert_eq!(page.is_ok(), allowed, "{name}: {page:?}");
+            if !allowed {
+                let missing = handle(&hub, &transcript_request("wf_missing")).await.unwrap_err();
+                assert_eq!(
+                    serde_json::to_vec(&page.unwrap_err()).unwrap(),
+                    serde_json::to_vec(&missing).unwrap()
+                );
+            }
+            assert_eq!(
+                hub.store.load("chat").unwrap().unwrap().fork_parent_verified,
+                Some(allowed)
+            );
+            let _ = std::fs::remove_dir_all(home);
+        }
     }
 
     #[tokio::test]

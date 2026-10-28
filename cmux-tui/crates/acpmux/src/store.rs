@@ -146,6 +146,10 @@ pub struct SessionMeta {
     pub parent_id: Option<String>,
     #[serde(default)]
     pub fork_seq: Option<u64>,
+    /// Whether this daemon verified the local parent link when the fork was made. Imported
+    /// metadata is explicitly unverified, even when an old bundle happened to carry parent ids.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_parent_verified: Option<bool>,
     #[serde(default)]
     pub agent_info: Option<Value>,
     #[serde(default)]
