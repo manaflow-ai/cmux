@@ -10,19 +10,31 @@ daemon form `browser show` (a `current` browser). The same `browser page state` 
 caller keeps the focused tab. Then the own browser closes: the agent's call is refused
 rather than run on the front browser.
 
-Attaches to a running tagged app (never launches or quits it); writes steps.json and
-verdict.json to --out. Exit 0 when every check holds.
-Usage: browser-caller-target-e2e.py --socket "$NX_APP_SOCKET" --out DIR
+With --app it launches that tagged app through bench_launch.BenchApp and quits it at the end
+(scripts/measure/browser-caller-target.sh); with --socket it attaches to a running one
+($NX_APP_SOCKET, $NX_APP_CLI) and never launches or quits it. The CLI runs with the
+environment a cmux terminal gives its shell (CMUX_SOCKET_PATH, CMUX_TAG, CMUX_TUI_TERMINAL_ID).
+Writes steps.json and verdict.json to --out; exit 0 when every check holds.
+Usage: browser-caller-target-e2e.py (--app APP | --socket SOCKET) --out DIR
 """
 import argparse, json, os, socket, subprocess, sys, time
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--socket", required=True)
+parser.add_argument("--socket")
+parser.add_argument("--app")
 parser.add_argument("--out", required=True)
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
-CLI, TAG = os.environ["NX_APP_CLI"], os.environ["NX_APP_TAG"]
 steps = []
+launcher = None
+if opts.app:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from bench_launch import BenchApp
+    launcher = BenchApp(opts.app, out=opts.out, window=(40, 40, 1100, 800))
+    launcher.launch(timeout=180)
+    opts.socket, CLI, TAG = launcher.socket, launcher.cli, launcher.tag
+else:
+    CLI, TAG = os.environ["NX_APP_CLI"], os.environ["NX_APP_TAG"]
 
 
 def rpc(method, params=None, timeout=30):
@@ -49,7 +61,8 @@ def cli(args, terminal=None):
     env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_") and k not in ("CLAUDECODE",)}
     if terminal:
         env["CMUX_TUI_TERMINAL_ID"] = terminal
-    command = [CLI, "--app-socket", opts.socket, "--session", "cmux-app-%s" % TAG, "--json"] + args
+    env.update({"CMUX_SOCKET_PATH": opts.socket, "CMUX_TAG": TAG, "CMUX_QUIET": "1"})
+    command = [CLI, "--json"] + args
     run = subprocess.run(command, env=env, capture_output=True, text=True, timeout=60)
     try:
         value = json.loads(run.stdout) if run.stdout.strip() else None
@@ -98,9 +111,15 @@ def page(title):
 
 
 checks = {}
+def finish(code):
+    if launcher:
+        launcher.stop()
+    sys.exit(code)
+
+
 if not wait(lambda: (rpc("system.ping") or {}).get("error") is None and topology().get("loaded"), 60):
     print("app never answered", file=sys.stderr)
-    sys.exit(2)
+    finish(2)
 wait(lambda: any(t.get("kind") == "terminal" for _, _, t in tabs(topology())), 60)
 
 # Window A: the person's workspace and its first terminal; a browser tab there.
@@ -151,4 +170,4 @@ verdict = {"pass": all(checks.values()), "checks": checks}
 json.dump(steps, open(os.path.join(opts.out, "steps.json"), "w"), indent=2)
 json.dump(verdict, open(os.path.join(opts.out, "verdict.json"), "w"), indent=2)
 print(json.dumps(verdict, indent=2))
-sys.exit(0 if verdict["pass"] else 1)
+finish(0 if verdict["pass"] else 1)
