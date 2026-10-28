@@ -2215,7 +2215,11 @@ export function VirtualTranscript({
     // reader's latest state; React work itself is coalesced by scrollPacer.
     followingRef.current = atLatest;
     onFollowingChange?.(atLatest);
-    scrollRef.current = { top, delta: top - scrollRef.current.top };
+    // The pacer may already have committed this offset (a frame-driven scroll moves it before its
+    // event comes): an event that brings no new offset keeps the direction the scroll has. Its delta
+    // of 0 left the next render no lead, and a fling painted blank frames (transcript-fling on the
+    // CI runner, mounted rows a step behind the view).
+    scrollRef.current = { top, delta: top - scrollRef.current.top || scrollRef.current.delta };
     scrollPacer.current!.enqueue({ top, atLatest });
   };
   useEffect(() => {
