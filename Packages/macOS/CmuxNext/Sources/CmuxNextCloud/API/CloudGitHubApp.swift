@@ -27,6 +27,8 @@ public enum CloudGitHubApp: String, Equatable, Sendable {
         }
         guard let configured = object["configured"] as? Bool else { self = .unknown; return }
         guard configured else { self = .notConfigured; return }
+        // A configured deployment names its App; an answer that does not is not this route's.
+        guard let slug = object["app_slug"] as? String, !slug.isEmpty else { self = .unknown; return }
         let connection = object["connection"] as? [String: Any]
         self = connection?["status"] as? String == "active" ? .ready : .notConnected
     }

@@ -83,9 +83,11 @@ nonisolated enum CloudGitHubSetup {
         }
     }
 
-    /// Nil when git uses the App; else why not (a ready App the machine could not use: `notOnMachine`).
+    /// Nil when git uses the App; else why not (a ready App the machine said it could not use: `notOnMachine`;
+    /// a run that never said, such as a failed exec: `unknown`).
     static func fallback(_ app: CloudGitHubApp, _ outcome: Outcome) -> Fallback? {
-        outcome.gitHub == .app ? nil : reason(app) ?? .notOnMachine
+        guard outcome.gitHub != .app else { return nil }
+        return reason(app) ?? (outcome.appNotOnMachine ? .notOnMachine : .unknown)
     }
 
     /// Where the person enters the code. A constant, never read from the machine: the app opens
@@ -147,13 +149,20 @@ nonisolated enum CloudGitHubSetup {
             #"export PATH="/opt/cmux/current/bin:/usr/local/bin:$PATH""#,
         ]
         lines.append(identityCommand(identity))
-        if app { lines.append(appCommand) }
         lines += [
-            "if ! command -v gh >/dev/null 2>&1; then echo 'cmux-gh: missing'; exit 0; fi",
-            "if gh auth status --hostname github.com >/dev/null 2>&1; then echo 'cmux-gh: logged_in'; exit 0; fi",
             #"proc=/proc; d="$HOME/.cache/cmux"; log="$d/gh-login.log""#,
             #"mkdir -p "$d" || { echo 'cmux-gh: failed'; exit 0; }"#,
+            // First, on every path: an earlier sign-in still waiting for its code would otherwise
+            // finish later and put gh back as git's helper over the App's.
             stopPreviousCommand,
+        ]
+        if app { lines.append(appCommand) }
+        // After the App was tried, a machine already signed in makes gh git's helper again: the App's
+        // helper may have replaced it before, and it would fail without the App.
+        let signedIn = app ? "gh auth setup-git --hostname github.com >/dev/null 2>&1 || { echo 'cmux-gh: failed'; exit 0; }; " : ""
+        lines += [
+            "if ! command -v gh >/dev/null 2>&1; then echo 'cmux-gh: missing'; exit 0; fi",
+            "if gh auth status --hostname github.com >/dev/null 2>&1; then \(signedIn)echo 'cmux-gh: logged_in'; exit 0; fi",
             #"rm -f "$log""#,
             "s=; command -v setsid >/dev/null 2>&1 && s=setsid",
             // Detached from the exec (its own session, when setsid exists) so the sign-in

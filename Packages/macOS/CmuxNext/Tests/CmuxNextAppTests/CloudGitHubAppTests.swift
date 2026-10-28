@@ -20,6 +20,8 @@ struct CloudGitHubAppTests {
         (503, #"{"error":{"code":"integration.unavailable","message":"GitHub App is not configured"}}"#, .unknown),
         (401, #"{"error":{"code":"auth.unauthenticated","message":"sign in"}}"#, .unknown),
         (200, #"{"connection":{"status":"active"}}"#, .unknown),
+        (200, #"{"configured":true,"app_slug":"","connection":{"status":"active"}}"#, .unknown),
+        (200, #"{"configured":true,"connection":{"status":"active"}}"#, .unknown),
         (200, "not json", .unknown),
         (502, "", .unknown),
     ])

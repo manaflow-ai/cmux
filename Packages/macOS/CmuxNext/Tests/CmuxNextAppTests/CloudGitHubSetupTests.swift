@@ -151,6 +151,12 @@ struct CloudGitHubSetupTests {
         #expect(helper.upperBound <= signIn.lowerBound, "the App's helper runs first")
         #expect(app.range(of: CloudGitHubSetup.identityCommand(identity))?.upperBound ?? app.endIndex <= helper.lowerBound)
         #expect(!CloudGitHubSetup.command(identity).contains("cmux github setup"))
+        // An earlier sign-in is stopped before the App's helper goes in, so it cannot finish later
+        // and put gh back over it; a machine already signed in gets gh back as git's helper.
+        let stop = try #require(app.range(of: CloudGitHubSetup.stopPreviousCommand))
+        #expect(stop.upperBound <= helper.lowerBound)
+        #expect(app.contains("then gh auth setup-git --hostname github.com >/dev/null 2>&1 || { echo 'cmux-gh: failed'; exit 0; }; echo 'cmux-gh: logged_in'"))
+        #expect(CloudGitHubSetup.command(identity).contains("then echo 'cmux-gh: logged_in'"))
         #expect(CloudGitHubSetup.appCommand.contains("/run/cmux-vm-agent/agent.sock"))
     }
 
@@ -194,6 +200,9 @@ struct CloudGitHubSetupTests {
         #expect(CloudGitHubSetup.fallback(.notConnected, unavailable) == .notConnected)
         #expect(CloudGitHubSetup.fallback(.notConfigured, unavailable) == .notConfigured)
         #expect(CloudGitHubSetup.fallback(.unknown, unavailable) == .unknown)
+        // A run that never said whether the machine has the App (a failed exec) is not `notOnMachine`.
+        let failed = CloudGitHubSetup.parse(exitCode: 124, stdout: "")
+        #expect(CloudGitHubSetup.fallback(.ready, failed) == .unknown)
         let summary = CloudGitHubSetup.summary(unavailable, fallback: .notConnected)
         #expect(summary.hasPrefix(CloudStrings.gitHubFallback(.notConnected)))
         #expect(summary.hasSuffix(CloudStrings.gitHubEnterCode("AB12-CD34")))
