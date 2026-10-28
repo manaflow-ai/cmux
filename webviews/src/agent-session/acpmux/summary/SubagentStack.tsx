@@ -1,12 +1,28 @@
 import React from "react";
 import { useT } from "../i18n";
 import type { SummarySubagent } from "./sessionSummary";
-import { STATE_LABEL } from "../subagents/SubagentGroup";
+import { Avatar, STATE_LABEL } from "../subagents/SubagentGroup";
+import type { Subagent } from "../subagents/subagentFold";
 
 /// Dots shown before the counts; the rest are counted, not drawn.
 const STACK = 4;
 
 const DOT_STATE = { running: STATE_LABEL.running, done: STATE_LABEL.completed, failed: STATE_LABEL.failed } as const;
+
+/// The compact stack used by summary surfaces that have the folded acpmux agent records. It keeps
+/// the same overlap and tone treatment as the transcript summary stack, while retaining each
+/// harness avatar when the full record is available.
+export function AgentAvatarStack({ agents }: { agents: readonly Subagent[] }) {
+  return (
+    <span className="acpmux-summary-stack acpmux-summary-stack--avatars" aria-hidden="true">
+      {agents.slice(0, STACK).map((agent, index) => (
+        <span key={agent.id} className="acpmux-summary-avatar" data-tone={index % STACK}>
+          <Avatar agent={agent} />
+        </span>
+      ))}
+    </span>
+  );
+}
 
 /// The chat's subagents as one line: a dot per subagent, overlapping, then the counts by state
 /// ("2 running · 19 done"). Each dot's tooltip names its subagent and its state, so the state is

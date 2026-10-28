@@ -6222,6 +6222,7 @@ function AcpmuxPane() {
     onStopProcess: stopProcess,
     subagents: cardSubagents,
     sessions: cardSessions,
+    subsessions: chatSubsessions.rows,
     // acpmux takes the limit only from this Mac's app (a person-proven connection), never a Web one.
     onSetRunningLimit: snapshot.origin === "local" ? setRunningLimit : undefined,
     workflows: inspectorWorkflows,

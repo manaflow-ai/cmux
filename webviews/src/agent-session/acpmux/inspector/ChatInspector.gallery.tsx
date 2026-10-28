@@ -24,6 +24,7 @@ import { createWorkflowAdapter } from "../summary/foldWorkflows";
 import { sessionSummary } from "../summary/sessionSummary";
 import { workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
 import { ChatInspector, InspectorPanel, type InspectorPlacement } from "./ChatInspector";
+import { SubagentSummaryCard } from "./SubagentSummaryCard";
 import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./SubagentScopeHeader";
 import { subagentSummary, type SubagentScope } from "./subagentScope";
 import { outputArtifacts } from "./OutputsSection";
@@ -43,6 +44,8 @@ type Props = ComponentProps<typeof ChatInspector> & {
   tones?: CSSProperties;
   /// Gallery-only: a different height ceiling, for comparison with the shipped full-room one.
   ceiling?: string;
+  /// Compact agent summary card studies, kept beside the full Inspector variants.
+  cardDemo?: "zero" | "one" | "five" | "forty" | "segmented" | "chips";
 };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
@@ -98,12 +101,14 @@ function GalleryInspector({
   header = "title",
   tones,
   ceiling,
+  cardDemo,
   ...props
 }: Props) {
   return (
-    <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
+    <div className="acpmux-shell" style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "100%", ...tones }}>
       {ceiling ? <style>{`.acpmux-chat-inspector[data-placement]{max-height:${ceiling}}`}</style> : null}
       {transcript ? <Transcript /> : null}
+      {cardDemo && <SummaryCardDemo demo={cardDemo} />}
       <InspectorPanel
         width={320}
         placement={placement}
@@ -117,6 +122,22 @@ function GalleryInspector({
           banner={scope && header !== "title" ? <SubagentBanner scope={scope} variant={header} /> : undefined}
         />
       </InspectorPanel>
+    </div>
+  );
+}
+
+function SummaryCardDemo({ demo }: { demo: NonNullable<Props["cardDemo"]> }) {
+  const variant = demo === "segmented" ? "segmented" : demo === "chips" ? "chips" : "line";
+  const count = demo === "zero" ? 0 : demo === "one" ? 1 : demo === "five" ? 5 : 40;
+  return (
+    <div style={{ width: 320, alignSelf: "flex-end", padding: "8px 8px 0" }}>
+      <SubagentSummaryCard
+        agents={agents.slice(0, count)}
+        waiting={new Set()}
+        sessions={[]}
+        variant={variant}
+        showEmpty={count === 0}
+      />
     </div>
   );
 }
@@ -528,11 +549,38 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/subagentScope.ts",
     "agent-session/acpmux/inspector/TasksSection.tsx",
     "agent-session/acpmux/inspector/WorkflowTasks.tsx",
+    "agent-session/acpmux/inspector/SubagentSummaryCard.tsx",
+    "agent-session/acpmux/inspector/SubagentSummaryCard.css",
+    "agent-session/acpmux/summary/SubagentStack.tsx",
     "agent-session/acpmux/summary/foldWorkflows.ts",
     "agent-session/acpmux/subagents/AgentLine.tsx",
   ],
   load: async () => GalleryInspector,
   variants: {
+    "summary-card-zero": {
+      note: "Compact agent summary, empty state: the card keeps the avatar-and-count seam ready without taking over the detailed lists.",
+      props: { cardDemo: "zero" },
+    },
+    "summary-card-one": {
+      note: "Compact agent summary, one agent: the selected stack-left plus counts-right line stays quiet at the smallest useful size.",
+      props: { cardDemo: "one" },
+    },
+    "summary-card-five": {
+      note: "Compact agent summary, five agents: the stack caps its avatars and the one-line counts remain readable.",
+      props: { cardDemo: "five" },
+    },
+    "summary-card-forty": {
+      note: "Compact agent summary, forty agents: only the first avatars draw while the count carries the full total.",
+      props: { cardDemo: "forty" },
+    },
+    "summary-card-segmented": {
+      note: "Alternative B: avatars over a segmented status bar. The totals stay glanceable, but the bar uses more vertical room.",
+      props: { cardDemo: "segmented" },
+    },
+    "summary-card-chips": {
+      note: "Alternative C: per-state count chips. Each status is easy to scan, but the chips wrap sooner in a narrow rail.",
+      props: { cardDemo: "chips" },
+    },
     "subagents-done": {
       note: "A busy chat with Environment, Context, Outputs and 31 completed subagents: four static harness avatars beside the count, opening the named list.",
       props: {

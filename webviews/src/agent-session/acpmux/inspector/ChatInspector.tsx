@@ -63,6 +63,7 @@ import { waitingSubagents } from "../summary/SubagentStatusList";
 import type { Artifact } from "../conversation/artifactPreview";
 import type { TurnFile } from "../diff";
 import type { StartedSession } from "../started/startedSessions";
+import type { SubsessionRow } from "../subagents/subsessions";
 import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequestStatus } from "./ChangesSection";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
@@ -87,6 +88,7 @@ import { inspectorLists, type InspectorProcess, type ProcessRegistry } from "./p
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
+import { SubagentSummaryCard } from "./SubagentSummaryCard";
 import { TasksSection } from "./TasksSection";
 import { WorkflowTasks } from "./WorkflowTasks";
 import type { WorkflowSummary } from "../summary/workflow";
@@ -291,6 +293,7 @@ export function useChatInspector({
   onStopProcess,
   subagents,
   sessions,
+  subsessions,
   onSetRunningLimit,
   workflows,
   onOpenFolder,
@@ -342,6 +345,8 @@ export function useChatInspector({
   };
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// The chats started through acpmux's sub-session API, already folded by App.tsx.
+  subsessions?: readonly SubsessionRow[];
   /// `_acpmux/subsession/limits` (direct.ts setRunningLimit): chat `sessionId`'s running limit.
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
@@ -469,6 +474,7 @@ export function useChatInspector({
         registry={registry}
         subagents={subagents}
         sessions={sessions}
+        subsessions={subagent ? undefined : subsessions}
         onSetRunningLimit={onSetRunningLimit}
         workflows={workflows}
         revealed={revealed}
@@ -517,6 +523,7 @@ function InspectorPresence({
   registry,
   subagents,
   sessions,
+  subsessions = [],
   onSetRunningLimit,
   workflows,
   revealed,
@@ -556,6 +563,8 @@ function InspectorPresence({
     onOpen: (id: string) => void;
   };
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// The chats started through acpmux's sub-session API, already folded by App.tsx.
+  subsessions?: readonly SubsessionRow[];
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
   workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
@@ -907,6 +916,7 @@ export function ChatInspector({
   listed = false,
   transcriptTasks = [],
   sessions = [],
+  subsessions = [],
   workflows = [],
   onStopWorkflow,
   onOpenSession,
@@ -963,6 +973,8 @@ export function ChatInspector({
   transcriptTasks?: readonly SummaryBackgroundTask[];
   /// The chats the agent started, listed under Subagents.
   sessions?: readonly StartedSession[];
+  /// The chats started through acpmux's sub-session API, already folded by App.tsx.
+  subsessions?: readonly SubsessionRow[];
   onOpenSession?: (sessionId: string) => void;
   /// Sets or drops the chat's running limit (SubagentLimitStepper.tsx); without it the limit only reads.
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
@@ -1185,6 +1197,16 @@ export function ChatInspector({
       )}
     </InspectorSection>
   );
+  const agentSummary = (
+    <SubagentSummaryCard
+      agents={listedAgents}
+      waiting={waiting}
+      sessions={sessions}
+      subsessions={subsessions}
+      workflows={workflows}
+      onOpen={() => fold(workflows.length > 0 ? "tasks" : "subagents")(true)}
+    />
+  );
   // The dev servers are background commands too: their rows head the one Background tasks section
   // (they were a card of their own, most often one row). Every server runs.
   const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
@@ -1227,8 +1249,9 @@ export function ChatInspector({
         </div>
       )}
       {/* What it runs. */}
-      {(subagentsSection || tasks) && (
+      {(agentSummary || subagentsSection || tasks) && (
         <div className="acpmux-chat-inspector-group" data-group="running">
+          {agentSummary}
           {subagentsSection}
           {tasks}
         </div>

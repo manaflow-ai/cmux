@@ -30,6 +30,24 @@ import { InspectorFold } from "./InspectorSection";
 export const SUBAGENTS_SHOWN = 5;
 const NO_SESSIONS: readonly StartedSession[] = [];
 
+export type SubagentTally = { waiting: number; running: number; failed: number; stopped: number; done: number };
+
+/// The Inspector's one source of truth for subagent and started-chat counts. Compact summaries
+/// reuse this tally instead of walking the records a second time.
+export function subagentTally(
+  agents: readonly Subagent[],
+  waiting: ReadonlySet<string>,
+  sessions: readonly StartedSession[] = NO_SESSIONS,
+): SubagentTally {
+  const out: SubagentTally = { waiting: 0, running: 0, failed: 0, stopped: 0, done: 0 };
+  const add = (status: SubagentStatus) => {
+    out[status] += 1;
+  };
+  agents.forEach((agent) => add(subagentStatus(agent, waiting)));
+  sessions.forEach((session) => add(sessionStatus(session)));
+  return out;
+}
+
 /// "1 waiting · 3 running · 40 done" for the section's head, the started chats counted with the
 /// subagents, or nothing for neither.
 export function subagentCounts(
@@ -38,15 +56,13 @@ export function subagentCounts(
   waiting: ReadonlySet<string>,
   sessions: readonly StartedSession[] = NO_SESSIONS,
 ): string {
-  const count = (status: SubagentStatus) =>
-    agents.filter((agent) => subagentStatus(agent, waiting) === status).length +
-    sessions.filter((child) => sessionStatus(child) === status).length;
+  const counts = subagentTally(agents, waiting, sessions);
   return [
-    count("waiting") > 0 && t("summary.subagents.waiting", { n: count("waiting") }),
-    count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
-    count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
-    count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
-    count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
+    counts.waiting > 0 && t("summary.subagents.waiting", { n: counts.waiting }),
+    counts.running > 0 && t("summary.subagents.running", { n: counts.running }),
+    counts.failed > 0 && t("summary.subagents.failed", { n: counts.failed }),
+    counts.stopped > 0 && t("summary.subagents.stopped", { n: counts.stopped }),
+    counts.done > 0 && t("summary.subagents.done", { n: counts.done }),
   ]
     .filter(Boolean)
     .join(" · ");
