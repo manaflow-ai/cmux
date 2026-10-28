@@ -51,6 +51,7 @@ public struct AfterFrameCommit: Sendable {
 /// let turn = AfterFrameCommitTurn { [weak self] in self?.runBudgetTurn() }
 /// turn.request()   // in the tick: the batch runs after the tick's commit
 /// ```
+@MainActor
 public final class AfterFrameCommitTurn {
     private let body: @MainActor () -> Void
     private var requested = false
