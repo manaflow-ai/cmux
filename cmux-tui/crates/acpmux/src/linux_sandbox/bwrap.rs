@@ -1,7 +1,6 @@
-//! Bubblewrap mount/namespace plan. Not wired to remote spawns until G2.
+//! Bubblewrap mount/namespace plan for Linux remote spawns.
 //! This layer alone is insufficient: the seccomp supervisor and network
 //! proxy must also be installed before a remote command may run.
-//! Linux remote spawns stay refused until G2 installs all enforcement layers.
 #![allow(dead_code)] // Staged API: G1/G2 supply the production callers.
 
 use std::ffi::CString;

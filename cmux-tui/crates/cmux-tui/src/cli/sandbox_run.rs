@@ -32,6 +32,8 @@ const WAIT_TRANSIT: Duration = Duration::from_secs(15);
 const WAIT_SLICE_MS: u64 = 10_000;
 /** The server's limit on a sandbox task (web/services/runs/model.ts SANDBOX_TASK_MAX_CHARS). */
 const TASK_MAX_CHARS: usize = 16_000;
+/** The app's `runs.cancel` deadline is 65 s: it destroys the VM before it answers. */
+const CANCEL_TIMEOUT: Duration = Duration::from_secs(70);
 /** The agents a sandboxed run can use (the server's CLOUD_VM_AGENTS). */
 const AGENTS: [&str; 4] = ["claude", "codex", "opencode", "pi"];
 /** What an app call may take past its budget and probe (connecting, the thread handoff). */
@@ -259,6 +261,11 @@ fn call_on_connection(
     }
 }
 
+/// The rate limiter answered: a definite refusal, though a wait may ask again later.
+pub(super) fn is_rate_limit(error: &Value) -> bool {
+    error.get("code").and_then(Value::as_str) == Some("rate_limited")
+}
+
 /// The server refused the request itself (the task, agent, image or timeout): a usage error, exit 2.
 pub(super) fn is_input_refusal(error: &Value) -> bool {
     matches!(
@@ -285,8 +292,138 @@ pub(super) fn is_gate_refusal(error: &Value) -> bool {
     )
 }
 
+/// What the deadline's `runs.cancel` answered.
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub(super) enum DeadlineCancel<'a> {
+    /// The run's receipt: it ended (cancelled, or on its own in the race).
+    Receipt(&'a Value),
+    /// The cancel was taken; the run hasn't ended yet (its VM is being destroyed).
+    Pending,
+    /// A definite answer that isn't a receipt: the app refused the cancel (signed out, policy
+    /// off: exit 3) or the server failed it (`run_not_found`, another 4xx: exit 1), with its reason.
+    Refused,
+    /// No answer (a timeout, a lost or unreachable app, a server failure): exit 4.
+    Unanswered,
+}
+
+pub(super) fn deadline_cancel<'a>(
+    cancelled: &'a Result<Value, CallError>,
+    id: &str,
+) -> DeadlineCancel<'a> {
+    match cancelled {
+        Ok(snapshot) => {
+            if let Some(receipt) = run_receipt(snapshot, id) {
+                return DeadlineCancel::Receipt(receipt);
+            }
+            // Pending only when the answer is this Run's snapshot and says it is cancelling:
+            // anything else (`{}`, another run, one still queued or running, a terminal run with
+            // no receipt) confirms nothing.
+            let run = snapshot.get("run");
+            let same = run.and_then(|run| run.get("id")).and_then(Value::as_str) == Some(id);
+            let ending =
+                run.and_then(|run| run.get("status")).and_then(Value::as_str) == Some("cancelling");
+            if same && ending { DeadlineCancel::Pending } else { DeadlineCancel::Unanswered }
+        }
+        // A rate limit answered the cancel: a definite refusal with its own code, not "no answer".
+        Err(failed) if is_wait_transient(&failed.error) && !is_rate_limit(&failed.error) => {
+            DeadlineCancel::Unanswered
+        }
+        // No app to ask (discovery found none this time): nothing answered the cancel either.
+        Err(failed)
+            if matches!(
+                failed.error.get("code").and_then(Value::as_str),
+                Some("app.not_found" | "socket.no_app")
+            ) =>
+        {
+            DeadlineCancel::Unanswered
+        }
+        Err(_) => DeadlineCancel::Refused,
+    }
+}
+
 fn print_error(global: &GlobalArgs, failed: &CallError) -> i32 {
     super::wire::print_local_error(&failed.error, global.output, failed.exit_code)
+}
+
+/// The same command with the key that makes the server answer the run it already started
+/// instead of starting a second one, shell-quoted so it can be pasted as is. It reaches the same
+/// app: the routing flags given, and the app socket this command used (`app_socket`, the one it
+/// named or discovered), since a retry from another shell could otherwise reach another app and
+/// account, where the same key would start a second run.
+pub(super) fn retry_command(
+    request: &Request,
+    key: &str,
+    global: &GlobalArgs,
+    app_socket: Option<&std::path::Path>,
+) -> String {
+    let quote = |word: &str| {
+        if !word.is_empty()
+            && word.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_./:=@%+,".contains(&b))
+        {
+            word.to_owned()
+        } else {
+            format!("'{}'", word.replace('\'', "'\\''"))
+        }
+    };
+    let mut words = vec!["cmux".to_owned()];
+    // `--flag=value`, one word, so a value that starts with `--` is never read as a flag.
+    let pair = |flag: &str, value: &str| quote(&format!("{flag}={value}"));
+    // A socket path is pinned absolute: a retry pasted in another directory reaches this app.
+    let pinned =
+        |path: &std::path::Path| std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    if let Some(socket) = &global.socket {
+        words.push(pair("--socket", &pinned(socket).to_string_lossy()));
+    }
+    if let Some(session) = &global.session {
+        words.push(pair("--session", session));
+    }
+    if let Some(machine) = &global.machine {
+        words.push(pair("--machine", machine));
+    }
+    if let Some(socket) = global.app_socket.as_deref().or(app_socket) {
+        words.push(pair("--app-socket", &pinned(socket).to_string_lossy()));
+    }
+    words.extend(["run".to_owned(), "--sandboxed".to_owned(), pair("--idempotency-key", key)]);
+    if let Some(agent) = &request.agent {
+        words.extend(["--agent".to_owned(), quote(agent.as_str())]);
+    }
+    if let Some(image) = &request.image {
+        words.extend(["--image".to_owned(), quote(image.as_str())]);
+    }
+    if request.timeout_secs != DEFAULT_TIMEOUT_SECS {
+        words.extend(["--timeout".to_owned(), request.timeout_secs.to_string()]);
+    }
+    words.extend(["--".to_owned(), quote(request.task.as_str())]);
+    words.join(" ")
+}
+
+/// Every failure after the create was sent: the run may exist, so the error carries what
+/// recovers it (`details.idempotencyKey`, `details.runId` when known, `details.retry`) in JSON,
+/// and the retry command in text.
+fn print_submitted_error(
+    global: &GlobalArgs,
+    mut failed: CallError,
+    retry: &str,
+    key: &str,
+    run_id: Option<&str>,
+    messages: &SandboxRunMessages,
+) -> i32 {
+    if let Some(error) = failed.error.as_object_mut() {
+        let message = error.get("message").and_then(Value::as_str).unwrap_or_default().to_owned();
+        error.insert(
+            "message".into(),
+            json!(messages.retry_with_key.replace("{message}", &message).replace("{retry}", retry)),
+        );
+        let details = error.entry("details").or_insert_with(|| json!({}));
+        if let Some(details) = details.as_object_mut() {
+            details.insert("idempotencyKey".into(), json!(key));
+            details.insert("retry".into(), json!(retry));
+            if let Some(run_id) = run_id {
+                details.insert("runId".into(), json!(run_id));
+            }
+        }
+    }
+    print_error(global, &failed)
 }
 
 /// One `runs.wait` call that fits before `deadline`: the server's wait and the socket budget
@@ -319,23 +456,36 @@ pub(super) fn run(global: &GlobalArgs, invocation: Invocation) -> i32 {
         Invocation::Run(request) => request,
     };
     let key = global.idempotency_key.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    // The app this command reaches, pinned in the retry (`--socket` names it with its own check).
+    let app_socket = if global.app_socket.is_none() && global.socket.is_none() {
+        super::app::socket_path(global).ok()
+    } else {
+        None
+    };
+    let retry = retry_command(&request, &key, global, app_socket.as_deref());
     let created =
         match call(global, "runs.sandbox.create", create_params(&request, &key), CREATE_TIMEOUT) {
             Ok(value) => value,
-            Err(failed) => return print_error(global, &failed),
+            // A definite refusal: nothing started, so say only why.
+            Err(failed) if !create_may_have_committed(&failed.error) => {
+                return print_error(global, &failed);
+            }
+            Err(failed) => {
+                return print_submitted_error(global, failed, &retry, &key, None, messages);
+            }
         };
     let Some(id) = created.get("id").and_then(Value::as_str).map(str::to_owned) else {
         let failed = CallError {
             error: json!({ "code": "bad_response", "message": messages.bad_response, "details": {} }),
             exit_code: 1,
         };
-        return print_error(global, &failed);
+        return print_submitted_error(global, failed, &retry, &key, None, messages);
     };
     if global.output == OutputMode::Human {
         eprintln!("{}", messages.waiting.replace("{id}", &id));
     }
     // The loop's stop conditions: the receipt, the deadline (checked before every call, and each
-    // call's server wait plus socket budget never runs past it), or the first definite error.
+    // call's server wait plus socket budget never runs past it), or the first error.
     let deadline = Instant::now() + Duration::from_secs(request.timeout_secs) + TEARDOWN_MARGIN;
     let probe = if global.socket.is_some() && global.app_socket.is_none() {
         super::app::READ_TIMEOUT
@@ -345,17 +495,71 @@ pub(super) fn run(global: &GlobalArgs, invocation: Invocation) -> i32 {
     let mut pause = RETRY_PAUSE_MIN;
     loop {
         let Some((server, budget)) = wait_slice(Instant::now(), deadline, probe) else {
-            // Past the deadline: the run's own timeout has passed too, and the server ends it and
-            // destroys its VM. Say so, with exit 4.
-            let failed = CallError {
-                error: json!({
-                    "code": "run.still_running",
-                    "message": messages.still_running.replace("{id}", &id),
-                    "details": { "runId": id },
-                }),
-                exit_code: 4,
+            // Past the deadline the run is not worth more VM time: cancel it, which destroys its
+            // VM before it answers (bounded; the server's reaper covers a cancel that fails).
+            let mut params = Map::new();
+            params.insert("id".into(), json!(id));
+            let cancelled = call(global, "runs.cancel", params, CANCEL_TIMEOUT);
+            // The cancel answers the Run's snapshot: its receipt (it may have finished in the
+            // race, and it says whether the VM is destroyed or still pending) is the answer.
+            let outcome = deadline_cancel(&cancelled, &id);
+            if let DeadlineCancel::Receipt(receipt) = outcome {
+                // Say "cancelled" only when the receipt says so: the run may have ended on its own
+                // in the race. The exit code is the receipt's, as on the normal path.
+                let status = receipt.get("status").and_then(Value::as_str);
+                if global.output == OutputMode::Human && status == Some("cancelled") {
+                    eprintln!("{}", messages.cancelled_at_deadline.replace("{id}", &id));
+                }
+                let code = exit_code(receipt);
+                let printed = print_receipt(global, receipt, messages);
+                return if printed == 0 { code } else { printed };
+            }
+            // The cancel was taken but the run hasn't ended yet (its VM is being destroyed), it got
+            // a definite refusal (with its own code and exit), or it got no answer: say which.
+            let pending = outcome == DeadlineCancel::Pending;
+            let definite = outcome == DeadlineCancel::Refused;
+            let failed = match cancelled {
+                Err(mut refused) if definite => {
+                    let reason =
+                        refused.error.get("message").and_then(Value::as_str).unwrap_or_default();
+                    // Only a signed-out app or a policy that is off leaves the server to end the
+                    // run; any other refusal (`run_not_found`, a rate limit) says only what it was.
+                    let template = if is_gate_refusal(&refused.error) {
+                        messages.cancel_refused
+                    } else {
+                        messages.cancel_failed
+                    };
+                    let message = template.replace("{id}", &id).replace("{message}", reason);
+                    if let Some(error) = refused.error.as_object_mut() {
+                        error.insert("message".into(), json!(message));
+                        let details = error.entry("details").or_insert_with(|| json!({}));
+                        if let Some(details) = details.as_object_mut() {
+                            details.insert("cancelRequested".into(), json!(false));
+                        }
+                    }
+                    refused
+                }
+                _ => CallError {
+                    error: json!({
+                        "code": "run.still_running",
+                        "message": if pending {
+                            messages.cancel_pending.replace("{id}", &id)
+                        } else {
+                            messages.still_running.replace("{id}", &id)
+                        },
+                        "details": { "cancelRequested": pending },
+                    }),
+                    exit_code: 4,
+                },
             };
-            return print_error(global, &failed);
+            return print_submitted_error(
+                global,
+                failed,
+                &retry,
+                &key,
+                Some(id.as_str()),
+                messages,
+            );
         };
         let mut params = Map::new();
         params.insert("id".into(), json!(id));
@@ -368,8 +572,8 @@ pub(super) fn run(global: &GlobalArgs, invocation: Invocation) -> i32 {
             // A wait that ran into the deadline is the deadline: the loop's next turn says so.
             Err(_) if Instant::now() >= deadline => continue,
             // A wait that timed out or lost its transport is no answer: wait again until the
-            // deadline. An outage answers at once: pause before asking again (backing off,
-            // inside the deadline). Only a definite refusal ends it here.
+            // deadline, where the loop cancels the run. Only a definite refusal ends it here.
+            // An outage answers at once: pause before asking again (backing off, inside the deadline).
             Err(failed) if is_wait_transient(&failed.error) => {
                 std::thread::sleep(pause.min(deadline.saturating_duration_since(Instant::now())));
                 pause = (pause * 2).min(RETRY_PAUSE_MAX);
@@ -387,9 +591,25 @@ pub(super) fn run(global: &GlobalArgs, invocation: Invocation) -> i32 {
                 if let Some(error) = refused.error.as_object_mut() {
                     error.insert("message".into(), json!(message));
                 }
-                return print_error(global, &refused);
+                return print_submitted_error(
+                    global,
+                    refused,
+                    &retry,
+                    &key,
+                    Some(id.as_str()),
+                    messages,
+                );
             }
-            Err(failed) => return print_error(global, &failed),
+            Err(failed) => {
+                return print_submitted_error(
+                    global,
+                    failed,
+                    &retry,
+                    &key,
+                    Some(id.as_str()),
+                    messages,
+                );
+            }
         };
         if let Some(receipt) = run_receipt(&snapshot, &id) {
             let code = exit_code(receipt);
@@ -399,10 +619,18 @@ pub(super) fn run(global: &GlobalArgs, invocation: Invocation) -> i32 {
         // A finished run whose answer holds no valid receipt will never get one: the answer is lost.
         if run_finished(&snapshot) {
             let failed = CallError {
-                error: json!({ "code": "bad_response", "message": messages.bad_response, "details": { "runId": id } }),
+                error: json!({ "code": "bad_response", "message": messages.bad_response, "details": {} }),
                 exit_code: 1,
             };
-            return print_error(global, &failed);
+            // The run exists: the error carries its key and the retry that reads it again.
+            return print_submitted_error(
+                global,
+                failed,
+                &retry,
+                &key,
+                Some(id.as_str()),
+                messages,
+            );
         }
     }
 }
@@ -446,6 +674,15 @@ pub(super) fn is_transient(error: &Value) -> bool {
 /// a probe that fails now is a stall, not another kind of socket.
 pub(super) fn is_wait_transient(error: &Value) -> bool {
     is_transient(error) || error.get("code").and_then(Value::as_str) == Some("socket.wrong_kind")
+}
+
+/// A create error after which the run may exist: no answer, or a server failure. Anything else
+/// (signed out, Labs off, a refused image, agent or task, no app to ask) proves nothing started.
+pub(super) fn create_may_have_committed(error: &Value) -> bool {
+    matches!(
+        error.get("code").and_then(Value::as_str),
+        Some("timeout" | "app.transport" | "unavailable" | "bad_response")
+    )
 }
 
 /// The snapshot's receipt when it is this Run's finished sandbox receipt: the v1 schema, this

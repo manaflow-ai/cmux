@@ -158,6 +158,139 @@ fn each_wait_fits_before_the_deadline_and_none_starts_after_it() {
 }
 
 #[test]
+fn the_retry_command_repeats_the_request_with_its_key() {
+    let mut global = GlobalArgs::default();
+    assert_eq!(
+        retry_command(&request("list the TODOs"), "key-1", &global, None),
+        "cmux run --sandboxed --idempotency-key=key-1 -- 'list the TODOs'"
+    );
+    global.app_socket = Some("/tmp/cmux app.sock".into());
+    let mut with = request("it's done");
+    with.agent = Some("claude".into());
+    with.timeout_secs = 60;
+    assert_eq!(
+        retry_command(&with, "key-2", &global, Some(std::path::Path::new("/ignored.sock"))),
+        "cmux '--app-socket=/tmp/cmux app.sock' run --sandboxed --idempotency-key=key-2 --agent claude --timeout 60 -- 'it'\\''s done'"
+    );
+}
+
+#[test]
+fn the_retry_command_reaches_the_same_app() {
+    // The routing flags given are kept as given.
+    let global = GlobalArgs {
+        socket: Some("/tmp/daemon.sock".into()),
+        session: Some("work".into()),
+        machine: Some("mac 2".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        retry_command(&request("x"), "k", &global, None),
+        "cmux --socket=/tmp/daemon.sock --session=work '--machine=mac 2' run --sandboxed --idempotency-key=k -- x"
+    );
+    // With none, the app this command discovered is pinned, so another shell's environment
+    // can't send the retry to another app and account.
+    assert_eq!(
+        retry_command(
+            &request("x"),
+            "k",
+            &GlobalArgs::default(),
+            Some(std::path::Path::new("/run/cmux/app.sock"))
+        ),
+        "cmux --app-socket=/run/cmux/app.sock run --sandboxed --idempotency-key=k -- x"
+    );
+}
+
+fn deadline_cancel_for(cancelled: &Result<Value, CallError>) -> DeadlineCancel<'_> {
+    deadline_cancel(cancelled, "run-1")
+}
+
+#[test]
+fn a_retry_value_that_starts_with_dashes_stays_a_value() {
+    let global = GlobalArgs { session: Some("--odd".into()), ..Default::default() };
+    let retry = retry_command(&request("x"), "--key", &global, None);
+    assert_eq!(retry, "cmux --session=--odd run --sandboxed --idempotency-key=--key -- x");
+    // The global parser reads each pair back as one flag and its value.
+    let words: Vec<String> = retry.split(' ').skip(1).map(str::to_owned).collect();
+    let (parsed, _) = super::super::parse_globals(&words).map_err(|(error, _)| error).unwrap();
+    assert_eq!(parsed.session.as_deref(), Some("--odd"));
+}
+
+#[test]
+fn a_relative_socket_is_pinned_absolute_in_the_retry() {
+    let global = GlobalArgs {
+        app_socket: Some("app.sock".into()),
+        socket: Some("./daemon.sock".into()),
+        ..Default::default()
+    };
+    let retry = retry_command(&request("x"), "k", &global, None);
+    let cwd = std::env::current_dir().unwrap();
+    assert!(retry.contains(&format!("--app-socket={}", cwd.join("app.sock").display())), "{retry}");
+    assert!(
+        retry.contains(&format!("--socket={}", cwd.join("daemon.sock").display()))
+            || retry.contains(&format!("--socket={}", cwd.join("./daemon.sock").display())),
+        "{retry}"
+    );
+}
+
+#[test]
+fn the_deadline_cancel_says_what_happened() {
+    let failed = |code: &str| -> Result<Value, CallError> {
+        Err(CallError { error: json!({ "code": code, "message": "m" }), exit_code: 1 })
+    };
+    let receipt = json!({ "receipt": { "schema": "cmux.run.receipt/v1", "runId": "run-1", "environment": "sandboxed", "status": "cancelled", "cleanup": "destroyed" } });
+    assert_eq!(
+        deadline_cancel_for(&Ok(receipt.clone())),
+        DeadlineCancel::Receipt(&receipt["receipt"])
+    );
+    let ending = json!({ "run": { "id": "run-1", "status": "cancelling" }, "receipt": null });
+    assert_eq!(deadline_cancel_for(&Ok(ending)), DeadlineCancel::Pending);
+    // An answer that isn't this Run's snapshot, still ending, confirms nothing.
+    for answer in [
+        json!({}),
+        json!({ "receipt": null }),
+        json!({ "receipt": "x" }),
+        json!({ "receipt": {} }),
+        json!({ "receipt": { "schema": "cmux.run.receipt/v1", "runId": "run-1", "status": "running" } }),
+        json!({ "receipt": { "schema": "cmux.run.receipt/v1", "runId": "run-2", "status": "succeeded" } }),
+        json!({ "receipt": { "runId": "run-1", "status": "succeeded" } }),
+        // A skeleton without the sandboxed environment or a cleanup state is no receipt.
+        json!({ "receipt": { "schema": "cmux.run.receipt/v1", "runId": "run-1", "status": "succeeded" } }),
+        json!({ "receipt": { "schema": "cmux.run.receipt/v1", "runId": "run-1", "environment": "sandboxed", "status": "succeeded" } }),
+        // A run still queued or running did not take the cancel.
+        json!({ "run": { "id": "run-1", "status": "running" } }),
+        json!({ "run": { "id": "run-1", "status": "queued" } }),
+        json!({ "run": { "id": "run-2", "status": "cancelling" } }),
+        json!({ "run": { "id": "run-1", "status": "succeeded" } }),
+    ] {
+        assert_eq!(
+            deadline_cancel_for(&Ok(answer.clone())),
+            DeadlineCancel::Unanswered,
+            "{answer}"
+        );
+    }
+    // A signed-out app or a preview turned off refuses the cancel: exit 3 with its reason.
+    for code in ["not_signed_in", "labs_off", "feature.disabled", "run_sandbox_unavailable"] {
+        assert_eq!(deadline_cancel_for(&failed(code)), DeadlineCancel::Refused, "{code}");
+    }
+    // No answer is exit 4: the run may still be running.
+    for code in [
+        "timeout",
+        "app.transport",
+        "app.unreachable",
+        "app.not_found",
+        "socket.no_app",
+        "unavailable",
+        "bad_response",
+    ] {
+        assert_eq!(deadline_cancel_for(&failed(code)), DeadlineCancel::Unanswered, "{code}");
+    }
+    // A definite answer keeps its own code and exit: the run is not reported as still running.
+    for code in ["run_not_found", "http_409", "rate_limited"] {
+        assert_eq!(deadline_cancel_for(&failed(code)), DeadlineCancel::Refused, "{code}");
+    }
+}
+
+#[test]
 fn a_receipt_counts_only_when_it_is_this_runs_finished_sandbox_receipt() {
     let full = json!({ "receipt": {
         "schema": "cmux.run.receipt/v1", "runId": "run-1", "environment": "sandboxed",
@@ -228,4 +361,26 @@ fn only_a_timeout_or_a_lost_transport_keeps_waiting() {
     // `--socket`'s probe failing after the run was created is a stall, not another socket.
     assert!(is_wait_transient(&json!({ "code": "socket.wrong_kind" })));
     assert!(!is_transient(&json!({ "code": "socket.wrong_kind" })));
+}
+
+#[test]
+fn only_a_create_that_may_have_committed_prints_the_retry() {
+    for code in ["timeout", "app.transport", "unavailable", "bad_response"] {
+        assert!(create_may_have_committed(&json!({ "code": code })), "{code}");
+    }
+    for code in [
+        "not_signed_in",
+        "labs_off",
+        "feature.disabled",
+        "run_sandbox_unavailable",
+        "run_image_invalid",
+        "run_agent_invalid",
+        "run_task_required",
+        "app.unreachable",
+        "app.not_found",
+        "rate_limited",
+        "no_backend",
+    ] {
+        assert!(!create_may_have_committed(&json!({ "code": code })), "{code}");
+    }
 }

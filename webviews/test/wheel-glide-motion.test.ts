@@ -8,7 +8,7 @@ function fixture() {
   const saved = [globalThis.requestAnimationFrame, globalThis.cancelAnimationFrame] as const;
   const pending = new Map<number, FrameRequestCallback>();
   let handle = 0;
-  let now = performance.now();
+  let now = Math.floor(performance.now());
   const savedNow = performance.now;
   performance.now = () => now;
   globalThis.requestAnimationFrame = (run) => {
@@ -21,6 +21,7 @@ function fixture() {
     getComputedStyle: () => ({ overflowY: "auto", overflowX: "auto", getPropertyValue: () => duration }),
   });
   const doc = Object.assign(new EventTarget(), { defaultView: page, hidden: false, documentElement: { dataset: {} } });
+  let round = Math.round;
   class Scroller extends EventTarget {
     ownerDocument = doc;
     clientHeight = 500;
@@ -33,7 +34,7 @@ function fixture() {
       return this.top;
     }
     set scrollTop(value: number) {
-      this.top = Math.max(0, Math.min(this.scrollHeight - this.clientHeight, Math.round(value)));
+      this.top = Math.max(0, Math.min(this.scrollHeight - this.clientHeight, round(value)));
     }
   }
   const box = new Scroller();
@@ -47,6 +48,9 @@ function fixture() {
   };
   return {
     node,
+    floorOffsets() {
+      round = Math.floor;
+    },
     motion(value: string) {
       duration = value;
     },
@@ -197,6 +201,30 @@ test("notches honor the host motion speed and a zero duration remains native", (
     expect(f.pending.size).toBe(0);
     f.motion("0s");
     expect(f.wheel(-10)).toBe(false);
+    expect(f.pending.size).toBe(0);
+  } finally {
+    f.restore();
+  }
+});
+
+test.each(
+  [
+    [20, 20, 20, 20, 20, 20, 20, 20, 20],
+    [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4],
+    [176.57, 4.43],
+  ].map((frames) => ({ frames })),
+)("subpixel travel is monotonic at every frame cadence (%j)", ({ frames }) => {
+  const f = fixture();
+  try {
+    f.floorOffsets();
+    f.wheel(-100.006103515625, { deltaMode: 0, wheelDeltaY: 300 });
+    const offsets = [f.node.scrollTop];
+    for (const duration of frames) {
+      f.tick(duration);
+      offsets.push(f.node.scrollTop);
+    }
+    expect(offsets.slice(1).every((top, index) => top <= offsets[index]!)).toBe(true);
+    expect(f.node.scrollTop).toBe(900);
     expect(f.pending.size).toBe(0);
   } finally {
     f.restore();
