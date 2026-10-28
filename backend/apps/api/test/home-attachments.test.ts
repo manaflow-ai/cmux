@@ -131,6 +131,22 @@ describe("Home attachments: upload and dedupe", { timeout: 60_000 }, () => {
     expect(two.complete).toEqual(one.complete)
   })
 
+  it("a part number is an integer from 1 to the planned part count (at most 10,000), on every part PUT and in the completion's list", async () => {
+    const alice = await signIn("att-multipart-numbers")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32 * 1024 * 1024 + 17)
+    const r = await intent(alice, id, body, { multipart: true })
+    expect(r.json.value.part_count).toBe(2)
+    for (const number of ["0", "3", "10000", "10001", "99999999999999", "1.5", "01", "-1", ""]) {
+      const res = await worker.fetch(r.json.value.upload_url, { method: "PUT", body: new Uint8Array([1]), headers: { "content-length": "1", "x-cmux-part-number": number } })
+      expect([number, res.status, ((await res.json()) as any).error.code]).toEqual([number, 400, "attachment.part_invalid"])
+    }
+    for (const parts of [[{ part_number: 10_001, etag: "e" }], [{ part_number: 1, etag: "e" }, { part_number: 3, etag: "e" }], [{ part_number: 1.5, etag: "e" }], [{ part_number: 1, etag: "e" }, { part_number: 2, etag: "e" }, { part_number: 3, etag: "e" }]]) {
+      const res = await post("/v1/home/attachments/multipart/complete", alice.token, { conversation: id, slot: r.json.value.slot, parts })
+      expect([parts.length, res.status, res.json.error.code]).toEqual([parts.length, 400, "attachment.parts_invalid"])
+    }
+  })
+
   it("bytes whose SHA-256 differs from the declared hash are refused and not kept", async () => {
     const alice = await signIn("att-hash-alice")
     const { id } = await group(alice)

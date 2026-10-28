@@ -26,6 +26,10 @@ describe("self-hosted attachment bucket", () => {
       expect(stored?.body).toBeDefined()
       expect(new Uint8Array(await new Response(stored!.body!).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4, 5]))
       await expect(bucket.resumeMultipartUpload(upload.key, upload.uploadId).abort()).resolves.toBeUndefined()
+      // R2 numbers parts 1 to 10,000.
+      const more = await bucket.createMultipartUpload("home/v1/numbers")
+      for (const number of [0, 10_001, 1.5, -1]) await expect(more.uploadPart(number, "x")).rejects.toThrow()
+      await expect(more.uploadPart(10_000, "x")).resolves.toMatchObject({ partNumber: 10_000 })
 
       await bucket.put("pieces/a", "a")
       await bucket.put("pieces/b", "b")
