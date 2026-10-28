@@ -21,6 +21,11 @@ final class TerminalClipboardRequests {
     private var writePromptPending = false
     private var writeDialogID: Int?
     private var writeRequestState: UncheckedPointer?
+    /// Dropped text the paste binding run by ``asDrop(_:paste:)`` reads instead of the clipboard; set
+    /// only during that synchronous call.
+    private var droppedText: String?
+    /// Whether the binding's read took ``droppedText``.
+    private var droppedTextServed = false
     nonisolated static let maxProgramWriteBytes = 1 << 20
 
     /// Runs `body` as a user paste (see `userPasteInProgress`).
@@ -37,6 +42,35 @@ final class TerminalClipboardRequests {
         userClipboardWriteInProgress = true
         defer { userClipboardWriteInProgress = previous }
         return body()
+    }
+
+    /// Runs `paste` (the `paste_from_clipboard` binding) with `text` as what its clipboard read gets,
+    /// so a drop takes Ghostty's own paste path and its paste protection, as Ghostty 1.4.0's
+    /// `ghostty_surface_paste_text` does (5580df602). True when the read took the text; false when
+    /// Ghostty asked for no text (a paste event) and nothing was sent.
+    func asDrop(_ text: String, paste: () -> Void) -> Bool {
+        droppedText = text
+        droppedTextServed = false
+        defer { droppedText = nil }
+        paste()
+        return droppedTextServed
+    }
+
+    /// A drop ``asDrop(_:paste:)`` could not paste: `send` it when Ghostty's unbracketed rule calls it
+    /// safe (``isUnsafePaste(_:)``), else after the paste prompt, which a hidden terminal denies.
+    func confirmDrop(_ text: String, send: @escaping () -> Void) {
+        guard Self.isUnsafePaste(text) else { return send() }
+        // visibility-walk-allow: the confirm dialog attaches to the view AppKit shows, as `confirm` does
+        guard let view, view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
+        CmuxDialogCenter.shared.present(Self.pasteSpec(preview: text), in: .tab(view)) { answer in
+            if answer.button == "allow" { send() }
+        }
+    }
+
+    /// Ghostty's unbracketed paste rule (`input.paste.isSafe`, with 1.4.0's carriage return): a line
+    /// break, or the end of a bracketed paste, can run a command.
+    nonisolated static func isUnsafePaste(_ text: String) -> Bool {
+        text.unicodeScalars.contains { $0 == "\n" || $0 == "\r" } || text.contains("\u{1B}[201~")
     }
 
     /// Whether `event` is the Cmd-V paste chord.
@@ -58,6 +92,18 @@ final class TerminalClipboardRequests {
     func completeRead(location: TerminalPasteboardLocation, wantsText: Bool, listAvailable: Bool,
                       state: UncheckedPointer) -> ghostty_clipboard_read_result_e {
         guard let surface = view?.surface else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
+        if let dropped = droppedText {
+            droppedText = nil
+            // A paste event (kitty mode 5522) asks only for the types and lets the program read the
+            // clipboard after: never for a drop, whose caller then sends it itself (``confirmDrop``).
+            guard wantsText, location == .standard else { return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
+            droppedTextServed = true
+            // SAFETY: the view's live surface (TerminalSurfaceView.surface) and the pending request's
+            // state, answered once, here (UncheckedPointer).
+            unsafe Self.complete(surface, text: dropped, available: listAvailable ? ["text/plain"] : [],
+                                 state: state, confirmed: false)
+            return GHOSTTY_CLIPBOARD_READ_STARTED
+        }
         let pasteboard = TerminalPasteboard.pasteboard(location)
         let imagePaste = location == .standard && userPasteInProgress
         let text: String? = if imagePaste, wantsText {
@@ -93,9 +139,7 @@ final class TerminalClipboardRequests {
         let spec: CmuxDialogSpec
         switch kind {
         case .paste:
-            spec = Self.spec(String(localized: "terminal.clipboard.paste.title", defaultValue: "Paste into the terminal?", bundle: .module),
-                             String(localized: "terminal.clipboard.paste.message", defaultValue: "The text contains line breaks and may run commands immediately.", bundle: .module),
-                             preview: contents)
+            spec = Self.pasteSpec(preview: contents)
         case .osc52Read:
             spec = Self.spec(String(localized: "terminal.clipboard.read.title", defaultValue: "Allow a program to read the clipboard?", bundle: .module),
                              String(localized: "terminal.clipboard.read.message", defaultValue: "A program running in this terminal asked for the clipboard contents.", bundle: .module),
@@ -197,6 +241,12 @@ final class TerminalClipboardRequests {
             total += count
         }
         return true
+    }
+
+    private static func pasteSpec(preview: String) -> CmuxDialogSpec {
+        spec(String(localized: "terminal.clipboard.paste.title", defaultValue: "Paste into the terminal?", bundle: .module),
+             String(localized: "terminal.clipboard.paste.message", defaultValue: "The text contains line breaks and may run commands immediately.", bundle: .module),
+             preview: preview)
     }
 
     private static func writeSpec(preview: String) -> CmuxDialogSpec {

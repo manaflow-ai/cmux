@@ -61,7 +61,9 @@ enum TerminalPasteboard {
         return nil
     }
 
-    private static func normalizedLineEndings(_ text: String) -> String {
+    /// `text` with CRLF and CR as LF, so Ghostty's unsafe-paste check (LF only in this pin) sees a
+    /// carriage return as the line break it is (Ghostty 1.4.0, 5c9a3d8a9).
+    static func normalizedLineEndings(_ text: String) -> String {
         text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
     }
 
