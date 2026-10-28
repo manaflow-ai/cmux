@@ -29,11 +29,10 @@ extension SessionPersistencePolicy {
     ///   checkpoints (one copy's set contains the other's), or a unique title
     ///   in the same directory; never by position. A workspace found in only
     ///   one copy is appended.
-    /// - Of two matched workspaces one is kept whole and the other dropped,
-    ///   with its unique non-agent panels (plain terminals, browsers, splits): the copy
-    ///   whose agent checkpoints strictly contain the other's, otherwise the
-    ///   one with the higher fidelity score.
-    ///   Divergent agent sets or different docks stay separate; one original
+    /// - A workspace copy is kept whole only when it contains the other's
+    ///   agent checkpoints and non-agent panel identities. Equal evidence
+    ///   chooses the higher fidelity score. Divergent panels, groups, or docks
+    ///   stay separate, preserving their complete layouts; one original
     ///   workspace can match at most one workspace in the other generation.
     /// - Three or more copies of a window collapse into one, pair by pair.
     ///
@@ -146,7 +145,10 @@ extension SessionPersistencePolicy {
             groupID: workspace.groupId,
             directory: workspace.currentDirectory.isEmpty ? "" : URL(fileURLWithPath: workspace.currentDirectory).standardizedFileURL.path,
             dock: crashDockSignature(workspace.dock),
-            fidelityScore: sessionWorkspaceRestoreFidelityScore(workspace)
+            fidelityScore: sessionWorkspaceRestoreFidelityScore(workspace),
+            nonAgentPanelIDs: Set(workspace.panels.compactMap {
+                crashPanelCheckpointID($0) == nil ? $0.id : nil
+            })
         )
     }
 
@@ -179,20 +181,22 @@ extension SessionPersistencePolicy {
     }
 
     private nonisolated static func crashPanelCheckpointIDs(_ panels: [SessionPanelSnapshot]) -> Set<String> {
-        Set(panels.compactMap { panel in
-            guard let terminal = panel.terminal else { return nil }
-            if let sessionId = terminal.agent?.sessionId { return sessionId }
-            if let binding = terminal.resumeBinding, binding.isAgentHookBinding,
-               let checkpoint = binding.checkpointId {
-                return checkpoint
-            }
-            guard let managed = terminal.managedAgentResumeBinding,
-                  !managed.isProcessDetected,
-                  managed.source != SurfaceResumeBindingSnapshot.untrustedSessionImportSource else {
-                return nil
-            }
-            return managed.checkpointId
-        })
+        Set(panels.compactMap(crashPanelCheckpointID))
+    }
+
+    private nonisolated static func crashPanelCheckpointID(_ panel: SessionPanelSnapshot) -> String? {
+        guard let terminal = panel.terminal else { return nil }
+        if let sessionId = terminal.agent?.sessionId { return sessionId }
+        if let binding = terminal.resumeBinding, binding.isAgentHookBinding,
+           let checkpoint = binding.checkpointId {
+            return checkpoint
+        }
+        guard let managed = terminal.managedAgentResumeBinding,
+              !managed.isProcessDetected,
+              managed.source != SurfaceResumeBindingSnapshot.untrustedSessionImportSource else {
+            return nil
+        }
+        return managed.checkpointId
     }
 
     private nonisolated static func sessionWorkspaceRestoreFidelityScore(

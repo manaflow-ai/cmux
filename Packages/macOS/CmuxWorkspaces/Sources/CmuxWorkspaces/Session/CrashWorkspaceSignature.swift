@@ -43,16 +43,21 @@ public struct CrashWorkspaceSignature: Sendable {
         self.fidelityScore = fidelityScore
     }
 
-    /// Whole-copy selection is safe only when neither side loses unique agents or a dock.
+    /// A whole copy may replace another only if it covers every panel identity.
     nonisolated func canMerge(with other: Self) -> Bool {
-        groupID == other.groupID && dock == other.dock && (checkpointIDs.isSubset(of: other.checkpointIDs)
-            || other.checkpointIDs.isSubset(of: checkpointIDs))
+        groupID == other.groupID && dock == other.dock
+            && (containsPanels(of: other) || other.containsPanels(of: self))
     }
 
     nonisolated func isPreferred(over other: Self) -> Bool {
-        if checkpointIDs != other.checkpointIDs {
-            return other.checkpointIDs.isStrictSubset(of: checkpointIDs)
+        if checkpointIDs != other.checkpointIDs || nonAgentPanelIDs != other.nonAgentPanelIDs {
+            return containsPanels(of: other)
         }
         return fidelityScore > other.fidelityScore
+    }
+
+    private nonisolated func containsPanels(of other: Self) -> Bool {
+        checkpointIDs.isSuperset(of: other.checkpointIDs)
+            && nonAgentPanelIDs.isSuperset(of: other.nonAgentPanelIDs)
     }
 }

@@ -8,6 +8,38 @@ import Testing
 #endif
 
 extension CrashDiagnosticSessionPolicyTests {
+    @Test("Crash merging preserves unique terminal and browser panels", arguments: [false, true])
+    func crashMergeKeepsNonAgentPanels(browser: Bool) throws {
+        let original = crashTestWindow([crashTestWorkspace("api", agents: ["a", "b"])])
+        var replay = original
+        var panel = terminalPanelSnapshot(
+            id: UUID(), directory: "/work/api", terminal: SessionTerminalPanelSnapshot(scrollback: "saved output")
+        )
+        if browser {
+            panel.type = .browser
+            panel.terminal = nil
+            panel.browser = SessionBrowserPanelSnapshot(
+                urlString: "https://example.com/saved", profileID: nil,
+                shouldRenderWebView: true, pageZoom: 1, developerToolsVisible: false,
+                backHistoryURLStrings: [], forwardHistoryURLStrings: []
+            )
+        }
+        replay.tabManager.workspaces[0].panels.append(panel)
+        replay.tabManager.workspaces[0].layout = .pane(SessionPaneLayoutSnapshot(
+            panelIds: replay.tabManager.workspaces[0].panels.map(\.id), selectedPanelId: panel.id
+        ))
+        let restored = try #require(SessionPersistencePolicy.snapshotForLiveRestore(AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion, createdAt: 10, windows: [original, replay]
+        )))
+        #expect(restored.windows.count == 1)
+        #expect(restored.windows[0].tabManager.workspaces.count == 1)
+        let panels = restored.windows[0].tabManager.workspaces[0].panels
+        #expect(Set(panels.map(\.id)) == Set(replay.tabManager.workspaces[0].panels.map(\.id)))
+        let saved = try #require(panels.first { $0.id == panel.id })
+        #expect(saved.terminal?.scrollback == panel.terminal?.scrollback)
+        #expect(saved.browser?.urlString == panel.browser?.urlString)
+    }
+
     @Test("Merging crash generations keeps agents unique to either copy")
     func crashMergeKeepsIncomparableAgentSets() throws {
         let id = UUID()
