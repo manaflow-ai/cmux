@@ -180,20 +180,43 @@ fn pi_mutex_donates_priority_on_apple_platforms_only() {
     assert_eq!(DONATES_PRIORITY, cfg!(target_vendor = "apple"));
 }
 
-/// Priority inversion, macOS only: a background holder runs a fixed
-/// critical section while at least 8 background hogs fill the cores
-/// background work may use, and a user-interactive waiter blocks on the
-/// lock. The waiter's turnstile pushes the holder past the hogs, so the
-/// waiter's p99 wait stays within twice the hold measured with no hogs.
-/// Without the push the holder shares its cores with the hogs and the waits
-/// grow with their count.
+/// Priority inversion, macOS only. A background holder runs a fixed critical
+/// section while background hogs, twice the core count, fill every core
+/// background work may use, and a user-interactive waiter blocks on the lock
+/// each round. The holder spins between rounds, so its timeshare priority
+/// decays as the hogs' does: a quantum that ends inside its section gives the
+/// core to a hog. Over a plain `parking_lot` lock (the control: the waiter
+/// parks on its own address and pushes nobody) the waiter then waits out the
+/// hogs' quanta, and its p99 passes twice the uncontended hold. Over
+/// [`PiMutex`] the waiter's turnstile pushes the holder past the hogs, and
+/// its p99 stays within twice the hold (Chromium
+/// base/synchronization/lock_impl.h, its `os_unfair_lock` path).
 #[cfg(target_vendor = "apple")]
-#[test]
-fn pi_mutex_inversion_wait_p99_is_within_twice_the_uncontended_hold() {
-    use std::sync::atomic::AtomicBool;
+mod inversion {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
 
     const ROUNDS: usize = 200;
     const TARGET_HOLD: Duration = Duration::from_millis(2);
+    /// Long enough for the spinning holder's usage to decay to the hogs'.
+    const WARMUP: Duration = Duration::from_secs(1);
+
+    /// A lock the scenario runs its section under.
+    trait SectionLock: Send + Sync + 'static {
+        fn hold(&self, section: impl FnOnce(&mut u64));
+    }
+
+    impl SectionLock for PiMutex<u64> {
+        fn hold(&self, section: impl FnOnce(&mut u64)) {
+            section(&mut self.lock().expect("lock"));
+        }
+    }
+
+    impl SectionLock for parking_lot::Mutex<u64> {
+        fn hold(&self, section: impl FnOnce(&mut u64)) {
+            section(&mut self.lock());
+        }
+    }
 
     fn critical_section(iterations: u64) -> u64 {
         let mut value = 0_u64;
@@ -209,100 +232,125 @@ fn pi_mutex_inversion_wait_p99_is_within_twice_the_uncontended_hold() {
         samples[index]
     }
 
-    /// Stops the hogs on every exit of the test, a failed assertion too.
+    /// Stops the hogs and the holder on every exit, a failed assertion too.
     struct Stop(Arc<AtomicBool>);
+
     impl Drop for Stop {
         fn drop(&mut self) {
             self.0.store(true, Ordering::Relaxed);
         }
     }
 
-    let mutex = Arc::new(PiMutex::new(0_u64));
-
-    // The holder's section with no hogs, sized to about TARGET_HOLD.
-    let (iterations, mut uncontended) =
-        join(spawn("pi-holder-calibrate", ThreadQos::Background, {
-            let mutex = Arc::clone(&mutex);
-            move || {
-                let probe = 1_000_000_u64;
-                let since = Instant::now();
-                std::hint::black_box(critical_section(probe));
-                let per = since.elapsed().as_nanos().max(1) as f64 / probe as f64;
-                let iterations = (TARGET_HOLD.as_nanos() as f64 / per).max(1.0) as u64;
-                let holds: Vec<Duration> = (0..ROUNDS / 4)
-                    .map(|_| {
-                        let mut value = mutex.lock().expect("lock");
+    /// The section's iteration count for about [`TARGET_HOLD`] and its median
+    /// hold under an uncontended lock, both on a background thread, no hogs.
+    fn calibrate() -> (u64, Duration) {
+        join(spawn("pi-holder-calibrate", ThreadQos::Background, || {
+            let probe = 1_000_000_u64;
+            let since = Instant::now();
+            std::hint::black_box(critical_section(probe));
+            let per = since.elapsed().as_nanos().max(1) as f64 / probe as f64;
+            let iterations = (TARGET_HOLD.as_nanos() as f64 / per).max(1.0) as u64;
+            let mutex = PiMutex::new(0_u64);
+            let mut holds: Vec<Duration> = (0..ROUNDS / 4)
+                .map(|_| {
+                    let mut held = Duration::ZERO;
+                    mutex.hold(|value| {
                         let since = Instant::now();
                         *value = value.wrapping_add(critical_section(iterations));
-                        let held = since.elapsed();
-                        drop(value);
-                        held
+                        held = since.elapsed();
+                    });
+                    held
+                })
+                .collect();
+            (iterations, percentile(&mut holds, 0.5))
+        }))
+    }
+
+    /// The waiter's p99 wait for `lock` while the hogs run.
+    fn waiter_p99(lock: impl SectionLock, iterations: u64) -> Duration {
+        let lock = Arc::new(lock);
+        let stop = Stop(Arc::new(AtomicBool::new(false)));
+        let hog_count =
+            2 * std::thread::available_parallelism().map_or(8, std::num::NonZero::get).max(8);
+        let hogs: Vec<_> = (0..hog_count)
+            .map(|_| {
+                let stop = Arc::clone(&stop.0);
+                spawn("pi-hog", ThreadQos::Background, move || {
+                    let mut value = 0_u64;
+                    while !stop.load(Ordering::Relaxed) {
+                        value = std::hint::black_box(critical_section(10_000).wrapping_add(value));
+                    }
+                    value
+                })
+            })
+            .collect();
+
+        // The waiter lets the holder take the lock for round r by storing r + 1.
+        let next = Arc::new(AtomicUsize::new(0));
+        let (held_tx, held_rx) = mpsc::channel::<()>();
+        let holder = spawn("pi-holder", ThreadQos::Background, {
+            let lock = Arc::clone(&lock);
+            let next = Arc::clone(&next);
+            let stop = Arc::clone(&stop.0);
+            move || {
+                for round in 0..ROUNDS {
+                    // Spin, not park: the holder stays CPU-bound, as the hogs are.
+                    while next.load(Ordering::Acquire) <= round {
+                        if stop.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        std::hint::spin_loop();
+                    }
+                    lock.hold(|value| {
+                        held_tx.send(()).expect("held");
+                        *value = value.wrapping_add(critical_section(iterations));
+                    });
+                }
+            }
+        });
+        cmux_threads::checked::sync::sleep(WARMUP);
+        let mut waits = join(spawn("pi-waiter", ThreadQos::UserInteractive, {
+            let lock = Arc::clone(&lock);
+            move || {
+                (0..ROUNDS)
+                    .map(|round| {
+                        next.store(round + 1, Ordering::Release);
+                        held_rx.recv().expect("holder holds");
+                        let since = Instant::now();
+                        let mut waited = Duration::ZERO;
+                        lock.hold(|_| waited = since.elapsed());
+                        waited
                     })
-                    .collect();
-                (iterations, holds)
+                    .collect::<Vec<_>>()
             }
         }));
-    let hold = percentile(&mut uncontended, 0.5);
+        join(holder);
+        drop(stop);
+        hogs.into_iter().for_each(|hog| {
+            join(hog);
+        });
+        percentile(&mut waits, 0.99)
+    }
 
-    let stop = Stop(Arc::new(AtomicBool::new(false)));
-    let hog_count = std::thread::available_parallelism().map_or(8, std::num::NonZero::get).max(8);
-    let hogs: Vec<_> = (0..hog_count)
-        .map(|_| {
-            let stop = Arc::clone(&stop.0);
-            spawn("pi-hog", ThreadQos::Background, move || {
-                let mut value = 0_u64;
-                while !stop.load(Ordering::Relaxed) {
-                    value = std::hint::black_box(critical_section(10_000).wrapping_add(value));
-                }
-                value
-            })
-        })
-        .collect();
-
-    let (held_tx, held_rx) = mpsc::channel::<()>();
-    let (next_tx, next_rx) = mpsc::channel::<()>();
-    let holder = spawn("pi-holder", ThreadQos::Background, {
-        let mutex = Arc::clone(&mutex);
-        move || {
-            for _ in 0..ROUNDS {
-                let mut value = mutex.lock().expect("lock");
-                held_tx.send(()).expect("held");
-                *value = value.wrapping_add(critical_section(iterations));
-                drop(value);
-                if next_rx.recv().is_err() {
-                    return;
-                }
-            }
-        }
-    });
-    let mut waits = join(spawn("pi-waiter", ThreadQos::UserInteractive, {
-        let mutex = Arc::clone(&mutex);
-        move || {
-            (0..ROUNDS)
-                .map(|_| {
-                    held_rx.recv().expect("holder holds");
-                    let since = Instant::now();
-                    let guard = mutex.lock().expect("lock");
-                    let waited = since.elapsed();
-                    drop(guard);
-                    next_tx.send(()).expect("next round");
-                    waited
-                })
-                .collect::<Vec<_>>()
-        }
-    }));
-    join(holder);
-    drop(stop);
-    hogs.into_iter().for_each(|hog| {
-        join(hog);
-    });
-
-    let p99 = percentile(&mut waits, 0.99);
-    assert!(
-        p99 <= hold * 2,
-        "waiter p99 {p99:?} exceeds twice the uncontended hold {hold:?} with {hog_count} \
-         background hogs"
-    );
+    #[test]
+    fn pi_mutex_inversion_wait_p99_is_within_twice_the_uncontended_hold() {
+        let (iterations, hold) = calibrate();
+        let control = waiter_p99(parking_lot::Mutex::new(0_u64), iterations);
+        let inheriting = waiter_p99(PiMutex::new(0_u64), iterations);
+        eprintln!(
+            "pi_mutex inversion: uncontended hold {hold:?}, control p99 {control:?}, PiMutex p99 \
+             {inheriting:?}"
+        );
+        assert!(
+            control > hold * 2,
+            "the control lock's p99 {control:?} is within twice the hold {hold:?}: the scenario \
+             makes no inversion, so it cannot show the push"
+        );
+        assert!(
+            inheriting <= hold * 2,
+            "PiMutex waiter p99 {inheriting:?} exceeds twice the uncontended hold {hold:?}"
+        );
+    }
 }
 
 /// The guard is as small as std's, so a `LockResult` of a ranked guard
