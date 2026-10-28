@@ -573,3 +573,25 @@ for (const name of ["review", "$review", "project:review"]) {
     expect(asks[0]![1]).toBe(prompt);
   });
 }
+
+for (const original of ["", "Keep the complete draft", "Keep this line\nand the next"]) {
+  test(`New Tab Add sends a skill with no attachments and draft ${JSON.stringify(original)}`, async () => {
+    const asks: unknown[][] = [];
+    const opens: string[] = [];
+    await addPage({
+      snapshot: noChat([], {
+        summary: { sessionId: "deferred", harness: "claude", cwd: "/project" },
+        commands: [{ name: "review", description: "Review the draft", source: "skill" }],
+      }),
+      onAsk: (...args) => asks.push(args),
+      onOpen: (url) => opens.push(url),
+    });
+    if (original) await draft(original);
+    await openAdd();
+    await chooseAdd("add.skill.review");
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+    expect(opens).toEqual([]);
+    expect(asks).toHaveLength(1);
+    expect(asks[0]![1]).toBe(`/review ${original}`.trim());
+  });
+}
