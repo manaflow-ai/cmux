@@ -14,6 +14,16 @@ import Testing
 
     let planner = PageLifecyclePlanner()
 
+    /// `browser.hibernation` written ("moderate"): hidden pages are discarded on their own. With nothing
+    /// written (`.fallback`) they only freeze (trunk #25920, ``PageLifecyclePlanner/KeepReason/discardsOff``),
+    /// so the tests of the discard itself run under this.
+    static let discarding = BrowserHibernationSetting(mode: .moderate)
+
+    /// The conditions with ``discarding``.
+    static func written(_ pressure: MemoryPressureLevel = .normal, energySaver: Bool = false) -> PageLifecyclePlanner.Conditions {
+        .init(setting: discarding, pressure: pressure, energySaver: energySaver)
+    }
+
     func page(_ key: String, hiddenFor: Double, _ reasons: Set<Reason> = []) -> Page {
         Page(key: key, group: "agent", hiddenFor: hiddenFor, keepReasons: reasons)
     }
@@ -25,7 +35,7 @@ import Testing
 
     @Test func aChatHiddenPastTheTimeoutIsDiscardedAndABusyOneKeepsItsPage() {
         let plan = planner.plan([page("quiet", hiddenFor: 301), page("busy", hiddenFor: 400, [.turnRunning]), fresh],
-                                conditions: .init())
+                                conditions: Self.written())
         #expect(plan.discards == ["quiet"])
         #expect(plan.state(of: "quiet") == .discarded)
         #expect(plan.state(of: "busy") == .hidden, "a chat whose agent works froze or went")
@@ -34,39 +44,60 @@ import Testing
     }
 
     @Test func memoryPressureDiscardsSoonerButOffKeepsEveryPage() {
-        var off = BrowserHibernationSetting.fallback
+        var off = Self.discarding
         off.mode = .off
         let kept = planner.plan([page("off", hiddenFor: 3_600), fresh], conditions: .init(setting: off, pressure: .critical))
         #expect(kept.state(of: "off") == .frozen, "hibernation off discarded a page")
         #expect(kept.decisions["off"]?.keptBy == [.hibernationOff])
         #expect(kept.discards.isEmpty)
 
-        let early = planner.plan([page("pressed", hiddenFor: 9), page("fresher", hiddenFor: 1)], conditions: .init(pressure: .critical))
+        let early = planner.plan([page("pressed", hiddenFor: 9), page("fresher", hiddenFor: 1)], conditions: Self.written(.critical))
         #expect(early.state(of: "pressed") == .hidden, "discarded before the composer's last keystrokes reached acpmux")
         #expect(early.decisions["pressed"]?.nextDeadline == 1)
-        let critical = planner.plan([page("pressed", hiddenFor: 10), page("fresher", hiddenFor: 2)], conditions: .init(pressure: .critical))
+        let critical = planner.plan([page("pressed", hiddenFor: 10), page("fresher", hiddenFor: 2)], conditions: Self.written(.critical))
         #expect(critical.discards == ["pressed"], "critical pressure kept a hidden chat's page")
 
-        let warning = planner.plan([page("a", hiddenFor: 60), page("b", hiddenFor: 59), fresh], conditions: .init(pressure: .warning))
+        let warning = planner.plan([page("a", hiddenFor: 60), page("b", hiddenFor: 59), fresh], conditions: Self.written(.warning))
         #expect(warning.discards == ["a"])
         #expect(warning.state(of: "b") == .frozen)
         #expect(warning.decisions["b"]?.nextDeadline == 1)
     }
 
     @Test func aLoneHiddenChatGoesOnItsOwnDeadline() {
-        let hidden = planner.plan([page("alone", hiddenFor: 0)], conditions: .init())
+        let hidden = planner.plan([page("alone", hiddenFor: 0)], conditions: Self.written())
         #expect(hidden.state(of: "alone") == .hidden)
         #expect(hidden.decisions["alone"]?.keptBy == [.recentlyVisible, .mostRecentlyUsed])
         #expect(hidden.nextCheck == 300, "the hide armed no deadline")
-        let due = planner.plan([page("alone", hiddenFor: 300)], conditions: .init())
+        let due = planner.plan([page("alone", hiddenFor: 300)], conditions: Self.written())
         #expect(due.discards == ["alone"], "a lone hidden chat kept its page")
     }
 
+    // MARK: No `browser.hibernation` written (trunk #25920: a page never reloads unless the person asks)
+
+    /// With the default setting a hidden chat freezes, which keeps its state, and is never discarded,
+    /// at any pressure, as ``HibernationPlanner`` keeps every browser tab then (`keepsState`).
+    @Test func theDefaultFreezesAHiddenChatAndNeverDiscardsIt() {
+        for pressure in [MemoryPressureLevel.normal, .warning, .critical] {
+            let kept = planner.plan([page("chat", hiddenFor: 3_600), fresh], conditions: .init(pressure: pressure))
+            #expect(kept.state(of: "chat") == .frozen, "\(pressure): the default did not freeze a hidden chat, or discarded it")
+            #expect(kept.decisions["chat"]?.keptBy == [.discardsOff], "\(pressure)")
+            #expect(kept.decisions["chat"]?.nextDeadline == nil, "\(pressure): only a setting change lets the chat go")
+            #expect(kept.discards.isEmpty, "\(pressure)")
+            #expect(planner.urgentCandidates([page("chat", hiddenFor: 3_600), fresh], conditions: .init(pressure: pressure)).isEmpty,
+                    "\(pressure): the urgent pass may take a page though no browser.hibernation is written")
+        }
+        let set = planner.plan([page("chat", hiddenFor: 3_600), fresh], conditions: Self.written())
+        #expect(set.discards == ["chat"], "browser.hibernation written and a chat hidden an hour kept its page")
+        let urgent = planner.urgentCandidates([page("chat", hiddenFor: 3_600), fresh],
+                                              conditions: Self.written(.critical))
+        #expect(urgent.map(\.key) == ["chat"])
+    }
+
     @Test func withTheTurnWatchDownEveryChatKeepsItsPage() {
-        let unknown = planner.plan([page("unknown", hiddenFor: 3_600, [.turnsUnknown]), fresh], conditions: .init(pressure: .critical))
+        let unknown = planner.plan([page("unknown", hiddenFor: 3_600, [.turnsUnknown]), fresh], conditions: Self.written(.critical))
         #expect(unknown.state(of: "unknown") == .hidden, "a chat whose turn nobody knows froze or went")
         #expect(unknown.decisions["unknown"]?.keptBy == [.turnsUnknown])
-        let back = planner.plan([page("unknown", hiddenFor: 3_600), fresh], conditions: .init())
+        let back = planner.plan([page("unknown", hiddenFor: 3_600), fresh], conditions: Self.written())
         #expect(back.discards == ["unknown"], "the watch came back and the idle chat kept its page")
     }
 
@@ -74,12 +105,12 @@ import Testing
         let reasons: [Reason] = [.pinned, .preload, .shellCommandRan, .remoteChat, .awaitingPerson, .unrestorable, .draft,
                                  .userEdits, .formInteraction, .beforeUnload]
         for reason in reasons {
-            let plan = planner.plan([page("kept", hiddenFor: 3_600, [reason]), fresh], conditions: .init(pressure: .critical))
+            let plan = planner.plan([page("kept", hiddenFor: 3_600, [reason]), fresh], conditions: Self.written(.critical))
             #expect(plan.state(of: "kept") == .frozen, "\(reason) did not let the page freeze or let it go")
             #expect(plan.decisions["kept"]?.keptBy == [reason])
             #expect(plan.decisions["kept"]?.nextDeadline == nil)
         }
-        var pinnedToo = BrowserHibernationSetting.fallback
+        var pinnedToo = Self.discarding
         pinnedToo.includesPinnedTabs = true
         let plan = planner.plan([page("pinned", hiddenFor: 3_600, [.pinned]), fresh], conditions: .init(setting: pinnedToo))
         #expect(plan.discards == ["pinned"], "a pinned page stayed though pinned tabs hibernate")
@@ -88,37 +119,37 @@ import Testing
     // MARK: Freeze, pace and Energy Saver
 
     @Test func aHiddenPageFreezesOnceNoLongerRecentlyVisible() {
-        let before = planner.plan([page("p", hiddenFor: 9.5), fresh], conditions: .init())
+        let before = planner.plan([page("p", hiddenFor: 9.5), fresh], conditions: Self.written())
         #expect(before.state(of: "p") == .hidden)
         #expect(before.decisions["p"]?.nextDeadline == 0.5)
-        let after = planner.plan([page("p", hiddenFor: 10), fresh], conditions: .init())
+        let after = planner.plan([page("p", hiddenFor: 10), fresh], conditions: Self.written())
         #expect(after.state(of: "p") == .frozen)
         #expect(after.decisions["p"]?.nextDeadline == 290)
-        let saver = planner.plan([page("p", hiddenFor: 3), fresh], conditions: .init(energySaver: true))
+        let saver = planner.plan([page("p", hiddenFor: 3), fresh], conditions: Self.written(energySaver: true))
         #expect(saver.state(of: "p") == .frozen, "Energy Saver kept a page warm as long as without it")
     }
 
     @Test func discardsGoLongestHiddenFirstAtThePace() {
         let pages = [page("a", hiddenFor: 400), page("b", hiddenFor: 900), page("c", hiddenFor: 600), page("d", hiddenFor: 301), fresh]
-        let normal = planner.plan(pages, conditions: .init())
+        let normal = planner.plan(pages, conditions: Self.written())
         #expect(normal.discards == ["b", "c"])
         #expect(normal.state(of: "a") == .frozen)
         #expect(normal.decisions["a"]?.nextDeadline == 5)
         #expect(normal.nextCheck == 5)
-        let urgent = planner.plan(pages, conditions: .init(pressure: .critical))
+        let urgent = planner.plan(pages, conditions: Self.written(.critical))
         #expect(urgent.discards == ["b"], "pressure took more than Chrome's one page per pass")
     }
 
     @Test func onlyThePlannerSetsTheDerivedReasons() {
-        let derived: Set<Reason> = [.visible, .recentlyVisible, .mostRecentlyUsed, .freezeOff, .hibernationOff]
-        let plan = planner.plan([page("p", hiddenFor: 600, derived), fresh], conditions: .init())
+        let derived: Set<Reason> = [.visible, .recentlyVisible, .mostRecentlyUsed, .freezeOff, .hibernationOff, .discardsOff]
+        let plan = planner.plan([page("p", hiddenFor: 600, derived), fresh], conditions: Self.written())
         #expect(plan.discards == ["p"], "a page kept itself with a reason only the planner knows")
     }
 
     // MARK: The person's settings
 
     @Test func freezeHiddenTabsOffKeepsPagesRunningButStillDiscardsThem() {
-        var noFreeze = BrowserHibernationSetting.fallback
+        var noFreeze = Self.discarding
         noFreeze.freezeSeconds = nil
         let running = planner.plan([page("p", hiddenFor: 100), fresh], conditions: .init(setting: noFreeze))
         #expect(running.state(of: "p") == .hidden, "a page froze though freezeHiddenTabs is off")
@@ -133,7 +164,7 @@ import Testing
     }
 
     @Test func hibernationMinutesAreTheFloorOfThePageDiscardTime() {
-        var twoHours = BrowserHibernationSetting.fallback
+        var twoHours = Self.discarding
         twoHours.mode = .minutes(120)
         let early = planner.plan([page("chat", hiddenFor: 301), fresh], conditions: .init(setting: twoHours))
         #expect(early.discards.isEmpty, "a chat went after 5 minutes though the person asked for 120")
@@ -149,7 +180,7 @@ import Testing
         let critical = planner.plan([page("chat", hiddenFor: 10), fresh], conditions: .init(setting: twoHours, pressure: .critical))
         #expect(critical.discards == ["chat"])
         // A time shorter than the page's own does not discard sooner.
-        var oneMinute = BrowserHibernationSetting.fallback
+        var oneMinute = Self.discarding
         oneMinute.mode = .minutes(1)
         let short = planner.plan([page("chat", hiddenFor: 61), fresh], conditions: .init(setting: oneMinute))
         #expect(short.discards.isEmpty)
@@ -163,11 +194,11 @@ import Testing
     @Test func discardingTheMostRecentPageThawsNoOlderPage() {
         for pressure in [MemoryPressureLevel.normal, .critical] {
             var pages = [page("x", hiddenFor: 1_000, [.draft]), page("y", hiddenFor: 301)]
-            let first = planner.plan(pages, conditions: .init(pressure: pressure))
+            let first = planner.plan(pages, conditions: Self.written(pressure))
             #expect(first.discards == ["y"], "\(pressure)")
             #expect(first.state(of: "x") == .frozen, "\(pressure)")
             pages[1].isDiscarded = true
-            let second = planner.plan(pages, conditions: .init(pressure: pressure))
+            let second = planner.plan(pages, conditions: Self.written(pressure))
             #expect(second.state(of: "x") == .frozen, "\(pressure): the discard thawed an older page")
             #expect(second.decisions["x"]?.keptBy == [.draft], "\(pressure)")
         }
@@ -176,7 +207,7 @@ import Testing
     @Test func aDiscardedPageStaysSoUntilShown() {
         let plan = planner.plan([Page(key: "gone", hiddenFor: 5, isDiscarded: true),
                                  Page(key: "back", isShown: true, keepReasons: [.loading], isDiscarded: true)],
-                                conditions: .init())
+                                conditions: Self.written())
         #expect(plan.state(of: "gone") == .discarded)
         #expect(plan.state(of: "back") == .active)
         #expect(plan.discards.isEmpty)
@@ -218,7 +249,8 @@ import Testing
             for page in pages where !page.isShown && !page.isDiscarded {
                 var reasons = page.keepReasons.subtracting(Reason.derived)
                 if conditions.setting.includesPinnedTabs { reasons.remove(.pinned) }
-                let kept = reasons.contains(where: \.blocksDiscard) || !conditions.setting.isEnabled || page.hiddenFor < minimumHidden
+                let kept = reasons.contains(where: \.blocksDiscard) || !conditions.setting.isEnabled
+                    || !conditions.setting.discardsAutomatically || page.hiddenFor < minimumHidden
                 if kept {
                     #expect(plan.state(of: page.key) != .discarded, "case \(index): \(page.key) \(reasons)")
                     #expect(!plan.discards.contains(page.key))
@@ -288,6 +320,7 @@ import Testing
         #expect(thawing.contains(.loading))
         #expect(thawing.contains(.audible))
         #expect(thawing.contains(.freezeOff))
+        #expect(!thawing.contains(.discardsOff), "no browser.hibernation written thawed a frozen page")
         #expect(thawing.allSatisfy { $0.blocksFreeze })
         #expect(thawing.isDisjoint(with: Reason.derived.subtracting(Reason.fromSettings)))
     }
@@ -322,7 +355,10 @@ import Testing
         var random = SplitMix64(seed: UInt64(index) &* 0x2545_F491 &+ 21)
         let hidden: [Double] = [0, 0.5, 2.5, 3, 9.5, 10, 10.5, 30, 59.5, 60, 61, 299.5, 300, 301, 599.5, 600, 1_800, 3_600]
         let pressures: [MemoryPressureLevel] = [.normal, .normal, .warning, .critical]
-        var setting = BrowserHibernationSetting.fallback
+        var setting = Self.discarding
+        // One case in four with no `browser.hibernation` written, decided without a draw so the other
+        // cases are the draws they were before the setting existed.
+        setting.discardsAutomatically = index % 4 != 0
         if random.oneIn(6) {
             setting.mode = .off
         } else if random.oneIn(5) {

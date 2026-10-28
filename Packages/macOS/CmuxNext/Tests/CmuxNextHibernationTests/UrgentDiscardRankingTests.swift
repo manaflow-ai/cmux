@@ -140,15 +140,18 @@ import Testing
             HibernationPlanner.Candidate(key: "fresh", hiddenFor: 5),
             HibernationPlanner.Candidate(key: "plain", hiddenFor: 30),
         ]
-        let urgent = HibernationPlanner.urgentCandidates(.fallback, candidates: candidates)
+        // `browser.hibernation` written: with nothing written no tab goes on its own (trunk #25920).
+        let urgent = HibernationPlanner.urgentCandidates(PageLifecyclePlannerTests.discarding, candidates: candidates)
         #expect(urgent.map(\.key) == ["old", "plain"], "a kept or just-hidden tab joined the urgent pass")
         #expect(urgent.first?.isProtected == true, "a tab the probe kept lately must go after the others")
         #expect(urgent.first?.estimatedBytes == UInt64(80) << 20)
         #expect(urgent.allSatisfy { $0.kind == .browser })
 
-        var off = BrowserHibernationSetting.fallback
+        var off = PageLifecyclePlannerTests.discarding
         off.mode = .off
         #expect(HibernationPlanner.urgentCandidates(off, candidates: candidates).isEmpty, "hibernation off let a tab go")
+        #expect(HibernationPlanner.urgentCandidates(.fallback, candidates: candidates).isEmpty,
+                "no browser.hibernation written let a tab go")
     }
 
     @Test func pagesJoinWhenNothingBlocksTheirDiscardWhateverTheirTimeout() {
@@ -163,18 +166,20 @@ import Testing
             Page(key: "shown", group: "viewer", isShown: true),
             Page(key: "recent", group: "viewer", hiddenFor: 5),
         ]
-        let urgent = planner.urgentCandidates(pages, conditions: .init(pressure: .critical))
+        let urgent = planner.urgentCandidates(pages, conditions: PageLifecyclePlannerTests.written(.critical))
         #expect(Set(urgent.map(\.key)) == ["chat", "settings"])
         #expect(urgent.first { $0.key == "chat" }?.kind == .agentPage)
         #expect(urgent.first { $0.key == "settings" }?.kind == .internalPage)
 
         let mostRecent = [Page(key: "only", group: "viewer", hiddenFor: 30)]
-        #expect(planner.urgentCandidates(mostRecent, conditions: .init()).map(\.key) == ["only"],
+        #expect(planner.urgentCandidates(mostRecent, conditions: PageLifecyclePlannerTests.written()).map(\.key) == ["only"],
                 "the most recently used role blocks a freeze only")
 
-        var off = BrowserHibernationSetting.fallback
+        var off = PageLifecyclePlannerTests.discarding
         off.mode = .off
         #expect(planner.urgentCandidates(pages, conditions: .init(setting: off, pressure: .critical)).isEmpty)
+        // No `browser.hibernation` written: no page goes on its own, at critical pressure too, as no browser tab does.
+        #expect(planner.urgentCandidates(pages, conditions: .init(pressure: .critical)).isEmpty)
     }
 
     /// The urgent candidates of a page are exactly the live hidden pages the planner would discard once

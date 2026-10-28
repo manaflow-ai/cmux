@@ -1,5 +1,5 @@
 package import CmuxNextCompat
-import CmuxNextSettings
+package import CmuxNextSettings
 import CmuxNextWakeups
 
 /// What one kind of hidden content tells ``ContentDiscardScheduler`` and does for it (the App's
@@ -41,6 +41,11 @@ package protocol ContentDiscardHost: AnyObject {
 /// nothing goes proactively, and critical pressure still discards on the urgent pace. A kind made
 /// with `urgentAtWarning` (overlay pages: nothing a person made lives in them) takes the urgent pace
 /// from warning pressure on.
+///
+/// A kind whose discard reloads a page (page tabs) also follows `browser.hibernation`
+/// (``update(browserHibernation:)``): while it is off or not written, nothing goes on its own, at any
+/// pressure, as for browser tabs and the page lifecycle (trunk #25920: a page never reloads unless the
+/// person asks).
 @MainActor
 package final class ContentDiscardScheduler {
     /// One discard per pass (p07-memory.md rule 2), the next a second later while more are due.
@@ -67,6 +72,10 @@ package final class ContentDiscardScheduler {
     package var onDiscard: () -> Void = {}
     /// The hidden items whose discard was tried and did not finish since they last showed.
     package private(set) var discardAttempts = ContentDiscardPlanner.AttemptMarkers()
+    /// Why no hidden item goes on its own now, at any pressure (`browser.hibernation` off: `disabled`;
+    /// not written: `keepsState`); nil while items may go. Only a kind that follows the setting sets it
+    /// (``update(browserHibernation:)``).
+    package private(set) var keptBySetting: CannotDiscardReason?
 
     private let planner = ContentDiscardPlanner()
     private let deadline: DemandTimer
@@ -169,6 +178,11 @@ package final class ContentDiscardScheduler {
         var timed: [ContentDiscardPlanner.TimedCandidate] = []
         exemptions = [:]
         for (key, at) in hiddenAt where preparing[key] == nil {
+            if let kept = keptBySetting {
+                // Only a change of the setting lets it go (``update(browserHibernation:)``): no deadline.
+                exemptions[key] = kept
+                continue
+            }
             guard let timeout = dueAfter(key, host: host) else { continue }
             let hidden = (current - at) / .seconds(1)
             if host.isDrawn(key) {
@@ -192,11 +206,34 @@ package final class ContentDiscardScheduler {
 
     /// Seconds hidden before `key` is due: its policy's timeout under urgent pressure (the urgent
     /// pass), else that timeout in the Memory Saver mode; nil when it is not due at all now (it has
-    /// no policy, or the mode is off below urgent pressure).
+    /// no policy, the mode is off below urgent pressure, or ``keptBySetting`` keeps every item).
     private func dueAfter(_ key: String, host: any ContentDiscardHost) -> Double? {
-        guard let timeout = host.discardPolicy(of: key)?.timeout else { return nil }
+        guard keptBySetting == nil, let timeout = host.discardPolicy(of: key)?.timeout else { return nil }
         if isUrgent { return timeout }
         return saverMode.proactiveTimeoutScale.map { timeout * $0 }
+    }
+
+    /// `browser.hibernation` changed, for a kind whose discard reloads a page (page tabs): with it off
+    /// (`disabled`) or not written (`keepsState`, `BrowserHibernationSetting.discardsAutomatically`) no
+    /// hidden item goes on its own, at any memory pressure, as ``HibernationPlanner`` keeps browser tabs
+    /// and ``PageLifecyclePlanner`` keeps pages then; a preparation running now stops, as a show stops it.
+    /// The next look runs on the deadline, never in the turn of the settings flush.
+    package func update(browserHibernation setting: BrowserHibernationSetting) {
+        let kept: CannotDiscardReason? = if !setting.isEnabled {
+            .disabled
+        } else if !setting.discardsAutomatically {
+            .keepsState
+        } else {
+            nil
+        }
+        guard kept != keptBySetting else { return }
+        keptBySetting = kept
+        if kept != nil {
+            for task in preparing.values { task.cancel() }
+            preparing.removeAll()
+            prepared.removeAll()
+        }
+        if !hiddenAt.isEmpty { arm(after: 0, onlySooner: false) }
     }
 
     /// Arms the one deadline `wait` seconds from now; with `onlySooner`, only when the armed one is later.
