@@ -180,7 +180,7 @@ public nonisolated final class ProviderConnection: Sendable {
             guard let base = raw.baseAddress else { return nil }
             var offset = 0
             while offset < raw.count {
-                let written = Darwin.write(fd, base + offset, raw.count - offset)
+                let written = blockingWrite(fd, base + offset, raw.count - offset)
                 if written > 0 {
                     offset += written
                 } else if written < 0, errno == EINTR {
@@ -200,7 +200,7 @@ public nonisolated final class ProviderConnection: Sendable {
         var reason = "the browser host closed the connection"
         var open = true
         while open {
-            let count = buffer.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
+            let count = buffer.withUnsafeMutableBytes { blockingRead(fd, $0.baseAddress, $0.count) }
             if count > 0 {
                 buffer.withUnsafeBytes { decoder.push(UnsafeRawBufferPointer(rebasing: $0[0..<count])) }
                 var draining = true

@@ -228,10 +228,10 @@ nonisolated struct CEFHelperIdentity: Equatable, Sendable {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         var size = 0
         // SAFETY: reads the 3-int name; a NULL old buffer only writes the size it needs into `size`.
-        guard unsafe sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        guard unsafe blockingSysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
         var buffer = [UInt8](repeating: 0, count: size)
         // SAFETY: `size` is the array's length; the kernel writes at most that many bytes and the length it wrote.
-        guard unsafe sysctl(&mib, 3, &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        guard unsafe blockingSysctl(&mib, 3, &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
         return parseProcArgs(Array(buffer.prefix(size)))
     }
 

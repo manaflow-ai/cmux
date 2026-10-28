@@ -133,10 +133,12 @@ extension CEFTab {
         case .takeFocus(_, let forward):
             emit(.takeFocus(forward: forward))
         case .renderTerminated(_, let status, let code, _, _, _):
+            rendererHang.ended()
             rendererTerminated(.cef(status: status, code: code))
         case .frameRenderers: if runtime.hostStart == nil { onRenderersMayChange?() } // an iframe's renderer came or went
-        case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
-        case .renderResponsive: machine.apply(.unresponsiveChanged(false))
+        // In this tab only, with Chrome's visibility rules (CEFRendererHang.swift).
+        case .renderUnresponsive: rendererBecameUnresponsive()
+        case .renderResponsive: rendererBecameResponsive()
         case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)
         case .beforeUnloadDismissed: beforeUnloadDismissed()
         case .devToolsMessage(_, let json): agentRelay.deliver(json)

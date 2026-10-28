@@ -171,6 +171,11 @@ and document picture-in-picture, with feature chromiumHostChoosers on, then the 
 (chromium_host_native_ui_locks.py, p01-process-229): HTML fullscreen, pointer lock and keyboard lock held by cmux
 (`debug.cef` `host_locks`) and each ended by Escape, with feature chromiumHostLocks on.
 
+--renderer-hang runs instead the renderer hang row (chromium_host_renderer_hang.py, p01-process-072) with feature
+chromiumHangFollowsVisibility on: a `while(true){}` page's Page unresponsive prompt shows in that tab only, after
+kHungRendererDelay (15 s), never as the host's banner; hidden behind another tab it goes and stays away past the
+delay; shown again it comes back a full delay after the show; Exit page ends that renderer.
+
 --kill-host runs instead the host kill rows (chromium_host_kill.py, p01-process-082): one `--signals` signal per row
 (default KILL; TRAP,SEGV,ABRT,KILL for the done check) to the supervisor's Chromium Host under a Chromium tab
 (`browserHost.tabs` on): cmux runs on, the tab shows the crash page with Reload (`crash_page_ms` from the signal),
@@ -229,6 +234,7 @@ import chromium_host_native_ui_choosers  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
 import chromium_host_native_ui_locks  # noqa: E402
 import chromium_host_profiles  # noqa: E402
+import chromium_host_renderer_hang  # noqa: E402
 import chromium_host_restore  # noqa: E402
 
 # Every --native-ui row, in the order they run.
@@ -258,6 +264,8 @@ def parse(argv=None):
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
     parser.add_argument("--helper-kill", action="store_true",
                         help="only the helper-kill rows (chromium_host_helper_kill.py): GPU, renderer, utility")
+    parser.add_argument("--renderer-hang", action="store_true",
+                        help="only the renderer hang row (chromium_host_renderer_hang.py, about 90 s)")
     parser.add_argument("--hang", type=int, metavar="MS",
                         help="only the busy banner row (chromium_host_hang.py, p01-process-084): the host stopped MS ms")
     parser.add_argument("--kill-host", action="store_true",
@@ -277,8 +285,10 @@ def parse(argv=None):
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     args = parser.parse_args(argv)
-    if sum([args.native_ui is not None, args.find, args.helper_kill, args.kill_host, args.hang is not None]) > 1:
-        parser.error("--native-ui, --find, --helper-kill, --kill-host and --hang each run instead of the modes: pick one")
+    if sum([args.native_ui is not None, args.find, args.helper_kill, args.kill_host, args.renderer_hang,
+            args.hang is not None]) > 1:
+        parser.error("--native-ui, --find, --helper-kill, --kill-host, --renderer-hang and --hang each run instead of "
+                     "the modes: pick one")
     if args.hang is not None and args.hang < chromium_host_hang.BUSY_AFTER_MS + chromium_host_hang.TOLERANCE_MS:
         parser.error(f"--hang must hold the host past the banner's {chromium_host_hang.BUSY_AFTER_MS} ms")
     if args.restore and not args.kill_host:
@@ -876,6 +886,8 @@ def main():
         find_page = os.path.join(opts.out, "find.html")
         open(find_page, "w").write(chromium_host_find.PAGE)
         url = pathlib.Path(find_page).as_uri()
+    if opts.renderer_hang:
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_renderer_hang.FEATURES]))
     if opts.kill_host and opts.restore:
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_restore.FEATURES]))
     if "dragin" in opts.modes.split(","):
@@ -912,7 +924,8 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = ([] if opts.native_ui or opts.find or opts.helper_kill or opts.kill_host or opts.hang is not None
+        modes = ([] if opts.native_ui or opts.find or opts.helper_kill or opts.kill_host or opts.renderer_hang
+                 or opts.hang is not None
                  else opts.modes.split(","))
         if opts.native_ui:
             RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
@@ -948,6 +961,9 @@ def main():
         if opts.helper_kill:
             RESULT["modes"]["helper_kill"], ok = chromium_host_helper_kill.run(
                 rpc, wait, process_rows, chromium_host_pid, os.kill, url)
+        if opts.renderer_hang:
+            RESULT["modes"]["renderer_hang"], ok = chromium_host_renderer_hang.run(
+                rpc, wait, lambda script: page_eval(rpc, script, None), opts.out, chromium_host_pid, front_pid, on_screen_windows)
         if opts.hang is not None:
             RESULT["modes"]["hang"], ok = chromium_host_hang.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), url, chromium_host_pid,

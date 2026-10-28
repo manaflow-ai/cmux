@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd'
+IR_SHA256 = '974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc'
 
 
 @dataclass(frozen=True)
@@ -4210,6 +4210,18 @@ COMMANDS = {
             'ratio': CommandFieldMetadata(None, None),
             'split': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(9, 'layout-undo-v1'),
+        },
+    ),
+    'set-stream-priority': CommandMetadata(
+        'set-stream-priority',
+        'frontend',
+        12,
+        'attach-streams-v1',
+        ('frontend',),
+        None,
+        {
+            'priority': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(None, None),
         },
     ),
     'set-tab-pinned': CommandMetadata(

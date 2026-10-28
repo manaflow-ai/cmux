@@ -1242,6 +1242,32 @@
       "reason": "Returns 1 when sent: a caller checks fork_api_version (mirror) >= 31 for support and loads the URL itself without it, as tab_restore_navigation's callers do (task 093)."
     },
     {
+      "name": "cmux_shim_browser_composition_bounds_watch",
+      "class": "local",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "fn",
+          "type": "void (*)(void* context, int browser_id, const void* bounds)",
+          "function_pointer": true
+        },
+        {
+          "name": "context",
+          "type": "void*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Function-pointer arg. As text_input_watch, the client code is task 014b's (client/remote_shim_local.mm): it keeps fn per browser and calls it on main in the event batch from the host's push of the composition bounds (task 044, with TEXT_INPUT_STATE); only the watch on/off crosses the wire."
+    },
+    {
       "name": "cmux_shim_set_new_tab_page_url",
       "class": "preinit",
       "args": [
