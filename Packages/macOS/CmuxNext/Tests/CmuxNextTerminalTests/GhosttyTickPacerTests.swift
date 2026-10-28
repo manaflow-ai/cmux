@@ -50,7 +50,8 @@ struct GhosttyTickPacerTests {
         rig.frame()
         #expect(rig.scheduler.activeClients.isEmpty)
         #expect(!rig.pacer.isPacing)
-        #expect(!rig.context.framed.load(ordering: .relaxed))
+        let framed = rig.context.framed.load(ordering: .relaxed)
+        #expect(!framed)
 
         rig.clock.now += 1_000_000_000
         let (ticks, hops) = (rig.ticks, rig.hops)
@@ -95,7 +96,8 @@ struct GhosttyTickPacerTests {
         #expect(rig.ticks == ticks + 1)
         #expect(rig.ticksOutsideFrames == outside + 1, "the echo ticked in the hop's turn")
         #expect(rig.frames == frames, "no frame ran")
-        #expect(!rig.context.pending.load(ordering: .relaxed))
+        let pending = rig.context.pending.load(ordering: .relaxed)
+        #expect(!pending)
     }
 
     @Test func aKeyWithNothingPendingQueuesNoHop() {
@@ -144,7 +146,8 @@ struct GhosttyTickPacerTests {
         let runtime = GhosttyRuntime()
         runtime.context.pending.store(true, ordering: .relaxed)
         runtime.wakeupArrived(posted: MainTaskPost())
-        #expect(!runtime.context.pending.load(ordering: .relaxed), "before attach, a hop runs the tick")
+        let pendingBeforeAttach = runtime.context.pending.load(ordering: .relaxed)
+        #expect(!pendingBeforeAttach, "before attach, a hop runs the tick")
         #expect(runtime.tickPacer == nil)
 
         let work = MainWorkScheduler.testing(performTurn: { _ in }) { _ in PacerTestLink() }
