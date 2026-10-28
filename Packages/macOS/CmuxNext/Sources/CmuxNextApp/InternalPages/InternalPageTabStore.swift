@@ -17,6 +17,8 @@ import Observation
 final class InternalPageTabStore {
     private var providers: [InternalPageID: any InternalPageProvider] = [:]
     private let tabsByPane = ObservedMap<String, [String]>()
+    /// Told the page of a tab view freed with content still in it (``InternalPageView/onFreedAttached``; the app logs it).
+    @ObservationIgnored var onFreedAttached: (@MainActor (InternalPageID) -> Void)?
     @ObservationIgnored private var views: [String: InternalPageView] = [:]
     /// The main window each tab opened or last showed in, for its provider's theme scope. Held weakly: a
     /// closed window goes with its parked workspaces while its page tabs stay restorable, as a Chrome tab
@@ -202,6 +204,7 @@ final class InternalPageTabStore {
             }
         }
         view.navigate = navigate
+        view.onFreedAttached = onFreedAttached
         views[key] = view
         return view
     }
@@ -452,7 +455,10 @@ final class InternalPageTabStore {
 
     private func forget(_ key: String) {
         createTabs?.released(key) // a local page tab's id is its key
-        views.removeValue(forKey: key)?.removeFromSuperview()
+        if let view = views.removeValue(forKey: key) {
+            view.removeFromSuperview()
+            view.detachContent() // while the view lives: never a page leaving its hierarchy inside a dealloc
+        }
         discardRecords.forget(key)
         windows[key] = nil
         if let page = LocalPageTab.page(of: key) { providers[page]?.tabClosed(key) }

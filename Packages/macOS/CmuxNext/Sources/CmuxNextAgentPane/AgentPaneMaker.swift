@@ -9,6 +9,9 @@ public nonisolated enum AgentPaneMaker: UInt64, Sendable, CaseIterable {
     case spare = 2
     /// A chat outside any pane (`AgentTabStore.standaloneView`: onboarding, Start Agent).
     case standalone = 3
+    /// Not an agent pane: an internal page tab's view (`InternalPageTabStore`: Settings, History, ...) freed with its
+    /// page inside; the fault log names the page.
+    case internalPage = 16
 
     /// The name in a fault log.
     public var name: String {
@@ -17,6 +20,7 @@ public nonisolated enum AgentPaneMaker: UInt64, Sendable, CaseIterable {
         case .tab: "tab"
         case .spare: "spare"
         case .standalone: "standalone"
+        case .internalPage: "internal_page"
         }
     }
 }
