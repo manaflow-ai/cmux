@@ -794,9 +794,14 @@ export function NewTabScreen(props: Props) {
     const take = (event: Event) => {
       const seed = parseFieldSeed((event as CustomEvent<unknown>).detail);
       if (!seed) return;
-      wholeSelection.current = true;
-      flushSync(() => editRef.current(seed.text));
-      field.current?.setSelectionRange(seed.selectionStart, seed.selectionEnd);
+      if (seed.text !== "") {
+        wholeSelection.current = true;
+        flushSync(() => editRef.current(seed.text));
+        // A `!` shell entry drops its prefix (and the spaces after it): the selection moves back by what went.
+        const removed = Math.max(0, seed.text.length - (field.current?.value.length ?? seed.text.length));
+        const at = (offset: number) => Math.max(0, offset - removed);
+        field.current?.setSelectionRange(at(seed.selectionStart), at(seed.selectionEnd));
+      }
       if (seed.submit) sendRef.current();
     };
     view?.addEventListener(NEW_TAB_SEED_EVENT, take);

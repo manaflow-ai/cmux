@@ -275,10 +275,24 @@ final class NewTabInputCoordinator {
     /// The stand-in field shown in pane `pane` for its tab `tab`, while one is (the focus applier keeps it first
     /// responder; the key router leaves its keys to it).
     func standIn(inPane pane: String, tab: String?) -> NewTabFieldStandIn? {
-        standIns.values.first { standIn in
-            guard standIn.pane?.paneKey == pane, let tab, let key = standIn.key else { return standIn.pane?.paneKey == pane }
-            return same(key, tab)
-        }?.field
+        for standIn in standIns.values where standIn.pane?.paneKey == pane {
+            guard let key = standIn.key else { continue }
+            if let tab, !same(key, tab) { continue }
+            // Shown only while its pane selects its tab (decided here, so a switch back finds it at once).
+            let selected = standIn.pane?.stripModel.selectedID?.rawValue
+            standIn.field.isHidden = !(selected.map { same(key, $0) } ?? false)
+            return standIn.field
+        }
+        return nil
+    }
+
+    /// Whether a stand-in field has the keys of the pane holding `view` (the window refuses the page's own focus
+    /// meanwhile: keys typed into the stand-in must not split between it and the page).
+    func hasStandIn(over view: NSView) -> Bool {
+        standIns.values.contains { standIn in
+            guard let pane = standIn.pane, !standIn.field.isHidden else { return false }
+            return view.isDescendant(of: pane.view)
+        }
     }
 
     private func same(_ a: String, _ b: String) -> Bool {
@@ -297,13 +311,25 @@ final class NewTabInputCoordinator {
     /// turn and the hold ends: its keys go to the field in order. False when the page's own field takes the keys.
     private func showStandInIfCold(_ entry: Entry, pane: PaneController?, key: String?) -> Bool {
         guard let pane, let key, let window = pane.view.window, pane.view.isShownForInput, let tabs = router?.services?.agentTabs,
-              tabs.isNewTabPage(key), standIns[entry.buffer.token] == nil else { return false }
+              let page = tabs.newTabPage(key)?.page, Self.pageTakesSeed(page), standIns[entry.buffer.token] == nil else { return false }
         if let view = tabs.existingView(key), view.pageHasPainted || view.inputReadiness.isEditableFocused { return false }
+        // One stand-in per pane: an earlier opening's (its page no longer shown) goes, its text with it.
+        for (token, other) in standIns where other.pane === pane {
+            standIns[token] = nil
+            other.field.removeFromSuperview()
+        }
         let field = NewTabFieldStandIn()
         field.frame = NewTabFieldStandIn.frame(in: pane.view.contentHost.frame, flipped: pane.view.isFlipped)
-        field.autoresizingMask = [.minXMargin, .maxXMargin]
+        field.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin, .maxYMargin]
         pane.view.addSubview(field, positioned: .above, relativeTo: nil)
-        if !window.isKeyWindow, NSApp.isActive, Self.mayTakeKey(window, keyWindow: NSApp.keyWindow) { window.makeKey() }
+        // New Window (Cmd-Shift-N): the new window takes the key window, as its page would (``beginIncoming``); the
+        // hold's keys follow it there.
+        if let incoming = entry.incoming, incoming.followsNewWindow {
+            incoming.pageWindow = window
+            if !window.isKeyWindow, NSApp.isActive { window.makeKey() }
+        } else if !window.isKeyWindow, NSApp.isActive, Self.mayTakeKey(window, keyWindow: NSApp.keyWindow) {
+            window.makeKey()
+        }
         window.makeFirstResponder(field)
         let standIn = StandIn(field: field, pane: pane, key: key)
         standIns[entry.buffer.token] = standIn
@@ -311,6 +337,13 @@ final class NewTabInputCoordinator {
         release(entry, why: "stand-in field")
         watchPage(entry.buffer.token, standIn)
         return true
+    }
+
+    /// Whether the page mounts the New Tab screen that takes a stand-in's text (`acpmux-newtab-seed`): not the Classic
+    /// template (also the Debug layout `a`) and not agent history, which have no such field.
+    static func pageTakesSeed(_ page: AgentPaneNewTab) -> Bool {
+        guard page.history != true else { return false }
+        return (page.template ?? (page.layout == .a ? "classic" : nil)) != "classic"
     }
 
     /// Once the stand-in's page view exists: it hands over when the page's field takes focus or the page draws.
@@ -332,6 +365,12 @@ final class NewTabInputCoordinator {
                 continue
             }
             if let key = standIn.key, tabs.resolve(key) != key { standIn.key = tabs.resolve(key) }
+            // Its tab closed or its creation failed: the stand-in goes (its text with its tab).
+            if let key = standIn.key, !tabs.isNewTabPage(key) {
+                standIns[token] = nil
+                standIn.field.removeFromSuperview()
+                continue
+            }
             if let selected = pane.stripModel.selectedID?.rawValue, let key = standIn.key {
                 standIn.field.isHidden = !same(key, selected)
             } else {
@@ -481,7 +520,9 @@ final class NewTabInputCoordinator {
         for (token, standIn) in standIns where standIn.key.map({ same($0, tab) }) == true {
             standIns[token] = nil
             standIn.field.removeFromSuperview()
-        } if let window, let entry = entry(for: window), entry.pane?.currentTabKey == tab { entry.buffer.discard(); release(entry, why: "closed before created") } }
+        }
+        if let window, let entry = entry(for: window), entry.pane?.currentTabKey == tab { entry.buffer.discard(); release(entry, why: "closed before created") }
+    }
 
     /// The opening failed: its keys go on to whatever has focus.
     func cancel(in window: NSWindow?) { if let window { release(in: window, why: "open failed") } }
