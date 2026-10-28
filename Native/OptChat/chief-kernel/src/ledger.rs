@@ -21,11 +21,24 @@
 //!   and ended without naming it leaves a check; one `[untold]` retry note,
 //!   then it is dropped. The host never posts on the Chief's behalf here.
 //!
+//! - **Ask ledger.** One person message often holds several asks. A turn
+//!   records the asks it took (`asks_taken`), each with an owner: a subagent
+//!   id, `me` (Chief does it itself), or `declined` with a reason. A spawn the
+//!   turn asked for (`spawn_requested`) comes back as one keyed `spawn` intent
+//!   per task, so the host starts each agent once, even when a turn replays;
+//!   `spawn_started` names its agent as the ask's owner, and that agent's
+//!   report (`outcome_reported`) marks the ask done. When every ask of a
+//!   message has an owner, an `ack` intent marks it. An ask with no owner
+//!   after its turn ends gets an `[unowned]` retry note, once.
+//!
 //! Events: `message_logged {id, seq, text, from_person}`, `turn_started
 //! {seen: [message ids], reports: [subagent ids]}`, `reply_posted {answers?,
 //! reply_to?, chief, text}`, `turn_ended {said_no_reply}`, `outcome_reported
-//! {id, stopped}`, `check_due`. Intents: `schedule {at_ms, key}`, `notice
-//! {text, key}` (a note that starts a turn), `post {text, reply_to, key}`.
+//! {id, stopped}`, `asks_taken {message, asks: [{ask, owner?, reason?}]}`,
+//! `spawn_requested {message, tasks: [{ask, task}]}`, `spawn_started {key,
+//! id}`, `check_due`. Intents: `schedule {at_ms, key}`, `notice {text, key}`
+//! (a note that starts a turn), `post {text, reply_to, key}`, `spawn {task,
+//! message, key}`, `ack {message, key}`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -49,6 +62,15 @@ pub const NO_REPLY_TAG: &str = "[no reply]";
 /// The first word of an outcome retry turn's note.
 pub const UNTOLD_TAG: &str = "[untold]";
 
+/// The first word of an unowned-ask retry turn's note.
+pub const UNOWNED_TAG: &str = "[unowned]";
+
+/// The wait after a turn that left an ask with no owner, before its check.
+pub const UNOWNED_WAIT: u64 = 5_000;
+
+/// Retry turns per unowned ask before it is dropped.
+pub const MAX_UNOWNED_TRIES: u32 = 1;
+
 const PREVIEW_CHARS: usize = 120;
 const WHY_NO_REPLY: &str = "the turn ended with NO_REPLY";
 const WHY_SILENT: &str = "the turn ended without a reply";
@@ -62,9 +84,52 @@ pub struct Ledgers {
     /// Finished subagents whose outcome no Chief post told yet.
     #[serde(default)]
     pub untold: Vec<Untold>,
+    /// The asks the person's messages hold, with their owners.
+    #[serde(default)]
+    pub asks: Vec<Ask>,
     /// A turn runs now.
     #[serde(default)]
     pub turn_running: bool,
+}
+
+/// One ask of a person message.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ask {
+    /// The message it came from.
+    pub message: String,
+    /// The ask, in a few words.
+    pub ask: String,
+    /// A subagent id, `me`, or `declined`; None: nobody has it yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The spawn intent's key that will own it, until its agent starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spawn_key: Option<String>,
+    /// Its subagent reported (or it was `me`/`declined` and the turn ended).
+    #[serde(default)]
+    pub done: bool,
+    #[serde(default)]
+    pub tries: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_ms: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct AskIn {
+    ask: String,
+    #[serde(default)]
+    owner: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TaskIn {
+    #[serde(default)]
+    ask: String,
+    task: String,
 }
 
 /// A person message that waits for a reply.
@@ -133,6 +198,18 @@ enum Event {
         id: String,
         #[serde(default)]
         stopped: bool,
+    },
+    AsksTaken {
+        message: String,
+        asks: Vec<AskIn>,
+    },
+    SpawnRequested {
+        message: String,
+        tasks: Vec<TaskIn>,
+    },
+    SpawnStarted {
+        key: String,
+        id: String,
     },
     CheckDue,
 }
@@ -208,14 +285,110 @@ pub fn ledger_apply(state_json: &str, event_json: &str, ctx_json: &str) -> Resul
             for u in s.untold.iter_mut().filter(|u| u.seen && u.due_ms.is_none()) {
                 u.due_ms = Some(now + UNTOLD_WAIT);
             }
+            for a in s
+                .asks
+                .iter_mut()
+                .filter(|a| a.owner.is_none() && a.spawn_key.is_none() && a.due_ms.is_none())
+            {
+                a.due_ms = Some(now + UNOWNED_WAIT);
+            }
+            // An ask Chief did itself, or declined, is done with its turn.
+            for a in s
+                .asks
+                .iter_mut()
+                .filter(|a| matches!(a.owner.as_deref(), Some("me" | "declined")))
+            {
+                a.done = true;
+            }
+            s.asks.retain(|a| !a.done);
             schedule_next(&s, &mut intents);
         }
         Event::OutcomeReported { id, stopped } => {
+            for a in s
+                .asks
+                .iter_mut()
+                .filter(|a| a.owner.as_deref() == Some(id.as_str()))
+            {
+                a.done = true;
+                a.due_ms = None;
+            }
             if !stopped && !s.untold.iter().any(|u| u.id == id) {
                 s.untold.push(Untold {
                     id,
                     ..Untold::default()
                 });
+            }
+        }
+        Event::AsksTaken { message, asks } => {
+            for a in asks {
+                let owner = a.owner.filter(|o| !o.trim().is_empty());
+                match s
+                    .asks
+                    .iter_mut()
+                    .find(|x| x.message == message && x.ask == a.ask)
+                {
+                    Some(x) => {
+                        if owner.is_some() {
+                            x.owner = owner;
+                            x.reason = a.reason;
+                            x.due_ms = None;
+                        }
+                    }
+                    None => s.asks.push(Ask {
+                        message: message.clone(),
+                        ask: a.ask,
+                        owner,
+                        reason: a.reason,
+                        ..Ask::default()
+                    }),
+                }
+            }
+            ack_if_owned(&s, &message, &mut intents);
+        }
+        Event::SpawnRequested { message, tasks } => {
+            for (k, t) in tasks.into_iter().enumerate() {
+                let key = format!("spawn-{message}-{k}");
+                if s.asks
+                    .iter()
+                    .any(|a| a.spawn_key.as_deref() == Some(key.as_str()))
+                {
+                    continue;
+                }
+                let ask = if t.ask.trim().is_empty() {
+                    first_line(&t.task)
+                } else {
+                    t.ask
+                };
+                match s
+                    .asks
+                    .iter_mut()
+                    .find(|a| a.message == message && a.ask == ask)
+                {
+                    Some(a) => a.spawn_key = Some(key.clone()),
+                    None => s.asks.push(Ask {
+                        message: message.clone(),
+                        ask,
+                        spawn_key: Some(key.clone()),
+                        ..Ask::default()
+                    }),
+                }
+                intents
+                    .push(json!({"kind": "spawn", "task": t.task, "message": message, "key": key}));
+            }
+        }
+        Event::SpawnStarted { key, id } => {
+            let mut message = None;
+            for a in s
+                .asks
+                .iter_mut()
+                .filter(|a| a.spawn_key.as_deref() == Some(key.as_str()))
+            {
+                a.owner = Some(id.clone());
+                a.due_ms = None;
+                message = Some(a.message.clone());
+            }
+            if let Some(m) = message {
+                ack_if_owned(&s, &m, &mut intents);
             }
         }
         Event::CheckDue => fire(&mut s, now, &mut intents),
@@ -234,6 +407,9 @@ fn fire(s: &mut Ledgers, now: u64, intents: &mut Vec<Value>) {
         }
         for u in s.untold.iter_mut().filter(|u| due(u.due_ms)) {
             u.due_ms = Some(now + UNTOLD_WAIT);
+        }
+        for a in s.asks.iter_mut().filter(|a| due(a.due_ms)) {
+            a.due_ms = Some(now + UNOWNED_WAIT);
         }
         schedule_next(s, intents);
         return;
@@ -287,6 +463,28 @@ fn fire(s: &mut Ledgers, now: u64, intents: &mut Vec<Value>) {
             "key": format!("untold-retry-{now}"),
         }));
     }
+    let mut unowned: Vec<Ask> = Vec::new();
+    for a in s
+        .asks
+        .iter_mut()
+        .filter(|a| due(a.due_ms) && a.owner.is_none())
+    {
+        if a.tries >= MAX_UNOWNED_TRIES {
+            a.done = true;
+            continue;
+        }
+        a.tries += 1;
+        a.due_ms = None;
+        unowned.push(a.clone());
+    }
+    s.asks.retain(|a| !a.done);
+    if !unowned.is_empty() {
+        intents.push(json!({
+            "kind": "notice",
+            "text": unowned_note(&unowned),
+            "key": format!("unowned-retry-{now}"),
+        }));
+    }
     schedule_next(s, intents);
 }
 
@@ -298,6 +496,7 @@ fn schedule_next(s: &Ledgers, intents: &mut Vec<Value>) {
         .iter()
         .filter_map(|a| a.due_ms)
         .chain(s.untold.iter().filter_map(|u| u.due_ms))
+        .chain(s.asks.iter().filter_map(|a| a.due_ms))
         .min();
     if let Some(at) = next {
         intents.push(json!({"kind": "schedule", "at_ms": at, "key": format!("reply-check-{at}")}));
@@ -367,5 +566,41 @@ fn untold_note(ids: &[String]) -> String {
          still open, and what you do about it (follow up, restart, or done). If one needs nothing \
          from them, still say its result in that one line.",
         ids.join(", ")
+    )
+}
+
+/// An `ack` intent when every recorded ask of `message` has an owner.
+fn ack_if_owned(s: &Ledgers, message: &str, intents: &mut Vec<Value>) {
+    let mut asks = s.asks.iter().filter(|a| a.message == message).peekable();
+    if asks.peek().is_none() {
+        return;
+    }
+    if asks.all(|a| a.owner.is_some()) {
+        intents.push(json!({"kind": "ack", "message": message, "key": format!("ack-{message}")}));
+    }
+}
+
+fn first_line(text: &str) -> String {
+    let line = text
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or_default()
+        .trim();
+    line.strip_prefix("Title:")
+        .map(str::trim)
+        .unwrap_or(line)
+        .chars()
+        .take(PREVIEW_CHARS)
+        .collect()
+}
+
+fn unowned_note(asks: &[Ask]) -> String {
+    let lines: Vec<String> = asks
+        .iter()
+        .map(|a| format!("- \"{}\" (message {})", a.ask, a.message))
+        .collect();
+    format!(
+        "{UNOWNED_TAG} These asks of the user have no owner yet:\n{}\nFor each, start it (spawn), do it yourself, or say in one line why not; then say which in your reply.",
+        lines.join("\n")
     )
 }
