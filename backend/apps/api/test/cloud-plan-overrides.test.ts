@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest"
 // @ts-expect-error a Vite raw import of web's company domain list (the test runner bundles it; the Worker build never sees it)
 import webAccessText from "../../../../web/services/admin/access.ts?raw"
 import { storeVmPlan } from "../src/cloud-vm-plan.ts"
-import { cloudPlanId, COMPANY_EMAIL_DOMAINS, COMPANY_MAX_ACTIVE, companyPlanKey, PAID_PLAN_LIMITS, paidPlanLimits } from "../src/domains/cloud-plan.ts"
+import { cloudPlanId, COMPANY_EMAIL_DOMAINS, COMPANY_MAX_ACTIVE, companyPlanKey, isCompanyEmail, PAID_PLAN_LIMITS, paidPlanLimits } from "../src/domains/cloud-plan.ts"
 import { userIdFor } from "../src/domains/user.ts"
 import { storePlan } from "../src/inference/plan.ts"
 import { inDO, post, testEnv } from "./setup/inference-person.ts"
@@ -66,7 +66,10 @@ describe("cloudPlanId: classic's billingPlanIdFromMetadata", () => {
     ["max", null, "max"],
     ["max", "free", "free"],
     ["go", "max", "max"],
-    [" Pro ", null, "pro"]
+    [" Pro ", null, "pro"],
+    // Classic compares the Max exception exactly, then trims and lowercases the winner; a blank override restricts.
+    ["max", " pro ", "pro"],
+    ["pro", "   ", "free"]
   ] as const)("cmuxPlan %s with cmuxVmPlan %s is %s", (plan, vm, want) => {
     expect(cloudPlanId(plan, vm)).toBe(want)
   })
@@ -78,11 +81,27 @@ describe("cloudPlanId: classic's billingPlanIdFromMetadata", () => {
   })
 
   it("the company grant is Team (Max for a Max owner) with no machine cap", () => {
-    expect(companyPlanKey("example.com", "pro")).toBeNull()
-    expect(companyPlanKey(null, null)).toBeNull()
-    expect(paidPlanLimits(companyPlanKey("manaflow.ai", null))).toEqual({ ...PAID_PLAN_LIMITS.team, max_active: COMPANY_MAX_ACTIVE })
-    expect(paidPlanLimits(companyPlanKey("CMUX.com", "pro"))).toEqual({ ...PAID_PLAN_LIMITS.team, max_active: COMPANY_MAX_ACTIVE })
-    expect(paidPlanLimits(companyPlanKey("manaflow.com", "max"))).toEqual({ ...PAID_PLAN_LIMITS.max, max_active: COMPANY_MAX_ACTIVE })
+    expect(companyPlanKey(false, "pro")).toBeNull()
+    expect(paidPlanLimits(companyPlanKey(true, null))).toEqual({ ...PAID_PLAN_LIMITS.team, max_active: COMPANY_MAX_ACTIVE })
+    expect(paidPlanLimits(companyPlanKey(true, "pro"))).toEqual({ ...PAID_PLAN_LIMITS.team, max_active: COMPANY_MAX_ACTIVE })
+    expect(paidPlanLimits(companyPlanKey(true, "max"))).toEqual({ ...PAID_PLAN_LIMITS.max, max_active: COMPANY_MAX_ACTIVE })
+  })
+
+  it.each([
+    ["a@manaflow.ai", true],
+    ["a.b+c@CMUX.com", true],
+    [" a@manaflow.com ", true],
+    ["a@example.com", false],
+    ['"x"@cmux.com', false],
+    ["a b@cmux.com", false],
+    ["a@b@cmux.com", false],
+    ["a@sub.manaflow.ai", false],
+    ["a@manaflow.ai.", false],
+    ["a@manaflow.ai.evil.com", false],
+    ["@cmux.com", false],
+    [null, false]
+  ] as const)("isCompanyEmail(%s) is %s (classic isAdminEmail)", (email, want) => {
+    expect(isCompanyEmail(email)).toBe(want)
   })
 })
 

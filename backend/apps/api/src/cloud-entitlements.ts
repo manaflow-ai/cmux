@@ -67,13 +67,13 @@ export class CloudEntitlementStore implements CloudEntitlements {
     const users = this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
     const stackUser = personal ? (principal.stack_user_id ?? (await users.stackUserOf(user)) ?? undefined) : undefined
     // The company grant follows the owner's verified email (UserDO's record), never a client claim.
-    const domain = personal ? await users.homeVerifiedEmailDomain(user) : null
-    if (personal && !stackUser) return companyPlanKey(domain, null)
+    const company = personal && (await users.cloudCompanyAccount(user))
+    if (personal && !stackUser) return companyPlanKey(company, null)
     const teams = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team))
     const [answer, grant] = await Promise.all([teams.inferencePlan(team, user, stackUser), teams.cloudVmPlan(team, stackUser)])
     if (!answer.ok || !grant.ok) return undefined
     const own = cloudPlanId(answer.paid ? (answer.plan ?? null) : null, grant.vm_plan)
-    return companyPlanKey(domain, own) ?? (paidPlanLimits(own) ? own : null)
+    return companyPlanKey(company, own) ?? (paidPlanLimits(own) ? own : null)
   }
 
   private record(team: string, plan: string | null, at: number) {

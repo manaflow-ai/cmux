@@ -90,23 +90,40 @@ export const paidPlanLimits = (plan: string | null | undefined): PlanLimits | nu
 const KEEPS_MAX: ReadonlySet<string | null> = new Set([null, "pro", "team", "founders", "max"])
 
 /**
- * The Cloud plan id of one sign-in service record, as classic Cloud reads it (web
- * services/billing/teamResolution.ts billingPlanIdFromMetadata): the operator's `cmuxVmPlan` wins
- * over the billing `cmuxPlan`, except that a lower paid grant never hides a paid Max. An explicit
- * `cmuxVmPlan` such as "free" is an operator restriction and stands. Machine limits only: the model
- * router and billing keep reading `cmuxPlan` alone.
+ * The Cloud plan id of one sign-in service record, exactly as classic Cloud reads it (web
+ * services/billing/teamResolution.ts billingPlanIdFromMetadata, then entitlements.ts
+ * normalizedPlanId): the operator's `cmuxVmPlan` wins over the billing `cmuxPlan`, except that a
+ * lower paid grant never hides a paid Max (exact values, as classic compares them). An explicit
+ * `cmuxVmPlan` such as "free", or a blank one, is an operator restriction and stands ("free").
+ * Machine limits only: the model router and billing keep reading `cmuxPlan` alone.
  */
 export const cloudPlanId = (plan: string | null, vmPlan: string | null): string | null => {
-  const norm = (v: string | null) => (v && v.trim() ? v.trim().toLowerCase() : null)
-  const paid = norm(plan)
-  const override = norm(vmPlan)
-  if (paid === "max" && KEEPS_MAX.has(override)) return "max"
-  return override ?? paid
+  if (plan === "max" && KEEPS_MAX.has(vmPlan)) return "max"
+  const value = vmPlan ?? plan
+  if (value === null) return null
+  const id = value.trim().toLowerCase()
+  return id || "free"
 }
 
-/** The company grant's entitlement key for a verified email domain, or null; Max stays Max (classic resolveVmEntitlements). */
-export const companyPlanKey = (verifiedDomain: string | null, ownPlan: string | null): string | null =>
-  verifiedDomain && COMPANY_EMAIL_DOMAINS.has(verifiedDomain.toLowerCase()) ? (ownPlan === "max" ? "company_max" : "company") : null
+/**
+ * A company account's email (classic web services/admin/access.ts isAdminEmail): printable ASCII,
+ * a plain local part, and exactly one of COMPANY_EMAIL_DOMAINS after the last "@" (no subdomain,
+ * lookalike or trailing dot). The caller also requires the address to be verified.
+ */
+export const isCompanyEmail = (email: string | null | undefined): boolean => {
+  if (typeof email !== "string") return false
+  const normalized = email.trim()
+  if (normalized.length === 0 || normalized.length > 254 || !/^[\x21-\x7e]+$/.test(normalized)) return false
+  const at = normalized.lastIndexOf("@")
+  if (at <= 0 || at === normalized.length - 1) return false
+  const local = normalized.slice(0, at)
+  const domain = normalized.slice(at + 1).toLowerCase()
+  if (local.length > 64 || !/^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$/.test(local)) return false
+  return /^[a-z0-9.-]+$/.test(domain) && COMPANY_EMAIL_DOMAINS.has(domain)
+}
+
+/** The company grant's entitlement key, or null; Max stays Max (classic resolveVmEntitlements). */
+export const companyPlanKey = (company: boolean, ownPlan: string | null): string | null => (company ? (ownPlan === "max" ? "company_max" : "company") : null)
 
 /** The team's paid plan as CloudDO last knew it (cloud-entitlements.ts), read synchronously by the reducers. */
 export interface CloudEntitlements {
