@@ -84,6 +84,20 @@ def parse(path):
                 and (kg_rest is None or b["kg"] < kg_rest - 0.5)):
             b["kb"] = b["kg"]
             b["kbh"] = b["kgh"]
+            b["kb_from"] = "kg"
+    # In iOS 27's stalled state neither the placeholder nor kg moves during a
+    # drag; the composer's dock guide (dg, placed from the finger the way
+    # UIKit places the keyboard) is the only live reading. Pixel measurements
+    # of the recordings (kbtop.py) agree with it; use it on those frames.
+    for i in range(1, len(frames)):
+        b = frames[i]
+        ahead = raw[i:i + 4]
+        if (raw[i] is not None and raw[i - 1] is not None and abs(raw[i] - raw[i - 1]) < 0.01
+                and len(ahead) == 4 and all(v is not None and abs(v - raw[i]) < 0.01 for v in ahead)
+                and b.get("kb_from") is None and b["dg"] is not None and b["dg"] > b["kb"] + 0.5
+                and b["kg"] is not None and (b["kgh"] or 0) < 0.5):
+            b["kb"] = b["dg"]
+            b["kb_from"] = "dg"
     return frames, events
 
 
@@ -139,6 +153,7 @@ def analyze_size(fs):
         if docked(a) and docked(b) and abs(a["kb"] - b["kb"]) < 0.01 and abs(a["fb"] - b["fb"]) < 0.01 and b["fr"]:
             still.append(b["kb"] - b["fb"])
     r["docked_gap"] = statistics.median(still) if still else None
+    rest_fb = r["rest_fb"]
     overlaps, jumps, drifts = [], [], []
     for a, b in zip(fs, fs[1:]):
         if docked(b) and b["fb"] > b["kb"] + 0.5:
@@ -151,20 +166,23 @@ def analyze_size(fs):
             d = (b["cb"] - a["cb"]) - (b["fy"] - a["fy"])
             if abs(d) > 1.0:
                 drifts.append((round(b["t"], 3), round(d, 2)))
-    # Lag: the composer's progress through a keyboard transition against the
-    # keyboard's, times the composer's travel (0 = the same curve).
+    # Lag: while a keyboard transition moves the keyboard above the
+    # composer's resting place, how far the field strays from riding at the
+    # docked gap (0 = it rides the keyboard's own curve, frame by frame).
     lags, runs = [], transitions(fs)
+    dg_gap = r["docked_gap"]
     for run in runs:
-        k0, k1 = kb_top(fs[run[0]]), kb_top(fs[run[-1]])
-        f0, f1 = fs[run[0]]["fb"], fs[run[-1]]["fb"]
-        if abs(k1 - k0) < 1 or abs(f1 - f0) < 1:
-            continue
-        worst = 0.0
+        if dg_gap is None or rest_fb is None:
+            break
+        worst, frames_on = 0.0, 0
         for i in run:
-            pk = (kb_top(fs[i]) - k0) / (k1 - k0)
-            pf = (fs[i]["fb"] - f0) / (f1 - f0)
-            worst = max(worst, abs(pk - pf) * abs(f1 - f0))
-        lags.append((round(fs[run[0]]["t"], 3), round(worst, 2), round(f1 - f0, 1)))
+            f = fs[i]
+            if f["kb"] is None or not docked(f) or f["kb"] > rest_fb + dg_gap - 0.5:
+                continue
+            frames_on += 1
+            worst = max(worst, abs((f["kb"] - f["fb"]) - dg_gap))
+        if frames_on:
+            lags.append((round(fs[run[0]]["t"], 3), round(worst, 2), frames_on))
     r["transitions"] = len(lags)
     r["overlap_frames"] = len(overlaps)
     r["overlap_max"] = max((o[1] for o in overlaps), default=0)
@@ -174,7 +192,7 @@ def analyze_size(fs):
     r["drift_frames"] = len(drifts)
     r["drift_max"] = max((abs(d[1]) for d in drifts), default=0)
     r["spikes_dropped"] = sum(1 for f in fs if f.get("spike"))
-    r["examples"] = {"overlap": overlaps[:6], "jump": jumps[:6], "lag (start, max pt, travel)": lags[:8], "drift": drifts[:6]}
+    r["examples"] = {"overlap": overlaps[:6], "jump": jumps[:6], "lag (start, max pt off the gap, frames)": lags[:8], "drift": drifts[:6]}
     return r
 
 
