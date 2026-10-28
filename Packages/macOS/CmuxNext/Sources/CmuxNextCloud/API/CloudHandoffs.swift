@@ -38,39 +38,61 @@ public nonisolated struct CloudHandoff: Decodable, Hashable, Sendable {
     /// Milliseconds since 1970.
     public var createdAt: Double
     public var version: Int?
+    /// The turn (from 1, only goes up): a follow-up in the same chat opens the next on the same id.
+    public var turn: Int?
+    /// `open` or `closed`: only a closed hand-off changes no more.
+    public var state: String?
 
-    public init(id: String, sessionId: String, status: String, summary: String?, createdAt: Double, version: Int?) {
-        (self.id, self.sessionId, self.status, self.summary, self.createdAt, self.version) = (id, sessionId, status, summary, createdAt, version)
+    public init(id: String, sessionId: String, status: String, summary: String?, createdAt: Double, version: Int?,
+                turn: Int? = nil, state: String? = nil) {
+        (self.id, self.sessionId, self.status, self.summary, self.createdAt) = (id, sessionId, status, summary, createdAt)
+        (self.version, self.turn, self.state) = (version, turn, state)
     }
 
-    /// It can still change (not done, failed or cancelled).
-    public var isOpen: Bool { !["done", "failed", "cancelled"].contains(status) }
+    /// It can still change: not closed (a store from before turns: not done, failed or cancelled).
+    public var isOpen: Bool { state.map { $0 != "closed" } ?? !Self.turnEnds.contains(status) }
+
+    /// What the person is told about this turn's status, if anything: done, failed and needs-you,
+    /// once per turn and status. Never cancelled, starting or running.
+    public static func notice(status: String, turn: Int?) -> CloudTaskNotice? {
+        let outcome: SandboxRunEnd.Outcome? = switch status {
+        case "done": .succeeded
+        case "failed": .failed
+        case "needs-you": .needsYou
+        default: nil
+        }
+        return outcome.map { CloudTaskNotice(key: "\(turn ?? 1):\(status)", outcome: $0) }
+    }
+
+    static let statuses: Set<String> = ["starting", "running", "needs-you", "done", "failed", "cancelled"]
+    /// The statuses that end a turn (and, before turns, the hand-off).
+    static let turnEnds: Set<String> = ["done", "failed", "cancelled"]
 }
 
 extension SandboxRunFollower.Source {
     /// Where the followed hand-offs are kept between launches.
     public static let handoffsKey = "cmux.next.handoffs.following"
 
-    /// Hand-offs: each wait passes the last version seen. `done` and `failed` are told, and each
-    /// stop at `needs-you`; `cancelled` never is (only its owner cancels one). A hand-off may run
-    /// for a long time: it is given up after three days.
+    /// Hand-offs: a hand-off lasts the whole session and counts turns (hq#4706). Each wait passes
+    /// the last version seen; each turn's done, failed and needs-you is told once (``CloudHandoff/notice(status:turn:)``),
+    /// never a cancel. The follow goes on after a turn ends and stops when the hand-off is closed,
+    /// or when it has not changed for three days.
     public static func handoffs(wait: @escaping @Sendable (_ id: String, _ after: Int?) async throws -> Data) -> Self {
         Self(wait: { id, _, cursor in try await wait(id, cursor) }, read: readHandoff, defaultsKey: handoffsKey,
-             maximumAge: 3 * 86_400, tells: [.succeeded, .failed, .needsYou], path: "/v1/handoffs")
+             maximumAge: 3 * 86_400, tells: [], path: "/v1/handoffs")
     }
 
     /// One wait's `{handoff}`. A body of another shape, or a status the store has not, is unreadable.
+    /// A store from before turns (no `state`) closes a hand-off with its first done, failed or cancel.
     public static func readHandoff(_ data: Data) -> CloudTaskRead {
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let handoff = object["handoff"] as? [String: Any], let status = handoff["status"] as? String,
-              let version = handoff["version"] as? Int else { return .unreadable }
-        switch status {
-        case "starting", "running": return .progress(cursor: version)
-        case "needs-you": return .needsYou(cursor: version, data)
-        case "done": return .ended(.succeeded, data)
-        case "failed": return .ended(.failed, data)
-        case "cancelled": return .ended(.cancelled, data)
-        default: return .unreadable
-        }
+              CloudHandoff.statuses.contains(status), let version = handoff["version"] as? Int else { return .unreadable }
+        let turn = handoff["turn"] as? Int
+        let state = handoff["state"] as? String
+        guard state == nil || state == "open" || state == "closed" else { return .unreadable }
+        let notice = CloudHandoff.notice(status: status, turn: turn)
+        let closed = state.map { $0 == "closed" } ?? CloudHandoff.turnEnds.contains(status)
+        return closed ? .closed(notice: notice, data) : .going(cursor: version, notice: notice, data)
     }
 }

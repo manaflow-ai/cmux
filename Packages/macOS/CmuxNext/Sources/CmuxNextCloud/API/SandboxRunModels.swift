@@ -14,8 +14,10 @@ public nonisolated struct SandboxRunRecord: Codable, Hashable, Sendable {
     public var started: Date
     /// The source's position after the last wait (a hand-off's version), so a wait passes it.
     public var cursor: Int?
-    /// It needs the person now, and that was told (a hand-off's `needs-you`): told once per stop.
-    public var needsYou: Bool?
+    /// The notices already told (``CloudTaskNotice/key``, newest last, bounded): each is told once.
+    public var told: [String]?
+    /// When the task last changed (its cursor moved); ``SandboxRunFollower/Source/maximumAge`` counts from here.
+    public var changed: Date?
     /// The acpmux host of a hand-off's chat, when this app made it (nil: unknown).
     public var host: String?
 
@@ -26,13 +28,25 @@ public nonisolated struct SandboxRunRecord: Codable, Hashable, Sendable {
 
 /// One wait's answer, as a ``SandboxRunFollower/Source`` reads it.
 public nonisolated enum CloudTaskRead: Sendable {
-    /// Still going; the next wait passes `cursor`.
-    case progress(cursor: Int?)
-    /// It waits for the person (told once until it goes on); the next wait passes `cursor`.
-    case needsYou(cursor: Int?, Data)
+    /// Still going; the next wait passes `cursor`. A `notice` is told once per its key.
+    case going(cursor: Int?, notice: CloudTaskNotice?, Data)
+    /// A Run's end: told by the follower's rules (``SandboxRunFollower/noteCancel(_:)``).
     case ended(SandboxRunEnd.Outcome, Data)
+    /// It will not change again (a hand-off closed): its `notice`, if not told yet, is told, then
+    /// the follow ends without telling more.
+    case closed(notice: CloudTaskNotice?, Data)
     /// No answer of the source's shape: never an end.
     case unreadable
+}
+
+/// Something to tell about a task that goes on (a hand-off's turn done, failed or waiting for
+/// the person): told once per `key`, so the same state read again tells nothing.
+public nonisolated struct CloudTaskNotice: Hashable, Sendable {
+    /// What makes it the same notice (a hand-off's turn and status, `"2:done"`).
+    public var key: String
+    public var outcome: SandboxRunEnd.Outcome
+
+    public init(key: String, outcome: SandboxRunEnd.Outcome) { (self.key, self.outcome) = (key, outcome) }
 }
 
 /// A Run that ended here, kept across a relaunch for ``SandboxRunFollower/keptEnded``: a late
@@ -50,7 +64,7 @@ public nonisolated struct SandboxRunEnded: Codable, Hashable, Sendable {
 
 /// How a followed Run ended.
 public nonisolated struct SandboxRunEnd: Sendable {
-    /// `needsYou` is no end: the task waits for the person and goes on after.
+    /// `needsYou` is no end: the task waits for the person and goes on after (a hand-off's notice).
     public enum Outcome: String, Codable, Sendable { case succeeded, failed, timedOut, cancelled, needsYou }
     public var record: SandboxRunRecord
     public var outcome: Outcome

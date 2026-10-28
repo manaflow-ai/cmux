@@ -5,17 +5,18 @@ import CmuxNextCloud
 import CmuxNextSettings
 
 /// The native notification of a chat handed off to a Cloud machine (cloud work mode; the hand-off
-/// store, cmux#26578): when the hand-off is done, failed, or stops for the person (`needs-you`), a
-/// banner titled with the chat says so, under the notification settings of agent events (the
-/// `agent` source). Never for a cancel or for progress, and never while the person looks at that
-/// chat. Clicking the banner shows the chat (`sessionId`).
+/// store, cmux#26578): a hand-off lasts the whole session and counts turns (hq#4706). When a turn
+/// is done, failed, or stops for the person (`needs-you`), a banner titled with the chat says so,
+/// once per turn and status, under the notification settings of agent events (the `agent` source).
+/// Never for a cancel or for progress, and never while the person looks at that chat. Clicking the
+/// banner shows the chat (`sessionId`).
 ///
 /// The app-level owner of every hand-off's wait is a ``SandboxRunFollower`` on the hand-off source:
 /// one `GET /v1/handoffs/:id/wait` long-poll each (held up to 25 s; there is no push). At each sign-in
 /// it follows the person's unfinished hand-offs from `GET /v1/handoffs`; ``watch(handoff:session:host:)``
-/// adds one this app just made. Stop conditions: a hand-off's poll ends when it finishes, at sign-out,
-/// when the store no longer shows it (403, 404) or after three days; ``stop()`` ends them all and the
-/// account observer.
+/// adds one this app just made. Stop conditions: a hand-off's poll ends when it is closed (a turn's
+/// end is not its end), at sign-out, when the store no longer shows it (403, 404) or after three days
+/// without a change; ``stop()`` ends them all and the account observer.
 @MainActor
 final class HandoffNotices {
     static let bannerPrefix = "handoff."
@@ -75,7 +76,7 @@ final class HandoffNotices {
         listing = Task { [weak self] in // task-owner: in `listing`, replaced at the next sign-in, cancelled in stop()
             guard let handoffs = try? await list(), !Task.isCancelled, let self else { return }
             for handoff in handoffs where handoff.isOpen && !self.follower.knows(handoff.id) {
-                self.follower.watch(Self.record(handoff, user: user, host: nil))
+                self.follower.watch(Self.listed(handoff, user: user))
             }
         }
     }
@@ -86,6 +87,15 @@ final class HandoffNotices {
         guard let services, let user = Self.user(in: services) else { return }
         let handoff = CloudHandoff(id: id, sessionId: session, status: "starting", summary: nil, createdAt: Date().timeIntervalSince1970 * 1_000, version: nil)
         follower.watch(Self.record(handoff, user: user, host: host))
+    }
+
+    /// The record of a hand-off found in the person's list: followed from where the list shows it,
+    /// so its current state is no news (only what changes after is told).
+    static func listed(_ handoff: CloudHandoff, user: String) -> SandboxRunRecord {
+        var record = record(handoff, user: user, host: nil)
+        record.cursor = handoff.version
+        record.told = CloudHandoff.notice(status: handoff.status, turn: handoff.turn).map { [$0.key] }
+        return record
     }
 
     /// The follower's record of `handoff`: its chat is the record's key.

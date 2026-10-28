@@ -25,9 +25,9 @@ public final class SandboxRunFollower {
         public var wait: @Sendable (_ id: String, _ team: String?, _ cursor: Int?) async throws -> Data
         public var read: @Sendable (Data) -> CloudTaskRead
         public var defaultsKey: String
-        /// A task not ended after this long is given up, so the tasks in flight need no count limit.
+        /// A task that has not changed for this long is given up, so the tasks in flight need no count limit.
         public var maximumAge: TimeInterval
-        /// The ends that are told (a hand-off's `cancelled` never is).
+        /// The ends (``CloudTaskRead/ended(_:_:)``) that are told.
         public var tells: Set<SandboxRunEnd.Outcome>
         /// The path errors name (`/api/runs`).
         public var path: String
@@ -39,7 +39,7 @@ public final class SandboxRunFollower {
 
         /// Sandboxed Runs (hq#3367): the server caps a task at 12 minutes; every end is told.
         public static func runs(wait: @escaping Wait) -> Source {
-            Source(wait: { id, team, _ in try await wait(id, team) }, read: SandboxRunFollower.read, defaultsKey: defaultsKey,
+            Source(wait: { id, team, _ in try await wait(id, team) }, read: SandboxRunFollower.read, defaultsKey: SandboxRunFollower.defaultsKey,
                    maximumAge: 6 * 3_600, tells: [.succeeded, .failed, .timedOut, .cancelled], path: "/api/runs")
         }
     }
@@ -172,7 +172,8 @@ public final class SandboxRunFollower {
             // wakeup-allow: a long-poll, each pass one /wait call the server holds (10 s for a Run, 25 s for a hand-off); a failure waits a Backoff delay
             while !Task.isCancelled {
                 guard let self, self.records[id] != nil else { return }
-                guard self.now().timeIntervalSince(record.started) < maximumAge else {
+                let changed = self.records[id]?.changed ?? record.started
+                guard self.now().timeIntervalSince(changed) < maximumAge else {
                     return self.drop(id, error: CloudAPIError.timedOut("\(path)/\(id)"))
                 }
                 let began = ContinuousClock.now
@@ -192,10 +193,11 @@ public final class SandboxRunFollower {
                 switch answer {
                 case .ended(let outcome, let data):
                     return self.end(id, outcome: outcome, snapshot: data)
-                case .progress(let cursor):
-                    self.progressed(id, cursor: cursor)
-                case .needsYou(let cursor, let data):
-                    self.needsYou(id, cursor: cursor, snapshot: data)
+                case .closed(let notice, let data):
+                    if let notice { self.notice(id, notice, cursor: nil, snapshot: data) }
+                    return self.end(id, outcome: notice?.outcome ?? .cancelled, snapshot: data, silent: true)
+                case .going(let cursor, let notice, let data):
+                    self.notice(id, notice, cursor: cursor, snapshot: data)
                 case .unreadable:
                     self.answerAll(id, .failure(CloudAPIError.timedOut("\(path)/\(id)")))
                     // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
@@ -210,9 +212,9 @@ public final class SandboxRunFollower {
         }
     }
 
-    private func end(_ id: String, outcome: SandboxRunEnd.Outcome, snapshot: Data) {
+    private func end(_ id: String, outcome: SandboxRunEnd.Outcome, snapshot: Data, silent: Bool = false) {
         guard let record = records.removeValue(forKey: id) else { return }
-        let silent = (cancelledHere.contains(id) && outcome == .cancelled) || !source.tells.contains(outcome)
+        let silent = silent || (cancelledHere.contains(id) && outcome == .cancelled) || !source.tells.contains(outcome)
         cancelledHere.removeAll { $0 == id }
         // Saved untold first: a crash before the banner leaves it to the next launch, never lost;
         // marked told once ``onEnd`` ran, so it is never told twice.
@@ -224,23 +226,23 @@ public final class SandboxRunFollower {
         if !silent { tell(id, SandboxRunEnd(record: record, outcome: outcome, snapshot: snapshot)) }
     }
 
-    /// Task `id` goes on: a later stop for the person is told again.
-    private func progressed(_ id: String, cursor: Int?) {
-        guard var record = records[id], record.cursor != cursor || record.needsYou == true else { return }
-        (record.cursor, record.needsYou) = (cursor, false)
+    /// Task `id` goes on at `cursor` (nil: where it was); `notice` is told unless its key was. Saved
+    /// after ``onEnd`` ran: a crash in between tells it again at the next launch (its banner, of the
+    /// same id, replaces the first), never loses it.
+    private func notice(_ id: String, _ notice: CloudTaskNotice?, cursor: Int?, snapshot: Data) {
+        guard var record = records[id] else { return }
+        let moved = cursor != nil && cursor != record.cursor
+        let fresh = notice.map { !(record.told ?? []).contains($0.key) } ?? false
+        guard moved || fresh else { return }
+        if moved { (record.cursor, record.changed) = (cursor, now()) }
+        if let notice, fresh { record.told = Array(((record.told ?? []) + [notice.key]).suffix(Self.toldLimit)) }
         records[id] = record
+        if let notice, fresh { onEnd?(SandboxRunEnd(record: record, outcome: notice.outcome, snapshot: snapshot)) }
         save()
     }
 
-    /// Task `id` waits for the person: told once (marked first, so a relaunch never tells it twice).
-    private func needsYou(_ id: String, cursor: Int?, snapshot: Data) {
-        guard var record = records[id] else { return }
-        let told = record.needsYou == true
-        (record.cursor, record.needsYou) = (cursor, true)
-        records[id] = record
-        save()
-        if !told, source.tells.contains(.needsYou) { onEnd?(SandboxRunEnd(record: record, outcome: .needsYou, snapshot: snapshot)) }
-    }
+    /// The notice keys kept per task: a hand-off's turn tells at most three, and turns only go up.
+    static let toldLimit = 16
 
     /// Runs ``onEnd`` for ended Run `id`, then marks it told. A replayed end is marked by its
     /// listener (``markTold(_:)``) once its banner is handled: that may take a moment (a read of the
@@ -324,7 +326,7 @@ public final class SandboxRunFollower {
         guard let snapshot = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let run = snapshot["run"] as? [String: Any], let status = run["status"] as? String,
               statuses.contains(status) else { return .unreadable }
-        guard let receiptValue = snapshot["receipt"], !(receiptValue is NSNull) else { return .progress(cursor: nil) }
+        guard let receiptValue = snapshot["receipt"], !(receiptValue is NSNull) else { return .going(cursor: nil, notice: nil, data) }
         guard let receipt = receiptValue as? [String: Any], let ending = receipt["status"] as? String else { return .unreadable }
         switch ending {
         case "succeeded": return .ended(.succeeded, data)
