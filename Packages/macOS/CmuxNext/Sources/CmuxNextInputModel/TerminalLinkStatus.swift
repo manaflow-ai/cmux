@@ -8,8 +8,9 @@ public nonisolated enum TerminalDisconnectReason: Hashable, Sendable {
     case attachFailed
     /// The view fell behind again and again (overflow limit).
     case fellBehind
-    /// A restored view's attach is still missing after about 5 s (``TerminalAttachMachine/restoreStallReconnects``):
-    /// the terminal service has not answered for this terminal yet. The view keeps retrying by itself.
+    /// A restored view is still not live ``TerminalAttachMachine/restoreStallDelay`` after its start or the
+    /// person's last Retry: the terminal service has not answered for this terminal yet. The view keeps
+    /// retrying by itself (short backoff, then long) and keeps saying this until an attach works.
     case restoreStalled
 }
 

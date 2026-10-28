@@ -71,7 +71,7 @@ nonisolated struct AttachOracle<Link: Hashable & Sendable>: Sendable {
                 let count = detaches[link, default: 0] + 1
                 detaches[link] = count
                 if count > 1 { fail(.detachOnce, "link detached \(count) times") }
-            case .finish, .status:
+            case .finish, .status, .armRestoreStall:
                 break
             }
         }
@@ -108,6 +108,7 @@ nonisolated struct AttachOracle<Link: Hashable & Sendable>: Sendable {
         case .processExited: "processExited"
         case .processRevived: "processRevived"
         case .close: "close"
+        case .restoreStallDue(let arm): "restoreStallDue(\(arm))"
         }
     }
 }

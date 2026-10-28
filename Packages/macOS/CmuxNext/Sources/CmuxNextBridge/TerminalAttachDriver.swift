@@ -70,6 +70,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     private let observer: Observer?
     private let cursorDefault: TerminalCursorDefault
     private let backoffDelay: BackoffDelay
+    private let restoreStallDelay: RestoreStallDelay?
     private let onGridSent: GridSent?
 
     /// Told each grid this view sends to the PTY and whether the daemon will echo it (a grid other than
@@ -79,6 +80,10 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     /// Waits before a re-attach that follows `failedReconnects` failed ones
     /// in a row (the App passes a capped ``Backoff``). Throws when cancelled.
     public typealias BackoffDelay = @Sendable (_ failedReconnects: Int) async throws -> Void
+
+    /// Waits ``TerminalAttachMachine/restoreStallDelay`` (the App passes a sleep on its clock). Throws when
+    /// cancelled. Nil: the restore deadline never comes (a view that says "Restoring…" until it attaches).
+    public typealias RestoreStallDelay = @Sendable (Duration) async throws -> Void
 
     /// `restoring`: the view attaches to a terminal that already runs
     /// (``TerminalAttachMachine/init(initialSize:visible:restoring:)``).
@@ -97,6 +102,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         observer: Observer? = nil,
         cursorDefault: TerminalCursorDefault = .ghostty,
         backoffDelay: @escaping BackoffDelay = { _ in },
+        restoreStallDelay: RestoreStallDelay? = nil,
         onGridSent: GridSent? = nil
     ) {
         core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible, restoring: restoring)))
@@ -107,6 +113,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         self.observer = observer
         self.cursorDefault = cursorDefault
         self.backoffDelay = backoffDelay
+        self.restoreStallDelay = restoreStallDelay
         self.onGridSent = onGridSent
     }
 
@@ -210,11 +217,27 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         case .unhide(let ref): ref.link.sendHidden(false)
         case .detach(let ref): ref.link.detachNow()
         case .status(let status): queue.pushControl(.status(status))
+        case .armRestoreStall(let arm): armRestoreStall(arm)
         case .finish:
             queue.finish()
             // A re-attach still waiting out its backoff must not open.
             let tasks = core.withLock { core in core.tasks.values }
             tasks.forEach { $0.cancel() }
+        }
+    }
+
+    /// Reports ``Machine/Event/restoreStallDue(_:)`` once the restore deadline passed. One task per arm; a stale
+    /// arm's report changes nothing (the machine compares it), and `.finish` cancels the waits with the attempts.
+    private func armRestoreStall(_ arm: Int) {
+        guard let restoreStallDelay else { return }
+        let key = -arm  // attempts are positive: the deadline's task shares the table, so `.finish` cancels it
+        core.withLock { core in
+            // The attempts' priority: the deadline changes what a visible pane says.
+            core.tasks[key] = Task(priority: .userInitiated) { [owner = Owner(self)] in
+                defer { owner.value?.finishTask(key) }
+                guard (try? await restoreStallDelay(Machine.restoreStallDelay)) != nil else { return }
+                owner.value?.send(.restoreStallDue(arm))
+            }
         }
     }
 

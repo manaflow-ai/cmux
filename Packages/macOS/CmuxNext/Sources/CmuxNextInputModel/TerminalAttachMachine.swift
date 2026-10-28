@@ -25,8 +25,9 @@ public import Foundation
 /// restored view stops saying `restoring`). One re-attach at a time. Until a view first went
 /// live its status is `restoring` (when it was created as a restore) while it
 /// attaches or retries, and its backoff stays short (``restoreBackoffCap``), so it comes
-/// back with no input soon after the daemon answers (#23029); still missing after about 5 s
-/// (``restoreStallReconnects``) it says why and offers Retry, and keeps retrying. An event that comes while an
+/// back with no input soon after the daemon answers (#23029). Still not live ``restoreStallDelay`` after its
+/// start (or after the person's last Retry, key or click) it says why and offers Retry, whatever its attach is
+/// doing (failing again and again, or one attach that hangs), and keeps retrying. An event that comes while an
 /// attach is in flight is kept: if that attach fails, the next one opens at once. A terminal whose
 /// process ended is `exited` and never re-attaches on a view event; only the
 /// daemon reporting the terminal running again (`processRevived`) re-attaches
@@ -66,12 +67,13 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// ``quietReconnects`` for that view: about the same 90 s at its shorter backoff. Past it the
     /// view backs off as any other, so a daemon that never answers is not asked every 2 s for good.
     public static var quietRestoreReconnects: Int { 45 }
-    /// Self-started re-attaches of a restored view that has not gone live before it says why and
-    /// offers Retry (audit P13: "Restoring…" said nothing for up to 90 s): about 5.5 s of the restore
-    /// backoff (0, 0.5, 1, 2, 2 s) plus the failed attaches. Its status is then
-    /// `.disconnected(.restoreStalled, reconnecting: false)`, over its last frame, and it keeps
-    /// retrying at the short backoff until ``quietRestoreReconnects``.
-    public static var restoreStallReconnects: Int { 5 }
+    /// How long a restored view that has not gone live says "Restoring…" before it says why and offers
+    /// Retry (audit P13: "Restoring…" said nothing for up to 90 s). The machine asks for the deadline
+    /// (``Effect/armRestoreStall(_:)``) and the driver reports it (``Event/restoreStallDue(_:)``). The status
+    /// is then `.disconnected(.restoreStalled, reconnecting: false)`, over the terminal's last frame. The
+    /// view keeps retrying by itself: at the short restore backoff until ``quietRestoreReconnects``, then
+    /// at the long one, still saying why, until an attach works.
+    public static var restoreStallDelay: Duration { .seconds(5) }
 
     public private(set) var phase: Phase = .detached
     public private(set) var queuedInput: [Data] = []
@@ -110,6 +112,10 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     private let initialSize: CellSize
     private let restoring: Bool
     private var lastAttempt = 0
+    /// The restore deadline last armed (``Effect/armRestoreStall(_:)``); an older one that comes due is stale.
+    private var restoreStallArm = 0
+    /// The restore deadline passed with the view still not live: it says why and offers Retry.
+    public private(set) var restoreStalled = false
 
     /// `restoring`: the view attaches to a terminal that already runs (a
     /// relaunch or a reopened tab), so it says `restoring` until its first
@@ -145,6 +151,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         case .processExited: processExited()
         case .processRevived: processRevived()
         case .close: close()
+        case .restoreStallDue(let arm): restoreStallDue(arm)
         }
     }
 
@@ -154,7 +161,33 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         guard phase == .detached else { return [] }
         let pending = newPending(failures: 1)
         phase = .attaching(pending)
-        return (restoring ? announce(.restoring) : []) + [.open(attempt: pending.attempt, size: pending.size)]
+        guard restoring else { return [.open(attempt: pending.attempt, size: pending.size)] }
+        return announce(.restoring) + [armRestoreStall(), .open(attempt: pending.attempt, size: pending.size)]
+    }
+
+    /// Asks for a new restore deadline; any earlier one is stale from now on.
+    private mutating func armRestoreStall() -> Effect {
+        restoreStallArm += 1
+        return .armRestoreStall(restoreStallArm)
+    }
+
+    /// The restore deadline `arm` passed: a restored view still not live says why and offers Retry.
+    private mutating func restoreStallDue(_ arm: Int) -> [Effect] {
+        guard arm == restoreStallArm, restoring, !wentLive, !restoreStalled else { return [] }
+        switch phase {
+        case .detached, .attaching, .reattaching, .disconnected: break
+        case .live, .exited, .closed: return []
+        }
+        restoreStalled = true
+        return announce(.disconnected(.restoreStalled, reconnecting: false))
+    }
+
+    /// The person asked again (a key, a click or focus, Retry, shown again, or the connection back): a stalled
+    /// restore says "Restoring…" again and waits a new ``restoreStallDelay`` before it says why.
+    private mutating func restartRestoreStall() -> [Effect] {
+        guard restoring, !wentLive, restoreStalled else { return [] }
+        restoreStalled = false
+        return announce(.restoring) + [armRestoreStall()]
     }
 
     private mutating func opened(_ link: Link, attempt: Int) -> [Effect] {
@@ -341,9 +374,11 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
             reason = lastDisconnect
             failed = 0
         case .attaching, .reattaching:
-            // An attach is in flight: the event must not be lost if it fails (`disconnect`).
-            if byEvent { reattachRequested = true }
-            return []
+            // An attach is in flight: the event must not be lost if it fails (`disconnect`). A stalled
+            // restore says "Restoring…" again at once, so Retry visibly does something.
+            guard byEvent else { return [] }
+            reattachRequested = true
+            return restartRestoreStall()
         default:
             return []
         }
@@ -361,16 +396,19 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         let open: Effect = wait == 0
             ? .open(attempt: pending.attempt, size: pending.size)
             : .openAfterBackoff(attempt: pending.attempt, size: pending.size, failedReconnects: wait)
-        let status: LinkStatus = if stillRestoring {
-            // A restore still missing after about 5 s says why and offers Retry; an event (a key,
-            // focus, Retry) starts its wait again.
-            !byEvent && autoReconnects > Self.restoreStallReconnects ? .disconnected(.restoreStalled, reconnecting: false) : .restoring
-        } else if !byEvent, autoReconnects > Self.quietReconnects {
+        // A stalled restore keeps saying why while it retries by itself; an event starts its wait again.
+        let restarted = byEvent ? restartRestoreStall() : []
+        let quiet = stillRestoring ? Self.quietRestoreReconnects : Self.quietReconnects
+        let status: LinkStatus = if stillRestoring, restoreStalled {
+            .disconnected(.restoreStalled, reconnecting: false)
+        } else if !byEvent, autoReconnects > quiet {
             .disconnected(reason, reconnecting: false)
+        } else if stillRestoring {
+            .restoring
         } else {
             .disconnected(reason, reconnecting: true)
         }
-        return announce(status) + [open]
+        return restarted + announce(status) + [open]
     }
 
     /// The attach (or the stream) failed: keep the last screen and queued

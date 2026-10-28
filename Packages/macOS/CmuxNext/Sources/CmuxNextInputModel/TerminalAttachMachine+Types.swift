@@ -88,6 +88,8 @@ extension TerminalAttachMachine {
         case processRevived
         /// The tab closed or the view was dropped.
         case close
+        /// The restore deadline armed as `arm` (``Effect/armRestoreStall(_:)``) passed.
+        case restoreStallDue(Int)
     }
 
     public nonisolated enum Effect: Hashable, Sendable {
@@ -114,5 +116,8 @@ extension TerminalAttachMachine {
         case status(LinkStatus)
         /// End the consumer's stream.
         case finish
+        /// Report ``Event/restoreStallDue(_:)`` with `arm` once ``TerminalAttachMachine/restoreStallDelay``
+        /// has passed (a restored view that has not gone live yet).
+        case armRestoreStall(Int)
     }
 }

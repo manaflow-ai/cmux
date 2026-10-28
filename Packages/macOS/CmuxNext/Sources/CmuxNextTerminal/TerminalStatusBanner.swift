@@ -171,7 +171,10 @@ final class TerminalStatusBanner: NSView {
                 strings.text("terminal.link.restoreStalled",
                              defaultValue: "Still restoring: cmux's terminal service has not answered for this terminal yet")
             }
-            let hint = strings.text("terminal.link.hint", defaultValue: "Click or type to reconnect")
+            // A restore never connected: it tries again, it does not reconnect.
+            let hint = cause == .restoreStalled
+                ? strings.text("terminal.link.restoreHint", defaultValue: "Click or type to try again")
+                : strings.text("terminal.link.hint", defaultValue: "Click or type to reconnect")
             return "\(reason) · \(hint)"
         }
     }

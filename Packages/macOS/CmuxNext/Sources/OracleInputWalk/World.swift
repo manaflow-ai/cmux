@@ -295,6 +295,9 @@ struct AttachWorld {
         case .processExited: name = "processExited"
         case .processRevived: name = "processRevived"
         case .close: name = "close"
+        case .restoreStallDue(let arm):
+            name = "restoreStallDue"
+            attempt = arm
         }
         let seq = UInt64(journal.count + 1)
         let record = InputJournalEntry.Attach(surface: terminal.surface, event: name, link: link, attempt: attempt, bytes: bytes,

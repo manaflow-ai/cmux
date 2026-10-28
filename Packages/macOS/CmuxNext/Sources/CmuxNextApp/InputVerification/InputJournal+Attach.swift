@@ -44,6 +44,9 @@ extension InputJournal {
             case .processExited: record.event = "processExited"
             case .processRevived: record.event = "processRevived"
             case .close: record.event = "close"
+            case .restoreStallDue(let arm):
+                record.event = "restoreStallDue"
+                record.attempt = arm
             }
             journal.append(window: nil, .attach(record))
         }

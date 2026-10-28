@@ -119,6 +119,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             observer: InputJournal.shared.isEnabled ? InputJournal.attachObserver(surface: String(surface)) : nil,
             cursorDefault: target.cursorDefault,
             backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed); if policyBlocked() { throw CancellationError() } },
+            // A restore still not live after TerminalAttachMachine.restoreStallDelay says why and offers Retry (audit P13).
+            restoreStallDelay: { delay in try await Self.restoreStallWait(delay) },
             // Marked where the grid really goes to the PTY: the machine sends nothing for a resize
             // without a live link, while hidden, or of the size it already holds.
             onGridSent: burstTrace.map { trace -> TerminalAttachDriver<TerminalAttachment>.GridSent in
@@ -315,6 +317,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     /// Backoff before the `failed + 1`th re-attach in a row, 30 s after 8 doublings: spaces the view's own
     /// retries and the event-started ones after them. A view turned off by its organization stops after it (the caller).
+    /// The restore deadline's wait, on the same flexible retry timer as the reattach backoff.
+    nonisolated static func restoreStallWait(_ delay: Duration) async throws {
+        var once = Backoff(initial: delay, maximum: delay)
+        // concurrency-allow: async sleep on the deadline's own task, once per restored view that has not gone live
+        try await once.wait(owner: "terminal.restore-stall")
+    }
+
     nonisolated static func reattachBackoff(afterFailures failed: Int) async throws {
         var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
         for _ in 1..<min(max(1, failed), 8) { _ = backoff.next() }
