@@ -39,8 +39,8 @@ public final class MainTaskSelector {
         public let waited: Duration
         fileprivate let body: @MainActor () -> Void
 
-        /// Runs the task.
-        public func run() { body() }
+        /// Runs the task (on main: a nested type does not take the selector's isolation).
+        @MainActor public func run() { body() }
     }
 
     /// The last enqueue order given (0 before the first post).
