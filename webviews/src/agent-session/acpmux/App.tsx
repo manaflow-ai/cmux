@@ -10,6 +10,7 @@ import React, {
   useReducer,
   useRef,
   useState,
+  startTransition,
   useSyncExternalStore,
 } from "react";
 import { AnsweredBy, AuthorChip } from "./multiplayer/Faces";
@@ -8449,6 +8450,15 @@ function AcpmuxPane() {
     }
   }, []);
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
+  // Leave the New Tab after the current frame paints. Mounting a full chat (catalog, transcript and
+  // composer) is intentionally outside the Send event's first-paint budget; keeping the page for one
+  // frame also preserves the visible field while the host accepts the prompt.
+  const leaveNewTabAfterPaint = useCallback(() => {
+    const leave = () => startTransition(() => setNewTab(undefined));
+    if (typeof window.requestAnimationFrame === "function")
+      window.requestAnimationFrame(() => window.setTimeout(leave, 0));
+    else window.setTimeout(leave, 0);
+  }, []);
   const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = [], chat?: NewTabChat) => {
     const inherited = newTab?.cwd;
     const start = (folder?: string) =>
@@ -8456,7 +8466,7 @@ function AcpmuxPane() {
         // Keep the New Tab on screen while the host confirms a picked folder. Clearing it before
         // that async handoff mounted the empty chat hero for a frame, then replaced it again when
         // the first prompt landed.
-        setNewTab(undefined);
+        leaveNewTabAfterPaint();
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
         if (folder && !text && directClient.current?.startsOnSend) {
@@ -9885,7 +9895,7 @@ function AcpmuxPane() {
                   chatCwd: startFolder,
                   requestFolder,
                   startsHere: () => !directClient.current?.startsOnSend,
-                  leave: () => setNewTab(undefined),
+                  leave: leaveNewTabAfterPaint,
                   selectSession,
                   showAllChats,
                   runShell: (command, cwd) => {
