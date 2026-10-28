@@ -58,7 +58,7 @@ async fn notes(
             continue;
         };
         let params = params.unwrap_or(Value::Null);
-        if m != method::MUX_PEER_STATE_CHANGED || params["peer"] != name {
+        if m != "_acpmux/peer_state_changed" || params["peer"] != name {
             continue;
         }
         let state = params["state"].as_str().unwrap_or_default().to_owned();
