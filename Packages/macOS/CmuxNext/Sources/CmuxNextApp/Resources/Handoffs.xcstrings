@@ -164,7 +164,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error"
+            "value": "Falló"
           }
         },
         "zh-Hant": {
@@ -254,7 +254,7 @@
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Помилка"
+            "value": "Не вдалося"
           }
         },
         "vi": {
