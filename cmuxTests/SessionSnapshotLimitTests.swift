@@ -13,7 +13,7 @@ struct SessionSnapshotLimitTests {
         let manager = TabManager()
         defer { manager.closeWorkspacesForTesting() }
         for _ in 1..<130 {
-            _ = manager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+            _ = manager.addWorkspace(select: true, placementOverride: .end, autoWelcomeIfNeeded: false)
         }
         let selected = manager.tabs[129]
         manager.selectWorkspace(selected)
@@ -43,9 +43,10 @@ struct SessionSnapshotLimitTests {
     @Test func mixedRestorableTabsRetainAllWorkspacesAndShareFingerprintBoundary() {
         let manager = TabManager()
         defer { manager.closeWorkspacesForTesting() }
-        manager.tabs[0].isRemoteTmuxAuthLogin = true
+        let loginWorkspace = manager.tabs[0]
+        loginWorkspace.isRemoteTmuxAuthLogin = true
         for _ in 1..<131 {
-            _ = manager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+            _ = manager.addWorkspace(select: true, placementOverride: .end, autoWelcomeIfNeeded: false)
         }
         let boundaryWorkspace = manager.tabs[130]
         manager.selectWorkspace(manager.tabs[1])
@@ -62,7 +63,7 @@ struct SessionSnapshotLimitTests {
         #expect(manager.sessionSnapshotWorkspaceIds() == manager.tabs.dropFirst().map(\.id))
         let after = manager.sessionAutosaveFingerprint()
         #expect(after != before)
-        manager.tabs[0].setCustomTitle("Excluded login workspace")
+        loginWorkspace.setCustomTitle("Excluded login workspace")
         #expect(manager.sessionAutosaveFingerprint() == after)
     }
 
