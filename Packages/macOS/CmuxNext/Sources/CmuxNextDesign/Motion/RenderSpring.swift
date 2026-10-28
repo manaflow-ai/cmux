@@ -55,8 +55,8 @@ public struct RenderSpring {
     /// runs now; otherwise it runs when the layer lands (``Completion``). `view` is the view
     /// that shows `layer`, or nil only for a layer in no window.
     public func animate<Value: RenderSpringValue>(_ layer: CALayer, _ key: RenderSpringKey<Value>, to value: Value, in view: NSView?,
-                                                  completion: Completion? = nil) {
-        animateGroup([.init(layer, key, to: value)], in: view, completion: completion)
+                                                  completion: Completion? = nil, file: StaticString = #fileID, line: UInt = #line) {
+        animateGroup([.init(layer, key, to: value)], in: view, completion: completion, file: file, line: line)
     }
 
     /// Springs the scalar `key` of `layer` (`.positionX`, `.boundsWidth`) to `value`,
@@ -65,8 +65,8 @@ public struct RenderSpring {
     /// velocity normalized to its distance: a point's velocity fits only when it is parallel
     /// to the distance.
     public func animate(_ layer: CALayer, _ key: RenderSpringKey<CGFloat>, to value: CGFloat, velocity: CGFloat, in view: NSView?,
-                        completion: Completion? = nil) {
-        animateGroup([.init(layer, key, to: value, velocity: velocity)], in: view, completion: completion)
+                        completion: Completion? = nil, file: StaticString = #fileID, line: UInt = #line) {
+        animateGroup([.init(layer, key, to: value, velocity: velocity)], in: view, completion: completion, file: file, line: line)
     }
 
     /// Springs a host layer and its sublayers to their rest frames on this one token, from
@@ -74,7 +74,7 @@ public struct RenderSpring {
     /// edge-anchored item) stays in step with it and nothing relies on `autoresizingMask`
     /// during the spring. Each layer's transform must be the identity.
     public func animateGroup(host: CALayer, to hostFrame: CGRect, sublayers: [(CALayer, CGRect)], in view: NSView?,
-                             completion: Completion? = nil) {
+                             completion: Completion? = nil, file: StaticString = #fileID, line: UInt = #line) {
         let frames = [(host, hostFrame)] + sublayers
         let starts = frames.map { layer, _ in (layer.position, layer.bounds.size) }
         // One outer transaction: the rest frames and their springs commit together.
@@ -86,15 +86,17 @@ public struct RenderSpring {
             moves.append(Move(layer, .position, from: position, to: layer.position))
             moves.append(Move(layer, .boundsSize, from: size, to: layer.bounds.size))
         }
-        animateGroup(moves, in: view, completion: completion)
+        animateGroup(moves, in: view, completion: completion, file: file, line: line)
         CATransaction.commit()
     }
 
     /// Springs every move on this token from one begin time, in one transaction. A move whose
     /// key path does not animate (``animates(_:in:)``) shows its value in one frame.
-    public func animateGroup(_ moves: [Move], in view: NSView?, completion: Completion? = nil) {
+    public func animateGroup(_ moves: [Move], in view: NSView?, completion: Completion? = nil, file: StaticString = #fileID, line: UInt = #line) {
         let shown = Motion.canAnimate(in: view)
-        Self.run(moves, styles: moves.map { style(for: $0.keyPath, shown: shown) }, trace: "render.\(token.rawValue)", completion: completion)
+        MotionInspector.within(gate.category, file, line) {
+            Self.run(moves, styles: moves.map { style(for: $0.keyPath, shown: shown) }, trace: "render.\(token.rawValue)", completion: completion)
+        }
     }
 
     /// Runs each move in its `style`, from one begin time, in one transaction, with one landing
@@ -322,6 +324,7 @@ public struct RenderSpring {
         animation.isAdditive = true
         animation.beginTime = begin
         animation.duration = duration(extent: part.extent, spring: spring)
+        MotionInspector.noteAnimation(animation, kind: "render.\(keyPath)", on: layer)
         layer.add(animation, forKey: nextKey(on: layer, keyPath: keyPath))
     }
 
@@ -334,6 +337,7 @@ public struct RenderSpring {
         fade.beginTime = begin
         fade.duration = duration
         fade.timingFunction = Motion.fadeCurve
+        MotionInspector.noteAnimation(fade, kind: "render.\(keyPath)", on: layer)
         layer.add(fade, forKey: nextKey(on: layer, keyPath: keyPath))
     }
 

@@ -45,11 +45,13 @@ public struct Motion {
 
     /// ``basePolicy`` as `design`'s settings make it. The gates read it of `DesignSettings.shared`; a reader
     /// that holds its own `DesignSettings` (the oracle's settings facet) reads it with the same rules.
+    /// The Motion Inspector's filter (``DesignSettings/motionInspection``) adds the categories it leaves out.
     public static func basePolicy(of design: DesignSettings) -> MotionPolicy {
-        MotionPolicy(speed: design.animationSpeed, reduceMotion: reduceMotion(of: design), bounce: design.animationBounce,
+        let excluded = design.motionInspection.excludedCategories
+        return MotionPolicy(speed: design.animationSpeed, reduceMotion: reduceMotion(of: design), bounce: design.animationBounce,
                      enabledKinds: design.enabledAnimations, liveResize: isLiveResizing,
                      animationsEnabled: design.animationsEnabled && !design.calmMode.stopsAnimations,
-                     disabledCategories: design.disabledAnimationCategories,
+                     disabledCategories: excluded.isEmpty ? design.disabledAnimationCategories : design.disabledAnimationCategories.union(excluded),
                      pacesLoops: design.loopsFollowFrameRate, energySaver: design.energySaver)
     }
 

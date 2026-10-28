@@ -85,7 +85,9 @@ extension TerminalSurfaceView {
         }
         let transition = ColorTransition.current
         var spec = ghostty_color_transition_s()
-        spec.duration = transition.seconds
+        // Ghostty blends on its own GPU clock, outside every layer's time base: the Motion Inspector's slow
+        // motion lengthens the blend as it starts (MotionInspector.startScale, 1 when off).
+        spec.duration = transition.seconds * MotionInspector.startScale
         spec.space = transition.mixesInSRGB ? GHOSTTY_COLOR_TRANSITION_SRGB : GHOSTTY_COLOR_TRANSITION_OKLAB
         let samples = transition.isInstant ? [] : transition.keyframeProgress
         let count = min(samples.count, Int(GHOSTTY_COLOR_TRANSITION_MAX_SAMPLES))

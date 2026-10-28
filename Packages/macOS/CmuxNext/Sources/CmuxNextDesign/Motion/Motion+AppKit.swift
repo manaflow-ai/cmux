@@ -119,6 +119,7 @@ extension Motion {
     /// Chrome's per-sink preferred frame interval, components/viz/service/display/frame_rate_decider.cc).
     /// Never a timing change: the loop's period and curve stay as they are.
     static func paced(_ loop: CAAnimation, _ policy: MotionPolicy, at rate: FrameRate = .ambient) -> CAAnimation {
+        MotionInspector.noteAnimation(loop)
         guard policy.pacesLoops else { return loop }
         loop.preferredFrameRateRange = rate.range
         // A group's parts ask for the same rate, so none of them keeps the display's full rate.
@@ -173,63 +174,91 @@ extension MotionGate {
     /// - Parameter view: The view the change animates. When its window has no
     ///   screen the change applies at once (``canAnimate(in:)``).
     public func animate(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
-                               completion: (@MainActor @Sendable () -> Void)? = nil) {
-        animateSpring(token, in: view, changes, settleAtSleep: nil, completion: completion)
+                               completion: (@MainActor @Sendable () -> Void)? = nil, file: StaticString = #fileID, line: UInt = #line) {
+        MotionInspector.within(category, file, line) {
+            animateSpring(token, in: view, changes, settleAtSleep: nil, completion: completion)
+        }
     }
 
     /// Animates `NSView.animator()` opacity or color changes with a fade token.
     public func animate(_ token: MotionFade, in view: NSView? = nil, _ changes: () -> Void,
-                               completion: (@MainActor @Sendable () -> Void)? = nil) {
+                               completion: (@MainActor @Sendable () -> Void)? = nil, file: StaticString = #fileID, line: UInt = #line) {
+        MotionInspector.within(category, file, line) { animateFade(token, in: view, changes, completion: completion) }
+    }
+
+    private func animateFade(_ token: MotionFade, in view: NSView?, _ changes: () -> Void,
+                             completion: (@MainActor @Sendable () -> Void)?) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
         guard duration > 0 else { return withoutAnimation(changes, completion: completion) }
         MotionActivity.began(seconds: duration)
         guard #available(macOS 15, *) else {
-            return runTimed(duration, changes, completion: traced("appkit.\(token.rawValue)", completion))
+            return runTimed(duration, changes, completion: MotionInspector.noteAppKit("appkit.\(token.rawValue)", view: view,
+                                                                                        curve: .timed(seconds: duration, name: "easeOut"),
+                                                                                        completion: traced("appkit.\(token.rawValue)", completion)))
         }
-        NSAnimationContext.animate(.easeOut(duration: duration), changes: changes, completion: traced("appkit.\(token.rawValue)", completion))
+        // AppKit steps a SwiftUI-animation group on the main thread, outside every layer's time base: the
+        // Motion Inspector's slow motion lengthens it as it starts (MotionInspector.startScale, 1 when off).
+        let seconds = duration * MotionInspector.startScale
+        NSAnimationContext.animate(.easeOut(duration: seconds), changes: changes,
+                                   completion: MotionInspector.noteAppKit("appkit.\(token.rawValue)", view: view,
+                                                                          curve: .timed(seconds: duration, name: "easeOut"),
+                                                                          completion: traced("appkit.\(token.rawValue)", completion)))
     }
 
     /// Timed animation for animators that do not take SwiftUI springs
     /// (NSWindow frame and alpha, implicit subview layout inside the block):
     /// `token`'s perceived duration with the fade curve.
     public func animateTimed(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
-                                    completion: (@MainActor @Sendable () -> Void)? = nil) {
+                                    completion: (@MainActor @Sendable () -> Void)? = nil, file: StaticString = #fileID, line: UInt = #line) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
         MotionActivity.began(seconds: duration)
-        runTimed(duration, changes, completion: duration > 0 ? traced("timed.\(token.rawValue)", completion) : completion)
+        MotionInspector.within(category, file, line) {
+            runTimed(duration, changes, completion: duration > 0 ? noteTimed("timed.\(token.rawValue)", duration, view, traced("timed.\(token.rawValue)", completion)) : completion)
+        }
     }
 
     /// An exit: `token`'s duration on a slow-start curve, so a change reversed soon after it
     /// started (the pointer passing over a hover region) barely moved (no timer, no hold).
     public func animateExit(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
-                                   completion: (@MainActor @Sendable () -> Void)? = nil) {
+                                   completion: (@MainActor @Sendable () -> Void)? = nil, file: StaticString = #fileID, line: UInt = #line) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
         MotionActivity.began(seconds: duration)
-        runTimed(duration, changes, completion: duration > 0 ? traced("exit.\(token.rawValue)", completion) : completion,
-                 curve: CAMediaTimingFunction(controlPoints: 0.7, 0, 0.3, 1))
+        MotionInspector.within(category, file, line) {
+            runTimed(duration, changes, completion: duration > 0 ? noteTimed("exit.\(token.rawValue)", duration, view, traced("exit.\(token.rawValue)", completion)) : completion,
+                     curve: CAMediaTimingFunction(controlPoints: 0.7, 0, 0.3, 1))
+        }
     }
 
     /// Timed animation with a fade token (NSWindow alpha).
     public func animateTimed(_ token: MotionFade, in view: NSView? = nil, _ changes: () -> Void,
-                                    completion: (@MainActor @Sendable () -> Void)? = nil) {
+                                    completion: (@MainActor @Sendable () -> Void)? = nil, file: StaticString = #fileID, line: UInt = #line) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
         MotionActivity.began(seconds: duration)
-        runTimed(duration, changes, completion: duration > 0 ? traced("timed.\(token.rawValue)", completion) : completion)
+        MotionInspector.within(category, file, line) {
+            runTimed(duration, changes, completion: duration > 0 ? noteTimed("timed.\(token.rawValue)", duration, view, traced("timed.\(token.rawValue)", completion)) : completion)
+        }
+    }
+
+    /// The Motion Inspector's record of an AppKit timed group (its completion, wrapped to end the record).
+    private func noteTimed(_ kind: @autoclosure () -> String, _ duration: TimeInterval, _ view: NSView?,
+                           _ completion: (@MainActor @Sendable () -> Void)?) -> (@MainActor @Sendable () -> Void)? {
+        MotionInspector.noteAppKit(kind(), view: view, curve: .timed(seconds: duration, name: "easeOut"), completion: completion)
     }
 
     /// Runs `changes` in a CATransaction whose implicit actions use `token`,
     /// or with actions disabled when `token` is nil or does not animate.
     /// Implicit actions interpolate from the presentation value, so a change
     /// mid-fade continues from what is on screen.
-    public func transaction(_ token: MotionFade?, _ changes: () -> Void) {
+    public func transaction(_ token: MotionFade?, _ changes: () -> Void, file: StaticString = #fileID, line: UInt = #line) {
         let duration = token.map(self.duration) ?? 0
         CATransaction.begin()
         if duration > 0 {
             MotionActivity.began(seconds: duration)
+            MotionInspector.within(category, file, line) { MotionInspector.noteTransaction("transaction.\(token?.rawValue ?? "")", seconds: duration) }
             CATransaction.setAnimationDuration(duration)
             CATransaction.setAnimationTimingFunction(fadeCurve)
         } else {
@@ -241,11 +270,12 @@ extension MotionGate {
 
     /// `transaction(_:_:)` for layer geometry (progress bars): the spring's
     /// perceived duration, instant when movement does not animate.
-    public func transaction(spring token: MotionSpring, _ changes: () -> Void) {
+    public func transaction(spring token: MotionSpring, _ changes: () -> Void, file: StaticString = #fileID, line: UInt = #line) {
         let duration = self.duration(token)
         CATransaction.begin()
         if duration > 0 {
             MotionActivity.began(seconds: duration)
+            MotionInspector.within(category, file, line) { MotionInspector.noteTransaction("transaction.\(token.rawValue)", seconds: duration) }
             CATransaction.setAnimationDuration(duration)
             CATransaction.setAnimationTimingFunction(fadeCurve)
         } else {
@@ -259,7 +289,12 @@ extension MotionGate {
     /// current presentation value (`from` overrides the sample). Returns the
     /// added animation, or nil when the change applied at once.
     @discardableResult
-    public func set(_ layer: CALayer, _ keyPath: String, to value: Any, spring token: MotionSpring, from: Any? = nil) -> CAAnimation? {
+    public func set(_ layer: CALayer, _ keyPath: String, to value: Any, spring token: MotionSpring, from: Any? = nil,
+                    file: StaticString = #fileID, line: UInt = #line) -> CAAnimation? {
+        MotionInspector.within(category, file, line) { setSpring(layer, keyPath, to: value, spring: token, from: from) }
+    }
+
+    private func setSpring(_ layer: CALayer, _ keyPath: String, to value: Any, spring token: MotionSpring, from: Any?) -> CAAnimation? {
         let start = from ?? presentationValue(layer, keyPath)
         Motion.setModel(layer, keyPath, value)
         guard animatesMovement, let start else {
@@ -274,7 +309,12 @@ extension MotionGate {
     /// The `token` spring from `from` to `to` on `keyPath`, for a caller
     /// that adds it under its own key (a layer whose model value AppKit
     /// rewrites, as a sidebar space page's translation).
-    public func springAnimation(_ token: MotionSpring, _ keyPath: String, from: Any, to: Any) -> CASpringAnimation {
+    public func springAnimation(_ token: MotionSpring, _ keyPath: String, from: Any, to: Any,
+                                file: StaticString = #fileID, line: UInt = #line) -> CASpringAnimation {
+        MotionInspector.within(category, file, line) { makeSpringAnimation(token, keyPath, from: from, to: to) }
+    }
+
+    private func makeSpringAnimation(_ token: MotionSpring, _ keyPath: String, from: Any, to: Any) -> CASpringAnimation {
         let spring = self.spring(token)
         let animation = Motion.springAnimation(spring, keyPath)
         animation.duration = spring.settlingTime(within: 0.002)
@@ -287,7 +327,12 @@ extension MotionGate {
     /// seconds from now on `layer` and then holds `to` until removed. At a
     /// zero duration (speed off) it changes at once when the delay ends.
     public func scheduledFade(_ token: MotionFade, _ keyPath: String, from: Any, to: Any, after delay: CFTimeInterval,
-                                     on layer: CALayer) -> CABasicAnimation {
+                                     on layer: CALayer, file: StaticString = #fileID, line: UInt = #line) -> CABasicAnimation {
+        MotionInspector.within(category, file, line) { makeScheduledFade(token, keyPath, from: from, to: to, after: delay, on: layer) }
+    }
+
+    private func makeScheduledFade(_ token: MotionFade, _ keyPath: String, from: Any, to: Any, after delay: CFTimeInterval,
+                                   on layer: CALayer) -> CABasicAnimation {
         let duration = self.duration(token)
         let animation = CABasicAnimation(keyPath: keyPath)
         animation.fromValue = duration > 0 ? from : to
@@ -305,7 +350,12 @@ extension MotionGate {
     /// Sets `layer.keyPath` to `value` with a timed fade from the current
     /// presentation value. Returns the added animation, or nil.
     @discardableResult
-    public func set(_ layer: CALayer, _ keyPath: String, to value: Any, fade token: MotionFade, from: Any? = nil) -> CAAnimation? {
+    public func set(_ layer: CALayer, _ keyPath: String, to value: Any, fade token: MotionFade, from: Any? = nil,
+                    file: StaticString = #fileID, line: UInt = #line) -> CAAnimation? {
+        MotionInspector.within(category, file, line) { setFade(layer, keyPath, to: value, fade: token, from: from) }
+    }
+
+    private func setFade(_ layer: CALayer, _ keyPath: String, to value: Any, fade token: MotionFade, from: Any?) -> CAAnimation? {
         let start = from ?? presentationValue(layer, keyPath)
         Motion.setModel(layer, keyPath, value)
         let duration = self.duration(token)
@@ -349,12 +399,13 @@ extension MotionGate {
     /// crossfade remains (motion.md rule 7): applied at once, a close's
     /// shrink jumped the panel smaller in one frame before it faded.
     @discardableResult
-    public func set(_ layer: CALayer, _ keyPath: String, to value: Any, movementFade token: MotionFade, from: Any? = nil) -> CAAnimation? {
+    public func set(_ layer: CALayer, _ keyPath: String, to value: Any, movementFade token: MotionFade, from: Any? = nil,
+                    file: StaticString = #fileID, line: UInt = #line) -> CAAnimation? {
         guard animatesMovement else {
             layer.removeAnimation(forKey: keyPath)
             return nil
         }
-        return set(layer, keyPath, to: value, fade: token, from: from)
+        return set(layer, keyPath, to: value, fade: token, from: from, file: file, line: line)
     }
 
     /// A continuous clockwise rotation for a busy spinner, or nil when loops are off (Reduce

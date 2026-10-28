@@ -49,6 +49,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// (chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc). Nil leaves
     /// the payload as it was and the bootstrap removes the attribute.
     public let energy: String?
+    /// The Motion Inspector's rate (animation seconds per wall second; 0 paused): every CSS transition,
+    /// CSS animation and Web Animation of the page plays at it (`playbackRate`). Nil (no field in the
+    /// payload) at real time, so an uninspected payload is unchanged.
+    public let motionRate: Double?
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -150,6 +154,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         let webMotion = Motion.web.policy
         motion = Self.motionValue(webMotion)
         energy = Self.energyValue(webMotion)
+        motionRate = Self.motionRate(of: .shared)
         self.glass = (glass ?? .current).rawValue
     }
 
@@ -161,8 +166,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return policy.reduceMotion ? "reduced" : "full"
     }
 
-    /// The Motion Inspector's rate for pages while it slows motion; not wired yet.
-    @MainActor public static func motionRate(of design: DesignSettings) -> Double? { nil }
+    /// The Motion Inspector's rate for pages while it slows motion (``DesignSettings/motionInspection``); nil at real time.
+    @MainActor public static func motionRate(of design: DesignSettings) -> Double? {
+        let rate = design.motionInspection.timeScale.rate
+        return rate == 1 ? nil : rate
+    }
 
     /// `data-cmux-energy` for `policy`: `saver` under Energy Saver (``MotionPolicy/energySaver``),
     /// else nil (no attribute).
@@ -181,6 +189,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
                                      "workingLook": workingLook, "motion": motion, "glass": glass]
         if let energy { object["energy"] = energy }
+        if let motionRate { object["motionRate"] = motionRate }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -324,6 +333,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.energy) root.setAttribute('data-cmux-energy', payload.energy);
           else root.removeAttribute('data-cmux-energy');
           if (payload.glass) root.setAttribute('data-glass', payload.glass);
+          setMotionRate(typeof payload.motionRate === 'number' ? payload.motionRate : 1);
           window.cmuxTheme.current = payload;
           window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
           if (!first) settled(payload);
@@ -338,6 +348,34 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         }
       };
       if (document.documentElement) ensureStyle(); else awaitRoot();
+      // The Motion Inspector's slow motion (payload.motionRate, absent at real time): every CSS
+      // transition and animation and every Web Animation plays at the rate, running ones from where
+      // they are, new ones from their start (0 pauses them). At rate 1 the listeners return at once.
+      // Each animation keeps its own rate (a reversed one plays at -1): the page's rate times the inspector's.
+      var motionRate = 1;
+      var baseRates = new WeakMap();
+      function rate(a) {
+        if (motionRate === 1) {
+          // Back at real time: the page's own rate, and the next slow-down reads the rate the page has then.
+          if (baseRates.has(a)) { a.playbackRate = baseRates.get(a); baseRates.delete(a); }
+          return;
+        }
+        if (!baseRates.has(a)) baseRates.set(a, a.playbackRate);
+        a.playbackRate = baseRates.get(a) * motionRate;
+      }
+      function rateAll(target, pseudo) {
+        if (!target || !target.getAnimations) return;
+        // A pseudo-element's animation fires its event on the host element: its subtree holds it.
+        target.getAnimations(pseudo ? { subtree: true } : undefined).forEach(rate);
+      }
+      function setMotionRate(rate) {
+        if (rate === motionRate) return;
+        motionRate = rate;
+        rateAll(document);
+      }
+      ['transitionrun', 'animationstart'].forEach(function (name) {
+        document.addEventListener(name, function (event) { if (motionRate !== 1) rateAll(event.target, event.pseudoElement); }, true);
+      });
       // ui.animations.web off: script animations (Element.animate) and smooth scrolls end at once
       // too, which the stylesheet above cannot reach. One wrapper per prototype, read on each call,
       // so turning the switch back on restores them with no reload.
@@ -345,7 +383,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       if (window.Element && Element.prototype.animate && !Element.prototype.animate.cmuxMotion) {
         var animate = Element.prototype.animate;
         var gated = function (keyframes, options) {
-          if (!still()) return animate.call(this, keyframes, options);
+          if (!still()) {
+            var running = animate.call(this, keyframes, options);
+            if (motionRate !== 1) rate(running);
+            return running;
+          }
           var timing = typeof options === 'number' || options == null ? {} : Object.assign({}, options);
           timing.duration = 0;
           timing.delay = 0;

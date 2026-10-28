@@ -6,19 +6,29 @@ import Testing
 
 /// Slow motion on screen (GUI host): each gate path's animation lands about `slowdown` times later under the
 /// Motion Inspector's time scale than at 1x, is listed with its category, call site and curve, and lands at
-/// its 1x time again once the inspection stops. In the same serialized suite as ``MotionInspectorTests``: both
-/// drive the process's one set of inspector statics.
-extension MotionInspectorTests {
+/// its 1x time again once the inspection stops.
+///
+/// Its own process only: while one of these awaits a landing, an inspector slows every gate of the process
+/// (`DesignSettings.shared`), so a motion suite running beside it in a whole-package `swift test` would see slowed
+/// clocks. It runs when CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS is 901 (the repo's "this suite runs alone" switch,
+/// as AgentPageProviderBridgeGapBench), a `package-test-lane.sh suite` step:
+/// `cmux-ci run --class light --label gui-session-v1 --script scripts/ci/package-test-lane.sh --ref SHA --arg=suite
+/// --arg=Packages/macOS/CmuxNext --arg=MotionInspectorSlowMotionTests --env CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS=901`.
+@MainActor @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS"] == "901"))
+struct MotionInspectorSlowMotionTests {
+    static func release(_ inspector: MotionInspector) { MotionInspectorTests.release(inspector) }
+
     final class Landed {
         var done = false
     }
 
     /// A window on screen with one layer-backed view, and an inspector over it on the real media clock.
     static func slowMotionRig() throws -> (NSWindow, NSView, MotionInspector) {
-        let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 200), styleMask: [.titled],
+        // Borderless, as MotionGateMainWorkTests' rig: a layer-backed content view is the window's layer tree.
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 200), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        let content = NSView(frame: NSRect(origin: .zero, size: window.contentLayoutRect.size))
+        let content = NSView(frame: NSRect(origin: .zero, size: window.frame.size))
         content.wantsLayer = true
         window.contentView = content
         let view = NSView(frame: NSRect(x: 100, y: 80, width: 24, height: 24))
@@ -27,6 +37,12 @@ extension MotionInspectorTests {
         content.addSubview(view)
         window.orderFrontRegardless()
         try #require(window.screen != nil, "the window is on no screen: every change applies at once")
+        try #require(view.layer?.superlayer === content.layer, "the view's layer is in its superview's layer")
+        try #require(MotionInspector.rootLayer(of: window).map { root in
+            var layer = view.layer
+            while let current = layer, current !== root { layer = current.superlayer }
+            return layer === root
+        } == true, "the view's layer is under the window's root layer")
         Motion.reduceMotionOverride = false
         let inspector = MotionInspector(windows: { [window] }, design: .shared)
         return (window, view, inspector)
@@ -92,7 +108,7 @@ extension MotionInspectorTests {
         let slowed = try #require(await once(), "\(path) never landed at 5x")
         // By this file's call site: another suite's animation in the same process cannot be taken for this one.
         let record = try #require(inspector.records.last { $0.kind.hasPrefix(path.kindPrefix) && Self.isOurs($0) },
-                                  "\(path) is not in the list: \(inspector.records.map(\.kind))")
+                                  "\(path) is not in the list: \(inspector.records.map(\.kind)); layer keys \(view.layer?.animationKeys() ?? [])")
         #expect(record.category == .feedback)
         #expect(record.site?.hasPrefix("CmuxNextDesignTests/MotionInspectorSlowMotionTests.swift:") == true, "owner \(record.owner)")
         inspector.stop()

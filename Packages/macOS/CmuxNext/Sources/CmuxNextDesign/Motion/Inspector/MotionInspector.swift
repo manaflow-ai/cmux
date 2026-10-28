@@ -151,8 +151,9 @@ public final class MotionInspector: MotionInspecting {
         guard isInspecting else { return }
         let wasPaused = timeScale == .paused
         let end = motionNow
-        // Each root gets its own time base back: an animation still running jumps to where real time has it (the
-        // documented cost of stopping mid-motion; going back to 1x first keeps every animation where it is).
+        // Each root gets its own time base back. A root that ran slowed lags real time by the time it lost, so a
+        // Core Animation animation still running at the stop jumps to where real time has it (often its end) and a
+        // loop's phase jumps: the cost of stopping mid-motion. Stop once the list shows nothing running to see none.
         for (layer, base) in originals.values {
             if let layer = layer.value { base.apply(to: layer) }
         }
@@ -298,9 +299,12 @@ public final class MotionInspector: MotionInspecting {
 
     // MARK: Windows
 
-    /// The layer whose time base every animation of `window` runs on: the frame view's, else the content view's.
+    /// The layer whose time base every animation of `window` runs on: the top of the content view's layer tree
+    /// (the frame view's layer when AppKit backs it, else the content view's own).
     public static func rootLayer(of window: NSWindow) -> CALayer? {
-        window.contentView?.superview?.layer ?? window.contentView?.layer
+        guard var layer = window.contentView?.layer ?? window.contentView?.superview?.layer else { return nil }
+        while let parent = layer.superlayer { layer = parent }
+        return layer
     }
 
     /// Retimes every window's root layer to the time scale: from the time it shows now (no jump), or back

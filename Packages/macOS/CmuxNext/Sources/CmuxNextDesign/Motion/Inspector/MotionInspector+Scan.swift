@@ -17,7 +17,7 @@ extension MotionInspector {
         // actions and AppKit for a gate `animator()` group on a layer-backed view, with the group's duration.
         let groups = records.filter { $0.isRunning && ($0.property == "implicit" || $0.runs == .appKit) }
         let groupSeconds = groups.compactMap(\.curve.seconds)
-        let groupOwners = Set(groups.filter { $0.runs == .appKit }.compactMap(\.ownerType))
+
         var found: [MotionInspectorFinding] = []
         var seen = Set<MotionInspectorFinding>()
         var owners: [UInt64: String] = [:]
@@ -31,7 +31,7 @@ extension MotionInspector {
                     continue
                 }
                 let owner = Self.ownerType(of: layer)
-                if groupSeconds.contains(where: { abs($0 - animation.duration) < 0.001 }) || groupOwners.contains(owner) { continue }
+                if groupSeconds.contains(where: { abs($0 - animation.duration) < 0.001 }) { continue }
                 let finding = MotionInspectorFinding(
                     ownerType: owner, key: key,
                     property: (animation as? CAPropertyAnimation)?.keyPath ?? (animation as? CATransition).map { $0.type.rawValue } ?? "?",

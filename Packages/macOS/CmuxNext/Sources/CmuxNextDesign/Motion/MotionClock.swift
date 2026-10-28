@@ -26,6 +26,8 @@ public final class MotionClock {
     private struct Entry {
         weak var animator: (any MotionAnimating)?
         var trace: String
+        /// Its Motion Inspector record while an inspector inspects (``MotionInspector``).
+        var record: UInt64?
     }
 
     private var entries: [ObjectIdentifier: Entry] = [:]
@@ -42,6 +44,9 @@ public final class MotionClock {
     private var steppingRearmed = false
     /// Frames delivered while something moved (debug).
     public private(set) var frames: UInt64 = 0
+    /// The Motion Inspector paused motion: the clock left its scheduler with its animators kept, and
+    /// ``resumeFromInspector()`` or ``inspectorStep(seconds:)`` moves them again.
+    public private(set) var isParkedByInspector = false
     /// ``waitIdle()`` callers, by id, resumed where the last animator leaves the clock.
     private var idleWaiters: [UInt64: OnceContinuation<Bool, OnceContinuationError>] = [:]
     private var lastIdleWaiterID: UInt64 = 0
@@ -50,7 +55,13 @@ public final class MotionClock {
 
     convenience init(window: NSWindow?) {
         self.init(scheduler: { [weak window] in window.map(FrameScheduler.forWindow) ?? .app })
+        // Gone: freed, or closed (a closed window leaves the app's window list; a hidden app's or an ordered-out
+        // window stays in it, and its clock resumes and waits for the window to show).
+        if let window { windowGone = { [weak window] in window.map { window in !NSApp.windows.contains { $0 === window } } ?? true } }
     }
+
+    /// Whether this clock's window closed or went away (a window-less clock never does).
+    private var windowGone: @MainActor () -> Bool = { false }
 
     /// A clock on the scheduler `resolve` returns when it starts ticking (tests: a fake-link scheduler).
     init(scheduler resolve: @escaping @MainActor () -> FrameScheduler) {
@@ -84,7 +95,7 @@ public final class MotionClock {
     public func run(_ animator: some MotionAnimating, trace: String) {
         let id = ObjectIdentifier(animator)
         // A scheduler that dropped the client (its window closed) left stale entries behind.
-        if !client.isActive, !entries.isEmpty {
+        if !client.isActive, !isParkedByInspector, !entries.isEmpty {
             entries.removeAll()
             order.removeAll()
         }
@@ -92,7 +103,7 @@ public final class MotionClock {
             if id == steppingID { steppingRearmed = true }
             return
         }
-        entries[id] = Entry(animator: animator, trace: trace)
+        entries[id] = Entry(animator: animator, trace: trace, record: MotionInspector.noteClockRun(animator, trace: trace))
         if !order.contains(id) { order.append(id) }
         MotionTrace.begin(trace, id: id)
         client.activate()
@@ -105,7 +116,9 @@ public final class MotionClock {
         guard let entry = entries.removeValue(forKey: id) else { return }
         order.removeAll { $0 == id }
         MotionTrace.end(entry.trace, id: id)
+        MotionInspector.noteEnded(entry.record)
         if entries.isEmpty {
+            isParkedByInspector = false
             client.deactivate()
             resumeIdleWaiters()
         }
@@ -120,7 +133,8 @@ public final class MotionClock {
 
     /// True while no animator steps: none is on the clock, or its scheduler dropped the client (its window
     /// closed), so the entries left behind never step again.
-    public var isIdle: Bool { entries.isEmpty || !client.isActive }
+    /// Parked by the Motion Inspector's pause, it is not idle: its animators move again on resume.
+    public var isIdle: Bool { entries.isEmpty || (!client.isActive && !isParkedByInspector) }
 
     /// Returns true once no animator steps on this clock (at once when none does), or false when the task was
     /// cancelled. A continuation resumed where the last animator leaves the clock (``stop(_:)``, the frame it
@@ -161,8 +175,51 @@ public final class MotionClock {
 
     /// One frame. While `debug.motion` records, the main-thread work of the whole frame
     /// (`clock`) and of each animator (its trace name) is timed (`MotionTrace.measure`).
+    ///
+    /// While the Motion Inspector slows motion, each frame's `dt` is times its rate; paused, the clock parks
+    /// (no display link) with its animators kept.
     private func tick(_ tick: FrameTick) -> Bool {
-        MotionTrace.measure("clock") { step(tick) }
+        guard MotionInspector.isActive else { return MotionTrace.measure("clock") { step(tick) } }
+        let rate = MotionInspector.clockRate
+        guard rate > 0 else {
+            isParkedByInspector = !entries.isEmpty
+            if isParkedByInspector { MotionInspector.active?.noteParked(self) }
+            return false
+        }
+        var slowed = tick
+        slowed.elapsed *= rate
+        slowed.rawElapsed *= rate
+        return MotionTrace.measure("clock") { step(slowed) }
+    }
+
+    /// The Motion Inspector left pause: a parked clock takes frames again.
+    /// A clock whose window closed or was freed meanwhile drops its animators (their layers show
+    /// nothing, as a closed window's clock does when its scheduler drops the client) and goes idle.
+    func resumeFromInspector() {
+        guard isParkedByInspector else { return }
+        isParkedByInspector = false
+        guard !entries.isEmpty else { return }
+        guard !windowGone() else {
+            for (id, entry) in entries {
+                MotionTrace.end(entry.trace, id: id)
+                MotionInspector.noteEnded(entry.record)
+            }
+            entries.removeAll()
+            order.removeAll()
+            resumeIdleWaiters()
+            return
+        }
+        client.activate()
+    }
+
+    /// One frame of `seconds` while paused (the Motion Inspector's step forward). Returns true when an
+    /// animator stepped.
+    func inspectorStep(seconds: Double) -> Bool {
+        guard isParkedByInspector, !entries.isEmpty else { return false }
+        let now = CACurrentMediaTime()
+        _ = step(FrameTick(timestamp: now, elapsed: seconds, rawElapsed: seconds, refreshInterval: seconds, targetTimestamp: now + seconds))
+        if entries.isEmpty { isParkedByInspector = false }
+        return true
     }
 
     private func step(_ tick: FrameTick) -> Bool {
@@ -173,12 +230,15 @@ public final class MotionClock {
         for id in order {
             guard let entry = entries[id] else { continue }
             (steppingID, steppingRearmed) = (id, false)
+            let began = entry.record == nil ? 0 : CACurrentMediaTime()
             let moving = entry.animator.map { animator in MotionTrace.measure(entry.trace) { animator.motionStep(tick) } }
+            if entry.record != nil { MotionInspector.noteClockStep(entry.record, milliseconds: (CACurrentMediaTime() - began) * 1000) }
             steppingID = nil
             // Rest, unless the step re-armed itself (`run` during its own step): its new targets move next frame.
             guard moving == true || (moving != nil && steppingRearmed) else {
                 entries[id] = nil
                 MotionTrace.end(entry.trace, id: id)
+                MotionInspector.noteEnded(entry.record)
                 continue
             }
         }
@@ -186,11 +246,4 @@ public final class MotionClock {
         resumeIdleWaiters()
         return !entries.isEmpty
     }
-}
-
-// The Motion Inspector's clock seam, not wired yet: the clock never parks, resumes or steps for it.
-extension MotionClock {
-    public var isParkedByInspector: Bool { false }
-    func resumeFromInspector() {}
-    func inspectorStep(seconds: Double) -> Bool { false }
 }
