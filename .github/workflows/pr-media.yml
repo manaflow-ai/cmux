@@ -52,10 +52,13 @@ env:
 jobs:
   plan:
     name: Pick tours
+    # No job for a CI re-run (pr_media.py plan skips one anyway: it repeats failed jobs and
+    # makes no new build) or a cancelled CI run (nearly always superseded by a newer push,
+    # whose own run makes media). Each such plan spent glaeda-route App reads on a no-op.
     # vars.CI_QUOTA_HOLD=1 pauses media from CI completions while the
     # GITHUB_TOKEN budget is reserved for the nightly
     # (tests/test_ci_quota_hold_gate.py); a dispatch still runs.
-    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || vars.CI_QUOTA_HOLD != '1' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository) }}
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || vars.CI_QUOTA_HOLD != '1' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion != 'cancelled') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: reads the pull request and mostly waits; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     # CI has completed, so its reads return at once.
     timeout-minutes: 10
@@ -86,6 +89,7 @@ jobs:
           permission-actions: read
           permission-contents: read
           permission-pull-requests: read
+          skip-token-revoke: true
 
       - name: Checkout the planner from the default branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -100,6 +104,20 @@ jobs:
             dogfood/scenarios
           sparse-checkout-cone-mode: false
 
+      # The glaeda-route App installation's budget around the reads below (a free
+      # rate_limit read): the installation is shared, so the delta between `before`
+      # and `after` is this step's reads plus whatever else ran meanwhile.
+      - name: Log the glaeda-route App budget before
+        if: ${{ (steps.read-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/plan/before
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
       - name: Pick the tours for the changed files
         id: plan
         env:
@@ -111,6 +129,17 @@ jobs:
           PR: ${{ inputs.pr }}
           FORCE: ${{ inputs.force }}
         run: python3 scripts/ci/pr_media.py plan
+
+      - name: Log the glaeda-route App budget after
+        if: ${{ !cancelled() && (steps.read-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/plan/after
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
 
   tour:
     name: Tour ${{ matrix.tour }}
@@ -146,6 +175,7 @@ jobs:
           permission-actions: read
           permission-contents: read
           permission-pull-requests: read
+          skip-token-revoke: true
 
       - name: Checkout the dispatcher from the default branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -180,6 +210,20 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install --quiet --disable-pip-version-check pillow==11.3.0
 
+      # The glaeda-route App installation's budget around the reads below (a free
+      # rate_limit read): the installation is shared, so the delta between `before`
+      # and `after` is this step's reads plus whatever else ran meanwhile.
+      - name: Log the glaeda-route App budget before
+        if: ${{ (steps.read-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/tour/before
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
       - name: Run the tour on the pull request's build
         env:
           GH_TOKEN: ${{ github.token }}
@@ -210,6 +254,17 @@ jobs:
         run: >-
           exec "$RUNNER_TEMP/venv/bin/python" scripts/ci/pr_media.py tour
           --name "$TOUR" --scenario "$RUNNER_TEMP/tour.json" --out "$RUNNER_TEMP/media/$TOUR" --compile "$COMPILE"
+
+      - name: Log the glaeda-route App budget after
+        if: ${{ !cancelled() && (steps.read-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/tour/after
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
 
       - name: Keep the tour's media for the publish job
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

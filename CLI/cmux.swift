@@ -288,6 +288,11 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
     var hadPendingBackgroundWorkAtStop: Bool?
+    /// Whether the last Stop reported a session cron or scheduled wakeup. The
+    /// app settles a pane whose background tasks ended only when this is
+    /// recorded false: a pending cron leaves nothing in the transcript or
+    /// process tree to show whether it still waits.
+    var hadSessionCronsAtStop: Bool?
     /// Unsandboxed Cursor shell calls that cmux asked Cursor to gate. The
     /// after/failure hooks do not carry a native approval decision, so the
     /// command identity is the only safe completion correlation available.
@@ -1443,6 +1448,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        hadSessionCronsAtStop: Bool? = nil,
         title: String? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
@@ -1502,6 +1508,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
+                hadSessionCronsAtStop: hadSessionCronsAtStop,
                 title: title,
                 now: now
             )
@@ -1623,6 +1630,7 @@ final class ClaudeHookSessionStore {
                     superseded.lastNotificationStatus = nil
                     superseded.runtimeStatus = .idle
                     superseded.hadPendingBackgroundWorkAtStop = nil
+                    superseded.hadSessionCronsAtStop = nil
                     superseded.updatedAt = now
                     state.sessions[supersededSessionId] = superseded
                     if ownsTargetSurface,
@@ -1674,6 +1682,7 @@ final class ClaudeHookSessionStore {
             record.lastNotificationStatus = nil
             record.runtimeStatus = .idle
             record.hadPendingBackgroundWorkAtStop = nil
+            record.hadSessionCronsAtStop = nil
             state.sessions[normalizedSessionId] = record
 
             for (workspaceId, activeSession) in state.activeSessionsByWorkspace
@@ -2059,6 +2068,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus?,
         updateRuntimeStatus: Bool,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        hadSessionCronsAtStop: Bool? = nil,
         title: String? = nil,
         now: TimeInterval
     ) {
@@ -2179,6 +2189,9 @@ final class ClaudeHookSessionStore {
         }
         if let hadPendingBackgroundWorkAtStop {
             record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
+        }
+        if let hadSessionCronsAtStop {
+            record.hadSessionCronsAtStop = hadSessionCronsAtStop
         }
         record.updatedAt = now
     }
@@ -31661,6 +31674,9 @@ struct CMUXCLI {
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
+                        // A payload that does not report crons may still have
+                        // one, so the drain check must not settle it.
+                        hadSessionCronsAtStop: hasClaudeSessionCrons(parsedInput) ?? true,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
