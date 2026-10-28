@@ -292,6 +292,7 @@ export function NewTabScreen(props: Props) {
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
   const [text, setText] = useState(() => props.initialDraft ?? location ?? "");
+  const [initialDraftApplied, setInitialDraftApplied] = useState(props.initialDraft !== undefined);
   const [commandActive, setCommandActive] = useState(0);
   const [commandDismissed, setCommandDismissed] = useState<string>();
   const requestedCommands = useRef<string | undefined>(undefined);
@@ -393,6 +394,16 @@ export function NewTabScreen(props: Props) {
   // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
   // for a few seconds at most (composer/videoAttachments.ts).
   const holdForAttachments = useSendWhenAttached(unsettled + videoReading);
+  // The handshake can arrive after the first New Tab render. Seed only an untouched field; a
+  // person's typing always wins over a late native restore.
+  useEffect(() => {
+    if (initialDraftApplied || props.initialDraft === undefined) return;
+    if (text === (location ?? "")) setText(props.initialDraft);
+    setInitialDraftApplied(true);
+  }, [initialDraftApplied, props.initialDraft, text, location]);
+  useEffect(() => {
+    if (props.initialAttachments?.length && attachments.length === 0) setAttachments(props.initialAttachments);
+  }, [props.initialAttachments, attachments.length, setAttachments]);
   // Persist ordinary edits while the page is alive. Native quit then has a durable record even if
   // the WebView closes without dispatching pagehide; the location remains a suggestion, not a draft.
   useEffect(() => {
