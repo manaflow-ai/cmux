@@ -42,11 +42,13 @@ import Testing
     /// the idle timer's) lets the period start, and the watch that hears it rides that fire unrecorded.
     @Test func aDueWakeHoldsTheLongPeriodUntilItFires() {
         let rig = DueRig()
-        rig.queue.insert(owner: "test.due", after: .microseconds(50_500), policy: .precise) {}
         var ran = 0
         rig.work.postIdle(owner: "test.idle") { _ in ran += 1 }
+        rig.idle.run(ms: 20)
+        // Precise only under 36 ms (a longer precise delay is flexible): due 0.5 ms after the period would start.
+        rig.queue.insert(owner: "test.due", after: .microseconds(30_500), policy: .precise) {}
 
-        rig.idle.run(ms: 50.2)
+        rig.idle.run(ms: 30.2)
         #expect(ran == 0, "a long period ran with a wake due in 0.3 ms")
         #expect(rig.idle.fireAt == nil, "the idle timer re-polls a due wake")
 
@@ -59,10 +61,11 @@ import Testing
     /// The due wake's entry is cancelled: the watch fires on its own wake and lets the period start.
     @Test func aCancelledDueWakeStillEndsTheHold() {
         let rig = DueRig()
-        let token = rig.queue.insert(owner: "test.due", after: .microseconds(50_500), policy: .precise) {}
         var ran = 0
         rig.work.postIdle(owner: "test.idle") { _ in ran += 1 }
-        rig.idle.run(ms: 50.2)
+        rig.idle.run(ms: 20)
+        let token = rig.queue.insert(owner: "test.due", after: .microseconds(30_500), policy: .precise) {}
+        rig.idle.run(ms: 30.2)
         #expect(ran == 0)
 
         rig.queue.cancel(token)
