@@ -158,7 +158,11 @@ for (const selected of [
     await render("Draft text");
     // The transcript/native menu prefixes the visible selection's lines, including text that was
     // shown literally in an escaped paragraph or a code block.
-    const markdown = selected.split("\n").map((line) => "> " + line).join("\n") + "\n\n";
+    const markdown =
+      selected
+        .split("\n")
+        .map((line) => "> " + line)
+        .join("\n") + "\n\n";
     await act(async () => handle.current!.quoteReply(markdown));
     const quote = content().querySelector("blockquote")!;
     expect(quote.innerHTML).not.toBe("");
