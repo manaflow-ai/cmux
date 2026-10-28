@@ -206,10 +206,8 @@ fn read_prompt_file_with<R: Read>(path: &Path, stdin: R) -> Result<String> {
 }
 
 fn is_stdin_path(path: &Path) -> bool {
-    matches!(
-        path.to_str(),
-        Some("-") | Some("/dev/stdin") | Some("/proc/self/fd/0") | Some("/dev/fd/0")
-    )
+    let _ = path;
+    false
 }
 
 fn read_prompt_reader<R: Read>(path: &Path, mut reader: R) -> Result<String> {
