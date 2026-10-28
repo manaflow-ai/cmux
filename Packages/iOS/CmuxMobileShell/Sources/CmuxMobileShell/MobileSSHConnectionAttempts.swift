@@ -5,14 +5,19 @@ import Foundation
 /// without starting a server or reading the user's keychain.
 @MainActor
 final class MobileSSHConnectionAttempts<Connection: Sendable> {
-    private var tasks: [UUID: Task<Connection, any Error>] = [:]
+    private struct Attempt {
+        let id: UUID
+        let task: Task<Connection, any Error>
+    }
+
+    private var attempts: [UUID: Attempt] = [:]
 
     func isConnecting(hostID: UUID) -> Bool {
-        tasks[hostID] != nil
+        attempts[hostID] != nil
     }
 
     func cancel(hostID: UUID) {
-        tasks.removeValue(forKey: hostID)?.cancel()
+        attempts.removeValue(forKey: hostID)?.task.cancel()
     }
 
     func connection(
@@ -22,18 +27,44 @@ final class MobileSSHConnectionAttempts<Connection: Sendable> {
         connected: @escaping @MainActor (Connection) -> Void,
         failed: @escaping @MainActor (any Error) -> Void
     ) async throws -> Connection {
-        if let task = tasks[hostID] { return try await task.value }
-        let task = Task { try await connect() }
-        tasks[hostID] = task
-        defer { tasks[hostID] = nil }
-        let connection: Connection
+        let attempt: Attempt
+        if let existing = attempts[hostID] {
+            attempt = existing
+        } else {
+            let task = Task {
+                let connection: Connection
+                do {
+                    try Task.checkCancellation()
+                    connection = try await connect()
+                } catch {
+                    guard !Task.isCancelled else { throw MobileSSHConnectionAttemptSuperseded() }
+                    failed(error)
+                    throw error
+                }
+                guard !Task.isCancelled else {
+                    await discard(connection)
+                    throw MobileSSHConnectionAttemptSuperseded()
+                }
+                // Publication belongs to the shared task, so joining callers
+                // cannot observe an unchecked or unpublished connection.
+                connected(connection)
+                return connection
+            }
+            attempt = Attempt(id: UUID(), task: task)
+            attempts[hostID] = attempt
+        }
+        defer {
+            if attempts[hostID]?.id == attempt.id { attempts[hostID] = nil }
+        }
         do {
-            connection = try await task.value
+            let connection = try await attempt.task.value
+            guard !attempt.task.isCancelled else { throw MobileSSHConnectionAttemptSuperseded() }
+            return connection
         } catch {
-            failed(error)
+            // Cancellation may occur after the task finishes but before this
+            // waiter resumes; stale failures must not overwrite a new status.
+            guard !attempt.task.isCancelled else { throw MobileSSHConnectionAttemptSuperseded() }
             throw error
         }
-        connected(connection)
-        return connection
     }
 }
