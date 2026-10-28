@@ -632,9 +632,9 @@ pub(super) fn handle_request_with_cancellation(
     if sized_browser_attach(mux, &cmd) {
         return start_sized_browser_attach(mux, client, id, cmd, span.start_async(), writer);
     }
-    if let Some(host_id) = pending_terminal_attach::adopting_target(mux, client, &cmd) {
+    if let Some(wait) = pending_terminal_attach::adopting_target(mux, client, &cmd) {
         let reply = span.start_async();
-        return pending_terminal_attach::start(mux, client, id, cmd, host_id, reply, writer);
+        return pending_terminal_attach::start(mux, client, id, cmd, wait, reply, writer);
     }
     // A remote client goes on to the relay gate, which refuses it.
     if matches!(cmd, Command::MachineListeningTcp) && !mux.is_remote_client(client) {

@@ -82,6 +82,11 @@ pub(super) fn detach_client(
     surface: Option<SurfaceId>,
 ) -> anyhow::Result<Value> {
     let by = detach_actor(mux, client, by);
+    // An attach of this view that still waits for its restored terminal
+    // (pending_terminal_attach.rs) came first: it must not attach after this.
+    if target.whole_client() == Some(client) {
+        mux.cancel_restore_attaches(client, surface);
+    }
     if let Some((owner, placement)) = own_view_detach_target(mux, &target, surface) {
         // The view leaves; the connection, its stream and its relay
         // sub-views stay (docs/shared-terminal-sizing.md).

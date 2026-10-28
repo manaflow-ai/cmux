@@ -888,6 +888,8 @@ pub(crate) struct StartupAdoptions {
     released: bool,
     /// The [`STARTUP_READY_WAIT`] release is posted.
     deadline_posted: bool,
+    /// Attaches that wait for a restored terminal (`Mux::begin_restore_attach`).
+    attaches: startup::RestoreAttaches,
 }
 
 /// Ends an adoption when its retry ends, however it ends (done, refused at
