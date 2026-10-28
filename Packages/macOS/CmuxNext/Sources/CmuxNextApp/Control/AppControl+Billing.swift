@@ -86,6 +86,7 @@ extension AppControl {
         } catch let error as CodeRouterError {
             switch error {
             case .notSignedIn: throw ControlError(code: "not_signed_in", message: BillingStrings.notSignedIn)
+            case .scopeChanged: throw ControlError(code: "scope_changed", message: error.description)
             case .timedOut: throw ControlError(code: "timeout", message: error.description)
             case .http(let status, let code, _): throw ControlError(code: code ?? "http_\(status)", message: error.description)
             case .transport: throw ControlError(code: "unavailable", message: error.description)

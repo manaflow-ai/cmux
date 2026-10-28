@@ -495,6 +495,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.crashRecovery.applicationWillTerminate()
         // The release push's socket closes and nothing reconnects (ReleasePushListener).
         services?.updater.stopReleasePush()
+        services?.agentTabs.pageChats.runNotices?.stop()
         AppProcessRoot.shared.hangReports?.applicationWillTerminate()
         ComputerUseHelperDaemon.shared.applicationWillTerminate()
         services?.viewers.diffPages.terminate()

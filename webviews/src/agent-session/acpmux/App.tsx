@@ -43,6 +43,7 @@ import {
   isBeforeFooter,
   isLastFooter,
   QUEUED_MESSAGE,
+  WAITING_MESSAGES,
 } from "./model";
 import { ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import {
@@ -50,6 +51,8 @@ import {
   SteerWaitingActions,
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
+import { WaitingMessagesCard } from "./conversation/WaitingMessagesCard";
+import { groupWaitingTurn } from "./conversation/waitingMessages";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
@@ -186,6 +189,7 @@ import { descendants, subagentChangesFolder, type SubagentScope } from "./inspec
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
+import { settleTrayExit } from "./subagents/trayMotion";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
 import { configureWorkflowCardOpen, WorkflowCard } from "./summary/WorkflowCard";
 import {
@@ -1401,6 +1405,21 @@ const StartedSessionsRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
 
+/// Several other sessions' waiting messages as one card (conversation/WaitingMessagesCard.tsx): each
+/// message draws in it as its own row draws alone.
+const WaitingMessagesRow = memo(
+  function WaitingMessagesRow(props: RowProps) {
+    const renderMessage = (message: AcpmuxRow) =>
+      message.kind === QUEUED_MESSAGE ? (
+        <QueuedMessageRow {...props} row={message} />
+      ) : (
+        <MessageRow {...props} row={message} />
+      );
+    return <WaitingMessagesCard row={props.row} renderMessage={renderMessage} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
+);
+
 const defaultRegistry: NativeRegistry = {
   user: MessageRow,
   assistant: MessageRow,
@@ -1425,6 +1444,7 @@ const defaultRegistry: NativeRegistry = {
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
   [QUEUED_MESSAGE]: QueuedMessageRow,
+  [WAITING_MESSAGES]: WaitingMessagesRow,
   [STARTED_SESSIONS]: StartedSessionsRow,
   typing: NoticeRow,
   permission: PermissionRow,
@@ -1473,6 +1493,8 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
   row.kind !== RENDER &&
   row.kind !== "turnSummary" &&
   row.kind !== SUBAGENT_OF &&
+  // Each message in a card of waiting messages has its own Copy.
+  row.kind !== WAITING_MESSAGES &&
   rowKind(row) !== "editedFiles" &&
   // A row that draws nothing has nothing to copy, and its Copy would give it a box.
   !onlyQuietThoughts(row) &&
@@ -1637,8 +1659,7 @@ const RowFrame = React.memo(function RowFrame({
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
   onEntered: (id: string) => void;
-  /// The row came in on a page of older history and has not been in view yet: it fades in once,
-  /// the first time it comes into view (OlderRowFade).
+  /// The row came in on a page of older history and has never mounted: its first copy fades once.
   older: OlderRowFade | undefined;
   onOlderShown: (id: string) => void;
   active: boolean;
@@ -1685,6 +1706,10 @@ const RowFrame = React.memo(function RowFrame({
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node || !olderFade) return;
+    // A warm-window copy has rendered too: consume eligibility and start its fade before paint,
+    // even offscreen. Neither a later intersection nor a remount may defer or replay it.
+    onOlderShown(row.id);
+    node.dataset.olderShown = "true";
     return olderFade.watch(node, () => onOlderShown(row.id));
     // Only the first mount fades.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1803,10 +1828,9 @@ const SCROLL_LEAD_STEPS = 2;
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
 
-/// Rows from a page of older history fade in once, the first time they come into view: a page
-/// lands above the view (prefetched well before the top), so the fade waits for the reader to
-/// scroll the row in at the top edge. Opacity only (conversation.css `.acpmux-row--older`), so
-/// nothing measured moves; Reduce Motion draws the row in full ink at once.
+/// Rows from a page of older history fade on their first mounted copy, including warm copies
+/// outside the view. Eligibility is consumed before paint; an intersection only releases the
+/// observation and never starts a second fade. Opacity only, so nothing measured moves.
 class OlderRowFade {
   private readonly pending = new Set<string>();
   private readonly waiting = new Map<Element, () => void>();
@@ -1824,7 +1848,7 @@ class OlderRowFade {
   clear() {
     this.pending.clear();
   }
-  /// Starts the row's fade when it first intersects the view; returns the unwatch.
+  /// Releases the first copy's observation when it intersects; returns the unwatch.
   watch(node: HTMLElement, shown: () => void): () => void {
     if (typeof IntersectionObserver === "undefined") {
       shown();
@@ -3354,10 +3378,14 @@ export function VirtualTranscript({
   const findIndex = findTargetRowId !== undefined ? findRowIndex(rows, findTargetRowId) : -1;
   const drawnId = rows[findIndex]?.id;
   const drawnCard = Boolean(rows[findIndex]?.ended);
+  // A card of waiting messages draws its messages in one row (conversation/WaitingMessagesCard.tsx):
+  // which of them holds the match.
+  const findMember =
+    rows[findIndex]?.kind === WAITING_MESSAGES && findTargetRowId !== drawnId ? findTargetRowId : undefined;
   const revealing = useRef<string | undefined>(undefined);
   const targetKey =
     findTargetRowId !== undefined && findTargetOccurrence !== undefined && findQuery && drawnId !== undefined
-      ? `${drawnId}:${drawnCard}:${findTargetOccurrence}:${findQuery}`
+      ? `${drawnId}:${drawnCard}:${findTargetOccurrence}:${findQuery}${findMember ? `:${findMember}` : ""}`
       : undefined;
   // A group or call that opens to show the match asks for a render here, so the highlights and
   // the scroll below see its text.
@@ -3372,9 +3400,10 @@ export function VirtualTranscript({
             card: drawnCard,
             needle: findQuery.toLocaleLowerCase(),
             repaint: () => setRevealed((count) => count + 1),
+            ...(findMember ? { member: findMember } : {}),
           }
         : undefined,
-    [drawnId, drawnCard, findQuery],
+    [drawnId, drawnCard, findQuery, findMember],
   );
   // Find's scroll is the reader's: it stops following now, not when the browser reports the
   // scroll a frame later, or a re-measure before then puts the view back at the latest row.
@@ -3446,7 +3475,7 @@ export function VirtualTranscript({
       node,
       findQuery,
       findTargetRowId !== undefined && findTargetOccurrence !== undefined && drawnId !== undefined
-        ? { rowId: drawnId, card: drawnCard, occurrence: findTargetOccurrence }
+        ? { rowId: drawnId, card: drawnCard, occurrence: findTargetOccurrence, member: findMember }
         : undefined,
     );
     if (!current || revealing.current !== targetKey) return;
@@ -3495,6 +3524,7 @@ export function VirtualTranscript({
   }, [
     drawnCard,
     drawnId,
+    findMember,
     findQuery,
     findTargetOccurrence,
     findMoved,
@@ -5060,6 +5090,8 @@ function AcpmuxPane() {
           liveRuns: codexRuns,
           sessionStatus,
           lineBelow,
+          // Other sessions' messages among them, two or more in a run, draw as one card.
+          waitingSteers: snapshot.waitingSteers,
         },
         last?.turns,
       );
@@ -5078,19 +5110,23 @@ function AcpmuxPane() {
     codexRuns,
     sessionStatus,
     lineBelow,
+    snapshot.waitingSteers,
     chatShellRuns,
     panelAsks,
     subagentTray,
     workflowLabsEnabled,
   ]);
   // Another agent's messages waiting in the queue: their received cards after the running turn, in
-  // the queue's order (conversation/queuedMessages.ts), never composer-queue rows. A chat with none
-  // keeps its rows as they are; one with some copies the row list once per change.
+  // the queue's order (conversation/queuedMessages.ts), never composer-queue rows; two or more, one
+  // card that holds them (conversation/waitingMessages.ts). A chat with none keeps its rows as they
+  // are; one with some copies the row list once per change.
   const lastQueuedRows = useRef<readonly AcpmuxRow[] | undefined>(undefined);
-  const queuedRows = useMemo(
-    () => (childRows ? NO_ROWS : (lastQueuedRows.current = queuedMessageRows(snapshot.queue, lastQueuedRows.current))),
-    [childRows, snapshot.queue],
-  );
+  const lastQueuedTail = useRef<readonly AcpmuxRow[] | undefined>(undefined);
+  const queuedRows = useMemo(() => {
+    if (childRows) return NO_ROWS;
+    lastQueuedRows.current = queuedMessageRows(snapshot.queue, lastQueuedRows.current);
+    return (lastQueuedTail.current = groupWaitingTurn(lastQueuedRows.current, lastQueuedTail.current));
+  }, [childRows, snapshot.queue]);
   const transcriptRows = useMemo(
     () => (queuedRows.length ? [...turnRowsShown, ...queuedRows] : turnRowsShown),
     [turnRowsShown, queuedRows],
@@ -6203,6 +6239,10 @@ function AcpmuxPane() {
   );
   // The turn's generated output tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
+  // Its output apart from what it read, when every call carried the split; held by its numbers, as
+  // a new snapshot's split is a new object.
+  const split = snapshot.isWorking ? snapshot.turnTokenSplit : undefined;
+  const splitKey = split ? `${split.output}/${split.input}/${split.cacheRead}/${split.cacheWrite}` : "";
   const counted = useRef({
     summary: snapshot.summary,
     runningAgents,
@@ -6308,6 +6348,7 @@ function AcpmuxPane() {
       commands: runningCommands.length,
       sessions: runningSessions.length,
       tokens: turnTokens,
+      split,
       openAgents: () => {
         const {
           runningAgents: agents,
@@ -6334,7 +6375,16 @@ function AcpmuxPane() {
         else card.show();
       },
     };
-  }, [runningAgents.length, runningCommands.length, runningSessions.length, turnTokens, showSubagent, showToolRow]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the split is new on every snapshot; its key is not
+  }, [
+    runningAgents.length,
+    runningCommands.length,
+    runningSessions.length,
+    turnTokens,
+    splitKey,
+    showSubagent,
+    showToolRow,
+  ]);
   // A tray command opens its terminal beside the chat; where none opens (a peer's or Cloud chat, or
   // a command only the transcript knows), the Bash call that started it in the transcript; with no
   // call loaded either, the summary card, which lists it, or, while the Inspector takes the card's
@@ -6430,6 +6480,22 @@ function AcpmuxPane() {
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  const hasTray = !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0);
+  // The tray's motion (subagents/trayMotion.tsx): the chat on screen as of this render, which the
+  // tray reads as it goes (it plays its exit only while its own chat still shows), and the chat that
+  // last rendered without one (a tray that appears in it eases in; one a chat opens with is there).
+  // A chat that shows again starts over: its tray, if any, is simply there.
+  const trayChat = useRef(shownSessionId);
+  const trayAbsentIn = useRef<string | undefined>(undefined);
+  if (trayChat.current !== shownSessionId) trayAbsentIn.current = undefined;
+  trayChat.current = shownSessionId;
+  const trayEnters = shownSessionId !== undefined && trayAbsentIn.current === shownSessionId;
+  // Absence counts only once the chat's own rows are read: a partial snapshot during a slow switch
+  // would make a tray it already had look new.
+  if (!hasTray && snapshot.chatRead === true) trayAbsentIn.current = shownSessionId;
+  // A chat switch, or the tray moving to another placement (another host), is not the tray leaving:
+  // its kept copy goes before the frame paints.
+  useLayoutEffect(() => settleTrayExit(), [shownSessionId, trayPlacement]);
   const trayNode =
     !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) ? (
       <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
@@ -6453,6 +6519,8 @@ function AcpmuxPane() {
             stop={stopSubagent}
             stopProcess={stopProcess}
             placement={trayPlacement}
+            shown={trayChat}
+            enters={trayEnters}
           />
         </SubagentClockContext.Provider>
       </BackgroundTaskOutputContext.Provider>
@@ -7416,6 +7484,7 @@ function AcpmuxPane() {
           "chat.model": ({ modelId, expectedSessionId }) => {
             const summary = snapshotRef.current?.summary;
             if (!configurationSessionMatches(expectedSessionId, summary?.sessionId))
+              // l10n-allow: a refusal for the host action's caller, which drops a stale pick; never shown.
               throw new Error("the agent chat session changed");
             return harnessSwitch.pickModel(
               String(modelId),
@@ -7425,18 +7494,21 @@ function AcpmuxPane() {
           "chat.mode": async ({ modeId, expectedSessionId }) => {
             const sessionId = snapshotRef.current?.summary?.sessionId;
             if (!configurationSessionMatches(expectedSessionId, sessionId))
+              // l10n-allow: a refusal for the host action's caller, which drops a stale pick; never shown.
               throw new Error("the agent chat session changed");
             if (!harnessSwitch.pickMode(String(modeId))) await setMode(String(modeId));
           },
           "chat.effort": async ({ configId, value, effort, expectedSessionId }) => {
             const summary = snapshotRef.current?.summary;
             if (!configurationSessionMatches(expectedSessionId, summary?.sessionId))
+              // l10n-allow: a refusal for the host action's caller, which drops a stale pick; never shown.
               throw new Error("the agent chat session changed");
             const requested = typeof value === "string" && value ? value : String(effort ?? "");
             const resolved = resolveEffortOption(
               summary?.configOptions,
               typeof configId === "string" ? configId : undefined,
             );
+            // l10n-allow: a refusal for the host action's caller; the picker offers no effort then.
             if (!resolved || !requested) throw new Error("the session offers no effort option");
             const current = resolved.currentValue;
             if (

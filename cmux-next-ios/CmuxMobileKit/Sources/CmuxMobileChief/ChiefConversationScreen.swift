@@ -3,6 +3,7 @@ import CmuxConversationCore
 import CmuxMobileArtifacts
 import CmuxConversationUI
 import CmuxMobileModel
+import CmuxMobileSupport
 import SwiftUI
 import UIKit
 
@@ -102,7 +103,8 @@ struct ChiefConversationController: UIViewControllerRepresentable {
     let openInfo: () -> Void
 
     func makeUIViewController(context: Context) -> ChiefConversationContainer {
-        let conversation = ConversationViewController(store: session.store, options: .chief)
+        let conversation = ConversationViewController(store: session.store, options: .chief,
+                                                      keyboard: context.environment.mobileKeyboardFrameTracker)
         let container = ChiefConversationContainer(conversation: conversation, session: session)
         // Home's compose focuses the composer once: a container rebuilt on a
         // new store (Try Again) opens without the keyboard.
@@ -137,9 +139,9 @@ struct ChiefConversationController: UIViewControllerRepresentable {
             return true
         }
         // Select mode's Forward opens New Message with the draft, as in the lab.
-        conversation.onForward = { [compose] draft in
-            compose?.present(forwarding: draft)
-        }
+        // A conversation of the Mac's Home list has no composer: no Forward
+        // button there (it did nothing when tapped).
+        conversation.onForward = compose.map { compose in { draft in compose.present(forwarding: draft) } }
     }
 }
 
@@ -233,7 +235,10 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     private func holdUnsentMessage() {
         guard presentedViewController == nil else { return }
         let text = composerTextView?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let reason = session.unavailableReason ?? String(localized: "Chief isn't connected yet.")
+        var reason = session.unavailableReason ?? String(localized: "Chief isn't connected yet.")
+        // Reasons come with and without a final period ("Chief isn't connected
+        // to a Mac"); the alert read "…to a Mac Your message…".
+        if let last = reason.last, !".!?".contains(last) { reason += "." }
         let alert = UIAlertController(
             title: String(localized: "Message Not Sent"),
             message: String(localized: "\(reason) Your message is still in the box."),
@@ -292,28 +297,11 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         for recognizer in sendButton?.gestureRecognizers ?? [] where recognizer is UILongPressGestureRecognizer {
             recognizer.isEnabled = sends
         }
-        updateCloudHandOff()
     }
 
-    /// With the Mac offline (the Mac Chief on its cloud copy), one tap hands the
-    /// composer's text, or my newest message, to the Cloud Chief with the recent
-    /// messages as context (``ChiefSources/askCloudChief(_:)``).
-    private func updateCloudHandOff() {
-        let offlineMac = session === ChiefSources.shared.mac && session.backend is ChiefReplicaBackend
-        guard offlineMac else {
-            if navigationItem.rightBarButtonItem?.accessibilityIdentifier == "chief.askCloudChief" {
-                navigationItem.rightBarButtonItem = nil
-            }
-            return
-        }
-        guard navigationItem.rightBarButtonItem?.accessibilityIdentifier != "chief.askCloudChief" else { return }
-        let item = UIBarButtonItem(title: String(localized: "Ask Cloud Chief"), primaryAction: UIAction { [weak self] _ in
-            self?.askCloudChief()
-        })
-        item.accessibilityIdentifier = "chief.askCloudChief"
-        navigationItem.rightBarButtonItem = item
-    }
-
+    /// With the Mac offline (the Mac Chief on its cloud copy), the bar's Ask
+    /// Cloud Chief hands the composer's text, or my newest message, to the
+    /// Cloud Chief with the recent messages as context (``ChiefSources/askCloudChief(_:)``).
     private func askCloudChief() {
         let typed = composerTextView?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let mine = session.store.messages.last { $0.senderID == session.identity.meID }?.text ?? ""
@@ -352,6 +340,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
             self?.presentQuestion(question.id)
         }
         bar.resized = { [weak self] in self?.view.setNeedsLayout() }
+        bar.askCloudChief = { [weak self] in self?.askCloudChief() }
         bar.fading = { [weak self] out, duration in
             guard let self else { return }
             UIView.animate(withDuration: duration) { self.topBand.alpha = out ? 0 : 1 }
@@ -700,6 +689,12 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     /// The Chief screen on screen now: a rebuilt one may appear before the old one disappears.
     private static weak var shown: ChiefConversationContainer?
 
+    /// The conversation the Chief screen on screen shows (``ChiefSession/conversationOnScreen``).
+    static var shownConversation: String? {
+        guard let shown, shown.session.isVisible else { return nil }
+        return shown.session.conversationID
+    }
+
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         enableEdgePop()
@@ -726,7 +721,11 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         super.viewDidDisappear(animated)
         // A sheet over Chief keeps it on screen; so does the screen that replaced this one.
         // Chief's info pushed over it does not: the transcript is off screen.
-        if presentedViewController == nil, Self.shown === self || Self.shown == nil { session.isVisible = false }
+        // Another Chief's screen pushed over this one: this Chief is not seen
+        // (it no longer marks its messages seen or holds back their alerts).
+        if presentedViewController == nil, Self.shown === self || Self.shown == nil || Self.shown?.session !== session {
+            session.isVisible = false
+        }
     }
 
     public override func viewWillDisappear(_ animated: Bool) {
@@ -847,4 +846,9 @@ public final class ChiefDemoHook {
     }
 }
 #endif
+extension ChiefSession {
+    /// The conversation a Chief screen shows now, nil when none is on screen:
+    /// a notification about it needs no banner.
+    public static var conversationOnScreen: String? { ChiefConversationContainer.shownConversation }
+}
 #endif

@@ -711,7 +711,9 @@ class CmuxNextWiring(unittest.TestCase):
         # path_route (#17164) gates every Mac job; these cases are native changes.
         context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
                                                             "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
-                                                            "tree_state": "ready"}},
+                                                            "tree_state": "ready",
+                                                            # The generated-files job runs here, for its own label.
+                                                            "generated_host": "generated-files"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
                             "release-compile-fast": {"result": "skipped", "outputs": {"verdict": ""}},
                             # The GUI jobs wait for the shared web bundles (#21189).
