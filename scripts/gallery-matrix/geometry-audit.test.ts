@@ -1,10 +1,54 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { parseConfig, lintGeometry, type GeometryArtifact } from "./geometry";
 import { parseManifest } from "./runner";
 
 const baseline = JSON.parse(readFileSync(join(import.meta.dir, "geometry-baseline.json"), "utf8"));
+
+for (const scenario of ["ready", "failed-play", "unready"] as const) {
+  test(`audit CLI preserves ${scenario} capture status when geometry passes`, async () => {
+    const directory = mkdtempSync(join(tmpdir(), "geometry-audit-status-"));
+    const sha = "a".repeat(40);
+    const config = join(directory, "config.json");
+    const output = join(directory, "output");
+    writeFileSync(config, JSON.stringify({
+      schemaVersion: 1, revision: { sha, source: "regression fixture" }, required: [{ caseId: "fixture", engine: "chromium", theme: "light" }],
+      rules: [{ id: "column", kind: "peer-alignment", group: "label", axis: "x", measure: "start", tolerancePx: 0.5, minCount: 2, source: "dom-rect" }],
+      cases: [{ id: "fixture", path_or_url: "frame.html", params: { colorScheme: "light", width: 200, height: 100 } }],
+      selectors: { fixture: [{ group: "label", selector: ".label" }] },
+    }));
+    writeFileSync(join(directory, "frame.html"), `<!doctype html>
+      <html data-gallery-ready="${scenario === "unready" ? "error" : "1"}" data-gallery-revision="${sha}" data-gallery-source="regression fixture">
+      <body><div class="label">First</div><div class="label">Second</div><script>
+        try {
+          if (${JSON.stringify(scenario)} === "failed-play") throw new Error("fixture failed to play");
+          window.cmuxGalleryPlayReport = { status: "pass", steps: [] };
+        } catch (error) {
+          window.cmuxGalleryPlayReport = { status: "fail", error: error.message, steps: [] };
+        }
+      </script></body></html>`);
+    try {
+      // Run the production CLI in a child: its process.exitCode must survive both stages.
+      const child = Bun.spawn([process.execPath, join(import.meta.dir, "geometry-audit.ts"),
+        "--gallery-dir", directory, "--output-dir", output, "--config", config, "--expected-sha", sha],
+        { env: { ...process.env, CMUX_GALLERY_IN_VM: "1" }, stdout: "pipe", stderr: "pipe" });
+      const deadline = setTimeout(() => child.kill(), 20_000);
+      const [exitCode, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()])
+        .finally(() => clearTimeout(deadline));
+      expect({ exitCode, geometryPassed: JSON.parse(readFileSync(join(output, "geometry-report", "geometry-report.json"), "utf8")).passed })
+        .toEqual({ exitCode: scenario === "ready" ? 0 : 1, geometryPassed: true });
+      const [result] = JSON.parse(readFileSync(join(output, "results.json"), "utf8"));
+      expect(result.ready).toBe(scenario === "unready" ? "error" : "1");
+      expect(result.play.status).toBe(scenario === "failed-play" ? "fail" : "pass");
+      expect(stdout).toContain("geometry: 1 captures");
+      if (scenario === "unready") expect(stderr).toContain("not ready");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }, 30_000);
+}
 
 test("audit baseline pairs both appearances and every required group has a selector", () => {
   const config = parseConfig(baseline);
