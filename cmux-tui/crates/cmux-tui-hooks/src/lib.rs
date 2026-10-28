@@ -2346,7 +2346,8 @@ fn codex_present_expected_trust_entries(
     let mut entries = BTreeMap::new();
     for event in CODEX_EVENTS {
         let label = codex_event_state_label(event)?;
-        let Some((group_index, handler_index, group, handler)) = codex_owned_hook_entry(root, event)
+        let Some((group_index, handler_index, group, handler)) =
+            codex_owned_hook_entry(root, event)
         else {
             continue;
         };
@@ -3267,7 +3268,10 @@ mod tests {
         for (key, hash) in &expected {
             let entry = state[key].as_table().unwrap();
             assert_eq!(entry.get("enabled").and_then(toml::Value::as_bool), Some(false));
-            assert_eq!(entry.get("trusted_hash").and_then(toml::Value::as_str), Some(hash.as_str()));
+            assert_eq!(
+                entry.get("trusted_hash").and_then(toml::Value::as_str),
+                Some(hash.as_str())
+            );
         }
 
         // A stale persisted hash must not be copied into the session override:
@@ -3303,15 +3307,9 @@ mod tests {
         let mut hooks = read_json_object(&hooks_path).unwrap();
         let key_path = codex_state_key_hooks_path(&hooks_path, false);
         let expected = codex_expected_trust_entries(&key_path, &hooks).unwrap();
-        let (existing_key, existing_hash) = expected
-            .iter()
-            .find(|(key, _)| key.contains(":post_tool_use:"))
-            .unwrap();
-        hooks
-            .get_mut("hooks")
-            .and_then(Value::as_object_mut)
-            .unwrap()
-            .remove("Stop");
+        let (existing_key, existing_hash) =
+            expected.iter().find(|(key, _)| key.contains(":post_tool_use:")).unwrap();
+        hooks.get_mut("hooks").and_then(Value::as_object_mut).unwrap().remove("Stop");
         atomic_write(
             &hooks_path,
             serde_json::to_vec(&Value::Object(hooks)).unwrap().as_slice(),
@@ -3330,7 +3328,10 @@ mod tests {
         let parsed: toml::Value = toml::from_str(state_line).unwrap();
         let entry = parsed["hooks"]["state"][existing_key].as_table().unwrap();
         assert_eq!(entry.get("enabled").and_then(toml::Value::as_bool), Some(false));
-        assert_eq!(entry.get("trusted_hash").and_then(toml::Value::as_str), Some(existing_hash.as_str()));
+        assert_eq!(
+            entry.get("trusted_hash").and_then(toml::Value::as_str),
+            Some(existing_hash.as_str())
+        );
     }
 
     #[test]
