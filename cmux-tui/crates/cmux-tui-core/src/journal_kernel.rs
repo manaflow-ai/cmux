@@ -404,6 +404,22 @@ impl JournalKernel {
         }
     }
 
+    /// The decoded record ring's size (`server-stats` `memory`): two loads
+    /// under the fanout lock, which the tailer and live readers hold as
+    /// briefly.
+    pub(crate) fn ring_memory(&self) -> crate::diagnostics::JournalRingMemory {
+        let (records, record_bytes) = {
+            let state = self.state.lock().recover_poison();
+            (state.records.len(), state.record_bytes)
+        };
+        crate::diagnostics::JournalRingMemory {
+            records: records as u64,
+            max_records: JOURNAL_FANOUT_CAPACITY as u64,
+            resident_estimate_bytes: record_bytes as u64,
+            max_estimate_bytes: JOURNAL_FANOUT_BYTE_CAPACITY as u64,
+        }
+    }
+
     pub(crate) fn read_after(&self, sequence: u64, limit: usize) -> SharedJournalRead {
         if !self.enabled || limit == 0 {
             return SharedJournalRead::Unavailable;

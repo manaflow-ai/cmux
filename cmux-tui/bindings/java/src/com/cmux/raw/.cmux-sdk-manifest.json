@@ -3027,7 +3027,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "50cccefc2f2cfcf01ce3fb162857f370e7b015658d96144bdadad917e72b2561",
+      "sha256": "8cc814f427470b5b231a0c6c4d0a438de52686f99f23b1df563bbce20d202a52",
       "size": 8063
     },
     {
@@ -3556,6 +3556,36 @@
       "size": 3540
     },
     {
+      "path": "ServerStatsMemory.java",
+      "sha256": "8b77e4c4c444e07d990ecb015f2d91b61d2bfa50770f227be68f312e0a5679d4",
+      "size": 4608
+    },
+    {
+      "path": "ServerStatsMemoryJournalRing.java",
+      "sha256": "f07c31c9121e7cbb865876eef6b0164c9eee6c43f8b2c029518bb5fd36bda340",
+      "size": 4798
+    },
+    {
+      "path": "ServerStatsMemoryOutbound.java",
+      "sha256": "d34dbd85b3996c89999e7fd350eb8a64bed09d1ee6160e4f042bc081e44e0bf8",
+      "size": 6617
+    },
+    {
+      "path": "ServerStatsMemoryOutputStore.java",
+      "sha256": "c869e687459007a3765ee1bbcf88c0e8654b5e210814df583ab1b38f0ef5fa16",
+      "size": 4609
+    },
+    {
+      "path": "ServerStatsMemoryTerminal.java",
+      "sha256": "080e94ae6df05c146d92bcd4bffe03ea8bccd9ce4f147fad527d7e75766bf45b",
+      "size": 4995
+    },
+    {
+      "path": "ServerStatsMemoryTerminals.java",
+      "sha256": "32a8618eab207b215f4afcce6f484caf84281ebe960d001af02d1605d04c5820",
+      "size": 11794
+    },
+    {
       "path": "ServerStatsMethodLatency.java",
       "sha256": "efee8ffe061b0e72c333bd91ee22e6254b5d893c2a57d50189d9e764be447039",
       "size": 6360
@@ -3597,8 +3627,8 @@
     },
     {
       "path": "ServerStatsResult.java",
-      "sha256": "d700cb264b105b8cd075c094a50b8777324769f0fec58a0545703ec98b5bb618",
-      "size": 12791
+      "sha256": "9cd3ae7393efdbd3c93b8365204c163aa17af7909acfbf08ebf62b539fb62b7f",
+      "size": 13416
     },
     {
       "path": "ServerStatsSlowRequest.java",
@@ -4542,7 +4572,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3",
+  "ir_sha256": "c4919a0a6565c9e2629e91c42fddc67e190d12abc9562f97484eb2040df98be3",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

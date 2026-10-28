@@ -6754,6 +6754,14 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "memory": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsMemory"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6769,7 +6777,8 @@
     "lock_classes is present only when the request names it in include.",
     "ipc is present only when the request names it in include.",
     "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last.",
-    "hangs is present only when the request names it in include."
+    "hangs is present only when the request names it in include.",
+    "memory is present only when the request names it in include."
    ]
   },
   "ServerStatsLockClasses": {
@@ -11101,6 +11110,353 @@
     "sequence is the hang's ordinal since daemon start, 1 for the first.",
     "span is <scope>:<method>, catalog names only.",
     "duration_ms is the final duration once the scope ended, else how long it had run when it was seen."
+   ]
+  },
+  "ServerStatsMemory": {
+   "kind": "object",
+   "fields": {
+    "terminals": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsMemoryTerminals"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "output_store": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsMemoryOutputStore"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "journal_ring": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsMemoryJournalRing"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "outbound": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsMemoryOutbound"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "The daemon's own large in-memory owners as byte and item counts, read when the request arrives, each owner under its own lock; no read takes the workspace registry lock.",
+    "Owners the daemon keeps no byte count for (resource store, presentation snapshot, journal writer queues, agent and notification state, caches, SQLite, stacks, allocator) are not reported; spec/commands.md lists them."
+   ]
+  },
+  "ServerStatsMemoryTerminals": {
+   "kind": "object",
+   "fields": {
+    "terminals": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cold_terminals": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cold_held_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "scrollback_live_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "scrollback_compressed_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "alternate_screen_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kitty_image_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "holder_ring_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "unmeasured": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "scrollback_rows": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "top": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsMemoryTerminal"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "terminals counts the daemon's PTY terminals; unmeasured counts those moving between hot and cold or that libghostty-vt could not report, which add to no byte field.",
+    "The byte fields are memory-report's totals; bytes is their sum and the sum of every terminal's bytes.",
+    "scrollback_rows counts rows above the viewport of hot terminals only.",
+    "top lists at most 5 terminals, most bytes first, ties by surface."
+   ]
+  },
+  "ServerStatsMemoryTerminal": {
+   "kind": "object",
+   "fields": {
+    "surface": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "state": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "scrollback_rows": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "state is hot, cold, or unknown (moving between them, or unreadable).",
+    "bytes is a hot terminal's pages of both screens and its Kitty images, or a cold terminal's compressed state, plus its holder ring copy.",
+    "scrollback_rows is null unless state is hot."
+   ]
+  },
+  "ServerStatsMemoryOutputStore": {
+   "kind": "object",
+   "fields": {
+    "logs": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "tail_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "pending_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "capacity_estimate_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "logs counts per-terminal output logs; tail_bytes is the raw output kept for terminal.output_read and pending_bytes the full-mode output not yet in a segment file.",
+    "capacity_estimate_bytes is the allocated capacity of those buffers, at least tail_bytes plus pending_bytes."
+   ]
+  },
+  "ServerStatsMemoryJournalRing": {
+   "kind": "object",
+   "fields": {
+    "records": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "max_records": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "resident_estimate_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "max_estimate_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "The journal kernel's ring of decoded records shared by live subscribers; it drops its oldest record past max_records or max_estimate_bytes.",
+    "resident_estimate_bytes is the ring's own budget: per record, the decoded record plus an upper bound of its wire and search encodings."
+   ]
+  },
+  "ServerStatsMemoryOutbound": {
+   "kind": "object",
+   "fields": {
+    "connections": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "budgets": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "retained_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "control_retained_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "graphic_cache_entries": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "graphic_cache_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Encoded text on its way to clients, at its allocated capacity, from encode until its last copy drops, as the listeners' outbound byte budgets count it.",
+    "budgets counts the distinct listener budgets the registered connections share; control_retained_bytes is replies and stream terminals.",
+    "graphic_cache_entries and graphic_cache_bytes are the render graphic base64 caches."
    ]
   },
   "AgentSessionAnsweredBy": {
@@ -21794,7 +22150,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods, hangs); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods, hangs, memory); unknown names are ignored."
    ],
    "method_id": 266,
    "priority": "background",

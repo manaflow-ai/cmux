@@ -17,10 +17,10 @@
 //! surface and terminal id only.
 
 use super::*;
+use crate::diagnostics::{TerminalMemoryTotals, live_page_bytes};
 use crate::process_resources::{MemoryFootprint, own_memory_footprint};
 use crate::surface::{PtyHome, SurfaceMemory, TerminalMemory};
 use cmux_memory::{ConsumerReport, PressureLevel, Retention};
-use ghostty_vt::ScreenMemory;
 
 /// The reply's `schema`; a change to its shape bumps it.
 pub(crate) const MEMORY_REPORT_SCHEMA: u32 = 1;
@@ -46,16 +46,8 @@ impl std::error::Error for MemoryReportRefused {}
 /// (`cmd_server::memory_report`). No mux lock is held while a terminal is
 /// measured.
 pub(super) fn report(mux: &Mux) -> Value {
-    let mut surfaces = mux.with_state(|state| {
-        state
-            .surfaces
-            .iter()
-            .filter(|(_, surface)| surface.kind() == SurfaceKind::Pty)
-            .map(|(id, surface)| (*id, surface.clone()))
-            .collect::<Vec<_>>()
-    });
-    surfaces.sort_by_key(|(id, _)| *id);
-    let mut totals = Totals::default();
+    let surfaces = pty_surfaces(mux);
+    let mut totals = TerminalMemoryTotals::default();
     let terminals = surfaces
         .iter()
         .filter_map(|(id, surface)| {
@@ -73,68 +65,31 @@ pub(super) fn report(mux: &Mux) -> Value {
         "process": own_memory_footprint().map(footprint_json),
         "pressure": pressure_name(registry.level()),
         "terminals": terminals,
-        "totals": totals.json(),
+        "totals": totals,
         "consumers": consumers,
     })
 }
 
-/// Sums of the terminal fields; a terminal libghostty-vt could not measure
-/// adds nothing.
-#[derive(Default)]
-struct Totals {
-    terminals: u64,
-    cold_terminals: u64,
-    cold_held_bytes: u64,
-    scrollback_live_bytes: u64,
-    scrollback_compressed_bytes: u64,
-    alternate_screen_bytes: u64,
-    kitty_image_bytes: u64,
-    holder_ring_bytes: u64,
-}
-
-impl Totals {
-    fn add(&mut self, memory: &SurfaceMemory) {
-        self.terminals += 1;
-        match &memory.terminal {
-            Some(TerminalMemory::Hot(usage)) => {
-                self.scrollback_live_bytes += live_bytes(&usage.primary);
-                self.scrollback_compressed_bytes += usage.primary.compressed_bytes;
-                self.alternate_screen_bytes += usage.alternate.resident_bytes;
-                self.kitty_image_bytes += usage.primary.image_bytes + usage.alternate.image_bytes;
-            }
-            Some(TerminalMemory::Cold { held_bytes, .. }) => {
-                self.cold_terminals += 1;
-                self.cold_held_bytes += held_bytes;
-            }
-            None => {}
-        }
-        if let PtyHome::Holder { ring_bytes: Some(bytes) } = memory.home {
-            self.holder_ring_bytes += bytes;
-        }
-    }
-
-    fn json(&self) -> Value {
-        json!({
-            "terminals": self.terminals,
-            "cold_terminals": self.cold_terminals,
-            "cold_held_bytes": self.cold_held_bytes,
-            "scrollback_live_bytes": self.scrollback_live_bytes,
-            "scrollback_compressed_bytes": self.scrollback_compressed_bytes,
-            "alternate_screen_bytes": self.alternate_screen_bytes,
-            "kitty_image_bytes": self.kitty_image_bytes,
-            "holder_ring_bytes": self.holder_ring_bytes,
-        })
-    }
-}
-
-/// Physical bytes of the pages that are not compressed.
-fn live_bytes(screen: &ScreenMemory) -> u64 {
-    screen.resident_bytes.saturating_sub(screen.compressed_bytes)
+/// Every PTY surface, by id. The mux state lock is held only to clone the
+/// surface handles (one `Arc` clone per surface); every measurement runs
+/// after it is released. `server-stats` `memory` reads the same list
+/// (server/memory_stats.rs).
+pub(super) fn pty_surfaces(mux: &Mux) -> Vec<(SurfaceId, Arc<crate::Surface>)> {
+    let mut surfaces = mux.with_state(|state| {
+        state
+            .surfaces
+            .iter()
+            .filter(|(_, surface)| surface.kind() == SurfaceKind::Pty)
+            .map(|(id, surface)| (*id, surface.clone()))
+            .collect::<Vec<_>>()
+    });
+    surfaces.sort_by_key(|(id, _)| *id);
+    surfaces
 }
 
 fn terminal_json(surface: SurfaceId, terminal_id: Option<&str>, memory: &SurfaceMemory) -> Value {
     let (state, usage, cold) = match memory.terminal {
-        Some(TerminalMemory::Hot(usage)) => ("hot", Some(usage), None),
+        Some(TerminalMemory::Hot { usage, .. }) => ("hot", Some(usage), None),
         Some(TerminalMemory::Cold { held_bytes, snapshot_bytes }) => (
             "cold",
             None,
@@ -153,7 +108,7 @@ fn terminal_json(surface: SurfaceId, terminal_id: Option<&str>, memory: &Surface
         "state": state,
         "cold": cold,
         "scrollback": usage.map(|usage| json!({
-            "live_bytes": live_bytes(&usage.primary),
+            "live_bytes": live_page_bytes(&usage.primary),
             "compressed_bytes": usage.primary.compressed_bytes,
             "virtual_bytes": usage.primary.virtual_bytes,
             "pages": usage.primary.pages,

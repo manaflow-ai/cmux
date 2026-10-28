@@ -23976,6 +23976,154 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/memory": {
+        "ty": "object"
+      },
+      "/data/memory/journal_ring": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/memory/journal_ring/max_estimate_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/journal_ring/max_records": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/journal_ring/records": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/journal_ring/resident_estimate_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/outbound": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/memory/outbound/budgets": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/outbound/connections": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/outbound/control_retained_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/outbound/graphic_cache_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/outbound/graphic_cache_entries": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/outbound/retained_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/output_store": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/memory/output_store/capacity_estimate_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/output_store/logs": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/output_store/pending_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/output_store/tail_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/terminals": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/memory/terminals/alternate_screen_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/terminals/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/terminals/cold_held_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/terminals/cold_terminals": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/terminals/holder_ring_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/terminals/kitty_image_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/terminals/scrollback_compressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/terminals/scrollback_live_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/terminals/scrollback_rows": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/terminals/terminals": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/terminals/top": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/memory/terminals/top/*": {
+        "ty": "object"
+      },
+      "/data/memory/terminals/top/*/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/terminals/top/*/scrollback_rows": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/memory/terminals/top/*/state": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/memory/terminals/top/*/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/memory/terminals/top/*/terminal_id": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/memory/terminals/unmeasured": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/registry_lock": {
         "ty": "object",
         "required": true

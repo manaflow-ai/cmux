@@ -62,6 +62,12 @@ pub use persist::{DAEMON_CATALOG, DaemonMetrics, daemon_header, metrics_dir};
 mod write_path;
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};
+mod daemon_memory;
+pub(crate) use daemon_memory::live_page_bytes;
+pub use daemon_memory::{
+    JournalRingMemory, MEMORY_TOP_TERMINALS, MemorySnapshot, OutboundMemory, OutputStoreMemory,
+    TerminalMemoryRow, TerminalMemorySection, TerminalMemoryTotals,
+};
 
 /// Sub-buckets per power of two. Four keeps the reported percentile within
 /// 25% above the true value while costing 256 counters per histogram.
@@ -826,6 +832,11 @@ pub struct ServerStatsSnapshot {
     /// and the newest records; present only when the request names `hangs`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hangs: Option<HangsSnapshot>,
+    /// The daemon's own large in-memory owners as byte and item counts
+    /// (diagnostics/daemon_memory.rs); present only when the request names
+    /// `memory` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory: Option<MemorySnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3. */
+/* cmux-tui mux protocol 12, IR c4919a0a6565c9e2629e91c42fddc67e190d12abc9562f97484eb2040df98be3. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1603,6 +1603,59 @@ export type ServerStatsLockWaits = {
   "recent": Array<ServerStatsLockWait>;
 };
 
+export type ServerStatsMemory = {
+  "journal_ring": ServerStatsMemoryJournalRing;
+  "outbound": ServerStatsMemoryOutbound;
+  "output_store": ServerStatsMemoryOutputStore;
+  "terminals": ServerStatsMemoryTerminals;
+};
+
+export type ServerStatsMemoryJournalRing = {
+  "max_estimate_bytes": bigint;
+  "max_records": bigint;
+  "records": bigint;
+  "resident_estimate_bytes": bigint;
+};
+
+export type ServerStatsMemoryOutbound = {
+  "budgets": bigint;
+  "connections": bigint;
+  "control_retained_bytes": bigint;
+  "graphic_cache_bytes": bigint;
+  "graphic_cache_entries": bigint;
+  "retained_bytes": bigint;
+};
+
+export type ServerStatsMemoryOutputStore = {
+  "capacity_estimate_bytes": bigint;
+  "logs": bigint;
+  "pending_bytes": bigint;
+  "tail_bytes": bigint;
+};
+
+export type ServerStatsMemoryTerminal = {
+  "bytes": bigint;
+  "scrollback_rows": (bigint) | null;
+  "state": string;
+  "surface": bigint;
+  "terminal_id": (string) | null;
+};
+
+export type ServerStatsMemoryTerminals = {
+  "alternate_screen_bytes": bigint;
+  "bytes": bigint;
+  "cold_held_bytes": bigint;
+  "cold_terminals": bigint;
+  "holder_ring_bytes": bigint;
+  "kitty_image_bytes": bigint;
+  "scrollback_compressed_bytes": bigint;
+  "scrollback_live_bytes": bigint;
+  "scrollback_rows": bigint;
+  "terminals": bigint;
+  "top": Array<ServerStatsMemoryTerminal>;
+  "unmeasured": bigint;
+};
+
 export type ServerStatsMethodLatency = {
   "class": string;
   "handler_us": ServerStatsPercentiles;
@@ -1692,6 +1745,7 @@ export type ServerStatsResult = {
   "ipc_methods"?: Array<ServerStatsMethodLatency>;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "lock_classes"?: ServerStatsLockClasses;
+  "memory"?: ServerStatsMemory;
   "registry_lock": ServerStatsRegistryLock;
   "request_latency_us"?: ServerStatsRequestLatency;
   "request_path_io"?: ServerStatsRequestPathIo;

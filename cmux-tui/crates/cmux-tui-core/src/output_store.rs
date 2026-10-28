@@ -426,6 +426,25 @@ impl OutputStore {
         false
     }
 
+    /// The in-memory buffers of every log (`server-stats` `memory`). The
+    /// logs map lock is held to clone each log's handle; then each log's
+    /// lock is held for four length and capacity reads, less than an append
+    /// holds it.
+    pub(crate) fn memory(&self) -> crate::diagnostics::OutputStoreMemory {
+        let logs: Vec<Arc<TerminalLog>> =
+            self.logs.lock().unwrap_or_else(PoisonError::into_inner).values().cloned().collect();
+        let mut memory =
+            crate::diagnostics::OutputStoreMemory { logs: logs.len() as u64, ..Default::default() };
+        for log in logs {
+            let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            memory.tail_bytes += state.tail.len() as u64;
+            memory.pending_bytes += state.pending.len() as u64;
+            memory.capacity_estimate_bytes +=
+                (state.tail.capacity() + state.pending.capacity()) as u64;
+        }
+        memory
+    }
+
     /// Ask the writer for a pass after the mode's interval.
     fn mark_dirty(&self) {
         let interval = if self.full.enabled() {

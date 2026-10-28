@@ -1,5 +1,6 @@
 //! What one PTY surface holds in the daemon, for `memory-report`
-//! (server/memory_report.rs).
+//! (server/memory_report.rs) and `server-stats` `memory`
+//! (server/memory_stats.rs).
 
 use super::*;
 
@@ -32,8 +33,9 @@ impl PtyHome {
 /// restoring a cold one (surface/terminal_runtime/cold_terminal.rs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TerminalMemory {
-    /// Live: its pages, per screen, and Kitty images.
-    Hot(ghostty_vt::TerminalMemoryUsage),
+    /// Live: its pages, per screen, and Kitty images, and the scrollback
+    /// rows above its viewport.
+    Hot { usage: ghostty_vt::TerminalMemoryUsage, scrollback_rows: u64 },
     /// Compressed whole by the cold-scrollback codec (p07-memory-041).
     Cold {
         /// Bytes it holds: the compressed snapshot and the Kitty replay.
@@ -50,6 +52,38 @@ pub(crate) struct SurfaceMemory {
     /// `None` while the terminal moves between hot and cold, or when
     /// libghostty-vt cannot report it.
     pub(crate) terminal: Option<TerminalMemory>,
+}
+
+impl SurfaceMemory {
+    /// The holder ring segment the daemon keeps a copy of; 0 when it keeps
+    /// none.
+    pub(crate) fn ring_bytes(&self) -> u64 {
+        match self.home {
+            PtyHome::Holder { ring_bytes: Some(bytes) } => bytes,
+            PtyHome::Holder { ring_bytes: None }
+            | PtyHome::Daemon
+            | PtyHome::Host
+            | PtyHome::Exited => 0,
+        }
+    }
+
+    /// Every byte the daemon holds for this terminal: a hot terminal's pages
+    /// of both screens (compressed pages at their compressed size) and its
+    /// Kitty images, a cold terminal's compressed state, and the holder ring
+    /// copy. A terminal it could not read adds only its ring.
+    pub(crate) fn bytes(&self) -> u64 {
+        let terminal = match self.terminal {
+            Some(TerminalMemory::Hot { usage, .. }) => usage
+                .primary
+                .resident_bytes
+                .saturating_add(usage.alternate.resident_bytes)
+                .saturating_add(usage.primary.image_bytes)
+                .saturating_add(usage.alternate.image_bytes),
+            Some(TerminalMemory::Cold { held_bytes, .. }) => held_bytes,
+            None => 0,
+        };
+        terminal.saturating_add(self.ring_bytes())
+    }
 }
 
 impl Surface {

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3";
+pub const ir_sha256 = "c4919a0a6565c9e2629e91c42fddc67e190d12abc9562f97484eb2040df98be3";
 
 pub const AccessRequestKind = enum {
     file,
@@ -2965,6 +2965,59 @@ pub const ServerStatsLockWaits = struct {
     recent: []const ServerStatsLockWait,
 };
 
+pub const ServerStatsMemory = struct {
+    journal_ring: ServerStatsMemoryJournalRing,
+    outbound: ServerStatsMemoryOutbound,
+    output_store: ServerStatsMemoryOutputStore,
+    terminals: ServerStatsMemoryTerminals,
+};
+
+pub const ServerStatsMemoryJournalRing = struct {
+    max_estimate_bytes: u64,
+    max_records: u64,
+    records: u64,
+    resident_estimate_bytes: u64,
+};
+
+pub const ServerStatsMemoryOutbound = struct {
+    budgets: u64,
+    connections: u64,
+    control_retained_bytes: u64,
+    graphic_cache_bytes: u64,
+    graphic_cache_entries: u64,
+    retained_bytes: u64,
+};
+
+pub const ServerStatsMemoryOutputStore = struct {
+    capacity_estimate_bytes: u64,
+    logs: u64,
+    pending_bytes: u64,
+    tail_bytes: u64,
+};
+
+pub const ServerStatsMemoryTerminal = struct {
+    bytes: u64,
+    scrollback_rows: wire.Nullable(u64),
+    state: []const u8,
+    surface: u64,
+    terminal_id: wire.Nullable([]const u8),
+};
+
+pub const ServerStatsMemoryTerminals = struct {
+    alternate_screen_bytes: u64,
+    bytes: u64,
+    cold_held_bytes: u64,
+    cold_terminals: u64,
+    holder_ring_bytes: u64,
+    kitty_image_bytes: u64,
+    scrollback_compressed_bytes: u64,
+    scrollback_live_bytes: u64,
+    scrollback_rows: u64,
+    terminals: u64,
+    top: []const ServerStatsMemoryTerminal,
+    unmeasured: u64,
+};
+
 pub const ServerStatsMethodLatency = struct {
     class: []const u8,
     handler_us: ServerStatsPercentiles,
@@ -3059,6 +3112,7 @@ pub const ServerStatsResult = struct {
     ipc_methods: ?[]const ServerStatsMethodLatency = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     lock_classes: ?ServerStatsLockClasses = null,
+    memory: ?ServerStatsMemory = null,
     registry_lock: ServerStatsRegistryLock,
     request_latency_us: ?ServerStatsRequestLatency = null,
     request_path_io: ?ServerStatsRequestPathIo = null,
@@ -3074,6 +3128,7 @@ pub const ServerStatsResult = struct {
         "ipc",
         "ipc_methods",
         "lock_classes",
+        "memory",
         "request_latency_us",
         "request_path_io",
         "resource_projection",

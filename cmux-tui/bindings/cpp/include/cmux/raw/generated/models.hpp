@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3";
+inline constexpr std::string_view kProtocolIrSha256 = "c4919a0a6565c9e2629e91c42fddc67e190d12abc9562f97484eb2040df98be3";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -245,6 +245,12 @@ struct ServerStatsLockSite;
 struct ServerStatsLockStall;
 struct ServerStatsLockWait;
 struct ServerStatsLockWaits;
+struct ServerStatsMemory;
+struct ServerStatsMemoryJournalRing;
+struct ServerStatsMemoryOutbound;
+struct ServerStatsMemoryOutputStore;
+struct ServerStatsMemoryTerminal;
+struct ServerStatsMemoryTerminals;
 struct ServerStatsMethodLatency;
 struct ServerStatsPercentiles;
 struct ServerStatsRegistryLock;
@@ -6604,6 +6610,65 @@ struct ServerStatsLockWaits {
     friend bool operator==(const ServerStatsLockWaits&, const ServerStatsLockWaits&) = default;
 };
 
+struct ServerStatsMemoryJournalRing {
+    std::uint64_t max_estimate_bytes{};
+    std::uint64_t max_records{};
+    std::uint64_t records{};
+    std::uint64_t resident_estimate_bytes{};
+    friend bool operator==(const ServerStatsMemoryJournalRing&, const ServerStatsMemoryJournalRing&) = default;
+};
+
+struct ServerStatsMemoryOutbound {
+    std::uint64_t budgets{};
+    std::uint64_t connections{};
+    std::uint64_t control_retained_bytes{};
+    std::uint64_t graphic_cache_bytes{};
+    std::uint64_t graphic_cache_entries{};
+    std::uint64_t retained_bytes{};
+    friend bool operator==(const ServerStatsMemoryOutbound&, const ServerStatsMemoryOutbound&) = default;
+};
+
+struct ServerStatsMemoryOutputStore {
+    std::uint64_t capacity_estimate_bytes{};
+    std::uint64_t logs{};
+    std::uint64_t pending_bytes{};
+    std::uint64_t tail_bytes{};
+    friend bool operator==(const ServerStatsMemoryOutputStore&, const ServerStatsMemoryOutputStore&) = default;
+};
+
+struct ServerStatsMemoryTerminal {
+    std::uint64_t bytes{};
+    std::optional<std::uint64_t> scrollback_rows{};
+    std::string state{};
+    std::uint64_t surface{};
+    std::optional<std::string> terminal_id{};
+    friend bool operator==(const ServerStatsMemoryTerminal&, const ServerStatsMemoryTerminal&) = default;
+};
+
+struct ServerStatsMemoryTerminals {
+    std::uint64_t alternate_screen_bytes{};
+    std::uint64_t bytes{};
+    std::uint64_t cold_held_bytes{};
+    std::uint64_t cold_terminals{};
+    std::uint64_t holder_ring_bytes{};
+    std::uint64_t kitty_image_bytes{};
+    std::uint64_t scrollback_compressed_bytes{};
+    std::uint64_t scrollback_live_bytes{};
+    std::uint64_t scrollback_rows{};
+    std::uint64_t terminals{};
+    std::vector<ServerStatsMemoryTerminal> top{};
+    std::uint64_t unmeasured{};
+    friend bool operator==(const ServerStatsMemoryTerminals&, const ServerStatsMemoryTerminals&) = default;
+};
+
+struct ServerStatsMemory {
+    ServerStatsMemoryJournalRing journal_ring{};
+    ServerStatsMemoryOutbound outbound{};
+    ServerStatsMemoryOutputStore output_store{};
+    ServerStatsMemoryTerminals terminals{};
+    friend bool operator==(const ServerStatsMemory&, const ServerStatsMemory&) = default;
+};
+
 struct ServerStatsPercentiles {
     std::uint64_t count{};
     std::uint64_t max{};
@@ -6745,6 +6810,7 @@ struct ServerStatsResult {
     std::optional<std::vector<ServerStatsMethodLatency>> ipc_methods{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     std::optional<ServerStatsLockClasses> lock_classes{};
+    std::optional<ServerStatsMemory> memory{};
     ServerStatsRegistryLock registry_lock{};
     std::optional<ServerStatsRequestLatency> request_latency_us{};
     std::optional<ServerStatsRequestPathIo> request_path_io{};
@@ -9280,6 +9346,42 @@ template <>
 struct Codec<ServerStatsLockWaits> {
     static Result<Json> encode(const ServerStatsLockWaits& value);
     static Result<ServerStatsLockWaits> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsMemory> {
+    static Result<Json> encode(const ServerStatsMemory& value);
+    static Result<ServerStatsMemory> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsMemoryJournalRing> {
+    static Result<Json> encode(const ServerStatsMemoryJournalRing& value);
+    static Result<ServerStatsMemoryJournalRing> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsMemoryOutbound> {
+    static Result<Json> encode(const ServerStatsMemoryOutbound& value);
+    static Result<ServerStatsMemoryOutbound> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsMemoryOutputStore> {
+    static Result<Json> encode(const ServerStatsMemoryOutputStore& value);
+    static Result<ServerStatsMemoryOutputStore> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsMemoryTerminal> {
+    static Result<Json> encode(const ServerStatsMemoryTerminal& value);
+    static Result<ServerStatsMemoryTerminal> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsMemoryTerminals> {
+    static Result<Json> encode(const ServerStatsMemoryTerminals& value);
+    static Result<ServerStatsMemoryTerminals> decode(const Json& value);
 };
 
 template <>

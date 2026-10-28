@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3.
+// cmux-tui mux protocol 12, IR c4919a0a6565c9e2629e91c42fddc67e190d12abc9562f97484eb2040df98be3.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -2639,6 +2639,71 @@ pub struct ServerStatsLockWaits {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsMemory {
+    pub journal_ring: ServerStatsMemoryJournalRing,
+    pub outbound: ServerStatsMemoryOutbound,
+    pub output_store: ServerStatsMemoryOutputStore,
+    pub terminals: ServerStatsMemoryTerminals,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsMemoryJournalRing {
+    pub max_estimate_bytes: u64,
+    pub max_records: u64,
+    pub records: u64,
+    pub resident_estimate_bytes: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsMemoryOutbound {
+    pub budgets: u64,
+    pub connections: u64,
+    pub control_retained_bytes: u64,
+    pub graphic_cache_bytes: u64,
+    pub graphic_cache_entries: u64,
+    pub retained_bytes: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsMemoryOutputStore {
+    pub capacity_estimate_bytes: u64,
+    pub logs: u64,
+    pub pending_bytes: u64,
+    pub tail_bytes: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsMemoryTerminal {
+    pub bytes: u64,
+    pub scrollback_rows: Nullable<u64>,
+    pub state: String,
+    pub surface: u64,
+    pub terminal_id: Nullable<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsMemoryTerminals {
+    pub alternate_screen_bytes: u64,
+    pub bytes: u64,
+    pub cold_held_bytes: u64,
+    pub cold_terminals: u64,
+    pub holder_ring_bytes: u64,
+    pub kitty_image_bytes: u64,
+    pub scrollback_compressed_bytes: u64,
+    pub scrollback_live_bytes: u64,
+    pub scrollback_rows: u64,
+    pub terminals: u64,
+    pub top: Vec<ServerStatsMemoryTerminal>,
+    pub unmeasured: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsMethodLatency {
     pub class: String,
     pub handler_us: ServerStatsPercentiles,
@@ -2749,6 +2814,8 @@ pub struct ServerStatsResult {
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub lock_classes: Option<ServerStatsLockClasses>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub memory: Option<ServerStatsMemory>,
     pub registry_lock: ServerStatsRegistryLock,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub request_latency_us: Option<ServerStatsRequestLatency>,

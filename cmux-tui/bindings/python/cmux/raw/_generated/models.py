@@ -2262,6 +2262,71 @@ class ServerStatsLockWaits:
 
 
 @dataclass(frozen=True)
+class ServerStatsMemory:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsMemory'
+    journal_ring: ServerStatsMemoryJournalRing
+    outbound: ServerStatsMemoryOutbound
+    output_store: ServerStatsMemoryOutputStore
+    terminals: ServerStatsMemoryTerminals
+
+
+@dataclass(frozen=True)
+class ServerStatsMemoryJournalRing:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsMemoryJournalRing'
+    max_estimate_bytes: int
+    max_records: int
+    records: int
+    resident_estimate_bytes: int
+
+
+@dataclass(frozen=True)
+class ServerStatsMemoryOutbound:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsMemoryOutbound'
+    budgets: int
+    connections: int
+    control_retained_bytes: int
+    graphic_cache_bytes: int
+    graphic_cache_entries: int
+    retained_bytes: int
+
+
+@dataclass(frozen=True)
+class ServerStatsMemoryOutputStore:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsMemoryOutputStore'
+    capacity_estimate_bytes: int
+    logs: int
+    pending_bytes: int
+    tail_bytes: int
+
+
+@dataclass(frozen=True)
+class ServerStatsMemoryTerminal:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsMemoryTerminal'
+    surface: int
+    terminal_id: Union[str, None]
+    bytes_data: int = field(metadata={'wire_name': 'bytes'})
+    scrollback_rows: Union[int, None]
+    state: str
+
+
+@dataclass(frozen=True)
+class ServerStatsMemoryTerminals:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsMemoryTerminals'
+    alternate_screen_bytes: int
+    bytes_data: int = field(metadata={'wire_name': 'bytes'})
+    cold_held_bytes: int
+    cold_terminals: int
+    holder_ring_bytes: int
+    kitty_image_bytes: int
+    scrollback_compressed_bytes: int
+    scrollback_live_bytes: int
+    scrollback_rows: int
+    terminals: int
+    top: List[ServerStatsMemoryTerminal]
+    unmeasured: int
+
+
+@dataclass(frozen=True)
 class ServerStatsMethodLatency:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsMethodLatency'
     class_: str = field(metadata={'wire_name': 'class'})
@@ -2369,6 +2434,7 @@ class ServerStatsResult:
     ipc: Union[ServerStatsIpc, MissingType] = field(default=MISSING)
     ipc_methods: Union[List[ServerStatsMethodLatency], MissingType] = field(default=MISSING)
     lock_classes: Union[ServerStatsLockClasses, MissingType] = field(default=MISSING)
+    memory: Union[ServerStatsMemory, MissingType] = field(default=MISSING)
     request_latency_us: Union[ServerStatsRequestLatency, MissingType] = field(default=MISSING)
     request_path_io: Union[ServerStatsRequestPathIo, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
@@ -8009,6 +8075,12 @@ __all__ = [
     'ServerStatsLockStall',
     'ServerStatsLockWait',
     'ServerStatsLockWaits',
+    'ServerStatsMemory',
+    'ServerStatsMemoryJournalRing',
+    'ServerStatsMemoryOutbound',
+    'ServerStatsMemoryOutputStore',
+    'ServerStatsMemoryTerminal',
+    'ServerStatsMemoryTerminals',
     'ServerStatsMethodLatency',
     'ServerStatsPercentiles',
     'ServerStatsRegistryLock',

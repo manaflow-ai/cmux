@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3. */
+/* cmux-tui mux protocol 12, IR c4919a0a6565c9e2629e91c42fddc67e190d12abc9562f97484eb2040df98be3. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3" as const;
+export const SDK_IR_SHA256 = "c4919a0a6565c9e2629e91c42fddc67e190d12abc9562f97484eb2040df98be3" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3663,7 +3663,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods, hangs); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods, hangs, memory); unknown names are ignored."
     ]
   },
   "server-threads": {
@@ -14693,6 +14693,353 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsMemory": {
+    "additional_properties": false,
+    "constraints": [
+      "The daemon's own large in-memory owners as byte and item counts, read when the request arrives, each owner under its own lock; no read takes the workspace registry lock.",
+      "Owners the daemon keeps no byte count for (resource store, presentation snapshot, journal writer queues, agent and notification state, caches, SQLite, stacks, allocator) are not reported; spec/commands.md lists them."
+    ],
+    "fields": {
+      "journal_ring": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsMemoryJournalRing"
+        }
+      },
+      "outbound": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsMemoryOutbound"
+        }
+      },
+      "output_store": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsMemoryOutputStore"
+        }
+      },
+      "terminals": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsMemoryTerminals"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsMemoryJournalRing": {
+    "additional_properties": false,
+    "constraints": [
+      "The journal kernel's ring of decoded records shared by live subscribers; it drops its oldest record past max_records or max_estimate_bytes.",
+      "resident_estimate_bytes is the ring's own budget: per record, the decoded record plus an upper bound of its wire and search encodings."
+    ],
+    "fields": {
+      "max_estimate_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "max_records": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "records": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "resident_estimate_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsMemoryOutbound": {
+    "additional_properties": false,
+    "constraints": [
+      "Encoded text on its way to clients, at its allocated capacity, from encode until its last copy drops, as the listeners' outbound byte budgets count it.",
+      "budgets counts the distinct listener budgets the registered connections share; control_retained_bytes is replies and stream terminals.",
+      "graphic_cache_entries and graphic_cache_bytes are the render graphic base64 caches."
+    ],
+    "fields": {
+      "budgets": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "connections": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "control_retained_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "graphic_cache_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "graphic_cache_entries": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "retained_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsMemoryOutputStore": {
+    "additional_properties": false,
+    "constraints": [
+      "logs counts per-terminal output logs; tail_bytes is the raw output kept for terminal.output_read and pending_bytes the full-mode output not yet in a segment file.",
+      "capacity_estimate_bytes is the allocated capacity of those buffers, at least tail_bytes plus pending_bytes."
+    ],
+    "fields": {
+      "capacity_estimate_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "logs": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "pending_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "tail_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsMemoryTerminal": {
+    "additional_properties": false,
+    "constraints": [
+      "state is hot, cold, or unknown (moving between them, or unreadable).",
+      "bytes is a hot terminal's pages of both screens and its Kitty images, or a cold terminal's compressed state, plus its holder ring copy.",
+      "scrollback_rows is null unless state is hot."
+    ],
+    "fields": {
+      "bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "scrollback_rows": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "terminal_id": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsMemoryTerminals": {
+    "additional_properties": false,
+    "constraints": [
+      "terminals counts the daemon's PTY terminals; unmeasured counts those moving between hot and cold or that libghostty-vt could not report, which add to no byte field.",
+      "The byte fields are memory-report's totals; bytes is their sum and the sum of every terminal's bytes.",
+      "scrollback_rows counts rows above the viewport of hot terminals only.",
+      "top lists at most 5 terminals, most bytes first, ties by surface."
+    ],
+    "fields": {
+      "alternate_screen_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "cold_held_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "cold_terminals": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "holder_ring_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "kitty_image_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "scrollback_compressed_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "scrollback_live_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "scrollback_rows": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "terminals": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "top": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsMemoryTerminal"
+          },
+          "kind": "array"
+        }
+      },
+      "unmeasured": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsMethodLatency": {
     "additional_properties": false,
     "constraints": [
@@ -15269,7 +15616,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "lock_classes is present only when the request names it in include.",
       "ipc is present only when the request names it in include.",
       "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last.",
-      "hangs is present only when the request names it in include."
+      "hangs is present only when the request names it in include.",
+      "memory is present only when the request names it in include."
     ],
     "fields": {
       "connections": {
@@ -15329,6 +15677,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsLockClasses"
+        }
+      },
+      "memory": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsMemory"
         }
       },
       "registry_lock": {

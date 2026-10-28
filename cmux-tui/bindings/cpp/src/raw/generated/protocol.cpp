@@ -13251,6 +13251,520 @@ Result<ServerStatsLockWaits> Codec<ServerStatsLockWaits>::decode(const Json& val
     return result;
 }
 
+Result<Json> Codec<ServerStatsMemory>::encode(const ServerStatsMemory& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_journal_ring = encode_value(value.journal_ring);
+    if (!encoded_journal_ring) return std::move(encoded_journal_ring).error();
+    object.emplace("journal_ring", std::move(encoded_journal_ring).value());
+    auto encoded_outbound = encode_value(value.outbound);
+    if (!encoded_outbound) return std::move(encoded_outbound).error();
+    object.emplace("outbound", std::move(encoded_outbound).value());
+    auto encoded_output_store = encode_value(value.output_store);
+    if (!encoded_output_store) return std::move(encoded_output_store).error();
+    object.emplace("output_store", std::move(encoded_output_store).value());
+    auto encoded_terminals = encode_value(value.terminals);
+    if (!encoded_terminals) return std::move(encoded_terminals).error();
+    object.emplace("terminals", std::move(encoded_terminals).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsMemory> Codec<ServerStatsMemory>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsMemory result{};
+    const Json* field_journal_ring = value.find("journal_ring");
+    if (!field_journal_ring) {
+        return make_error(ErrorCode::decode, "missing required field 'journal_ring'");
+    }
+    if (field_journal_ring) {
+        auto decoded = decode_value<ServerStatsMemoryJournalRing>(*field_journal_ring);
+        if (!decoded) return std::move(decoded).error();
+        result.journal_ring = std::move(decoded).value();
+    }
+    const Json* field_outbound = value.find("outbound");
+    if (!field_outbound) {
+        return make_error(ErrorCode::decode, "missing required field 'outbound'");
+    }
+    if (field_outbound) {
+        auto decoded = decode_value<ServerStatsMemoryOutbound>(*field_outbound);
+        if (!decoded) return std::move(decoded).error();
+        result.outbound = std::move(decoded).value();
+    }
+    const Json* field_output_store = value.find("output_store");
+    if (!field_output_store) {
+        return make_error(ErrorCode::decode, "missing required field 'output_store'");
+    }
+    if (field_output_store) {
+        auto decoded = decode_value<ServerStatsMemoryOutputStore>(*field_output_store);
+        if (!decoded) return std::move(decoded).error();
+        result.output_store = std::move(decoded).value();
+    }
+    const Json* field_terminals = value.find("terminals");
+    if (!field_terminals) {
+        return make_error(ErrorCode::decode, "missing required field 'terminals'");
+    }
+    if (field_terminals) {
+        auto decoded = decode_value<ServerStatsMemoryTerminals>(*field_terminals);
+        if (!decoded) return std::move(decoded).error();
+        result.terminals = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsMemoryJournalRing>::encode(const ServerStatsMemoryJournalRing& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_max_estimate_bytes = encode_value(value.max_estimate_bytes);
+    if (!encoded_max_estimate_bytes) return std::move(encoded_max_estimate_bytes).error();
+    object.emplace("max_estimate_bytes", std::move(encoded_max_estimate_bytes).value());
+    auto encoded_max_records = encode_value(value.max_records);
+    if (!encoded_max_records) return std::move(encoded_max_records).error();
+    object.emplace("max_records", std::move(encoded_max_records).value());
+    auto encoded_records = encode_value(value.records);
+    if (!encoded_records) return std::move(encoded_records).error();
+    object.emplace("records", std::move(encoded_records).value());
+    auto encoded_resident_estimate_bytes = encode_value(value.resident_estimate_bytes);
+    if (!encoded_resident_estimate_bytes) return std::move(encoded_resident_estimate_bytes).error();
+    object.emplace("resident_estimate_bytes", std::move(encoded_resident_estimate_bytes).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsMemoryJournalRing> Codec<ServerStatsMemoryJournalRing>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsMemoryJournalRing result{};
+    const Json* field_max_estimate_bytes = value.find("max_estimate_bytes");
+    if (!field_max_estimate_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'max_estimate_bytes'");
+    }
+    if (field_max_estimate_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_max_estimate_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.max_estimate_bytes = std::move(decoded).value();
+    }
+    const Json* field_max_records = value.find("max_records");
+    if (!field_max_records) {
+        return make_error(ErrorCode::decode, "missing required field 'max_records'");
+    }
+    if (field_max_records) {
+        auto decoded = decode_value<std::uint64_t>(*field_max_records);
+        if (!decoded) return std::move(decoded).error();
+        result.max_records = std::move(decoded).value();
+    }
+    const Json* field_records = value.find("records");
+    if (!field_records) {
+        return make_error(ErrorCode::decode, "missing required field 'records'");
+    }
+    if (field_records) {
+        auto decoded = decode_value<std::uint64_t>(*field_records);
+        if (!decoded) return std::move(decoded).error();
+        result.records = std::move(decoded).value();
+    }
+    const Json* field_resident_estimate_bytes = value.find("resident_estimate_bytes");
+    if (!field_resident_estimate_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'resident_estimate_bytes'");
+    }
+    if (field_resident_estimate_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_resident_estimate_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.resident_estimate_bytes = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsMemoryOutbound>::encode(const ServerStatsMemoryOutbound& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_budgets = encode_value(value.budgets);
+    if (!encoded_budgets) return std::move(encoded_budgets).error();
+    object.emplace("budgets", std::move(encoded_budgets).value());
+    auto encoded_connections = encode_value(value.connections);
+    if (!encoded_connections) return std::move(encoded_connections).error();
+    object.emplace("connections", std::move(encoded_connections).value());
+    auto encoded_control_retained_bytes = encode_value(value.control_retained_bytes);
+    if (!encoded_control_retained_bytes) return std::move(encoded_control_retained_bytes).error();
+    object.emplace("control_retained_bytes", std::move(encoded_control_retained_bytes).value());
+    auto encoded_graphic_cache_bytes = encode_value(value.graphic_cache_bytes);
+    if (!encoded_graphic_cache_bytes) return std::move(encoded_graphic_cache_bytes).error();
+    object.emplace("graphic_cache_bytes", std::move(encoded_graphic_cache_bytes).value());
+    auto encoded_graphic_cache_entries = encode_value(value.graphic_cache_entries);
+    if (!encoded_graphic_cache_entries) return std::move(encoded_graphic_cache_entries).error();
+    object.emplace("graphic_cache_entries", std::move(encoded_graphic_cache_entries).value());
+    auto encoded_retained_bytes = encode_value(value.retained_bytes);
+    if (!encoded_retained_bytes) return std::move(encoded_retained_bytes).error();
+    object.emplace("retained_bytes", std::move(encoded_retained_bytes).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsMemoryOutbound> Codec<ServerStatsMemoryOutbound>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsMemoryOutbound result{};
+    const Json* field_budgets = value.find("budgets");
+    if (!field_budgets) {
+        return make_error(ErrorCode::decode, "missing required field 'budgets'");
+    }
+    if (field_budgets) {
+        auto decoded = decode_value<std::uint64_t>(*field_budgets);
+        if (!decoded) return std::move(decoded).error();
+        result.budgets = std::move(decoded).value();
+    }
+    const Json* field_connections = value.find("connections");
+    if (!field_connections) {
+        return make_error(ErrorCode::decode, "missing required field 'connections'");
+    }
+    if (field_connections) {
+        auto decoded = decode_value<std::uint64_t>(*field_connections);
+        if (!decoded) return std::move(decoded).error();
+        result.connections = std::move(decoded).value();
+    }
+    const Json* field_control_retained_bytes = value.find("control_retained_bytes");
+    if (!field_control_retained_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'control_retained_bytes'");
+    }
+    if (field_control_retained_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_control_retained_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.control_retained_bytes = std::move(decoded).value();
+    }
+    const Json* field_graphic_cache_bytes = value.find("graphic_cache_bytes");
+    if (!field_graphic_cache_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'graphic_cache_bytes'");
+    }
+    if (field_graphic_cache_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_graphic_cache_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.graphic_cache_bytes = std::move(decoded).value();
+    }
+    const Json* field_graphic_cache_entries = value.find("graphic_cache_entries");
+    if (!field_graphic_cache_entries) {
+        return make_error(ErrorCode::decode, "missing required field 'graphic_cache_entries'");
+    }
+    if (field_graphic_cache_entries) {
+        auto decoded = decode_value<std::uint64_t>(*field_graphic_cache_entries);
+        if (!decoded) return std::move(decoded).error();
+        result.graphic_cache_entries = std::move(decoded).value();
+    }
+    const Json* field_retained_bytes = value.find("retained_bytes");
+    if (!field_retained_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'retained_bytes'");
+    }
+    if (field_retained_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_retained_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.retained_bytes = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsMemoryOutputStore>::encode(const ServerStatsMemoryOutputStore& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_capacity_estimate_bytes = encode_value(value.capacity_estimate_bytes);
+    if (!encoded_capacity_estimate_bytes) return std::move(encoded_capacity_estimate_bytes).error();
+    object.emplace("capacity_estimate_bytes", std::move(encoded_capacity_estimate_bytes).value());
+    auto encoded_logs = encode_value(value.logs);
+    if (!encoded_logs) return std::move(encoded_logs).error();
+    object.emplace("logs", std::move(encoded_logs).value());
+    auto encoded_pending_bytes = encode_value(value.pending_bytes);
+    if (!encoded_pending_bytes) return std::move(encoded_pending_bytes).error();
+    object.emplace("pending_bytes", std::move(encoded_pending_bytes).value());
+    auto encoded_tail_bytes = encode_value(value.tail_bytes);
+    if (!encoded_tail_bytes) return std::move(encoded_tail_bytes).error();
+    object.emplace("tail_bytes", std::move(encoded_tail_bytes).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsMemoryOutputStore> Codec<ServerStatsMemoryOutputStore>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsMemoryOutputStore result{};
+    const Json* field_capacity_estimate_bytes = value.find("capacity_estimate_bytes");
+    if (!field_capacity_estimate_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'capacity_estimate_bytes'");
+    }
+    if (field_capacity_estimate_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_capacity_estimate_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.capacity_estimate_bytes = std::move(decoded).value();
+    }
+    const Json* field_logs = value.find("logs");
+    if (!field_logs) {
+        return make_error(ErrorCode::decode, "missing required field 'logs'");
+    }
+    if (field_logs) {
+        auto decoded = decode_value<std::uint64_t>(*field_logs);
+        if (!decoded) return std::move(decoded).error();
+        result.logs = std::move(decoded).value();
+    }
+    const Json* field_pending_bytes = value.find("pending_bytes");
+    if (!field_pending_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'pending_bytes'");
+    }
+    if (field_pending_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_pending_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.pending_bytes = std::move(decoded).value();
+    }
+    const Json* field_tail_bytes = value.find("tail_bytes");
+    if (!field_tail_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'tail_bytes'");
+    }
+    if (field_tail_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_tail_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.tail_bytes = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsMemoryTerminal>::encode(const ServerStatsMemoryTerminal& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_bytes = encode_value(value.bytes);
+    if (!encoded_bytes) return std::move(encoded_bytes).error();
+    object.emplace("bytes", std::move(encoded_bytes).value());
+    if (value.scrollback_rows) {
+        auto encoded = encode_value(*value.scrollback_rows);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("scrollback_rows", std::move(encoded).value());
+    } else {
+        object.emplace("scrollback_rows", Json(nullptr));
+    }
+    auto encoded_state = encode_value(value.state);
+    if (!encoded_state) return std::move(encoded_state).error();
+    object.emplace("state", std::move(encoded_state).value());
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    if (value.terminal_id) {
+        auto encoded = encode_value(*value.terminal_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_id", std::move(encoded).value());
+    } else {
+        object.emplace("terminal_id", Json(nullptr));
+    }
+    return Json(std::move(object));
+}
+
+Result<ServerStatsMemoryTerminal> Codec<ServerStatsMemoryTerminal>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsMemoryTerminal result{};
+    const Json* field_bytes = value.find("bytes");
+    if (!field_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'bytes'");
+    }
+    if (field_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.bytes = std::move(decoded).value();
+    }
+    const Json* field_scrollback_rows = value.find("scrollback_rows");
+    if (!field_scrollback_rows) {
+        return make_error(ErrorCode::decode, "missing required field 'scrollback_rows'");
+    }
+    if (field_scrollback_rows) {
+        if (field_scrollback_rows->is_null()) {
+            result.scrollback_rows.reset();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_scrollback_rows);
+            if (!decoded) return std::move(decoded).error();
+            result.scrollback_rows = std::move(decoded).value();
+        }
+    }
+    const Json* field_state = value.find("state");
+    if (!field_state) {
+        return make_error(ErrorCode::decode, "missing required field 'state'");
+    }
+    if (field_state) {
+        auto decoded = decode_value<std::string>(*field_state);
+        if (!decoded) return std::move(decoded).error();
+        result.state = std::move(decoded).value();
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<std::uint64_t>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (!field_terminal_id) {
+        return make_error(ErrorCode::decode, "missing required field 'terminal_id'");
+    }
+    if (field_terminal_id) {
+        if (field_terminal_id->is_null()) {
+            result.terminal_id.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_terminal_id);
+            if (!decoded) return std::move(decoded).error();
+            result.terminal_id = std::move(decoded).value();
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsMemoryTerminals>::encode(const ServerStatsMemoryTerminals& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_alternate_screen_bytes = encode_value(value.alternate_screen_bytes);
+    if (!encoded_alternate_screen_bytes) return std::move(encoded_alternate_screen_bytes).error();
+    object.emplace("alternate_screen_bytes", std::move(encoded_alternate_screen_bytes).value());
+    auto encoded_bytes = encode_value(value.bytes);
+    if (!encoded_bytes) return std::move(encoded_bytes).error();
+    object.emplace("bytes", std::move(encoded_bytes).value());
+    auto encoded_cold_held_bytes = encode_value(value.cold_held_bytes);
+    if (!encoded_cold_held_bytes) return std::move(encoded_cold_held_bytes).error();
+    object.emplace("cold_held_bytes", std::move(encoded_cold_held_bytes).value());
+    auto encoded_cold_terminals = encode_value(value.cold_terminals);
+    if (!encoded_cold_terminals) return std::move(encoded_cold_terminals).error();
+    object.emplace("cold_terminals", std::move(encoded_cold_terminals).value());
+    auto encoded_holder_ring_bytes = encode_value(value.holder_ring_bytes);
+    if (!encoded_holder_ring_bytes) return std::move(encoded_holder_ring_bytes).error();
+    object.emplace("holder_ring_bytes", std::move(encoded_holder_ring_bytes).value());
+    auto encoded_kitty_image_bytes = encode_value(value.kitty_image_bytes);
+    if (!encoded_kitty_image_bytes) return std::move(encoded_kitty_image_bytes).error();
+    object.emplace("kitty_image_bytes", std::move(encoded_kitty_image_bytes).value());
+    auto encoded_scrollback_compressed_bytes = encode_value(value.scrollback_compressed_bytes);
+    if (!encoded_scrollback_compressed_bytes) return std::move(encoded_scrollback_compressed_bytes).error();
+    object.emplace("scrollback_compressed_bytes", std::move(encoded_scrollback_compressed_bytes).value());
+    auto encoded_scrollback_live_bytes = encode_value(value.scrollback_live_bytes);
+    if (!encoded_scrollback_live_bytes) return std::move(encoded_scrollback_live_bytes).error();
+    object.emplace("scrollback_live_bytes", std::move(encoded_scrollback_live_bytes).value());
+    auto encoded_scrollback_rows = encode_value(value.scrollback_rows);
+    if (!encoded_scrollback_rows) return std::move(encoded_scrollback_rows).error();
+    object.emplace("scrollback_rows", std::move(encoded_scrollback_rows).value());
+    auto encoded_terminals = encode_value(value.terminals);
+    if (!encoded_terminals) return std::move(encoded_terminals).error();
+    object.emplace("terminals", std::move(encoded_terminals).value());
+    auto encoded_top = encode_value(value.top);
+    if (!encoded_top) return std::move(encoded_top).error();
+    object.emplace("top", std::move(encoded_top).value());
+    auto encoded_unmeasured = encode_value(value.unmeasured);
+    if (!encoded_unmeasured) return std::move(encoded_unmeasured).error();
+    object.emplace("unmeasured", std::move(encoded_unmeasured).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsMemoryTerminals> Codec<ServerStatsMemoryTerminals>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsMemoryTerminals result{};
+    const Json* field_alternate_screen_bytes = value.find("alternate_screen_bytes");
+    if (!field_alternate_screen_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'alternate_screen_bytes'");
+    }
+    if (field_alternate_screen_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_alternate_screen_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.alternate_screen_bytes = std::move(decoded).value();
+    }
+    const Json* field_bytes = value.find("bytes");
+    if (!field_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'bytes'");
+    }
+    if (field_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.bytes = std::move(decoded).value();
+    }
+    const Json* field_cold_held_bytes = value.find("cold_held_bytes");
+    if (!field_cold_held_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'cold_held_bytes'");
+    }
+    if (field_cold_held_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_cold_held_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.cold_held_bytes = std::move(decoded).value();
+    }
+    const Json* field_cold_terminals = value.find("cold_terminals");
+    if (!field_cold_terminals) {
+        return make_error(ErrorCode::decode, "missing required field 'cold_terminals'");
+    }
+    if (field_cold_terminals) {
+        auto decoded = decode_value<std::uint64_t>(*field_cold_terminals);
+        if (!decoded) return std::move(decoded).error();
+        result.cold_terminals = std::move(decoded).value();
+    }
+    const Json* field_holder_ring_bytes = value.find("holder_ring_bytes");
+    if (!field_holder_ring_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'holder_ring_bytes'");
+    }
+    if (field_holder_ring_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_holder_ring_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.holder_ring_bytes = std::move(decoded).value();
+    }
+    const Json* field_kitty_image_bytes = value.find("kitty_image_bytes");
+    if (!field_kitty_image_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'kitty_image_bytes'");
+    }
+    if (field_kitty_image_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_kitty_image_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.kitty_image_bytes = std::move(decoded).value();
+    }
+    const Json* field_scrollback_compressed_bytes = value.find("scrollback_compressed_bytes");
+    if (!field_scrollback_compressed_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'scrollback_compressed_bytes'");
+    }
+    if (field_scrollback_compressed_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_scrollback_compressed_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.scrollback_compressed_bytes = std::move(decoded).value();
+    }
+    const Json* field_scrollback_live_bytes = value.find("scrollback_live_bytes");
+    if (!field_scrollback_live_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'scrollback_live_bytes'");
+    }
+    if (field_scrollback_live_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_scrollback_live_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.scrollback_live_bytes = std::move(decoded).value();
+    }
+    const Json* field_scrollback_rows = value.find("scrollback_rows");
+    if (!field_scrollback_rows) {
+        return make_error(ErrorCode::decode, "missing required field 'scrollback_rows'");
+    }
+    if (field_scrollback_rows) {
+        auto decoded = decode_value<std::uint64_t>(*field_scrollback_rows);
+        if (!decoded) return std::move(decoded).error();
+        result.scrollback_rows = std::move(decoded).value();
+    }
+    const Json* field_terminals = value.find("terminals");
+    if (!field_terminals) {
+        return make_error(ErrorCode::decode, "missing required field 'terminals'");
+    }
+    if (field_terminals) {
+        auto decoded = decode_value<std::uint64_t>(*field_terminals);
+        if (!decoded) return std::move(decoded).error();
+        result.terminals = std::move(decoded).value();
+    }
+    const Json* field_top = value.find("top");
+    if (!field_top) {
+        return make_error(ErrorCode::decode, "missing required field 'top'");
+    }
+    if (field_top) {
+        auto decoded = decode_value<std::vector<ServerStatsMemoryTerminal>>(*field_top);
+        if (!decoded) return std::move(decoded).error();
+        result.top = std::move(decoded).value();
+    }
+    const Json* field_unmeasured = value.find("unmeasured");
+    if (!field_unmeasured) {
+        return make_error(ErrorCode::decode, "missing required field 'unmeasured'");
+    }
+    if (field_unmeasured) {
+        auto decoded = decode_value<std::uint64_t>(*field_unmeasured);
+        if (!decoded) return std::move(decoded).error();
+        result.unmeasured = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<ServerStatsMethodLatency>::encode(const ServerStatsMethodLatency& value) {
     (void)value;
     Json::Object object;
@@ -14122,6 +14636,11 @@ Result<Json> Codec<ServerStatsResult>::encode(const ServerStatsResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("lock_classes", std::move(encoded).value());
     }
+    if (value.memory) {
+        auto encoded = encode_value(*value.memory);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("memory", std::move(encoded).value());
+    }
     auto encoded_registry_lock = encode_value(value.registry_lock);
     if (!encoded_registry_lock) return std::move(encoded_registry_lock).error();
     object.emplace("registry_lock", std::move(encoded_registry_lock).value());
@@ -14214,6 +14733,12 @@ Result<ServerStatsResult> Codec<ServerStatsResult>::decode(const Json& value) {
         auto decoded = decode_value<ServerStatsLockClasses>(*field_lock_classes);
         if (!decoded) return std::move(decoded).error();
         result.lock_classes = std::move(decoded).value();
+    }
+    const Json* field_memory = value.find("memory");
+    if (field_memory) {
+        auto decoded = decode_value<ServerStatsMemory>(*field_memory);
+        if (!decoded) return std::move(decoded).error();
+        result.memory = std::move(decoded).value();
     }
     const Json* field_registry_lock = value.find("registry_lock");
     if (!field_registry_lock) {

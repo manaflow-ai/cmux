@@ -581,12 +581,13 @@ Reports where the daemon spends its time so an operator or agent can locate a
 bottleneck without sampling the process: registry mutex contention with the
 source site that holds it, journal writer batch shape and commit latency, and
 control-socket admission. Counters accumulate since daemon start. The command
-reads atomics and never touches SQLite or the journal, so it is safe to poll.
+reads atomics and never touches SQLite or the journal, so it is safe to poll;
+the optional `memory` section also takes each owner's own lock briefly (below).
 
 Params: `{include?: array<string>|null}`. `include` names optional result
 sections: `resource_projection`, `write_path`, `request_path_io`,
-`slow_requests`, `requests`, `ipc`, `lock_classes`, `ipc_methods` and
-`hangs`; unknown names are ignored.
+`slow_requests`, `requests`, `ipc`, `lock_classes`, `ipc_methods`, `hangs`
+and `memory`; unknown names are ignored.
 
 `lock_classes` reports wait and hold by class on the three locks that admit by
 class: the workspace registry, the registry connection (first acquisitions) and
@@ -671,6 +672,24 @@ object{
   hangs?:object{
     over_250ms:uint64,
     records:array<object{sequence:uint64, span:string, duration_ms:uint64}>
+  },
+  memory?:object{
+    terminals:object{
+      terminals:uint64, unmeasured:uint64, cold_terminals:uint64,
+      cold_held_bytes:uint64, scrollback_live_bytes:uint64,
+      scrollback_compressed_bytes:uint64, alternate_screen_bytes:uint64,
+      kitty_image_bytes:uint64, holder_ring_bytes:uint64,
+      scrollback_rows:uint64, bytes:uint64,
+      top:array<object{surface:uint64, terminal_id:string|null,
+        state:"hot"|"cold"|"unknown", bytes:uint64, scrollback_rows:uint64|null}>
+    },
+    output_store:object{logs:uint64, tail_bytes:uint64, pending_bytes:uint64,
+      capacity_estimate_bytes:uint64},
+    journal_ring:object{records:uint64, max_records:uint64,
+      resident_estimate_bytes:uint64, max_estimate_bytes:uint64},
+    outbound:object{connections:uint64, budgets:uint64, retained_bytes:uint64,
+      control_retained_bytes:uint64, graphic_cache_entries:uint64,
+      graphic_cache_bytes:uint64}
   }
 }
 kind_count = object{kind:string,messages:uint64,bytes:uint64}
@@ -868,6 +887,42 @@ why: `run-ended` (the request ended before the watchdog stopped its thread,
 including one first seen after it ended), `unsupported` (no capture on this
 OS), `suspend-failed`, `thread-state-failed`, `signal-failed` or `timeout`
 (the thread did not answer the signal in 50 ms).
+
+`memory` says which of the daemon's own owners holds its memory, so a
+footprint that grows over hours points at one. Each number is a length,
+capacity or counter the owner already keeps, read when the request arrives;
+the daemon keeps no sampler or timer for it. No read takes the workspace
+registry lock, and each owner's lock is held only for its own reads:
+`terminals` holds the mux state lock while it clones the PTY surface handles,
+then each terminal's lock for libghostty-vt's memory-usage read and its
+scrollback row count (the reads `memory-report` makes, which reports the same
+byte fields as its `totals`). `terminals` counts PTY terminals and
+`unmeasured` those moving between hot and cold or that libghostty-vt could
+not report; `scrollback_rows` counts the rows above the viewport of the hot
+ones; `bytes` is the sum of the byte fields and of every terminal's `bytes`
+(a hot terminal's pages of both screens and Kitty images, a cold terminal's
+compressed state, plus its holder ring copy); `top` lists the 5 terminals that
+hold the most, by surface and terminal id only. `output_store` reads each
+terminal output log under its own lock: `tail_bytes` is the raw output kept
+for `terminal.output_read` (at most 64 KiB a terminal), `pending_bytes` the
+full-mode output not yet in a segment file, and `capacity_estimate_bytes` the
+allocated capacity of those buffers. `journal_ring` is the journal kernel's
+ring of decoded records that live subscribers share, read under its lock;
+`resident_estimate_bytes` is the ring's own budget per record (the decoded
+record plus an upper bound of its wire and search encodings), and it drops its
+oldest record past `max_records` or `max_estimate_bytes`. `outbound` is
+encoded text on its way to clients at its allocated capacity, from encode
+until its last copy drops, as the listeners' byte budgets count it:
+`retained_bytes` for events, stream items and attach frames,
+`control_retained_bytes` for replies and stream terminals; `budgets` counts
+the distinct listener budgets the registered `connections` share, and
+`graphic_cache_*` the render graphic base64 caches. Not reported, because
+their owners keep no byte count: the workspace registry's resource store and
+presentation snapshot, the journal writer's queues (their item counts are
+`journal_writer.terminal_queued` and `durable_queued`), agent, presence and
+notification state, closed-history, sidebar and agent inventory caches, the
+conversation store, the history search index, SQLite page caches, thread
+stacks and allocator overhead. The process footprint is in `memory-report`.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at

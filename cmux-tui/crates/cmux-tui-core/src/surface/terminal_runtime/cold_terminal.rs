@@ -143,10 +143,17 @@ impl TerminalCell {
 
     /// The terminal's memory; a cold terminal stays cold. `None` while it
     /// moves between hot and cold, or when libghostty-vt cannot report it.
+    /// Holds the terminal lock for libghostty-vt's memory-usage read and one
+    /// scrollback row count, no other work.
     pub(crate) fn memory(&self) -> Option<TerminalMemory> {
         let slot = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
         match &slot.0 {
-            SlotState::Hot(terminal) => terminal.memory_usage().ok().map(TerminalMemory::Hot),
+            SlotState::Hot(terminal) => {
+                terminal.memory_usage().ok().map(|usage| TerminalMemory::Hot {
+                    usage,
+                    scrollback_rows: u64::try_from(terminal.scrollback_rows()).unwrap_or(u64::MAX),
+                })
+            }
             SlotState::Cold { terminal, .. } => Some(TerminalMemory::Cold {
                 held_bytes: u64::try_from(terminal.held_bytes()).unwrap_or(u64::MAX),
                 snapshot_bytes: terminal.snapshot_bytes(),

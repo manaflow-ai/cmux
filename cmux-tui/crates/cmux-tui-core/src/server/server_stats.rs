@@ -49,6 +49,10 @@ const IPC_METHODS: &str = "ipc_methods";
 /// The optional section that counts watched scopes busy past 250 ms, with
 /// their span and duration (request_watchdog.rs, cmux-tui-util `hang_watch`).
 const HANGS: &str = "hangs";
+/// The optional section that reports the daemon's own large in-memory
+/// owners: terminals, output store, journal ring and outbound text
+/// (server/memory_stats.rs).
+const MEMORY: &str = "memory";
 
 /// Read every counter; sections outside `include` stay absent so older SDK
 /// decoders, which refuse unknown result fields, keep working.
@@ -75,6 +79,7 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
         ipc_methods: wants(IPC_METHODS)
             .then(|| mux.request_stats().methods().snapshot(RequestMethod::of_slot)),
         hangs: wants(HANGS).then(|| mux.request_watchdog.hangs()),
+        memory: wants(MEMORY).then(|| super::memory_stats::memory(mux)),
     }
 }
 
