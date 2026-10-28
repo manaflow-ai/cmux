@@ -148,7 +148,6 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>) {
     if let Some(active) = active {
         active.stop().await;
     }
-    close_node(&controller).await;
 }
 
 async fn close_node(controller: &Controller) {

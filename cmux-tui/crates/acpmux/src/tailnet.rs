@@ -20,7 +20,7 @@ use wait_timeout::ChildExt;
 
 #[cfg(all(unix, feature = "tailnet"))]
 pub mod embedded;
-#[cfg(feature = "tailnet")]
+#[cfg(all(unix, feature = "tailnet"))]
 pub(crate) mod embedded_service;
 
 /// How long one CLI call may take (status on a large tailnet is the
