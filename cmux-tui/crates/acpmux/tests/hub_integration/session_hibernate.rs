@@ -25,14 +25,14 @@ sleep 100000 </dev/null >/dev/null 2>&1 &
 echo $! >> "$d/sidecar"
 exec python3 "$f""#;
 
-struct Rig {
-    hub: Arc<Hub>,
-    c: TestClient,
+pub(super) struct Rig {
+    pub(super) hub: Arc<Hub>,
+    pub(super) c: TestClient,
     clock: Arc<ManualClock>,
-    dir: PathBuf,
+    pub(super) dir: PathBuf,
 }
 
-async fn rig(policy: PermissionPolicy) -> Rig {
+pub(super) async fn rig(policy: PermissionPolicy) -> Rig {
     let dir = std::env::temp_dir().join(format!("acpmux-hibernate-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&dir).unwrap();
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
@@ -70,17 +70,17 @@ async fn rig(policy: PermissionPolicy) -> Rig {
 }
 
 impl Rig {
-    fn status(&self, id: &str) -> Value {
+    pub(super) fn status(&self, id: &str) -> Value {
         self.hub.session_summary(&self.hub.resolve(id).unwrap())["status"].clone()
     }
 
     /// The pids `$dir/<file>` recorded, oldest first.
-    fn pids(&self, file: &str) -> Vec<u32> {
+    pub(super) fn pids(&self, file: &str) -> Vec<u32> {
         let text = std::fs::read_to_string(self.dir.join(file)).unwrap_or_default();
         text.lines().filter_map(|l| l.trim().parse().ok()).collect()
     }
 
-    async fn until(&self, what: &str, done: impl Fn() -> bool) {
+    pub(super) async fn until(&self, what: &str, done: impl Fn() -> bool) {
         let deadline = std::time::Instant::now() + Duration::from_secs(20);
         while !done() {
             assert!(std::time::Instant::now() < deadline, "{what}");
@@ -89,7 +89,7 @@ impl Rig {
     }
 
     /// Idles `id` past its 2 minutes and waits until its harness and MCP server are gone.
-    async fn hibernate(&self, id: &str) {
+    pub(super) async fn hibernate(&self, id: &str) {
         self.clock.advance(IDLE + Duration::from_secs(1));
         self.hibernated(id).await;
     }
@@ -120,7 +120,7 @@ impl Drop for Rig {
 }
 
 /// Whether `pid` runs (a zombie, ended but not reaped yet, does not).
-fn alive(pid: u32) -> bool {
+pub(super) fn alive(pid: u32) -> bool {
     let out = std::process::Command::new("ps")
         .args(["-o", "stat=", "-p", &pid.to_string()])
         .output()

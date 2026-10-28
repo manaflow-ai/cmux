@@ -137,6 +137,15 @@ class PerTest(unittest.TestCase):
         self.assertEqual(reds.read(log("◇ Test run started.", "━ Test run with 1 test in 1 suite passed after 0.1 "
                                        "seconds with 1 known issue.")).truncated, [])
 
+    def test_a_test_that_passed_with_a_known_issue_finished(self):
+        # cmux-next daemon tests, run 40705037968: aRunCutOffMidwayFinishesWithoutDuplicates passed with a
+        # known issue ("━ Test ... passed ... with 1 known issue") and was read as started and never finished.
+        run = log("◇ Test run started.", "◇ Test a() started.",
+                  "━ Test a() recorded a known issue at A.swift:1:1: Expectation failed",
+                  "━ Test a() passed after 9.5 seconds with 1 known issue.",
+                  "━ Test run with 1 test in 1 suite passed after 9.5 seconds with 1 known issue.")
+        self.assertEqual(reds.read(run).truncated, [])
+
     def test_the_bundle_runners_exited_line_is_a_crash_after_a_shared_failure(self):
         crash = log("◇ Test run started.", failed("a()"), "✘ Test a() failed after 0.1 seconds with 1 issue.",
                     "error: Exited with unexpected signal code 6")

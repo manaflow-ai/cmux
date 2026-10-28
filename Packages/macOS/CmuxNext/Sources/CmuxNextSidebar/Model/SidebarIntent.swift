@@ -64,6 +64,8 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case newProfile
     /// Move a profile to an insertion index (dot drag).
     case reorderProfile(ProfileKey, index: Int)
+    /// Open a space in a new window (a dot dragged out of the window; spaces-overhaul-DESIGN.md rule 4).
+    case openProfileInNewWindow(ProfileKey)
     /// Run an item of a pinned section (a built-in's action, a pinned
     /// workspace). plans/cmux-next/sidebar-sections.md
     case activateItem(LayoutItemID, opensWorkspace: Bool = false)
