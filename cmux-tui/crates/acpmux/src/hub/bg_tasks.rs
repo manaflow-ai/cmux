@@ -225,7 +225,9 @@ impl Hub {
         let dir = self.bg_dir(session);
         let aside = crate::config::home().join("bg").join(".purged");
         bg_sweep(&aside);
-        let ids: Vec<String> = self.bg_records(&dir).into_iter().map(|r| r.id).collect();
+        // Every task the folder holds, from its files, not its records: a record that cannot be
+        // read still has a runner to stop. A folder that cannot be listed fails the purge.
+        let ids = bg_task_ids(&dir).map_err(internal)?;
         if ids.is_empty() {
             let _ = std::fs::remove_dir_all(&dir);
             return bg_cleared(&dir);
@@ -260,16 +262,30 @@ fn bg_sweep(aside: &std::path::Path) {
     }
 }
 
-/// Removes a purged chat's moved folder once nothing holds any of its locks.
+/// Removes a purged chat's moved folder once nothing holds any of its locks. A folder that
+/// cannot be listed stays.
 fn bg_sweep_one(dir: &std::path::Path) {
-    let locks = std::fs::read_dir(dir).into_iter().flatten().flatten().filter_map(|e| {
-        let name = e.file_name().into_string().ok()?;
-        name.strip_suffix(".lock").map(str::to_owned)
-    });
-    let ids: Vec<String> = locks.collect();
-    if ids.iter().all(|id| bg_gone(dir, id)) {
+    if bg_task_ids(dir).is_ok_and(|ids| ids.iter().all(|id| bg_gone(dir, id))) {
         let _ = std::fs::remove_dir_all(dir);
     }
+}
+
+/// The ids of every task a folder holds files of (its lock or stop FIFO); none when the folder
+/// is gone, an error when it cannot be listed.
+fn bg_task_ids(dir: &std::path::Path) -> std::io::Result<Vec<String>> {
+    let entries = match std::fs::read_dir(dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        r => r?,
+    };
+    let mut ids = std::collections::BTreeSet::new();
+    for entry in entries {
+        let name = entry?.file_name();
+        let name = name.to_string_lossy();
+        if let Some(id) = name.strip_suffix(".lock").or_else(|| name.strip_suffix(".ctl")) {
+            ids.insert(id.to_owned());
+        }
+    }
+    Ok(ids.into_iter().collect())
 }
 
 /// The folder's generation (`.generation`, made with the folder's first task when `make`).

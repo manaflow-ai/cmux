@@ -284,3 +284,18 @@ async fn a_purge_does_not_wait_for_a_stubborn_task_and_clears_its_files_after() 
     };
     r.until("the moved folder stayed after its task exited", || !moved()).await;
 }
+
+/// A purge stops a task whose record cannot be read: it finds tasks by their files.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_purge_stops_a_task_whose_record_is_unreadable() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "unreadable").await;
+    let task = start(&mut r, &id, "sleep 600").await;
+    let (task_id, pid) = (task["id"].as_str().unwrap().to_owned(), task["pid"].as_u64().unwrap());
+    let dir = acpmux::config::home().join("bg").join(&id);
+    std::fs::write(dir.join(format!("{task_id}.json")), "not json").unwrap();
+    r.c.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await.unwrap();
+    r.until("a purge left a task with an unreadable record running", || !alive(pid as u32)).await;
+}
