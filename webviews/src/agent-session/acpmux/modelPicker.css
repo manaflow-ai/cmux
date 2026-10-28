@@ -573,3 +573,25 @@
 .acpmux-quick-menu.acpmux-quick-placement-compact:has(.acpmux-quick-efforts) .acpmux-quick-rail {
   flex-basis: 76px;
 }
+.acpmux-quick-width-probe {
+  display: inline-flex;
+  flex-direction: column;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  max-height: 0;
+  overflow: visible;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.acpmux-quick-width-probe-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ui-row-height);
+  padding-inline: var(--ui-row-padding-inline);
+}
+.acpmux-quick-width-probe-efforts {
+  display: inline-flex;
+  gap: var(--ds-space-1);
+}

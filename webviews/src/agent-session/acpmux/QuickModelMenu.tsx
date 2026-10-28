@@ -749,6 +749,26 @@ export function QuickModelMenu({
       )}
     </>
   );
+  // Keep the compact surface's intrinsic width stable while switching harness tabs. The probe is
+  // zero-height and hidden, but its widest model plus inline effort segments still participates in
+  // the popup's max-content measurement. This prevents a tab change from moving the rail or
+  // pushing the segments past the narrow chat boundary.
+  const widthProbe = families ? (
+    <div className="acpmux-quick-width-probe" aria-hidden="true">
+      {families.list.flatMap((family) => [...family.models, ...family.more]).map((model) => (
+        <div className="acpmux-quick-width-probe-row" key={`${model.family}\u0000${model.id}`}>
+          <span className="acpmux-menu-label">{model.name}</span>
+          {menu.inlineEffort === true && (
+            <span className="acpmux-quick-width-probe-efforts">
+              {(model.efforts?.length ? model.efforts : effort?.levels.map((choice) => choice.id) ?? []).map((id) => (
+                <span key={id}>{id}</span>
+              ))}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  ) : null;
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
       <MenuButton className="acpmux-picker-button" aria-haspopup="menu" buttonRef={trigger} {...chip}>
@@ -767,6 +787,7 @@ export function QuickModelMenu({
         // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
         onKeyDown={keyDown}
       >
+        {widthProbe}
         {showField && (
           <div className="acpmux-quick-search">
             <SearchIcon size={14} />

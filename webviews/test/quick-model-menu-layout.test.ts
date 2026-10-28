@@ -125,6 +125,26 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
+  test("inline effort controls keep a narrow railed menu inside the viewport when switching harnesses", async () => {
+    const page = await open("claude-many-harnesses", 320, 560);
+    try {
+      const menu = await bounds(page, ".acpmux-quick-menu");
+      const rail = await bounds(page, ".acpmux-quick-rail");
+      await page.getByRole("button", { name: "Codex", exact: true }).click();
+      await page.waitForFunction(
+        () => document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Codex",
+      );
+      const switched = await bounds(page, ".acpmux-quick-menu");
+      const switchedRail = await bounds(page, ".acpmux-quick-rail");
+      expect(switched.width).toBeLessThanOrEqual(296);
+      expect(switched.x + switched.width).toBeLessThanOrEqual(320);
+      expect(Math.abs(switched.width - menu.width)).toBeLessThan(1);
+      expect(Math.abs(switchedRail.x - rail.x)).toBeLessThan(1);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("a midpoint menu keeps its opening side as tall content becomes short", async () => {
     const page = await open("newtab-midpoint");
     try {
