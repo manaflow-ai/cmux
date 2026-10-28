@@ -10,6 +10,8 @@ type Model = {
   offers?: readonly { id: string; release?: string; family?: string; unavailable?: string }[];
 };
 
+const familyToken = (value: string) => value.toLowerCase().replace(/[\s_-]+/g, "");
+
 /** Unknown family names stay data: remove version tokens, not a maintained list of model names. */
 function familyKey(model: Model, knownFamilies: readonly string[] = []): string {
   const parts = (model.release ?? model.id).split("/");
@@ -21,12 +23,12 @@ function familyKey(model: Model, knownFamilies: readonly string[] = []): string 
     .replace(/[-_]+/g, "-")
     .replace(/^-|-$/g, "");
   const explicit = model.family ?? model.offers?.find((offer) => offer.family)?.family;
-  if (explicit) return `${vendor}\u0000${explicit}`.toLowerCase();
+  if (explicit) return `${vendor}\u0000${familyToken(explicit)}`;
   // A probe may omit family metadata while a catalog row supplies it (claude-sonnet vs Sonnet).
   // Reuse the explicit family when the inferred id ends in that family name.
-  const normalized = inferred.toLowerCase();
-  const matching = knownFamilies.find((family) => normalized === family || normalized.endsWith(`-${family}`));
-  return `${vendor}\u0000${matching ?? inferred}`.toLowerCase();
+  const normalized = familyToken(inferred);
+  const matching = knownFamilies.find((family) => normalized === familyToken(family) || normalized.endsWith(familyToken(family)));
+  return `${vendor}\u0000${familyToken(matching ?? inferred)}`;
 }
 
 const version = (model: Model) =>
@@ -59,7 +61,7 @@ export function relevantModelSections<T extends Model>(
       models.flatMap((model) => [
         ...(model.family ? [model.family] : []),
         ...(model.offers?.flatMap((offer) => (offer.family ? [offer.family] : [])) ?? []),
-      ]).map((family) => family.toLowerCase()),
+      ]),
     ),
   ];
   const chosen = new Set<T>();

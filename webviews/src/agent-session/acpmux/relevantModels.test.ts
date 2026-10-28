@@ -45,6 +45,17 @@ test("normalizes inferred and explicit family metadata together", () => {
   expect(sections.more.map((model) => model.id)).toEqual(["claude-sonnet-4"]);
 });
 
+test("normalizes hyphenated inferred ids to spaced catalog families", () => {
+  const models = [
+    { id: "gemini-3-flash-lite", name: "Gemini 3 Flash Lite" },
+    { id: "gemini-4-flash-lite", name: "Gemini 4 Flash Lite", family: "Flash Lite" },
+    { id: "gemini-4-pro", name: "Gemini 4 Pro", family: "Pro" },
+  ];
+  const sections = relevantModelSections(models, undefined, "gemini-3-flash-lite");
+  expect(sections.shown.map((model) => model.id)).toEqual(["gemini-4-flash-lite", "gemini-4-pro"]);
+  expect(sections.more.map((model) => model.id)).toEqual(["gemini-3-flash-lite"]);
+});
+
 test("infers the active family when reports omit family metadata", () => {
   const models = [
     { id: "opus-5-5", name: "Opus 5.5" },
