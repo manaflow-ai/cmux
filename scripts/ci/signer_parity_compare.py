@@ -781,8 +781,9 @@ def strict_cms(ca: bytes, cb: bytes, cds_a: dict, cds_b: dict, labels=("A", "B")
         same_signed = (sa["signed"] and der(sa["signed"])) == (sb["signed"] and der(sb["signed"]))
         if same_signed and sa["signature"].value != sb["signature"].value:
             out.append(f"{where}: the signature differs although the signed attributes are identical")
-    fa = framing_issues(pa["root"], skip[0]) + (["trailing bytes after the CMS"] if pa["trailing"] else [])
-    fb = framing_issues(pb["root"], skip[1]) + (["trailing bytes after the CMS"] if pb["trailing"] else [])
+    if pa["trailing"] != pb["trailing"]:
+        out.append(f"CMS: bytes after the CMS differ ({len(pa['trailing'])} / {len(pb['trailing'])} bytes)")
+    fa, fb = framing_issues(pa["root"], skip[0]), framing_issues(pb["root"], skip[1])
     for issue in sorted(set(fa) ^ set(fb)):
         out.append(FRAMING + f"CMS ({labels[0] if issue in fa else labels[1]} only): {issue}")
     return out
@@ -814,6 +815,13 @@ def strict_slice(a: bytes, b: bytes, labels=("A", "B")):
     if list(ba) != list(bb):
         return [f"signature blobs differ ({', '.join(map(hex, ba))} / {', '.join(map(hex, bb))})"], []
     out, slots = [], []
+    for side, body in zip(labels, (a, b)):
+        sig = code_signature_command(body)
+        count = struct.unpack(">I", body[sig[0] + 8:sig[0] + 12])[0]
+        if len(blob_offsets(body)) != count:
+            out.append(f"the signature index names a blob type twice ({side})")
+    if out:
+        return out, slots
     for side, blob in zip(labels, (ba.get(0x10000), bb.get(0x10000))):
         if blob is None or struct.unpack(">I", blob[:4])[0] != CMS_WRAPPER_MAGIC:
             out.append(f"no CMS signature blob ({side})" if blob is None else f"the CMS blob's magic is not 0xfade0b01 ({side})")
@@ -851,6 +859,56 @@ def strict_slice(a: bytes, b: bytes, labels=("A", "B")):
     return out, slots
 
 
+def label_path(name):
+    """The item path in a hash_names() label ("<sha256 of PATH>", "<sha256 of PATH [arm64] CodeDirectory 0x0>")."""
+    if not name:
+        return None
+    return name.split(" of ", 1)[1][:-1].split(" [", 1)[0]
+
+
+HASH_FIELDS = {"hash", "hash2", "cdhash"}
+
+
+def resources_named(plist, home: str, names: dict):
+    """A CodeResources property list with each digest named, but only in its hash
+    fields and only when the digest is of that entry's own path (a file's bytes)
+    or of a CodeDirectory of the nested code at that path."""
+    if not isinstance(plist, dict):
+        return plist
+
+    def name(digest, entry):
+        label = names.get(digest) if isinstance(digest, bytes) else None
+        path = label_path(label)
+        own = os.path.normpath(os.path.join(home, entry)) if home else os.path.normpath(entry)
+        return label if path and (path == own or path.startswith(own + "/")) else digest
+
+    out = dict(plist)
+    for section in ("files", "files2"):
+        entries = plist.get(section)
+        if not isinstance(entries, dict):
+            continue
+        out[section] = {}
+        for entry, value in entries.items():
+            if isinstance(value, bytes):
+                value = name(value, entry)
+            elif isinstance(value, dict):
+                value = {k: name(v, entry) if k in HASH_FIELDS else v for k, v in value.items()}
+            out[section][entry] = value
+    return out
+
+
+def manifest_named(data: bytes, rel: str, names: dict) -> bytes:
+    """A manifest's raw bytes with each binary's checksum named, only when it is
+    the sha256 of that binary and appears once."""
+    folder = os.path.dirname(rel)
+    by_hex = {d.hex(): n for d, n in names.items() if len(d) == 32}
+    for entry, digest in json.loads(data)["binaries"].items():
+        label = by_hex.get(digest)
+        if label and label_path(label) == os.path.join(folder, entry) and data.count(digest.encode()) == 1:
+            data = data.replace(digest.encode(), label.encode())
+    return data
+
+
 def is_framing(diffs: list) -> bool:
     return bool(diffs) and all(d.split("] ", 1)[-1].startswith(FRAMING) for d in diffs)
 
@@ -883,6 +941,14 @@ def signature_dir_errors(a_root: str, b_root: str, labels) -> dict:
                 path = os.path.join(root, rel, name)
                 if os.path.islink(path) or not os.path.isfile(path):
                     errors.append(f"{name} ({side}) is not a regular file")
+        def mode(root, *names):
+            path = os.path.join(root, rel, *names)
+            return oct(stat.S_IMODE(os.lstat(path).st_mode)) if os.path.lexists(path) else None
+        if rel in da and rel in db:
+            for name in [None] + sorted(set(da[rel]) & set(db[rel])):
+                ma, mb = (mode(r, *([name] if name else [])) for r in (a_root, b_root))
+                if ma != mb:
+                    errors.append(f"{name or 'the directory'}: mode differs ({ma} / {mb})")
         for name in sorted(set(da.get(rel, [])) & set(db.get(rel, [])) - {"CodeResources"}):
             pa, pb = os.path.join(a_root, rel, name), os.path.join(b_root, rel, name)
             if os.path.isfile(pa) and os.path.isfile(pb):
@@ -914,7 +980,7 @@ def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tupl
     repeats until nothing changes. Then, for the report only, an item whose
     differences are framing, or hashes of items that differ only by framing,
     is marked framing only; it still fails."""
-    lines, verdicts, pending, raw = [], {}, {}, {}
+    lines, verdicts, pending, raw, sealed = [], {}, {}, {}, {}
     for rel, (pa, pb, da, db) in sorted(machos.items()):
         raw[rel] = (da, db)
         diffs, slots = [], []
@@ -926,6 +992,12 @@ def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tupl
             diffs += [f"[{arch}] {m}" for m in d]
             slots += s
         pending[rel] = ("macho", diffs, slots, (da, db), (pa, pb))
+        if slots:
+            # The CodeResources slot of a bundle's main executable seals that bundle's CodeResources.
+            parts = rel.split("/")
+            home = "/".join(parts[:-2]) if len(parts) >= 3 and parts[-2] == "MacOS" and parts[-3] == "Contents" \
+                else "/".join(parts[:-1])
+            sealed[rel] = (home + "/" if home else "") + "_CodeSignature/CodeResources"
 
     def resources(root):
         return {os.path.relpath(os.path.join(d, f), root) for d, _, fs in os.walk(root) for f in fs
@@ -946,21 +1018,25 @@ def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tupl
         kind, pre, slots, (xa, xb), _ = pending[rel]
         out = list(pre)
         if kind == "macho":
-            bad = [s for s in slots if not (known[0].get(s[0]) and known[0].get(s[0]) == known[1].get(s[1]))]
+            want = sealed.get(rel)
+            bad = [s for s in slots if not (label_path(known[0].get(s[0])) == want == label_path(known[1].get(s[1]))
+                                            and known[0].get(s[0]) == known[1].get(s[1]))]
             if bad:
                 out.append(f"CodeResources hash slot differs, and not only by the signing time ({len(bad)} slots)")
             return out
         if xa == xb:
             return out
         if kind == "manifest":  # its sha256 checksums of signed Mach-O files, in hex
-            na, nb = (named(x, {d.hex().encode(): n.encode() for d, n in k.items() if len(d) == 32})
-                      for x, k in ((xa, known[0]), (xb, known[1])))
+            if pre:
+                return out + ["differs"]
+            na, nb = (manifest_named(x, rel, k) for x, k in ((xa, known[0]), (xb, known[1])))
             return out + ([] if na == nb else ["differs, and not only by checksums of files that differ only by signing time"])
         try:
             pa, pb = plistlib.loads(xa), plistlib.loads(xb)
         except Exception:
             return out + ["not a property list; bytes differ"]
-        na, nb = named(pa, known[0]), named(pb, known[1])
+        home = os.path.dirname(os.path.dirname(rel))
+        na, nb = resources_named(pa, home, known[0]), resources_named(pb, home, known[1])
         if na == nb:
             return out
         diffs = code_resources_diff_values(na, nb) or ["the property lists differ"]

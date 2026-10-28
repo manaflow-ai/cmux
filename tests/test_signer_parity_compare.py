@@ -32,7 +32,7 @@ def code_directory(identifier: bytes, page_shift: int, code_hash: bytes, resourc
 
 
 def macho(text: bytes, cms, page_shift: int = 12, pad: int = 0, resources_hash: bytes | None = None,
-          reserve: int = 0) -> bytes:
+          reserve: int = 0, extra_blobs=()) -> bytes:
     """A thin arm64 Mach-O: __LINKEDIT, LC_CODE_SIGNATURE, `text`, then a superblob.
     cms is the CMS bytes, or a function from the CodeDirectory to them; reserve
     pads the superblob to that size, as a signer reserves a fixed space."""
@@ -40,7 +40,7 @@ def macho(text: bytes, cms, page_shift: int = 12, pad: int = 0, resources_hash: 
     dataoff = 32 + sizeofcmds + len(text)
     cd = code_directory(b"com.example.tool", page_shift, hashlib.sha256(text).digest(), resources_hash)
     cms = cms(cd) if callable(cms) else cms
-    blobs = [(0, cd), (0x10000, struct.pack(">II", 0xFADE0B01, 8 + len(cms)) + cms)]
+    blobs = [(0, cd), (0x10000, struct.pack(">II", 0xFADE0B01, 8 + len(cms)) + cms)] + list(extra_blobs)
     index_len = 12 + 8 * len(blobs)
     index, payload, off = b"", b"", index_len
     for typ, blob in blobs:
@@ -463,14 +463,17 @@ class StrictFixture(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def app(self, name: str, time: str = "261028120000Z", other: str = "data", **cms):
+    def app(self, name: str, time: str = "261028120000Z", other: str = "data", extra_resources=None,
+            seal_nested: bool = False, **cms):
         """An app whose main executable seals its CodeResources, which lists a nested
         signed Mach-O and a plain file; both Mach-O files are signed at `time`."""
         nested = macho(b"N" * 32, lambda cd: self.signer.cms(cd, time=time, **cms), reserve=4096)
         resources = {"files2": {"Resources/bin/cmux-tui-ssh/cmux-tui-darwin-arm64": {"hash2": hashlib.sha256(nested).digest()},
                                 "Resources/other": {"hash2": hashlib.sha256(other.encode()).digest()}}}
+        resources["files2"].update(extra_resources(nested) if extra_resources else {})
         tool = lambda sealed: macho(b"TEXT" * 8, lambda cd: self.signer.cms(cd, time=time, **cms),
-                                    resources_hash=hashlib.sha256(sealed).digest(), reserve=4096)
+                                    resources_hash=hashlib.sha256(nested if seal_nested else sealed).digest(),
+                                    reserve=4096)
         app = make_app(self.root / name, tool=tool, resources=resources, nested=nested)
         (app / "Contents/Resources/other").write_text("data")
         return app
@@ -700,6 +703,51 @@ class StrictReviewFindingTests(StrictFixture):
         self.assertIn("FAIL Contents/_CodeSignature/CodeResources (framing only)", proc.stdout)
         self.assertIn("FAIL Contents/MacOS/Demo (framing only)", proc.stdout)
         self.assertRegex(proc.stdout, r"strict parity: FAIL \((\d+) differences, \1 of them framing only\)")
+
+
+
+@unittest.skipUnless(shutil.which("openssl"), "openssl makes the test signatures")
+class StrictSecondReviewTests(StrictFixture):
+    """Each way the second strict review found to pass two apps that differ."""
+
+    def test_different_bytes_after_the_cms_fail(self):
+        a = make_app(self.root / "a", tool=macho(b"T" * 32, lambda cd: self.signer.cms(cd) + b"AA", reserve=4096))
+        b = make_app(self.root / "b", tool=macho(b"T" * 32, lambda cd: self.signer.cms(cd) + b"BB", reserve=4096))
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("bytes after the CMS differ", proc.stdout)
+
+    def test_the_code_resources_slot_must_seal_its_own_code_resources(self):
+        a, b = self.app("a", seal_nested=True), self.app("b", time="261028130500Z", seal_nested=True)
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("FAIL Contents/MacOS/Demo", proc.stdout)
+        self.assertIn("CodeResources hash slot differs", proc.stdout)
+
+    def test_a_nested_digest_under_another_path_or_field_fails(self):
+        decoy = lambda nested: {"Resources/decoy": {"hash2": hashlib.sha256(nested).digest()},
+                                "Resources/other2": {"hash2": b"x" * 32, "note": hashlib.sha256(nested).digest()}}
+        a, b = self.app("a", extra_resources=decoy), self.app("b", time="261028130500Z", extra_resources=decoy)
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("files2/Resources/decoy: hash2", proc.stdout)
+        self.assertIn("files2/Resources/other2: note", proc.stdout)
+
+    def test_a_blob_type_named_twice_fails(self):
+        cms = self.signer.cms(code_directory(b"com.example.tool", 12, hashlib.sha256(b"T" * 32).digest()))
+        twice = [(0x10000, struct.pack(">II", 0xFADE0B01, 8 + len(cms)) + cms)]
+        a = make_app(self.root / "a", tool=macho(b"T" * 32, lambda cd: self.signer.cms(cd), reserve=8192))
+        b = make_app(self.root / "b", tool=macho(b"T" * 32, b"junk", reserve=8192, extra_blobs=twice))
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("names a blob type twice (B)", proc.stdout)
+
+    def test_signature_file_modes_are_compared(self):
+        a, b = self.app("a"), self.app("b", time="261028130500Z")
+        (b / "Contents/_CodeSignature/CodeResources").chmod(0o600)
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("CodeResources: mode differs", proc.stdout)
 
 
 if __name__ == "__main__":
