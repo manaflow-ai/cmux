@@ -55,17 +55,17 @@ struct AgentPaneDictationAudioTests {
         #expect(recording.omission == .narrowband)
     }
 
-    @Test func aRecordingPastTheLimitGoesAsTextAlone() {
+    /// Leo, 2026-10-26: "I ALREADY SAID WE NEED ARBITARRILY LARGE FILES OF ANY TYPE". A session
+    /// over two minutes lost its whole recording (`tooLong`); the prompt got the transcript only.
+    @Test func aRecordingOverTwoMinutesIsKept() throws {
         let recording = DictationAudioRecording()
         let second = [Float](repeating: 0.1, count: 16_000)
-        for _ in 0...Int(DictationAudioRecording.maximumDuration) {
+        for _ in 0..<150 {
             second.withUnsafeBufferPointer { recording.append($0, sampleRate: 16_000) }
         }
-        #expect(recording.wav() == nil)
-        #expect(recording.omission == .tooLong)
-        // A silent session has nothing to send, and nothing left out.
-        #expect(DictationAudioRecording().wav() == nil)
-        #expect(DictationAudioRecording().omission == nil)
+        let wav = try #require(recording.wav())
+        #expect(wav.count == 44 + 150 * 16_000 * 2)
+        #expect(recording.omission == nil)
     }
 
     @Test func theLastUpdateCarriesTheRecordingToThePage() throws {
