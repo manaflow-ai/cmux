@@ -262,6 +262,30 @@ impl Hub {
         Ok(approved_waiting)
     }
 
+    /// `_acpmux/queue_get`: a queued prompt whole, as it would run now (an edit since it was
+    /// queued included), for the owner to read before answering it; `queue.not_found` (with
+    /// `decided`) once it left the queue.
+    pub fn queued_get(&self, session: &Arc<Session>, prompt_id: &str) -> Result<Value, RpcError> {
+        let found = session.queue().into_iter().find(|q| q.prompt_id == prompt_id);
+        let Some(q) = found else { return Err(self.not_waiting(session, prompt_id)) };
+        let blocks = &q.run.blocks;
+        let images = super::prompt_images::named(blocks);
+        let parts =
+            super::prompt_images::inline_parts(blocks, &images, q.run.display_parts.as_ref());
+        Ok(json!({
+            "sessionId": session.id,
+            "promptId": q.prompt_id,
+            "turnId": q.turn_id,
+            "revision": q.revision,
+            "text": prompt_text(blocks),
+            "prompt": blocks,
+            "inlineParts": parts,
+            "author": crate::author::listed(q.run.provenance.as_ref()),
+            "provenance": q.run.provenance,
+            "awaitingOwner": q.awaiting_owner,
+        }))
+    }
+
     /// `queue.not_found` for an answer to a prompt that does not wait for the owner, with how its
     /// latest incarnation (the turn id of the last `queued` record under that prompt id, which a
     /// client may reuse) was decided: the last of its decision records, which are logged in the
