@@ -169,7 +169,10 @@ enum RemoteHandlers {
         session.connectRecovery?.stop()
         let target = ActionTargetRef(kind: .machine, id: session.machineID)
         let recovery = SSHConnectRecovery(
-            retry: { context.services.ssh.reconnect(session) },
+            retry: {
+                session.connectRecoveryAttempt &+= 1
+                context.services.ssh.reconnect(session)
+            },
             check: { context.registry.perform("machine.doctor", invocation: ActionInvocation(target: target)) },
             copy: { context.copy($0) },
             dismissed: { [weak session] in session?.connectPresentationTask?.cancel() })
@@ -179,7 +182,7 @@ enum RemoteHandlers {
         session.connectPresentationTask = Task { @MainActor [weak window] in
             defer { recovery.stop() }
             for await (loaded, status, failure) in ObservationStream({
-                (daemon.store.isLoaded && daemon.connection != nil, session.linkStatus, session.daemonFailure)
+                (daemon.store.isLoaded && daemon.connection != nil, session.linkStatus, session.daemonFailure, session.connectRecoveryAttempt)
             }) {
                 guard !Task.isCancelled, let window else { return }
                 if loaded {

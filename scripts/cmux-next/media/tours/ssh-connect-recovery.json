@@ -40,7 +40,8 @@
           "press": "copy"
         }
       },
-      "wait": 0.2
+      "wait": 0.2,
+      "expect": {"method": "debug.dialog", "fields": {"dialogs.0.visible": true}}
     },
     {
       "title": "Dismiss recovery",

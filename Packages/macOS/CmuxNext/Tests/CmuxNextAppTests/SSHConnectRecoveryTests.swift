@@ -46,6 +46,21 @@ import Testing
         #expect(center.records.isEmpty && dismissed == 1)
     }
 
+    @Test func retryCanPresentAgainWhenTheFailureIsIdentical() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let center = CmuxDialogCenter(host: CmuxDialogHeadlessHost())
+        var retries = 0
+        let recovery = SSHConnectRecovery(center: center, retry: { retries += 1 }, check: {}, copy: { _ in }, dismissed: {})
+        recovery.present(Self.spec(), error: "same failure", in: window)
+        center.press(try #require(center.records.first?.id), button: "retry")
+        #expect(retries == 1 && center.records.isEmpty)
+        recovery.present(Self.spec(), error: "same failure", in: window)
+        #expect(recovery.isPresented && center.records.count == 1)
+    }
+
     @Test func failureOffersRetryDiagnosticsAndFullErrorCopy() {
         let spec = Self.spec()
         #expect(spec.lines == ["Could not resolve hostname"])

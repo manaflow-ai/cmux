@@ -105,7 +105,7 @@ HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
 MAX_STEPS = 30
 READ_ONLY_POSTCONDITION_METHODS = {
     "debug.layers", "debug.surfaces", "debug.focus", "debug.window_list", "debug.windows",
-    "debug.pane_chrome", "debug.notifications", "debug.themes",
+    "debug.pane_chrome", "debug.notifications", "debug.themes", "debug.dialog",
 }
 # Inherited caller context a cmux terminal exports. Left in place, a local run
 # inside cmux would route the tour's commands at the caller's own workspace.
