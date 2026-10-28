@@ -628,11 +628,12 @@ test("compact mode lists asks without answers", () => {
   expect(html).not.toContain("acpmux-needs-you-answer");
 });
 
-test("another chat's ask opens in that chat's own tab; the chat on screen is never replaced", async () => {
+test("another chat's ask opens that chat on the right; the chat on screen is never replaced", async () => {
   // Leo 2026-10-21: a Needs you jump switched the coordinator's pane to another chat in place
   // (`chat.select`), so the coordinator's chat was gone from its own tab. A jump, an answer or a
-  // side question for another chat asks the app to show that chat's tab or open one
-  // (`chat.asks.open`, AgentPaneAskOpen); only this chat's asks are answered here.
+  // side question for another chat asks the app to show that chat's tab or open it on the right,
+  // in this chat's side pane (`chat.asks.open`, AgentPaneAskOpen); only this chat's asks are
+  // answered here.
   const host = installDom();
   const calls: string[] = [];
   const callNative = (async (method: string, params?: Record<string, unknown>) => {
@@ -667,7 +668,7 @@ test("another chat's ask opens in that chat's own tab; the chat on screen is nev
   expect(calls).toEqual(["chat.permission:here"]);
   calls.length = 0;
   // The relay answers only the chat this pane shows: the answer is not sent from here, and the
-  // row stays (a rejection) while the ask's own tab comes up for the person to answer there.
+  // row stays (a rejection) while the ask's chat comes up on the right for the person to answer there.
   await expect(actions!.answer(other, other.answers[0]!)).rejects.toThrow();
   expect(calls).toEqual(["chat.asks.open:other"]);
   calls.length = 0;

@@ -349,10 +349,27 @@ def gh_run(args: list[str], attempts: int = 3) -> str:
     return ""
 
 
-def gh_items(endpoint: str) -> list[dict]:
-    """Every item of a paginated list endpoint, one JSON object per line (no --slurp on older gh)."""
-    out = gh_run(["gh", "api", "--paginate", endpoint, "--jq", ".[] | @json"])
-    return [json.loads(line) for line in out.splitlines() if line.strip()]
+PER_PAGE = 100
+MAX_PAGES = 30  # 3000 items: the most changed files GitHub's files API lists
+
+
+def gh_items(endpoint: str, max_pages: int = MAX_PAGES) -> list[dict]:
+    """Every item of a paginated list endpoint, one bounded `gh api` call per page. The gh quota
+    wrapper refuses an unbounded paginating call, so pages are asked for one at a time (the same loop
+    as scripts/ci/gh_pages.py, inlined: risk-tier.yml checks out this file alone). A list past the
+    cap raises: a list cut short is never read as complete."""
+    path, _, query = endpoint.partition("?")
+    kept = [part for part in query.split("&") if part and not re.match(r"(per_page|page)=", part)]
+    items: list[dict] = []
+    for page in range(1, max_pages + 1):
+        batch = json.loads(gh_run(["gh", "api", f"{path}?{'&'.join([*kept, f'per_page={PER_PAGE}', f'page={page}'])}"]))
+        if not isinstance(batch, list):
+            raise TypeError(f"{endpoint} page {page} is not a list")
+        items.extend(batch)
+        if len(batch) < PER_PAGE:
+            return items
+    raise ValueError(f"{endpoint} has more than {max_pages} pages of {PER_PAGE}; "
+                     "refusing to read a list cut short as complete")
 
 
 # A pull request that takes back another pull request's change from this recently is high: that is
@@ -516,8 +533,9 @@ def pr_mode(args: argparse.Namespace) -> int:
     if grade.tier == "high":
         try:
             signed, blocked = human_ok_by(args.repo, args.number, pr)
-        except (subprocess.CalledProcessError, json.JSONDecodeError):
-            # An unreadable comment, review or label read could hide a BLOCK: hold, never warn.
+        except (subprocess.CalledProcessError, ValueError, TypeError):
+            # An unreadable comment, review or label read (or one past the page cap) could hide a
+            # BLOCK: hold, never warn.
             signed, blocked, unread = None, False, True
     missing = missing_evidence(grade.tier, signed is not None, pr.get("body") or "", list(undone), blocked,
                                unread)

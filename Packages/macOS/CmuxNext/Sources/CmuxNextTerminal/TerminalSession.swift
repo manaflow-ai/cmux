@@ -90,6 +90,10 @@ public final class TerminalSession {
     /// background, foreground, cursor, selection), with no restart and no
     /// grid change, and to every surface a later replay swaps in.
     public private(set) var theme: GhosttyThemeConfig?
+    /// Whether the last theme apply to the live surface animated its colors (diagnostics and tests).
+    private(set) var lastThemeApplyAnimated = false
+    /// A theme has been applied to this session, so the next change animates.
+    private var themeWasApplied = false
     /// The light/dark scheme the live surface draws a light/dark theme in.
     public var surfaceIsDark: Bool { surfaceView.colorSchemeIsDark }
 
@@ -100,7 +104,11 @@ public final class TerminalSession {
         guard force || config !== previous else { return }
         theme = config
         view.theme = config
-        applyTheme(to: surfaceView, clearing: previous != nil && config == nil, animated: true)
+        // The first theme this terminal takes (a restored one on its first show) lands at once: its
+        // surface has not painted those colors yet, so a blend would start from the unpainted ones.
+        let animated = themeWasApplied
+        if config != nil { themeWasApplied = true }
+        applyTheme(to: surfaceView, clearing: previous != nil && config == nil, animated: animated)
     }
 
     /// Mirrors currently shown. Forwarded to whichever surface is live so a
@@ -467,6 +475,7 @@ public final class TerminalSession {
     /// `animated`: the live surface blends to the new colors on the GPU from the colors on
     /// screen (a theme change); a fresh surface takes its first colors at once.
     private func applyTheme(to surfaceView: TerminalSurfaceView, clearing: Bool, animated: Bool) {
+        lastThemeApplyAnimated = animated
         guard let surface = surfaceView.surface else { return }
         surfaceView.applyColorTransition(animated: animated)
         if let theme {

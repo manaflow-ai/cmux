@@ -3,7 +3,14 @@ import Darwin
 import Testing
 @testable import CmuxNextCloud
 
-@Suite("Cloud Codex broker private pipe", .timeLimit(.minutes(1)))
+/// No `.timeLimit`: every wait here is on a reply or an exit, and none checks
+/// a deadline (shutdownEscalatesOnlyOwnedHolderThatIgnoresTERM measures its
+/// own). Each test starts a python3 holder; in the full parallel package run,
+/// where tests take 100-500 s of wall clock, the 1 minute limit expired on
+/// cancellationOnlySettlesItsCaller before its replies arrived. A holder that
+/// never answers is a hang that scripts/cmux-next/swift-test-with-hang-sampler.sh
+/// names and samples.
+@Suite("Cloud Codex broker private pipe")
 struct CloudCodexBrokerSessionTests {
     private func withSession(_ body: (CodexBrokerSession, URL) async throws -> Void) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -67,8 +74,10 @@ struct CloudCodexBrokerSessionTests {
             async let second: Void = session.shutdown()
             _ = await (first, second)
             #expect(started.duration(to: clock.now) < .seconds(8))
-            #expect(kill(pid, 0) == -1)
-            #expect(errno == ESRCH)
+            let killResult = kill(pid, 0)
+            let killErrno = errno
+            #expect(killResult == -1)
+            #expect(killErrno == ESRCH)
         }
     }
 

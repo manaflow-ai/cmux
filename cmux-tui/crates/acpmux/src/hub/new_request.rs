@@ -72,6 +72,10 @@ pub struct NewRequest {
     pub effort: Option<String>,
     /// Requested over a remote-origin connection (the WebSocket listener).
     pub remote: bool,
+    /// Its caller asked for the VM boundary (`vm_boundary.rs`): a remote
+    /// chain's Claude Code here runs without the platform sandbox. Only with
+    /// `remote`; checked by the caller (`vm_boundary::asked`).
+    pub vm_boundary: bool,
     /// A harness session to resume instead of starting a new one.
     pub adopt: Option<crate::adopt::AdoptRequest>,
     /// Per-session env (`session_env.rs`), already checked by the caller.

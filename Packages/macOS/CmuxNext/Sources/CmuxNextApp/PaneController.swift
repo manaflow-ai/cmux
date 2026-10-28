@@ -94,7 +94,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
         view.stripView.resourceSource = services.resources
-        view.stripView.opensNewTabMenuOnPress = true
+        // The + is a plain button (Lawrence 2026-10-27: no dropdown caret): a press makes the default
+        // tab; a hold or a right-click opens the type menu (`TabStripView.showNewTabMenu`).
+        view.stripView.opensNewTabMenuOnPress = false
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.hoverCards = services.hoverCards
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
