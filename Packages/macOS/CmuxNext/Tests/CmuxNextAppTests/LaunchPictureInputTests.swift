@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
 @testable import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextFocus
 import CmuxNextFocusUI
 import CmuxNextLaunch
@@ -14,8 +15,9 @@ import Testing
 /// Keys while a window shows its launch picture (p08-startup-061). A key changes only the model in its turn: an
 /// action runs (a Command chord, a Control chord, a chord's leader and the key after it), a key the window cannot
 /// decide yet waits whole and goes through the router again once it can, and typing for a terminal that is still a
-/// picture waits in that terminal's stand-in buffer, which raises the pane's slice to the next frame and reaches the
-/// terminal exactly once, in order, when it is live. Clicks: `LaunchPictureClickTests`.
+/// picture goes at once to that terminal's input by its id (the daemon queues it), raises the pane's slice to the next
+/// frame, and reaches the terminal exactly once, in order, before any key typed after its view went live. No key is
+/// dropped silently: one that cannot reach its terminal is refused visibly and kept. Clicks: `LaunchPictureClickTests`.
 @MainActor @Suite(.serialized)
 struct LaunchPictureInputTests {
     // MARK: Keys, through the router
@@ -65,11 +67,14 @@ struct LaunchPictureInputTests {
         router.dispatchingSynthetic(event) { router.interceptKeyDown(event, in: window) }
     }
 
-    /// Typing while the focused terminal is a picture waits for it: the router takes each key, raises the pane's
-    /// slice once (not per key, and only that pane), and turns its mode on only while the picture shows.
-    @Test func typingForATerminalStillAPictureWaitsAndRaisesOnlyItsPane() throws {
+    /// Typing while the focused terminal is a picture goes to it by its id at once: the router takes each key, sends
+    /// it in order, raises the pane's slice once (not per key, and only that pane), and turns its mode on only while
+    /// the picture shows.
+    @Test func typingForATerminalStillAPictureGoesToItByIdAndRaisesOnlyItsPane() throws {
         let harness = try Self.harness()
         defer { harness.close() }
+        let terminals = FakeTerminals()
+        harness.keys.forward = { terminals.forward($0, $1, $2) }
         var raised: [String?] = []
         #expect(!harness.router.modes.contains(.launchPicture))
         harness.keys.begin(window: harness.target.window, shell: harness.shell) { raised.append($0) }
@@ -80,7 +85,7 @@ struct LaunchPictureInputTests {
             #expect(Self.dispatch(event, in: harness.shell, router: harness.router),
                     "the key for a terminal still a picture went on to a view that cannot take it")
         }
-        #expect(harness.keys.isHolding(harness.target))
+        #expect(terminals.forwarded[harness.target] == ["l", "s", "\r"], "sent \(terminals.forwarded) by id")
         #expect(raised == ["picture-pane"], "raised \(raised): the slice is raised once, for the focused pane only")
     }
 
@@ -106,6 +111,8 @@ struct LaunchPictureInputTests {
             runs += 1
             return .done
         }
+        let terminals = FakeTerminals()
+        harness.keys.forward = { terminals.forward($0, $1, $2) }
         KeyBindingLoader(registry).load(KeyBindingLayers(user: [
             KeyBinding(keys: [Shortcut("b", modifiers: [.control]), Shortcut("c", modifiers: [])], command: "toggleSidebar", source: .user),
         ]))
@@ -117,11 +124,11 @@ struct LaunchPictureInputTests {
         let next = try Self.key("c", keyCode: 8, window: harness.shell.windowNumber)
         #expect(Self.dispatch(next, in: harness.shell, router: harness.router))
         #expect(runs == 1, "the chord's action ran \(runs) times")
-        #expect(!harness.keys.isHolding(harness.target), "a key of the chord waited as terminal input")
+        #expect(terminals.forwarded.isEmpty, "a key of the chord went to the terminal as input")
 
         let unbound = try Self.key("\u{03}", keyCode: 8, modifiers: .control, ignoringModifiers: "c", window: harness.shell.windowNumber)
         #expect(Self.dispatch(unbound, in: harness.shell, router: harness.router))
-        #expect(harness.keys.isHolding(harness.target), "an unbound Control key is the terminal's: it waits for it")
+        #expect(terminals.forwarded[harness.target] == ["\u{03}"], "an unbound Control key is the terminal's: it goes to it")
     }
 
     /// Outside the picture phase the router never asks the stand-in buffer (normal mode stays normal).
@@ -134,9 +141,9 @@ struct LaunchPictureInputTests {
         #expect(!harness.keys.holdsUndecided(event, in: harness.shell, router: harness.router))
     }
 
-    /// Keys typed in the picture's window before it has a controller wait whole, in order, and raise the window's
-    /// build; once the controller exists and its focus resolved, they go through the router again and land in the
-    /// focused terminal's stand-in buffer. A key typed meanwhile goes behind them.
+    /// Keys typed in the picture's window before it has a controller, with no saved focus to send them to, wait
+    /// whole, in order, and raise the window's build; once the controller exists and its focus resolved, they go
+    /// through the router again and on to the focused terminal by its id. A key typed meanwhile goes behind them.
     @Test func keysTypedBeforeTheWindowHasAControllerWaitForIt() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -144,6 +151,8 @@ struct LaunchPictureInputTests {
         services.windows.ordersWindowsIn = false
         defer { for controller in services.windows.controllers { controller.window?.close() } }
         let router = services.keyRouter, keys = router.launchPictureKeys
+        let terminals = FakeTerminals()
+        keys.forward = { terminals.forward($0, $1, $2) }
         let id = "picture-window-before-controller"
         let picture = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
         picture.isReleasedWhenClosed = false
@@ -162,8 +171,8 @@ struct LaunchPictureInputTests {
         try Self.focusTerminal(of: controller, workspace: "late-workspace", pane: "late-pane", tab: "late-tab")
         router.focusDidSettle(controller.focus.state, in: controller.window)
         #expect(!keys.isHoldingUndecided(window: id), "the keys still wait after the window's focus resolved")
-        #expect(keys.isHolding(target), "the replayed keys did not reach the focused terminal's stand-in buffer")
-        #expect(keys.dropped == 0)
+        #expect(terminals.forwarded[target] == ["e", "c", "h"], "the replayed keys did not reach the focused terminal")
+        #expect(keys.refused == 0)
     }
 
     // MARK: Keys, delivered to a real terminal view
@@ -179,9 +188,10 @@ struct LaunchPictureInputTests {
         return tree
     }
 
-    /// Keys typed while the focused pane's terminal view is not in the window reach that view through the router's
-    /// own delivery (its live-surface lookup and `keyDown`) once it is: each key exactly once, in order, and the
-    /// router consumed each when typed, so AppKit's dispatch never gave it to anything else.
+    /// Keys typed while the focused pane's terminal view is not in the window go to the terminal by id at once; the
+    /// ones typed while that send is on its way reach the view through the router's own delivery (its live-surface
+    /// lookup and `keyDown`) once the view is live and the daemon took the first: each key exactly once, in order, and
+    /// the router consumed each when typed, so AppKit's dispatch never gave it to anything else.
     @Test func eachKeyReachesTheLiveTerminalViewExactlyOnceInOrder() async throws {
         _ = NSApplication.shared
         GhosttyRuntime.startedForTests()
@@ -221,6 +231,9 @@ struct LaunchPictureInputTests {
                                                       store: store, surface: tabModel.surface, mainWork: services.mainWork)
         try Self.focusTerminal(of: controller, workspace: "live-ws", pane: pane.paneKey, tab: tab)
         let router = services.keyRouter, keys = router.launchPictureKeys
+        let terminals = FakeTerminals()
+        terminals.answersAtOnce = false
+        keys.forward = { terminals.forward($0, $1, $2) }
         let target = LaunchPictureKeys.Target(window: controller.state.id, pane: pane.paneKey, tab: tab)
         keys.begin(window: target.window, shell: shell) { _ in }
 
@@ -228,8 +241,9 @@ struct LaunchPictureInputTests {
             let event = try Self.key(letter, keyCode: code, window: shell.windowNumber)
             #expect(Self.dispatch(event, in: shell, router: router), "\(letter) went on to AppKit while its terminal was a picture")
         }
+        #expect(terminals.forwarded[target] == ["e"], "the first key did not go to the terminal by id at once")
         #expect(keys.isHolding(target))
-        #expect(scripted.writes.isEmpty, "a key reached the terminal before it was live")
+        #expect(scripted.writes.isEmpty, "a key reached the terminal view before it was live")
 
         // The terminal goes live in its pane and takes the keyboard; the picture leaves.
         session.view.frame = pane.view.bounds
@@ -237,15 +251,19 @@ struct LaunchPictureInputTests {
         session.view.layoutSubtreeIfNeeded()
         try #require(shell.makeFirstResponder(session.surfaceView), "the live terminal never took the keyboard")
         keys.end(window: target.window)
+        #expect(scripted.writes.isEmpty, "a key overtook the one still on its way by id")
+        terminals.answer()
         #expect(!keys.isHolding(target), "the keys still wait for a live terminal")
         #expect(!keys.isActive && !router.modes.contains(.launchPicture))
 
         func written() -> String { String(decoding: scripted.writes.reduce(Data(), +), as: UTF8.self) }
         let deadline = ContinuousClock.now + .seconds(5)
-        while !written().contains("echo"), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        while !written().contains("cho"), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
         try await Task.sleep(for: .milliseconds(200))  // a key typed twice would show by now
-        #expect(written().components(separatedBy: "echo").count == 2, "the terminal got \(written().debugDescription), not echo once")
-        #expect(!written().contains("eecchhoo"), "each key reached the terminal twice: \(written().debugDescription)")
+        #expect(written().components(separatedBy: "cho").count == 2, "the view got \(written().debugDescription), not cho once")
+        #expect(!written().contains("e"), "the key the daemon took also reached the view: \(written().debugDescription)")
+        #expect(!written().contains("cchhoo"), "each key reached the terminal twice: \(written().debugDescription)")
+        #expect(terminals.arrived[target] == ["e"])
 
         // With nothing waiting, the next key takes the usual path to the live terminal.
         let after = try Self.key("!", keyCode: 18, modifiers: .shift, window: shell.windowNumber)
@@ -254,39 +272,104 @@ struct LaunchPictureInputTests {
 
     // MARK: Keys, the stand-in buffer
 
+    /// A refusal the buffer reported: the window, the text it kept for the person, and why.
+    private struct Refusal: Equatable {
+        let window: String
+        let text: String
+        let reason: String?
+    }
+
+    /// Terminals as the buffer reaches them: a live view (`deliver`) and the daemon's input queue by the terminal's
+    /// id (`forward`). `arrived` is what each terminal got by either path, in the order it got it: a key sent by id
+    /// arrives when the daemon took it.
     private final class FakeTerminals {
         var live: Set<LaunchPictureKeys.Target> = []
         var received: [LaunchPictureKeys.Target: [String]] = [:]
+        var forwarded: [LaunchPictureKeys.Target: [String]] = [:]
+        var arrived: [LaunchPictureKeys.Target: [String]] = [:]
+        /// False: a send waits for ``answer()`` (the daemon's reply has not come).
+        var answersAtOnce = true
+        /// What the daemon answers a send with: nil takes it.
+        var refusal: String?
+        private var unanswered: [(target: LaunchPictureKeys.Target, texts: [String], answered: @MainActor (String?) -> Void)] = []
 
         func deliver(_ target: LaunchPictureKeys.Target, _ events: [NSEvent]) -> Bool {
             guard live.contains(target) else { return false }
-            received[target, default: []] += events.map { $0.characters ?? "" }
+            let texts = events.map { $0.characters ?? "" }
+            received[target, default: []] += texts
+            arrived[target, default: []] += texts
             return true
         }
+
+        /// One send to the daemon: `events` in order, answered once for all of them.
+        func forward(_ target: LaunchPictureKeys.Target, _ events: [NSEvent], _ answered: @escaping @MainActor (String?) -> Void) {
+            let texts = events.map { $0.characters ?? "" }
+            forwarded[target, default: []] += texts
+            if answersAtOnce { take(target, texts, answered) } else { unanswered.append((target, texts, answered)) }
+        }
+
+        /// The daemon answers every send waiting for it, in order.
+        func answer() {
+            let waiting = unanswered
+            unanswered = []
+            for send in waiting { take(send.target, send.texts, send.answered) }
+        }
+
+        private func take(_ target: LaunchPictureKeys.Target, _ texts: [String], _ answered: @MainActor (String?) -> Void) {
+            if refusal == nil { arrived[target, default: []] += texts }
+            answered(refusal)
+        }
+    }
+
+    private static func buffer(_ terminals: FakeTerminals) -> LaunchPictureKeys {
+        let keys = LaunchPictureKeys { terminals.deliver($0, $1) }
+        keys.forward = { terminals.forward($0, $1, $2) }
+        return keys
     }
 
     private static let a = LaunchPictureKeys.Target(window: "w", pane: "pane-a", tab: "tab-a")
     private static let b = LaunchPictureKeys.Target(window: "w", pane: "pane-b", tab: "tab-b")
 
-    /// Keys typed for a terminal reach it exactly once, in order, when it goes live; a focus move between them
-    /// (a chord ran its action) sends the later keys to the new terminal, never the earlier ones.
-    @Test func eachKeyReachesTheTerminalItWasTypedForExactlyOnce() throws {
+    /// A key typed for a terminal that is still a picture goes at once to that terminal's input by its id, in the
+    /// order typed, before its view is live: nothing waits for the view. One send is on its way at a time, so the
+    /// daemon writes them in order.
+    @Test func aKeyForATerminalStillAPictureGoesToItsTerminalByIdAtOnce() throws {
         let terminals = FakeTerminals()
-        let keys = LaunchPictureKeys { terminals.deliver($0, $1) }
+        terminals.answersAtOnce = false
+        let keys = Self.buffer(terminals)
         keys.begin(window: "w", shell: nil) { _ in }
-        for letter in ["e", "c", "h", "o"] { keys.hold(try Self.key(letter, keyCode: 0), for: Self.a) }
-        for letter in ["x", "y"] { keys.hold(try Self.key(letter, keyCode: 0), for: Self.b) }
-        keys.retry()
-        #expect(terminals.received.isEmpty, "a key reached a terminal that is not live")
+        keys.hold(try Self.key("e", keyCode: 14), for: Self.a)
+        #expect(terminals.forwarded[Self.a] == ["e"], "the key waited for the terminal's view instead of going by its id")
+        keys.hold(try Self.key("c", keyCode: 8), for: Self.a)
+        keys.hold(try Self.key("x", keyCode: 7), for: Self.b)
+        #expect(terminals.forwarded[Self.a] == ["e"], "a key overtook the one before it on its way to the daemon")
+        #expect(terminals.forwarded[Self.b] == ["x"], "another terminal's key waited behind this one's")
+        terminals.answer()
+        terminals.answer()
+        #expect(terminals.forwarded[Self.a] == ["e", "c"])
+        #expect(terminals.arrived[Self.a] == ["e", "c"] && terminals.arrived[Self.b] == ["x"])
+        #expect(terminals.received.isEmpty, "a key reached a view that is not live")
+        #expect(!keys.isHolding(Self.a) && !keys.isHolding(Self.b), "keys the daemon took still wait")
+    }
 
-        terminals.live.insert(Self.b)
-        keys.retry()
+    /// Keys typed after the view went live come after the ones sent by id, each exactly once: while a key sent by id
+    /// is on its way, later keys wait behind it; once the daemon took it, the live view takes the rest, in order.
+    @Test func keysTypedAfterTheViewWentLiveComeAfterTheEarlierOnes() throws {
+        let terminals = FakeTerminals()
+        terminals.answersAtOnce = false
+        let keys = Self.buffer(terminals)
+        keys.begin(window: "w", shell: nil) { _ in }
+        keys.hold(try Self.key("1", keyCode: 18), for: Self.a)
+        keys.hold(try Self.key("2", keyCode: 19), for: Self.a)
         terminals.live.insert(Self.a)
+        keys.hold(try Self.key("3", keyCode: 20), for: Self.a)
+        #expect(terminals.received.isEmpty, "a key went to the live view ahead of keys still on their way by id")
+        while keys.isHolding(Self.a) { terminals.answer() }
+        keys.hold(try Self.key("4", keyCode: 21), for: Self.a)
         keys.end(window: "w")
-        keys.retry()
-        #expect(terminals.received[Self.a] == ["e", "c", "h", "o"])
-        #expect(terminals.received[Self.b] == ["x", "y"])
-        #expect(!keys.isActive && keys.dropped == 0)
+        #expect(terminals.arrived[Self.a] == ["1", "2", "3", "4"], "the terminal got \(terminals.arrived[Self.a] ?? [])")
+        #expect(terminals.forwarded[Self.a] == ["1"] && terminals.received[Self.a] == ["2", "3", "4"])
+        #expect(!keys.isActive && keys.refused == 0)
     }
 
     /// Undecided keys go through the replay in order, ahead of the keys typed after them, exactly once.
@@ -310,54 +393,139 @@ struct LaunchPictureInputTests {
         #expect(!keys.isHoldingUndecided(window: "w"))
     }
 
-    /// A key for a terminal that is live already goes at once, behind the keys typed for it before.
-    @Test func aKeyForALiveTerminalGoesAtOnceBehindTheEarlierOnes() throws {
-        let terminals = FakeTerminals()
-        let keys = LaunchPictureKeys { terminals.deliver($0, $1) }
-        keys.begin(window: "w", shell: nil) { _ in }
-        keys.hold(try Self.key("1", keyCode: 18), for: Self.a)
-        terminals.live.insert(Self.a)
-        keys.hold(try Self.key("2", keyCode: 19), for: Self.a)
-        #expect(terminals.received[Self.a] == ["1", "2"])
-        #expect(!keys.isHolding(Self.a))
-    }
-
-    /// The test phase's burst, at the model: in 10 launches, a burst typed 10 ms after the first frame loses no key,
-    /// whenever in the picture phase the terminal goes live.
+    /// The test phase's burst, at the model: in 10 launches, a burst typed 10 ms after the first frame loses no key
+    /// and reorders none, whenever in the picture phase the terminal goes live and the daemon answers.
     @Test func aBurstTenMillisecondsAfterTheFirstFrameLosesNoKeyInTenLaunches() throws {
         for launch in 0 ..< 10 {
-            let start = ContinuousClock.now
-            var elapsed = Duration.milliseconds(10)
             let terminals = FakeTerminals()
-            let keys = LaunchPictureKeys(now: { start + elapsed }) { terminals.deliver($0, $1) }
+            terminals.answersAtOnce = false
+            let keys = Self.buffer(terminals)
             keys.begin(window: "w", shell: nil) { _ in }
             let burst = (0 ..< 20).map { "k\(launch)-\($0)" }
             for (index, text) in burst.enumerated() {
                 keys.hold(try Self.key(text, keyCode: 0), for: Self.a)
-                elapsed += .milliseconds(8)
-                // The terminal's first frame lands somewhere in the burst (later each launch).
+                // The daemon answers every third key; the terminal's first frame lands somewhere in the burst.
+                if index % 3 == launch % 3 { terminals.answer() }
                 if index == launch * 2 { terminals.live.insert(Self.a) }
             }
+            while keys.isHolding(Self.a) { terminals.answer() }
             keys.end(window: "w")
-            #expect(terminals.received[Self.a] == burst, "launch \(launch) lost or reordered keys")
-            #expect(keys.dropped == 0)
+            #expect(terminals.arrived[Self.a] == burst, "launch \(launch) lost or reordered keys")
+            #expect(keys.refused == 0 && !keys.isActive)
         }
     }
 
-    /// A terminal that never goes live does not keep its keys (or the router's slow path) forever.
-    @Test func keysForATerminalThatNeverGoesLiveAreDroppedAfterTheLimit() throws {
-        let start = ContinuousClock.now
-        var elapsed = Duration.zero
+    /// A terminal that never goes live: nothing is dropped silently. Keys the daemon has not answered keep waiting for
+    /// it (no time limit drops them); a key it refuses, and every key behind it, is refused visibly, with the text
+    /// kept for the person.
+    @Test func aTerminalThatNeverGoesLiveDropsNothingSilently() throws {
+        let terminals = FakeTerminals()
+        terminals.answersAtOnce = false
+        var refusals: [Refusal] = []
         var active: [Bool] = []
-        let keys = LaunchPictureKeys(limit: .seconds(5), now: { start + elapsed }) { _, _ in false }
+        let keys = Self.buffer(terminals)
+        keys.refuse = { refusals.append(Refusal(window: $0, text: $1, reason: $2)) }
         keys.onActiveChange = { active.append($0) }
         keys.begin(window: "w", shell: nil) { _ in }
-        keys.hold(try Self.key("z", keyCode: 6), for: Self.a)
+        for (letter, code) in [("l", UInt16(37)), ("s", 1), ("\r", 36)] { keys.hold(try Self.key(letter, keyCode: code), for: Self.a) }
         keys.end(window: "w")
-        #expect(keys.isActive, "the key was dropped before its limit")
-        elapsed = .seconds(6)
         keys.retry()
-        #expect(!keys.isActive && keys.dropped == 1)
-        #expect(active == [true, false])
+        #expect(keys.isActive && keys.isHolding(Self.a), "keys still on their way to the daemon were dropped")
+        #expect(refusals.isEmpty && keys.refused == 0)
+
+        terminals.refusal = "no such terminal"
+        terminals.answer()
+        #expect(refusals == [Refusal(window: "w", text: "ls\r", reason: "no such terminal")], "refused \(refusals)")
+        #expect(keys.refused == 3)
+        #expect(!keys.isActive && active == [true, false])
+    }
+
+    /// With nothing to send a terminal's keys to, they are refused visibly and kept, never dropped.
+    @Test func keysWithNoWayToTheirTerminalAreRefusedAndKept() throws {
+        var refusals: [Refusal] = []
+        let keys = LaunchPictureKeys { _, _ in false }
+        keys.refuse = { refusals.append(Refusal(window: $0, text: $1, reason: $2)) }
+        keys.begin(window: "w", shell: nil) { _ in }
+        keys.hold(try Self.key("z", keyCode: 6), for: Self.a)
+        #expect(refusals == [Refusal(window: "w", text: "z", reason: nil)])
+        #expect(keys.refused == 1 && !keys.isHolding(Self.a))
+    }
+
+    /// Keys the window could still not decide when its picture left (it closed before its controller was built) are
+    /// refused visibly and kept, never dropped.
+    @Test func undecidedKeysTheWindowNeverDecidesAreRefusedAndKept() throws {
+        var refusals: [Refusal] = []
+        let keys = LaunchPictureKeys { _, _ in false }
+        keys.replay = { _, _ in false }
+        keys.refuse = { refusals.append(Refusal(window: $0, text: $1, reason: $2)) }
+        keys.begin(window: "w", shell: nil) { _ in }
+        for letter in ["c", "d"] { keys.holdUndecided(try Self.key(letter, keyCode: 0), window: "w") }
+        keys.retry()
+        #expect(refusals.isEmpty && keys.isHoldingUndecided(window: "w"), "undecided keys were given up while the picture showed")
+        keys.end(window: "w")
+        #expect(refusals == [Refusal(window: "w", text: "cd", reason: nil)])
+        #expect(!keys.isActive && keys.refused == 2)
+    }
+
+    /// A key sent by id is what the terminal takes for it: text a key commits is that text; a key Ghostty encodes
+    /// from the key itself goes by its `send-key` name, for the daemon to encode with the program's modes; a
+    /// Command chord is never typing.
+    @Test func aKeySentByIdIsWhatTheTerminalTakesForIt() throws {
+        #expect(TypedTerminalInput(try Self.key("a", keyCode: 0)) == .text("a"))
+        #expect(TypedTerminalInput(try Self.key("A", keyCode: 0, modifiers: .shift, ignoringModifiers: "a")) == .text("A"))
+        #expect(TypedTerminalInput(try Self.key("!", keyCode: 18, modifiers: .shift, ignoringModifiers: "1")) == .text("!"))
+        #expect(TypedTerminalInput(try Self.key("é", keyCode: 14, modifiers: .option, ignoringModifiers: "e")) == .text("é"))
+        #expect(TypedTerminalInput(try Self.key("\r", keyCode: 36)) == .key("enter"))
+        #expect(TypedTerminalInput(try Self.key("\u{7f}", keyCode: 51)) == .key("backspace"))
+        #expect(TypedTerminalInput(try Self.key("\t", keyCode: 48, modifiers: .shift)) == .key("shift+tab"))
+        #expect(TypedTerminalInput(try Self.key(Shortcut.upArrowKey, keyCode: 126)) == .key("up"))
+        #expect(TypedTerminalInput(try Self.key("\u{03}", keyCode: 8, modifiers: .control, ignoringModifiers: "c")) == .key("ctrl+c"))
+        #expect(TypedTerminalInput(try Self.key("k", keyCode: 40, modifiers: .command)) == nil)
+    }
+
+    // MARK: Keys typed before the window decides, to its restored focus
+
+    /// Keys typed in a window showing its picture before it has a controller go by id to the terminal its saved
+    /// session restores focus to, at once; a chord there waits whole for the window to decide it (it may be a cmux
+    /// shortcut), and a key typed after it queues behind it (none overtakes another).
+    @Test func keysTypedBeforeTheWindowDecidesGoToItsRestoredFocusedTerminal() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        defer { for controller in services.windows.controllers { controller.window?.close() } }
+        let store = services.machines.local.store
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
+        store.noteHandshake(identity)
+        store.connectionState = .connected(identity)
+        store.apply(snapshot: Self.tree())
+        let pane = try #require(store.workspaces.first?.screens.first?.panes.first)
+        let tab = try #require(pane.tabs.first)
+        let id = "restored-window"
+        let state = WindowState(id: id, workspaceID: "live-ws")
+        state.savedFocusedPane = pane.id
+        state.selection.select(tab.id, in: pane.id)
+        services.windows.states[id] = state
+
+        let router = services.keyRouter, keys = router.launchPictureKeys
+        let terminals = FakeTerminals()
+        keys.forward = { terminals.forward($0, $1, $2) }
+        let picture = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        picture.isReleasedWhenClosed = false
+        defer { picture.close() }
+        keys.begin(window: id, shell: picture) { _ in }
+
+        let target = LaunchPictureKeys.Target(window: id, pane: pane.id, tab: tab.id)
+        for (letter, code) in [("l", UInt16(37)), ("s", 1)] {
+            #expect(Self.dispatch(try Self.key(letter, keyCode: code, window: picture.windowNumber), in: picture, router: router))
+        }
+        #expect(terminals.forwarded[target] == ["l", "s"], "sent \(terminals.forwarded): not to the restored focused terminal")
+        #expect(!keys.isHoldingUndecided(window: id), "keys with a known target waited for the window to decide them")
+
+        let chord = try Self.key("\u{02}", keyCode: 11, modifiers: .control, ignoringModifiers: "b", window: picture.windowNumber)
+        #expect(Self.dispatch(chord, in: picture, router: router))
+        #expect(keys.isHoldingUndecided(window: id), "a chord typed before the window decides was not kept for it")
+        #expect(Self.dispatch(try Self.key("x", keyCode: 7, window: picture.windowNumber), in: picture, router: router))
+        #expect(terminals.forwarded[target] == ["l", "s"], "a key overtook the chord typed before it")
     }
 }
