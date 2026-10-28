@@ -98,9 +98,12 @@ impl Hub {
         let Some(session) = session else {
             return json!({"sessionId": id, "status": "idle"});
         };
+        // An idle pass finishes marking hibernation before this stop; none starts during it.
+        let _using = session.harness_use.read().await;
         let closed = session.status() == SessionStatus::Closed;
         let stops = session.stops.fetch_add(1, Ordering::SeqCst) + 1;
         session.closing.store(true, Ordering::SeqCst);
+        self.clear_hibernation(&session);
         self.stop_auto_resume(&session);
         self.stop_subagent_retries(&session, closed);
         self.revoke_permission_chat(&session);
