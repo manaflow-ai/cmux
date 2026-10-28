@@ -248,3 +248,13 @@ test("failed older-history reads disable automatic retry until a progress refres
   await reader.refresh();
   expect(reader.canLoadOlder).toBe(true);
 });
+
+test("daemon omitted markers remain visible when the file itself was not truncated", async () => {
+  const reader = new WorkflowTranscript(request, async () => page(0, 1, 1, [
+    { sessionUpdate: "omitted", _meta: { acpmux: { omitted: { bytes: 5 * 1024 * 1024, reason: "too_large" } } } },
+  ]), () => {});
+  await reader.refresh();
+  expect(reader.rows.map((row) => [row.kind, row.text])).toEqual([["notice", "Some transcript content is too large to display."]]);
+  expect(reader.truncated).toBe(false);
+  expect(reader.failed).toBe(false);
+});
