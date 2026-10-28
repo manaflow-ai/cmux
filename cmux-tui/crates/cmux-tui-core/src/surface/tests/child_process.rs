@@ -54,6 +54,40 @@ fn child_term_is_the_standard_one_whatever_the_outer_terminal() {
     assert_eq!(default_child_term(), "xterm-256color");
 }
 
+/// pro-audit item 6: a daemon started from Ghostty (outer TERM=xterm-ghostty)
+/// gave its shells xterm-ghostty, and ssh from them to a host without that
+/// entry printed "unknown terminal type". A spawned child now sees the
+/// standard TERM whatever the daemon's own TERM is (the child's TERM never
+/// comes from the daemon's environment).
+#[cfg(unix)]
+#[test]
+fn a_spawned_child_sees_the_standard_term() {
+    let mux = Mux::new_for_test("term-env", SurfaceOptions::default());
+    let surface = Surface::spawn(
+        158,
+        SurfaceOptions {
+            command: Some(vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                "printf 'TERM=[%s]' \"$TERM\"".into(),
+            ]),
+            ..SurfaceOptions::default()
+        },
+        Arc::downgrade(&mux),
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let text = surface.try_with_terminal(|terminal| terminal.viewport_text()).unwrap().unwrap();
+        if text.contains("TERM=[") && text.contains(']') {
+            assert!(text.contains("TERM=[xterm-256color]"), "{text:?}");
+            return;
+        }
+        assert!(Instant::now() < deadline, "child never printed TERM: {text:?}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 #[cfg(unix)]
 fn spawn_and_read_colorterm(id: SurfaceId, extra_env: Vec<(String, String)>) -> String {
     let mux = Mux::new_for_test("colorterm-env", SurfaceOptions::default());
