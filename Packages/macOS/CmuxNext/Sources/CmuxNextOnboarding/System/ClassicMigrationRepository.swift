@@ -14,6 +14,7 @@ public import Foundation
 public actor ClassicMigrationRepository {
     /// The actor's own serial queue: its file calls block this queue, never a cooperative pool thread
     /// (Chrome runs file work on a MayBlock sequence, base/task/task_traits.h).
+    // executor: com.cmuxterm.next.onboarding.classic-migration
     private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.onboarding.classic-migration", qos: .userInitiated)
 
     /// Runs the actor on ``queue``.

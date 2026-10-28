@@ -82,13 +82,13 @@ fn the_daemons_own_journal_plugin_is_no_client_that_keeps_it() {
         seen.fetch_add(1, Ordering::SeqCst);
     });
     let plugin = connect(&mux);
-    origin_gate::set_peer_identity_at_accept(
+    let peer = origin_gate::AcceptedPeer::from_kernel_identity(
         &mux,
-        plugin,
         Some(format!("token:{pid}.1")),
         None,
         None,
     );
+    origin_gate::set_peer_identity_at_accept(&mux, plugin, &peer);
     assert_eq!(mux.client_count(), 0, "the daemon's own plugin counted as a client that keeps it");
     assert_eq!(
         calls.load(Ordering::SeqCst),
@@ -97,13 +97,13 @@ fn the_daemons_own_journal_plugin_is_no_client_that_keeps_it() {
     );
     // Any other process keeps it.
     let other = connect(&mux);
-    origin_gate::set_peer_identity_at_accept(
+    let peer = origin_gate::AcceptedPeer::from_kernel_identity(
         &mux,
-        other,
         Some(format!("token:{}.1", pid + 1)),
         None,
         None,
     );
+    origin_gate::set_peer_identity_at_accept(&mux, other, &peer);
     assert_eq!(mux.client_count(), 1);
     assert!(!stop_orphaned_owner(&mux, || panic!("checked with a client connected")));
     assert!(disconnect_client(&mux, other, false));

@@ -204,7 +204,9 @@ impl Environment {
             (&self.home, "~"),
         ] {
             let Some(dir) = dir else { continue };
-            for dir in [Some(dir.clone()), std::fs::canonicalize(dir).ok()].into_iter().flatten() {
+            for dir in
+                [Some(dir.clone()), cmux_blocking::fs::canonicalize(dir).ok()].into_iter().flatten()
+            {
                 if let Some(dir) = dir.to_str().map(|dir| dir.trim_end_matches('/'))
                     && !dir.is_empty()
                     && !redactions.iter().any(|(seen, _): &(String, _)| seen == dir)
@@ -461,16 +463,17 @@ fn cli_shadow_check(path: Option<&OsStr>, messages: &AgentsDoctorMessages) -> Ch
     let label = messages.check_cli_shadow;
     let own_version = env!("CARGO_PKG_VERSION");
     let own = parse_version(own_version);
-    let this = std::env::current_exe().and_then(std::fs::canonicalize).ok();
+    let this = std::env::current_exe().and_then(cmux_blocking::fs::canonicalize).ok();
     let mut seen: Vec<PathBuf> = Vec::new();
     let mut older: Vec<(PathBuf, String)> = Vec::new();
     for dir in path.map(std::env::split_paths).into_iter().flatten() {
         let candidate = dir.join("cmux");
-        let Ok(meta) = std::fs::metadata(&candidate) else { continue };
+        let Ok(meta) = cmux_blocking::fs::metadata(&candidate) else { continue };
         if !meta.is_file() || meta.permissions().mode() & 0o111 == 0 {
             continue;
         }
-        let real = std::fs::canonicalize(&candidate).unwrap_or_else(|_| candidate.clone());
+        let real =
+            cmux_blocking::fs::canonicalize(&candidate).unwrap_or_else(|_| candidate.clone());
         if this.as_ref() == Some(&real) || seen.contains(&real) || in_app_bundle(&real) {
             continue;
         }
@@ -553,7 +556,7 @@ pub(super) fn on_path(path: Option<&OsStr>, name: &str) -> Option<PathBuf> {
         .filter(|dir| !dir.as_os_str().is_empty())
         .map(|dir| dir.join(name))
         .find(|candidate| {
-            std::fs::metadata(candidate)
+            cmux_blocking::fs::metadata(candidate)
                 .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
         })
 }
@@ -644,7 +647,7 @@ fn is_cua(name: &str, command: Option<&str>) -> bool {
 }
 
 pub(super) fn read_text(path: &Path) -> Result<Option<String>, String> {
-    match std::fs::read_to_string(path) {
+    match cmux_blocking::fs::read_to_string(path) {
         Ok(text) => Ok(Some(text)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.to_string()),
