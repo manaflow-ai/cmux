@@ -40,9 +40,9 @@ nonisolated enum GlyphMask {
         let scale = max(scale, 1)
         let (width, height) = pixels(size, scale: scale)
         guard width > 0, height > 0,
-              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+              let ctx = CGContext.pixelOwningBitmap(width: width, height: height,
+                                                    space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.translateBy(x: 0, y: CGFloat(height))
         ctx.scaleBy(x: scale, y: -scale)
         // What AppKit enables for a label (a transparent layer's context leaves it off).
@@ -111,23 +111,24 @@ nonisolated enum GlyphMask {
     /// The alpha sum of a reference string drawn in `rgb`, smoothed.
     private static func measure(_ rgb: [CGFloat]) -> Int {
         let width = 96, height = 40
-        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return 0 }
-        ctx.scaleBy(x: 2, y: 2)
-        ctx.setAllowsFontSmoothing(true)
-        ctx.setShouldSmoothFonts(true)
-        ctx.setFillColor(CGColor(srgbRed: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1))
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: "Hlm", attributes: [
             .font: NSFont.systemFont(ofSize: TypeScale.body),
             NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
         ]))
-        ctx.textPosition = CGPoint(x: 2, y: 5)
-        CTLineDraw(line, ctx)
-        guard let data = ctx.data else { return 0 }
-        let bytes = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+        guard let pixels = DrawnPixels(width: width, height: height, bytesPerPixel: 4,
+                                       space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue, draw: { ctx in
+            ctx.scaleBy(x: 2, y: 2)
+            ctx.setAllowsFontSmoothing(true)
+            ctx.setShouldSmoothFonts(true)
+            ctx.setFillColor(CGColor(srgbRed: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1))
+            ctx.textPosition = CGPoint(x: 2, y: 5)
+            CTLineDraw(line, ctx)
+        }) else { return 0 }
         var sum = 0
-        for pixel in 0..<(width * height) { sum += Int(bytes[pixel * 4 + 3]) }
+        for y in 0..<height {
+            for x in 0..<width { sum += Int(pixels[x, y, 3]) }
+        }
         return sum
     }
 }

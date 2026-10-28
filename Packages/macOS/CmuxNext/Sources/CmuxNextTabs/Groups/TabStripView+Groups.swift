@@ -93,10 +93,7 @@ extension TabStripView {
             let direct = groups.isDragged(id)
             var moved = false
             if let move, frame != chip.frame || alpha != chip.layer.opacity || abs(scroll) > 0.01 {
-                let before = TabStripMove.snapshot(chip.layer)
-                chip.frame = frame
-                chip.layer.opacity = alpha
-                moved = move.animate(from: before, scroll: scroll)
+                moved = chip.move(to: frame, alpha: alpha, with: move, scroll: scroll)
             } else {
                 chip.frame = frame
                 chip.layer.opacity = alpha
@@ -140,7 +137,7 @@ extension TabStripView {
         guard local.x >= 0, local.x <= tabsClip.bounds.width, local.y >= 0, local.y <= tabsClip.bounds.height else { return nil }
         guard scrollMapping.showsUnpinned(at: local.x) else { return nil }
         for (group, chip) in groups.chips where !dying.contains(.groupChip(group)) {
-            let frame = chip.frame
+            let frame = scroller.shownFrame(chip.layer)
             if local.x >= frame.minX, local.x < frame.maxX { return group }
         }
         return nil
@@ -176,29 +173,27 @@ extension TabStripView {
     public func showGroupEditor(for group: TabGroupID) {
         guard let item = groups.byID[group], let chip = groups.chips[group], let window else { return }
         hoverCards.dismiss(.action)
-        let anchor = window.convertToScreen(tabsClip.convert(chip.frame, to: nil))
+        let anchor = window.convertToScreen(tabsClip.convert(scroller.shownFrame(chip.layer), to: nil))
         groupEditor.show(group: item, anchor: anchor, parent: window, themeAnchor: self)
     }
 
     /// The group's full menu under its chip (the editor's More row; Option-right-click).
     func showGroupMenu(for group: TabGroupID) {
         guard let menu = contextMenuProvider?(.group(group)), !menu.items.isEmpty, let chip = groups.chips[group] else { return }
-        let frame = tabsClip.convert(chip.frame, to: self)
+        let frame = tabsClip.convert(scroller.shownFrame(chip.layer), to: self)
         menuTracking.begin(menu)
         menu.popUp(positioning: nil, at: CGPoint(x: frame.minX, y: isFlipped ? frame.maxY + 2 : frame.minY - 2), in: self)
         menuTracking.end()
     }
 
-    /// Click-and-hold on a chip opens the editor.
+    /// Click-and-hold on a chip opens the editor: a `userBlocking` deadline (the person waits on it) that mouse-up, a
+    /// drag or the next hold cancels.
     func startChipHold(_ group: TabGroupID) {
-        groups.holdTask?.cancel()
-        let sleep = groups.sleep
-        groups.holdTask = Task { [weak self] in
-            do { try await sleep(.milliseconds(450)) } catch { return } // wakeup-allow: deadline of the 450 ms click-and-hold; mouse-up, a drag or the next hold cancels it; main actor, see TabStripGroupState.sleep
-            guard let self, !Task.isCancelled, self.groups.press?.groupID == group, self.groups.drag == nil else { return }
-            self.groups.press?.openedEditor = true
-            self.groups.chips[group]?.isPressed = false
-            self.showGroupEditor(for: group)
+        chipHold.schedule(after: .milliseconds(450)) { [weak self] in
+            guard let self, groups.press?.groupID == group, groups.drag == nil else { return }
+            groups.press?.openedEditor = true
+            groups.chips[group]?.isPressed = false
+            showGroupEditor(for: group)
         }
     }
 }

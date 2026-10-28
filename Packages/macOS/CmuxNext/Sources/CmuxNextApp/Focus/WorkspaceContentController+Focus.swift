@@ -20,6 +20,26 @@ extension WorkspaceContentController {
         rekeySurfaceWait() // a tab this topology adds may be the one a surface wait names
     }
 
+    /// Brings each pane strip whose record's tabs changed since its last apply up to the store, inside this
+    /// workspace's apply (its topology goes out once, at the end). Each pane's own observation would do it in a later
+    /// main-actor job; until then the topology listed a tab moved to a new pane in both panes, focus waited on it,
+    /// and the moved terminal, already shown in its new pane, did not have the keyboard: keys typed then went to the
+    /// window and were lost (dogfood v2.1, 2026-10-27: the first keys typed into a new terminal from Home's dock).
+    /// O(tabs of this workspace's panes), on a layout change only.
+    func syncStaleStrips() {
+        for controller in panes.values where controller.stripIsStale { controller.syncStripIfStale() }
+    }
+
+    /// A pane's strip observation saw a tab move in or out: the layout (a move to a new pane changes it) and every
+    /// moved strip apply now, and one topology goes out with all of them (a move between existing panes leaves the
+    /// layout as it is: the strips still change together).
+    func applyMovedTabs() {
+        applyLayoutIfChanged()
+        guard !isParked, !isApplying, !isTornDown, panes.values.contains(where: \.stripIsStale) else { return }
+        withApplying { syncStaleStrips() }
+        sendTopology()
+    }
+
     /// Topologies name tabs by id only: a wait by a daemon surface takes its tab's id (same target, pane, generation)
     /// once the store has it: at each topology send (a new tab) and at a split's confirm (`terminalConfirmed`).
     func rekeySurfaceWait() {

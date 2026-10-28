@@ -78,4 +78,31 @@ import Testing
         #expect(!buffer.cancel(tab: "new"))
         #expect(buffer.take().count == 1, "a resolved creation's keys wait for its focus")
     }
+
+    /// A new workspace's terminal asked for over Home (dogfood v2.2.3): its keys go on only once the window shows that
+    /// workspace, and a failed creation or a workspace the window never shows takes them with it; they are never run
+    /// into what has the focus instead (Home's Chief message box).
+    @Test func keysTypedForANewWorkspacesTerminalGoOnlyToThatWorkspace() {
+        let made = CreationInputBuffer(began: .now)
+        let ticket = made.open(generation: 4, newWorkspace: true)
+        #expect(made.newestGeneration == 4)
+        made.capture(Self.key("e", code: 14))
+        made.resolve(ticket, awaitsFocus: true, workspace: "ws-new")
+        made.capture(Self.key("c", code: 8)) // typed after the reply: still that terminal's
+        #expect(made.awaitedWorkspace == "ws-new")
+        #expect(made.take(shown: "home").isEmpty, "keys typed for the new terminal ran while the window showed Home")
+
+        let shown = CreationInputBuffer(began: .now)
+        let second = shown.open(generation: 5, newWorkspace: true)
+        shown.capture(Self.key("e", code: 14))
+        shown.resolve(second, awaitsFocus: true, workspace: "ws-new")
+        #expect(shown.take(shown: "ws-new").count == 1, "the new workspace shows: its keys go to its terminal")
+
+        let failed = CreationInputBuffer(began: .now)
+        let third = failed.open(generation: 6, newWorkspace: true)
+        failed.capture(Self.key("e", code: 14))
+        failed.resolve(third, awaitsFocus: false)
+        #expect(failed.awaitedWorkspace == nil)
+        #expect(failed.take(shown: "home").isEmpty, "a failed new terminal's keys went to what had the focus")
+    }
 }

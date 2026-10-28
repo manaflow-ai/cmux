@@ -3,16 +3,19 @@
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { openPageState } from "../shared/pageState";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { MockStatsProvider } from "./mockProvider";
 import { StatsPage } from "./StatsPage";
-import { StatsStore } from "./store";
+import { STATS_PAGE, StatsStore } from "./store";
 import "../shared/pageBase.css";
 import "./styles.css";
 
 export function mountStatsPage(root: HTMLElement, client: PageClient | null = defaultClient()): StatsStore {
+  const state = openPageState(client, STATS_PAGE);
   const store = new StatsStore(client);
+  state.keep(() => store.pageInputs());
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.title = strings.t("stats.page.title");

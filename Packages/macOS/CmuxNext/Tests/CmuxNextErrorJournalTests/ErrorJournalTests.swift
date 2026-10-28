@@ -357,6 +357,20 @@ struct ErrorJournalTests {
         #expect(await journal.entries(ErrorQuery(limit: 1)).first?.source == "crash")
     }
 
+    /// p10-stability-095: `errors.list {"since_ms":1e300}` (or `"since":"1e300s"`) made `since`
+    /// a date past Int64 milliseconds, and `Int64(_:)` trapped on a journal with an entry. A date
+    /// past every entry matches none, one before every entry matches all.
+    @Test func aSinceOutsideInt64MillisecondsMatchesWithoutTrapping() async {
+        let journal = ErrorJournal(directory: directory)
+        await journal.record(event("pool failed", source: "acpmux", at: 0))
+        #expect(await journal.entries(ErrorQuery(since: Date(timeIntervalSince1970: 1e297))).isEmpty)
+        #expect(await journal.entries(ErrorQuery(since: Date(timeIntervalSince1970: .infinity))).isEmpty)
+        #expect(await journal.entries(ErrorQuery(since: Date(timeIntervalSince1970: -1e297))).count == 1)
+        #expect(await journal.entries(ErrorQuery(since: Date(timeIntervalSince1970: -.infinity))).count == 1)
+        #expect(await journal.entries(ErrorQuery(since: base)).count == 1)
+        #expect(await journal.entries(ErrorQuery(since: base.addingTimeInterval(1))).isEmpty)
+    }
+
     @Test func clearForgetsChosenOrAllEntries() async {
         let journal = ErrorJournal(directory: directory)
         await journal.record(event("one"))

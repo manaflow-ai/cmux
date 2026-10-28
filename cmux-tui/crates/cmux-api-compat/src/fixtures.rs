@@ -12,11 +12,34 @@
 //!               "input": {"event": "tab-renamed", "tab": 4},
 //!               "output": {"event": "tab-renamed", "surface": 4} } ] }
 //! ```
+//!
+//! The same file holds the translator's behavior vectors. Each [`Vector`]
+//! carries its own rule chain, one message as written, and what the
+//! translation must give. The crate's tests replay them with
+//! [`check_vectors`]; `scripts/cmux-next/oracle/gen_api_compat.py` writes one
+//! oracle case per vector (`tests/oracle/corpus/api-compat/`), which sends the
+//! whole vector to the build under test: that build runs
+//! [`Translation::run`] and fails the case on a [`Vector::mismatch`]. One set of vectors for every
+//! runner, as Mojo's validation vectors are (chromium/src
+//! `mojo/public/interfaces/bindings/tests/data/validation/`).
+//!
+//! ```json
+//! { "vectors": [ { "id": "rename-upgrades", "title": "a rename upgrades",
+//!                  "translation": {
+//!                    "schema": {"protocol": "test", "base": 1, "revisions": [
+//!                      {"rev": 2, "changes": [{"message": "event:workspace", "op": "rename",
+//!                                              "path": "/name", "to": "title"}]}]},
+//!                    "message": "event:workspace", "from": 1, "to": 2,
+//!                    "input": "{\"name\":\"a\"}" },
+//!                  "expect": {"bytes": "{\"title\":\"a\"}"} } ] }
+//! ```
+
+use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{Compat, Schema};
+use crate::{Compat, CompatError, Schema};
 
 /// The fixture file.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -25,6 +48,168 @@ pub struct Fixtures {
     /// Every case, in any order.
     #[serde(default)]
     pub cases: Vec<Case>,
+    /// Translator behavior vectors, each on its own rule chain.
+    #[serde(default)]
+    pub vectors: Vec<Vector>,
+}
+
+/// One translation and what it must give.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Vector {
+    /// Unique slug (`[a-z0-9][a-z0-9-]{0,63}`); the oracle case id.
+    pub id: String,
+    /// What the vector shows.
+    pub title: String,
+    /// The translation to run.
+    pub translation: Translation,
+    /// What it must give.
+    pub expect: Expect,
+}
+
+/// One message written at `from` under `schema`, as a reader at `to` gets it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Translation {
+    /// The rule chain, in compat file form.
+    pub schema: Schema,
+    /// Message kind (`request:<cmd>`, `response:<cmd>`, `event:<name>`).
+    pub message: String,
+    /// The writer's revision.
+    pub from: u32,
+    /// The reader's revision.
+    pub to: u32,
+    /// The message as written, byte for byte.
+    pub input: String,
+}
+
+/// A vector's expected result.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Expect {
+    /// Exactly these bytes.
+    Bytes(String),
+    /// JSON equal to this value; member order is free.
+    Json(Value),
+    /// A refusal of this kind.
+    Error(ErrorKind),
+}
+
+/// The kind of a [`CompatError`], without its details.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorKind {
+    /// [`CompatError::BadPointer`].
+    BadPointer,
+    /// [`CompatError::InvalidChange`].
+    InvalidChange,
+    /// [`CompatError::InvalidSchema`].
+    InvalidSchema,
+    /// [`CompatError::UnsupportedRevision`].
+    UnsupportedRevision,
+    /// [`CompatError::Malformed`].
+    Malformed,
+}
+
+impl From<&CompatError> for ErrorKind {
+    fn from(error: &CompatError) -> Self {
+        match error {
+            CompatError::BadPointer(_) => Self::BadPointer,
+            CompatError::InvalidChange(_) => Self::InvalidChange,
+            CompatError::InvalidSchema(_) => Self::InvalidSchema,
+            CompatError::UnsupportedRevision { .. } => Self::UnsupportedRevision,
+            CompatError::Malformed(_) => Self::Malformed,
+        }
+    }
+}
+
+/// What a [`Translation`] gave: `{"output": "..."}` or
+/// `{"error": {"kind": "malformed", "message": "..."}}`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Outcome {
+    /// The translated message. UTF-8 input gives UTF-8 output; a translator
+    /// bug that breaks it shows as U+FFFD and fails the vector.
+    Output(String),
+    /// The translator refused the schema or the message.
+    Error {
+        /// Which refusal.
+        kind: ErrorKind,
+        /// Its text.
+        message: String,
+    },
+}
+
+impl Translation {
+    /// Builds the schema's runtime and translates the input.
+    pub fn run(&self) -> Outcome {
+        let result = Compat::new(self.schema.clone()).and_then(|compat| {
+            compat
+                .translate(&self.message, self.from, self.to, self.input.as_bytes())
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        });
+        match result {
+            Ok(output) => Outcome::Output(output),
+            Err(error) => {
+                Outcome::Error { kind: ErrorKind::from(&error), message: error.to_string() }
+            }
+        }
+    }
+}
+
+impl Vector {
+    /// Why the translation does not give what the vector expects, if it does not.
+    pub fn problem(&self) -> Option<String> {
+        self.mismatch(&self.translation.run())
+    }
+
+    /// Why `outcome` is not what the vector expects, if it is not. The
+    /// oracle's `__oracle-api-compat` mode runs the translation once and
+    /// checks it here, so a case fails in the build that gives the wrong
+    /// result.
+    pub fn mismatch(&self, outcome: &Outcome) -> Option<String> {
+        let matches = match (&self.expect, outcome) {
+            (Expect::Bytes(want), Outcome::Output(got)) => want == got,
+            (Expect::Json(want), Outcome::Output(got)) => {
+                serde_json::from_str::<Value>(got).is_ok_and(|got| &got == want)
+            }
+            (Expect::Error(want), Outcome::Error { kind, .. }) => want == kind,
+            _ => false,
+        };
+        (!matches).then(|| {
+            let expect = serde_json::to_string(&self.expect).unwrap_or_default();
+            let got = serde_json::to_string(outcome).unwrap_or_default();
+            format!("vector {}: got {got}, the fixture expects {expect}", self.id)
+        })
+    }
+}
+
+/// The case-v1 slug the oracle names cases by: `[a-z0-9][a-z0-9-]{0,63}`.
+fn is_slug(id: &str) -> bool {
+    let bytes = id.as_bytes();
+    (1..=64).contains(&bytes.len())
+        && bytes[0] != b'-'
+        && bytes.iter().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
+}
+
+/// Every problem with the vectors of `fixtures`: ids that are not unique
+/// slugs, and translations that give something else.
+pub fn check_vectors(fixtures: &Fixtures) -> Vec<String> {
+    let mut problems = Vec::new();
+    let mut seen = HashSet::new();
+    for vector in &fixtures.vectors {
+        if !is_slug(&vector.id) {
+            problems.push(format!(
+                "vector {:?}: the id is not a [a-z0-9][a-z0-9-]{{0,63}} slug",
+                vector.id
+            ));
+        }
+        if !seen.insert(vector.id.as_str()) {
+            problems.push(format!("vector {}: the id repeats", vector.id));
+        }
+        problems.extend(vector.problem());
+    }
+    problems
 }
 
 /// One message written at `from`, as a reader at `to` must receive it.

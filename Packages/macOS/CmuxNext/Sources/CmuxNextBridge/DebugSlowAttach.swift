@@ -31,6 +31,7 @@ public nonisolated final class DebugSlowAttach: Sendable {
     public func beforeAttach(surface: String) async throws {
         guard isActive else { return }
         // wakeup-allow: debug seam (CMUX_NEXT_DEBUG_SLOW_ATTACH), one wait per attach of a slow-daemon run
+        // timer-class-allow: a DEBUG-only fault injection (unset by default): the attach itself waits, no deadline work is scheduled
         try await Task.sleep(for: delay, tolerance: WakeLeeway.window(delay: delay).tolerance)
         let fail = failed.withLock { counts -> Bool in
             let count = counts[surface, default: 0]

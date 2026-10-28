@@ -1,4 +1,4 @@
-import Foundation
+public import AppKit
 import WebKit
 
 /// The color a WebKit page shows between a navigation committing and its
@@ -15,6 +15,15 @@ extension WebKitTab {
     func setDrawsPageBackground(_ draws: Bool) {
         guard webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) else { return }
         webView.setValue(draws, forKey: "drawsBackground")
+        drawsPageBackground = draws
+    }
+
+    /// What WebKit paints behind the document: its page background SPI (`_pageExtendedBackgroundColor`,
+    /// the color `underPageBackgroundColor` takes by default; this tab clears that one), checked first.
+    /// Nil while WebKit draws no background, so the page is see-through, and without the SPI.
+    public var pageBackgroundColor: CGColor? {
+        guard drawsPageBackground, webView.responds(to: NSSelectorFromString("_pageExtendedBackgroundColor")) else { return nil }
+        return (webView.value(forKey: "_pageExtendedBackgroundColor") as? NSColor)?.cgColor
     }
 
     /// A new document committed: WebKit draws no background behind it for a

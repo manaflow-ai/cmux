@@ -57,7 +57,7 @@ struct ChatScrollRestoreDefaultPathTests {
         let anchors = AgentPaneScrollAnchors(directory: directory)
 
         _ = Self.value(Self.call("chat.scrollAnchor", ["sessionId": "s-3", "rowId": "user-7", "offset": 8], anchors: anchors))
-        let provider = AgentPageProvider(chatStores: AgentPaneChatStores(scrollAnchors: anchors, draftAttachments: nil)) { _ in nil }
+        let provider = AgentPageProvider(chatStores: AgentPaneChatStores(scrollAnchors: anchors, draftAttachments: nil), mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         let read = try await provider.call(
             AgentPageOps.namespace + "chat.scrollAnchor.get",
             params: .object(["sessionId": .string("s-3")]),

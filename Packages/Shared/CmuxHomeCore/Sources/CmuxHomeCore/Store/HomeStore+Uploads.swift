@@ -33,6 +33,8 @@ extension HomeStore {
 
     private func uploadAndSubmitPasses(_ key: inout IdempotencyKey) async throws {
         var uploadedAgain = uploads[key]?.uploadedAfterSweep ?? false
+        // wakeup-allow: bounded each pass awaits one upload pass; it passes again only for one immediate retry
+        // per key (`resumedImmediately`) and one re-upload under a new key after a sweep (`uploadedAgain`)
         while true {
             // One pass at a time per send (a reconnect may race a retry).
             guard var job = uploads[key], job.task == nil else { return }
@@ -40,9 +42,10 @@ extension HomeStore {
             job.waitingForReconnect = false
             job.active = true
             let uploaded = job.uploaded
-            job.progress = Dictionary(uniqueKeysWithValues: job.attachments.map {
+            // A file attached twice has one hash, so both copies share one progress value.
+            job.progress = Dictionary(job.attachments.map {
                 ($0.ref.hash, uploaded.contains($0.ref.hash) ? 1.0 : 0.0)
-            })
+            }, uniquingKeysWith: { first, _ in first })
             let attempt = job.attempt
             let passKey = key
             let task = Task { [weak self] () -> HomeRejection? in

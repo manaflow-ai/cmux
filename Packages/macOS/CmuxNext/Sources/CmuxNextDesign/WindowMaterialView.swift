@@ -3,6 +3,7 @@ import CoreImage
 import CmuxNextCompat
 public import CmuxNextWakeups
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// The one material behind a window's content (``WindowMaterial``) and the
 /// one theme tint, as the window root's bottom subview.
@@ -393,7 +394,8 @@ public final class WindowMaterialView: NSView {
         var saturation: CGFloat = 0
         var brightness: CGFloat = 0
         var alpha: CGFloat = 0
-        rgb.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+        // SAFETY: getHue writes one CGFloat into each of the four locals, live for the call.
+        unsafe rgb.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
         let shifted = (hue + CGFloat(tuning.hue - 0.5)).truncatingRemainder(dividingBy: 1)
         return NSColor(deviceHue: shifted < 0 ? shifted + 1 : shifted,
                        saturation: min(max(saturation * CGFloat(tuning.saturation), 0), 1),

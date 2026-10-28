@@ -48,6 +48,8 @@ public final class GhosttyRuntime {
     var reloadRequests = 0
     /// A ``reloadConfig()`` came before the first config landed (``start(loadingOn:then:)`` runs it then).
     var reloadAfterStart = false
+    /// cmux's Kitty graphics budget per screen (``setImageStorageBytesPerScreen(_:)``), bounded from the start.
+    var imageStorageBytesPerScreen = GhosttyRuntime.defaultImageStorageBytesPerScreen
     /// Bumps on every config change (reload, conditional theme switch), after the new config is in
     /// place. Visible views observe it; hidden ones read it when they show.
     public let configRevision = GhosttyConfigRevision()
@@ -62,14 +64,12 @@ public final class GhosttyRuntime {
     /// Messages from the last config load (unknown keys, bad values).
     public internal(set) var configDiagnostics: [String] = []
 
-    /// Frontend-level actions that have no surface target (for example
-    /// `quit` or `new_window` from an app-scoped keybind). Return true when
-    /// handled.
+    /// Frontend-level actions that have no surface target (for example `quit` or `new_window` from an
+    /// app-scoped keybind). Return true when handled.
     public var appActionHandler: ((TerminalHostAction) -> Bool)?
 
-    /// Fires after a config change so hosts can re-read derived values such
-    /// as ``backgroundColor``, and after a soft reload so surfaces with their
-    /// own theme take it back.
+    /// Fires after a config change so hosts can re-read derived values such as ``backgroundColor``, and
+    /// after a soft reload so surfaces with their own theme take it back.
     public var onConfigChange: (() -> Void)?
     /// The services' handlers (``addConfigChangeHandler(_:)``), in the order added.
     private var configChangeHandlers: [@MainActor () -> Void] = []
@@ -84,7 +84,13 @@ public final class GhosttyRuntime {
 
     nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "terminal")
 
-    private let context = RuntimeCallbackContext()
+    let context = RuntimeCallbackContext()
+    /// The tick on the app's board and its scheduler (``attach(to:holdsHiddenActions:)``); nil before that, and in tests.
+    var ticks: GhosttyTickClass?
+    /// Paces the ticks to the display frame while output streams (``attach(to:holdsHiddenActions:)``); nil before that.
+    var tickPacer: GhosttyTickPacer?
+    /// A hidden terminal's state actions wait for it to show (``attach(to:holdsHiddenActions:)``).
+    var holdsHiddenActions = false
     let hostKeybindCache = HostKeybindCache()
     /// The input sources as the terminal key path reads them (switch keys, source kind, copy mode's
     /// ASCII map); the app starts it with its runner, this runtime's observers keep it current.
@@ -92,7 +98,9 @@ public final class GhosttyRuntime {
     /// The terminals' key-to-echo stages and the process's contents gate; the app installs its input
     /// latency tracker here (``TerminalEchoStages/install(_:)``, p04-input-094) before its first terminal.
     public let echoStages: TerminalEchoStages
-    /// Ghostty's frames into the trace ring (p09-observability-049); `trace.start`/`stop` call ``GhosttyTraceHook/refreshDemand()``.
+    /// Splits this runtime's first surface's cost into phases (p08-startup-091); later surfaces take no split.
+    let firstSurfaceSplit = TerminalFirstSurfaceSplit()
+    /// Ghostty's frames into the trace ring (p09-observability-049); the app wires ``GhosttyTraceHook/connect(on:presents:)``.
     public let traceHook: GhosttyTraceHook
     /// The process's secure keyboard entry for its terminals (HIToolbox counts it per process); it holds the
     /// app trace runtime's keystroke-timing gate closed while on (p09-observability-128).
@@ -102,6 +110,8 @@ public final class GhosttyRuntime {
     /// Energy Saver's edges to libghostty (``followEnergySaver(on:)``); nil before that call, and always
     /// for a GhosttyNextKit pin without `ghostty_app_set_energy_saver`.
     private var energySaver: GhosttyEnergySaver?
+    /// Puts resized terminals' drawn frames into their size's commit; nil: they land when drawn.
+    public var hostFramePresenter: TerminalHostFramePresenter?
 
     /// Runs `ghostty_init` when `main` did not (tests); the app starts at ``start(with:)``. The app has one
     /// runtime, ``shared``; a test makes its own only to check one that never started.
@@ -217,7 +227,7 @@ public final class GhosttyRuntime {
         config = unsafe fresh
         hostKeybindCache.binds = nil
         // Themed configs were built on the old files: each keeps serving until its rebuild lands.
-        themeConfigs.invalidate(loader: configLoader) { GhosttyConfigInputs.current(theme: $0) }
+        themeConfigs.invalidate(loader: configLoader) { configInputs(theme: $0) }
         onConfigChange?()
         configRevision.bump()
         for handler in configChangeHandlers { handler() }
@@ -226,7 +236,7 @@ public final class GhosttyRuntime {
     /// Test hook: when set, only this file (plus its `config-file` includes)
     /// is loaded instead of the user's default Ghostty config files, so
     /// visual checks can run a tagged build under another theme.
-    static let configOverrideKey = "CMUX_NEXT_GHOSTTY_CONFIG"
+    nonisolated static let configOverrideKey = "CMUX_NEXT_GHOSTTY_CONFIG"
 
     /// cmux's own theme (`appearance.theme` in cmux.json, a Ghostty theme
     /// name or `light:A,dark:B`), loaded after the Ghostty config files so
@@ -345,28 +355,22 @@ public final class GhosttyRuntime {
 
     // MARK: Tick and focus
 
-    /// Runs one libghostty app tick on the main actor after a coalesced wakeup.
-    func tick() {
-        context.pending.store(false, ordering: .releasing)
-        guard let app else { return }
-        // SAFETY: `app` is live (never freed); a tick runs on the main actor as Ghostty asks.
-        unsafe ghostty_app_tick(app)
-    }
+    // The tick: GhosttyRuntime+Ticks.swift.
 
     private func installObservers() {
-        let center = NotificationCenter.default
+        let center = NotificationCenter.default // raw-observer-allow: the process's one observer of this notice for every terminal (the runtime starts before the app's AppEvents exists)
         observers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated {
                 self?.setAppFocused(true)
                 self?.inputSources.applicationDidBecomeActive()
             }
-        })
+        }) // raw-observer-allow: the process's one observer of this notice for every terminal (the runtime starts before the app's AppEvents exists)
         observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { self?.setAppFocused(false) }
         })
-        // Ghostty caches the keyboard layout for key translation, the key path the source's kind.
+        // raw-observer-allow: the process's one observer of this notice for every terminal (the runtime starts before the app's AppEvents exists); Ghostty caches the keyboard layout for key translation, the key path the source's kind
         observers.append(center.addObserver(forName: NSTextInputContext.keyboardSelectionDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated {
@@ -378,9 +382,9 @@ public final class GhosttyRuntime {
         })
         if let nsApp = NSApp {
             applyColorScheme(nsApp.effectiveAppearance)
-            // KVO calls back on the thread that changed the value: inline on
-            // main, a hop from anywhere else.
-            appearanceObservation = nsApp.observe(\.effectiveAppearance, options: [.new]) { @Sendable [weak self] application, _ in
+            // KVO calls back on the thread that changed the value: inline on main, a hop from anywhere else.
+            // raw-observer-allow: no notice reports a light/dark switch; KVO of NSApp's effectiveAppearance is the one source, as Chromium's NativeThemeMac observes it (ui/native_theme/native_theme_mac.mm)
+            appearanceObservation = nsApp.observe(\.effectiveAppearance, options: [.new]) { @Sendable [weak self] application, _ in // main-hop-allow: AppKit changes the app's appearance on main, so the scheme switch runs inline in that turn, beside ThemeResolver's re-resolve; only an off-main change hops
                 MainDelivery().run { self?.applyColorScheme(application.effectiveAppearance) }
             }
         }
@@ -396,7 +400,7 @@ public final class GhosttyRuntime {
     /// Sends the Energy Saver state of `mainWork`'s policy (``MainWorkScheduler/energy``, the app's one
     /// source) to libghostty on each edge (`ghostty_app_set_energy_saver`, ghostty-next p14-energy-114):
     /// shader and Kitty animations wake at most every 33 ms and scrollback compression runs at utility
-    /// QoS while it is on. The composition root calls it once. It makes no call at all when the pinned
+    /// QoS while it is on. ``attach(to:holdsHiddenActions:)`` calls it once. It makes no call at all when the pinned
     /// GhosttyNextKit lacks the export (`GHOSTTY_ENERGY_SAVER`, Package.swift).
     public func followEnergySaver(on mainWork: MainWorkScheduler) {
         #if GHOSTTY_ENERGY_SAVER

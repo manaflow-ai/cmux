@@ -1,10 +1,17 @@
 public import AppKit
+import CmuxNextCompat
 import Foundation
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
 
 extension CEFTab {
+    /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
+    nonisolated static func dragPaths(_ json: String) -> [URL] {
+        guard let paths = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String] else { return [] }
+        return paths.filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
+    }
+
     /// Translates shim events into `BrowserNavigationEvent`s.
     ///
     /// CEF order for a navigation: OnLoadingStateChange(loading) ->
@@ -107,7 +114,10 @@ extension CEFTab {
             machine.apply(.faviconChanged(faviconURL))
             loadFavicon(faviconURL)
         case .progress(_, let value): machine.apply(.progress(value))
-        case .fullscreen(_, let entering): machine.apply(.contentFullscreenChanged(entering))
+        case .fullscreen(let browser, let entering):
+            machine.apply(.contentFullscreenChanged(entering))
+            host.hostedPageView?.exclusiveAccess.fullscreenChanged(entering, browser: browser) // Escape ends it (task 229)
+            if runtime.hostStart?.locks != nil { emit(.contentFullscreen(entering)) } // its pane fills the window
         case .findResult(_, let findID, let count, let active, let isFinal):
             findRequests.result(findID: findID, count: count, active: active, isFinal: isFinal)?.run()
         case .closeRequested: emit(.close)
@@ -122,10 +132,13 @@ extension CEFTab {
             }
         case .takeFocus(_, let forward):
             emit(.takeFocus(forward: forward))
-        case .renderTerminated(_, let status, let code, _, _):
+        case .renderTerminated(_, let status, let code, _, _, _):
+            rendererHang.ended()
             rendererTerminated(.cef(status: status, code: code))
-        case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
-        case .renderResponsive: machine.apply(.unresponsiveChanged(false))
+        case .frameRenderers: if runtime.hostStart == nil { onRenderersMayChange?() } // an iframe's renderer came or went
+        // In this tab only, with Chrome's visibility rules (CEFRendererHang.swift).
+        case .renderUnresponsive: rendererBecameUnresponsive()
+        case .renderResponsive: rendererBecameResponsive()
         case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)
         case .beforeUnloadDismissed: beforeUnloadDismissed()
         case .devToolsMessage(_, let json): agentRelay.deliver(json)
@@ -285,12 +298,16 @@ extension CEFTab {
             pendingExtensionAction = (id, anchor)
             return
         }
+        // Whether the click opens a popup comes from the mirrored action list, as Chrome's
+        // ExtensionActionViewController::ExecuteUserAction reads IsEnabled and the popup URL before
+        // it triggers (chrome/browser/ui/extensions/extension_action_view_controller.cc); the run is
+        // one-way and EXTENSION_POPUP_CLOSED (`extensionPopupClosed`) ends the popup.
         guard let shim = runtime.shim else { return }
         // The fork anchors the popup at the top edge of the browser area
         // between x and x + width (DIPs, browser view coordinates), so it
         // hangs below the toolbar button.
-        let ran = shim.extActionRun(browserID, id, anchor.minX.clampedInt32, max(anchor.width, 1).clampedInt32) == 1
-        if ran, extensionActions.first(where: { $0.id == id })?.hasPopup == true { openExtensionPopup = id }
+        _ = shim.extActionRun(browserID, id, anchor.minX.clampedInt32, max(anchor.width, 1).clampedInt32)
+        if let action = extensionActions.first(where: { $0.id == id }), action.isEnabled, action.hasPopup { openExtensionPopup = id }
     }
 
     public func hideExtensionPopups() {

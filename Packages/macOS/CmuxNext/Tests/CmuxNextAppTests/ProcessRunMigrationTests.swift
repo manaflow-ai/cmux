@@ -178,7 +178,7 @@ import Testing
         #expect(await running.most <= 2)
         #expect(await running.started == 6)
         // The App's reads default to that bound.
-        #expect(AgentPullRequestReads().reader.processes is BoundedProcessRunner)
+        #expect(AgentPullRequestReads(mainWork: MainWorkScheduler(budget: MainFrameBudget())).reader.processes is BoundedProcessRunner)
     }
 
     /// A real child through ``AsyncProcess``, from the main actor: the spawn and the wait make no blocking call on
@@ -238,7 +238,7 @@ import Testing
         let processes = RecordingProcessRunner()
         var target: URL?
         let sites = await mainThreadSites {
-            target = try? await FileOperator(processes: processes).compress([file], archiveName: "Archive")
+            target = try? await FileOperator(work: BackgroundWork(label: "test.file-operator"), processes: processes).compress([file], archiveName: "Archive")
         }
         #expect(sites.isEmpty, "\(sites)")
         #expect(target?.lastPathComponent == "a.txt.zip")
@@ -249,7 +249,7 @@ import Testing
 
         let failing = RecordingProcessRunner { _ in ProcessOutcome(status: 1, exited: true, output: Data(), errorOutput: Data("disk full".utf8)) }
         await #expect(throws: FileBrowserError.failed("disk full")) {
-            _ = try await FileOperator(processes: failing).compress([file], archiveName: "Archive")
+            _ = try await FileOperator(work: BackgroundWork(label: "test.file-operator"), processes: failing).compress([file], archiveName: "Archive")
         }
     }
 
@@ -320,7 +320,7 @@ import Testing
             return ProcessOutcome(status: 1, exited: false, output: Data(), errorOutput: Data())
         }
         await #expect(throws: FileBrowserError.self) {
-            _ = try await FileOperator(processes: processes).compress([file], archiveName: "Archive")
+            _ = try await FileOperator(work: BackgroundWork(label: "test.file-operator"), processes: processes).compress([file], archiveName: "Archive")
         }
         #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("a.txt.zip").path))
         #expect(processes.requests.first?.onCancel == .stop)

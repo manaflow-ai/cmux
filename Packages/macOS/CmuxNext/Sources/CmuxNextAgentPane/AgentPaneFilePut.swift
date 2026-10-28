@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Why a file the person dropped into a chat whose agent runs on an ssh peer (acpmux peering, a
 /// chat named `huge-blue/<name>`) did not reach that machine (``AgentPaneHostProviding/putFile(sessionId:name:data:)``).
@@ -58,8 +59,9 @@ extension AcpmuxStatusClient {
         }
     }
 
-    /// Streams a staged peer file without loading its whole contents into memory.
-    @concurrent static func putFile(socketPath: String, sessionId: String, name: String, file: URL,
+    /// Streams a staged peer file without loading its whole contents into memory. Runs on the caller's
+    /// executor: ``AcpmuxHost``'s own queue, never the cooperative pool.
+    nonisolated static func putFile(socketPath: String, sessionId: String, name: String, file: URL,
                                     deadline: Duration = .seconds(120)) async throws -> String {
         let size = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.intValue ?? 0
         guard size <= AgentPaneUpload.maximumPeerFileBytes else { throw AgentPaneFilePutFailure.tooLarge }
@@ -131,7 +133,7 @@ extension AcpmuxStatusClient {
             defer { try? handle.close() }
             var offset = 0
             while offset < size {
-                let piece = try handle.read(upToCount: min(filePutChunkBytes, size - offset)) ?? Data()
+                let piece = try handle.blockingRead(upToCount: min(filePutChunkBytes, size - offset)) ?? Data()
                 guard !piece.isEmpty else { throw AgentPaneFilePutFailure.failed }
                 let end = offset + piece.count
                 let answer = try await send(filePutChunkMethod, ["sessionId": sessionId, "uploadId": id,

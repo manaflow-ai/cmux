@@ -50,6 +50,15 @@ import Testing
         #expect(exits.last == ["kind": "utility", "reason": "abnormal", "exitCode": 256])
     }
 
+    /// The Chromium Host's end (`CEFRuntime.hostEnded`, processType chromium-host) is the end of Chromium's browser
+    /// process, so it counts as the browser, as a kill step aimed at the browser expects (p15-oracle-223).
+    @Test func theChromiumHostCountsAsTheBrowser() {
+        let log = Self.log([Self.record("chromium-host", .process, .killed, code: 9)])
+        let app = OracleCrashesFacet.AppExits(previous: nil, tallies: log.tallies, records: log.records)
+        #expect(app.counts == [.browser: 1])
+        #expect(app.exits == [OracleCrashesFacet.Exit(kind: .browser, reason: "killed", exitCode: 9)])
+    }
+
     /// A renderer that hosted no tab (a spare, or an orphan's) has only the process record, and still counts.
     @Test func aRendererWithNoTabCounts() {
         let log = Self.log([Self.record("renderer", .process, pid: 7)])

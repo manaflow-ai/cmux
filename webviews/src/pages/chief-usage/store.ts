@@ -2,10 +2,36 @@
 // React reads it through `useSyncExternalStore`. It reads on start, when the window or grouping
 // changes and on Refresh; never on a timer. A reply for a choice the person already left is dropped.
 import { isPageError, type PageClient } from "../shared/pageClient";
-import { ChiefUsageOps, type UsageBy, type UsageQuery, type UsageSummary, type UsageWindow } from "./types";
+import {
+  BY_KEYS,
+  ChiefUsageOps,
+  WINDOWS,
+  type UsageBy,
+  type UsageQuery,
+  type UsageSummary,
+  type UsageWindow,
+} from "./types";
 
 /** How many of the most expensive units the page lists. */
 export const TOP_COUNT = 10;
+
+/** The page name its saved state carries (pageState.ts). */
+export const CHIEF_USAGE_PAGE = "chief-usage";
+
+/** What the page keeps across a discard: the window and the grouping the person picked. */
+export interface ChiefUsageInputs {
+  window: UsageWindow;
+  by: UsageBy;
+}
+
+/** The valid fields of the inputs a discarded document saved; the rest keep their defaults. */
+export function restoredChiefUsageInputs(state: unknown): Partial<ChiefUsageInputs> {
+  if (!state || typeof state !== "object") return {};
+  const saved = state as Record<string, unknown>;
+  const window = WINDOWS.find((known) => known === saved.window);
+  const by = BY_KEYS.find((known) => known === saved.by);
+  return { ...(window ? { window } : {}), ...(by ? { by } : {}) };
+}
 
 export interface ChiefUsageSnapshot {
   window: UsageWindow;
@@ -39,6 +65,11 @@ export class ChiefUsageStore {
   };
 
   getSnapshot = () => this.snapshot;
+
+  /** What the page keeps when it hides (pageState.ts `keep`); `restoredChiefUsageInputs` reads it back. */
+  pageInputs(): ChiefUsageInputs {
+    return { window: this.snapshot.window, by: this.snapshot.by };
+  }
 
   start(): Promise<void> {
     return this.load(this.snapshot.window, this.snapshot.by);

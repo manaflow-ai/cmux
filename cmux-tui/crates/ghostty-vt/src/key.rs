@@ -3,7 +3,7 @@ use std::ptr;
 use ghostty_vt_sys as sys;
 
 use crate::terminal::Terminal;
-use crate::{Result, check};
+use crate::{Error, Result, check};
 
 /// Key press/release/repeat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,7 +155,7 @@ pub fn key_input_from_chord(chord: &str) -> Option<KeyInput> {
             }
         }
         name if name.starts_with('f') => {
-            let n = name[1..].parse::<u32>().ok()?;
+            let n = name.strip_prefix('f')?.parse::<u32>().ok()?;
             if !(1..=24).contains(&n) {
                 return None;
             }
@@ -217,14 +217,19 @@ pub struct KeyEncoder {
     event: sys::GhosttyKeyEvent,
 }
 
+// SAFETY: the encoder and event have no thread affinity (as MouseEncoder's);
+// this value owns both and every use takes &mut self.
 unsafe impl Send for KeyEncoder {}
 
 impl KeyEncoder {
     pub fn new() -> Result<Self> {
         let mut encoder: sys::GhosttyKeyEncoder = ptr::null_mut();
+        // SAFETY: `encoder` is a writable local; a null allocator selects the default.
         check(unsafe { sys::ghostty_key_encoder_new(ptr::null(), &mut encoder) })?;
         let mut event: sys::GhosttyKeyEvent = ptr::null_mut();
+        // SAFETY: `event` is a writable local; a null allocator selects the default.
         if let Err(e) = check(unsafe { sys::ghostty_key_event_new(ptr::null(), &mut event) }) {
+            // SAFETY: `encoder` came from key_encoder_new above and nothing else owns it.
             unsafe { sys::ghostty_key_encoder_free(encoder) };
             return Err(e);
         }
@@ -233,6 +238,8 @@ impl KeyEncoder {
 
     /// Sync encoder options (DECCKM, kitty flags, ...) from a terminal.
     pub fn sync_from_terminal(&mut self, terminal: &Terminal) {
+        // SAFETY: `self.encoder` is this value's live encoder and `terminal.raw()`
+        // the live terminal `&Terminal` borrows; the call reads only its modes.
         unsafe {
             sys::ghostty_key_encoder_setopt_from_terminal(self.encoder, terminal.raw());
         }
@@ -245,6 +252,10 @@ impl KeyEncoder {
             KeyAction::Release => sys::GHOSTTY_KEY_ACTION_RELEASE,
             KeyAction::Repeat => sys::GHOSTTY_KEY_ACTION_REPEAT,
         };
+        // SAFETY: `self.encoder` and `self.event` are this value's live handles;
+        // MACOS_OPTION_AS_ALT reads a GhosttyOptionAsAlt from the live local, and the
+        // utf8 pointer is null with length 0 or `input.utf8`, which outlives the encode
+        // below (the next encode replaces it before any read).
         unsafe {
             let option_as_alt = if input.macos_option_as_alt {
                 sys::GHOSTTY_OPTION_AS_ALT_TRUE
@@ -277,6 +288,8 @@ impl KeyEncoder {
 
         let mut buf = [0u8; 256];
         let mut written: usize = 0;
+        // SAFETY: both handles are live; `buf` is writable for `buf.len()` bytes and
+        // `written` is a writable local.
         let result = unsafe {
             sys::ghostty_key_encoder_encode(
                 self.encoder,
@@ -289,6 +302,8 @@ impl KeyEncoder {
         if result == sys::GHOSTTY_OUT_OF_SPACE {
             let mut big = vec![0u8; written.max(buf.len() * 2)];
             let mut written2: usize = 0;
+            // SAFETY: both handles are live; `big` is writable for `big.len()` bytes and
+            // `written2` is a writable local.
             check(unsafe {
                 sys::ghostty_key_encoder_encode(
                     self.encoder,
@@ -298,11 +313,12 @@ impl KeyEncoder {
                     &mut written2,
                 )
             })?;
-            append_encoded_key(input, &big[..written2], out);
+            // A written length past the buffer breaks the encoder's contract.
+            append_encoded_key(input, big.get(..written2).ok_or(Error::OutOfSpace)?, out);
             return Ok(());
         }
         check(result)?;
-        append_encoded_key(input, &buf[..written], out);
+        append_encoded_key(input, buf.get(..written).ok_or(Error::OutOfSpace)?, out);
         Ok(())
     }
 }
@@ -316,12 +332,18 @@ fn append_encoded_key(input: &KeyInput, encoded: &[u8], out: &mut Vec<u8>) {
         out.extend_from_slice(encoded);
         return;
     }
-    if !encoded.starts_with(b"\x1b[") || !encoded.ends_with(b"u") {
+    let Some(rest) = encoded.strip_prefix(b"\x1b[").filter(|rest| rest.ends_with(b"u")) else {
         out.extend_from_slice(encoded);
         return;
-    }
-    let key_field_end = encoded.iter().position(|byte| *byte == b';').unwrap_or(encoded.len() - 1);
-    let key_field = &encoded[2..key_field_end];
+    };
+    // The key field runs to the first `;`, or to the final `u` when the
+    // sequence has no modifier field.
+    let key_field_len =
+        rest.iter().position(|byte| *byte == b';').unwrap_or(rest.len().saturating_sub(1));
+    let Some((key_field, tail)) = rest.split_at_checked(key_field_len) else {
+        out.extend_from_slice(encoded);
+        return;
+    };
     let colon_count = key_field.iter().filter(|byte| **byte == b':').count();
     if !(1..=2).contains(&colon_count)
         || !key_field.iter().all(|byte| byte.is_ascii_digit() || *byte == b':')
@@ -330,58 +352,55 @@ fn append_encoded_key(input: &KeyInput, encoded: &[u8], out: &mut Vec<u8>) {
         return;
     }
 
-    // colon_count >= 1 above, so the key field has a separator.
-    let Some(shifted_separator) = key_field.iter().position(|byte| *byte == b':') else {
+    // `key:shifted` or `key:shifted:base`; colon_count >= 1 above.
+    let mut slots = key_field.splitn(3, |byte| *byte == b':');
+    let (Some(key_code), Some(reported_shifted)) = (slots.next(), slots.next()) else {
         out.extend_from_slice(encoded);
         return;
     };
-    let shifted_start = shifted_separator + 1;
-    let base_separator = key_field[shifted_start..]
-        .iter()
-        .position(|byte| *byte == b':')
-        .map(|index| shifted_start + index);
-    let shifted_end = base_separator.unwrap_or(key_field.len());
-    let reported_shifted = &key_field[shifted_start..shifted_end];
+    let reported_base = slots.next();
     let mut shifted_decimal = [0u8; 10];
     let shifted_digits = (reported_shifted.is_empty() && input.shifted_codepoint != 0)
         .then(|| decimal_u32(input.shifted_codepoint, &mut shifted_decimal));
     let mut base_decimal = [0u8; 10];
-    let base_digits = (base_separator.is_none() && input.base_layout_codepoint != 0)
+    let base_digits = (reported_base.is_none() && input.base_layout_codepoint != 0)
         .then(|| decimal_u32(input.base_layout_codepoint, &mut base_decimal));
     out.reserve(
         encoded.len()
             + shifted_digits.map_or(0, <[u8]>::len)
             + base_digits.map_or(0, |digits| 1 + digits.len()),
     );
-    out.extend_from_slice(&encoded[..2 + shifted_start]);
-    if let Some(digits) = shifted_digits {
-        out.extend_from_slice(digits);
-    } else {
-        out.extend_from_slice(reported_shifted);
-    }
-    if let Some(separator) = base_separator {
-        out.extend_from_slice(&key_field[separator..]);
-    } else if let Some(digits) = base_digits {
+    out.extend_from_slice(b"\x1b[");
+    out.extend_from_slice(key_code);
+    out.push(b':');
+    out.extend_from_slice(shifted_digits.unwrap_or(reported_shifted));
+    if let Some(base) = reported_base.or(base_digits) {
         out.push(b':');
-        out.extend_from_slice(digits);
+        out.extend_from_slice(base);
     }
-    out.extend_from_slice(&encoded[key_field_end..]);
+    out.extend_from_slice(tail);
 }
 
-fn decimal_u32(mut value: u32, buffer: &mut [u8; 10]) -> &[u8] {
-    let mut start = buffer.len();
-    loop {
-        start -= 1;
-        buffer[start] = b'0' + (value % 10) as u8;
-        value /= 10;
-        if value == 0 {
-            return &buffer[start..];
-        }
+/// Decimal digits of `value` without leading zeros (u32::MAX has 10 digits).
+fn decimal_u32(value: u32, buffer: &mut [u8; 10]) -> &[u8] {
+    let mut rest = value;
+    for slot in buffer.iter_mut().rev() {
+        *slot = b'0' + (rest % 10) as u8;
+        rest /= 10;
     }
+    let mut digits: &[u8] = buffer;
+    while let [b'0', tail @ ..] = digits
+        && !tail.is_empty()
+    {
+        digits = tail;
+    }
+    digits
 }
 
 impl Drop for KeyEncoder {
     fn drop(&mut self) {
+        // SAFETY: Drop runs once; both handles came from their _new calls in `new`
+        // and are owned only by this value.
         unsafe {
             sys::ghostty_key_event_free(self.event);
             sys::ghostty_key_encoder_free(self.encoder);

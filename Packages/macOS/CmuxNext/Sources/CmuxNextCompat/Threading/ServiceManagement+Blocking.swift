@@ -9,6 +9,7 @@ public import ServiceManagement
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The state.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSMAppServiceStatus(_ service: SMAppService, fileID: StaticString = #fileID, line: UInt = #line) -> SMAppService.Status {
     return blockingCall(.ipcReply, fileID: fileID, line: line) { service.status }
@@ -22,6 +23,7 @@ public func blockingSMAppServiceStatus(_ service: SMAppService, fileID: StaticSt
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Throws: What `register()` throws.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSMAppServiceRegister(_ service: SMAppService, fileID: StaticString = #fileID, line: UInt = #line) throws {
     try blockingCall(.ipcReply, fileID: fileID, line: line) { try service.register() }
@@ -35,6 +37,7 @@ public func blockingSMAppServiceRegister(_ service: SMAppService, fileID: Static
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Throws: What `unregister()` throws.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSMAppServiceUnregister(_ service: SMAppService, fileID: StaticString = #fileID, line: UInt = #line) throws {
     try blockingCall(.ipcReply, fileID: fileID, line: line) { try service.unregister() }

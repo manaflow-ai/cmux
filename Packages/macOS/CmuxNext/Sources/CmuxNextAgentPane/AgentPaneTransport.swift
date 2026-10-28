@@ -1,6 +1,7 @@
 public import Foundation
 import os
 import CmuxNextCompat
+public import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
@@ -42,8 +43,8 @@ import func CmuxSafeConcurrency.withOnceContinuation
             let previous = pacerStorage
             pacerStorage = newValue
             // An AppKit view can replace the default pacer from a synchronous callback. Keep
-            // the old actor-isolated pacer alive until its release runs on the main actor.
-            Task { @MainActor in
+            // the old actor-isolated pacer alive until a later main-thread task releases it.
+            mainWork.post(.background, owner: "agentPane.transport.pacerRelease") {
                 withExtendedLifetime(previous) {}
             }
         }
@@ -172,12 +173,30 @@ import func CmuxSafeConcurrency.withOnceContinuation
 
     /// Pushes and flushes so far (tests and the bench read them).
     public private(set) var flushes = 0
+    /// The frozen page's connection closes once the send line is empty (``closeWhileFrozen()``).
+    var closesWhenSent = false
+    /// The connection a freeze closed, until the page opens its next one (``closeWhileFrozen()``).
+    public internal(set) var closedForFreeze: Int?
+    /// Connections the page opened again after a freeze closed its last one (tests and the acpmux bench).
+    public private(set) var freezeReconnects = 0
 
+    /// The app's one main-thread scheduler: the socket's wakes and the page's sends land on it as classed tasks.
+    public let mainWork: MainWorkScheduler
+    /// The socket's wake, interned once on ``mainWork``'s board (one per arrival burst).
+    private let arrivedOwner: MainTaskOwner
+
+    /// - Parameters:
+    ///   - limits: The bounds of the queues and sends.
+    ///   - pacer: When arrived frames reach the page; nil flushes on the next main-thread task.
+    ///   - gestures: The person's gestures in this pane.
+    ///   - mainWork: The app's one main-thread scheduler (`AppServices.mainWork`).
     public init(limits: Limits = Limits(), pacer: (any AgentPaneTransportPacer)? = nil,
-                gestures: AgentPaneUserGestures = AgentPaneUserGestures()) {
+                gestures: AgentPaneUserGestures = AgentPaneUserGestures(), mainWork: MainWorkScheduler) {
         self.limits = limits
         self.gestures = gestures
-        self.pacerStorage = pacer ?? AgentPaneNextTurnPacer()
+        self.mainWork = mainWork
+        arrivedOwner = mainWork.board.owner("agentPane.transport.arrived")
+        self.pacerStorage = pacer ?? AgentPaneNextTurnPacer(mainWork: mainWork)
         webModes = { [weak self] session, configId, value in
             guard let path = self?.socketPath else { return nil }
             return await AcpmuxStatusClient.webModes(socketPath: path, sessionId: session, configId: configId, value: value)
@@ -200,6 +219,11 @@ import func CmuxSafeConcurrency.withOnceContinuation
     /// Opens a new socket (closing the current one) and returns its id once it is open.
     public func open(_ connection: AcpmuxConnection) async throws(AgentPaneTransportError) -> Int {
         close(connection: current)
+        closesWhenSent = false
+        if closedForFreeze != nil {
+            closedForFreeze = nil
+            freezeReconnects += 1
+        }
         pacer.reset()
         // A reconnect drops every ticket of the old connection.
         gestures.clearTickets()
@@ -225,9 +249,10 @@ import func CmuxSafeConcurrency.withOnceContinuation
         requestIds = ids
         let socket = AcpmuxPaneSocket(request: connection.request, wire: wire, limits: limits,
                                       options: permissionOptions, sessions: sessions, decisions: decisions, ids: ids,
-                                      agentReplies: connection.remote == nil ? currentAgentReply : nil) { [weak self] in
-            // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection
-            Task { @MainActor [weak self] in self?.arrived(id) }
+                                      agentReplies: connection.remote == nil ? currentAgentReply : nil) { [weak self, mainWork, arrivedOwner] in
+            // One wake for the pacer, from the socket's queue: streaming into the chat is visible work (a hidden
+            // pane's pacer holds all but what its page waits on); arrived(_:) ignores a stale connection.
+            mainWork.postFromAnyThread(.visible, owner: arrivedOwner) { [weak self] in self?.arrived(id) }
         }
         self.socket = socket
         // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
@@ -285,7 +310,11 @@ import func CmuxSafeConcurrency.withOnceContinuation
         guard !draining else { return }
         draining = true
         // task-owner: the send line's one drain; it ends when the line is empty
-        Task { [weak self] in await self?.drain() }
+        // main-hop-allow: drain() is the send line's main-actor async loop: each pass's checks run off main (analyze) and its sends on the socket's queue; the task only runs it, in the frames' order, then notes the empty line (sendLineDidEmpty: a deferred freeze close runs only after the last frame went out)
+        Task { [weak self] in
+            await self?.drain()
+            self?.sendLineDidEmpty()
+        }
     }
 
     nonisolated enum Step: Sendable { case sent, refused(AgentPaneTransportError), stop(AgentPaneTransportError) }
@@ -325,15 +354,16 @@ import func CmuxSafeConcurrency.withOnceContinuation
         return gestures.reserve(connection: current, intent: intent)
     }
 
-    /// Closes the connection if it is the current one.
-    public func close(connection id: Int) {
+    /// Closes the connection if it is the current one. The page gets `reason` with the close.
+    public func close(connection id: Int, reason: String = "") {
         guard id == current, let socket else { return }
-        socket.close(code: 1000, reason: "", error: nil)
+        socket.close(code: 1000, reason: reason, error: nil)
         localAppToken = nil
         promptRelay?.ended(byDaemon: false)
     }
 
-    private func arrived(_ id: Int) {
+    /// Frames or the close arrived on connection `id`: the pacer arranges their flush.
+    func arrived(_ id: Int) {
         guard id == current, let socket else { return }
         pacer.schedule(urgent: socket.pageWaits) { [weak self] in self?.flush() ?? AgentPaneFlush(delivered: false, more: false) }
     }

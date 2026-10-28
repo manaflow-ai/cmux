@@ -94,8 +94,7 @@ pub(crate) fn place_host(pid: u32) {
         }
         return;
     }
-    // SAFETY: geteuid has no preconditions.
-    let root = unsafe { libc::geteuid() } == 0;
+    let root = crate::platform::effective_uid() == 0;
     let mut command = if root {
         Command::new("busctl")
     } else {

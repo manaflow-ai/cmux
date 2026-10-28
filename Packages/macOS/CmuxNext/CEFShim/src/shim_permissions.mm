@@ -1,33 +1,56 @@
 // Permission prompts (CefPermissionHandler). Chromium's own bubble anchors to
 // a toolbar cmux never shows, so a request it would ask about waits until it
-// times out. The kinds the host asks about in its prompt bar
-// (kHostPermissions) go to the host as PERMISSION_PROMPT, answered with
-// cmux_shim_permission_continue; every other kind keeps Chromium's default.
-// Chromium persists Accept and Deny in its own content settings.
+// times out. The requests the host asks about (permission_prompt_policy.h:
+// location, and with the feature chromiumPermissionPromptsFromData every
+// cef_permission_request_types_t, camera and microphone included) go to the
+// host as PERMISSION_PROMPT, answered with cmux_shim_permission_continue;
+// every other request keeps Chromium's default. Chromium persists Accept and
+// Deny in its own content settings. Media access is not handled here:
+// Chromium's MediaStreamDevicesController asks for camera and microphone
+// through OnShowPermissionPrompt, and screen sharing keeps Chromium's
+// desktop media picker path (task p01-process-228).
 
 #include <map>
 
 #include "cmux_page_path.h"
+#include "include/cef_command_line.h"
 #include "include/cef_permission_handler.h"
+#include "permission_prompt_policy.h"
 #include "shim_internal.h"
 
 namespace cmux_shim {
 
 namespace {
 
-// Location only: notifications are off (disable-notifications, CEFSwitches).
-constexpr uint32_t kHostPermissions = CEF_PERMISSION_TYPE_GEOLOCATION;
+// One permission prompt waiting for the host, with Chromium's prompt id.
+struct Waiting {
+  uint64_t prompt_id = 0;
+  CefRefPtr<CefPermissionPromptCallback> prompt;
+};
 
-// Waiting prompts by token (prompt id + 1), UI thread. Never destroyed at
-// exit (its callbacks would outlive CefShutdown); ForgetPermissionPrompts
-// empties it before shutdown.
-std::map<int, CefRefPtr<CefPermissionPromptCallback>>& prompts() {
-  static auto* table = new std::map<int, CefRefPtr<CefPermissionPromptCallback>>();
+// Waiting prompts by token, UI thread. Never destroyed at exit (its
+// callbacks would outlive CefShutdown); ForgetPermissionPrompts empties it
+// before shutdown.
+std::map<int, Waiting>& waiting() {
+  static auto* table = new std::map<int, Waiting>();
   return *table;
 }
 
-int TokenOf(uint64_t prompt_id) {
-  return static_cast<int>(prompt_id % 0x7fffffff) + 1;
+int& last_token() {
+  static int last = 0;
+  return last;
+}
+
+// The feature, read once from the browser's feature lists: the command line
+// is fixed after CefInitialize.
+bool EveryKindToHost() {
+  static const bool every = [] {
+    CefRefPtr<CefCommandLine> command_line = CefCommandLine::GetGlobalCommandLine();
+    if (!command_line) return false;
+    return EveryKindFromFeatureLists(command_line->GetSwitchValue("enable-features").ToString(),
+                                     command_line->GetSwitchValue("disable-features").ToString());
+  }();
+  return every;
 }
 
 class Handler : public CefPermissionHandler {
@@ -40,12 +63,9 @@ class Handler : public CefPermissionHandler {
       callback->Continue(CEF_PERMISSION_RESULT_ACCEPT);
       return true;
     }
-    // A request that groups a host kind with another stays with Chromium.
-    if (!browser || requested_permissions == 0 || (requested_permissions & ~kHostPermissions) != 0) {
-      return false;
-    }
-    const int token = TokenOf(prompt_id);
-    prompts()[token] = callback;
+    if (!browser || !PromptGoesToHost(EveryKindToHost(), requested_permissions)) return false;
+    const int token = NextPermissionToken(last_token(), waiting());
+    waiting()[token] = Waiting{prompt_id, callback};
     Emit(CMUX_SHIM_PERMISSION_PROMPT, browser->GetIdentifier(), token, requested_permissions, 0,
          requesting_origin.ToString());
     return true;
@@ -55,9 +75,13 @@ class Handler : public CefPermissionHandler {
   // host's answer: the host drops a question still showing.
   void OnDismissPermissionPrompt(CefRefPtr<CefBrowser> browser, uint64_t prompt_id,
                                  cef_permission_request_result_t) override {
-    const int token = TokenOf(prompt_id);
-    if (prompts().erase(token) == 0) return;
-    Emit(CMUX_SHIM_PERMISSION_DISMISSED, browser ? browser->GetIdentifier() : 0, token);
+    for (auto it = waiting().begin(); it != waiting().end(); ++it) {
+      if (it->second.prompt_id != prompt_id) continue;
+      const int token = it->first;
+      waiting().erase(it);
+      Emit(CMUX_SHIM_PERMISSION_DISMISSED, browser ? browser->GetIdentifier() : 0, token);
+      return;
+    }
   }
 
  private:
@@ -72,7 +96,7 @@ CefRefPtr<CefPermissionHandler> PermissionHandler() {
 }
 
 void ForgetPermissionPrompts() {
-  prompts().clear();
+  waiting().clear();
 }
 
 }  // namespace cmux_shim
@@ -82,10 +106,10 @@ using namespace cmux_shim;
 extern "C" {
 
 int cmux_shim_permission_continue(int prompt_token, int result) {
-  auto it = prompts().find(prompt_token);
-  if (it == prompts().end()) return 0;
-  CefRefPtr<CefPermissionPromptCallback> callback = it->second;
-  prompts().erase(it);
+  auto it = waiting().find(prompt_token);
+  if (it == waiting().end()) return 0;
+  CefRefPtr<CefPermissionPromptCallback> callback = it->second.prompt;
+  waiting().erase(it);
   switch (result) {
     case 1: callback->Continue(CEF_PERMISSION_RESULT_ACCEPT); break;
     case 2: callback->Continue(CEF_PERMISSION_RESULT_DENY); break;

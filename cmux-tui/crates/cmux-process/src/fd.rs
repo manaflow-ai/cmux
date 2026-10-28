@@ -14,12 +14,11 @@ pub(crate) fn dup_above(fd: &OwnedFd, floor: RawFd) -> io::Result<OwnedFd> {
     Ok(unsafe { OwnedFd::from_raw_fd(copy) })
 }
 
-/// The Linux plan of [`Command::inherit_fd`](crate::Command::inherit_fd):
+/// The std path's plan of [`Command::inherit_fd`](crate::Command::inherit_fd):
 /// each source whose number is one of the targets, or 0-2 (std places the
 /// streams first), is replaced in the parent with a copy above every target,
 /// as the macOS spawn does with its own plan. The child's `dup2` calls then
 /// never replace a source that a later one still reads.
-#[cfg(not(target_vendor = "apple"))]
 pub(crate) fn lift_sources_above_targets(plan: &mut [(OwnedFd, RawFd)]) -> io::Result<()> {
     let targets: std::collections::BTreeSet<RawFd> =
         plan.iter().map(|(_, target)| *target).collect();

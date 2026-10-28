@@ -43,7 +43,7 @@ public final class MockAccountsServices: AccountsServices {
 
     public func detect() async -> [ProviderDetection] {
         calls.append("detect")
-        let found = Dictionary(uniqueKeysWithValues: detections.map { ($0.provider, $0) })
+        let found = Dictionary(detections.map { ($0.provider, $0) }, uniquingKeysWith: { first, _ in first })
         return AIProvider.allCases.map { found[$0] ?? .missing($0) }
     }
 
@@ -100,14 +100,16 @@ public final class MockAccountsServices: AccountsServices {
     public func runClaudeSetupToken() { calls.append("setupToken") }
     public func openConsole(_ url: URL) { calls.append("console") }
 
-    public func saveKey(_ key: String, for provider: AIProvider) throws {
+    public func saveKey(_ key: String, for provider: AIProvider, done: @escaping @MainActor @Sendable ((any Error)?) -> Void) {
         calls.append("saveKey:\(provider.rawValue)")
         detections.removeAll { $0.provider == provider }
         detections.append(ProviderDetection(provider: provider, status: .signedIn, sources: [.cmuxKeychain]))
+        done(nil)
     }
 
-    public func deleteSavedKey(for provider: AIProvider) throws {
+    public func deleteSavedKey(for provider: AIProvider, done: @escaping @MainActor @Sendable ((any Error)?) -> Void) {
         calls.append("deleteKey:\(provider.rawValue)")
         detections.removeAll { $0.provider == provider }
+        done(nil)
     }
 }

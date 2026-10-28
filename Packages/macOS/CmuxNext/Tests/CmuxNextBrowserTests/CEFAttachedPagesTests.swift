@@ -31,7 +31,8 @@ import Testing
         var refuses: Set<Int32> = []
         var refusesOnce: Set<Int32> = []
 
-        func fork(attaching: Bool = true) -> CEFLayerHosting.Fork {
+        /// `widgets`: the kinds of page window the fork attaches (``CEFLayerHosting/Fork/attachedWidgets``).
+        func fork(attaching: Bool = true, widgets: Set<CEFLayerHosting.Widget> = [.page]) -> CEFLayerHosting.Fork {
             CEFLayerHosting.Fork(setLayerHosting: { [self] browser, enabled in
                 hostingCalls.append((browser, enabled))
                 return enabled ? 7 : 0
@@ -40,7 +41,7 @@ import Testing
                 guard !refuses.contains(browser), refusesOnce.remove(browser) == nil else { return false }
                 parent.addSubview(FakeChromiumView(browser: browser), positioned: .below, relativeTo: nil)
                 return true
-            } : nil)
+            } : nil, attachedWidgets: widgets)
         }
     }
 
@@ -63,7 +64,7 @@ import Testing
         let turn = turn
         let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { turn.add($0) },
                                       makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) })
-        return CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), pageUpdateCenter: NotificationCenter(), layerHosting: hosting)
+        return CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), layerHosting: hosting)
     }
 
     func attached(_ host: CEFHostView, _ browser: Int32) -> FakeChromiumView? {
@@ -247,8 +248,8 @@ import Testing
         #expect(host.layerHosting.page != nil)
     }
 
-    @Test func aDevToolsOrPopupWindowNeverAttaches() {
-        for widget in [CEFLayerHosting.Widget.devTools, .popup] {
+    @Test func aDevToolsOrPopupWindowDoesNotAttachOnAForkThatAttachesOnlyAPage() {
+        for widget in [CEFLayerHosting.Widget.devTools, .popup, .popupWindow] {
             let host = makeHostView()
             host.layerHosting.widget = widget
             host.layerHosting.pageWindowCreated(browser: 5, fork: fake.fork())

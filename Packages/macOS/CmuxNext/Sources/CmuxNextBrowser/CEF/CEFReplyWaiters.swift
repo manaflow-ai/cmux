@@ -147,6 +147,8 @@ final class CEFHostReplies {
     private var lastCallback: UInt64 = 0
     /// This table's entry for the remote shim's reply callback, made at the first attach; it goes with the table.
     private var sinkRegistration: CEFReplySinkRegistration?
+    /// What the wire's own end runs first (``wireEnded()``): the host start's end of its host (`CEFHostStart`).
+    var onWireEnded: (@MainActor () -> Void)?
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         waiters = CEFReplyWaiters(clock: clock, superseded: { CEFHostReplyError.superseded })
@@ -223,6 +225,14 @@ final class CEFHostReplies {
     @discardableResult
     func fail(_ token: UInt32, _ error: CEFHostReplyError) -> Bool {
         settle(token, .failure(error))
+    }
+
+    /// The host's wire ended under the remote shim (the host closed it, a malformed frame, the quota, an
+    /// IO error; `cmux_remote_shim_set_ended`), which dropped the tokens it awaited: ``onWireEnded`` runs,
+    /// then every token still here fails with ``CEFHostReplyError/hostGone``, in this turn (task 091).
+    func wireEnded() {
+        onWireEnded?()
+        failAll(.hostGone)
     }
 
     /// Fails every token not answered yet (the host exited: ``CEFHostReplyError/hostGone``, task 091).

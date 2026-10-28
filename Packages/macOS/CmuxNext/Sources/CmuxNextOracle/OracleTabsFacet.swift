@@ -41,6 +41,9 @@ public struct OracleTabsFacet: OracleFacetProvider {
         public var audible = false
         /// The page's content process ended (the sad tab).
         public var crashed = false
+        /// The page's content process stopped answering input ("Page unresponsive"; Chrome's hung renderer,
+        /// `WebContentsDelegate::RendererUnresponsive`).
+        public var unresponsive = false
         /// The page was discarded to free memory.
         public var hibernated = false
 
@@ -68,6 +71,7 @@ public struct OracleTabsFacet: OracleFacetProvider {
                 "muted": .bool(muted),
                 "audible": .bool(audible),
                 "crashed": .bool(crashed),
+                "unresponsive": .bool(unresponsive),
                 "hibernated": .bool(hibernated),
             ]
         }

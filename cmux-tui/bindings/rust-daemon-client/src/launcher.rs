@@ -241,6 +241,7 @@ fn run_with_timeout(
         return Err(LaunchError::Spawn(e));
     }
     let (tx, rx) = mpsc::channel();
+    // supervise-allow: one launch's waiter; a panic drops `tx`, so the recv_timeout below fails at once, the child is killed and the launch reports an error.
     std::thread::Builder::new()
         .name("cmux-tui-ensure".into())
         .spawn(move || {

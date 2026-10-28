@@ -1,24 +1,16 @@
-import CmuxNextErrorJournal
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextSettings
 public import WebKit
 
-/// The configuration and input readiness object made before a pooled WebKit view exists.
-struct PooledHostRecipe {
-    let served: PageDescriptor
-    let configuration: WKWebViewConfiguration
-    let inputReadiness: PageInputReadiness
-    let options: PageEngineOptions
-    let owner: PagePooledOwner
-}
-
+/// What the scheme handler of a page made parked (``PageOpenRequest/parked``) reads its dynamic
+/// resources through: the view, which gets them only with its claim (``PageWebView/bindClaim(routes:route:documentAttributes:surface:dynamicResources:)``).
 final class PagePooledOwner {
     weak var view: PageWebView?
 }
 
 extension PageWebView {
-    /// `dataStore` is the store of the page's process group (``WebProcessGroups/dataStore``); nil
+    /// `dataStore` is the store of the page's process group (``WebProcessGroups/dataStore(for:)``); nil
     /// gives the page a store of its own.
     static func hostConfiguration(handler: PageSchemeHandler, documentAttributes: [String: String],
                                   options: PageEngineOptions, dataStore: WKWebsiteDataStore? = nil)
@@ -33,48 +25,28 @@ extension PageWebView {
         return (configuration, inputReadiness)
     }
 
-    static func pooledHostRecipe(_ served: PageDescriptor = .settings,
-                                 options: PageEngineOptions = .standard) -> PooledHostRecipe? {
-        guard PageServedHosts.pooledDescriptors.contains(served), servedRoot(for: served) != nil else { return nil }
-        let owner = PagePooledOwner()
-        let handler = PageSchemeHandler { [weak owner] host in
-            guard let view = owner?.view else { return nil }
-            return PageServedHosts.served(host: host, current: view.descriptor, dynamicSource: view.dynamicResources)
+    /// The scheme handler of a page made parked: it serves `page` from `root` as any page's handler
+    /// does, and asks the view for the dynamic resources, which its claim binds after the document
+    /// started loading.
+    static func parkedSchemeHandler(page: PageDescriptor, root: URL, owner: PagePooledOwner) -> PageSchemeHandler {
+        let host = page.id.lowercased()
+        let root = root.standardizedFileURL.resolvingSymlinksInPath()
+        return PageSchemeHandler { [weak owner] requested in
+            guard requested == host else { return nil }
+            return PageSchemeHandler.Served(page: page, root: root, dynamicSource: owner?.view?.dynamicResources)
         }
-        let host = hostConfiguration(handler: handler, documentAttributes: [:], options: options)
-        // The spare's document is parked until a claim binds routes (PageWebView+Claim.swift).
-        host.configuration.userContentController.addUserScript(
-            WKUserScript(source: parkedScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
-        return PooledHostRecipe(served: served, configuration: host.configuration,
-                                inputReadiness: host.inputReadiness, options: options, owner: owner)
     }
 
-    /// True while the view is the pool's parked spare (hidden, not claimed by any page).
-    public var isParkedSpare: Bool { superview is PageHostParking }
-
-    /// Makes a pooled page host without loading its document.
-    convenience init(recipe: PooledHostRecipe, routes: [PageRoute] = []) {
-        self.init(descriptor: recipe.served, configuration: recipe.configuration,
-                  inputReadiness: recipe.inputReadiness, routes: routes, route: nil,
-                  options: recipe.options, surface: nil, dynamicResources: nil, pooled: true, load: false)
-        pooledOwner = recipe.owner
-        recipe.owner.view = self
+    /// The document-start script of a page made parked (``PageOpenRequest/parked``): its page client
+    /// holds every call and subscription until the claim (PageWebView+Claim.swift).
+    static func installParkedScript(_ controller: WKUserContentController) {
+        controller.addUserScript(WKUserScript(source: parkedScript, injectionTime: .atDocumentStart,
+                                               forMainFrameOnly: true, in: .page))
     }
 
-    /// Makes and starts a pooled page host in one call.
-    convenience init?(pooledHost served: PageDescriptor = .settings, routes: [PageRoute] = [],
-                      options: PageEngineOptions = .standard) {
-        guard let recipe = Self.pooledHostRecipe(served, options: options) else { return nil }
-        self.init(recipe: recipe, routes: routes)
-        startLoading()
-    }
-
-    /// Starts the served bundle document after the pooled view has been parked.
-    func startLoading() {
-        guard !loaded, webView.url == nil else { return }
-        traceOpenRequested(.spare)
-        webView.load(URLRequest(url: descriptor.url()))
-    }
+    /// True while the view waits in the preload slot's parking (``PagePreloadParkingView``): hidden
+    /// to the person, not claimed by any open.
+    public var isParkedSpare: Bool { superview is PagePreloadParkingView }
 
     private static func installPageScripts(_ controller: WKUserContentController,
                                            documentAttributes: [String: String]) {
@@ -94,19 +66,5 @@ extension PageWebView {
         controller.addUserScript(WKUserScript(source: oracleStateScript, injectionTime: .atDocumentStart,
                                                forMainFrameOnly: true, in: .page))
         #endif
-    }
-
-    /// Reinstalls document-start scripts after a pooled host changes its page origin.
-    func reinstallPageScripts(documentAttributes: [String: String]) {
-        let controller = webView.configuration.userContentController
-        controller.removeAllUserScripts()
-        controller.addUserScript(WKUserScript(source: PageInputReadiness.script, injectionTime: .atDocumentStart,
-                                               forMainFrameOnly: true, in: .page))
-        Self.installPageScripts(controller, documentAttributes: documentAttributes)
-        controller.addUserScript(WKUserScript(source: PagePaintProbe.script, injectionTime: .atDocumentEnd,
-                                               forMainFrameOnly: true, in: .page))
-        // The handler stays installed; only the script was removed with the others.
-        controller.addUserScript(WKUserScript(source: ConsoleErrorCapture.script, injectionTime: .atDocumentStart,
-                                               forMainFrameOnly: true, in: .page))
     }
 }

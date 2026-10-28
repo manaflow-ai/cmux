@@ -81,12 +81,15 @@ extension CEFRuntime {
             browserCreated(browser, request: request, window: window, created: created)
         case .popup, .unknown: break // AFTER_CREATED of a popup's tab carries its URL, disposition and gesture (pending popups)
         case .createFailed(let browser, let request): CEFCreateFailure(browser: browser, request: request).apply(to: self)
+        case .windowRequestResult(let result):
+            windowRequests.hostDecided(result)
         case .chromeCommand(let browser, let command):
             chromeWindowCommandBlocked(command, browser: browser)
         case .beforeClose(let browser):
             widgetHost?.ownerClosed(browser)
             hostStart?.popupMenus?.ownerClosed(browser)
             hostStart?.files?.browserClosed(browser)
+            hostStart?.choosers?.ownerClosed(browser)
             browserClosed(browser)
         case .beforeUnloadDialog(let browser, let token, let isReload):
             // A page with no tab to ask in never keeps its unload waiting: it leaves.
@@ -110,6 +113,9 @@ extension CEFRuntime {
             popupMenuOpened(browser: browser, token: token, popup: popup)
         case .popupMenuHidden(let browser, let token):
             hostStart?.popupMenus?.hide(browser: browser, token: token)
+        case .subframeRenderer(let browser, let frame, let client, let attached):
+            childMonitor?.subframe(frame, browser: browser, client: client, attached: attached)
+        case .helperExit(let exit): childExited(exit) // a helper of the Chromium Host (CEFRuntime+Crashes)
         case .pageDragEnter(let browser, let pathsJSON):
             if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
         case .fileDialog(let browser, let dialogID, let mode, let acceptTypes, let defaultPath):
@@ -149,8 +155,8 @@ extension CEFRuntime {
         case .keyUnhandledChord(let browser, let seq): redispatchUnhandledKey(seq: seq, browser: browser)
         case .bookmarks(let json, let path):
             CEFBookmarkBridge.shared.arrived(json: json, cachePath: path)
-        case .renderTerminated(_, let status, let code, _, let end):
-            rendererEnded(.cef(status: status, code: code), end: end) // counted whether or not a tab shows it
+        case .renderTerminated(_, let status, let code, _, let end, let client):
+            rendererEnded(.cef(status: status, code: code), end: end, client: client) // counted whether or not a tab shows it
             fallthrough
         default:
             if let browser = event.browserID, let tab = tabsByBrowser[browser] {
@@ -356,21 +362,9 @@ extension CEFRuntime {
     /// throws `timedOut` when no result arrives within `timeout`.
     func devTools(_ browser: Int32, method: String, params: [String: Any] = [:],
                   timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {
-        guard let shim else { throw BrowserTabError.closed }
-        // Chromium answers some methods inside ExecuteDevToolsMethod, before a
-        // waiter exists; without this the result was dropped and the call
-        // timed out after `timeout` (every device emulation lost 5 s on
-        // Emulation.setEmitTouchEventsForMouse).
-        // A nested run loop inside the call may start another call: keep the outer one's table.
-        let outer = synchronousDevToolsResults
-        synchronousDevToolsResults = [:]
-        let message = shim.devToolsCall(browser, method, CEFDevToolsResult.params(params))
-        let answered = synchronousDevToolsResults
-        synchronousDevToolsResults = outer.map { $0.merging(answered ?? [:]) { first, _ in first } }
-        guard message != 0 else { throw BrowserTabError.closed }
-        let key = CEFDevToolsKey(browser: browser, message: message)
-        if let result = answered?[key] { return try result.get() }
-        return try await devToolsCalls.reply(for: key, timeout: timeout) {
+        guard let sent = sendDevTools(browser, method: method, params: params) else { throw BrowserTabError.closed }
+        if let result = sent.answered { return try result.get() }
+        return try await devToolsCalls.reply(for: sent.key, timeout: timeout) {
             BrowserTabError.timedOut("DevTools \(method) (\(timeout))")
         }
     }

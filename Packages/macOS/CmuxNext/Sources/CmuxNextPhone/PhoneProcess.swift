@@ -25,6 +25,7 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
 
     private let process: Process
     private let state = Mutex(State())
+    // timer-class-allow: PhoneProcess is nonisolated: its kill deadline fires off main, DemandTimer's own use
     private let killTimer = DemandTimer(owner: "phone.process.deadline")
 
     /// Starts one child through `spawner` and returns once it runs; `stdin` is then written without
@@ -90,7 +91,7 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
         }
         if let stdoutFile {
             FileManager.default.createFile(atPath: stdoutFile.path, contents: nil)
-            process.standardOutput = try FileHandle(forWritingTo: stdoutFile)
+            process.standardOutput = try FileHandle.blockingForWriting(to: stdoutFile)
         } else if captureStdout {
             let outPipe = Pipe()
             process.standardOutput = outPipe

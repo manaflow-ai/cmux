@@ -61,8 +61,9 @@ enum BrailleSpinnerImage {
         let origin = CGPoint(x: ((CGFloat(pixels) - bounds.width) / 2 - bounds.minX).rounded(),
                              y: ((CGFloat(pixels) - bounds.height) / 2 - bounds.minY).rounded())
         return frames.compactMap { frame in
-            guard let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: pixels,
-                                          space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue)
+            guard let context = CGContext.pixelOwningBitmap(width: pixels, height: pixels, bytesPerRow: pixels,
+                                                            space: CGColorSpaceCreateDeviceGray(),
+                                                            bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue)
             else { return nil }
             context.setShouldAntialias(true)
             context.textPosition = origin
@@ -78,15 +79,17 @@ enum BrailleSpinnerImage {
     /// strongest pixel is opaque and the tint reads at its full color, the
     /// way `NativeSpinnerImage` treats the native spokes.
     private static func normalized(_ context: CGContext) -> CGImage? {
-        guard let data = context.data else { return nil }
-        let count = context.width * context.height
-        let bytes = data.bindMemory(to: UInt8.self, capacity: count)
+        let count = context.height * context.bytesPerRow
+        // SAFETY: `data` is the context's own alpha-only bitmap, height rows of bytesPerRow bytes, which lives as
+        // long as `context`; every index below is < count, and the context draws nothing while it runs.
+        guard let data = unsafe context.data else { return nil }
+        let bytes = unsafe UnsafeMutableBufferPointer(start: data.bindMemory(to: UInt8.self, capacity: count), count: count)
         var peak: UInt8 = 0
-        for i in 0..<count { peak = max(peak, bytes[i]) }
+        for i in 0..<count { peak = max(peak, unsafe bytes[i]) }
         guard peak > 0 else { return nil }
         if peak < 255 {
             let factor = 255 / Double(peak)
-            for i in 0..<count { bytes[i] = UInt8(min(255, (Double(bytes[i]) * factor).rounded())) }
+            for i in 0..<count { unsafe bytes[i] = UInt8(min(255, (Double(bytes[i]) * factor).rounded())) }
         }
         return context.makeImage()
     }

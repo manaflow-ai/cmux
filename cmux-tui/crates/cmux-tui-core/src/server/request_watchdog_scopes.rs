@@ -7,6 +7,8 @@
 //! watches each task a thread runs and not its idle wait
 //! (base/threading/hang_watcher.h, `WatchHangsInScope`).
 
+#[cfg(debug_assertions)]
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -37,10 +39,15 @@ pub(crate) enum WatchKind {
     LineOut,
     /// One input write of `mux-pty-input` to a local terminal.
     PtyInput,
-    /// One frame a `mux-attach-out` thread encodes for its viewer.
+    /// One item a byte or browser view's drain sends (the scope keeps the
+    /// name of the thread that once ran it).
     AttachOut,
-    /// One frame a `mux-render-attach-out` thread encodes for its viewer.
+    /// One item a render view's drain sends.
     RenderAttachOut,
+    /// One item a snapshot viewer's drain builds and queues (a READY, a
+    /// history or images chunk, output, a digest): it runs on a worker the
+    /// echo path shares.
+    SnapshotAttachOut,
 }
 
 impl WatchKind {
@@ -55,6 +62,7 @@ impl WatchKind {
             5 => Self::PtyInput,
             6 => Self::AttachOut,
             7 => Self::RenderAttachOut,
+            8 => Self::SnapshotAttachOut,
             _ => Self::MuxConn,
         }
     }
@@ -71,6 +79,7 @@ impl WatchKind {
             Self::PtyInput => 5,
             Self::AttachOut => 6,
             Self::RenderAttachOut => 7,
+            Self::SnapshotAttachOut => 8,
         }
     }
 
@@ -87,6 +96,7 @@ impl WatchKind {
             Self::PtyInput => "mux-pty-input",
             Self::AttachOut => "mux-attach-out",
             Self::RenderAttachOut => "mux-render-attach-out",
+            Self::SnapshotAttachOut => "mux-snapshot-attach-out",
         }
     }
 
@@ -99,16 +109,25 @@ impl WatchKind {
             Self::HolderLink => crate::holder_runtime::HOLDER_LINK_HANG,
             #[cfg(debug_assertions)]
             Self::OwnerTest => Duration::from_millis(500),
-            Self::LineOut | Self::PtyInput | Self::AttachOut | Self::RenderAttachOut => {
-                ECHO_ITEM_HANG
-            }
+            Self::LineOut
+            | Self::PtyInput
+            | Self::AttachOut
+            | Self::RenderAttachOut
+            | Self::SnapshotAttachOut => ECHO_ITEM_HANG,
         }
     }
 
     /// An echo thread's item: its hang tier is under the watchdog's
     /// threshold, which is only the period the watchdog wakes on.
     pub(super) const fn is_echo(self) -> bool {
-        matches!(self, Self::LineOut | Self::PtyInput | Self::AttachOut | Self::RenderAttachOut)
+        matches!(
+            self,
+            Self::LineOut
+                | Self::PtyInput
+                | Self::AttachOut
+                | Self::RenderAttachOut
+                | Self::SnapshotAttachOut
+        )
     }
 
     /// Whether the kind's first tier is the watchdog threshold, recorded in
@@ -128,8 +147,13 @@ impl WatchKind {
             Self::OwnerTest => "owner-hang-test",
             Self::LineOut => "write-item",
             Self::PtyInput => "write-input",
-            Self::AttachOut | Self::RenderAttachOut => "frame",
+            Self::AttachOut | Self::RenderAttachOut | Self::SnapshotAttachOut => "frame",
         }
+    }
+
+    /// A run's span in the hang ledger: `<scope>:<method>`.
+    pub(super) fn hang_span(self, method: u32) -> String {
+        format!("{}:{}", self.name(), self.method_name(method))
     }
 }
 
@@ -215,7 +239,7 @@ pub(crate) fn process_exit(token: u32) {
 /// written to the hang log (tests/owner_panic.rs).
 #[cfg(debug_assertions)]
 pub(crate) fn spawn_owner_hang_test() {
-    let _ = std::thread::Builder::new().name("owner-hang-test".into()).spawn(|| {
+    let _ = supervised::spawn("owner-hang-test", Fatal, ShutdownBehavior::Continue, || {
         let _token = process_enter(WatchKind::OwnerTest, 0);
         loop {
             std::thread::park();

@@ -20,7 +20,7 @@ extension TabContentCache {
     func previewImage(for key: String, maxPixelSize: CGSize, captureIfMissing: Bool = false) async -> CGImage? {
         if let entry = terminals[key] {
             guard entry.session.showsOutput else { return nil } // a new shell's prompt: nothing to picture
-            if let image = await entry.session.snapshotInBackground(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) { previews.insert(image, for: key); return image }
+            if let image = await entry.session.snapshotInBackground(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) { previews.insert(await previews.picture(of: image), for: key); return image }
         } else if let image = await lastFrames[key]?.snapshot(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) {
             return image // an evicted terminal: its last frame, pictured on demand
         }
@@ -47,14 +47,18 @@ extension TabContentCache {
     /// transition and the tab still has this page.
     func capturePagePreview(_ entry: BrowserEntry, key: String, token: ContentLifecycle<String>.Token) {
         guard keepsPageThumbnails else { return }
-        Task { [weak self] in
-            _ = await self?.capturePage(entry, key: key) { [weak self] in
-                guard let self, self.browsers[key] === entry, self.lifecycle.accepts(key, token) else {
-                    self?.trace(key, "preview \(token) dropped (stale)")
-                    return false
-                }
-                return true
+        // The capture awaits the engine: the task is nonisolated, and the capture's main steps are the engine's.
+        Task { @concurrent [weak self] in await self?.capturePagePreviewNow(entry, key: key, token: token) }
+    }
+
+    /// The capture ``capturePagePreview(_:key:token:)`` starts, kept only while `token` is the tab's latest transition.
+    private func capturePagePreviewNow(_ entry: BrowserEntry, key: String, token: ContentLifecycle<String>.Token) async {
+        _ = await capturePage(entry, key: key) { [weak self] in
+            guard let self, self.browsers[key] === entry, self.lifecycle.accepts(key, token) else {
+                self?.trace(key, "preview \(token) dropped (stale)")
+                return false
             }
+            return true
         }
     }
 
@@ -78,8 +82,9 @@ extension TabContentCache {
             try await page.thumbnail()
         }) else { return nil }
         let fitted = await TabPreviewFitting.fit(image, TabPreviewFitting.cachedPixelSize)
+        let picture = await pageThumbnails.picture(of: fitted)
         guard accepts() else { return nil }
-        pageThumbnails.insert(fitted, for: key)
+        pageThumbnails.insert(picture, for: key)
         pageThumbnailVersions[key] = await ThumbnailStats.measure(fitted)?.isBlank == true ? nil : version
         return image
     }

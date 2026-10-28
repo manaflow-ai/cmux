@@ -70,9 +70,10 @@ extension ChromiumHostPageView: NSTextInputClient {
         for output in outputs {
             switch output {
             case .key(let frame):
-                let receipt = sink?(frame)
+                let receipt = sendInput(frame)
                 if frame.v[0] == 0, frame.v[3] == ChromiumHostTextInput.KeyMark.plain.rawValue { carried = receipt }
             case .op(let op):
+                flushWaitingInput()  // the moves and wheel ticks before it keep their place
                 textInputSink?(op)
             }
         }

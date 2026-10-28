@@ -210,6 +210,7 @@ final class PaletteRowCell: NSTableCellView {
         applyColors()
     }
 
+    // visibility-walk-allow: one row's icon tint, title colors and swatch colors, no layout; the list reuses cells for the rows on screen, so only those repaint
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

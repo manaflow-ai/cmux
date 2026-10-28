@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 92ea0b6da7b0bd288ec4e10c0f31751140797c17e8fcdbcb3a76d518df4b8499. */
+/* cmux-tui mux protocol 12, IR 7eb0d8fcc1fcd2e08b9ee438f00a912bc444483f3223f60cf30047b093765ee6. */
 
 
 import type * as T from "./types.js";
@@ -613,6 +613,7 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "snapshot_images"?: boolean;
   "snapshot_local_history"?: boolean;
   "snapshot_version"?: (number) | null;
+  "stream"?: (number) | null;
   "surface"?: (T.Id) | null;
   "viewer_backlog_bytes"?: (bigint) | null;
 }
@@ -633,6 +634,12 @@ export type BindConversationTabSessionResult = {
   "replayed": boolean;
   "surface": T.Id;
 };
+
+/** Protocol v12; authority: local-admin. */
+export interface BridgeHelloRequest extends CmuxRequestBase {
+  cmd: "bridge-hello";
+  "features": Array<string>;
+}
 
 /** Protocol v6; authority: frontend. */
 export interface BrowserActivateRequest extends CmuxRequestBase {
@@ -788,6 +795,12 @@ export interface CancelRequestRequest extends CmuxRequestBase {
 }
 export type CancelRequestResult = T.EmptyResult;
 
+/** Protocol v12; authority: frontend. */
+export interface CancelStreamRequest extends CmuxRequestBase {
+  cmd: "cancel-stream";
+  "stream": number;
+}
+
 /** Protocol v12; authority: local-admin. */
 export interface ChiefInspectRequest extends CmuxRequestBase {
   cmd: "chief-inspect";
@@ -827,6 +840,7 @@ export type ClientFocusResult = {
 /** Protocol v12; authority: local-admin. */
 export interface ClientHelloRequest extends CmuxRequestBase {
   cmd: "client-hello";
+  "features"?: (T.ClientHelloFeatures) | null;
   "install_id"?: string;
   "page"?: (string) | null;
   "proof"?: string;
@@ -1739,6 +1753,7 @@ export type DeleteWorkspaceGroupResult = T.JsonValue;
 export interface DetachAttachedViewRequest extends CmuxRequestBase {
   cmd: "detach-attached-view";
   "lease"?: (string) | null;
+  "stream"?: (number) | null;
   "surface": T.Id;
   "view"?: (string) | null;
 }
@@ -2158,6 +2173,12 @@ export interface MarkWorkspacesProviderManagedRequest extends CmuxRequestBase {
   "authority": string;
 }
 export type MarkWorkspacesProviderManagedResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface MemoryReportRequest extends CmuxRequestBase {
+  cmd: "memory-report";
+}
+export type MemoryReportResult = T.JsonValue;
 
 /** Protocol v9; authority: frontend. */
 export interface MintTerminalRendererRequest extends CmuxRequestBase {
@@ -2707,6 +2728,7 @@ export type RegisterBrowserProviderResult = T.BrowserProviderSnapshot;
 export interface ReleaseAttachedViewSizeRequest extends CmuxRequestBase {
   cmd: "release-attached-view-size";
   "lease"?: (string) | null;
+  "stream"?: (number) | null;
   "surface": T.Id;
   "view"?: (string) | null;
 }
@@ -2850,6 +2872,7 @@ export interface ResizeAttachedViewRequest extends CmuxRequestBase {
   "identity"?: (T.SizingIdentity) | null;
   "lease"?: (string) | null;
   "rows": number;
+  "stream"?: (number) | null;
   "surface": T.Id;
   "view"?: (string) | null;
 }
@@ -3207,6 +3230,13 @@ export interface SetSplitRatioRequest extends CmuxRequestBase {
 }
 export type SetSplitRatioResult = T.EmptyResult;
 
+/** Protocol v12; authority: frontend. */
+export interface SetStreamPriorityRequest extends CmuxRequestBase {
+  cmd: "set-stream-priority";
+  "priority": "focused" | "visible" | "hidden";
+  "stream": number;
+}
+
 /** Protocol v12; authority: control. */
 export interface SetTabPinnedRequest extends CmuxRequestBase {
   cmd: "set-tab-pinned";
@@ -3296,6 +3326,7 @@ export interface SnapshotRequestRequest extends CmuxRequestBase {
   "have"?: (T.SnapshotRequestHave) | null;
   "reason"?: (string) | null;
   "request_id"?: (string) | null;
+  "stream"?: (number) | null;
   "surface": T.Id;
 }
 
@@ -3704,6 +3735,7 @@ export type CmuxRequest =
   | AppsUnmountRequest
   | AttachSurfaceRequest
   | BindConversationTabSessionRequest
+  | BridgeHelloRequest
   | BrowserActivateRequest
   | BrowserBackRequest
   | BrowserForwardRequest
@@ -3722,6 +3754,7 @@ export type CmuxRequest =
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
   | CancelRequestRequest
+  | CancelStreamRequest
   | ChiefInspectRequest
   | ClearHistoryRequest
   | ClearWindowTitleRequest
@@ -3861,6 +3894,7 @@ export type CmuxRequest =
   | MachineListeningTcpRequest
   | MachineUsageRequest
   | MarkWorkspacesProviderManagedRequest
+  | MemoryReportRequest
   | MintTerminalRendererRequest
   | MintTerminalRendererByTerminalRequest
   | MoveBookmarkRequest
@@ -3963,6 +3997,7 @@ export type CmuxRequest =
   | SetSizeCountsRequest
   | SetSizePolicyRequest
   | SetSplitRatioRequest
+  | SetStreamPriorityRequest
   | SetTabPinnedRequest
   | SetTerminalCommandHistoryRequest
   | SetTerminalIdlePolicyRequest
@@ -4447,6 +4482,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "agent-session-tabs-v1";
     stream: null;
   };
+  "bridge-hello": {
+    request: BridgeHelloRequest;
+    result: T.BridgeHelloResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "bridge-hello-v1";
+    stream: null;
+  };
   "browser-activate": {
     request: BrowserActivateRequest;
     result: BrowserActivateResult;
@@ -4589,6 +4632,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cancel-request-v1";
+    stream: null;
+  };
+  "cancel-stream": {
+    request: CancelStreamRequest;
+    result: T.CancelStreamResult;
+    authority: "frontend";
+    since: 12;
+    capability: "attach-streams-v1";
     stream: null;
   };
   "chief-inspect": {
@@ -5703,6 +5754,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "provider-managed-workspace-authority-v2";
     stream: null;
   };
+  "memory-report": {
+    request: MemoryReportRequest;
+    result: MemoryReportResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
   "mint-terminal-renderer": {
     request: MintTerminalRendererRequest;
     result: T.MintTerminalRendererResult;
@@ -6517,6 +6576,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 8;
     capability: null;
+    stream: null;
+  };
+  "set-stream-priority": {
+    request: SetStreamPriorityRequest;
+    result: T.SetStreamPriorityResult;
+    authority: "frontend";
+    since: 12;
+    capability: "attach-streams-v1";
     stream: null;
   };
   "set-tab-pinned": {

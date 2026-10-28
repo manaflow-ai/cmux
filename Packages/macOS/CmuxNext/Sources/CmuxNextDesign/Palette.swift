@@ -102,7 +102,7 @@ public struct Palette {
     public static var paneBorder: NSColor { Borders.color(color(\.paneBorder, dynamic: PaletteDynamic.paneBorder)) }
     /// Tint applied to glass so it takes the theme's cast.
     public static var glassTint: NSColor { color(\.glassTint, dynamic: PaletteDynamic.glassTint) }
-    /// Drop shadow color (opaque; the layer's shadowOpacity sets strength).
+    /// Drop shadow color (opaque; the layer's shadowOpacity sets strength, its shadowPath the shape).
     public static var shadow: NSColor { color(\.shadow, dynamic: PaletteDynamic.shadow) }
     /// Selected text in chrome text fields.
     public static var textSelection: NSColor { color(\.textSelection, dynamic: PaletteDynamic.textSelection) }

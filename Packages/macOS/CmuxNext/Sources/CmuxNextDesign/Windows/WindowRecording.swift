@@ -54,9 +54,9 @@ public nonisolated final class WindowRecording: Sendable {
                 return series.times.count - 1
             }
             let url = dir.appendingPathComponent(String(format: "frame-%05d.jpg", index))
-            guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return }
+            guard let dest = blockingImageDestination(url: url as CFURL, type: UTType.jpeg.identifier as CFString, count: 1) else { return }
             CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
-            CGImageDestinationFinalize(dest)
+            _ = blockingImageDestinationFinalize(dest)
         }
         return true
     }
@@ -80,17 +80,12 @@ public nonisolated final class WindowRecording: Sendable {
     /// cell. Both are 0...1, and 0 when the draw fails.
     static func brightness(of image: CGImage) -> (mean: Double, peak: Double) {
         let side = 8
-        var pixels = [UInt8](repeating: 0, count: side * side * 4)
-        guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return (0, 0) }
-        let drawn = pixels.withUnsafeMutableBytes { bytes -> Bool in
-            guard let context = CGContext(data: bytes.baseAddress, width: side, height: side, bitsPerComponent: 8,
-                                          bytesPerRow: side * 4, space: space,
-                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return false }
-            context.interpolationQuality = .high
-            context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-            return true
-        }
-        guard drawn else { return (0, 0) }
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let pixels = DrawnPixels(width: side, height: side, bytesPerPixel: 4, space: space,
+                                       bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue, draw: { context in
+                  context.interpolationQuality = .high
+                  context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+              })?.bytes else { return (0, 0) }
         var total = 0.0, peak = 0.0
         for cell in 0..<(side * side) {
             func channel(_ offset: Int) -> Double { Double(pixels[cell * 4 + offset]) / 255 }

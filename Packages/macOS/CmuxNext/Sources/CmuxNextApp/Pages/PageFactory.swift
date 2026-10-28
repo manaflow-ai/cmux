@@ -12,6 +12,7 @@ import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextUpdater
+import CmuxNextWakeups
 import Foundation
 import UniformTypeIdentifiers
 import CmuxNextMobileHost
@@ -21,15 +22,14 @@ import CmuxNextWebUpdates
 /// that type's line budget is frozen).
 @MainActor
 struct PageFactory {
-    unowned let services: AppServices
+    let services: AppServices
 
     /// The React History page when Debug Settings `history.surface` is `web`, else nil (the
     /// Swift page). The tunable goes when the React page becomes the default (react-pages.md H3).
     func historyWebPage() -> PageWebView? {
         guard PageTunables.history.value == .web else { return nil }
         let routes = pageRoutes(for: .history)
-        guard let page = services.pageHostPool.claim(.history, routes: routes,
-                                                      window: services.windows.active?.window, focus: false)
+        guard let page = services.pagePreloads.claim(.history, routes: routes)
             ?? services.webUI.open(PageOpenRequest(descriptor: .history, routes: routes)) else { return nil }
         PageConnectionWatch(page: page, store: services.machines.local.store, on: services.mainWork).start()
         return page
@@ -66,8 +66,10 @@ struct PageFactory {
     /// ops over the control router (``CodeRouterPageProvider``); before the control socket starts
     /// every call answers `unavailable`. `cmux.app.` runs the page's four account actions.
     func coderouterWebPage() -> PageWebView? {
-        let ops = CodeRouterAppOps(control: { [weak apps = services.apps] method, params throws(AppHostCapabilityError) in
-            guard let router = await MainActor.run(body: { apps?.controlRouter }) else {
+        // The page's own reads (status, accounts, usage) fill the page the person has open: the router is
+        // read on main as one visible-class task, ahead of agent and CLI work.
+        let ops = CodeRouterAppOps(control: { [weak apps = services.apps, mainWork = services.mainWork] method, params throws(AppHostCapabilityError) in
+            guard let router = await mainWork.apply(.visible, owner: "coderouter.control-router", { apps?.controlRouter }) else {
                 throw AppHostCapabilityError(code: "unavailable", message: "cmux is still starting", retryable: true)
             }
             return try await router.appControl(method, params)
@@ -97,10 +99,8 @@ struct PageFactory {
         let cloud = cloud ?? cloudPageProvider()
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
         let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
-        let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
-        let page = services.pageHostPool.claim(.cloud, routes: routes, route: route,
-                                               documentAttributes: attributes,
-                                               window: services.windows.active?.window, focus: false)
+        let attributes = PagePreloads.Page.cloud.documentAttributes  // the Cloud preload boots with the same
+        let page = services.pagePreloads.claim(.cloud, routes: routes, route: route, documentAttributes: attributes)
             ?? services.webUI.open(PageOpenRequest(descriptor: .cloud, routes: routes, route: route, documentAttributes: attributes))
         native.anchor = { [weak page] in page }
         if let page { PageConnectionWatch(page: page, store: services.machines.local.store, on: services.mainWork).start() }
@@ -128,7 +128,7 @@ struct PageFactory {
             if let work = services?.work { sounds = await SettingsPageDomains.sounds(work: work) }
             return ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": sounds,
                     "recent_fonts": services?.settings?.recentFonts.families ?? []]
-        }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
+        }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null }, on: services.mainWork)
         provider.edits = edits
         provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
         provider.setDeviceFullAccess = { [weak services] id, on in await services?.devices.setFullAccess(id: id, on: on) }
@@ -221,7 +221,7 @@ struct PageFactory {
         let native = AppPageNativeProvider(services: services, page: .settings)
         // Your own backgrounds from a link, removed or revealed (BackdropImagesPageProvider).
         let images = provider.backdropImages.map { images in
-            BackdropImagesPageProvider(images: images.images, use: { [weak provider] in try await provider?.useBackdropImage($0) ?? "" },
+            BackdropImagesPageProvider(images: images.images, files: services.work, use: { [weak provider] in try await provider?.useBackdropImage($0) ?? "" },
                                        inUse: { [weak services] in services?.settings?.snapshot.backdropSelection }, settings: services.settings,
                                        pickFolder: { [weak services] in await services?.viewers.picker.open(.init(choose: .folders))?.first })
         }
@@ -241,17 +241,15 @@ struct PageFactory {
                           pair: { [weak services] in services?.registry.perform("server.showPanel") }))]
             + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
-        let catalog = services.settingsWindow.backdropCatalog
+        let catalog = SettingsWindowService.backdropCatalog(of: services)
         let dynamicResources = SettingsBackdropThumbnails(choices: catalog.catalog.choices,
                                                           currentChoices: { catalog.catalog.choices },
                                                           userImages: SettingsWindowService.userImages, museum: museumArt,
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)
                                                           }, memory: appCaches)
-        let page = services.pageHostPool.claim(.settings, routes: routes, route: route, options: Self.settingsEngineOptions,
-                                               surface: .settings,
-                                               dynamicResources: dynamicResources,
-                                               window: services.windows.active?.window, focus: false)
+        let page = services.pagePreloads.claim(.settings, routes: routes, route: route, surface: .settings,
+                                               dynamicResources: dynamicResources)
             ?? services.webUI.open(PageOpenRequest(descriptor: .settings, routes: routes, route: route,
                                                    options: Self.settingsEngineOptions, surface: .settings,
                                                    dynamicResources: dynamicResources))

@@ -134,6 +134,7 @@ extension MobileIrxHost {
             phase = .failed("relay endpoint unavailable")
             return
         }
+        // timer-class-allow: MobileIrxHost is an actor; an off-main deadline is DemandTimer's own use, nothing runs on main
         let timer = DemandTimer(owner: "MobileIrxHost.acceptRestart", clock: clock)
         acceptRestart = timer
         timer.schedule(after: delay) { [weak self] in await self?.restartAfterAcceptEnded(timer) }
@@ -191,6 +192,7 @@ extension MobileIrxHost {
         expiryTimer?.cancel()
         expiryTimer = nil
         guard let deadline = admission?.nextExpiration else { return }
+        // timer-class-allow: MobileIrxHost is an actor; an off-main deadline is DemandTimer's own use, nothing runs on main
         let timer = DemandTimer(owner: "MobileIrxHost.expiry")
         expiryTimer = timer
         timer.schedule(after: max(.zero, ContinuousClock.now.duration(to: deadline))) { [weak self] in

@@ -37,6 +37,8 @@ import Foundation
 // - `call` (`op`, `params`): one call message through the page's router, exactly as the page's
 //   bridge sends it (the host sets the calling page's id). With `page: "cmux.cloud"` and no live
 //   Cloud page, a hidden one is made first (so a probe needs no open Cloud tab).
+// - `ping`: one host call the page answers `unknown_op`: `{ms}`, its round trip (`bench-webui.py push`,
+//   p13-webui-079; `debug.webui` counts whether it went as data or a script);
 // - `hangOnClick`: the page's next mousedown never returns, so its renderer hangs on input Chromium
 //   waits for and the "Page unresponsive" card shows (scripts/cmux-next/page-hang-live.py --page).
 // The control router's deadline bounds every action.
@@ -49,17 +51,21 @@ extension AppControl {
             // hidden pages (p13-webui-001; keys in WebUICensus). `reset: true` zeroes the counters after
             // the read. The page walk runs in the automation work class, the helpers' argv off the main actor.
             .mainActor("debug.webui") { [weak services] call in
-                guard let census = AppControl.webUICensus(services, reset: call.params["reset"]?.boolValue == true) else { return .value(.null) }
-                return .followUp { await census.report { AppControl.webUIHelpers() } }
+                guard let services, let census = AppControl.webUICensus(services, reset: call.params["reset"]?.boolValue == true) else { return .value(.null) }
+                let parent = services.cache.chromium.helperParent
+                return .followUp { await census.report { AppControl.webUIHelpers(of: parent) } }
             },
         ])
         #endif
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// The app's Chromium helpers as `debug.webui` rows (reads each new child's argv: off the main actor).
-    nonisolated static func webUIHelpers() -> [WebUICensus.Helper] {
-        ChromiumHelperProcess.list().map { WebUICensus.Helper(pid: $0.pid, kind: $0.kind.name, rendererClientID: $0.kind.rendererClientID) }
+    /// The children of `parent` (the app, or the Chromium Host: `ChromiumEngineSlot.helperParent`) as `debug.webui`
+    /// rows. Reads each new child's argv: off the main actor.
+    nonisolated static func webUIHelpers(of parent: pid_t?) -> [WebUICensus.Helper] {
+        ChromiumHelperProcess.list(parent: parent).map {
+            WebUICensus.Helper(pid: $0.pid, kind: $0.kind.name, rendererClientID: $0.kind.rendererClientID)
+        }
     }
 
     /// `debug.webui`'s main-actor half: every page, spare and Chromium browser tab now; `reset`
@@ -127,6 +133,7 @@ enum DebugPages {
                 // Why a page may not paint: no window, a hidden view, or a window macOS reports
                 // as occluded (WebKit stops rendering updates for an occluded window).
                 members["in_window"] = .bool(page.window != nil)
+                // visibility-walk-allow: debug.page reports the view's own AppKit hidden state, the fact a node cannot show
                 members["view_hidden"] = .bool(page.isHiddenOrHasHiddenAncestor)
                 members["window_visible"] = .bool(page.window?.isVisible ?? false)
                 members["window_occluded"] = .bool(!(page.window?.occlusionState.contains(.visible) ?? false))
@@ -168,10 +175,31 @@ enum DebugPages {
         case "connected":
             page.setConnected(params["value"]?.boolValue ?? true)
             return ["connected": .bool(page.router.connected)]
+        case "ping":
+            return await ping(page)
         default:
             return ["error": "unknown action"]
         }
     }
+
+    /// `ping` (p13-webui-079's delivery bench, `bench-webui.py push`): one host call the page serves no handler
+    /// for, so it answers `unknown_op`. `ms` is the call's round trip, from its send to the page's answer: one
+    /// delivery into the page (data on the page push channel, else a script) and the page's reply.
+    @MainActor
+    private static func ping(_ page: PageWebView) async -> JSONValue {
+        let started = ProcessInfo.processInfo.systemUptime
+        do {
+            _ = try await page.router.callPage(benchPingOp, params: [:])
+        } catch let error as PageError where error.code == PageError.unknownOp(benchPingOp).code {
+            // The answer the ping asks for.
+        } catch {
+            return ["error": .string("\(error)")]
+        }
+        return ["ms": .number((ProcessInfo.processInfo.systemUptime - started) * 1000)]
+    }
+
+    /// The op `ping` calls; no page serves it.
+    private static let benchPingOp = "cmux.bench.ping"
 
     /// Which live view a probe read.
     @MainActor

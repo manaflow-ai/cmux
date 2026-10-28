@@ -51,6 +51,70 @@ fn idle_exit_and_orphan_exit_both_hear_client_presence() {
     }
 }
 
+/// cp/quit-chief-idle (fleet journey quit-leaves-helpers, job 6f526fc4f74984c414dbf470,
+/// cmux19): 10 s after the quit the Chief's owner still ran. Its own screen-detection plugin
+/// (the journal plugin it starts) is connected to it for its whole life, so the owner always had
+/// one client, and neither its exit after the app nor any idle exit could fire. The daemon's own
+/// plugin needs the daemon only while something else does: its connection keeps nothing.
+#[test]
+fn the_daemons_own_journal_plugin_is_no_client_that_keeps_it() {
+    let mux = mux("own-plugin");
+    mux.configure_journal_plugin(Some(crate::JournalPluginOptions {
+        id: "test-plugin".into(),
+        command: vec!["/bin/sleep".into(), "600".into()],
+        cwd: None,
+        revision: None,
+    }));
+    mux.start_journal_plugin(
+        std::env::temp_dir().join(format!("orphan-own-plugin-{}.sock", std::process::id())),
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let pid = loop {
+        if let Some(pid) = mux.journal_plugin_pid() {
+            break pid;
+        }
+        assert!(Instant::now() < deadline, "the journal plugin never started");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = calls.clone();
+    mux.add_client_presence_observer(move || {
+        seen.fetch_add(1, Ordering::SeqCst);
+    });
+    let plugin = connect(&mux);
+    let peer = origin_gate::AcceptedPeer::from_kernel_identity(
+        &mux,
+        Some(format!("token:{pid}.1")),
+        None,
+        None,
+    );
+    origin_gate::set_peer_identity_at_accept(&mux, plugin, peer);
+    assert_eq!(mux.client_count(), 0, "the daemon's own plugin counted as a client that keeps it");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "the watchers did not hear that the plugin keeps nothing"
+    );
+    // Any other process keeps it.
+    let other = connect(&mux);
+    let peer = origin_gate::AcceptedPeer::from_kernel_identity(
+        &mux,
+        Some(format!("token:{}.1", pid + 1)),
+        None,
+        None,
+    );
+    origin_gate::set_peer_identity_at_accept(&mux, other, peer);
+    assert_eq!(mux.client_count(), 1);
+    assert!(!stop_orphaned_owner(&mux, || panic!("checked with a client connected")));
+    assert!(disconnect_client(&mux, other, false));
+    assert!(
+        stop_orphaned_owner(&mux, || true),
+        "the daemon's own plugin kept an owner nothing needs"
+    );
+    assert!(mux.daemon_shutdown_requested());
+    mux.configure_journal_plugin(None);
+}
+
 #[test]
 fn an_orphan_exit_never_stops_an_owner_with_a_client_connected() {
     let mux = mux("connected");

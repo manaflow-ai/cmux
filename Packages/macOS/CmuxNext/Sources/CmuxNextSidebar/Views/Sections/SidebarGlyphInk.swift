@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// The drawn extent ("ink") of a glyph image: the box of its opaque pixels,
 /// in the image's points from its top-left corner. Registry icons leave
@@ -42,19 +43,16 @@ import AppKit
     /// is the image's top, so rows are already top-left coordinates.
     private func measure(_ image: NSImage) -> CGRect? {
         let width = Int((image.size.width * scale).rounded(.up)), height = Int((image.size.height * scale).rounded(.up))
-        guard width > 0, height > 0,
-              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { return nil }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
-        image.draw(in: NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
-        NSGraphicsContext.restoreGraphicsState()
-        guard let data = context.data else { return nil }
-        let pixels = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+        guard let pixels = DrawnPixels(width: width, height: height, bytesPerPixel: 4, space: CGColorSpaceCreateDeviceRGB(),
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue, draw: { context in
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            image.draw(in: NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+            NSGraphicsContext.restoreGraphicsState()
+        }) else { return nil }
         var minX = width, minY = height, maxX = -1, maxY = -1
         for y in 0..<height {
-            for x in 0..<width where pixels[(y * width + x) * 4 + 3] >= threshold {
+            for x in 0..<width where pixels[x, y, 3] >= threshold {
                 minX = min(minX, x); maxX = max(maxX, x)
                 minY = min(minY, y); maxY = max(maxY, y)
             }

@@ -114,6 +114,8 @@ const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
 
 mod install_key;
+#[cfg(windows)]
+mod job_breakaway;
 mod replace;
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
 pub(crate) use replace::{ReplaceError, replace_if_unresponsive};
@@ -310,7 +312,7 @@ pub(crate) fn ensure_owner(
             Attempt::Starting(pid) => {
                 progress.restoring(pid);
                 drop(lock);
-                std::thread::sleep(POLL_INTERVAL);
+                cmux_blocking::thread::sleep(POLL_INTERVAL);
                 continue;
             }
             // The lock is released once the spawn is issued. A redundant
@@ -383,7 +385,7 @@ fn wait_while_starting(
         if Instant::now() >= restore_deadline {
             return Err(EnsureError::RestoreTimeout);
         }
-        std::thread::sleep(POLL_INTERVAL);
+        cmux_blocking::thread::sleep(POLL_INTERVAL);
     }
 }
 
@@ -425,7 +427,7 @@ fn wait_until_ready(
         if !seen_alive && now >= contact_deadline {
             return Ok(None);
         }
-        std::thread::sleep(POLL_INTERVAL);
+        cmux_blocking::thread::sleep(POLL_INTERVAL);
     }
 }
 
@@ -768,23 +770,21 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     // terminal teardown must never reach it, so it gets no stdio and (on
     // Unix) its own session, free of the controlling terminal. On Windows
     // its stdin is the install key pipe when there is a key.
-    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(windows)]
     if spec.install_key.is_some() {
-        command.arg(install_key::OWNER_INSTALL_KEY_STDIN_ARG).stdin(Stdio::piped());
+        command.arg(install_key::OWNER_INSTALL_KEY_STDIN_ARG);
     }
     #[cfg(unix)]
-    command.new_session();
-    #[cfg(windows)]
     {
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        set_owner_stdio(&mut command, spec);
+        command.new_session();
     }
     #[cfg(windows)]
     install_key::keep_std_handles_from_children();
-    #[cfg_attr(not(windows), allow(unused_mut))]
-    let mut child = command.spawn()?;
+    #[cfg(unix)]
+    let child = command.spawn()?;
+    #[cfg(windows)]
+    let mut child = job_breakaway::spawn_owner_out_of_callers_job(&mut command, spec)?;
     // Only the owner holds the write end now (the builder's copy went to the
     // spawn), so end of file means it exited.
     #[cfg(unix)]
@@ -807,6 +807,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     let reaper = move || reap_on_exit(&reaper_state, pid);
     #[cfg(not(unix))]
     let reaper = move || reap_on_tick(&reaper_state);
+    // supervise-allow: reaps one detached owner; it ends when the owner exits, and a panic leaves only that child to init.
     if let Err(_error) =
         std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(reaper)
     {
@@ -822,6 +823,19 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     Ok(SpawnedOwner { state, pid, ready })
 }
 
+/// The owner's stdio: none, except on Windows the install key pipe as stdin
+/// when there is a key. A spawn uses the streams up, so a second spawn of
+/// the same command sets them again.
+fn set_owner_stdio(command: &mut Command, spec: &OwnerSpec) {
+    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    #[cfg(windows)]
+    if spec.install_key.is_some() {
+        command.stdin(Stdio::piped());
+    }
+    #[cfg(not(windows))]
+    let _ = spec;
+}
+
 /// Blocks until the owner exits, without reaping it (`WNOWAIT`), so a
 /// concurrent `terminate` can still signal the pid safely; then reaps it
 /// unless `terminate` already did. No timer wakes this thread.
@@ -831,6 +845,8 @@ fn reap_on_exit(state: &OwnerProcessState, pid: u32) {
     loop {
         // SAFETY: waitid writes only into the zeroed siginfo it is given.
         let mut info = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
+        // SAFETY: waitid writes one siginfo_t into `info`, a live local; WNOWAIT leaves the child
+        // unreaped.
         let result =
             unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) };
         if result == 0 || io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {

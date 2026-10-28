@@ -142,7 +142,10 @@ pub fn parse_journal_line(line: &str) -> Option<Value> {
 }
 
 #[cfg(unix)]
-async fn read_bounded_line<R>(reader: &mut R, max_bytes: usize) -> std::io::Result<Option<String>>
+pub(crate) async fn read_bounded_line<R>(
+    reader: &mut R,
+    max_bytes: usize,
+) -> std::io::Result<Option<String>>
 where
     R: tokio::io::AsyncBufRead + Unpin,
 {
@@ -161,17 +164,18 @@ where
                 })
             };
         }
-        let newline = buffer.iter().position(|byte| *byte == b'\n');
-        let take = newline.map_or(buffer.len(), |index| index + 1);
+        // Up to and including the first newline, else the whole buffer.
+        let chunk = buffer.split_inclusive(|byte| *byte == b'\n').next().unwrap_or_default();
+        let (take, newline) = (chunk.len(), chunk.ends_with(b"\n"));
         if bytes.len().saturating_add(take) > max_bytes {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "journal line exceeds the configured bound",
             ));
         }
-        bytes.extend_from_slice(&buffer[..take]);
+        bytes.extend_from_slice(chunk);
         reader.consume(take);
-        if newline.is_some() {
+        if newline {
             return String::from_utf8(bytes).map(Some).map_err(|_| {
                 std::io::Error::new(std::io::ErrorKind::InvalidData, "journal line is not UTF-8")
             });
@@ -235,9 +239,10 @@ pub fn split_batch(sessions: &[SessionBatch]) -> Option<(Vec<SessionBatch>, Vec<
         if room >= session.records.len() {
             first.push(session.clone());
             taken += session.records.len();
-        } else if room > 0 {
-            let head = session.records[..room].to_vec();
-            let tail = session.records[room..].to_vec();
+        } else if let Some((head, tail)) =
+            session.records.split_at_checked(room).filter(|_| room > 0)
+        {
+            let (head, tail) = (head.to_vec(), tail.to_vec());
             let cursor = head
                 .iter()
                 .rev()
@@ -458,7 +463,7 @@ async fn discover_session_candidates(socket_dirs: &[PathBuf]) -> Vec<SessionCand
             // to arbitrary files masquerading as sockets.
             if metadata.file_type().is_symlink()
                 || !metadata.file_type().is_socket()
-                || metadata.uid() != unsafe { libc::getuid() }
+                || metadata.uid() != current_uid()
             {
                 continue;
             }
@@ -530,7 +535,7 @@ async fn safe_socket_directory(path: &Path) -> bool {
     let Ok(metadata) = tokio::fs::symlink_metadata(path).await else { return false };
     !metadata.file_type().is_symlink()
         && metadata.is_dir()
-        && metadata.uid() == unsafe { libc::getuid() }
+        && metadata.uid() == current_uid()
         && metadata.permissions().mode() & 0o077 == 0
 }
 
@@ -542,7 +547,7 @@ async fn insecure_socket_root_mode(path: &Path) -> Option<u32> {
     let mode = metadata.permissions().mode();
     (!metadata.file_type().is_symlink()
         && metadata.is_dir()
-        && metadata.uid() == unsafe { libc::getuid() }
+        && metadata.uid() == current_uid()
         && mode & 0o077 != 0)
         .then_some(mode)
 }
@@ -574,7 +579,7 @@ async fn safe_socket_entry(path: &Path) -> bool {
     let Ok(metadata) = tokio::fs::symlink_metadata(path).await else { return false };
     !metadata.file_type().is_symlink()
         && metadata.file_type().is_socket()
-        && metadata.uid() == unsafe { libc::getuid() }
+        && metadata.uid() == current_uid()
 }
 
 #[cfg(unix)]
@@ -677,7 +682,14 @@ fn socket_directories() -> Vec<PathBuf> {
     let runtime = absolute_env_path("XDG_RUNTIME_DIR")
         .or_else(|| absolute_env_path("TMPDIR"))
         .unwrap_or_else(|| PathBuf::from("/tmp"));
-    socket_directories_for(&runtime, unsafe { libc::getuid() })
+    socket_directories_for(&runtime, current_uid())
+}
+
+/// The real user id of this process, the owner every socket root and entry must have.
+#[cfg(unix)]
+fn current_uid() -> libc::uid_t {
+    // SAFETY: getuid takes no arguments, cannot fail, and touches no memory.
+    unsafe { libc::getuid() }
 }
 
 #[cfg(unix)]
@@ -847,7 +859,7 @@ async fn run_session(
             },
         });
         let mut request = request;
-        if request["params"]["cursor"].is_null() {
+        if request.pointer("/params/cursor").is_none_or(Value::is_null) {
             let Some(params) = request.get_mut("params").and_then(Value::as_object_mut) else {
                 return;
             };
@@ -1334,7 +1346,7 @@ async fn prepare_cursor_directory(dir: &Path) -> bool {
         Err(_) => return false,
     }
     let Ok(metadata) = tokio::fs::symlink_metadata(dir).await else { return false };
-    if !metadata.is_dir() || metadata.uid() != unsafe { libc::getuid() } {
+    if !metadata.is_dir() || metadata.uid() != current_uid() {
         return false;
     }
     metadata.permissions().mode() & 0o077 == 0
@@ -1372,7 +1384,7 @@ async fn persist_cursors(shared: &Shared) {
 #[cfg(unix)]
 fn cursor_file_metadata_ok(metadata: &std::fs::Metadata) -> bool {
     metadata.is_file()
-        && metadata.uid() == unsafe { libc::getuid() }
+        && metadata.uid() == current_uid()
         // Cursor revisions are not credentials, but sharing this file allows
         // another user to influence replay and delivery. Keep it private.
         && metadata.permissions().mode() & 0o077 == 0
@@ -1397,7 +1409,7 @@ async fn cursor_path_is_replaceable(path: &Path) -> bool {
         // broad umask. It is safe to replace it because it is our regular
         // file; the new atomic file is always 0600. We still reject links,
         // directories, and files owned by another user.
-        Ok(metadata) => metadata.is_file() && metadata.uid() == unsafe { libc::getuid() },
+        Ok(metadata) => metadata.is_file() && metadata.uid() == current_uid(),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
         Err(_) => false,
     }
@@ -1444,7 +1456,7 @@ async fn persist_cursor_file(path: &Path, cursors: &HashMap<String, JournalCurso
         // after checking its owner, then install the private replacement.
         match tokio::fs::symlink_metadata(path).await {
             Ok(metadata) if cursor_file_metadata_ok(&metadata) => {}
-            Ok(metadata) if metadata.is_file() && metadata.uid() == unsafe { libc::getuid() } => {
+            Ok(metadata) if metadata.is_file() && metadata.uid() == current_uid() => {
                 if tokio::fs::remove_file(path).await.is_err() {
                     let _ = tokio::fs::remove_file(&temp_path).await;
                     return false;

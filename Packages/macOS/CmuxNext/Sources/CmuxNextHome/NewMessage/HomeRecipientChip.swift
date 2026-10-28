@@ -55,6 +55,7 @@ final class HomeRecipientChip: NSView {
         layer?.backgroundColor = performWithTheme { (valid ? Palette.accent : Palette.danger).withAlphaComponent(alpha).cgColor }
     }
 
+    // visibility-walk-allow: one layer color store in the theme scope (applyColors), no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

@@ -176,12 +176,12 @@ pub(crate) fn reduce_column_dock(
     index: usize,
     dock: Option<ColumnDock>,
 ) -> Result<Vec<Option<ColumnDock>>, ColumnDockError> {
-    if index >= flags.len() {
+    let Some(&held) = flags.get(index) else {
         return Err(ColumnDockError::NoSuchColumn { index });
-    }
+    };
     let mut dock = dock;
     // A permanent column keeps its edge and its flag; only the mode may change.
-    if let Some(current) = flags[index].filter(|flag| flag.permanent) {
+    if let Some(current) = held.filter(|flag| flag.permanent) {
         match dock.as_mut() {
             Some(next) if next.edge == current.edge => next.permanent = true,
             _ => return Err(ColumnDockError::PermanentColumn),
@@ -189,7 +189,7 @@ pub(crate) fn reduce_column_dock(
     }
     // `pinned-dock-v1`: a pinned column (the Home dock) keeps its edge, its
     // pin and its tab setting through a re-dock; only the mode may change.
-    if let Some(current) = flags[index].filter(|flag| flag.pinned) {
+    if let Some(current) = held.filter(|flag| flag.pinned) {
         match dock.as_mut() {
             Some(next) if next.edge == current.edge => {
                 next.pinned = true;
@@ -207,15 +207,15 @@ pub(crate) fn reduce_column_dock(
     {
         return Err(ColumnDockError::PermanentColumn);
     }
-    let mut next = flags.to_vec();
-    if let Some(flag) = dock {
-        for (candidate, held) in next.iter_mut().enumerate() {
-            if candidate != index && held.is_some_and(|held| held.edge == flag.edge) {
-                *held = None;
-            }
-        }
-    }
-    next[index] = dock;
+    let next = flags
+        .iter()
+        .enumerate()
+        .map(|(candidate, held)| match (dock, held) {
+            _ if candidate == index => dock,
+            (Some(flag), Some(held)) if held.edge == flag.edge => None,
+            _ => *held,
+        })
+        .collect::<Vec<_>>();
     // `pinned-dock-alone-v1`: a lone pinned column (Home with nothing beside it) needs no
     // scrolling column.
     if next.iter().all(Option::is_some) && !flags_are_lone_pinned(&next) {
@@ -267,7 +267,11 @@ fn dock_column_location(
 ) -> Result<(usize, usize, usize), ColumnDockError> {
     let not_found = || ColumnDockError::ColumnNotFound { pane };
     let (workspace, screen) = state.screen_of(pane).ok_or_else(not_found)?;
-    let column = state.workspaces[workspace].screens[screen]
+    let column = state
+        .workspaces
+        .get(workspace)
+        .and_then(|workspace| workspace.screens.get(screen))
+        .ok_or_else(not_found)?
         .layout_columns
         .iter()
         .position(|column| column.root.contains(pane))
@@ -295,25 +299,34 @@ impl Mux {
         let unchanged = self.with_state(|state| {
             // A screen stored as one split tree is one implicit column: the
             // only column cannot be pinned, and unpinning it changes nothing.
-            if let Some((workspace, screen)) = state.screen_of(pane) {
-                let screen = &state.workspaces[workspace].screens[screen];
-                if screen.layout_columns.is_empty() {
-                    if dock.is_some() {
-                        return Err(ColumnDockError::LastScrollingColumn);
-                    }
-                    let outcome =
-                        ColumnDockOutcome { screen: screen.id, column: 0, dock, changed: false };
-                    return Ok(Some(outcome));
+            if let Some(screen) = state.screen_of(pane).and_then(|(workspace, screen)| {
+                state.workspaces.get(workspace)?.screens.get(screen)
+            }) && screen.layout_columns.is_empty()
+            {
+                if dock.is_some() {
+                    return Err(ColumnDockError::LastScrollingColumn);
                 }
+                let outcome =
+                    ColumnDockOutcome { screen: screen.id, column: 0, dock, changed: false };
+                return Ok(Some(outcome));
             }
             let (workspace, screen, column) = dock_column_location(state, pane)?;
-            let screen = &state.workspaces[workspace].screens[screen];
+            let screen = state
+                .workspaces
+                .get(workspace)
+                .and_then(|workspace| workspace.screens.get(screen))
+                .ok_or(ColumnDockError::ColumnNotFound { pane })?;
             let flags = column_flags(&screen.layout_columns);
             let next = reduce_column_dock(&flags, column, dock)?;
+            let (Some(column_id), Some(&next_dock)) =
+                (screen.layout_columns.get(column).map(|column| column.id), next.get(column))
+            else {
+                return Err(ColumnDockError::NoSuchColumn { index: column });
+            };
             let outcome = ColumnDockOutcome {
                 screen: screen.id,
-                column: screen.layout_columns[column].id,
-                dock: next[column],
+                column: column_id,
+                dock: next_dock,
                 changed: false,
             };
             let unchanged = next == flags;
@@ -339,14 +352,22 @@ impl Mux {
                 |state, registry| {
                     let (workspace, screen, column) = dock_column_location(state, pane)?;
                     let mut projected = state.clone();
-                    let target = &mut projected.workspaces[workspace].screens[screen];
+                    let target = projected
+                        .workspaces
+                        .get_mut(workspace)
+                        .and_then(|workspace| workspace.screens.get_mut(screen))
+                        .ok_or(ColumnDockError::ColumnNotFound { pane })?;
                     let before = target.layout_snapshot_for_coalescing_change(coalesce);
                     apply_column_dock(&mut target.layout_columns, column, dock)?;
                     target.record_prepared_layout_change(before, Vec::new(), coalesce);
+                    let docked = target
+                        .layout_columns
+                        .get(column)
+                        .ok_or(ColumnDockError::NoSuchColumn { index: column })?;
                     let outcome = ColumnDockOutcome {
                         screen: target.id,
-                        column: target.layout_columns[column].id,
-                        dock: target.layout_columns[column].dock,
+                        column: docked.id,
+                        dock: docked.dock,
                         changed: true,
                     };
                     let pane_id = projected

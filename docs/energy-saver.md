@@ -18,7 +18,9 @@ The feature changes only when cmux starts. Quit cmux and open it again.
 
 ## When Energy Saver turns on
 
-The `energy.saver` setting controls when Energy Saver turns on. Set it in `~/.config/cmux/cmux-next.json`:
+The `energy.saver` setting controls when Energy Saver turns on. Set it in **Settings > General > Energy Saver**
+(the row shows while the Labs feature is on; a Mac with no battery does not offer On Battery), with the command
+palette action **Toggle Setting…**, or in `~/.config/cmux/cmux-next.json`:
 
 ```json
 {

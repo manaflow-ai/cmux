@@ -24,7 +24,10 @@ public struct SidebarSeed {
     private var suppressedSections: Set<SectionID> = []
     public let grace: SidebarPlaceholderGrace
 
-    public init(sections: [SidebarSection] = [], grace: SidebarPlaceholderGrace = SidebarPlaceholderGrace()) {
+    /// - Parameters:
+    ///   - sections: The window's saved sidebar.
+    ///   - grace: The wait before a connecting machine's placeholder bars, on the app's deadline placer.
+    public init(sections: [SidebarSection] = [], grace: SidebarPlaceholderGrace) {
         self.sections = sections
         self.grace = grace
     }

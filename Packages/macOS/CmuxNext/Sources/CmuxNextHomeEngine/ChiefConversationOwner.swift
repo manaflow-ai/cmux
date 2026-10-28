@@ -4,6 +4,9 @@ public import Foundation
 public import Observation
 public import CmuxNextWakeups
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The owner of Home's conversations: the cmux-tui daemon session of the
 /// Chief home (`ChiefHome.session`, state in `ChiefHome.daemonStateDirectory`),
@@ -17,8 +20,10 @@ import os
 /// terminals and the Home workspace's tabs; a conversation tab there points
 /// at a conversation of this owner by id.
 ///
-/// The owner process is detached and outlives the app; the next launch
-/// ensures it and attaches. It is never handed off to the connecting
+/// The owner process is detached and outlives the app while a client (the
+/// Chief's brain host at work) or a live brain needs it, then stops
+/// (`CMUX_TUI_OWNER_APP_PID`, cmux-tui `headless/chief_owner_exit.rs`); the
+/// next launch ensures it and attaches. It is never handed off to the connecting
 /// binary (an older build that still shares NIGHTLY's home would restart it
 /// in turn). Only `local-conversations-v1` is required of it.
 @Observable @MainActor
@@ -45,6 +50,15 @@ public final class ChiefConversationOwner {
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private let wake = RetryWake(owner: "ChiefConversationOwner")
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
+    /// Waits for a connection that serves a capability (``connection(supporting:)``), answered by the attach.
+    @ObservationIgnored private var connectionWaiters: [ConnectionWaiter] = []
+    @ObservationIgnored private var lastConnectionWaiterID: UInt64 = 0
+
+    private struct ConnectionWaiter {
+        let id: UInt64
+        let capability: String
+        let answer: OnceContinuation<DaemonConnection, OnceContinuationError>
+    }
 
     public init(home: ChiefHome) {
         self.home = home
@@ -60,6 +74,9 @@ public final class ChiefConversationOwner {
         var environment = process
         environment["CMUX_TUI_CHIEF_TOOLS_SOCKET"] = home.muxHome.appendingPathComponent("optchat/tools.sock").path
         environment["CMUX_TUI_CHIEF_BRAINS"] = brainsValue(home: home, process: process, bundle: bundle)
+        // This app: the owner stops soon after it exits, once no client (the Chief's host at work)
+        // and no brain needs it (cmux-tui headless/chief_owner_exit.rs).
+        environment["CMUX_TUI_OWNER_APP_PID"] = String(ProcessInfo.processInfo.processIdentifier)
         return environment
     }
 
@@ -69,6 +86,25 @@ public final class ChiefConversationOwner {
     public func supports(_ capability: String) -> Bool {
         connection != nil && identity?.supports(capability) == true
     }
+
+    /// The live connection once the owner is attached and serves `capability`: now when it does,
+    /// else at the attach that brings it (the attach answers the wait, no observation re-reads it);
+    /// nil when the waiting task is cancelled first. A wait that ends without an answer leaves no waiter behind.
+    public func connection(supporting capability: String) async -> DaemonConnection? {
+        if supports(capability), let connection { return connection }
+        guard !Task.isCancelled else { return nil }
+        lastConnectionWaiterID &+= 1
+        let id = lastConnectionWaiterID
+        let answered = try? await withOnceContinuation(cancellation: .cancellable, failingWith: { $0 }) {
+            (answer: OnceContinuation<DaemonConnection, OnceContinuationError>) in
+            connectionWaiters.append(ConnectionWaiter(id: id, capability: capability, answer: answer))
+        }
+        if answered == nil { connectionWaiters.removeAll { $0.id == id } }
+        return answered
+    }
+
+    /// Waits filed by ``connection(supporting:)`` that no attach answered yet (tests).
+    var connectionWaitCount: Int { connectionWaiters.count }
 
     /// The owner's socket, once connected (the brain host's `--daemon-socket`).
     public func socketPath() async -> String? {
@@ -102,12 +138,16 @@ public final class ChiefConversationOwner {
         let home = home
         let build = bundle.bundleIdentifier ?? ChiefHome.nightlyBundleID
         // task-owner: lives as long as the app; one connection, reconnecting by itself
+        // main-hop-allow: the owner's connection loop: its connect, adoption and restart probe run off main (DaemonStartup, @concurrent adoption), and each envelope's handle is the main-actor model change of that event, in the order the owner sent them
         runTask = Task { [weak self] in
             weak let weakSelf = self
             // NIGHTLY's backup before this app starts the owner (cx-is1kf.7); a running owner's
             // databases are copied with SQLite's online backup.
             // cmux NEXT's one-time adoption of its old homes ends before its owner starts (cx-is1kf.9).
             await AcpmuxEnvironment.adoptBuildHomes()
+            // A running owner and brain host an earlier app started serve this app from now on: they
+            // stop idle only after this app exits (cmux-tui headless/chief_owner_exit.rs).
+            _ = try? await work.run(.userVisible, mayBlock: .files) { home.recordOwnerApp() }
             let adoption = await ChiefAdoption.runOffMain(home: home, by: build, logger: logger)
             weakSelf?.adoption = adoption
             let connected = await DaemonStartup.shared.connect(wake: wake) {
@@ -134,7 +174,8 @@ public final class ChiefConversationOwner {
             let restartFeed = restart.map { restart in
                 let (events, feed) = AsyncStream<DaemonEvent>.makeStream(bufferingPolicy: .bufferingNewest(1))
                 // task-owner: this run task; ends when the feed finishes below or the restart is decided
-                Task {
+                // Off main: the probe is the restart actor's own, and nothing here touches the owner.
+                Task { @concurrent in
                     for await event in events {
                         if await restart.note(event) != .waiting { break }
                     }
@@ -181,6 +222,9 @@ public final class ChiefConversationOwner {
         lastError = nil
         refusal = nil
         logger.info("chief owner \(identity.session, privacy: .public) (cmux-tui \(identity.version, privacy: .public)) for \(self.home.root.path, privacy: .public)")
+        let served = connectionWaiters.filter { identity.supports($0.capability) }
+        connectionWaiters.removeAll { identity.supports($0.capability) }
+        for waiter in served { waiter.answer.resume(returning: connection) }
     }
 
     private func handle(_ event: DaemonEvent, connection: DaemonConnection) {

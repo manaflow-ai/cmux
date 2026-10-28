@@ -11,18 +11,22 @@ public extension WKPreferences {
     /// no such feature or SPI.
     @discardableResult
     func setWebKitFeature(_ key: String, enabled: Bool) -> Bool {
-        guard let feature = Self.webKitFeature(key), let spi = Self.privateMethod("_setEnabled:forFeature:") else { return false }
+        // SAFETY: `privateMethod` only looks the method up; its IMP is called below with the method's C type.
+        guard let feature = Self.webKitFeature(key), let spi = unsafe Self.privateMethod("_setEnabled:forFeature:") else { return false }
         typealias SetEnabled = @convention(c) (AnyObject, Selector, Bool, AnyObject) -> Void
-        unsafeBitCast(spi.implementation, to: SetEnabled.self)(self, spi.selector, enabled, feature)
+        // SAFETY: the IMP is WKPreferences' `-_setEnabled:(BOOL) forFeature:(id)`, called with that C type.
+        unsafe unsafeBitCast(spi.implementation, to: SetEnabled.self)(self, spi.selector, enabled, feature)
         return true
     }
 
     /// Whether the feature named `key` is on; nil when this WebKit has no
     /// such feature or SPI.
     func isWebKitFeatureEnabled(_ key: String) -> Bool? {
-        guard let feature = Self.webKitFeature(key), let spi = Self.privateMethod("_isEnabledForFeature:") else { return nil }
+        // SAFETY: `privateMethod` only looks the method up; its IMP is called below with the method's C type.
+        guard let feature = Self.webKitFeature(key), let spi = unsafe Self.privateMethod("_isEnabledForFeature:") else { return nil }
         typealias IsEnabled = @convention(c) (AnyObject, Selector, AnyObject) -> Bool
-        return unsafeBitCast(spi.implementation, to: IsEnabled.self)(self, spi.selector, feature)
+        // SAFETY: the IMP is WKPreferences' `-(BOOL)_isEnabledForFeature:(id)`, called with that C type.
+        return unsafe unsafeBitCast(spi.implementation, to: IsEnabled.self)(self, spi.selector, feature)
     }
 
     /// WebKit's hidden-page throttling of these preferences; nil when this WebKit lacks one of its
@@ -50,15 +54,19 @@ public extension WKPreferences {
     }
 
     private func privateFlag(_ getter: String) -> Bool? {
-        guard let spi = Self.privateMethod(getter) else { return nil }
+        // SAFETY: `privateMethod` only looks the method up; its IMP is called below with the method's C type.
+        guard let spi = unsafe Self.privateMethod(getter) else { return nil }
         typealias GetFlag = @convention(c) (AnyObject, Selector) -> Bool
-        return unsafeBitCast(spi.implementation, to: GetFlag.self)(self, spi.selector)
+        // SAFETY: the IMP is one of WKPreferences' `-(BOOL)` getters with no argument, called with that C type.
+        return unsafe unsafeBitCast(spi.implementation, to: GetFlag.self)(self, spi.selector)
     }
 
     private func setPrivateFlag(_ setter: String, _ value: Bool) -> Bool {
-        guard let spi = Self.privateMethod(setter) else { return false }
+        // SAFETY: `privateMethod` only looks the method up; its IMP is called below with the method's C type.
+        guard let spi = unsafe Self.privateMethod(setter) else { return false }
         typealias SetFlag = @convention(c) (AnyObject, Selector, Bool) -> Void
-        unsafeBitCast(spi.implementation, to: SetFlag.self)(self, spi.selector, value)
+        // SAFETY: the IMP is one of WKPreferences' `-set...:(BOOL)` setters, called with that C type.
+        unsafe unsafeBitCast(spi.implementation, to: SetFlag.self)(self, spi.selector, value)
         return true
     }
 
@@ -67,14 +75,17 @@ public extension WKPreferences {
     private static func privateMethod(_ name: String) -> (selector: Selector, implementation: IMP)? {
         // crash-allow: WebKit private selector, called only through the IMP class_getInstanceMethod found (no unknown-selector exception).
         let selector = NSSelectorFromString(name)
-        guard let method = class_getInstanceMethod(WKPreferences.self, selector) else { return nil }
-        return (selector, method_getImplementation(method))
+        // SAFETY: `method` is the runtime's method record for `selector`, which lives as long as the class.
+        guard let method = unsafe class_getInstanceMethod(WKPreferences.self, selector) else { return nil }
+        return unsafe (selector, method_getImplementation(method))
     }
 
     private static func webKitFeature(_ key: String) -> NSObject? {
         let selector = NSSelectorFromString("_features")
         let type: AnyObject = WKPreferences.self
-        guard type.responds(to: selector), let features = type.perform(selector)?.takeUnretainedValue() as? [NSObject] else { return nil }
+        // SAFETY: `+_features` returns an autoreleased array (a getter, not a +1 return), so the unretained value is
+        // the right ownership.
+        guard type.responds(to: selector), let features = unsafe type.perform(selector)?.takeUnretainedValue() as? [NSObject] else { return nil }
         return features.first { $0.value(forKey: "key") as? String == key }
     }
 }

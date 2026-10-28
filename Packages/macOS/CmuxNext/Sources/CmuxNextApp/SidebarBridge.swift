@@ -24,7 +24,7 @@ final class SidebarBridge {
     /// Weak: a daemon command's `Task` can outlive the window.
     weak var state: WindowState?
     /// The rows and selection observations, also run in the turn the window shows a workspace.
-    private(set) lazy var sameTurn = SidebarSameTurn(view: container.sidebarView)
+    private(set) lazy var sameTurn = SidebarSameTurn(view: container.sidebarView, mainWork: services.mainWork)
     private var widthObservation: ServiceObservation<(CGFloat, SidebarPresentation)>?
     /// Item presentation for sidebar sections (SidebarBridge+Sections).
     var sectionsObservation: ServiceObservation<SectionInputs>?
@@ -32,8 +32,12 @@ final class SidebarBridge {
     private var appSections: SidebarAppSections?
     /// The bottom-left cards (SidebarBridge+Cards).
     var cards: ServiceObservation<SidebarCardFeed.Cards>?
-    /// The Now Playing card, the Priority view and the window's top items.
-    var cardsObservation: Task<Void, Never>?
+    /// The Now Playing card's feed (`SidebarModel.followNowPlaying`); released, it stops.
+    var nowPlayingFeed: AnyObject?
+    /// The Priority view (`SidebarPriorityFeed`).
+    var priority: ServiceObservation<SidebarPriorityPanel?>?
+    /// The window's top items (`SidebarModel.followTopItems`); nil for a window with no saved state.
+    var topItems: ServiceObservation<SidebarModel.TopItems>?
     /// The footer's avatar (`SidebarProfileControl.followAvatar`).
     private var profileAvatar: ServiceObservation<SidebarAvatar>?
     /// True once the sidebar shows real content: saved rows, the first
@@ -41,7 +45,7 @@ final class SidebarBridge {
     /// sidebar region ready for `LaunchReveal`.
     private(set) var isReadyForReveal = false
     /// The window's saved rows, shown until live data replaces them.
-    private var seed = SidebarSeed()
+    private lazy var seed = SidebarSeed(grace: SidebarPlaceholderGrace(deadlines: services.mainDeadlines))
     /// The one writer of the rows: live rows plus pending edits (cx-odqn).
     lazy var rows = SidebarRows(model: model)
     lazy var selectionHold = SidebarSelectionHold(model: model, deadlines: services.mainDeadlines)
@@ -71,11 +75,12 @@ final class SidebarBridge {
         rowFeed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, work in frames.queue.enqueue(cause: cause, work) },
                                  observations: services.mainWork.observationOwner("SidebarRows"))
         container = SidebarContainerView(model: model, deadlines: services.mainDeadlines, appEvents: services.appEvents,
-                                         newRows: PendingWorkspaceRows.shared.newRows)
+                                         newRows: PendingWorkspaceRows.shared.newRows,
+                                         responsiveScrolling: services.features.isEnabled(.responsiveScrolling))
         // Only the rows the clip shows get views until startup completes (p08-startup-064); the counts go to `debug.startup` and the bench.
         container.sidebarView.followLaunch(services.launchStartup) { [values = services.launchValues] in values.recordSidebarLaunchRows(built: $0.built, visible: $0.visible) }
-        // The resize edge moves the width once per frame (feature `pointerFrameDrags`).
-        container.resizeFrameInput = services.dragFrameInput
+        container.resizeFrameInput = services.dragFrameInput // the resize edge, once per frame (`pointerFrameDrags`)
+        container.sidebarView.scrubFrameInput = services.dragFrameInput // the Now Playing scrubber, the same
         model.onIntent = { [weak self] intent in self?.handle(intent) }
         // Loose rows come before every group unless the home session places
         // groups among them (`personal-mixed-order-v1`); refreshed on show.
@@ -88,7 +93,7 @@ final class SidebarBridge {
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
-        container.sidebarView.resourceSource = services.resources
+        container.sidebarView.setResourceSource(services.resources, deadlines: services.mainDeadlines)
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.inputTap = services.inputTap
         // Energy Saver's leaf follows the app's one energy policy (p14-energy-026).
@@ -134,8 +139,10 @@ final class SidebarBridge {
         widthObservation?.cancel()
         sectionsObservation?.cancel()
         appSections?.releaseAll()
-        cardsObservation?.cancel()
+        nowPlayingFeed = nil
         cards?.cancel()
+        priority?.cancel()
+        topItems?.cancel()
         profileAvatar?.cancel()
         // The update surface pages cancel their subscriptions (cx-urd.61.2).
         container.sidebarView.updateSurfaces = nil

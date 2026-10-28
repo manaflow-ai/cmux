@@ -1,6 +1,7 @@
 public import Foundation
 public import Observation
 package import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// The live overrides of every tunable. Defaults stay in code; the store
 /// holds only what the developer changed in Debug Settings.
@@ -92,19 +93,33 @@ public nonisolated final class TunableStore: Observable, Sendable {
         state.withLock { $0.descriptors[key] }
     }
 
+    /// The override file ``activate(file:)`` reads, and the main-thread scheduler its values land on.
+    nonisolated public struct FileSource: Sendable {
+        public let url: URL
+        public let mainWork: MainWorkScheduler
+
+        public init(url: URL, landingOn mainWork: MainWorkScheduler) {
+            self.url = url
+            self.mainWork = mainWork
+        }
+    }
+
     /// Turns overrides on. With `file`, reads it off the main actor and
-    /// applies its values on the main actor (observers are told there),
-    /// then writes every later change back, coalesced, off the main actor.
-    public func activate(file: URL?) {
+    /// applies its values on the main actor (observers are told there) as one
+    /// `visible` task on its scheduler (Chromium's `PostTaskAndReplyWithResult`,
+    /// base/task/task_runner.h), then writes every later change back,
+    /// coalesced, off the main actor.
+    public func activate(file source: FileSource?) {
         active.store(true, ordering: .relaxed)
-        guard let file else { return }
+        guard let source else { return }
+        let file = source.url, mainWork = source.mainWork
         writer.withLock { $0 = TunableFileWriter(url: file) }
         state.withLock { $0.loading = true }
         Task.detached(priority: .userInitiated) { [weak self] in
             let raw = TunableFile.readRaw(file)
             guard let self else { return }
             let valid = self.validate(raw)
-            await MainActor.run { self.finishLoad(valid) }
+            mainWork.postFromAnyThread(.visible, owner: "TunableStore.load") { self.finishLoad(valid) }
         }
     }
 

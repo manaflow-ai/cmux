@@ -30,6 +30,8 @@ extension CEFPaneHost {
         showPageCursor(of: browser)
         showPageAccessibility(of: browser)
         suggestionsFollowShownBrowser(browser)
+        // Another page's pointer lock, keyboard lock and fullscreen end (task 229).
+        hostedPageView?.exclusiveAccess.showing(browser)
         // Host mode: a display the page view read while no tab was shown (it entered another
         // window before this tab was shown in it) is placed now (task 221).
         hostedPageView?.placeIfNeeded()

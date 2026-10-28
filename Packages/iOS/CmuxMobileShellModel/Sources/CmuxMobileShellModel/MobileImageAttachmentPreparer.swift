@@ -1,4 +1,8 @@
 #if canImport(ImageIO)
+internal import class CmuxSafeConcurrency.OnceContinuation
+internal import enum CmuxSafeConcurrency.OnceContinuationError
+internal import func CmuxSafeConcurrency.withOnceContinuation
+internal import CmuxThreading
 internal import CoreGraphics
 public import Foundation
 internal import ImageIO
@@ -16,7 +20,12 @@ public struct MobileImageAttachmentPreparer: Sendable {
     /// Creates a reusable image attachment preparer.
     public init() {}
 
-    /// Prepares one file-backed image in a cancellable background child task.
+    /// Where images are read and encoded: ImageIO reads the file, which blocks,
+    /// so the work runs on a queue of its own, never on the shared pool. The
+    /// person who attached the image waits for it.
+    private let queue = DispatchQueue(label: "cmux.mobile.image-attachment", qos: .userInitiated)
+
+    /// Prepares one file-backed image on the preparer's queue.
     ///
     /// ImageIO opens the file URL lazily and downsamples before decoding, so a
     /// large HEIC, panorama, or RAW source never becomes a full-size in-memory
@@ -24,30 +33,35 @@ public struct MobileImageAttachmentPreparer: Sendable {
     ///
     /// - Parameter url: A readable local image file.
     /// - Returns: Bounded PNG/JPEG bytes plus a thumbnail, or `nil` when the
-    ///   source is invalid, oversized after compression, or cancelled.
+    ///   source is invalid, oversized after compression, or the caller was
+    ///   cancelled before or while it ran.
     public nonisolated func prepare(url: URL) async -> MobilePreparedImageAttachment? {
         guard !Task.isCancelled else { return nil }
-        return await withTaskGroup(of: MobilePreparedImageAttachment?.self) { group in
-            group.addTask(priority: .background) {
-                guard !Task.isCancelled,
-                      let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-                      let payload = boundedSendPayload(from: source) else {
-                    return nil
-                }
-                guard !Task.isCancelled else { return nil }
-                return MobilePreparedImageAttachment(
-                    data: payload.data,
-                    format: payload.format,
-                    thumbnailData: downsampledImageData(
-                        from: source,
-                        maxPixelSize: thumbnailMaxPixelSize,
-                        type: "public.png",
-                        jpegQuality: nil
-                    )
-                )
+        // A dropped continuation (never expected: the block always resumes it) reads as no attachment.
+        let prepared = try? await withOnceContinuation {
+            (continuation: OnceContinuation<MobilePreparedImageAttachment?, OnceContinuationError>) in
+            queue.async {
+                continuation.resume(returning: prepareNow(url: url))
             }
-            return await group.next() ?? nil
         }
+        return Task.isCancelled ? nil : prepared
+    }
+
+    private nonisolated func prepareNow(url: URL) -> MobilePreparedImageAttachment? {
+        guard let source = blockingCall(.fileIO, { CGImageSourceCreateWithURL(url as CFURL, nil) }),
+              let payload = boundedSendPayload(from: source) else {
+            return nil
+        }
+        return MobilePreparedImageAttachment(
+            data: payload.data,
+            format: payload.format,
+            thumbnailData: downsampledImageData(
+                from: source,
+                maxPixelSize: thumbnailMaxPixelSize,
+                type: "public.png",
+                jpegQuality: nil
+            )
+        )
     }
 
     private nonisolated func boundedSendPayload(
@@ -90,35 +104,38 @@ public struct MobileImageAttachmentPreparer: Sendable {
         type: String,
         jpegQuality: CGFloat?
     ) -> Data? {
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-        ]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(
-            source,
-            0,
-            options as CFDictionary
-        ) else {
-            return nil
+        // The source reads its file lazily (CGImageSourceCreateWithURL): the thumbnail read waits for the disk.
+        blockingCall(.fileIO) { () -> Data? in
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            ]
+            guard let image = CGImageSourceCreateThumbnailAtIndex(
+                source,
+                0,
+                options as CFDictionary
+            ) else {
+                return nil
+            }
+            let encoded = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(
+                encoded as CFMutableData,
+                type as CFString,
+                1,
+                nil
+            ) else {
+                return nil
+            }
+            var properties: [CFString: Any] = [:]
+            if let jpegQuality {
+                properties[kCGImageDestinationLossyCompressionQuality] = jpegQuality
+            }
+            CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+            guard CGImageDestinationFinalize(destination) else { return nil }
+            return encoded as Data
         }
-        let encoded = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(
-            encoded as CFMutableData,
-            type as CFString,
-            1,
-            nil
-        ) else {
-            return nil
-        }
-        var properties: [CFString: Any] = [:]
-        if let jpegQuality {
-            properties[kCGImageDestinationLossyCompressionQuality] = jpegQuality
-        }
-        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else { return nil }
-        return encoded as Data
     }
 }
 #endif

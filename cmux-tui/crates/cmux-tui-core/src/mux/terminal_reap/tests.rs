@@ -245,6 +245,30 @@ fn end_all_terminals_ends_placed_and_detached_terminals() {
     assert_eq!(mux.terminal_host_closes.pending(), 0);
 }
 
+/// `shutdown-daemon --end-terminals` on an owner with a terminal host root
+/// (every real owner) answers. end_terminals read the root under the
+/// surface-options guard of an `if let` scrutinee, which in edition 2024
+/// lives through the `then` block, and the block's `host_panic_log()` locked
+/// the same mutex again: the request thread deadlocked, so `cmux-tui server
+/// stop --end-terminals` never got an answer (p09-observability-081).
+#[test]
+fn end_all_terminals_with_a_terminal_host_root_returns() {
+    let root = std::env::temp_dir().join(format!("cmux-end-all-root-{}", std::process::id()));
+    let options =
+        SurfaceOptions { terminal_host_root: Some(root.clone()), ..SurfaceOptions::default() };
+    let mux = Mux::new_for_test("terminal-end-all-root", options);
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let ending = Arc::clone(&mux);
+    std::thread::spawn(move || {
+        let _ = done_tx.send(ending.end_all_terminals().map_err(|error| error.to_string()));
+    });
+    let ended = done_rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("end_all_terminals did not return: it locked surface_options twice");
+    assert_eq!(ended, Ok(Vec::new()));
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[test]
 fn end_all_terminals_keeps_emptied_workspaces() {
     let mux = Mux::new_for_test("terminal-end-all-layout", SurfaceOptions::default());

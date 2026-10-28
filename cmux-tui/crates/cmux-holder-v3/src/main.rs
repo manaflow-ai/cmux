@@ -6,6 +6,8 @@
 //! daemon's exit or a cleanup script would send: only an explicit CLOSE
 //! ends a terminal.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 #[cfg(unix)]
 fn main() -> std::process::ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();

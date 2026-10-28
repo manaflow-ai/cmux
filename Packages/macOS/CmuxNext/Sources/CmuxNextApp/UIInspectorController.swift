@@ -21,7 +21,8 @@ final class UIInspectorController {
     private let tap: InputEventTap
     /// The picker's intercept: moves, clicks and keys while it picks.
     private var picking: InputSubscription?
-    private var inspectNotification: NSObjectProtocol?
+    /// Inspect Element from an app page's context menu, through the app's one observer of the notice.
+    private var inspectNotification: EventSubscription?
     private var activeWindow: NSWindow?
     private var highlighted: NSView?
     private var highlight: OverlayHandle?
@@ -31,29 +32,22 @@ final class UIInspectorController {
     /// Follows the picker's tunable (``observeToggle(on:)``).
     private var toggleWatch: FrameObservation<Bool>?
 
-    private enum SelectionAction { case send, copy }
+    private nonisolated enum SelectionAction: Sendable { case send, copy }
 
     /// - Parameter tap: The app's input tap.
     init(services: AppServices, tap: InputEventTap) {
         self.services = services
         self.tap = tap
-        inspectNotification = NotificationCenter.default.addObserver(
-            forName: .cmuxNextInspectUIElement, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.inspectFromContextMenu() }
+        // The menu item's action posts it on main after the menu closed: the picker starts in that turn.
+        inspectNotification = services.appEvents.subscribe(.cmuxNextInspectUIElement, owner: "UIInspectorController.inspect") { [weak self] in
+            self?.inspectFromContextMenu()
         }
         observeToggle(on: services.mainWork)
     }
 
-    // The tap subscriptions end when they are released, on any thread. The controller can be
-    // released from an action task, so keep deinit nonisolated and remove the notification
-    // observer only when the runtime is already on the main thread.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return }
-        MainActor.assumeIsolated { // main-proof: the guard above returns unless Thread.isMainThread.
-            if let inspectNotification { NotificationCenter.default.removeObserver(inspectNotification) }
-        }
-    }
+    // The tap and notice subscriptions end when they are released, on any thread. The controller
+    // can be released from an action task, so its deinit is nonisolated.
+    nonisolated deinit {}
 
     var isPicking: Bool { picking != nil }
 
@@ -197,6 +191,7 @@ final class UIInspectorController {
 
     private func page(at point: NSPoint, in window: NSWindow) -> AgentPaneView? {
         services?.agentTabs.views.values.first { view in
+            // visibility-walk-allow: a hit test; the click goes to the page AppKit shows under the pointer
             guard view.window === window, !view.isHiddenOrHasHiddenAncestor else { return false }
             let rect = view.convert(view.bounds, to: nil)
             return rect.contains(window.convertPoint(fromScreen: point))
@@ -242,15 +237,20 @@ final class UIInspectorController {
         highlight?.dismiss()
         highlight = nil
         highlighted = nil
-        Task { @MainActor [weak self, weak window, weak view] in
-            guard let self, let window, let view, self.selectionGeneration == generation else { return }
-            guard let services = self.services else { return }
-            let image = try? await AppWindowImage(services: services).capture(window, masked: false)
-            guard self.selectionGeneration == generation else { return }
-            let png = image.flatMap { Self.crop($0, rect: view.convert(view.bounds, to: nil), window: window) }
-            self.finish(action: action, name: "UI: \(name)", text: text, png: png, preferred: nil)
-            self.stop()
+        // The capture awaits the window server: the task is nonisolated, its main steps are `captureNative`'s.
+        Task { @concurrent [weak self, weak window, weak view] in
+            await self?.captureNative(window, view, generation: generation, action: action, name: name, text: text)
         }
+    }
+
+    /// Captures `view` in `window` and finishes the selection, unless a newer one started.
+    private func captureNative(_ window: NSWindow?, _ view: NSView?, generation: Int, action: SelectionAction, name: String, text: String) async {
+        guard let window, let view, selectionGeneration == generation, let services else { return }
+        let image = try? await AppWindowImage(services: services).capture(window, masked: false)
+        guard selectionGeneration == generation else { return }
+        let png = image.flatMap { Self.crop($0, rect: view.convert(view.bounds, to: nil), window: window) }
+        finish(action: action, name: "UI: \(name)", text: text, png: png, preferred: nil)
+        stop()
     }
 
     private func pageReport(_ value: JSONValue, from page: AgentPaneView?) {
@@ -271,17 +271,25 @@ final class UIInspectorController {
             "Computed styles: \(object["computed_styles"] ?? [:])",
             "DOM: \((object["dom_snippet"] as? String ?? "").prefix(2400))",
         ].joined(separator: "\n")
-        Task { @MainActor [weak self, weak page] in
-            guard let self, let page, self.selectionGeneration == generation else { return }
-            // Await the page-side stop so its queued script removes the listener and outline
-            // before the snapshot begins; a fire-and-forget evaluate would race the capture.
-            _ = try? await page.callPageScript("globalThis.__cmuxUiPointer?.stop?.(); return true;")
-            let image = await page.pageSnapshot()
-            guard self.selectionGeneration == generation else { return }
-            let png = image.flatMap { Self.cropWeb($0, value: object) }
-            self.finish(action: action, name: "UI: \(name)", text: text, png: png, preferred: page)
-            self.stop()
+        let crop = Self.webCrop(object)
+        // The capture awaits the page: the task is nonisolated, its main steps are `capturePage`'s.
+        Task { @concurrent [weak self, weak page] in
+            await self?.capturePage(page, generation: generation, crop: crop, action: action, name: name, text: text)
         }
+    }
+
+    /// Stops the page's picker, captures it and finishes the selection, unless a newer one started.
+    private func capturePage(_ page: AgentPaneView?, generation: Int, crop: (bounds: CGRect, viewport: CGSize)?,
+                             action: SelectionAction, name: String, text: String) async {
+        guard let page, selectionGeneration == generation else { return }
+        // Await the page-side stop so its queued script removes the listener and outline
+        // before the snapshot begins; a fire-and-forget evaluate would race the capture.
+        _ = try? await page.callPageScript("globalThis.__cmuxUiPointer?.stop?.(); return true;")
+        let image = await page.pageSnapshot()
+        guard selectionGeneration == generation else { return }
+        let png = image.flatMap { image in crop.flatMap { Self.cropWeb(image, bounds: $0.bounds, viewport: $0.viewport) } }
+        finish(action: action, name: "UI: \(name)", text: text, png: png, preferred: page)
+        stop()
     }
 
     private func finish(action: SelectionAction, name: String, text: String, png: Data?, preferred: AgentPaneView?) {
@@ -296,7 +304,7 @@ final class UIInspectorController {
 
     private func deliver(name: String, text: String, png: Data?, preferred: AgentPaneView?) {
         guard let services else { return }
-        let target = preferred ?? services.agentTabs.views.values.first { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor }
+        let target = preferred ?? services.agentTabs.views.first { services.cache.node(for: $0.key).isVisible }?.value
         guard let target else { return }
         AgentPaneDesignSelection(id: "ui-pointer-" + UUID().uuidString, name: name, text: text, png: png).push(to: target)
     }
@@ -335,17 +343,24 @@ final class UIInspectorController {
         return CGImageDestinationFinalize(destination) ? data as Data : nil
     }
 
-    private static func cropWeb(_ image: NSImage, value: [String: Any]) -> Data? {
-        guard let cg = image.bestCGImage, let bounds = value["bounds"] as? [String: Any],
+    /// The element's bounds and the page's viewport a page report names, in CSS pixels.
+    private static func webCrop(_ value: [String: Any]) -> (bounds: CGRect, viewport: CGSize)? {
+        guard let bounds = value["bounds"] as? [String: Any],
               let x = bounds["x"] as? NSNumber, let y = bounds["y"] as? NSNumber,
               let width = bounds["width"] as? NSNumber, let height = bounds["height"] as? NSNumber,
               let viewport = value["viewport"] as? [String: Any], let viewportWidth = viewport["width"] as? NSNumber,
               let viewportHeight = viewport["height"] as? NSNumber, viewportWidth.doubleValue > 0, viewportHeight.doubleValue > 0 else { return nil }
-        let scaleX = Double(cg.width) / viewportWidth.doubleValue
-        let scaleY = Double(cg.height) / viewportHeight.doubleValue
-        let rect = CGRect(x: x.doubleValue * scaleX,
-                          y: y.doubleValue * scaleY,
-                          width: width.doubleValue * scaleX, height: height.doubleValue * scaleY).integral
+        return (CGRect(x: x.doubleValue, y: y.doubleValue, width: width.doubleValue, height: height.doubleValue),
+                CGSize(width: viewportWidth.doubleValue, height: viewportHeight.doubleValue))
+    }
+
+    private static func cropWeb(_ image: NSImage, bounds: CGRect, viewport: CGSize) -> Data? {
+        guard let cg = image.bestCGImage else { return nil }
+        let scaleX = Double(cg.width) / viewport.width
+        let scaleY = Double(cg.height) / viewport.height
+        let rect = CGRect(x: bounds.minX * scaleX,
+                          y: bounds.minY * scaleY,
+                          width: bounds.width * scaleX, height: bounds.height * scaleY).integral
             .intersection(CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
         guard let cut = cg.cropping(to: rect), !rect.isEmpty else { return nil }
         let data = NSMutableData()

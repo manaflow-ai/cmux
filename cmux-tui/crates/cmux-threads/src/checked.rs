@@ -172,6 +172,19 @@ pub mod sync {
         receiver.recv()
     }
 
+    /// `Receiver::recv` for a thread that is idle: it waits at the top of
+    /// its loop for its own next command and holds no one else's work (a
+    /// parser's or writer's queue). The wait is never checked or recorded,
+    /// at any length, as [`crate::sync::Condvar::idle`]'s are. Chromium
+    /// declares the same with `WaitableEvent::declare_only_used_while_idle`
+    /// (base/synchronization/waitable_event.h), which `MessagePumpDefault`'s
+    /// event uses: a thread idle at the bottom of its stack is not a
+    /// `ScopedBlockingCall`. A wait for another thread's reply or result is
+    /// not idle; it takes [`recv`] (p02-threads 308).
+    pub fn idle_recv<T>(receiver: &Receiver<T>) -> Result<T, RecvError> {
+        receiver.recv()
+    }
+
     /// `Receiver::recv_timeout` ([`BlockingKind::Recv`]).
     #[track_caller]
     pub fn recv_timeout<T>(
@@ -327,6 +340,27 @@ mod tests {
         })
         .join()
         .expect("test thread")
+    }
+
+    /// A thread idle for its own next command waits in `idle_recv` on a
+    /// disallowed thread in panic mode: no panic and no site.
+    #[test]
+    fn idle_recv_on_a_disallowed_thread_is_not_a_violation() {
+        let (commands, queue) = mpsc::channel::<u32>();
+        let waiter = std::thread::spawn(move || {
+            disallow_blocking();
+            crate::blocking::with_mode(BlockingMode::Panic, || {
+                let line = line!() + 1;
+                let first = sync::idle_recv(&queue);
+                (line, first, sync::idle_recv(&queue).is_err())
+            })
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        commands.send(7).expect("the waiter is alive");
+        drop(commands);
+        let (line, first, closed) = waiter.join().expect("an idle wait does not panic");
+        assert_eq!((first, closed), (Ok(7), true));
+        assert_eq!(count_at(line), 0, "an idle wait records no site");
     }
 
     #[test]

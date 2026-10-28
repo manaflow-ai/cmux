@@ -2,7 +2,8 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
-import Observation
+import CmuxNextHibernation
+import CmuxNextWakeups
 
 /// The window's content host as the curved main pane (cx-rkgu): a rounded
 /// clip around the workspace content. Corners are circular (not
@@ -33,6 +34,20 @@ final class MainPaneCardView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         onFrameChange?()
+    }
+
+    /// Takes workspaces hidden past a grace out of the card (feature `hiddenWorkspaceDetachAfterGrace`,
+    /// p03-rendering-096); nil hides only: a hidden workspace stays here, withdrawn hidden, until its
+    /// controller tears it down.
+    var hiddenDetach: HiddenWorkspaceDetach? {
+        didSet { hiddenDetach?.host = self }
+    }
+
+    /// A workspace view here hid or showed (`WorkspaceContentView.isHidden`): a hide starts its grace, a show
+    /// ends it, whether a switch (`WindowRootView.show`) or the side-by-side view (`arrangeOnScreen`) set it.
+    func workspaceDidChangeHidden(_ view: NSView) {
+        guard let hiddenDetach else { return }
+        if view.isHidden { hiddenDetach.didHide(view) } else { hiddenDetach.willShow(view) }
     }
 
     /// Places the workspaces a window shows side by side in these bounds (`WindowController.arrangeOnScreen`, Debug
@@ -122,15 +137,27 @@ final class MainPaneCardView: NSView {
     }
 }
 
+extension MainPaneCardView: HiddenWorkspaceDetachHost {
+    func holdsHidden(_ workspace: AnyObject) -> Bool {
+        guard let view = workspace as? NSView else { return false }
+        return view.superview === self && view.isHidden
+    }
+
+    func detach(_ workspace: AnyObject) {
+        guard let view = workspace as? NSView, view.superview === self, view.isHidden else { return }
+        view.removeFromSuperview()
+    }
+}
+
 extension WindowRootView {
-    /// Follows the main pane tunables and the UI scale (the first emission
-    /// applies the current values).
-    func observeMainPane() -> Task<Void, Never> {
-        Task { [weak self] in
-            for await _ in ObservationStream({ () -> [CGFloat] in [Metrics.mainPaneGutter, Metrics.mainPaneCornerRadius,
-                                                Metrics.mainPaneChromeShade(isDark: false), Metrics.mainPaneChromeShade(isDark: true), Metrics.floatingPanes ? 1 : 0] }) {
-                self?.applyMainPane()
-            }
+    /// Follows the main pane tunables and the UI scale while `node` shows (the first value applies
+    /// the current ones).
+    func observeMainPane(on node: VisibilityNode, work: MainWorkScheduler) -> VisibleObservation<[CGFloat]> {
+        VisibleObservation(node, owner: "WindowRootView.mainPane", on: work) { () -> [CGFloat] in
+            [Metrics.mainPaneGutter, Metrics.mainPaneCornerRadius, Metrics.mainPaneChromeShade(isDark: false),
+             Metrics.mainPaneChromeShade(isDark: true), Metrics.floatingPanes ? 1 : 0]
+        } apply: { [weak self] _ in
+            self?.applyMainPane()
         }
     }
 
@@ -141,28 +168,7 @@ extension WindowRootView {
     // @intent familiar first (Lawrence 2026-10-14): a margin on every side of the main pane, as in
     // Helium, the sidebar's side too.
     func applyMainPane() {
-        let gutter = Metrics.mainPaneGutter, top = WindowTitlebar.cardTopInset(of: self, minimal: titlebarStyle == .minimal, gutter: gutter)
-        // The right sidebar sits on the edge opposite the sidebar: on the left
-        // side's pins it insets the trailing edge, on the right side's the leading one.
-        let panel = rightPanelWidth
-        for (side, constraints) in sidePins {
-            for constraint in constraints where constraint.firstItem === contentHost {
-                switch constraint.firstAttribute {
-                case .leading: constraint.constant = gutter + (side == .right && constraint.secondItem === self ? panel : 0)
-                case .trailing: constraint.constant = -gutter - (side == .left && constraint.secondItem === self ? panel : 0)
-                default: break
-                }
-            }
-        }
-        for constraint in mainPaneEdges where constraint.firstItem === contentHost {
-            switch constraint.firstAttribute { // the top as `updateMainPaneTopInset` sets it, so no pass shows the bare gutter
-            case .top: constraint.constant = top
-            case .bottom: constraint.constant = -gutter
-            default: break
-            }
-        }
-        applySidebarRail()
-        needsLayout = true // invalidate: the callers moved the gutter, the right panel or the titlebar inset.
+        needsLayout = true // invalidate: the callers moved the gutter, the right panel, the rail or the titlebar inset.
         updateMainPaneShade()
     }
 
@@ -172,10 +178,28 @@ extension WindowRootView {
         Metrics.mainPaneCornerRadius(windowCornerRadius: window?.frameCornerRadius ?? 0)
     }
 
-    /// Under a minimal titlebar the top row's pills sit on the traffic lights' line (`WindowTitlebar.cardTopInset`).
-    func updateMainPaneTopInset() {
-        let top = WindowTitlebar.cardTopInset(of: self, minimal: titlebarStyle == .minimal, gutter: Metrics.mainPaneGutter)
-        for edge in mainPaneEdges where edge.firstItem === contentHost && edge.firstAttribute == .top && edge.constant != top { edge.constant = top }
+    /// What `layout()` frames the main pane and the titlebar from, now. Under a minimal titlebar the
+    /// top row's pills sit on the traffic lights' line (`WindowTitlebar.cardTopInset`); the right
+    /// sidebar sits on the edge opposite the sidebar.
+    var mainPaneLayoutInput: WindowRootLayout.Input {
+        let minimal = titlebarStyle == .minimal, gutter = Metrics.mainPaneGutter
+        return WindowRootLayout.Input(
+            bounds: bounds, sidebarFrame: sidebar.frame, side: sidebarSide, railInset: railContentInset, gutter: gutter,
+            cardTopInset: WindowTitlebar.cardTopInset(of: self, minimal: minimal, gutter: gutter),
+            titlebarHeight: minimal ? 0 : Metrics.titlebarHeight, rightPanelWidth: rightPanelWidth,
+            trafficLightInset: Metrics.trafficLightInset
+        )
+    }
+
+    /// Frames the main pane and the titlebar for this pass (`WindowRootLayout`), on the backing pixel
+    /// grid as Auto Layout placed them. Each frame is set only when it changed: a card that did not
+    /// move resizes no pane.
+    func layoutMainPaneAndTitle() {
+        let frames = WindowRootLayout(mainPaneLayoutInput)
+        let content = backingAlignedRect(frames.content, options: .alignAllEdgesNearest)
+        let title = backingAlignedRect(frames.titlebar, options: .alignAllEdgesNearest)
+        if titlebar.frame != title { titlebar.frame = title }
+        if contentHost.frame != content { contentHost.frame = content }
     }
 
     /// Rounds the content host and redraws the shade around its current

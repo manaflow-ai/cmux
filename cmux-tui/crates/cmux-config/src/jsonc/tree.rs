@@ -2,7 +2,7 @@
 //! and arrays as opaque spans (Swift `JSONC.parseRoot`).
 
 use super::JsoncError;
-use super::lex::{body_start, is_delimiter, skip_trivia, string_end};
+use super::lex::{body_start, is_delimiter, skip_trivia, span, string_end};
 
 pub(super) struct Member {
     pub key: String,
@@ -38,23 +38,17 @@ pub(super) fn parse_root(bytes: &[u8]) -> Result<Option<Node>, JsoncError> {
 }
 
 fn parse_value(bytes: &[u8], start: usize) -> Result<(Node, usize), JsoncError> {
-    let Some(&first) = bytes.get(start) else {
+    let Some(rest @ [first, ..]) = bytes.get(start..) else {
         return Err(JsoncError::Malformed { offset: start });
     };
     match first {
         b'{' => parse_object(bytes, start),
         b'[' => parse_array(bytes, start),
         b'"' => Ok((Node::Scalar, string_end(bytes, start)?)),
-        _ => {
-            let mut end = start;
-            while end < bytes.len() && !is_delimiter(bytes[end]) {
-                end += 1;
-            }
-            if end == start {
-                return Err(JsoncError::Malformed { offset: start });
-            }
-            Ok((Node::Scalar, end))
-        }
+        _ => match rest.iter().position(|&byte| is_delimiter(byte)) {
+            Some(0) => Err(JsoncError::Malformed { offset: start }),
+            length => Ok((Node::Scalar, start + length.unwrap_or(rest.len()))),
+        },
     }
 }
 
@@ -92,7 +86,7 @@ fn parse_object(bytes: &[u8], open: usize) -> Result<(Node, usize), JsoncError> 
             Some(_) => return Err(JsoncError::Malformed { offset: index }),
         }
         let key_end = string_end(bytes, index)?;
-        let key_text = String::from_utf8_lossy(&bytes[index..key_end]);
+        let key_text = String::from_utf8_lossy(span(bytes, index, key_end)?);
         let key = serde_json::from_str::<String>(&key_text).unwrap_or_default();
         let mut cursor = skip_trivia(bytes, key_end)?;
         if bytes.get(cursor) != Some(&b':') {

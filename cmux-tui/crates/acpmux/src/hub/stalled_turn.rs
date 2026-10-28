@@ -187,7 +187,7 @@ impl Hub {
             // other turn.
             let session = session.clone();
             let turn_id = turn.turn_id;
-            tokio::spawn(async move {
+            self.supervise("hub.stalled-turn-cancel", Fatal, ShutdownBehavior::Skip, async move {
                 let ours = |s: &Session| {
                     s.stalled_gen.load(Ordering::SeqCst) == generation
                         && Self::counted_turn(s).is_some_and(|t| t.turn_id == turn_id)

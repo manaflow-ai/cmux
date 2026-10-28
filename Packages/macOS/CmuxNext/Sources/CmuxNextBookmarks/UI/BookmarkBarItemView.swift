@@ -12,7 +12,6 @@ final class BookmarkBarItemView: NSView {
     /// Only a hover change fades the fill (`ChromeHover.fade`); redraws for
     /// any other reason paint at once.
     private var fadesNextFill = false
-    private var tracking: NSTrackingArea?
     /// A click (its release), or nil for an accessibility press, which opens with no modifiers.
     var onClick: ((BookmarkBarItemView, NSEvent?) -> Void)?
     var onDragStart: ((BookmarkBarItemView, NSEvent) -> Void)?
@@ -39,6 +38,7 @@ final class BookmarkBarItemView: NSView {
         setAccessibilityRole(node.isFolder ? .menuButton : .button)
         setAccessibilityLabel(node.displayTitle)
         setAccessibilityIdentifier("cmux.bookmarks.bar.item")
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -65,14 +65,6 @@ final class BookmarkBarItemView: NSView {
         label.isHidden = node.displayTitle.isEmpty
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
-
     override func mouseEntered(with event: NSEvent) { setHovered(true) }
     override func mouseExited(with event: NSEvent) { setHovered(false) }
 
@@ -89,6 +81,8 @@ final class BookmarkBarItemView: NSView {
         needsDisplay = true
     }
 
+    // input-coalesce: native (a drag-session starter: past 4 pt AppKit's dragging session takes the moves)
+    // local-monitor-allow: a 4 pt threshold test, then the drag start, which needs this press's event; a drag is unbuffered until mouseUp (p06-scheduler.md section E)
     override func mouseDragged(with event: NSEvent) {
         guard let down = downEvent else { return }
         let distance = hypot(event.locationInWindow.x - down.locationInWindow.x, event.locationInWindow.y - down.locationInWindow.y)

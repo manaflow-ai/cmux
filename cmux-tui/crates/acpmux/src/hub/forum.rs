@@ -244,7 +244,7 @@ impl Hub {
         };
         // The log flushes the post to disk: off the async workers.
         let hub = self.clone();
-        let stored = tokio::task::spawn_blocking(move || {
+        let stored = crate::daemon::spawn_blocking(move || {
             hub.forum().post_with(post, |current, mut p| {
                 match current {
                     // An agent never replaces, retires or revives a person's rule (a

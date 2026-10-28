@@ -52,11 +52,11 @@ public nonisolated enum MotionTunables {
                    "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing."),
     ]
 
-    package static let springs: [MotionSpring: Tunable<SpringParameters>] = Dictionary(uniqueKeysWithValues: MotionSpring.allCases.map { token in
+    package static let springs: [MotionSpring: Tunable<SpringParameters>] = Dictionary(MotionSpring.allCases.map { token in
         let entry = springDefaults[token] ?? (SpringParameters(response: 0.2, dampingFraction: 0.9), "")
         return (token, Tunable.spring("motion.spring.\(token.rawValue)", .springs, "\(token.rawValue) spring", help: entry.1,
                                       default: entry.0, code: "MotionTunables.springDefaults[.\(token.rawValue)]"))
-    })
+    }, uniquingKeysWith: { first, _ in first })
 
     /// SwiftUI bounce of the structural springs (`move`, `appear`,
     /// `disappear`) when `ui.animations.bounce` is "subtle". With "none"
@@ -101,12 +101,12 @@ public nonisolated enum MotionTunables {
         .hibernateRing: (1.0, "Hibernated tab dotted ring fades in (Chrome: 1 s)."),
     ]
 
-    package static let fades: [MotionFade: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionFade.allCases.map { token in
+    package static let fades: [MotionFade: Tunable<Double>] = Dictionary(MotionFade.allCases.map { token in
         let entry = fadeDefaults[token] ?? (MotionScale.quick, "")
         return (token, Tunable.number("motion.fade.\(token.rawValue)", .fades, "\(token.rawValue) fade", help: entry.1,
                                       default: entry.0, range: 0...(token == .highlight ? 3 : 1), step: 0.01, unit: .seconds,
                                       code: "MotionTunables.fadeDefaults[.\(token.rawValue)]"))
-    })
+    }, uniquingKeysWith: { first, _ in first })
 
     package static let loopDefaults: [MotionLoop: (TimeInterval, String)] = [
         .spinner: (0.9, "One turn of the busy spinner."),
@@ -117,12 +117,12 @@ public nonisolated enum MotionTunables {
         .wiggle: (0.3, "One back-and-forth of an item's wiggle in the sidebar's edit mode."),
     ]
 
-    package static let loops: [MotionLoop: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionLoop.allCases.map { loop in
+    package static let loops: [MotionLoop: Tunable<Double>] = Dictionary(MotionLoop.allCases.map { loop in
         let entry = loopDefaults[loop] ?? (1, "")
         return (loop, Tunable.number("motion.loop.\(loop.rawValue)", .fades, "\(loop.rawValue) period", help: entry.1,
                                      default: entry.0, range: loop.minimumPeriod...4, step: 0.05, unit: .seconds,
                                      code: "MotionTunables.loopDefaults[.\(loop.rawValue)]"))
-    })
+    }, uniquingKeysWith: { first, _ in first })
 
     // MARK: Marquee and panel scale
 

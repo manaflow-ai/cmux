@@ -13,6 +13,8 @@ use cmux_config::{
     Origin, Watcher,
 };
 
+use super::mux_work::Sequence;
+use super::settings::post_reload;
 use super::{Mux, MuxEvent};
 
 /// The daemon serves `keybindings.*` and emits `keybindings-changed`.
@@ -97,11 +99,15 @@ fn open_owner(mux: &Arc<Mux>) -> KeybindingsOwner {
 fn start_watcher(mux: Weak<Mux>, store: &Arc<Mutex<KeybindingsStore>>) -> Option<Watcher> {
     let files = store.lock().ok()?.watch_paths();
     let store = Arc::clone(store);
+    let reloads = Arc::new(Sequence::default());
     Watcher::start(files, move || {
-        let Some(mux) = mux.upgrade() else { return };
-        let mut store = store.lock().unwrap_or_else(|poison| poison.into_inner());
-        let change = store.reload();
-        emit_changes(&mux, change);
+        let store = Arc::clone(&store);
+        // Off the utility watch thread (settings.rs `post_reload`).
+        post_reload(&mux, &reloads, move |mux| {
+            let mut store = store.lock().unwrap_or_else(|poison| poison.into_inner());
+            let change = store.reload();
+            emit_changes(mux, change);
+        });
     })
     .ok()
 }

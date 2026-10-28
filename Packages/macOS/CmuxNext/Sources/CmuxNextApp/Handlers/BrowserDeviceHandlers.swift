@@ -29,6 +29,7 @@ enum BrowserDeviceHandlers {
         }
         // The fit bar under a fitted page runs browserFit on its tab's pane (nil fit: the palette asks).
         BrowserFitFrameView.perform = { tab, fit in
+            // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per press of the fit bar
             guard let pane = context.services.locateTab(tab)?.1 else { return }
             _ = registry.perform("browserFit", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id), arguments: fit.map { ["fit": .string($0)] } ?? [:]))
         }
@@ -37,18 +38,24 @@ enum BrowserDeviceHandlers {
             guard let (tab, pane) = context.daemonTab(invocation), let resource = tab.resourceID else { throw ActionFailure(message: MiscHandlerStrings.noBrowser) }
             let daemon = context.services.daemon(for: pane)
             guard daemon.supports(DaemonCapability.browserDevices.rawValue) else { throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.browserDevices.rawValue)) }
-            let choose: @MainActor (String?, String?) -> Void = { device, orientation in daemon.send("browser.tab.emulate") { try await $0.state.setTabEmulation(resource, device: device, orientation: orientation) } }
+            let choose: @MainActor @Sendable (String?, String?) -> Void = { device, orientation in daemon.send("browser.tab.emulate") { try await $0.state.setTabEmulation(resource, device: device, orientation: orientation) } }
             let (device, orientation) = (invocation["device"]?.stringValue?.trimmingCharacters(in: .whitespaces), invocation["orientation"]?.stringValue)
             if device != nil || orientation != nil { return choose(device?.lowercased() == "none" ? nil : device ?? "", orientation) }
             let (chrome, current) = (entry.chrome, tab.emulation.flatMap { try? JSONEncoder().encode($0) })
-            Task { @MainActor in
-                do {
-                    let list = try await daemon.perform("browser.devices.list") { try await $0.state.browserDevices() }
+            // The list is asked off the action's turn; the menu shows in one task of the run's completion.
+            registry.trackWork(owner: "BrowserDeviceHandlers.menu", on: context.services.mainWork, tracked: false) {
+                try await daemon.perform("browser.devices.list") { try await $0.state.browserDevices() }
+            } then: { result in
+                switch result {
+                case .success(let list):
                     let menu = BrowserDeviceMenu(devices: BrowserDeviceMenu.devices(list: (try? JSONEncoder().encode(list)) ?? Data()),
                                                  current: BrowserDeviceMenu.current(record: current), fit: tab.fitValue, fits: ["16:9", "1280"].filter { daemon.supports(Int($0) == nil ? DaemonCapability.browserFit.rawValue : DaemonCapability.browserFitWidth.rawValue) },
                                                  toggleFit: { _ = registry.perform($0 == "1280" ? "browserFitDesktop1280" : "browserFitDesktop", invocation: invocation) }, choose: choose).menu()
                     presentedMenu = menu; chrome.toolbarButtons.present(menu, from: .overflow, themed: true)
-                } catch { registry.refuse(RefusalStrings.describe(error)) }
+                case .failure(let error):
+                    registry.refuse(RefusalStrings.describe(error))
+                }
+                return nil
             }
         })
     }

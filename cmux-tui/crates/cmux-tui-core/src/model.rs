@@ -342,15 +342,11 @@ impl Node {
             }
             Node::Stack { mut panes, expanded } => {
                 panes.retain(|pane| *pane != target);
-                match panes.as_slice() {
+                match *panes.as_slice() {
                     [] => None,
-                    [pane] => Some(Node::Leaf(*pane)),
-                    _ => {
-                        let expanded = if expanded == target {
-                            *panes.last().expect("retained stack is non-empty")
-                        } else {
-                            expanded
-                        };
+                    [pane] => Some(Node::Leaf(pane)),
+                    [.., last] => {
+                        let expanded = if expanded == target { last } else { expanded };
                         Some(Node::Stack { panes, expanded })
                     }
                 }
@@ -523,7 +519,10 @@ impl Screen {
             }
             return;
         }
-        // crash-allow: pre-existing invariant; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
+        #[allow(
+            clippy::expect_used,
+            reason = "INVARIANT: layout_snapshot_for_coalescing_change gives None only when this entry coalesces"
+        )]
         let before = before.expect("non-coalesced layout changes require a prior snapshot");
         self.layout_undo.push_back(LayoutUndoEntry {
             before,

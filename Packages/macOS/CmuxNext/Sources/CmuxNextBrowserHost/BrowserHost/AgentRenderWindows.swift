@@ -1,5 +1,6 @@
 package import AppKit
 package import CmuxNextBrowserAutomation
+package import CmuxNextWakeups
 package import WebKit
 
 /// Off-screen render windows for agent-driven WebKit tabs that no pane shows
@@ -21,7 +22,13 @@ package import WebKit
 /// out of the render window, and the window closes.
 @MainActor
 package final class AgentRenderWindows {
-    package init() {}
+    /// Where a render window's close after its chrome left runs: one automation-class task (the window exists only
+    /// for the agent's drive).
+    private let mainWork: MainWorkScheduler
+
+    package init(mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
+    }
 
     /// Playwright's default page size for a hidden driven tab, so results do
     /// not depend on the pane that last showed it.
@@ -36,17 +43,23 @@ package final class AgentRenderWindows {
     /// entering a window presents the tab (its pane's Chromium window moves
     /// there and activates it). True when it moved; false when the tab
     /// already has a window (a pane shows it, or it is parked).
-    package func keepRendering(tabID: String, chrome: NSView, webView: WKWebView?) -> Bool {
+    ///
+    /// `keepsPageShown` is told true while the chrome is parked and false
+    /// when the park ends: a page that hides its own web view when its tab
+    /// is hidden (`WebKitTab.setKeptRendering`) shows it for the driver.
+    package func keepRendering(tabID: String, chrome: NSView, webView: WKWebView?,
+                               keepsPageShown: (@MainActor (Bool) -> Void)? = nil) -> Bool {
         // A chrome its pane parked hidden (`PaneContentView+Parking`) is a
         // background tab too.
         guard chrome.window == nil || chrome.isHidden else { return false }
         parked.removeValue(forKey: tabID)?.finish()
-        let panel = AgentRenderPanel(viewport: Self.viewport, screens: NSScreen.screens.map(\.frame), privateCalls: privateCalls)
+        let panel = AgentRenderPanel(viewport: Self.viewport, screens: NSScreen.screens.map(\.frame), privateCalls: privateCalls,
+                                     mainWork: mainWork)
         panel.onRelease = { [weak self, weak panel] in
             guard let self, let panel, self.parked[tabID] === panel else { return }
             self.parked[tabID] = nil
         }
-        panel.park(chrome, webView: webView)
+        panel.park(chrome, webView: webView, keepsPageShown: keepsPageShown)
         parked[tabID] = panel
         return true
     }
@@ -74,11 +87,13 @@ package final class AgentRenderPanel: NSPanel {
     /// The parked chrome left (a pane took it, or the tab closed).
     package var onRelease: (() -> Void)?
     private weak var webView: WKWebView?
+    /// Told false when the park ends (``AgentRenderWindows/keepRendering(tabID:chrome:webView:keepsPageShown:)``).
+    private var keepsPageShown: (@MainActor (Bool) -> Void)?
     private var finished = false
 
     private let privateCalls: WebKitPrivateCalls
 
-    package init(viewport: NSSize, screens: [NSRect], privateCalls: WebKitPrivateCalls) {
+    package init(viewport: NSSize, screens: [NSRect], privateCalls: WebKitPrivateCalls, mainWork: MainWorkScheduler) {
         self.privateCalls = privateCalls
         super.init(contentRect: AgentRenderWindows.frame(for: viewport, screens: screens),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -96,8 +111,9 @@ package final class AgentRenderPanel: NSPanel {
         isExcludedFromWindowsMenu = true
         let content = AgentRenderContentView(frame: NSRect(origin: .zero, size: viewport))
         content.onSubviewLeave = { [weak self] in
-            // AppKit is still removing the view: finish after it.
-            Task { @MainActor [weak self] in self?.finish() }
+            // AppKit is still removing the view: finish after it, in a later turn.
+            // node-free: the panel is off every screen; it closes whether or not the tab's pane shows.
+            mainWork.post(.automation, owner: "browser-host.render-window.finish") { [weak self] in self?.finish() }
         }
         contentView = content
     }
@@ -109,9 +125,12 @@ package final class AgentRenderPanel: NSPanel {
     /// AppKit's real key window and keyboard focus are unaffected.
     package nonisolated override var isKeyWindow: Bool { true }
 
-    package func park(_ chrome: NSView, webView: WKWebView?) {
+    package func park(_ chrome: NSView, webView: WKWebView?, keepsPageShown: (@MainActor (Bool) -> Void)? = nil) {
         guard let content = contentView else { return }
         self.webView = webView
+        self.keepsPageShown = keepsPageShown
+        // The page shows before it takes focus and the viewport.
+        keepsPageShown?(true)
         if let webView { privateCalls.setOcclusionDetection(false, on: webView) }
         chrome.frame = content.bounds
         chrome.autoresizingMask = [.width, .height]
@@ -131,6 +150,9 @@ package final class AgentRenderPanel: NSPanel {
         guard !finished else { return }
         finished = true
         if let webView { privateCalls.setOcclusionDetection(true, on: webView) }
+        let shown = keepsPageShown
+        keepsPageShown = nil
+        shown?(false)
         (contentView as? AgentRenderContentView)?.onSubviewLeave = nil
         contentView?.subviews.forEach { $0.removeFromSuperview() }
         orderOut(nil)

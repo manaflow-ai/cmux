@@ -59,7 +59,7 @@ private final class SettleFixture {
     init() {
         let scheduler = StartupTestScheduler(), clock = ManualClock()
         images = LaunchImageHold(startup: scheduler.startup)
-        settle = LaunchSettle(reveal: LaunchReveal(deadline: .seconds(60)), paneRefs: VisiblePaneRefs(hold: { _ in { _ in } }), clock: clock)
+        settle = LaunchSettle(reveal: LaunchReveal(deadline: .seconds(60)), paneRefs: VisiblePaneRefs(hold: { _ in { _ in } }, mainWork: MainWorkScheduler(budget: MainFrameBudget())), clock: clock)
         self.scheduler = scheduler
         self.clock = clock
     }

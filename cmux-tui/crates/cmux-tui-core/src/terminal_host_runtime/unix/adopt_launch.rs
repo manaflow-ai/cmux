@@ -350,20 +350,23 @@ fn predecessor(
 
 /// Start a replacement host on the PTY in `adoption.custody`, reusing the
 /// terminal id, incarnation and owner token. Returns its committed,
-/// activated owner attachment; dropping it never ends the host.
+/// activated owner attachment; dropping it never ends the host. A caller
+/// outside a mux has no child reaper: a `terminal-host-reaper` thread reaps
+/// this host.
 pub fn launch_terminal_host_adopting(
     root: &Path,
     adoption: TerminalHostAdoption<'_>,
 ) -> anyhow::Result<HostAttachment> {
-    launch_terminal_host_adopting_with_program_status(root, adoption, None)
+    launch_terminal_host_adopting_with_program_status(root, adoption, None, None)
 }
 
 /// [`launch_terminal_host_adopting`] whose host also starts with the
-/// owner's OSC 7501 records (cx-6so.36.10).
+/// owner's OSC 7501 records (cx-6so.36.10), reaped by `reaper` when it exits.
 pub(crate) fn launch_terminal_host_adopting_with_program_status(
     root: &Path,
     adoption: TerminalHostAdoption<'_>,
     program_status: Option<ProgramStatusSnapshot>,
+    reaper: Option<&HostReaper>,
 ) -> anyhow::Result<HostAttachment> {
     let terminal_id = TerminalId::from_hex(&adoption.identity.terminal_id)
         .ok_or_else(|| anyhow::anyhow!("terminal id is not a canonical UUIDv4"))?;
@@ -466,10 +469,11 @@ pub(crate) fn launch_terminal_host_adopting_with_program_status(
         let _ = files::remove_file(liveness_path(&record_path, &dead));
     }
     let mut attachment = connect_record(record, record_path, OwnerIntent::Surface)?;
-    attachment.launch_process = Some(process);
+    attachment.launch_process =
+        Some(LaunchedHostProcess { process, panic_log: options.host_panic_log.clone() });
     // The terminal's topology already exists: commit the handoff and
     // release the launch barrier at once.
-    attachment.commit_launched_host();
+    attachment.commit_launched_host(reaper);
     attachment.activate_launched_host()?;
     Ok(attachment)
 }

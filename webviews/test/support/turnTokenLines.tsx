@@ -10,9 +10,10 @@ import {
   type WorkingCounts,
 } from "../../src/agent-session/acpmux/conversation/WorkingFor";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
+import { fixedPageClock } from "../../src/ui/fixedPageClock";
 
 const START = Date.UTC(2026, 9, 21, 9, 0, 0);
-const now = () => START + 35_000;
+const clock = fixedPageClock(START + 35_000);
 const counts: WorkingCounts = {
   agents: 0,
   commands: 0,
@@ -25,8 +26,8 @@ const counts: WorkingCounts = {
 const working: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START };
 
 export const tokenLines: Record<string, ReactElement> = {
-  "the live line at the bottom (Thinking.tsx)": <Thinking since={START} now={now} below />,
-  "the line over the turn (WorkingFor.tsx)": <WorkingFor row={working} now={now} />,
+  "the live line at the bottom (Thinking.tsx)": <Thinking since={START} clock={clock} below />,
+  "the line over the turn (WorkingFor.tsx)": <WorkingFor row={working} clock={clock} />,
 };
 
 export const tokenLineMarkup = (line: ReactElement) =>

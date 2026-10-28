@@ -70,7 +70,7 @@ impl Hub {
         // The fork's own folder as it is now, not the parent's start (`git_state.rs`).
         let git = {
             let cwd = cwd.clone();
-            tokio::task::spawn_blocking(move || crate::git_state::GitState::read(&cwd))
+            crate::daemon::spawn_blocking(move || crate::git_state::GitState::read(&cwd))
                 .await
                 .unwrap_or_default()
         };

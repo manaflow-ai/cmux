@@ -110,7 +110,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 // Show All Chats on New Tab keeps its `sidebar.` key from when All chats was a sidebar section.
                 group("settings.group.window"), GroupSpec(group: "settings.group.tabs", keys: ["sidebar.showChats"]),
                 group("settings.group.columns"),
-                group("settings.group.history"), group("settings.group.quit"), group("settings.group.picker"),
+                group("settings.group.history"), group("settings.group.quit"),
+                // Energy Saver (energy.saver), while the energySaver feature is on (SettingsAvailability).
+                group("settings.group.energy"), group("settings.group.picker"),
                 group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.markdownViewer"),
                 // The Screenshots pane's folders sit beside the other file-viewer groups.
                 group("settings.group.files"), group("settings.group.screenshots"),

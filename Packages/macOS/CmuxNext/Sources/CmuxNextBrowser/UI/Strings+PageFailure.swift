@@ -32,6 +32,13 @@ extension Strings {
                defaultValue: "Something went wrong while displaying this webpage.", bundle: .module)
     }
 
+    /// The sad tab's message for a Chromium tab whose Chromium Host ended: every Chromium tab lost
+    /// its page, and Reload starts a new host.
+    static var pageGoneChromiumHostMessage: String {
+        String(localized: "browser.pageGone.chromiumHost.message",
+               defaultValue: "Chromium stopped while it showed this page. Reload starts Chromium again.", bundle: .module)
+    }
+
     static func pageGoneErrorCode(_ code: String) -> String {
         String(format: String(localized: "browser.pageGone.errorCode", defaultValue: "Error code: %@", bundle: .module), code)
     }

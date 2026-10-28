@@ -1,0 +1,12 @@
+{
+  /* {"k": 1} */ "sidebar": {
+    "stepping": "workspacesOnly"
+  },
+  // "quoted"
+"oracleUnknown": {
+    // "quoted"
+"nested": {
+      "key": [true,],
+    }
+  }
+}

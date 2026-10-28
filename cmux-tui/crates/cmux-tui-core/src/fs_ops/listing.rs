@@ -120,7 +120,7 @@ impl Listings {
         let limit = limit.clamp(1, MAX_BATCH);
         let end = offset.saturating_add(limit).min(stored.entries.len());
         Ok(Page {
-            entries: stored.entries[offset..end].to_vec(),
+            entries: stored.entries.iter().skip(offset).take(limit).cloned().collect(),
             listing: listing.to_owned(),
             cursor: (end < stored.entries.len()).then(|| format!("c{end}")),
             total: stored.entries.len() as u64,

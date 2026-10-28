@@ -25,6 +25,8 @@ import Foundation
         case tabSurfaceGone(SurfaceID)
         case workspaceID(String)
         case workspaceResource(ResourceID)
+        /// The workspace made under a key gained a pane (or was keyed with one).
+        case workspaceKey(WorkspaceKey)
         case loaded
         case connection
     }
@@ -65,11 +67,18 @@ import Foundation
         touch(.tabSurfaceGone(surface))
     }
 
-    /// A workspace record was keyed under `id` and `resource`.
-    func noteWorkspaceKeyed(id: String, resource: ResourceID?) {
+    /// A workspace record was keyed under `id`, `resource` and `key`.
+    func noteWorkspaceKeyed(id: String, resource: ResourceID?, key: WorkspaceKey?) {
         guard !keyed.isEmpty else { return }
         touch(.workspaceID(id))
         if let resource { touch(.workspaceResource(resource)) }
+        if let key { touch(.workspaceKey(key)) }
+    }
+
+    /// A pane record was keyed in the workspace `workspaceKey` names (read only while waiters wait).
+    func notePaneKeyed(in workspaceKey: @autoclosure () -> WorkspaceKey?) {
+        guard !keyed.isEmpty, let key = workspaceKey() else { return }
+        touch(.workspaceKey(key))
     }
 
     /// The index was rebuilt without dropping its records one by one.
@@ -145,6 +154,14 @@ extension DaemonStore {
     public func waitForWorkspace(resource: ResourceID, timeout: Duration) async -> WorkspaceModel? {
         await waiters.value(of: .workspaceResource(resource), in: self, timeout: timeout) {
             $0.index.workspacesByResource[resource]
+        }
+    }
+
+    /// The first pane of the workspace made under `key` once the store lists one; nil after `timeout` or on cancel.
+    /// Read again only when that workspace is keyed or gains a pane.
+    public func waitForFirstPane(workspace key: WorkspaceKey, timeout: Duration) async -> PaneModel? {
+        await waiters.value(of: .workspaceKey(key), in: self, timeout: timeout) {
+            $0.index.workspacesByKey[key]?.screens.first?.panes.first
         }
     }
 

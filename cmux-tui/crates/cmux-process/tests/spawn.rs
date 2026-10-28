@@ -177,6 +177,56 @@ mod daemon_spawn {
         assert!(lines.contains(&"err-on-pty"), "stderr is not the PTY: {text}");
     }
 
+    /// The child's soft open-file limit is set after it opened its PTY
+    /// slave: a daemon that raised its own limit and holds a descriptor at
+    /// every number below the limit it gives its shells (macOS: 256, a few
+    /// dozen terminals) still spawns a shell with that limit. Set before the
+    /// open, the open finds no free number below the limit and the spawn
+    /// fails with EMFILE. Runs in a copy of this test binary, so no other
+    /// test thread frees a number below the limit.
+    #[test]
+    fn a_pty_shell_spawns_when_every_descriptor_below_its_open_file_limit_is_in_use() {
+        const TEST: &str = "daemon_spawn::a_pty_shell_spawns_when_every_descriptor_below_its_open_file_limit_is_in_use";
+        const LIMIT: libc::c_int = 64;
+        if std::env::var(PROBE_ENV).as_deref() == Ok("filled") {
+            let (master, slave) = open_pty();
+            let null = std::fs::File::open("/dev/null").unwrap();
+            let mut filled = Vec::new();
+            loop {
+                // SAFETY: F_DUPFD_CLOEXEC returns a new descriptor or -1.
+                let fd = unsafe { libc::fcntl(null.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
+                assert!(fd >= 0, "fcntl: {}", std::io::Error::last_os_error());
+                // SAFETY: a new descriptor this probe owns.
+                let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+                if fd.as_raw_fd() >= LIMIT {
+                    break;
+                }
+                filled.push(fd);
+            }
+            // The shell exits 0 only with the limit it was given and the
+            // slave as its controlling terminal.
+            let mut child = Command::new("/bin/sh")
+                .args([
+                    "-c",
+                    &format!("[ \"$(ulimit -S -n)\" = {LIMIT} ] && tty -s && : </dev/tty"),
+                ])
+                .new_session()
+                .open_stdin_path(&slave)
+                .isolate()
+                .open_file_limit(LIMIT as u64)
+                .spawn()
+                .unwrap_or_else(|error| {
+                    panic!("the spawn failed with every descriptor below {LIMIT} in use: {error}")
+                });
+            let status = child.wait().unwrap();
+            drop(master);
+            drop(filled);
+            println!("\nprobe: exit {:?}", status.code());
+            std::process::exit(0);
+        }
+        assert_eq!(probe(TEST, "filled"), ["exit Some(0)"]);
+    }
+
     #[test]
     fn the_child_runs_in_its_working_directory() {
         let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap();

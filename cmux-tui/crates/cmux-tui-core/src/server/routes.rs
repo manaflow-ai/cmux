@@ -86,8 +86,11 @@ pub(super) const MODULE_ROUTES: &[&[Route]] = &[
     super::oracle_state_command::ROUTES,
     #[cfg(debug_assertions)]
     super::debug_hang_inject::ROUTES,
+    #[cfg(any(debug_assertions, feature = "bench"))]
+    super::debug_crash_inject::ROUTES,
     super::loopback_forward::ROUTES,
     super::energy_op::ROUTES,
+    super::memory_limit::ROUTES,
     #[cfg(unix)]
     super::browser_runtime::ROUTES,
     #[cfg(unix)]
@@ -157,7 +160,12 @@ pub(super) struct OperationRoute {
 /// Every module's v2 operation routes. No operation is named by two
 /// routes, and none is a catalog operation
 /// (`connection_frame_page_routed_operations_are_not_catalog_operations`).
-pub(super) const OPERATION_ROUTES: &[&[OperationRoute]] = &[super::page_router::OPERATION_ROUTES];
+pub(super) const OPERATION_ROUTES: &[&[OperationRoute]] = &[
+    super::page_router::OPERATION_ROUTES,
+    // A held v2 handler for the sequencing tests (p05-ipc-086).
+    #[cfg(test)]
+    super::connection_frame::sequenced_lines_tests::OPERATION_ROUTES,
+];
 
 /// The v2 operation route that names `operation`, if any.
 pub(super) fn find_operation(operation: &str) -> Option<&'static OperationRoute> {

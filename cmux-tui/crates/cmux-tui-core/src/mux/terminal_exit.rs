@@ -6,8 +6,10 @@
 use anyhow::Context;
 use serde_json::{Value, json};
 
+use super::mux_work::Retry;
 use super::*;
 use crate::terminal_end::TerminalEnd;
+use cmux_threads::work::{Lane, Priority};
 
 impl Mux {
     #[cfg(test)]
@@ -94,8 +96,10 @@ impl Mux {
             self.emit(MuxEvent::SurfaceExited(id, None));
             return;
         }
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        let _creation_handoff =
+            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
+        let _creation_fence =
+            self.resource_creation_execution.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(surface) = self.surface(id)
             && let Some(identity) = self.resource_terminal_host_identity(&surface)
         {
@@ -127,42 +131,21 @@ impl Mux {
         let Some(detach_lease) = self.terminal_exit_detaches.acquire(terminal_id.clone()) else {
             return;
         };
-        let cleanup_id = terminal_id.clone();
-        let mux = Arc::downgrade(self);
         let surface = Arc::downgrade(surface);
-        let spawn_result = std::thread::Builder::new()
-            .name(format!("terminal-exit-detach-{terminal_id}"))
-            .spawn(move || {
-                let _detach_lease = detach_lease;
-                let mut delay = Duration::from_millis(25);
-                loop {
-                    crate::request_path::sleep(delay);
-                    let Some(mux) = mux.upgrade() else { break };
-                    if mux.shutting_down.load(Ordering::Acquire) {
-                        break;
-                    }
-                    let reconciled = surface
-                        .upgrade()
-                        .map(|surface| mux.mark_hosted_surface_exited(&surface, reason))
-                        .unwrap_or_else(|| {
-                            mux.detach_exited_terminal_topology(&terminal_id).map(drop)
-                        });
-                    match reconciled {
-                        Ok(()) => break,
-                        Err(error) => {
-                            eprintln!(
-                                "cmux-tui: could not detach exited terminal \
-                                 {terminal_id}: {error:#}"
-                            );
-                            delay = (delay * 2).min(Duration::from_secs(5));
-                        }
-                    }
-                }
-            });
-        if let Err(error) = spawn_result {
-            eprintln!(
-                "cmux-tui: could not schedule exited terminal {cleanup_id} detach: {error:#}"
-            );
+        let mut backoff = Duration::from_millis(25);
+        let posted = self.post_mux_retry(backoff, Priority::UserVisible, Lane::Files, move |mux| {
+            let _detach_lease = &detach_lease;
+            let reconciled = surface
+                .upgrade()
+                .map(|surface| mux.mark_hosted_surface_exited(&surface, reason))
+                .unwrap_or_else(|| mux.detach_exited_terminal_topology(&terminal_id).map(drop));
+            let Err(error) = reconciled else { return Retry::Done };
+            eprintln!("cmux-tui: could not detach exited terminal {terminal_id}: {error:#}");
+            backoff = (backoff * 2).min(Duration::from_secs(5));
+            Retry::After(backoff)
+        });
+        if posted.is_err() {
+            eprintln!("cmux-tui: could not schedule an exited terminal detach: shutting down");
         }
     }
 
@@ -184,9 +167,24 @@ impl Mux {
         self.detach_exited_terminal_topology(&identity.terminal_id)?;
         #[cfg(any(unix, windows))]
         if let Some((path, expected)) = surface.terminal_host_exit_sidecar() {
-            crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(&path, &expected)?;
+            crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
+                &path,
+                &expected,
+                self.host_panic_log().as_ref(),
+            )?;
         }
         Ok(())
+    }
+
+    /// The terminal-host record directory and the owner's panic log for its
+    /// hosts' crash sidecars; `None` without host records.
+    #[cfg(any(unix, windows))]
+    fn terminal_host_paths(
+        &self,
+    ) -> Option<(std::path::PathBuf, Option<crate::terminal_host_runtime::HostPanicLog>)> {
+        let options = self.surface_options.lock().unwrap_or_else(PoisonError::into_inner);
+        let root = options.terminal_host_root.clone()?;
+        Some((root, options.host_panic_log.clone()))
     }
 
     /// Commit terminal lifecycle, topology detach, and exactly one public
@@ -223,25 +221,25 @@ impl Mux {
         // visible: an owner stopped right then still names it after its
         // restart (the dead tab's cause comes back from the log).
         #[cfg(any(unix, windows))]
-        let host_loss =
-            self.surface_options.lock().unwrap().terminal_host_root.clone().map(|root| {
-                let mut loss = crate::terminal_loss_log::HostLoss::read(
-                    &root.join(format!("{terminal_id}.json")),
-                    terminal_id,
-                    incarnation,
-                    end,
-                );
-                loss.log();
-                if loss.is_loss() {
-                    self.note_holder_exit();
-                }
-                loss
-            });
+        let host_loss = self.terminal_host_paths().map(|(root, panic_log)| {
+            let mut loss = crate::terminal_loss_log::HostLoss::read(
+                &root.join(format!("{terminal_id}.json")),
+                terminal_id,
+                incarnation,
+                end,
+                panic_log,
+            );
+            loss.log();
+            if loss.is_loss() {
+                self.note_holder_exit();
+            }
+            loss
+        });
         // cx-6so.49: whether this loss may respawn, checked before the locks.
         #[cfg(any(unix, windows))]
         let respawn_candidate =
             settle_until_ms.is_none().then(|| self.respawn_candidate(incarnation, end)).flatten();
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let terminal = registry
             .terminal_record(terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
@@ -269,7 +267,7 @@ impl Mux {
             self.emit_terminal_registry_changed(&registry, terminal_revision);
             return Ok(true);
         }
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         let terminal_snapshot = if matches!(
             terminal.lifecycle,
             TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
@@ -325,8 +323,8 @@ impl Mux {
             // this revision derives `tab_id: null, tab_ids: []` from topology;
             // a delta that disagrees leaves clients with a graph that no
             // snapshot at the same cursor can confirm.
-            terminal_snapshot["tab_id"] = Value::Null;
-            terminal_snapshot["tab_ids"] = serde_json::json!([]);
+            set_field(&mut terminal_snapshot, "tab_id", Value::Null)?;
+            set_field(&mut terminal_snapshot, "tab_ids", serde_json::json!([]))?;
         }
         let topology = detach_projection.as_ref().map(|projection| {
             (&projection.patch, &projection.changes, projection.workspace_close.as_ref())
@@ -397,8 +395,11 @@ impl Mux {
             if let Some((snapshot_terminal_id, generation, covered_through, blob)) = exit_replay {
                 // Best-effort: a snapshot store failure must not disturb the
                 // exit latch that already committed above.
-                if let Err(error) =
-                    self.workspace_registry.lock().unwrap().put_terminal_exit_snapshot(
+                if let Err(error) = self
+                    .workspace_registry
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .put_terminal_exit_snapshot(
                         snapshot_terminal_id.as_str(),
                         &generation,
                         covered_through,
@@ -483,7 +484,7 @@ impl Mux {
 
     #[track_caller]
     fn detach_exited_terminal_topology_only(&self, terminal_id: &str) -> anyhow::Result<bool> {
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let terminal = registry
             .terminal_record(terminal_id)?
             .with_context(|| format!("unknown terminal {terminal_id}"))?;
@@ -514,7 +515,8 @@ impl Mux {
             // owner that no longer knows this shutdown window agrees. Best
             // effort: on failure the tab stays dead now and a later owner
             // that still knows the window settles it again.
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state =
+                self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
             let settled = terminal_exit_snapshot_in_state(&registry, &state, terminal_id).and_then(
                 |snapshot| registry.settle_terminal_exit(terminal_id, recorded, lost, snapshot),
             );
@@ -540,7 +542,7 @@ impl Mux {
         let Some(terminal_public_id) = registry.terminal_resource_id(terminal_id)? else {
             return Ok(false);
         };
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         // Tabs the workspace store keeps (`kept_tabs`, keep-layout) survive
         // the terminal's exit and owner restarts; a frontend relaunches them.
         if Self::terminal_tabs_kept_locked(&registry, &state, &terminal_public_id)? {

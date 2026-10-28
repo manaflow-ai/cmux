@@ -42,10 +42,11 @@ enum PagePaintProbe {
             self.onPaint = onPaint
         }
 
+        /// WebKit delivers script messages on the main thread, so the paint is noted in the message's own turn,
+        /// as WebKitFirstPaintHandler notes a tab's: a hop would stamp the paint one main-queue job late.
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             guard message.frameInfo.isMainFrame else { return }
-            let onPaint = onPaint
-            Task { @MainActor in onPaint() }
+            onPaint()
         }
     }
 }

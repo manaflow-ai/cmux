@@ -143,7 +143,8 @@ import Testing
             let request = try #require(runtime.pendingWindows.keys.first { !pending.contains($0) })
             runtime.handle(.afterCreated(browser: browser, request: request, window: 1))
             try #require(tab.browserID == browser)
-            return CEFPageChromiumPage(tab: tab, pageID: "cmux.apps", hangWork: hangWork)
+            return CEFPageChromiumPage(tab: tab, pageID: "cmux.apps", mainWork: hangWork ?? MainWorkScheduler(budget: MainFrameBudget()),
+                                       hangWork: hangWork)
         }
 
         func close() {

@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextMacScreen
+import CmuxNextWakeups
 import CmuxNextRemoteView
 import CmuxNextSettings
 import CmuxScreenKit
@@ -25,13 +26,13 @@ nonisolated private final class Locked<Value: Sendable>: @unchecked Sendable {
 /// A store in a fresh temporary folder.
 private func makeStore(removeLinkPairings: @escaping @Sendable () -> Void = {}) -> (MacScreenStore, URL) {
     let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-    return (MacScreenStore(file: file, removeLinkPairings: removeLinkPairings), file)
+    return (MacScreenStore(file: file, runner: BackgroundWork(), removeLinkPairings: removeLinkPairings), file)
 }
 
 /// A device's screen pane, not asking the hub.
 @MainActor
 private func devicePane(_ name: String = "Studio") -> MacScreenPane {
-    MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: deviceID) { nil }, name: name, preferences: ScreenPreferences(),
+    MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: deviceID, deadlines: linklessDeadlines()) { nil }, name: name, preferences: ScreenPreferences(),
                   node: shownNode(), on: linklessMainWork())
 }
 
@@ -75,7 +76,7 @@ struct MacScreenStoreTests {
         let saved = try String(contentsOf: file, encoding: .utf8)
         #expect(!saved.contains("macs") && !saved.contains("shareEnabled") && saved.contains("linkPairingsRemoved"))
         // A later launch does not run it again.
-        let (again, _) = (MacScreenStore(file: file, removeLinkPairings: { removed.set(removed.value + 1) }), file)
+        let (again, _) = (MacScreenStore(file: file, runner: BackgroundWork(), removeLinkPairings: { removed.set(removed.value + 1) }), file)
         await again.load()
         #expect(removed.value == 1)
         #expect(again.hubDeviceName == "Office")
@@ -88,7 +89,7 @@ struct MacScreenStoreTests {
         #expect(store.rememberDeviceNames([deviceID: "Mac mini 2"]))
         #expect(!store.rememberDeviceNames([deviceID: "Mac mini 2"]))
         await store.flush()
-        let reloaded = MacScreenStore(file: file)
+        let reloaded = MacScreenStore(file: file, runner: BackgroundWork())
         await reloaded.load()
         #expect(reloaded.hubDeviceName == "Office" && reloaded.deviceNames[deviceID] == "Mac mini 2")
     }
@@ -196,7 +197,7 @@ struct MacScreenRightClickTests {
 @MainActor
 struct MacScreenPageTabTests {
     private func makePages() -> MacScreenPages {
-        MacScreenPages(store: makeStore().0, mainWork: linklessMainWork())
+        MacScreenPages(store: makeStore().0, deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
     }
 
     /// Makes `key`'s view and waits until its screen (or home page) is in.
@@ -307,7 +308,7 @@ struct MacScreenThemeTests {
         let root = try #require(window.contentView)
         scope.root(root)
 
-        let pages = MacScreenPages(store: makeStore().0, mainWork: linklessMainWork())
+        let pages = MacScreenPages(store: makeStore().0, deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let tab = pages.makeView(for: "home")
         root.addSubview(tab)

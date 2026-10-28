@@ -1,0 +1,10 @@
+{
+	"notifications": {
+		"showPreviews": "never"
+	},
+	"oracleUnknown": {
+		"nested": {
+			"key": "x"
+		}
+	}
+}

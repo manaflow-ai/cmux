@@ -56,6 +56,36 @@ struct WebBundleOverlayTests {
         #expect(await overlay.root(for: activity).path == Self.tree.path + "/" + WebBundleOverlay.agentActivityOutput)
     }
 
+    /// A frozen page kept across a swap (p13-webui-071): its document pinned the tree it loaded from, so
+    /// its lazy chunk and its `cmux.shared` files still come from there, never from the new tree, and
+    /// the updater keeps that tree until the document goes.
+    @Test func anOldFrozenDocumentLoadsItsLazyChunkFromItsOwnTree() async {
+        let overlay = Self.overlay()
+        let old = Self.tree
+        let new = URL(fileURLWithPath: "/Support/web-updates/trees/def", isDirectory: true)
+        overlay.activate(old)
+        var pin: WebBundleOverlay.Pin? = await overlay.pin()
+        #expect(overlay.activate(new))
+        let chunks = Self.bundledPages.appending(path: "settings/assets", directoryHint: .isDirectory)
+        let shared = Self.bundledPages.appending(path: "_shared", directoryHint: .isDirectory)
+        let pages = "/" + WebBundleOverlay.pagesOutput
+        #expect(await overlay.root(for: chunks).path == new.path + pages + "/settings/assets")
+        #expect(Set(overlay.liveTrees.map(\.path)) == [old.path, new.path])
+        #expect(await overlay.root(for: chunks, pin: pin).path == old.path + pages + "/settings/assets")
+        #expect(await overlay.root(for: shared, pin: pin).path == old.path + pages + "/_shared")
+        pin = nil
+        #expect(overlay.liveTrees.map(\.path) == [new.path], "the tree of a gone document is still kept")
+    }
+
+    /// A document's own load takes the pin; its later requests (a chunk, an image) do not.
+    @Test func onlyTheMainDocumentRequestPinsATree() throws {
+        let document = try #require(URL(string: "cmux-page://settings/index.html#general"))
+        let chunk = try #require(URL(string: "cmux-page://settings/assets/section.js"))
+        #expect(PageSchemeHandler.isMainDocument(document, mainDocument: URL(string: "cmux-page://settings/index.html")))
+        #expect(!PageSchemeHandler.isMainDocument(chunk, mainDocument: document))
+        #expect(!PageSchemeHandler.isMainDocument(document, mainDocument: nil))
+    }
+
     @Test func anEscapingOutputIsNotRegistered() async {
         let overlay = WebBundleOverlay(bases: [])
         overlay.register(bundled: Self.bundledPane, output: "../../etc")

@@ -43,22 +43,6 @@ public final class MainTaskBoard: Sendable {
         public var postedFrom: PostedFrom?
     }
 
-    /// The source location a task was posted from: Chrome's `posted_from` (`FROM_HERE`,
-    /// base/location.h), built from the ``MainPostSite`` only when a reader asks.
-    public struct PostedFrom: Sendable, Equatable, CustomStringConvertible {
-        /// The posting file's `#fileID` (`Module/File.swift`).
-        public var file: String
-        /// The posting line.
-        public var line: UInt
-
-        public init(file: String, line: UInt) {
-            self.file = file
-            self.line = line
-        }
-
-        public var description: String { "\(file):\(line)" }
-    }
-
     /// The running task's hang scope, read with atomics only: the watchdog reads it while the main
     /// thread is suspended, then resolves it with ``task(_:)`` once the main thread runs again.
     public struct HangScope: Sendable, Equatable {
@@ -124,6 +108,8 @@ public final class MainTaskBoard: Sendable {
     private let overBudgetSink = Mutex<(@Sendable (Task, _ durationNanos: UInt64) -> Void)?>(nil)
     /// Per-owner wait and run time of the finished tasks.
     public let ledger: MainOwnerLedger
+    /// Names the running task's owner in the process's crash-key page (``attachCrashKeys(_:)``).
+    let crashKeyOwner = MainTaskCrashKeyOwner()
 
     /// - Parameter ledger: Where finished tasks are recorded (default: one that folds in the background).
     public init(ledger: MainOwnerLedger = MainOwnerLedger()) {
@@ -143,6 +129,7 @@ public final class MainTaskBoard: Sendable {
             let index = UInt32(owners.names.count) & 0x00FF_FFFF
             owners.names.append(name)
             owners.indices[name] = index
+            crashKeyOwner.intern(name, at: index)
             return index
         }
     }
@@ -158,21 +145,34 @@ public final class MainTaskBoard: Sendable {
     /// Publishes a task start (main thread): its identity, budget and the end of its hang scope.
     func begin(_ workClass: MainWorkClass, owner: UInt32, sequence: UInt32, startNanos start: UInt64, budgetNanos budget: UInt64,
                hangAtNanos hangAt: UInt64, notify: Bool = true) {
-        let packed = UInt64(UInt8(workClass.rawValue)) << 56 | UInt64(owner & 0x00FF_FFFF) << 32 | UInt64(sequence)
+        let packed = Self.pack(workClass, owner: owner, sequence: sequence)
         let covered = spanCoveredFor.load(ordering: .relaxed) == packed ? spanCoveredNanos.load(ordering: .relaxed) : 0
-        beginScopeWrite()
-        startNanos.store(start, ordering: .relaxed)
-        budgetNanos.store(budget, ordering: .relaxed)
-        hangAtNanos.store(hangAt &+ covered, ordering: .relaxed)
-        current.store(packed, ordering: .releasing)
-        endScopeWrite()
+        publish(Published(packed: packed, startNanos: start, budgetNanos: budget, hangAtNanos: hangAt &+ covered))
         if notify, hookState.load(ordering: .acquiring) == 2 { taskStartHook.withLock { $0 }?() }
+    }
+
+    /// What the board names now (main thread, its only writer).
+    var published: Published {
+        Published(packed: current.load(ordering: .relaxed), startNanos: startNanos.load(ordering: .relaxed),
+                  budgetNanos: budgetNanos.load(ordering: .relaxed), hangAtNanos: hangAtNanos.load(ordering: .relaxed))
+    }
+
+    /// Names `work` as the running work (main thread): a task's start, or work a span or a nested task covered.
+    func publish(_ work: Published) {
+        beginScopeWrite()
+        startNanos.store(work.startNanos, ordering: .relaxed)
+        budgetNanos.store(work.budgetNanos, ordering: .relaxed)
+        hangAtNanos.store(work.hangAtNanos, ordering: .relaxed)
+        current.store(work.packed, ordering: .releasing)
+        endScopeWrite()
+        crashKeyOwner.name(UInt32(truncatingIfNeeded: work.packed >> 32) & 0x00FF_FFFF)
     }
 
     /// The running task waits in a nested run loop it ran (main thread): no task runs until the
     /// budget publishes one again (``begin(_:owner:sequence:startNanos:budgetNanos:hangAtNanos:notify:)``).
     func endParked() {
         current.store(0, ordering: .releasing)
+        crashKeyOwner.name(0)
     }
 
     /// Publishes the end of the running task (main thread); reports it when it ran past its budget,
@@ -180,6 +180,7 @@ public final class MainTaskBoard: Sendable {
     func end(_ task: @autoclosure () -> Task, durationNanos: UInt64, overBudget: Bool) {
         let ending = current.load(ordering: .relaxed)
         current.store(0, ordering: .releasing)
+        crashKeyOwner.name(0)
         guard overBudget, let sink = overBudgetSink.withLock({ $0 }) else { return }
         var finished = task()
         if ending != 0, postedFor.load(ordering: .relaxed) == ending {
@@ -362,15 +363,6 @@ public final class MainTaskBoard: Sendable {
 
     // MARK: Action spans
 
-    /// What ``endSpan(_:nowNanos:)`` needs: the span itself and the task it covered.
-    public struct SpanToken: Sendable {
-        let packed: UInt64
-        let startNanos: UInt64
-        let budgetNanos: UInt64
-        let previous: (packed: UInt64, startNanos: UInt64, budgetNanos: UInt64)
-        let previousHangAt: UInt64
-    }
-
     /// The index `name` is published under: intern an action id once, off the action's path, then
     /// pass the index to ``beginSpan(_:owner:budgetNanos:startNanos:)`` (which takes no lock).
     public func internOwner(_ name: String) -> UInt32 { ownerIndex(name) }
@@ -387,13 +379,11 @@ public final class MainTaskBoard: Sendable {
     ///   - startNanos: When it began (`CLOCK_UPTIME_RAW` nanoseconds; the input event's time for a key).
     /// - Returns: The token ``endSpan(_:nowNanos:)`` takes.
     public func beginSpan(_ workClass: MainWorkClass, owner: UInt32, budgetNanos: UInt64, startNanos start: UInt64) -> SpanToken {
-        let previous = runningPacked
-        let previousHangAt = hangAtNanos.load(ordering: .relaxed)
+        let previous = published
         let sequence = spanSequence.add(1, ordering: .relaxed).newValue | 0x8000_0000
         begin(workClass, owner: owner, sequence: sequence, startNanos: start, budgetNanos: budgetNanos,
               hangAtNanos: Self.hangScopeEnd(workClass, startNanos: start))
-        let packed = UInt64(UInt8(workClass.rawValue)) << 56 | UInt64(owner & 0x00FF_FFFF) << 32 | UInt64(sequence)
-        return SpanToken(packed: packed, startNanos: start, budgetNanos: budgetNanos, previous: previous, previousHangAt: previousHangAt)
+        return SpanToken(packed: Self.pack(workClass, owner: owner, sequence: sequence), startNanos: start, budgetNanos: budgetNanos, previous: previous)
     }
 
     /// Ends the span `token` began and puts back the work it covered; a span that ran past its
@@ -405,19 +395,14 @@ public final class MainTaskBoard: Sendable {
         let previous = token.previous
         let elapsed = nowNanos &- token.startNanos
         // The span's time is not the covered task's, as a nested task's is not (MainFrameBudget's childNanos).
-        var hangAt = token.previousHangAt
+        var hangAt = previous.hangAtNanos
         if previous.packed != 0 {
             hangAt &+= elapsed
             let covered = spanCoveredFor.load(ordering: .relaxed) == previous.packed ? spanCoveredNanos.load(ordering: .relaxed) : 0
             spanCoveredNanos.store(covered &+ elapsed, ordering: .relaxed)
             spanCoveredFor.store(previous.packed, ordering: .relaxed)
         }
-        beginScopeWrite()
-        startNanos.store(previous.startNanos, ordering: .relaxed)
-        budgetNanos.store(previous.budgetNanos, ordering: .relaxed)
-        hangAtNanos.store(hangAt, ordering: .relaxed)
-        current.store(previous.packed, ordering: .releasing)
-        endScopeWrite()
+        publish(previous.endingAt(hangAt))
         guard token.budgetNanos > 0, elapsed > token.budgetNanos, let sink = overBudgetSink.withLock({ $0 }),
               let task = task(packed: token.packed, startNanos: token.startNanos, budgetNanos: token.budgetNanos) else { return }
         sink(task, elapsed)

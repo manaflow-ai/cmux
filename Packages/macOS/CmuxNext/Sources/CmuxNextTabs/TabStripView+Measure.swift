@@ -5,9 +5,10 @@ extension TabStripView {
     /// The first (leftmost) tab's pill in this view's coordinates (flipped,
     /// top-left origin), or nil with no tab.
     public var firstTabPillFrame: CGRect? {
-        guard let cell = cells.values.filter({ $0.frame.width > 0.5 }).min(by: { $0.frame.minX < $1.frame.minX }) else { return nil }
+        guard let cell = cells.values.filter({ $0.frame.width > 0.5 }).min(by: { scroller.shownFrame($0.layer).minX < scroller.shownFrame($1.layer).minX }) else { return nil }
+        let frame = scroller.shownFrame(cell.layer)
         let pill = cell.pillFrameInCell
-        let origin = tabsClip.convert(CGPoint(x: cell.frame.minX + pill.minX, y: cell.frame.minY + pill.minY), to: self)
+        let origin = tabsClip.convert(CGPoint(x: frame.minX + pill.minX, y: frame.minY + pill.minY), to: self)
         return CGRect(origin: origin, size: pill.size)
     }
 

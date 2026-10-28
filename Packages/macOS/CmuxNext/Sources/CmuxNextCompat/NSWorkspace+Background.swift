@@ -23,6 +23,7 @@ extension NSWorkspace {
             let opened = workspace.open(url)
             guard let completion else { return }
             // task-owner: one main-actor hop to report the open; nothing to cancel
+            // main-hop-allow: Compat sits below CmuxNextWakeups and has no class to post in; one report per open the caller asked for
             Task { @MainActor in completion(opened) }
         }
     }

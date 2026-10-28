@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Mac Screen's colors: the tokens of the tab's theme scope (Settings >
 /// Appearance: theme, accent, light or dark), resolved by the view that
@@ -83,8 +84,12 @@ class MacScreenThemedView: NSView {
     private(set) var colors = MacScreenColors()
     /// The colors were painted at least once (a first resolve paints even when they match the defaults).
     private var painted = false
+    /// Whether a person can see the view (its tab's node, the approval panel's): a theme change
+    /// while it is hidden repaints once, when it shows (recipe R-appear).
+    private let appearanceNode: VisibilityNode
 
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect, node: VisibilityNode) {
+        appearanceNode = node
         super.init(frame: frameRect)
     }
 
@@ -98,7 +103,7 @@ class MacScreenThemedView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        resolveColors()
+        appearanceNode.deferUntilVisible(key: ObjectIdentifier(self)) { [weak self] in self?.resolveColors() }
     }
 
     func resolveColors() {

@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextCompat
+public import CmuxNextWakeups
 import Darwin
 
 /// How ``NSWindow/snapshotImage(on:)`` captured a window.
@@ -12,14 +13,13 @@ public nonisolated enum WindowSnapshotMethod: String, Sendable {
 }
 
 extension NSWindow {
-    /// Encodes an immutable capture as PNG and writes it atomically, off the
-    /// main actor: AppKit capture stays on the main actor, the compression
-    /// and the file write do not.
-    public static func encodeSnapshotPNG(_ image: CGImage, to url: URL) async throws {
-        try await Task.detached(priority: .userInitiated) {
+    /// Encodes an immutable capture as PNG and writes it atomically on `work`'s files lane: AppKit
+    /// capture stays on the main actor, the compression and the file write do not.
+    public static func encodeSnapshotPNG(_ image: CGImage, to url: URL, on work: BackgroundWork) async throws {
+        try await work.run(.userBlocking, mayBlock: .files) {
             guard let data = image.pngData() else { throw CocoaError(.fileWriteUnknown) }
             try data.write(to: url, options: .atomic)
-        }.value
+        }
     }
 
     /// This window as AppKit draws it, without screen capture (no Screen
@@ -46,9 +46,9 @@ extension NSWindow {
     /// all-transparent image). An app may read its own windows this way
     /// without the Screen Recording grant.
     ///
-    /// Child windows are part of what the window shows: Chromium draws each
-    /// page into a child window over its pane, and overlay panels sit above
-    /// content. The ones `includeChild` accepts are composited in the window
+    /// Child windows are part of what the window shows: Chromium in process
+    /// draws each page into a child window over its pane (``isPageChild(_:)``),
+    /// and overlay panels sit above content. The ones `includeChild` accepts are composited in the window
     /// server's order, cropped to this window's frame. Windows of other apps
     /// are never included, so an occluded window still comes out whole.
     /// Without the Screen Recording grant the window server leaves out
@@ -194,6 +194,15 @@ extension NSWindow {
             }
         }
         return result
+    }
+
+    /// Whether `child`, a child window of this window (at any depth), is one of its page windows: what a
+    /// snapshot composites with the window's own image, under the engine's page images, and leaves out
+    /// of the panels painted above them. In process (``PageSurface/childWindows``) Chromium draws each
+    /// page in one; with pages in the view tree (``PageSurface/views``, the Chromium Host) only content
+    /// panels are, and the engine's page image goes over the page view's rect.
+    public func isPageChild(_ child: NSWindow) -> Bool {
+        WindowOverlayHost.isPageWindow(child, on: PageSurface.of(self))
     }
 
     /// The visible child windows of this window and of its children, the

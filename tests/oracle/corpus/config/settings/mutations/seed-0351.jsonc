@@ -1,0 +1,11 @@
+{
+  "browser": {
+    /* block */ "omnibox": {
+      "popupHoverColor": "#12345"
+    }
+  },
+  "sessions": {
+    // a { brace
+"allowFullAccess": true
+  }
+}

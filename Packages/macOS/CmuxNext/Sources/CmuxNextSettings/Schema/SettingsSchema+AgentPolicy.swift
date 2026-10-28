@@ -241,7 +241,7 @@ extension SettingsSchema {
     ]
 
     /// Keys an agent may not set or reset, with the reason.
-    public static let agentRefusedKeys: [String: AgentRefusal] = Dictionary(uniqueKeysWithValues: OmnibarSettingsSchema.privacyKeys.map { ($0, AgentRefusal.privacy) })
+    public static let agentRefusedKeys: [String: AgentRefusal] = Dictionary(OmnibarSettingsSchema.privacyKeys.map { ($0, AgentRefusal.privacy) }, uniquingKeysWith: { first, _ in first })
         .merging(refusedTable) { first, _ in first }
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
         .merging(BrowserVerificationAutofillSettingsSchema.refusedKeys) { first, _ in first }

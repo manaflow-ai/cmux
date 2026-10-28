@@ -1,0 +1,10 @@
+{
+  "tabs": {
+    "tabBar": {
+      "agent": true
+    }
+  },
+  "history": {
+    "terminalCommands": true
+  }
+}

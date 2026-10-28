@@ -21,9 +21,12 @@ import Foundation
 enum PrivateDirectory {
     /// This user's Darwin temp directory, without a trailing slash, or nil.
     static func userTemporaryRoot() -> String? {
-        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
-        guard confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, buffer.count) > 0 else { return nil }
-        let path = String(cString: buffer)
+        let capacity = Int(PATH_MAX)
+        var buffer = [CChar](repeating: 0, count: capacity)
+        // SAFETY: confstr writes at most `capacity` bytes, the size passed (NUL included,
+        // truncating longer values), into `buffer`, which holds that many.
+        guard unsafe confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, capacity) > 0 else { return nil }
+        let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         guard path.hasPrefix("/") else { return nil }
         return path.hasSuffix("/") ? String(path.dropLast()) : path
     }
@@ -49,11 +52,13 @@ enum PrivateDirectory {
         guard let parts = split(directory) else { return false }
         let (root, shared, components) = parts
         let me = geteuid()
-        var current = open(root, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        // SAFETY: open reads the NUL-terminated copy of `root` Swift makes for this call.
+        var current = unsafe open(root, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         guard current >= 0 else { return false }
         defer { close(current) }
         var info = stat()
-        guard fstat(current, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return false }
+        // SAFETY: fstat writes one struct stat into `info`, a local of that type.
+        guard unsafe fstat(current, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return false }
         if shared {
             // /tmp: root-owned and sticky, or another user could swap our directory.
             guard info.st_uid == 0, info.st_mode & S_ISVTX != 0 else { return false }
@@ -62,12 +67,15 @@ enum PrivateDirectory {
         }
         for (index, component) in components.enumerated() {
             let name = String(component)
-            if mkdirat(current, name, 0o700) != 0, errno != EEXIST { return false }
-            let next = openat(current, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            // SAFETY: mkdirat and openat read the NUL-terminated copy of `name` Swift makes
+            // for each call.
+            if unsafe mkdirat(current, name, 0o700) != 0, errno != EEXIST { return false }
+            let next = unsafe openat(current, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
             guard next >= 0 else { return false }
             close(current)
             current = next
-            guard fstat(current, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == me else { return false }
+            // SAFETY: fstat writes one struct stat into `info`, a local of that type.
+            guard unsafe fstat(current, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == me else { return false }
             if index == components.count - 1 {
                 guard info.st_mode & 0o777 == 0o700 || fchmod(current, 0o700) == 0 else { return false }
             } else if info.st_mode & 0o022 != 0 {

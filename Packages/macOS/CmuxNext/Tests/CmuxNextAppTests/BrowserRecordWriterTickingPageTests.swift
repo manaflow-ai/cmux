@@ -1,5 +1,6 @@
 @testable import CmuxNextBrowser
 import CmuxNextBrowserHistory
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -21,7 +22,7 @@ import Testing
         let gate = Gate()
         var sent: [BrowserRecordUpdate] = []
         let writer = BrowserRecordWriter(tab: page, recorded: BrowserRecord(url: "https://old.example/", title: "Old"),
-                                         delay: .milliseconds(500), sleep: { _ in await gate.sleep() },
+                                         delay: .milliseconds(500), sleep: { _ in await gate.sleep() }, mainWork: taskTurnMainWork(),
                                          send: { sent.append($0); return true })
         defer { writer.cancel() }
         let next = try #require(URL(string: "https://ticker.example/"))

@@ -198,8 +198,8 @@ impl FsService {
             params.max_bytes.min(MAX_READ_BYTES).min(meta.size.saturating_sub(params.offset));
         let mut bytes = vec![0u8; usize::try_from(wanted).unwrap_or(0)];
         let mut filled = 0;
-        while filled < bytes.len() {
-            let read = file.read_at(&mut bytes[filled..], params.offset + filled as u64)?;
+        while let Some(rest) = bytes.get_mut(filled..).filter(|rest| !rest.is_empty()) {
+            let read = file.read_at(rest, params.offset + filled as u64)?;
             if read == 0 {
                 break;
             }

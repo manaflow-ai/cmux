@@ -51,10 +51,14 @@ final class PageGoneView: ChromeFrameView {
     }
 
     func show(_ exit: BrowserProcessExit) {
-        // A Chromium tab says what Chrome's sad tab says.
+        // A Chromium tab says what Chrome's sad tab says, and that Chromium stopped when its host ended.
         let chromium = exit.engine == .cef
         titleLabel.stringValue = chromium ? Strings.pageGoneChromiumTitle : Strings.pageGoneTitle(exit.reason)
-        messageLabel.stringValue = chromium ? Strings.pageGoneChromiumMessage : Strings.pageGoneMessage(exit.reason)
+        messageLabel.stringValue = switch (chromium, exit.process) {
+        case (true, .chromiumHost): Strings.pageGoneChromiumHostMessage
+        case (true, .page): Strings.pageGoneChromiumMessage
+        case (false, _): Strings.pageGoneMessage(exit.reason)
+        }
         if let code = exit.codeDescription {
             codeLabel.stringValue = Strings.pageGoneErrorCode(code)
             codeLabel.isHidden = false

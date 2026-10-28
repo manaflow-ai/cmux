@@ -1,7 +1,7 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextTerminal
-import Observation
+import CmuxNextWakeups
 
 extension TerminalCursorDefault {
     /// The user's Ghostty `cursor-style` and `cursor-style-blink`.
@@ -14,8 +14,11 @@ extension TerminalCursorDefault {
 /// terminal's process ended (tab `dead`), its shell's host link is down
 /// (tab `terminal_state`, a labeled stall), or the terminal or the daemon connection came
 /// back (a new `connectionEpoch`, even one missed between hops), which re-attaches a disconnected view. Tells the
-/// store the folder the shell reported to the view (OSC 7). Observation
-/// only (re-armed after each change); nothing polls.
+/// store the folder the shell reported to the view (OSC 7). One
+/// `ServiceObservation` (p06-scheduler-303): a burst of changes is one read
+/// and one `changed()` in a scheduled task, and it follows while the
+/// terminal is hidden too (a process exit and the folder are not view work).
+/// Nothing polls.
 @MainActor
 final class TerminalLinkWatch {
     private weak var store: DaemonStore?
@@ -30,12 +33,15 @@ final class TerminalLinkWatch {
     /// a reconnect never repeats an old view's folder onto a reused surface.
     private var directory: String?
     private var stopped = false
+    /// The daemon facts this view follows; cancelled by ``stop()``.
+    private var facts: ServiceObservation<Void>?
 
     // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
     // action runs; a main-actor deinit's hop traps there (cx-t7hu).
     nonisolated deinit {}
 
-    init(store: DaemonStore, surface: SurfaceID, io: DaemonTerminalIO, session: TerminalSession) {
+    /// `mainWork`: the app's one main-thread scheduler, which runs the follow-up of each batch of changes.
+    init(store: DaemonStore, surface: SurfaceID, io: DaemonTerminalIO, session: TerminalSession, mainWork: MainWorkScheduler) {
         self.store = store
         self.surface = surface
         self.io = io
@@ -46,26 +52,30 @@ final class TerminalLinkWatch {
         if dead { io.processExited() }
         stall = Self.shellStall(store.tab(surface: surface))
         session.shellStall = stall
-        forwardHostLoss()
-        forwardDirectory()
-        arm()
+        // The first read forwards the host loss and the folder now; each later batch runs `changed()` once.
+        let surfaceModel = session.model
+        facts = ServiceObservation(.visible, owner: "TerminalLinkWatch", on: mainWork) { [weak store, weak surfaceModel] in
+            Self.readFacts(store, surface: surface, model: surfaceModel)
+        } apply: { [weak self] _ in
+            self?.changed()
+        }
     }
 
-    func stop() { stopped = true }
+    func stop() {
+        stopped = true
+        facts?.cancel()
+        facts = nil
+    }
 
-    private func arm() {
-        guard !stopped, let store else { return }
-        let surface = surface
-        withObservationTracking {
-            _ = store.connectionState
-            _ = store.tab(surface: surface)?.dead
-            _ = store.tab(surface: surface)?.end
-            _ = store.tab(surface: surface)?.terminalState
-            _ = model?.workingDirectory
-        } onChange: { [weak self] in
-            // task-owner: one hop per observed change, re-arms itself; ends with the watch
-            Task { @MainActor [weak self] in self?.changed() }
-        }
+    /// Reads what ``changed()`` acts on, so a change of any of it schedules one call.
+    private static func readFacts(_ store: DaemonStore?, surface: SurfaceID, model: TerminalSurfaceModel?) {
+        guard let store else { return }
+        _ = store.connectionState
+        let tab = store.tab(surface: surface)
+        _ = tab?.dead
+        _ = tab?.end
+        _ = tab?.terminalState
+        _ = model?.workingDirectory
     }
 
     private func changed() {
@@ -91,7 +101,6 @@ final class TerminalLinkWatch {
         session?.shellStall = nowStall
         forwardHostLoss()
         forwardDirectory()
-        arm()
     }
 
     /// The stall a tab's `terminal_state` names: a live (not dead) terminal

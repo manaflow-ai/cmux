@@ -158,7 +158,8 @@ extension PredictiveEchoSlot: PredictiveEchoHost {
 
     func predictionsNeedFrames() {
         if frames == nil {
-            frames = FrameClient(owner: "Terminal.predictiveEcho", isAnimation: false, scheduler: { [weak self] in
+            // frame-client: the typed-ahead cells until the echo comes (an AppKit overlay, on main); key to frame
+            frames = FrameClient(owner: "Terminal.predictiveEcho", isAnimation: false, rate: .motion, scheduler: { [weak self] in
                 guard let view = self?.view else { return .app }
                 return FrameScheduler.forView(view)
             }, onFrame: { [weak self] _ in

@@ -303,13 +303,19 @@ final class LinkOpener {
                             if focus { source.focusContent() }
                             return finish("link open: the move to the right failed (see the app log)")
                         }
-                        if let intent { source.workspace?.expectFocus(on: surface, target: target, awayFrom: source.paneKey, generation: intent) }
                         guard case .besideColumn = destination else { return finish(nil) }
                         let id = tab.id
                         step.yield { await AgentBesidePlacement.revealMoved(id, from: anchor, services: services); return nil }
                         step.finish()
                     }
                 }
+                // The focus waits for the tab where the move takes it from the moment the move is sent, not from its
+                // reply: the daemon's delta shows the tab in its new pane first, and the reply's completion runs as a
+                // scheduled task, up to ~230 ms later under load (fleet step c301b08a6735a4f28d8bf832). Until then focus
+                // fell back to what the source pane still showed (Home's page) and the keys typed into the new terminal
+                // went there (dogfood v2.1, 2026-10-27). `awayFrom`: it lands only once the tab left `source`; a
+                // failed move selects the tab where it is and focuses it there (above).
+                if let intent { source.workspace?.expectFocus(on: surface, target: target, awayFrom: source.paneKey, generation: intent) }
                 // An open in the background keeps the focus where it is: the daemon's move would focus the tab.
                 let keepFocus = !focus
                 switch destination {

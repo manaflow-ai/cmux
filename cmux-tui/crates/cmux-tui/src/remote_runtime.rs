@@ -209,8 +209,14 @@ fn remote_runtime_worker_count() -> usize {
 }
 
 fn build_remote_runtime(thread_name: &str) -> anyhow::Result<tokio::runtime::Runtime> {
-    let mut builder = tokio::runtime::Builder::new_multi_thread();
-    builder.worker_threads(remote_runtime_worker_count()).thread_name(thread_name).enable_all();
+    // Remote clients' terminal traffic and requests run here: the person
+    // waits on them.
+    let mut builder = cmux_threads::tokio::builder(
+        thread_name,
+        cmux_threads::ThreadQos::UserInitiated,
+        cmux_threads::tokio::Flavor::MultiThread,
+    );
+    builder.worker_threads(remote_runtime_worker_count());
     crate::owner_start::poll_watch_lab::instrument(&mut builder);
     builder.build().context("could not start remote Tokio runtime")
 }
@@ -218,11 +224,12 @@ fn build_remote_runtime(thread_name: &str) -> anyhow::Result<tokio::runtime::Run
 fn reap_failed_startup(runtime_thread: thread::JoinHandle<anyhow::Result<()>>, runtime_name: &str) {
     let (finished_tx, finished_rx) = mpsc::sync_channel(1);
     let reaper_name = format!("{runtime_name}-startup-reaper");
+    // supervise-allow: owned by its runtime handle: is_finished and shutdown see its end, a panic included.
     let reaper = thread::Builder::new().name(reaper_name).spawn(move || {
-        let _ = finished_tx.send(runtime_thread.join());
+        let _ = finished_tx.send(crate::blocking::thread::join(runtime_thread));
     });
     if reaper.is_ok() {
-        let _ = finished_rx.recv_timeout(STARTUP_THREAD_REAP_TIMEOUT);
+        let _ = crate::blocking::sync::recv_timeout(&finished_rx, STARTUP_THREAD_REAP_TIMEOUT);
     }
 }
 
@@ -372,9 +379,12 @@ impl DaemonRuntimeHandle {
         self.finished.load(Ordering::Acquire)
     }
 
+    #[allow(clippy::expect_used, reason = "INVARIANT: thread is set at spawn, taken only here")]
     pub fn shutdown(mut self) -> anyhow::Result<()> {
         let _ = self.shutdown.send(true);
-        match self.thread.take().expect("daemon runtime thread is present").join() {
+        match crate::blocking::thread::join(
+            self.thread.take().expect("daemon runtime thread is present"),
+        ) {
             Ok(result) => result,
             Err(_) => Err(anyhow!("remote daemon runtime thread panicked")),
         }
@@ -614,9 +624,12 @@ impl ClientRuntimeHandle {
         self.finished.clone()
     }
 
+    #[allow(clippy::expect_used, reason = "INVARIANT: thread is set at spawn, taken only here")]
     pub fn shutdown(mut self) -> anyhow::Result<()> {
         let _ = self.shutdown.send(true);
-        match self.thread.take().expect("client runtime thread is present").join() {
+        match crate::blocking::thread::join(
+            self.thread.take().expect("client runtime thread is present"),
+        ) {
             Ok(result) => result,
             Err(_) => Err(anyhow!("remote client runtime thread panicked")),
         }
@@ -641,18 +654,20 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (finished_tx, finished_rx) = watch::channel(false);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+    // supervise-allow: owned by its runtime handle: is_finished and shutdown see its end, a panic included.
     let thread = thread::Builder::new()
         .name("cmux-remote-client".into())
         .spawn(move || {
             let runtime = build_remote_runtime("cmux-remote-client-worker")
                 .context("could not start remote client Tokio runtime")?;
-            let result = runtime.block_on(run_client(options, shutdown_rx, ready_tx));
+            let result =
+                cmux_threads::tokio::block_on(&runtime, run_client(options, shutdown_rx, ready_tx));
             runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
             finished_tx.send_replace(true);
             result
         })
         .context("could not start remote client thread")?;
-    let ready = match ready_rx.recv_timeout(startup_timeout) {
+    let ready = match crate::blocking::sync::recv_timeout(&ready_rx, startup_timeout) {
         Ok(Ok(ready)) => ready,
         Ok(Err(error)) => {
             let _ = shutdown_tx.send(true);
@@ -696,6 +711,7 @@ impl Drop for OwnerFileLock {
     fn drop(&mut self) {
         use std::os::fd::AsRawFd;
 
+        // SAFETY: `self.file` is open until this drop returns and flock takes no pointer.
         unsafe {
             libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
         }
@@ -715,7 +731,7 @@ impl ClientSocketPreparation {
         use std::os::unix::fs::PermissionsExt;
 
         let lease = ClientSocketLease::bind_locked(self.path.clone())?;
-        fs::set_permissions(&self.path, fs::Permissions::from_mode(0o600))?;
+        crate::blocking::fs::set_permissions(&self.path, fs::Permissions::from_mode(0o600))?;
         Ok(lease)
     }
 }
@@ -735,15 +751,15 @@ impl ClientSocketLease {
         use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
         let listener = tokio::net::UnixListener::bind(&path)?;
-        let metadata = match fs::symlink_metadata(&path) {
+        let metadata = match cmux_blocking::fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(error) => {
-                let _ = fs::remove_file(&path);
+                let _ = cmux_blocking::fs::remove_file(&path);
                 return Err(error);
             }
         };
         if !metadata.file_type().is_socket() {
-            let _ = fs::remove_file(&path);
+            let _ = cmux_blocking::fs::remove_file(&path);
             return Err(std::io::Error::other("bound client path is not a Unix socket"));
         }
         Ok(Self { listener, path, device: metadata.dev(), inode: metadata.ino(), linked: true })
@@ -759,7 +775,7 @@ impl ClientSocketLease {
         if !self.linked {
             return Ok(());
         }
-        let metadata = match fs::symlink_metadata(&self.path) {
+        let metadata = match cmux_blocking::fs::symlink_metadata(&self.path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 self.linked = false;
@@ -774,7 +790,7 @@ impl ClientSocketLease {
             self.linked = false;
             return Ok(());
         }
-        fs::remove_file(&self.path)?;
+        cmux_blocking::fs::remove_file(&self.path)?;
         self.linked = false;
         Ok(())
     }
@@ -800,7 +816,12 @@ async fn run_client(
         }
         let local_socket = match options.local_socket.clone() {
             Some(path) => path,
-            None => default_client_socket(&options.state_dir, options.session)?,
+            None => {
+                let state_dir = options.state_dir.clone();
+                let session = options.session;
+                crate::blocking::off_worker(move || default_client_socket(&state_dir, session))
+                    .await?
+            }
         };
         let socket_preparation =
             prepare_client_socket_with_shutdown(&local_socket, Some(shutdown.clone())).await?;
@@ -810,19 +831,30 @@ async fn run_client(
         }
         let daemon_public_key = connection.daemon_public_key();
         let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
-        let socket = socket_preparation.bind()?;
         // The SSH route behind this socket, so a CLI at a version-skew dead
         // end can name the exact upgrade command (cli/skew.rs, cx-ytw1).
-        let route_record = write_tunnel_route(&local_socket, &route);
+        let (socket, route_record) = {
+            let local_socket = local_socket.clone();
+            let route = route.clone();
+            crate::blocking::off_worker(move || {
+                let socket = socket_preparation.bind()?;
+                anyhow::Ok((socket, write_tunnel_route(&local_socket, &route)))
+            })
+            .await?
+        };
         let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::oneshot::channel();
         let bridge_multiplexer = multiplexer.clone();
         let mut bridge = tokio::spawn(async move {
             let mut socket = socket;
             serve_mux_bridge(bridge_multiplexer, socket.listener(), bridge_shutdown_rx).await;
-            let _ = socket.unlink();
-            if let Some(record) = route_record {
-                let _ = fs::remove_file(record);
-            }
+            let _ = crate::blocking::off_worker(move || {
+                let _ = socket.unlink();
+                if let Some(record) = route_record {
+                    let _ = cmux_blocking::fs::remove_file(record);
+                }
+                std::io::Result::Ok(())
+            })
+            .await;
         });
         let mut fatal = multiplexer.subscribe_fatal();
         ready
@@ -946,12 +978,12 @@ async fn select_initial_route<T: Send>(
     upgrade: bool,
     attempt: &mut impl InitialRouteAttempt<T>,
 ) -> Result<T, InitialRouteSelectionError> {
-    if routes.is_empty() {
+    let Some(first) = routes.first() else {
         return Err(InitialRouteSelectionError::terminal(anyhow!(
             "remote connection has no route candidates"
         )));
-    }
-    if upgrade && routes[0].endpoint.scheme() != "ssh" {
+    };
+    if upgrade && first.endpoint.scheme() != "ssh" {
         return Err(InitialRouteSelectionError::terminal(anyhow!(
             "--upgrade requires SSH to be the initial route"
         )));
@@ -1282,20 +1314,20 @@ async fn select_reconnect_route<T: Send>(
         return Err(ProviderError::Configuration("no reconnect routes configured".into()));
     }
     let mut failures = Vec::new();
-    for offset in 0..routes.len() {
-        let index = (start + offset) % routes.len();
-        if !routes[index].supports_client_auth(auth) {
+    let rotation = routes.iter().enumerate().cycle().skip(start % routes.len());
+    for (index, route) in rotation.take(routes.len()) {
+        if !route.supports_client_auth(auth) {
             failures.push(format!(
                 "{}: {}",
-                sanitized_route(&routes[index].endpoint),
+                sanitized_route(&route.endpoint),
                 ProviderError::UnsupportedClientAuth {
-                    scheme: routes[index].endpoint.scheme().into(),
-                    auth,
+                    scheme: route.endpoint.scheme().into(),
+                    auth
                 }
             ));
             continue;
         }
-        let request = connect_request(&routes[index], session, lane_policy)
+        let request = connect_request(route, session, lane_policy)
             .map_err(|error| ProviderError::Configuration(error.to_string()))?;
         let endpoint = request.endpoint.clone();
         let display_endpoint = sanitized_route(&endpoint);
@@ -1362,11 +1394,11 @@ impl RuntimeReconnectGroups {
         self.options
             .routes
             .iter()
-            .enumerate()
-            .filter(|(index, candidate)| {
+            .zip(&self.prepared_ssh)
+            .filter(|(candidate, prepared)| {
                 candidate.endpoint.scheme() == "ssh"
                     && candidate.supports_client_auth(auth)
-                    && !self.prepared_ssh[*index].load(Ordering::Acquire)
+                    && !prepared.load(Ordering::Acquire)
             })
             .count()
     }
@@ -1506,13 +1538,16 @@ fn write_tunnel_route(socket: &Path, route: &str) -> Option<PathBuf> {
         return None;
     }
     let record = tunnel_route_record(socket);
-    let _ = fs::remove_file(&record);
+    let _ = cmux_blocking::fs::remove_file(&record);
     #[cfg(unix)]
     {
         use std::io::Write as _;
         use std::os::unix::fs::OpenOptionsExt;
-        let mut file =
-            OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record).ok()?;
+        let mut file = crate::blocking::fs::open_with(
+            OpenOptions::new().write(true).create_new(true).mode(0o600),
+            &record,
+        )
+        .ok()?;
         file.write_all(route.as_bytes()).ok()?;
     }
     #[cfg(not(unix))]
@@ -1553,14 +1588,20 @@ async fn prepare_client_socket_with_shutdown(
             path.display()
         ));
     }
-    let parent = path.parent().ok_or_else(|| anyhow!("client socket path has no parent"))?;
-    prepare_client_socket_directory(parent)?;
+    let parent =
+        path.parent().ok_or_else(|| anyhow!("client socket path has no parent"))?.to_path_buf();
     let lock_path = client_socket_lock_path(path)?;
-    let path_lock = acquire_client_socket_lock(&lock_path, shutdown.as_mut()).await?;
+    let opened_lock_path = lock_path.clone();
+    let lock_file = crate::blocking::off_worker(move || {
+        prepare_client_socket_directory(&parent)?;
+        open_owner_lock_file(&opened_lock_path, "client socket lock")
+    })
+    .await?;
+    let path_lock = acquire_client_socket_lock(lock_file, &lock_path, shutdown.as_mut()).await?;
 
     use std::os::unix::fs::FileTypeExt;
 
-    match fs::symlink_metadata(path) {
+    match tokio::fs::symlink_metadata(path).await {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => {
             return Err(error)
@@ -1581,7 +1622,11 @@ async fn prepare_client_socket_with_shutdown(
             {
                 Ok(Ok(_)) => return Err(anyhow!("another client owns {}", path.display())),
                 Ok(Err(error)) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
-                    remove_stale_client_socket(path, &metadata)?;
+                    let stale = path.to_path_buf();
+                    crate::blocking::off_worker(move || {
+                        remove_stale_client_socket(&stale, &metadata)
+                    })
+                    .await?;
                 }
                 Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Ok(Err(error)) => {
@@ -1605,7 +1650,7 @@ async fn prepare_client_socket_with_shutdown(
 fn remove_stale_client_socket(path: &Path, expected: &fs::Metadata) -> anyhow::Result<()> {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
-    match fs::symlink_metadata(path) {
+    match cmux_blocking::fs::symlink_metadata(path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error)
             .with_context(|| format!("could not recheck stale client socket {}", path.display())),
@@ -1614,7 +1659,7 @@ fn remove_stale_client_socket(path: &Path, expected: &fs::Metadata) -> anyhow::R
                 && current.dev() == expected.dev()
                 && current.ino() == expected.ino() =>
         {
-            fs::remove_file(path)?;
+            cmux_blocking::fs::remove_file(path)?;
             Ok(())
         }
         Ok(_) => {
@@ -1638,20 +1683,22 @@ fn client_socket_lock_path(path: &Path) -> anyhow::Result<PathBuf> {
 fn open_owner_lock_file(path: &Path, what: &str) -> anyhow::Result<fs::File> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)
-        .with_context(|| format!("could not open {what} {}", path.display()))?;
+    let file = crate::blocking::fs::open_with(
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC),
+        path,
+    )
+    .with_context(|| format!("could not open {what} {}", path.display()))?;
     let metadata = file.metadata()?;
     if !metadata.is_file() {
         return Err(anyhow!("{what} {} is not a regular file", path.display()));
     }
-    if metadata.uid() != unsafe { libc::geteuid() } {
+    if metadata.uid() != cmux_tui_core::platform::effective_uid() {
         return Err(anyhow!("{what} {} is not owned by the effective user", path.display()));
     }
     if metadata.permissions().mode() & 0o077 != 0 {
@@ -1665,14 +1712,14 @@ fn open_owner_lock_file(path: &Path, what: &str) -> anyhow::Result<fs::File> {
 
 #[cfg(unix)]
 async fn acquire_client_socket_lock(
+    file: fs::File,
     path: &Path,
     mut shutdown: Option<&mut watch::Receiver<bool>>,
 ) -> anyhow::Result<OwnerFileLock> {
     use std::os::fd::AsRawFd;
 
-    let file = open_owner_lock_file(path, "client socket lock")?;
-
     loop {
+        // SAFETY: `file` is open for the call and flock takes no pointer.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
             return Ok(OwnerFileLock { file });
         }
@@ -1701,8 +1748,8 @@ async fn acquire_client_socket_lock(
 #[cfg(unix)]
 fn prepare_client_socket_directory(path: &Path) -> anyhow::Result<()> {
     ensure_secure_directory(path, DirectoryAccess::OwnerControlled)?;
-    let metadata = fs::symlink_metadata(path)?;
-    validate_client_socket_directory(path, &metadata, unsafe { libc::geteuid() })
+    let metadata = cmux_blocking::fs::symlink_metadata(path)?;
+    validate_client_socket_directory(path, &metadata, cmux_tui_core::platform::effective_uid())
 }
 
 #[cfg(unix)]
@@ -1738,7 +1785,9 @@ fn validate_client_socket_directory(
 pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
 
-    let capacity = unsafe { std::mem::zeroed::<libc::sockaddr_un>() }.sun_path.len();
+    // `sun_path` is the last field of `sockaddr_un` on Linux and macOS.
+    let capacity =
+        size_of::<libc::sockaddr_un>() - std::mem::offset_of!(libc::sockaddr_un, sun_path);
     path.as_os_str().as_bytes().len() < capacity
 }
 
@@ -1760,7 +1809,7 @@ fn client_socket_path_in(
     if unix_socket_path_fits(&candidate) {
         return Ok(candidate);
     }
-    let prefix = format!("cmux-r-{}", unsafe { libc::geteuid() });
+    let prefix = format!("cmux-r-{}", cmux_tui_core::platform::effective_uid());
     let name =
         format!("{}.sock", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(session.0));
     let preferred_base = runtime.unwrap_or(shared_tmp);
@@ -1817,10 +1866,10 @@ fn private_socket_directory(
         let parent = record.parent().ok_or_else(|| anyhow!("socket record has no parent"))?;
         ensure_secure_directory(parent, DirectoryAccess::OwnerControlled)
             .with_context(|| format!("could not prepare {}", parent.display()))?;
-        let suffix = uuid::Uuid::new_v4().simple().to_string();
         // Keep the name short: socket paths must fit in sun_path.
-        let candidate = base.join(format!("{prefix}-{}", &suffix[..8]));
-        match fs::DirBuilder::new().mode(0o700).create(&candidate) {
+        let suffix = uuid::Uuid::new_v4().simple().to_string().chars().take(8).collect::<String>();
+        let candidate = base.join(format!("{prefix}-{suffix}"));
+        match crate::blocking::fs::create_dir_with(fs::DirBuilder::new().mode(0o700), &candidate) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => {
@@ -1829,7 +1878,7 @@ fn private_socket_directory(
             }
         }
         if let Err(error) = validate(&candidate) {
-            let _ = fs::remove_dir(&candidate);
+            let _ = crate::blocking::fs::remove_dir(&candidate);
             return Err(error);
         }
         match publish_socket_directory_record(record, &candidate) {
@@ -1838,7 +1887,7 @@ fn private_socket_directory(
                 // Another process for this session recorded its directory
                 // first. Use it if it is still private, otherwise replace
                 // the stale record on the next attempt.
-                let _ = fs::remove_dir(&candidate);
+                let _ = crate::blocking::fs::remove_dir(&candidate);
                 if let Some(recorded) = recorded_socket_directory(record, base, prefix)
                     && validate(&recorded).is_ok()
                 {
@@ -1855,10 +1904,10 @@ fn private_socket_directory(
                 {
                     return Ok(recorded);
                 }
-                let _ = fs::remove_file(record);
+                let _ = cmux_blocking::fs::remove_file(record);
             }
             Err(error) => {
-                let _ = fs::remove_dir(&candidate);
+                let _ = crate::blocking::fs::remove_dir(&candidate);
                 return Err(error)
                     .with_context(|| format!("could not record {}", candidate.display()));
             }
@@ -1879,6 +1928,7 @@ fn lock_socket_directory_record(record: &Path) -> anyhow::Result<OwnerFileLock> 
     let path = record.with_file_name(format!("{SOCKET_DIRECTORY_RECORD}.lock"));
     let file = open_owner_lock_file(&path, "socket directory record lock")?;
     loop {
+        // SAFETY: `file` is open for the call and flock takes no pointer.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
             return Ok(OwnerFileLock { file });
         }
@@ -1913,11 +1963,11 @@ fn before_socket_directory_record_replace() {
 fn recorded_socket_directory(record: &Path, base: &Path, prefix: &str) -> Option<PathBuf> {
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
-    let metadata = fs::symlink_metadata(record).ok()?;
+    let metadata = cmux_blocking::fs::symlink_metadata(record).ok()?;
     if !metadata.is_file() || metadata.len() > 4096 {
         return None;
     }
-    let path = PathBuf::from(std::ffi::OsString::from_vec(fs::read(record).ok()?));
+    let path = PathBuf::from(std::ffi::OsString::from_vec(cmux_blocking::fs::read(record).ok()?));
     let name = path.file_name()?.as_bytes();
     (path.parent() == Some(base) && name.starts_with(format!("{prefix}-").as_bytes()))
         .then_some(path)
@@ -1934,17 +1984,19 @@ fn publish_socket_directory_record(record: &Path, directory: &Path) -> std::io::
     let staged = record
         .with_file_name(format!(".{SOCKET_DIRECTORY_RECORD}.{}", uuid::Uuid::new_v4().simple()));
     let result = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(&staged)?;
+        let mut file = crate::blocking::fs::open_with(
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC),
+            &staged,
+        )?;
         file.write_all(directory.as_os_str().as_bytes())?;
-        file.sync_all()?;
-        fs::hard_link(&staged, record)
+        crate::blocking::fs::sync_all(&file)?;
+        crate::blocking::fs::hard_link(&staged, record)
     })();
-    let _ = fs::remove_file(&staged);
+    let _ = cmux_blocking::fs::remove_file(&staged);
     result
 }
 
@@ -2010,7 +2062,7 @@ fn daemon_runtime_socket_paths_in(
 
     // Every client of this session computes the same paths from `state`, so
     // a fallback directory is recorded there for them to find.
-    let prefix = format!("cmux-rd-{}", unsafe { libc::geteuid() });
+    let prefix = format!("cmux-rd-{}", cmux_tui_core::platform::effective_uid());
     let runtime = private_socket_directory(
         shared_tmp,
         &prefix,
@@ -2046,6 +2098,7 @@ fn start_daemon_runtime_with_timeout(
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let finished = Arc::new(AtomicBool::new(false));
     let thread_finished = finished.clone();
+    // supervise-allow: owned by its runtime handle: is_finished and shutdown see its end, a panic included.
     let thread = thread::Builder::new()
         .name(format!("cmux-remote-{}", options.session))
         .spawn(move || {
@@ -2053,22 +2106,25 @@ fn start_daemon_runtime_with_timeout(
             // every return path including a failed runtime build.
             let _finished = FinishedSignal(thread_finished);
             let runtime = build_remote_runtime("cmux-remote-daemon-worker")?;
-            let result = runtime.block_on(run_daemon(
-                mux_socket,
-                options,
-                state_dir,
-                link_socket,
-                admin_socket,
-                shutdown_rx,
-                owner_shutdown,
-                ready_tx,
-            ));
+            let result = cmux_threads::tokio::block_on(
+                &runtime,
+                run_daemon(
+                    mux_socket,
+                    options,
+                    state_dir,
+                    link_socket,
+                    admin_socket,
+                    shutdown_rx,
+                    owner_shutdown,
+                    ready_tx,
+                ),
+            );
             runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
             result
         })
         .context("could not start remote daemon thread")?;
 
-    let info = match ready_rx.recv_timeout(startup_timeout) {
+    let info = match crate::blocking::sync::recv_timeout(&ready_rx, startup_timeout) {
         Ok(Ok(info)) => info,
         Ok(Err(error)) => {
             let _ = shutdown_tx.send(true);
@@ -2098,18 +2154,26 @@ async fn run_daemon(
     let setup = async {
         let mut startup_shutdown = shutdown.clone();
         let auth_state_dir = state_dir.join("auth");
-        let mut lifecycle_fenced = read_daemon_lifecycle_fence(&state_dir)
-            .context(catalog().remote.verify_lifecycle_fence)?;
-        if lifecycle_fenced {
-            persist_daemon_lifecycle_fence(&state_dir)
-                .context(catalog().remote.confirm_lifecycle_fence_durability)?;
-        }
-        let auth_state_preexisting =
-            auth_state_dir.try_exists().context(catalog().remote.inspect_authorization_state)?;
-        let auth_state_schema = auth_state_preexisting
-            .then(|| persisted_auth_state_schema(&auth_state_dir))
-            .transpose()
-            .context(catalog().remote.inspect_authorization_schema)?;
+        let (mut lifecycle_fenced, auth_state_preexisting, auth_state_schema) = {
+            let state_dir = state_dir.clone();
+            let auth_state_dir = auth_state_dir.clone();
+            crate::blocking::off_worker(move || {
+                let lifecycle_fenced = read_daemon_lifecycle_fence(&state_dir)
+                    .context(catalog().remote.verify_lifecycle_fence)?;
+                if lifecycle_fenced {
+                    persist_daemon_lifecycle_fence(&state_dir)
+                        .context(catalog().remote.confirm_lifecycle_fence_durability)?;
+                }
+                let auth_state_preexisting = cmux_blocking::fs::exists(&auth_state_dir)
+                    .context(catalog().remote.inspect_authorization_state)?;
+                let auth_state_schema = auth_state_preexisting
+                    .then(|| persisted_auth_state_schema(&auth_state_dir))
+                    .transpose()
+                    .context(catalog().remote.inspect_authorization_schema)?;
+                anyhow::Ok((lifecycle_fenced, auth_state_preexisting, auth_state_schema))
+            })
+            .await?
+        };
         if matches!(auth_state_schema, Some(PersistedAuthStateSchema::Legacy))
             || matches!(auth_state_schema, Some(PersistedAuthStateSchema::Missing))
             || (lifecycle_fenced && !auth_state_preexisting)
@@ -2127,20 +2191,32 @@ async fn run_daemon(
         // older binaries. Publish the lifecycle marker only after that state
         // is durable and while its exclusive lease is still held.
         if !auth_state_preexisting && !lifecycle_fenced {
-            ensure_secure_directory(&state_dir, DirectoryAccess::OwnerControlled)
-                .context(catalog().remote.prepare_lifecycle_state)?;
-            #[cfg(test)]
-            pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeLifecycleFence);
-            persist_daemon_lifecycle_fence(&state_dir)?;
+            let state_dir = state_dir.clone();
+            crate::blocking::off_worker(move || {
+                ensure_secure_directory(&state_dir, DirectoryAccess::OwnerControlled)
+                    .context(catalog().remote.prepare_lifecycle_state)?;
+                #[cfg(test)]
+                pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeLifecycleFence);
+                persist_daemon_lifecycle_fence(&state_dir)?;
+                anyhow::Ok(())
+            })
+            .await?;
             lifecycle_fenced = true;
         }
         #[cfg(unix)]
         if lifecycle_fenced {
             recover_inactive_predecessor_state(&state_dir, &link_socket, &admin_socket).await?;
         }
-        verify_previous_shutdown_outcome(&state_dir, lifecycle_fenced)?;
-        if !lifecycle_fenced {
-            persist_daemon_lifecycle_fence(&state_dir)?;
+        {
+            let state_dir = state_dir.clone();
+            crate::blocking::off_worker(move || {
+                verify_previous_shutdown_outcome(&state_dir, lifecycle_fenced)?;
+                if !lifecycle_fenced {
+                    persist_daemon_lifecycle_fence(&state_dir)?;
+                }
+                anyhow::Ok(())
+            })
+            .await?;
         }
         if *startup_shutdown.borrow() {
             return Err(anyhow!("remote daemon startup was cancelled"));
@@ -2157,21 +2233,22 @@ async fn run_daemon(
         let mux_socket = mux_binding.mux_socket.clone();
 
         let lifecycle_id = uuid::Uuid::new_v4().to_string();
-        let preliminary_runtime = persist_runtime_info(
-            &state_dir,
-            &DaemonRuntimeInfo {
-                session: options.session.clone(),
-                state_dir: state_dir.clone(),
-                link_socket: link_socket.clone(),
-                admin_socket: admin_socket.clone(),
-                daemon_fingerprint: auth.identity().fingerprint(),
-                routes: Vec::new(),
-                direct_websocket: None,
-                iroh_node_id: None,
-                lifecycle_id: Some(lifecycle_id.clone()),
-                replaceable_sidecar: options.replaceable_sidecar,
-            },
-        );
+        let preliminary_info = DaemonRuntimeInfo {
+            session: options.session.clone(),
+            state_dir: state_dir.clone(),
+            link_socket: link_socket.clone(),
+            admin_socket: admin_socket.clone(),
+            daemon_fingerprint: auth.identity().fingerprint(),
+            routes: Vec::new(),
+            direct_websocket: None,
+            iroh_node_id: None,
+            lifecycle_id: Some(lifecycle_id.clone()),
+            replaceable_sidecar: options.replaceable_sidecar,
+        };
+        let preliminary_runtime = crate::blocking::off_worker(move || {
+            persist_runtime_info(&preliminary_info.state_dir, &preliminary_info)
+        })
+        .await;
         if let Err(error) = preliminary_runtime {
             if error.downcast_ref::<CommittedRuntimeInfoError>().is_some() {
                 return finalize_daemon_authorization(auth, state_dir, lifecycle_id, vec![error])
@@ -2249,7 +2326,7 @@ async fn run_daemon(
                         return Err(anyhow!("remote daemon startup was cancelled"));
                     }
                 };
-                let result = result.expect("a non-empty relay task set has a result");
+                let Some(result) = result else { break };
                 relays.push(result.context("relay registration task failed")??);
             }
 
@@ -2351,7 +2428,11 @@ async fn run_daemon(
                 lifecycle_id: Some(lifecycle_id.clone()),
                 replaceable_sidecar: options.replaceable_sidecar,
             };
-            persist_runtime_info(&state_dir, &info)?;
+            let persisted = info.clone();
+            crate::blocking::off_worker(move || {
+                persist_runtime_info(&persisted.state_dir, &persisted)
+            })
+            .await?;
             Ok((unix, websocket, workspace_http, relays, iroh, admin, info))
         }
         .await;
@@ -2420,10 +2501,13 @@ async fn recover_inactive_predecessor_state(
 ) -> anyhow::Result<()> {
     let runtime_path = state_dir.join("runtime.json");
     let outcome_path = state_dir.join("shutdown.json");
-    let initial_runtime = read_optional_file(&runtime_path)
-        .context(catalog().remote.snapshot_runtime_for_recovery)?;
-    let initial_outcome = read_optional_file(&outcome_path)
-        .context(catalog().remote.snapshot_finalization_for_recovery)?;
+    let (initial_runtime, initial_outcome) = read_lifecycle_evidence(
+        &runtime_path,
+        &outcome_path,
+        catalog().remote.snapshot_runtime_for_recovery,
+        catalog().remote.snapshot_finalization_for_recovery,
+    )
+    .await?;
     let Some(runtime) = initial_runtime
         .as_deref()
         .map(serde_json::from_slice::<DaemonRuntimeInfo>)
@@ -2464,10 +2548,13 @@ async fn recover_inactive_predecessor_state(
     )
     .await?;
 
-    let runtime_snapshot = read_optional_file(&runtime_path)
-        .context(catalog().remote.resnapshot_runtime_for_recovery)?;
-    let outcome_snapshot = read_optional_file(&outcome_path)
-        .context(catalog().remote.resnapshot_finalization_for_recovery)?;
+    let (runtime_snapshot, outcome_snapshot) = read_lifecycle_evidence(
+        &runtime_path,
+        &outcome_path,
+        catalog().remote.resnapshot_runtime_for_recovery,
+        catalog().remote.resnapshot_finalization_for_recovery,
+    )
+    .await?;
     if runtime_snapshot != initial_runtime || outcome_snapshot != initial_outcome {
         return Err(anyhow!(catalog().remote.lifecycle_evidence_changed_before_recovery));
     }
@@ -2489,9 +2576,29 @@ async fn recover_inactive_predecessor_state(
         catalog().remote.failed_finalization_label,
     )
     .await?;
-    remove_shutdown_recovery_evidence(state_dir, runtime_snapshot, outcome_snapshot)
-        .context("could not remove stale remote daemon lifecycle evidence")?;
-    Ok(())
+    let state_dir = state_dir.to_path_buf();
+    crate::blocking::off_worker(move || {
+        remove_shutdown_recovery_evidence(&state_dir, runtime_snapshot, outcome_snapshot)
+            .context("could not remove stale remote daemon lifecycle evidence")
+    })
+    .await
+}
+
+/// Reads the runtime metadata and the shutdown outcome on the blocking pool;
+/// a missing file is `None`.
+async fn read_lifecycle_evidence(
+    runtime_path: &Path,
+    outcome_path: &Path,
+    runtime_context: &'static str,
+    outcome_context: &'static str,
+) -> anyhow::Result<(Option<Vec<u8>>, Option<Vec<u8>>)> {
+    let (runtime_path, outcome_path) = (runtime_path.to_path_buf(), outcome_path.to_path_buf());
+    crate::blocking::off_worker(move || {
+        let runtime = read_optional_file(&runtime_path).context(runtime_context)?;
+        let outcome = read_optional_file(&outcome_path).context(outcome_context)?;
+        anyhow::Ok((runtime, outcome))
+    })
+    .await
 }
 
 async fn load_daemon_auth_during_handoff(
@@ -2502,7 +2609,14 @@ async fn load_daemon_auth_during_handoff(
 ) -> anyhow::Result<Arc<AuthDatabase>> {
     let deadline = tokio::time::Instant::now() + retry_timeout;
     loop {
-        match AuthDatabase::load_or_create(state_dir, daemon_name.to_owned(), true) {
+        let (attempt_dir, attempt_name) = (state_dir.to_path_buf(), daemon_name.to_owned());
+        let loaded = crate::blocking::off_worker(move || {
+            std::io::Result::Ok(AuthDatabase::load_or_create(attempt_dir, attempt_name, true))
+        })
+        .await
+        .map_err(IdentityError::Io)
+        .and_then(|loaded| loaded);
+        match loaded {
             Ok(auth) => return Ok(auth),
             Err(IdentityError::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 if *shutdown.borrow() {
@@ -2571,11 +2685,11 @@ fn verify_previous_shutdown_outcome(
     }
 }
 
-fn combine_shutdown_failures(mut failures: Vec<anyhow::Error>) -> anyhow::Result<()> {
-    match failures.len() {
-        0 => Ok(()),
-        1 => Err(failures.pop().expect("one shutdown failure is present")),
-        _ => Err(anyhow!(
+fn combine_shutdown_failures(failures: Vec<anyhow::Error>) -> anyhow::Result<()> {
+    match <[anyhow::Error; 1]>::try_from(failures) {
+        Ok([only]) => Err(only),
+        Err(failures) if failures.is_empty() => Ok(()),
+        Err(failures) => Err(anyhow!(
             "remote daemon shutdown encountered multiple failures: {}",
             failures.into_iter().map(|error| format!("{error:#}")).collect::<Vec<_>>().join("; ")
         )),
@@ -2669,17 +2783,17 @@ fn persist_runtime_info(state_dir: &Path, info: &DaemonRuntimeInfo) -> anyhow::R
             use std::os::unix::fs::OpenOptionsExt as _;
             options.mode(0o600);
         }
-        let mut file = options.open(&temporary)?;
+        let mut file = crate::blocking::fs::open_with(&options, &temporary)?;
         file.write_all(&encoded)?;
-        file.sync_all()?;
-        fs::rename(&temporary, &path)?;
+        crate::blocking::fs::sync_all(&file)?;
+        cmux_blocking::fs::rename(&temporary, &path)?;
         if let Err(error) = sync_state_directory(state_dir) {
             return Err(anyhow::Error::new(CommittedRuntimeInfoError(error)));
         }
         Ok(())
     })();
     if result.is_err() {
-        let _ = fs::remove_file(&temporary);
+        let _ = cmux_blocking::fs::remove_file(&temporary);
     }
     result
 }
@@ -2718,14 +2832,15 @@ fn persist_shutdown_outcome(
             use std::os::unix::fs::OpenOptionsExt as _;
             options.mode(0o600);
         }
-        let mut file = options.open(&temporary).map_err(IdentityError::Io)?;
+        let mut file =
+            crate::blocking::fs::open_with(&options, &temporary).map_err(IdentityError::Io)?;
         file.write_all(&encoded).map_err(IdentityError::Io)?;
-        file.sync_all().map_err(IdentityError::Io)?;
-        fs::rename(&temporary, &path).map_err(IdentityError::Io)?;
+        crate::blocking::fs::sync_all(&file).map_err(IdentityError::Io)?;
+        cmux_blocking::fs::rename(&temporary, &path).map_err(IdentityError::Io)?;
         sync_state_directory(state_dir)
     })();
     if result.is_err() {
-        let _ = fs::remove_file(&temporary);
+        let _ = cmux_blocking::fs::remove_file(&temporary);
     }
     result
 }
@@ -2756,21 +2871,22 @@ pub(crate) fn persist_daemon_lifecycle_fence(state_dir: &Path) -> Result<(), Ide
             use std::os::unix::fs::OpenOptionsExt as _;
             options.mode(0o600);
         }
-        let mut file = options.open(&temporary).map_err(IdentityError::Io)?;
+        let mut file =
+            crate::blocking::fs::open_with(&options, &temporary).map_err(IdentityError::Io)?;
         file.write_all(&encoded).map_err(IdentityError::Io)?;
-        file.sync_all().map_err(IdentityError::Io)?;
-        fs::rename(&temporary, path).map_err(IdentityError::Io)?;
+        crate::blocking::fs::sync_all(&file).map_err(IdentityError::Io)?;
+        cmux_blocking::fs::rename(&temporary, path).map_err(IdentityError::Io)?;
         sync_state_directory(state_dir)
     })();
     if result.is_err() {
-        let _ = fs::remove_file(&temporary);
+        let _ = cmux_blocking::fs::remove_file(&temporary);
     }
     result
 }
 
 fn remove_owned_runtime_info(state_dir: &Path, lifecycle_id: &str) -> Result<(), IdentityError> {
     let path = state_dir.join("runtime.json");
-    let current = match fs::read(&path) {
+    let current = match cmux_blocking::fs::read(&path) {
         Ok(current) => current,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(IdentityError::Io(error)),
@@ -2782,7 +2898,7 @@ fn remove_owned_runtime_info(state_dir: &Path, lifecycle_id: &str) -> Result<(),
             "remote runtime lifecycle ownership changed during shutdown".into(),
         ));
     }
-    match fs::remove_file(path) {
+    match cmux_blocking::fs::remove_file(path) {
         Ok(()) => sync_state_directory(state_dir),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(IdentityError::Io(error)),
@@ -2807,7 +2923,9 @@ fn sync_state_directory(path: &Path) -> Result<(), IdentityError> {
                 failures[index].1 -= 1;
             }
         }
-        fs::File::open(path).and_then(|directory| directory.sync_all()).map_err(IdentityError::Io)
+        cmux_blocking::fs::open(path)
+            .and_then(|directory| crate::blocking::fs::sync_all(&directory))
+            .map_err(IdentityError::Io)
     }
     #[cfg(not(unix))]
     {
@@ -2822,14 +2940,14 @@ pub fn load_runtime_info(
 ) -> anyhow::Result<DaemonRuntimeInfo> {
     let (state, _, _) = daemon_paths(session, state_override)?;
     let path = state.join("runtime.json");
-    serde_json::from_slice(&fs::read(&path).with_context(|| {
+    serde_json::from_slice(&cmux_blocking::fs::read(&path).with_context(|| {
         format!("remote daemon is not running for session {session:?} ({})", path.display())
     })?)
     .context("remote daemon runtime metadata is invalid")
 }
 
 fn read_runtime_info(state_dir: &Path) -> Result<Option<DaemonRuntimeInfo>, IdentityError> {
-    let encoded = match fs::read(state_dir.join("runtime.json")) {
+    let encoded = match cmux_blocking::fs::read(state_dir.join("runtime.json")) {
         Ok(encoded) => encoded,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(IdentityError::Io(error)),
@@ -2838,7 +2956,7 @@ fn read_runtime_info(state_dir: &Path) -> Result<Option<DaemonRuntimeInfo>, Iden
 }
 
 fn read_optional_file(path: &Path) -> Result<Option<Vec<u8>>, IdentityError> {
-    match fs::read(path) {
+    match cmux_blocking::fs::read(path) {
         Ok(encoded) => Ok(Some(encoded)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(IdentityError::Io(error)),
@@ -2882,7 +3000,9 @@ pub(crate) fn inactive_daemon_needs_legacy_acknowledgement(
     let auth_state_dir = state_dir.join("auth");
     let lifecycle_fenced =
         read_daemon_lifecycle_fence(state_dir).context(catalog().remote.verify_lifecycle_fence)?;
-    if !auth_state_dir.try_exists().context(catalog().remote.inspect_authorization_state)? {
+    if !cmux_blocking::fs::exists(&auth_state_dir)
+        .context(catalog().remote.inspect_authorization_state)?
+    {
         return Ok(lifecycle_fenced);
     }
     let auth_schema = persisted_auth_state_schema(&auth_state_dir)
@@ -2912,10 +3032,14 @@ pub(crate) async fn complete_verified_daemon_stop(
     daemon_name: &str,
 ) -> anyhow::Result<()> {
     let auth_state_dir = state_dir.join("auth");
-    auth_state_dir.try_exists().context(catalog().remote.inspect_stopped_authorization_state)?;
-
-    let auth = AuthDatabase::load_or_migrate_legacy(&auth_state_dir, daemon_name, true)
-        .context(catalog().remote.acquire_stopped_authorization_lease)?;
+    let daemon_name = daemon_name.to_owned();
+    let auth = crate::blocking::off_worker(move || {
+        cmux_blocking::fs::exists(&auth_state_dir)
+            .context(catalog().remote.inspect_stopped_authorization_state)?;
+        AuthDatabase::load_or_migrate_legacy(&auth_state_dir, daemon_name, true)
+            .context(catalog().remote.acquire_stopped_authorization_lease)
+    })
+    .await?;
     let cleanup_state_dir = state_dir.to_path_buf();
     auth.shutdown_with_cleanup(move |finalization| {
         if finalization.is_err() {
@@ -2936,10 +3060,13 @@ pub(crate) async fn acknowledge_failed_shutdown_outcome(
 ) -> anyhow::Result<()> {
     let runtime_path = state_dir.join("runtime.json");
     let outcome_path = state_dir.join("shutdown.json");
-    let initial_runtime = read_optional_file(&runtime_path)
-        .context(catalog().remote.snapshot_runtime_for_recovery)?;
-    let initial_outcome = read_optional_file(&outcome_path)
-        .context(catalog().remote.snapshot_finalization_for_recovery)?;
+    let (initial_runtime, initial_outcome) = read_lifecycle_evidence(
+        &runtime_path,
+        &outcome_path,
+        catalog().remote.snapshot_runtime_for_recovery,
+        catalog().remote.snapshot_finalization_for_recovery,
+    )
+    .await?;
     let runtime = validate_failed_shutdown_recovery_evidence(&initial_runtime, &initial_outcome)?;
     verify_recovery_sockets_inactive(
         runtime.as_ref(),
@@ -2949,13 +3076,18 @@ pub(crate) async fn acknowledge_failed_shutdown_outcome(
     )
     .await?;
 
-    let auth = AuthDatabase::load_or_migrate_legacy(state_dir.join("auth"), daemon_name, true)
-        .context(catalog().remote.acquire_recovery_authorization_lease)?;
-
-    let runtime_snapshot = read_optional_file(&runtime_path)
-        .context(catalog().remote.resnapshot_runtime_for_recovery)?;
-    let outcome_snapshot = read_optional_file(&outcome_path)
-        .context(catalog().remote.resnapshot_finalization_for_recovery)?;
+    let auth_state_dir = state_dir.join("auth");
+    let daemon_name = daemon_name.to_owned();
+    let (auth, runtime_snapshot, outcome_snapshot) = crate::blocking::off_worker(move || {
+        let auth = AuthDatabase::load_or_migrate_legacy(auth_state_dir, daemon_name, true)
+            .context(catalog().remote.acquire_recovery_authorization_lease)?;
+        let runtime = read_optional_file(&runtime_path)
+            .context(catalog().remote.resnapshot_runtime_for_recovery)?;
+        let outcome = read_optional_file(&outcome_path)
+            .context(catalog().remote.resnapshot_finalization_for_recovery)?;
+        anyhow::Ok((auth, runtime, outcome))
+    })
+    .await?;
     if runtime_snapshot != initial_runtime || outcome_snapshot != initial_outcome {
         return Err(anyhow!(catalog().remote.lifecycle_evidence_changed_before_recovery));
     }
@@ -3018,20 +3150,28 @@ pub(crate) async fn acknowledge_legacy_shutdown_state(
     admin_socket: &Path,
 ) -> anyhow::Result<()> {
     let auth_state_dir = state_dir.join("auth");
-    let auth_state_preexisting =
-        auth_state_dir.try_exists().context(catalog().remote.inspect_legacy_authorization_state)?;
-    let lifecycle_fenced =
-        read_daemon_lifecycle_fence(state_dir).context(catalog().remote.verify_lifecycle_fence)?;
-    if !auth_state_preexisting && !lifecycle_fenced {
-        return Err(anyhow!(catalog().remote.no_legacy_authorization_state));
-    }
-
     let runtime_path = state_dir.join("runtime.json");
     let outcome_path = state_dir.join("shutdown.json");
-    let initial_runtime =
-        read_optional_file(&runtime_path).context(catalog().remote.snapshot_legacy_runtime)?;
-    let initial_outcome =
-        read_optional_file(&outcome_path).context(catalog().remote.snapshot_legacy_shutdown)?;
+    let (initial_runtime, initial_outcome) = {
+        let state_dir = state_dir.to_path_buf();
+        let auth_state_dir = auth_state_dir.clone();
+        let (runtime_path, outcome_path) = (runtime_path.clone(), outcome_path.clone());
+        crate::blocking::off_worker(move || {
+            let auth_state_preexisting = cmux_blocking::fs::exists(&auth_state_dir)
+                .context(catalog().remote.inspect_legacy_authorization_state)?;
+            let lifecycle_fenced = read_daemon_lifecycle_fence(&state_dir)
+                .context(catalog().remote.verify_lifecycle_fence)?;
+            if !auth_state_preexisting && !lifecycle_fenced {
+                return Err(anyhow!(catalog().remote.no_legacy_authorization_state));
+            }
+            let runtime = read_optional_file(&runtime_path)
+                .context(catalog().remote.snapshot_legacy_runtime)?;
+            let outcome = read_optional_file(&outcome_path)
+                .context(catalog().remote.snapshot_legacy_shutdown)?;
+            anyhow::Ok((runtime, outcome))
+        })
+        .await?
+    };
     let runtime = validate_legacy_shutdown_evidence(&initial_runtime, &initial_outcome)?;
     verify_recovery_sockets_inactive(
         runtime.as_ref(),
@@ -3041,12 +3181,17 @@ pub(crate) async fn acknowledge_legacy_shutdown_state(
     )
     .await?;
 
-    let auth = AuthDatabase::load_or_migrate_legacy(&auth_state_dir, daemon_name, true)
-        .context(catalog().remote.acquire_legacy_recovery_authorization_lease)?;
-    let runtime_snapshot =
-        read_optional_file(&runtime_path).context(catalog().remote.resnapshot_legacy_runtime)?;
-    let outcome_snapshot =
-        read_optional_file(&outcome_path).context(catalog().remote.resnapshot_legacy_shutdown)?;
+    let daemon_name = daemon_name.to_owned();
+    let (auth, runtime_snapshot, outcome_snapshot) = crate::blocking::off_worker(move || {
+        let auth = AuthDatabase::load_or_migrate_legacy(&auth_state_dir, daemon_name, true)
+            .context(catalog().remote.acquire_legacy_recovery_authorization_lease)?;
+        let runtime = read_optional_file(&runtime_path)
+            .context(catalog().remote.resnapshot_legacy_runtime)?;
+        let outcome = read_optional_file(&outcome_path)
+            .context(catalog().remote.resnapshot_legacy_shutdown)?;
+        anyhow::Ok((auth, runtime, outcome))
+    })
+    .await?;
     if runtime_snapshot != initial_runtime || outcome_snapshot != initial_outcome {
         return Err(anyhow!(catalog().remote.lifecycle_evidence_changed_before_legacy_recovery));
     }
@@ -3166,7 +3311,7 @@ fn finish_legacy_shutdown_recovery(
     }
     persist_daemon_lifecycle_fence(state_dir)?;
     if expected_runtime.is_some() {
-        fs::remove_file(runtime_path).map_err(IdentityError::Io)?;
+        cmux_blocking::fs::remove_file(runtime_path).map_err(IdentityError::Io)?;
         sync_state_directory(state_dir)?;
     }
     Ok(())
@@ -3189,11 +3334,11 @@ fn remove_shutdown_recovery_evidence(
 
     persist_daemon_lifecycle_fence(state_dir)?;
     if expected_runtime.is_some() {
-        fs::remove_file(runtime_path).map_err(IdentityError::Io)?;
+        cmux_blocking::fs::remove_file(runtime_path).map_err(IdentityError::Io)?;
         sync_state_directory(state_dir)?;
     }
     if expected_outcome.is_some() {
-        fs::remove_file(outcome_path).map_err(IdentityError::Io)?;
+        cmux_blocking::fs::remove_file(outcome_path).map_err(IdentityError::Io)?;
         sync_state_directory(state_dir)?;
     }
     Ok(())
@@ -3209,6 +3354,15 @@ mod tests {
 
     #[cfg(unix)]
     mod initial_route_budget;
+    mod panic_free;
+
+    /// flock(2) on a test's own lock file: 0, or -1 with errno set.
+    #[cfg(unix)]
+    fn flock(file: &fs::File, operation: libc::c_int) -> libc::c_int {
+        use std::os::fd::AsRawFd as _;
+        // SAFETY: `file` is open for the call and flock takes no pointer.
+        unsafe { libc::flock(file.as_raw_fd(), operation) }
+    }
 
     fn instrumented_test_timeout(timeout: Duration) -> Duration {
         let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
@@ -4570,7 +4724,6 @@ mod tests {
     #[test]
     fn client_startup_timeout_returns_while_the_socket_path_lock_is_held() {
         use std::fs::OpenOptions;
-        use std::os::fd::AsRawFd;
         use std::os::unix::fs::OpenOptionsExt;
 
         let directory = tempfile::tempdir_in("/tmp").unwrap();
@@ -4611,7 +4764,7 @@ mod tests {
             .mode(0o600)
             .open(client_socket_lock_path(&local_socket).unwrap())
             .unwrap();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_EX), 0);
 
         let ssh = SshProviderConfig::default();
         let client_state = directory.path().join("client-state");
@@ -4645,7 +4798,7 @@ mod tests {
         });
 
         let completed_while_locked = done_rx.recv_timeout(Duration::from_millis(500)).is_ok();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_UN), 0);
         if !completed_while_locked {
             done_rx
                 .recv_timeout(Duration::from_secs(3))
@@ -4665,7 +4818,6 @@ mod tests {
     #[test]
     fn daemon_startup_timeout_returns_while_the_identity_path_lock_is_held() {
         use std::fs::OpenOptions;
-        use std::os::fd::AsRawFd;
         use std::os::unix::fs::OpenOptionsExt;
 
         let directory = tempfile::tempdir_in("/tmp").unwrap();
@@ -4682,7 +4834,7 @@ mod tests {
             .mode(0o600)
             .open(auth_state.join("identity.json.lock"))
             .unwrap();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_EX), 0);
 
         let mux_socket = directory.path().join("missing-mux.sock");
         let (done_tx, done_rx) = mpsc::sync_channel(1);
@@ -4710,7 +4862,7 @@ mod tests {
         });
 
         let completed_while_locked = done_rx.recv_timeout(Duration::from_millis(500)).is_ok();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_UN), 0);
         if !completed_while_locked {
             done_rx
                 .recv_timeout(Duration::from_secs(3))
@@ -4801,7 +4953,6 @@ mod tests {
     #[test]
     fn daemon_startup_retries_a_predecessors_auth_state_lease() {
         use std::fs::OpenOptions;
-        use std::os::fd::AsRawFd;
         use std::os::unix::fs::OpenOptionsExt;
 
         let directory = tempfile::tempdir_in("/tmp").unwrap();
@@ -4822,7 +4973,7 @@ mod tests {
             .mode(0o600)
             .open(auth_state.join("devices.json.lock"))
             .unwrap();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_EX), 0);
 
         let mux_socket = directory.path().join("missing-mux.sock");
         let (done_tx, done_rx) = mpsc::sync_channel(1);
@@ -4850,7 +5001,7 @@ mod tests {
         });
 
         let early = done_rx.recv_timeout(Duration::from_millis(200));
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_UN), 0);
         let finished_while_locked = early.is_ok();
         let result = match early {
             Ok(result) => result,
@@ -4876,7 +5027,6 @@ mod tests {
     #[tokio::test]
     async fn daemon_auth_handoff_retry_stops_at_its_deadline() {
         use std::fs::OpenOptions;
-        use std::os::fd::AsRawFd;
         use std::os::unix::fs::OpenOptionsExt;
 
         let directory = tempfile::tempdir().unwrap();
@@ -4890,7 +5040,7 @@ mod tests {
             .mode(0o600)
             .open(auth_state.join("devices.json.lock"))
             .unwrap();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_EX), 0);
         let (_shutdown_tx, mut shutdown_rx) = watch::channel(false);
         let started = tokio::time::Instant::now();
 
@@ -4904,7 +5054,7 @@ mod tests {
         .unwrap_err()
         .to_string();
 
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_UN), 0);
         assert!(error.contains("still owned"), "{error}");
         assert!(
             started.elapsed() < Duration::from_secs(1),
@@ -4916,7 +5066,6 @@ mod tests {
     #[tokio::test]
     async fn daemon_auth_handoff_retry_observes_startup_cancellation() {
         use std::fs::OpenOptions;
-        use std::os::fd::AsRawFd;
         use std::os::unix::fs::OpenOptionsExt;
 
         let directory = tempfile::tempdir().unwrap();
@@ -4930,7 +5079,7 @@ mod tests {
             .mode(0o600)
             .open(auth_state.join("devices.json.lock"))
             .unwrap();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_EX), 0);
         let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
         let retry = tokio::spawn(async move {
             load_daemon_auth_during_handoff(
@@ -4952,7 +5101,7 @@ mod tests {
             .unwrap_err()
             .to_string();
 
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_UN), 0);
         assert!(error.contains("cancelled"), "{error}");
     }
 
@@ -4988,7 +5137,7 @@ mod tests {
         assert_ne!(first.1, first.2);
         for parent in [first.1.parent().unwrap(), first.2.parent().unwrap()] {
             let metadata = fs::symlink_metadata(parent).unwrap();
-            assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+            assert_eq!(metadata.uid(), cmux_tui_core::platform::effective_uid());
             assert_eq!(metadata.permissions().mode() & 0o077, 0);
         }
     }
@@ -5444,6 +5593,7 @@ mod tests {
                     true
                 }
                 Err(_) => {
+                    // SAFETY: kill takes no pointer and has no memory-safety precondition.
                     unsafe {
                         libc::kill(pid, libc::SIGKILL);
                     }
@@ -5461,9 +5611,11 @@ mod tests {
 
         let deadline =
             std::time::Instant::now() + instrumented_test_timeout(Duration::from_secs(2));
+        // SAFETY: kill takes no pointer; signal 0 only checks that the process exists.
         while unsafe { libc::kill(pid, 0) } == 0 && std::time::Instant::now() < deadline {
             thread::sleep(Duration::from_millis(10));
         }
+        // SAFETY: kill takes no pointer; signal 0 only checks that the process exists.
         assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "cancelled SSH child is still alive");
         assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
         daemon.shutdown().unwrap();
@@ -6402,13 +6554,13 @@ mod tests {
         prepare_client_socket(&parent.join("mux.sock")).await.unwrap();
 
         let metadata = fs::symlink_metadata(parent).unwrap();
-        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.uid(), cmux_tui_core::platform::effective_uid());
         assert_eq!(metadata.permissions().mode() & 0o077, 0);
 
         let lock_metadata = fs::symlink_metadata(directory.path().join("private/mux.sock.lock"))
             .expect("client socket preparation did not persist its ownership lock");
         assert!(lock_metadata.is_file());
-        assert_eq!(lock_metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(lock_metadata.uid(), cmux_tui_core::platform::effective_uid());
         assert_eq!(lock_metadata.permissions().mode() & 0o077, 0);
         assert_eq!(lock_metadata.nlink(), 1);
     }
@@ -6431,7 +6583,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn stale_client_socket_takeover_waits_for_the_path_lock() {
         use std::fs::OpenOptions;
-        use std::os::fd::AsRawFd;
         use std::os::unix::fs::OpenOptionsExt;
 
         let directory = tempfile::tempdir().unwrap();
@@ -6448,7 +6599,7 @@ mod tests {
             .mode(0o600)
             .open(lock_path)
             .unwrap();
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_EX), 0);
 
         let contender_path = path.clone();
         let mut contender = tokio::spawn(async move {
@@ -6459,7 +6610,7 @@ mod tests {
             "stale-socket takeover ignored the per-path ownership lock"
         );
 
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert_eq!(flock(&lock, libc::LOCK_UN), 0);
         let lease = tokio::time::timeout(Duration::from_secs(1), contender)
             .await
             .expect("client socket takeover stayed blocked after the path lock was released")
@@ -6567,7 +6718,8 @@ mod tests {
         let shared_tmp = root.path().to_path_buf();
         let decoy = root.path().join("decoy");
         fs::create_dir(&decoy).unwrap();
-        let squatted = shared_tmp.join(format!("cmux-r-{}", unsafe { libc::geteuid() }));
+        let squatted =
+            shared_tmp.join(format!("cmux-r-{}", cmux_tui_core::platform::effective_uid()));
         symlink(&decoy, &squatted).unwrap();
         let state = root.path().join("x".repeat(160));
         let session = SessionId([7; 16]);
@@ -6585,7 +6737,7 @@ mod tests {
         assert!(directory.starts_with(&shared_tmp));
         let metadata = fs::symlink_metadata(directory).unwrap();
         assert!(metadata.is_dir());
-        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.uid(), cmux_tui_core::platform::effective_uid());
         assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
         assert_eq!(client_socket_path_in(&state, session, None, &shared_tmp).unwrap(), socket);
         assert!(fs::read_dir(&decoy).unwrap().next().is_none());
@@ -6605,7 +6757,8 @@ mod tests {
         let shared_tmp = root.path().to_path_buf();
         let decoy = root.path().join("decoy");
         fs::create_dir(&decoy).unwrap();
-        let squatted = shared_tmp.join(format!("cmux-rd-{}", unsafe { libc::geteuid() }));
+        let squatted =
+            shared_tmp.join(format!("cmux-rd-{}", cmux_tui_core::platform::effective_uid()));
         symlink(&decoy, &squatted).unwrap();
         let state = root.path().join("state").join("sessions").join("session");
 
@@ -6619,7 +6772,7 @@ mod tests {
         assert!(unix_socket_path_fits(&link) && unix_socket_path_fits(&admin));
         let metadata = fs::symlink_metadata(directory).unwrap();
         assert!(metadata.is_dir());
-        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.uid(), cmux_tui_core::platform::effective_uid());
         assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
         assert_eq!(
             daemon_runtime_socket_paths_in(&state, None, &shared_tmp).unwrap(),

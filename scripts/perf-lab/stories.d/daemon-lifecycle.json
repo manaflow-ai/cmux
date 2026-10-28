@@ -1,0 +1,18 @@
+{
+  "id": "daemon-lifecycle",
+  "tier": "linux",
+  "description": "Tab, pane and workspace create and close on a release cmux-tui built at the commit (cmux-tui/scripts/bench-lifecycle.py): new-tab, browser tab, sized and unsized splits, new-workspace and each close, send to reply on one connection with 20 idle workspaces in the session, and the daemon threads each idle terminal adds.",
+  "command": ["cmux-tui/scripts/bench-lifecycle.py", "--build", "--rounds", "40", "--background", "20"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "daemon\\.lifecycle\\.(?!threads_per_terminal$)[a-z0-9_]+", "unit": "ms", "better": "lower"},
+    {"name": "daemon\\.lifecycle\\.threads_per_terminal", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 3,
+  "seconds": 60,
+  "needs": ["file:cmux-tui/scripts/daemon_bench_lab.py"],
+  "owner": "PL-daemon",
+  "component": "Daemon>Lifecycle"
+}

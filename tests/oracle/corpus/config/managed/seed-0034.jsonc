@@ -1,0 +1,14 @@
+{
+  "file": "{}\n",
+  "forced": {
+    "computerUse.enabled": true
+  },
+  "recommended": {
+    "sidebar.hoverCards.sections.waiting": 1
+  },
+  "team": {
+    "name": "Ünïcode Team",
+    "defaults": {},
+    "enforced": {}
+  }
+}

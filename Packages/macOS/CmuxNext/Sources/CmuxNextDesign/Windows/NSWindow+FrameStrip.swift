@@ -26,6 +26,7 @@ extension NSWindow {
         guard let first = frames.first, let last = frames.last, let before = frames.last(where: { $0.milliseconds < sentAt }) else { return nil }
         let content = contentHost.flatMap { pixelRect(of: $0, frame: first) }
         // The pane's strip, apart: its own motion (tabs sliding over) is not content.
+        // visibility-walk-allow: a capture report measures the strip only where AppKit draws it, the window's own view state
         let strip = stripView.flatMap { $0.isHiddenOrHasHiddenAncestor ? nil : pixelRect(of: $0, frame: first) }
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var rows: [[String: Any]] = []

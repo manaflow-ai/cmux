@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Puts a kept build in place of the running one (decision 2026-10-04,
 /// after ``RollbackDecision`` allowed it): the running build is kept first
@@ -9,30 +10,29 @@ nonisolated public struct RollbackSwap {
     /// - Returns: the bundle now at `current`.
     @discardableResult
     public static func perform(current: URL, currentBuild: String, target: KeptVersion, store: KeptVersionStore, limit: Int) throws -> URL {
-        let files = FileManager.default
         // 1. Take the kept bundle out of the store, next to the running one.
         let staged = current.deletingLastPathComponent()
             .appending(path: ".cmux-rollback-\(UUID().uuidString)-\(current.lastPathComponent)", directoryHint: .isDirectory)
-        try files.moveItem(at: target.bundle, to: staged)
+        try FileManager.checked.moveItem(at: target.bundle, to: staged)
         var keptCurrent = false
         do {
             // 2. Keep the running build, so the user can move forward again.
             try store.keep(bundle: current, build: currentBuild, limit: max(1, limit))
             keptCurrent = true
             // 3. Atomic swap on the same volume.
-            _ = try files.replaceItemAt(current, withItemAt: staged)
+            _ = try FileManager.checked.replaceItemAt(current, withItemAt: staged)
         } catch {
             // Put the kept build back where it was (its folder is still there): a failed swap
             // must not cost the user the only build they can drop back to, nor leave the
             // running build listed as a rollback target.
-            try? files.moveItem(at: staged, to: target.bundle)
+            try? FileManager.checked.moveItem(at: staged, to: target.bundle)
             if keptCurrent, currentBuild != target.build {
-                try? files.removeItem(at: store.root.appending(path: currentBuild, directoryHint: .isDirectory))
+                try? FileManager.checked.removeItem(at: store.root.appending(path: currentBuild, directoryHint: .isDirectory))
             }
             throw error
         }
         // 4. The kept build's folder is empty now; it goes only after the swap succeeded.
-        try? files.removeItem(at: target.bundle.deletingLastPathComponent())
+        try? FileManager.checked.removeItem(at: target.bundle.deletingLastPathComponent())
         return current
     }
 

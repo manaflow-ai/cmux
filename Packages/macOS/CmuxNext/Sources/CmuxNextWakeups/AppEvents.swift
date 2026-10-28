@@ -26,8 +26,15 @@ public import Foundation
 
     /// Observes every sender's notifications on `center` (held weakly). Make one per center and
     /// share it: each instance has its own observers.
-    public init(center: NotificationCenter) {
-        fanOut = NotificationFanOut(object: nil, center: center)
+    ///
+    /// - Parameters:
+    ///   - center: Where the notifications are posted.
+    ///   - observerLedger: For a system center (NSWorkspace's, the distributed one), whose wakes are process wakeups:
+    ///     in Debug and bench builds that ledger's arm census records each observer (one per name, under its first
+    ///     subscriber's owner and line) and its first post (startup-queue.py arms, p08-startup-085). Nil records
+    ///     none, as for the app's own center.
+    public init(center: NotificationCenter, observerLedger: WakeupLedger? = nil) {
+        fanOut = NotificationFanOut(object: nil, center: center, observerLedger: observerLedger)
     }
 
     /// Calls `handler` for each post of `name`, by `node`'s visibility.
@@ -38,18 +45,21 @@ public import Foundation
     ///   - delivery: ``EventDelivery/whenVisible`` for view work, ``EventDelivery/always`` for work
     ///     a person waits for while the view is hidden.
     ///   - owner: The subscriber's name for diagnostics.
+    ///   - file: The line that subscribed, named by the arm census (leave the default).
+    ///   - line: See `file`.
     ///   - handler: Main-actor work; ``EventCall/missed`` when it runs on show for posts it missed.
     /// - Returns: The subscription; keep it, releasing it ends the subscription.
     public func subscribe(_ name: Notification.Name, node: VisibilityNode, delivery: EventDelivery, owner: String,
+                          file: StaticString = #fileID, line: UInt = #line,
                           _ handler: @escaping @MainActor (EventCall) -> Void) -> EventSubscription {
-        fanOut.subscribe(name, node: node, delivery: delivery, owner: owner, handler)
+        fanOut.subscribe(name, node: node, delivery: delivery, owner: owner, file: file, line: line, handler)
     }
 
     /// Calls `handler` for every post of `name`: for an owner with no node that decides for a
     /// whole window or the app (a window's key tracker).
-    public func subscribe(_ name: Notification.Name, owner: String,
+    public func subscribe(_ name: Notification.Name, owner: String, file: StaticString = #fileID, line: UInt = #line,
                           _ handler: @escaping @MainActor () -> Void) -> EventSubscription {
-        fanOut.subscribe(name, node: nil, delivery: .always, owner: owner) { _ in handler() }
+        fanOut.subscribe(name, node: nil, delivery: .always, owner: owner, file: file, line: line) { _ in handler() }
     }
 
     /// Whether a NotificationCenter observer for `name` exists (one while it has a subscriber).

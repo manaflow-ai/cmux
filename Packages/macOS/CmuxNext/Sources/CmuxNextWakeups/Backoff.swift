@@ -7,11 +7,15 @@ import Foundation
 /// appears, the process exits, the network returns); Backoff only spaces
 /// attempts, it is never a poll period.
 public struct Backoff: Sendable {
+    /// The first delay; always positive.
     public var initial: Duration
+    /// The longest delay; at least ``initial``.
     public var maximum: Duration
+    /// How much each delay grows over the one before it; at least 1.
     public var multiplier: Double
     /// Fraction of the delay drawn at random, in 0...1 (0.2: ±20%).
     public var jitter: Double
+    /// Attempts since the last ``reset()``: the exponent of the next delay.
     public private(set) var attempt = 0
     /// A retry table that is not geometric (5 s, 15 s, 60 s, ...), in order, the last step
     /// repeating; nil grows `initial` by `multiplier` up to `maximum`.
@@ -78,6 +82,7 @@ public struct Backoff: Sendable {
     public mutating func wait(owner: String, clock: any Clock<Duration> = ContinuousClock(),
                               ledger: WakeupLedger = .shared) async throws {
         let delay = next()
+        // timer-class-allow: the retry helper's own sleep (flexible: max(8 ms, 10%)); the caller's task posts its main-thread work itself
         try await clock.sleep(for: delay, tolerance: Self.tolerance(for: delay))
         ledger.record(owner, reason: "backoff")
     }

@@ -3,6 +3,7 @@ import typealias CmuxNextBridge.StripTabID
 import CmuxNextChiefMemory
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHibernation
 import CmuxNextIcons
 import SwiftUI
 
@@ -66,6 +67,20 @@ final class ChiefMemoryPageService: InternalPageProvider {
     private var routes: [String: ChiefMemoryRoute] = [:]
     /// The route of the open running now, for a view it makes in the same turn.
     private var nextRoute: ChiefMemoryRoute?
+    /// Each tab's live model, by key, while its view exists.
+    private var models: [String: ChiefMemoryInspectorModel] = [:]
+    /// Tabs whose delete dialog waits for the person (scoped to the tab's view).
+    private var confirming: Set<String> = []
+    /// What a tab whose view was discarded showed, given to its next view.
+    private var saved: [String: SavedView] = [:]
+
+    /// The opened nodes and the search of a discarded tab (its Chief is the route, kept anyway).
+    struct SavedView: Equatable {
+        var trail: [String]
+        var query: String
+        /// The search's hits showed: the next view searches again.
+        var searched: Bool
+    }
 
     init(services: AppServices) {
         self.services = services
@@ -154,11 +169,17 @@ final class ChiefMemoryPageService: InternalPageProvider {
         let source = DaemonChiefMemorySource(chief: chief) { [weak self] in self?.connection(for: route) }
         // A delete asks first, in a cmux dialog over this tab only.
         let anchor = WeakView()
-        let model = ChiefMemoryInspectorModel(source: source) { target, _ in
+        let model = ChiefMemoryInspectorModel(source: source) { [weak self] target, _ in
             let spec = ChiefMemoryInspectorView.deleteDialog(for: target)
             let scope: CmuxDialogScope = if let view = anchor.view { .tab(view) } else { .app }
+            self?.confirming.insert(key)
+            defer { self?.confirming.remove(key) }
             return await CmuxDialogCenter.shared.present(spec, in: scope).button == ChiefMemoryInspectorView.deleteButton
         }
+        // A view made again after a discard opens on the nodes and search it showed; its first
+        // reload reads the last node and runs its search again.
+        if let shown = saved.removeValue(forKey: key) { model.restore(trail: shown.trail, query: shown.query, searched: shown.searched) }
+        models[key] = model
         let view = VisibilityGatedHostingView(owner: "ChiefMemoryPage") { ChiefMemoryInspectorView(model: model) }
         anchor.view = view
         return view
@@ -166,6 +187,32 @@ final class ChiefMemoryPageService: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         routes[key] = nil
+        models[key] = nil
+        confirming.remove(key)
+        saved[key] = nil
+    }
+
+    /// Tab `key`'s live model; nil while it has no view.
+    func model(for key: String) -> ChiefMemoryInspectorModel? { models[key] }
+
+    // MARK: Discard (`memoryDiscardInternalPages`)
+
+    /// Ten minutes hidden: every read comes from the Chief's daemon again, and each change is
+    /// written when it is made.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// An edit not saved yet, or a delete waiting on its dialog in this tab, keeps the view: a
+    /// rebuilt one could show neither (Chrome's `kUserEdits`).
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        guard models[key]?.editing != nil || confirming.contains(key) else { return [] }
+        return [.unsavedEdits]
+    }
+
+    /// The tab stays with its route (its Chief); its opened nodes and search wait for its next view
+    /// (``makeView(for:in:)``).
+    func viewDiscarded(_ key: String) {
+        guard let model = models.removeValue(forKey: key) else { return }
+        saved[key] = SavedView(trail: model.trail, query: model.query, searched: !model.hits.isEmpty)
     }
 
     func route(for key: String) -> String? { routes[key]?.description }

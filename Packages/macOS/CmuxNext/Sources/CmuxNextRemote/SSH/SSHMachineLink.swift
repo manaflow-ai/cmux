@@ -74,6 +74,14 @@ public enum SSHLinkError: Error, Sendable, CustomStringConvertible {
 /// ``SSHConnectionMachine``. Every status change is reported through
 /// `onStatus` (the App shows it in the sidebar).
 public actor SSHMachineLink {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.remote.ssh-link`): its socket and binary checks block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.remote.ssh-link
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.remote.ssh-link", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     public nonisolated let host: SSHHost
     public nonisolated let machineID: String
     private let binary: URL
@@ -147,6 +155,7 @@ public actor SSHMachineLink {
             Task.detached {
                 // wakeup-allow: deadline for a stopped link client to close its session; not a DemandTimer: a detached
                 // escalation that outlives the link, which nothing replaces or cancels
+                // timer-class-allow: off-main: a detached escalation that ends a process group; it posts no main-thread job
                 try? await Task.sleep(for: Self.closeDeadline, tolerance: WakeLeeway.window(delay: Self.closeDeadline).tolerance)
                 child.terminate()
             }

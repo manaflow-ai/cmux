@@ -1,0 +1,7 @@
+{
+  "agents": {
+    "subsessions": {
+      "maxChildren": "1"
+    }
+  }
+}

@@ -3,8 +3,9 @@
 # control channel (chromium_host_control.{h,cc}), no CEF needed, and checks
 # each against the golden frame that the Swift side (ChromiumHostFrameTests,
 # ChromiumHostControlChannelTests) checks too, then the one ordered input
-# stream (chromium_host_order_test.cpp, task 092) and the host's input queue
-# (host_user_input_test.cpp, task p04-input-065). Small: four clang++ calls.
+# stream (chromium_host_order_test.cpp, task 092), the host's input queue
+# (host_user_input_test.cpp, task p04-input-065) and its hang watch
+# (host_hang_watcher_test.cpp, task p01-process-084). Small: five clang++ calls.
 #
 # The host is a Debug-only prototype, not part of the CEF shim, so this is not
 # one of the shim's scripts/cmux-next/test-*-cpp.sh that cmux-next-shim-cpp.yml
@@ -30,3 +31,7 @@ host="$root/Packages/macOS/CmuxNext/ChromiumHost"
 "${cxx[@]}" -std=c++17 -Wall -Wextra -Werror -O1 \
   -o "$work/user-input-test" "$host/tests/host_user_input_test.cpp"
 "$work/user-input-test"
+# The host's hang watch and cmux's input ack count (host_hang_watcher.h, task p01-process-084).
+"${cxx[@]}" -std=c++17 -Wall -Wextra -Werror -O1 -pthread \
+  -o "$work/hang-watcher-test" "$host/tests/host_hang_watcher_test.cpp" "$host/src/chromium_host_control.cc"
+"$work/hang-watcher-test"

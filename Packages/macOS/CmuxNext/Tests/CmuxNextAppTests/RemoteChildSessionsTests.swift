@@ -4,6 +4,7 @@ import CmuxNextDaemon
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// A Cloud VM chat's child chats (its sub-sessions, `acpmux new` chats) on the Mac: the chat's
 /// remote wire lists them with the chat in `_acpmux/watch` from the VM daemon's
@@ -33,6 +34,12 @@ import Testing
         func children() async throws -> Data { RemoteAcpmuxWire.json(["sessions": listed]) }
     }
 
+    /// Main run loop passes, where the wire's posted tasks arrive, until `done` or 5 s.
+    private static func spinMainRunLoop(until done: () -> Bool) {
+        let end = Date(timeIntervalSinceNow: 5)
+        while !done(), Date() < end { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
+    }
+
     /// The reply of the wire's `_acpmux/watch`.
     private static func watch(_ wire: RemoteAcpmuxWire) async throws -> [String: Any] {
         let (frames, continuation) = AsyncStream.makeStream(of: String.self)
@@ -58,8 +65,8 @@ import Testing
         let ids = (reply["sessions"] as? [[String: Any]])?.compactMap { $0["sessionId"] as? String }
         #expect(ids == ["vm-chat", "vm-child", "vm-spawned", "vm-grandchild"])
         #expect(reply["tabSessionId"] as? String == "vm-chat")
-        // The note lands on the main actor after the reply.
-        for _ in 0..<50 where RemoteAgentSessionLinks.shared.parents["vm-grandchild"] == nil { await Task.yield() }
+        // The note lands after the reply, in one automation task the main run loop runs.
+        Self.spinMainRunLoop { RemoteAgentSessionLinks.shared.parents["vm-grandchild"] != nil }
         let links = RemoteAgentSessionLinks.shared
         #expect(links.parents["vm-child"] == "vm-chat")
         #expect(links.parents["vm-spawned"] == "vm-chat")
@@ -109,7 +116,7 @@ import Testing
     /// it; never a session that machine did not list under the chat.
     @Test func aRemoteChatOpensItsListedChildBesideIt() async {
         RemoteAgentSessionLinks.shared.note([["sessionId": "vm-row-child", "startedBy": "vm-row-chat"]])
-        let model = AgentPaneModel(host: NoHost(), sessionId: "vm-row-chat")
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), sessionId: "vm-row-chat")
         model.remoteChat = true
         let opened = Opened()
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },
