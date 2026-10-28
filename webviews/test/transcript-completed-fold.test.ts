@@ -94,3 +94,26 @@ test("the completed disclosure state is keyed by the turn prompt, so a later sna
   expect(first.map((entry) => entry.id)).toEqual(next.map((entry) => entry.id));
   expect(next).toContainEqual(expect.objectContaining({ id: "report" }));
 });
+
+test("Find resolves a completed fold when history starts at a landed steer", () => {
+  const full = completedTurn();
+  const reportAt = full.findIndex((entry) => entry.id === "report");
+  const rows = [full[reportAt]!, tool("late-test"), ...full.slice(reportAt + 1)];
+  const partialReportAt = rows.findIndex((entry) => entry.id === "report");
+
+  expect(turnFoldFor(rows, partialReportAt)).toBe(`${WORKED}-report`);
+  expect(turnView(rows, new Set())).toContainEqual(expect.objectContaining({ id: `${WORKED}-report` }));
+});
+
+test("an expanded provisional steer fold stays open when its older prompt arrives", () => {
+  const full = completedTurn();
+  const reportAt = full.findIndex((entry) => entry.id === "report");
+  const partial = [full[reportAt]!, tool("late-test"), ...full.slice(reportAt + 1)];
+  const expanded = new Set([`${WORKED}-report`]);
+
+  expect(turnView(partial, expanded)).toContainEqual(expect.objectContaining({ id: "late-test" }));
+
+  const loaded = turnView(full, expanded);
+  expect(loaded).toContainEqual(expect.objectContaining({ id: `${WORKED}-prompt` }));
+  expect(loaded).toContainEqual(expect.objectContaining({ id: "report" }));
+});
