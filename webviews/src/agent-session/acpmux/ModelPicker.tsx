@@ -52,6 +52,7 @@ type HarnessChoice = {
     family?: string;
     unavailable?: string;
     efforts?: string[];
+    effortsDeclared?: boolean;
     fast?: boolean;
     inlineFast?: boolean;
     release?: string;
@@ -136,6 +137,7 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
         ...(model.family ? { family: model.family } : {}),
         ...(model.unavailable ? { unavailable: model.unavailable } : {}),
         ...(model.efforts !== undefined ? { efforts: model.efforts } : {}),
+        ...(model.effortsDeclared ? { effortsDeclared: true } : {}),
         ...(model.fast !== undefined ? { fast: model.fast } : {}),
         ...(model.release ? { release: model.release } : {}),
       },
