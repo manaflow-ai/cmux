@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextSidebar
 import Observation
 
 // Window membership transitions. Every change goes through `transition`,
@@ -451,5 +452,47 @@ extension WindowManager {
         let follows = personal.follows.map { "\($0.key.rawValue)>\($0.value.sorted().joined(separator: "+"))" }.sorted()
         return "\(personal.isLoaded)|" + pins.joined(separator: ",") + "|" + follows.joined(separator: ",") + "|"
             + daemon.store.profileIDs.map(\.rawValue).joined(separator: ",")
+    }
+}
+
+/// Keeps `WindowRegistryStore.bands` (#26632) in step with the sidebar document and the windows: an item the document
+/// gains goes to the window that lists one of its workspaces, else to the front window (where it was made); a new
+/// window gains nothing, so it opens clean. Event-driven: one pass per document or membership change.
+extension WindowManager {
+    func observeBands() {
+        let registry = registry
+        bandsObservation?.cancel()
+        // task-owner: the manager (cancelled on the next call); event-driven (Observation)
+        bandsObservation = Task { [weak self] in
+            for await inputs in ObservationStream({ () -> WindowBandOwnership.Inputs? in
+                guard let shown = SidebarDocStore.current?.shown else { return nil }
+                return WindowBandOwnership.Inputs(items: shown.windowItems,
+                                  windows: Dictionary(registry.value.windows.map { ($0.id, $0.workspaceIDs) }, uniquingKeysWith: { first, _ in first }))
+            }) {
+                guard let self, let inputs else { continue }
+                adoptBands(inputs.items)
+            }
+        }
+    }
+
+    /// One ownership pass (`WindowBandOwnership.adopt`); a change is saved in the window records.
+    func adoptBands(_ items: [SidebarDocProjection.WindowItem]) {
+        let value = registry.value, refs = WorkspaceLayoutRefs(machines: services.machines)
+        let front = value.recency.first { value.window($0)?.isOpen == true }
+        var memberIDs: [SidebarDocWorkspaceRef: String]?
+        let machines = services.machines
+        var bands = registry.bands
+        let changed = bands.adopt(items, registered: Set(value.windows.map(\.id)), front: front) { item in
+            if let ref = item.ref { return refs.workspaceID(for: ref).flatMap(value.owner(of:)) }
+            guard !item.members.isEmpty else { return nil }
+            let ids = memberIDs ?? Dictionary(machines.daemons.flatMap { daemon in
+                daemon.store.workspaces.compactMap { w in SidebarDocSections.ref(of: w, session: daemon.store.registryID).map { ($0, w.id) } }
+            }, uniquingKeysWith: { first, _ in first })
+            memberIDs = ids
+            return item.members.lazy.compactMap { ids[$0].flatMap(value.owner(of:)) }.first
+        }
+        guard changed else { return }
+        registry.bands = bands
+        recordSaver.scheduleSave()
     }
 }

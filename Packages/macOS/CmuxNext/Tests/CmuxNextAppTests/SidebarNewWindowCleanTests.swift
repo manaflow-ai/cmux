@@ -116,7 +116,7 @@ import Testing
         let legacy = WindowRecord(id: "L")
         let decoded = try JSONDecoder().decode([WindowRecord].self, from: JSONEncoder().encode([a, legacy]))
         #expect(decoded.map(\.bandItems) == [["itm_gs", "itm_tab"], nil])
-        var bands = WindowBandOwnership(records: decoded)
+        var bands = WindowBandOwnership(saved: decoded.map { ($0.id, $0.bandItems) })
         bands.adopt(Self.projection().windowItems, registered: ["A", "L"], front: "L") { _ in nil }
         #expect(bands.items(of: "A") == ["itm_gs", "itm_tab"])
         #expect(bands.items(of: "L") == ["itm_ge", "itm_link", "itm_url"])

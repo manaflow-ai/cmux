@@ -13,7 +13,8 @@ import Foundation
 ///   draw in its own arrangement (`SidebarRowKey.block`), and its groups
 ///   leave their machine and list there as header and member rows. A kept
 ///   group no other window lists an open workspace of lists there too; one
-///   whose open workspace another window lists belongs to it (#25776).
+///   whose open workspace another window lists belongs to it (#25776), and so do the groups and links another
+///   window owns (#26632, `SidebarDocDrag.hiddenItems`).
 extension SidebarDocProjection {
     /// `sections` arranged as this document places items; `drag` names each row's item and each list section's document section.
     @MainActor public func arrange(_ sections: [SidebarSection], drag: SidebarDocDrag) -> [SidebarSection] {
@@ -35,7 +36,7 @@ extension SidebarDocProjection {
                 return true
             }
             if section.machine != nil {
-                section.nodes = Self.machineNodes(section, projection, drag: drag)
+                section.nodes = Self.withoutHiddenItems(Self.machineNodes(section, projection, drag: drag), drag: drag)
                 // A machine section the person made a remote group keeps its header in one list.
                 section.isHostGroup = drag.section(section.id).flatMap { projection.hostGroups.contains($0) } ?? false
             }
@@ -59,8 +60,8 @@ extension SidebarDocProjection {
             let nodes = projection.bandGroups.filter { $0.section == id }.compactMap { group -> SidebarNode? in
                 if let shown = pulled[group.id] { return .group(shown) }
                 // Not listed here: another window lists an open workspace of it, or none does (its header alone, also while
-                // its last one closes or a new one waits for its window's row).
-                return elsewhere.contains(group.id) ? nil : .group(Self.emptyGroup(group))
+                // its last one closes or a new one waits for its window's row). Another window's own group lists there (#26632).
+                return elsewhere.contains(group.id) || projection.bandGroupHidden(group.id, drag: drag) ? nil : .group(Self.emptyGroup(group))
             }
             guard !passedMachines || !nodes.isEmpty else { continue }
             let section = SidebarSection(kind: .custom(SidebarCustomSection(id: id, title: layoutSection.title, showsTitle: false)), nodes: nodes)

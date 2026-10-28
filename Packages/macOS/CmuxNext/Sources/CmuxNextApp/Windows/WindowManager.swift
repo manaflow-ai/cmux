@@ -39,6 +39,8 @@ final class WindowManager {
     lazy var recordSaver = WindowRecordSaver(manager: self)
     private var loadObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
+    /// Follows the sidebar document's window items (`adoptBands`).
+    var bandsObservation: Task<Void, Never>?
     /// Records connected sessions in the home session (rooms, data-model.md 1.1).
     private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines)
     /// New workspaces a window asked for before the daemon reported them:
@@ -242,6 +244,7 @@ final class WindowManager {
                 keepClosedDuringRestore(&registry)
                 return WindowRegistry.Changes()
             }
+            registry.bands = WindowBandOwnership(saved: document.windows.map { ($0.id, $0.bandItems) })
         }
         reconcileMembership()
         // Every remaining window closed (the open ones lost their workspaces while the app was
@@ -267,6 +270,7 @@ final class WindowManager {
         // The adopted window is the frontmost saved one; keep it in front.
         if let adopted, controllers.count > 1 { present(adopted) }
         observeMembership()
+        observeBands()
         sessionRegistrar.start()
         registry.isLaunching = false
         fullScreenRestoreReady = true

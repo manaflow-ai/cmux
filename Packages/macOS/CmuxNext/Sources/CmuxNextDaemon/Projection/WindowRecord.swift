@@ -79,6 +79,9 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     /// The workspaces the window shows side by side (Debug Settings `sidebar.multiView`); nil shows
     /// `workspaceKey` alone. Never written while the prototype is off.
     public var multiView: WindowViewLayout?
+    /// The sidebar document items this window owns (pins, groups, links; #26632): it lists only these and those of
+    /// the workspaces it lists, so a new window starts clean. Nil in records from older builds (nothing owned yet).
+    public var bandItems: [String]?
 
     public init(id: String, workspaceKey: WorkspaceKey? = nil, workspaceKeys: [WorkspaceKey] = [], machine: String? = nil,
                 screenID: ResourceID? = nil, frame: WindowFrame? = nil, display: String? = nil, isFullScreen: Bool = false,
@@ -121,6 +124,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         case focusedPanes = "focused_panes"
         case workspaceMachines = "workspace_machines"
         case multiView = "multi_view"
+        case bandItems = "band_items"
     }
 
     /// Keys only older builds wrote; read for migration, never written.
@@ -155,5 +159,6 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         page = try c.decodeIfPresent(String.self, forKey: .page)
         isClosed = try c.decodeIfPresent(Bool.self, forKey: .isClosed) ?? false
         multiView = try c.decodeIfPresent(WindowViewLayout.self, forKey: .multiView)
+        bandItems = try c.decodeIfPresent([String].self, forKey: .bandItems)
     }
 }

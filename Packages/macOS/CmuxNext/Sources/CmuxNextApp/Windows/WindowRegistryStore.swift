@@ -14,6 +14,8 @@ final class WindowRegistryStore {
     /// from the live tree: meanwhile sidebars show their saved rows
     /// (`SidebarSeed`).
     var isLaunching = false
+    /// Which window each sidebar document item belongs to (#26632); its own value, so a pin moves no membership reader.
+    var bands = WindowBandOwnership()
 
     /// Runs one transition; returns what it changed.
     @discardableResult

@@ -68,15 +68,23 @@ final class SidebarRows {
     }
 
     /// The layout window `windowID` draws: `visibleLayout` without the band's
-    /// workspaces another window owns, so a new window starts clean. Only on
+    /// workspaces another window owns, and without the other items another
+    /// window owns (`hidden`, `WindowBandOwnership`: a closed workspace's pin,
+    /// a tab, a page), so a new window starts clean (#26632). Only on
     /// the sidebar document, whose band moves anchor on a drawn neighbour; the
     /// older owner's index ops count the stored layout; the bridge translates
     /// visible item indexes back to stored indexes before sending edits.
     static func visibleLayout(_ document: SidebarLayoutDocument, window windowID: String, machines: MachineRegistry,
-                              registry: WindowRegistry, showAppStore: Bool = true) -> SidebarLayoutDocument {
+                              registry: WindowRegistry, hidden: Set<String> = [], showAppStore: Bool = true) -> SidebarLayoutDocument {
         guard SidebarDocWiring.isActive else { return visibleLayout(document, showAppStore: showAppStore) }
         let refs = WorkspaceLayoutRefs(machines: machines)
-        return visibleLayout(document, showAppStore: showAppStore).scopedToWindow { refs.ownedElsewhere($0, window: windowID, registry: registry) }
+        return visibleLayout(document, showAppStore: showAppStore).scopedToWindow { item in
+            // An open workspace's item follows the window that lists it, wherever it was pinned.
+            if item.ref.kind == LayoutItemRef.workspaceKind, let id = refs.workspaceID(for: item.ref), let owner = registry.owner(of: id) {
+                return owner != windowID
+            }
+            return hidden.contains(item.id.rawValue)
+        }
     }
 
     /// Shows `live` (when given) with the pending edits applied, then the
