@@ -17,7 +17,8 @@ const FOCUSED_IN_FRAME: &str = "function () { let doc = document; for (let i = 0
     const el = doc.activeElement; if (!el || (el.tagName !== 'IFRAME' && el.tagName !== 'FRAME')) return doc.location.href; \
     let inner = null; try { inner = el.contentDocument; } catch (e) { inner = null; } if (!inner) return el; doc = inner; } return null; }";
 
-/// How long to wait for a world's context to be reported before creating it.
+/// How long to wait for the agent world's context (its new-document script
+/// creates it) to be reported before creating it.
 const CONTEXT_GRACE: Duration = Duration::from_millis(500);
 
 /// Prefix of the error the handle wrapper throws for a handle that no longer resolves.
@@ -53,6 +54,15 @@ pub(super) struct Context {
     pub(super) session: String,
     pub(super) id: i64,
 }
+
+/// Whether a context's page agent answers for the document it shows now. A
+/// window keeps its global when it leaves its initial about:blank for a
+/// same-origin page (a `window.open` popup with an opener), so the agent
+/// installed on about:blank is still there, bound to the old document, and
+/// Chromium runs no new-document script in that world again. The install
+/// source then installs a fresh agent (page-agent.js checks the same).
+const AGENT_CURRENT: &str = "(() => { const a = globalThis[Symbol.for('cmux.browserRepl.agent')]; \
+     return typeof globalThis.__cmuxPageAgent === 'object' && !!a && a.document === document; })()";
 
 impl Inner {
     pub(super) fn frame_or_main(
@@ -92,10 +102,13 @@ impl Inner {
         deadline: Instant,
     ) -> Result<Context, DriverError> {
         let key = (frame_id.to_owned(), world);
-        // A fetch shell never reports the host world (nothing creates it
-        // but the host): look once, then create it, without the grace.
-        let shell_host = world == World::Host && self.lock().is_hidden(&session.target_id);
-        let grace = if shell_host { Instant::now() } else { Instant::now() + CONTEXT_GRACE };
+        // No document reports the host world by itself (no new-document
+        // script names it; only the host creates it): look once, then create
+        // it, without the grace. Waiting it out cost a fetch shell, and the
+        // focus probe before the first typed input on every new document,
+        // 500 ms each.
+        let host = world == World::Host;
+        let grace = if host { Instant::now() } else { Instant::now() + CONTEXT_GRACE };
         let grace = grace.min(deadline);
         let known = self.wait_for(&session.target_id, grace, "the frame's script context", |tab| {
             tab.contexts
@@ -151,7 +164,8 @@ impl Inner {
         Ok(Context { session: owner, id })
     }
 
-    /// Makes sure a reported agent-world context holds the page agent.
+    /// Makes sure a reported agent-world context holds the page agent of
+    /// its current document (see `AGENT_CURRENT`).
     /// Chromium can report two isolated contexts with the agent world's name
     /// for one new document (seen after a cross-site navigation to an http
     /// page), and the one recorded last may never have run the agent script;
@@ -175,7 +189,7 @@ impl Inner {
         let probe = self.send_on(
             &context.session,
             "Runtime.evaluate",
-            json!({"expression": "typeof globalThis.__cmuxPageAgent === 'object'", "contextId": context.id, "returnByValue": true}),
+            json!({"expression": AGENT_CURRENT, "contextId": context.id, "returnByValue": true}),
             deadline,
         )?;
         if probe["result"]["value"].as_bool() != Some(true) {

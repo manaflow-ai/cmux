@@ -16,6 +16,8 @@ public final class ScreenshotsCommands {
     private let writer: FileGridPasteboard
     /// The last Undo's file operation (tests wait on it).
     private(set) var pendingUndo: Task<Void, any Error>?
+    /// The open Rename sheet and its rename (tests wait on it).
+    private(set) var pendingRename: Task<Void, Never>?
 
     /// Makes the commands.
     ///
@@ -48,8 +50,8 @@ public final class ScreenshotsCommands {
         case .copyPath: writer.writePaths(items, to: pasteboard)
         case .rename:
             guard let item = items.first else { return }
-            // task-owner: one rename sheet; ends when the person answers it
-            Task { await askToRename(item, in: window) }
+            // task-owner: `pendingRename`; one rename sheet; ends when the person answers it
+            pendingRename = Task { await askToRename(item, in: window) }
         case .trash:
             // task-owner: one Move to Trash; ends when the files are moved
             Task {

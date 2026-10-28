@@ -130,6 +130,38 @@ import Testing
         #expect(harness.factory.sessions[0].cancelled)
         #expect(harness.flow.isSigningIn == false)
         #expect(harness.coordinator.isAuthenticated == false)
-        #expect(harness.flow.lastFailure == .timedOut)
+        #expect(harness.flow.lastFailure == .browserSignInFailed("browser_timeout"))
+    }
+
+    /// A person who closes the popup (past the instant-cancel window) must see a retry, not a silent return to Sign In.
+    @Test func popupClosedByThePersonRecordsARetryableFailure() async {
+        let clock = ManualTestClock()
+        let harness = HostBrowserSignInFlowHarness(clock: clock)
+
+        let attempt = harness.flow.beginSignIn()
+        await harness.waitForSession()
+        clock.advance(by: .seconds(5))
+        harness.factory.sessions[0].deliver(.cancelled(reason: "canceled_login"))
+
+        #expect(await attempt.value == false)
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(harness.flow.isSigningIn == false)
+        #expect(harness.flow.lastFailure == .browserSignInFailed("popup_closed"))
+    }
+
+    /// A browser handoff that never returns its callback ends after the 5-minute handoff wait with a retryable failure.
+    @Test func defaultBrowserHandoffWithoutCallbackEndsWithARetryableTimeout() async {
+        let clock = ManualTestClock()
+        let harness = HostBrowserSignInFlowHarness(browserAttemptTimeout: 10 * 60, clock: clock)
+
+        let attempt = harness.flow.beginSignIn(inDefaultBrowser: true)
+        await harness.waitForCondition { harness.flow.signInIsSlow }
+        await clock.waitUntilSleepers(count: 1)
+        clock.advance(by: .seconds(5 * 60))
+
+        #expect(await attempt.value == false)
+        #expect(harness.flow.isSigningIn == false)
+        #expect(harness.openedURLs.count == 1)
+        #expect(harness.flow.lastFailure == .browserSignInFailed("browser_timeout"))
     }
 }

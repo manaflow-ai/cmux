@@ -28,6 +28,8 @@ pub(crate) fn early_unix_scope(raw_args: &[String]) -> Option<fn(&[String]) -> i
         Some(run)
     } else if team_vm_verb(raw_args, Surface::current()) {
         Some(run_team)
+    } else if github_requested(raw_args, Surface::current()) {
+        Some(run_github)
     } else {
         None
     }
@@ -39,6 +41,18 @@ fn team_vm_verb(raw_args: &[String], surface: Surface) -> bool {
     surface == Surface::Cmux
         && raw_args.first().is_some_and(|first| first == "team")
         && matches!(raw_args.get(1).map(String::as_str), Some("restricted-shell" | "whoami"))
+}
+
+/// `cmux github credential|gh|setup` (crate `cmux-host`): git and gh on a
+/// cmux Cloud machine with tokens its Cloud agent gets, mounted on the
+/// `cmux` surface only. The helper `setup` writes runs `cmux github
+/// credential` by the `cmux` link's path.
+fn github_requested(raw_args: &[String], surface: Surface) -> bool {
+    surface == Surface::Cmux && raw_args.first().is_some_and(|first| first == "github")
+}
+
+fn run_github(rest: &[String]) -> i32 {
+    i32::from(cmux_host::github_cli::run(rest))
 }
 
 /// Runs `cmux team <rest>` on the team VM and returns its exit code.
@@ -99,5 +113,8 @@ mod tests {
         assert!(team_vm_verb(&args(&["team", "whoami"]), Surface::Cmux));
         assert!(!team_vm_verb(&args(&["team", "ssh", "ca"]), Surface::Cmux));
         assert!(!team_vm_verb(&args(&["team", "whoami"]), Surface::CmuxTui));
+        assert!(github_requested(&args(&["github", "credential", "get"]), Surface::Cmux));
+        assert!(!github_requested(&args(&["github", "gh"]), Surface::CmuxTui));
+        assert!(!github_requested(&args(&["git", "status"]), Surface::Cmux));
     }
 }

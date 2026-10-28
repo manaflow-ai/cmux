@@ -21,18 +21,91 @@ impl Drop for DaemonLock {
     }
 }
 
-/// Another daemon holds the lock: one that is stopping or starting. Any other failure to take
-/// the lock (permissions, a symlink, an I/O error) is a plain error.
+/// Another daemon holds the lock: one that runs, or is stopping or starting. Any other failure
+/// to take the lock (permissions, a symlink, an I/O error) is a plain error. It names the
+/// holder's pid when the lock file records a live one, and the command that shows that daemon;
+/// the lock and the socket are the holder's, so it never suggests clearing either.
 #[derive(Debug)]
-pub(super) struct LockHeld(PathBuf);
+pub(super) struct LockHeld {
+    path: PathBuf,
+    pid: Option<u32>,
+}
+
+impl LockHeld {
+    #[cfg(unix)]
+    fn new(path: &Path, file: &std::fs::File) -> Self {
+        Self { path: path.to_owned(), pid: holder_pid(file) }
+    }
+
+    /// `acpmux daemon status` as it reaches the daemon of this lock's home: with the home (and
+    /// this process's socket) when they are not the defaults.
+    fn status_command(&self) -> String {
+        let mut env = Vec::new();
+        if let Some(socket) = std::env::var_os("ACPMUX_SOCKET").filter(|v| !v.is_empty()) {
+            env.push(format!("ACPMUX_SOCKET={}", shell_word(&socket.to_string_lossy())));
+        }
+        let home = self.path.parent().unwrap_or(Path::new("."));
+        if home != crate::config::default_home() {
+            env.push(format!("ACPMUX_HOME={}", shell_word(&home.to_string_lossy())));
+        }
+        env.push("acpmux daemon status".into());
+        env.join(" ")
+    }
+}
 
 impl std::fmt::Display for LockHeld {
+    // "another acpmux daemon holds PATH" stays the message's start: a start that waits out a
+    // handover, and its tests, match it.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "another acpmux daemon holds {}", self.0.display())
+        let holder = self.pid.map(|pid| format!(" (pid {pid})")).unwrap_or_default();
+        write!(
+            f,
+            "another acpmux daemon holds {}{holder}. See it with `{}`; the lock and its socket are that daemon's, so leave them in place (stop it with `acpmux daemon shutdown` to run another here).",
+            self.path.display(),
+            self.status_command()
+        )
     }
 }
 
 impl std::error::Error for LockHeld {}
+
+/// `word` as one shell word: as is when it holds only safe characters, else single-quoted.
+fn shell_word(word: &str) -> String {
+    let safe = |c: char| c.is_ascii_alphanumeric() || "/._-+:@%=,".contains(c);
+    if !word.is_empty() && word.chars().all(safe) {
+        word.to_owned()
+    } else {
+        format!("'{}'", word.replace('\'', r"'\''"))
+    }
+}
+
+/// The pid the lock's holder wrote into it ([`record_pid`]), when that process still runs.
+#[cfg(unix)]
+fn holder_pid(file: &std::fs::File) -> Option<u32> {
+    use std::os::unix::fs::FileExt;
+    let mut buf = [0u8; 16];
+    let n = file.read_at(&mut buf, 0).ok()?;
+    let pid: libc::pid_t = std::str::from_utf8(&buf[..n]).ok()?.trim().parse().ok()?;
+    if pid <= 0 {
+        return None;
+    }
+    // SAFETY: signal 0 sends nothing; it only asks whether the process exists. EPERM: it does,
+    // as another user's.
+    let alive = unsafe { libc::kill(pid, 0) } == 0
+        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+    alive.then_some(pid as u32)
+}
+
+/// Write this daemon's pid into the lock it now holds, for the refusal a second daemon prints.
+/// Best effort: the lock itself is the flock, never the file's contents.
+#[cfg(unix)]
+fn record_pid(file: &std::fs::File) {
+    use std::os::unix::fs::FileExt;
+    let pid = format!("{}\n", std::process::id());
+    if file.set_len(0).is_ok() {
+        let _ = file.write_at(pid.as_bytes(), 0);
+    }
+}
 
 #[cfg(unix)]
 pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
@@ -42,10 +115,11 @@ pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
     if rc != 0 {
         let e = std::io::Error::last_os_error();
         if e.kind() == std::io::ErrorKind::WouldBlock {
-            return Err(LockHeld(path.to_owned()).into());
+            return Err(LockHeld::new(path, &file).into());
         }
         return Err(anyhow!("lock {}: {e}", path.display()));
     }
+    record_pid(&file);
     Ok(DaemonLock(file))
 }
 /// Windows: an exclusive `LockFileEx` lock (std's `File::try_lock`), held
@@ -57,7 +131,10 @@ pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
     let file = crate::config::private_state_rw(path)?;
     match file.try_lock() {
         Ok(()) => Ok(DaemonLock(file)),
-        Err(std::fs::TryLockError::WouldBlock) => Err(LockHeld(path.to_owned()).into()),
+        // The lock covers the file, so its holder's pid cannot be read here.
+        Err(std::fs::TryLockError::WouldBlock) => {
+            Err(LockHeld { path: path.to_owned(), pid: None }.into())
+        }
         Err(std::fs::TryLockError::Error(e)) => {
             Err(anyhow::Error::new(e).context(format!("lock {}", path.display())))
         }
@@ -154,6 +231,39 @@ mod tests {
 
         assert!(acquire_lock(&lock).is_err(), "the daemon locked through a symlink");
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "outside");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A second daemon on a home names the one that holds its lock, by pid,
+    /// and the command that shows it on that home; it never suggests
+    /// removing the lock or the socket (ergo-walk, 2026-10-25).
+    #[test]
+    fn a_held_lock_names_its_daemon_and_how_to_see_it() {
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-lock-held-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("daemon.lock");
+        let held = acquire_lock(&lock).unwrap();
+        let why = acquire_lock(&lock).err().expect("the lock is held").to_string();
+        // The start every handover matches on stays.
+        assert!(why.starts_with(&format!("another acpmux daemon holds {}", lock.display())));
+        assert!(why.contains(&format!("pid {}", std::process::id())), "{why}");
+        assert!(
+            why.contains(&format!("ACPMUX_HOME={} acpmux daemon status", dir.display())),
+            "{why}"
+        );
+        for removal in ["rm ", "delete", "remove"] {
+            assert!(!why.contains(removal), "{why}");
+        }
+        // A pid the file still records from a daemon that is gone is not named.
+        std::fs::write(&lock, format!("{}\n", i32::MAX)).unwrap();
+        let why = acquire_lock(&lock).err().expect("the lock is held").to_string();
+        assert!(!why.contains("pid "), "{why}");
+        assert!(why.contains("acpmux daemon status"), "{why}");
+        drop(held);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

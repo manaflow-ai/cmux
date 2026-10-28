@@ -40,9 +40,12 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     }
 
     private let backlog = Mutex(Backlog())
+    /// The layer whose frames show this lane's output (the typing probe's ``TypingLatencyProbe/Mark/contents``).
+    let frameLayer: ObjectIdentifier?
 
-    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20) {
+    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, frameLayer: ObjectIdentifier? = nil) {
         self.surface = surface
+        self.frameLayer = frameLayer
         self.highWater = highWater
         self.queue = DispatchQueue(label: label, qos: .userInteractive)
     }
@@ -60,8 +63,8 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(surface, base, UInt(buffer.count))
             }
-            TypingLatencyProbe.shared.mark(.outputParsed)
-            #if DEBUG
+            TypingLatencyProbe.shared.mark(.outputParsed, source: .object(ObjectIdentifier(self)), next: frameLayer.map(TypingLatencyProbe.Source.object))
+            #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), data) }
             #endif
         }
@@ -84,7 +87,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 return ghostty_surface_restore_snapshot(surface, base, buffer.count, phase)
             }
             if ready { readyRestored.store(restored, ordering: .releasing) }
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed, restored { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), nil) }
             #endif
             if !restored {

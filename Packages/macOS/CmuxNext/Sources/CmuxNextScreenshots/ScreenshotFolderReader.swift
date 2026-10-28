@@ -57,6 +57,22 @@ public nonisolated struct ScreenshotFolderReader: Sendable {
         await lister.entry(at: url)
     }
 
+    /// The newest visible picture directly in `folder` (no subfolders), or nil when it has none or
+    /// cannot be read. Runs off the main actor: a Desktop holds thousands of files.
+    ///
+    /// - Parameter folder: The folder to read (`ScreenshotSourceDetector/systemFolder()` for macOS screenshots).
+    /// - Returns: The picture with the latest modification date; the first listed wins a tie.
+    @concurrent
+    public func newestPicture(in folder: URL) async -> URL? {
+        guard let entries = try? await lister.list(folder) else { return nil }
+        let rule = ScreenshotScanRule(kinds: [.image])
+        var newest: FileEntry?
+        for entry in entries where entry.kind == .file && !entry.isHidden && rule.kind(ofFileNamed: entry.name) != nil {
+            if newest.map({ $0.modified < entry.modified }) ?? true { newest = entry }
+        }
+        return newest.map { $0.parent.appendingPathComponent($0.name) }
+    }
+
     /// The item an entry is listed as, nil when the rule leaves it out.
     static func item(_ entry: FileEntry, in source: ScreenshotSource) -> FileGridItem? {
         guard entry.kind == .file, !entry.isHidden, let kind = source.rule.kind(ofFileNamed: entry.name) else { return nil }

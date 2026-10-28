@@ -73,7 +73,14 @@ extension AppServices {
         browserTabs.browserHostAvailable = { [weak hosts] machine in hosts?.available(machine) ?? false }
         // A forgotten machine's forwarding connection closes, so its browser runtimes stop.
         let localhost = remoteLocalhost
-        machines.onDaemonRemoved = { [weak localhost] daemon in localhost?.closeClient(of: daemon) }
+        browserTabs.localhostRoute = { [weak localhost] daemon, pane, engine in
+            localhost?.route(daemon: daemon, workspace: daemon.store.workspace(containing: pane.handle)?.id, engine: engine)
+        }
+        // A forgotten Cloud machine's Dedicated agent machine state goes too (read again if it comes back).
+        machines.onDaemonRemoved = { [weak localhost, weak self] daemon in
+            localhost?.closeClient(of: daemon)
+            self?.cloudVmHost.forget(daemon.machineID)
+        }
         browserTabs.isIncognitoPane = { [weak self] pane in
             guard let self, let workspace = machines.daemon(forPane: pane).store.workspace(containing: pane.handle)?.id else { return false }
             return windows.isIncognito(workspace: workspace)

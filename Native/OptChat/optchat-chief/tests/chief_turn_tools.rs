@@ -235,10 +235,45 @@ fn turn_tools_send_attaches_any_file_and_refuses_a_missing_one() {
     assert_eq!(sends(&h).len(), before, "nothing posted");
 }
 
+/// The user, 2026-10-26: a screenshot whose upload the owner refused showed
+/// in Home as the text "!alarm-fired-100542Z.png". A file that does not
+/// upload goes as a link to it (a file chip Home can open), never as image
+/// syntax Home will not draw.
+#[test]
+fn turn_tools_send_a_refused_upload_goes_as_a_file_link() {
+    let mut h = Harness::new(default_script());
+    h.connect();
+    h.say("user_local", "send me the screenshot");
+    h.settle_posts();
+    h.owner.lock().unwrap().refuse_uploads = Some("chunk_too_large".into());
+    let shot = h.dir.path().join("alarm-fired.png");
+    std::fs::write(&shot, b"\x89PNG fake").unwrap();
+    let sp = spawner(&h);
+    let call = SendCall {
+        attachments: vec![shot.display().to_string()],
+        ..send("The test alarm rang.")
+    };
+    let answer = run(&mut h, move || sp.send(call)).expect("send answers");
+    assert!(answer.starts_with("outcome: done"), "{answer}");
+    let posted = wait_send(&mut h, "alarm-fired.png");
+    let text = texts(&posted[0].1);
+    assert_eq!(
+        text,
+        format!(
+            "The test alarm rang.\n[alarm-fired.png]({})",
+            url::Url::from_file_path(&shot).unwrap()
+        ),
+        "{posted:?}"
+    );
+}
+
 #[test]
 fn turn_tools_stop_ends_the_turn_with_no_final_text_and_no_failure() {
     let mut h = Harness::new(endless_first_turn());
     running(&mut h, "start the work");
+    // A person's message gets words before stop (eval_replies.rs).
+    let sp = spawner(&h);
+    run(&mut h, move || sp.send(send("On it."))).expect("send answers");
     let sp = spawner(&h);
     let answer = run(&mut h, move || sp.stop_turn()).expect("stop answers");
     assert!(answer.starts_with("outcome: done"), "{answer}");
@@ -268,6 +303,43 @@ fn turn_tools_stop_ends_the_turn_with_no_final_text_and_no_failure() {
     );
 }
 
+/// The trace names a turn the Chief ended itself `stopped`, not `cancelled`:
+/// counted as a cancel, 611 such turns read as 53% of Lawrence's turns failing
+/// (Oct 20-26, chief_health.py).
+#[test]
+fn turn_tools_a_turn_the_chief_stops_is_traced_as_stopped_not_cancelled() {
+    let mut h = Harness::new(endless_first_turn());
+    let traces = h.dir.path().join("traces");
+    h.brain
+        .set_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap());
+    running(&mut h, "start the work");
+    let sp = spawner(&h);
+    run(&mut h, move || sp.send(send("On it."))).expect("send answers");
+    let sp = spawner(&h);
+    run(&mut h, move || sp.stop_turn()).expect("stop answers");
+    h.agents.hold(false);
+    h.settle_posts();
+    let ends: Vec<serde_json::Value> = std::fs::read_dir(&traces)
+        .unwrap()
+        .flatten()
+        .flat_map(|e| {
+            std::fs::read_to_string(e.path())
+                .unwrap()
+                .lines()
+                .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+                .collect::<Vec<_>>()
+        })
+        .filter(|e| e["ev"] == "turn.end")
+        .collect();
+    assert_eq!(ends.len(), 1, "{ends:?}");
+    assert_eq!(ends[0]["status"], "stopped", "{}", ends[0]);
+    assert!(
+        ends[0]["error"].is_null(),
+        "a stop is no error: {}",
+        ends[0]
+    );
+}
+
 #[test]
 fn turn_tools_stop_outside_a_turn_is_a_noop() {
     let mut h = Harness::new(default_script());
@@ -281,6 +353,8 @@ fn turn_tools_stop_outside_a_turn_is_a_noop() {
 fn turn_tools_sleep_ends_the_turn_and_wakes_the_chief_with_its_note() {
     let mut h = Harness::new(endless_first_turn());
     running(&mut h, "watch the nightly");
+    let sp = spawner(&h);
+    run(&mut h, move || sp.send(send("Watching it."))).expect("send answers");
     let sp = spawner(&h);
     let answer = run(&mut h, move || {
         sp.sleep(SleepCall {

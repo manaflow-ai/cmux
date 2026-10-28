@@ -79,6 +79,11 @@ final class PageWKWebView: WKWebView {
         noteUserActivation(at: event.timestamp > 0 ? event.timestamp : ProcessInfo.processInfo.systemUptime)
     }
 
+    /// A choice in a host-owned native menu is real input even when the menu outlived the opener.
+    func noteNativeMenuSelection(at uptime: TimeInterval) {
+        noteUserActivation(at: uptime)
+    }
+
     /// Drops the recorded activation and the opened menu: the view now shows another document
     /// (a pooled view rebound or parked), which must not use a gesture made in the old one.
     func forgetUserActivation() {

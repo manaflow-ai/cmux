@@ -26,7 +26,7 @@ mod history;
 mod machine;
 mod name_flags;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
-mod plan;
+pub(super) mod plan;
 mod screen;
 mod server_ensure;
 mod sidebar_doc;
@@ -1963,9 +1963,7 @@ fn request(
     flags: &mut Flags,
     mut params: Map<String, Value>,
 ) -> Result<CommandPlan, UsageError> {
-    for (key, value) in selectors.params() {
-        params.insert(key, value);
-    }
+    params.extend(selectors.params());
     add_routing_defaults(operation, &mut params);
     if correlated_creation(operation)
         && let Some(correlation_key) = flags.take("correlation-key")
@@ -1980,6 +1978,7 @@ fn request(
         params.insert("expected_revision".into(), Value::String(revision));
     }
     finalize_request(WireOperation::Typed(operation), Value::Object(params), flags)
+        .map(|plan| plan::with_caller_lookup(plan, &selectors.values))
 }
 
 const fn correlated_creation(operation: ResourceOperation) -> bool {

@@ -4,6 +4,7 @@ import CmuxNextAgentActivity
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextComputerUse
 import Foundation
 
 /// Opens `cmux://agent-activity` (plans/cmux-next/computer-use.md section 7)
@@ -105,7 +106,7 @@ final class AgentActivityPageService {
     /// of the active window.
     private func openInFocusedPane(_ session: String) {
         do {
-            try DeepLinkNavigator(services: services).open(DeepLink(.session(session, turn: nil)), background: false)
+            try DeepLinkNavigator(services: services).open(DeepLink(.session(session, turn: nil)), background: false, asking: false)
         } catch {
             services.registry.refuse(String(describing: error))
         }
@@ -116,6 +117,10 @@ final class AgentActivityPageService {
         if services.environment.showcase || (DevTools.isEnabled && environment["CMUX_NEXT_AGENT_ACTIVITY_MOCK"] == "1") {
             return AgentActivityMockSource()
         }
-        return AgentActivitySocketSource(configuration: .standard(machineName: AgentActivityPaneStrings.thisMac))
+        return AgentActivitySocketSource(configuration: {
+            guard var configuration = ComputerUseHelperDaemon.shared.configuration else { return nil }
+            configuration.machineName = AgentActivityPaneStrings.thisMac
+            return configuration
+        })
     }
 }

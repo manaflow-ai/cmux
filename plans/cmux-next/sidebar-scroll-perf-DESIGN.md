@@ -15,7 +15,7 @@ status line, unread counts, working spinners, presence dots, branches and ages. 
 to bottom and back 40 pt per frame. Each frame moves the clip, then lays the window out,
 displays it and commits (`CATransaction.flush`), and records main-thread CPU per phase.
 Variants: pointer resting over the list (hover follows the scroll), three agent status ticks a
-frame, and a move-to-top every 60 frames. `SidebarScrollProfile` samples the main thread.
+frame, and a move-to-top every 60 frames. `SidebarScrollProfile` samples the main thread (opt-in: `CMUX_SAMPLE_PROFILE=1`).
 
 Before (fleet, feat-cmux-next ed7e0348206 + bench; two hosts):
 

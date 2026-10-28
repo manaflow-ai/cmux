@@ -1,0 +1,25 @@
+{
+  "id": "assistant-a672-ack-silent",
+  "owner": "a672",
+  "about": "a bare acknowledgement gets no reply (person profile)",
+  "history": [
+    {
+      "kind": "user",
+      "text": "[a905] Landed 5c6369c0a1..c3c07ba184 on feat-cmux-next."
+    },
+    {
+      "kind": "talk",
+      "text": "- a905: landed [5c6369c..c3c07ba](https://github.com/manaflow-ai/cmux/compare/5c6369c0a1...c3c07ba184)"
+    }
+  ],
+  "turns": [
+    {
+      "text": "thanks",
+      "checks": [
+        {
+          "type": "silent"
+        }
+      ]
+    }
+  ]
+}

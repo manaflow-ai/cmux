@@ -108,6 +108,10 @@ and render-server field animation, blurred header and native scrolling.
   `PaneHeaderView` (HeaderBar's avatar and pill inside the pane),
   `HomeMedia` (attachment bubble pictures as `file:` assets MessagesLab's
   row drawing reads: local files first, else `HomeStoreBinding.fetchAttachment`),
+  `HomeFileCard` (a file attachment as a neutral card on either side, close to
+  Messages': the type's system icon and localized kind, the name shortened in
+  the middle with its extension kept; RowDrawing, Layout and `RowDraw.needsFill`
+  hand file rows to it),
   `HomeVideo` (inline video: lane 16's `VideoPlayback` players placed in
   MessagesLab's video bubbles under the bubble mask, with RowDrawing's play
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
@@ -125,6 +129,12 @@ and render-server field animation, blurred header and native scrolling.
   (the public view).
 
 ## Blocker patches
+
+Home activity uses cmux’s standard working arc: no dot-opacity or bubble-breathing loop.
+`RowCell+Working` owns rotation, with the host’s Home motion gate and Reduce Motion;
+leaving the viewport, ending typing, and recycling a row remove its loop.
+`MessagesLabHomeTests/NoBreathingDotTests` exercises the actual native Home view.
+
 
 | file | why |
 | --- | --- |
@@ -146,6 +156,7 @@ and render-server field animation, blurred header and native scrolling.
 | GlassKeyFix | the over-blend images are built by appending, not by index subscripts (crash ratchet: no new index_subscript hit in MessagesLabHome) |
 | Compose, Transcript, SidebarDrawing (sidebar) | Reduce Motion (cx-sya4n: nothing loops): the caret holds solid, the typing dots stand at one phase and the typing bubble does not breathe (`MessagesLabHomeView.reduceMotionOverride` / `CmuxSidebarView.reduceMotionOverride`: cmux-next mirrors its `Motion.reduceMotionOverride`; nil reads the system setting). `startBlink` is not private, and a running pulse or breath stops in the still branches; the cmux hosts (`MessagesLabHomeView`, `CmuxSidebarView`) observe the system setting and the pins and re-apply them to loops already running |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
+| Compose | `pasteTextBesideAttachments`: the words a taken paste carries beside its attachments go in at the caret; `writeSelection(to:types:)` with `draftAttachmentFile`: Copy, Cut and a drag of a selection holding attachments write the words without U+FFFC marks, then the files (`Cmux/ComposeSelectionCopy.swift`) |
 | Layout | `code` runs draw monospaced with one font held for the process (`HomeFonts.code`: a font made per run on the row render threads came back nil and crashed) |
 | LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's |
 | ComposeAttachments | the image placeholder and file tile fill use the theme's chip fill on a light theme (a dark theme keeps the measured white) |

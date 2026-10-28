@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextSettings
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// Debug-build control methods that drive the extension toolbar without a
 /// pointer (the extension e2e suite and agent verification). Each acts on
 /// the browser chrome of `tab` (a tab id) or of the focused pane.

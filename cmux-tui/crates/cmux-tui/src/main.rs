@@ -577,6 +577,7 @@ struct Args {
     owner_ready_fd: Option<i32>,
     owner_install_key_fd: Option<i32>,
     terminal_reap_grace: Option<std::time::Duration>,
+    exit_with_pid: Option<local_owner::ExitWith>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -687,6 +688,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         owner_ready_fd: None,
         owner_install_key_fd: None,
         terminal_reap_grace: None,
+        exit_with_pid: None,
     };
     let mut args = args.into_iter().peekable();
     while let Some(arg) = args.next() {
@@ -959,6 +961,9 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
+    if out.exit_with_pid.is_some() && !out.headless {
+        return Err(format!("{} requires --headless", local_owner::EXIT_WITH_PID_ARG));
+    }
     if out.terminal.is_some() && !out.attach {
         return Err("--terminal requires `cmux attach`".to_string());
     }
@@ -973,6 +978,20 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
 /// time; cmux-tui-core gets them at start (`install_build_stamp`), so a new
 /// stamp recompiles this crate and not the libraries.
 fn build_stamp() -> cmux_tui_core::server::BuildStamp {
+    // The source commit's time (`identify {revisions: true}`): what
+    // `link machine update --if-older` orders two builds by.
+    #[cfg(unix)]
+    let build_time = cmux_build_identity::BUILD_TIME;
+    #[cfg(not(unix))]
+    let build_time = 0;
+    // Test seam, debug builds only: a daemon that reports another build time,
+    // so a journey can stand one binary in for an older or a newer machine
+    // daemon (machine_update_journey.rs). Release builds report their own.
+    #[cfg(debug_assertions)]
+    let build_time = std::env::var("CMUX_TEST_DAEMON_BUILD_TIME")
+        .ok()
+        .and_then(|time| time.trim().parse().ok())
+        .unwrap_or(build_time);
     cmux_tui_core::server::BuildStamp::new(
         // `or` before the filter: a set but empty CMUX_TUI_BUILD_COMMIT hides
         // CMUX_MUX_BUILD_COMMIT (no stamp), as before the stamp moved here.
@@ -981,6 +1000,7 @@ fn build_stamp() -> cmux_tui_core::server::BuildStamp {
             .filter(|commit| !commit.is_empty()),
         option_env!("CMUX_TUI_GHOSTTY_COMMIT"),
     )
+    .with_build_time(build_time)
 }
 
 pub(crate) fn version_string() -> String {
@@ -1482,6 +1502,7 @@ pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--owner-host-bg",
     local_owner::OWNER_READY_FD_ARG,
     local_owner::OWNER_INSTALL_KEY_FD_ARG,
+    local_owner::EXIT_WITH_PID_ARG,
 ];
 
 /// Return the first argument after a startup option and its value.
@@ -2657,7 +2678,7 @@ fn run_server(
         }
         #[cfg(unix)]
         {
-            run_headless(&mux, &socket_path, || {
+            run_headless(&mux, &socket_path, args.exit_with_pid, || {
                 remote_runtime
                     .as_ref()
                     .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
@@ -2665,7 +2686,7 @@ fn run_server(
         }
         #[cfg(not(unix))]
         {
-            run_headless(&mux, &socket_path, || false)
+            run_headless(&mux, &socket_path, args.exit_with_pid, || false)
         }
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime, mux.clone(), config)
@@ -2930,6 +2951,7 @@ fn start_detached_owner_session(
         term: Some(owner_term),
         initial_host_colors: Some(host_colors),
         terminal_reap_grace: args.terminal_reap_grace,
+        exit_with_pid: None,
         install_key: None,
         chief_tools_socket: None,
         chief_brains: None,

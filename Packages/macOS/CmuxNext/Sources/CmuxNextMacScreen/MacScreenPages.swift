@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDevices
+public import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
 
@@ -90,9 +91,12 @@ public final class MacScreenPages {
     private(set) var tabs: [String: MacScreenTab] = [:]
     private var termination: (any NSObjectProtocol)?
 
-    public init(store: MacScreenStore) {
+    /// - Parameters:
+    ///   - store: the saved Mac Screen records.
+    ///   - work: the app's blocking-work lanes (the permission checks run on its system lane).
+    public init(store: MacScreenStore, work: BackgroundWork) {
         self.store = store
-        host = MacScreenShareHost()
+        host = MacScreenShareHost(work: work)
         hubHost = MacScreenHubHost(share: host)
         systemShortcuts = MacScreenSystemShortcuts(host: host)
         systemShortcuts.panes = { [weak self] in self?.tabs.values.compactMap(\.pane) ?? [] }

@@ -1,0 +1,23 @@
+{
+  "title": "Multi-view: a workspace dragged beside another",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Debug Settings sidebar.multiView on", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.multiView", "value": true}},
+     "shot": false, "optional": "debug.tunables is DEBUG only"},
+    {"title": "New workspace api", "cmux": ["workspace", "new", "--name", "api"], "wait": 1, "shot": false},
+    {"title": "api's shell prompt is a plain $ (no user or host name in the capture)",
+     "cmux": ["workspace", "name:api", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write",
+              "--text", "export PS1='$ ' PROMPT='$ '; clear\r"], "wait": 1, "shot": false},
+    {"title": "New workspace docs", "cmux": ["workspace", "new", "--name", "docs"], "wait": 1, "shot": false},
+    {"title": "docs's shell prompt too", "cmux": ["workspace", "name:docs", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write",
+              "--text", "export PS1='$ ' PROMPT='$ '; clear\r"], "wait": 1, "shot": false},
+    {"title": "Home on screen alone", "cmux": ["action", "run", "home.show"], "wait": 2, "optional": "Home needs its page in this build"},
+    {"title": "The api row held and dragged onto Home's right edge: api shows beside Home, both rows lit",
+     "rpc": {"method": "debug.mouse", "params": {"action": "drag", "row": "api", "to_edge": "right", "steps": 30}}, "wait": 3,
+     "optional": "debug.mouse is DEBUG only"},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false,
+     "optional": "debug.appearance is DEBUG only"}
+  ]
+}

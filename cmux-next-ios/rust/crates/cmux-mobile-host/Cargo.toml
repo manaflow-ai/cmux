@@ -16,6 +16,8 @@ base64.workspace = true
 bytes.workspace = true
 cmux-mobile-link.workspace = true
 cmux-rd-core.workspace = true
+# The shared rd media engine: the in-hostd host of a simulator surface (src/surface.rs).
+cmux-rd-engine.workspace = true
 cmux-rd-proto.workspace = true
 futures-util.workspace = true
 libc = "0.2"

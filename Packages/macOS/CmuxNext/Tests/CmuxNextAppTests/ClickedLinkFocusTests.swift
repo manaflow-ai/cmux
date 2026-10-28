@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextFocus
+import CmuxNextPages
 import CmuxNextTabs
 import Foundation
 import Testing
@@ -85,6 +86,76 @@ struct ClickedLinkFocusTests {
             try await PinnedPageTests.until({ content.focusedPane?.stripModel.selectedID?.rawValue == left },
                                             report: { "after the close: " + Self.describe(content, left) })
             #expect(content.focusedPane !== pane, "the close gave the focus back to the source while its pane still had a tab")
+        }
+    }
+
+    /// The same link clicked again (an agent chat's PR link or card, Austin 2026-10-25: eleven tabs of
+    /// one PR in the pane on the right) selects and focuses the tab the pane on the right already has
+    /// for it, never a second tab of the same page.
+    @Test func theSameLinkClickedAgainSelectsItsTabOnTheRight() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let content = try #require(services.windows.active?.workspaceContent)
+            let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let pane = try #require(services.paneController(for: model))
+            let right = try await Self.splitRight(services, content)
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            try await PinnedPageTests.until({ content.focusedPane === pane })
+            services.linkOpener.placement = { .splitRight }
+
+            let opened = try await Self.click(services, from: pane)
+            try await PinnedPageTests.until({ right.pane.tabs.contains { $0.id == opened } && Self.shownURL(services, opened) != nil },
+                                            report: { "the link's tab is not on the right with its page" })
+            // Another tab is selected there, and the focus is back in the chat.
+            let other = try await connection.newFrontendBrowserTab(url: "https://example.com/other", engine: .webkit,
+                                                                   in: right.pane.handle, activate: false)
+            try await PinnedPageTests.until({ store.tab(surface: other.surface).map { right.orderedIDs.map(\.rawValue).contains($0.id) } == true })
+            let otherID = try #require(store.tab(surface: other.surface)?.id)
+            right.select(TabID(otherID))
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            try await PinnedPageTests.until({ content.focusedPane === pane && right.stripModel.selectedID?.rawValue == otherID })
+
+            let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
+            #expect(services.linkOpener.openWeb(Self.link, from: pane, background: false, reusesTab: true))
+            try await PinnedPageTests.until({ content.focusedPane === right && right.stripModel.selectedID?.rawValue == opened },
+                                            report: { Self.describe(content, opened) })
+            let after = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
+            #expect(after.subtracting(before).isEmpty, "the second click opened another tab of the same page: \(after.subtracting(before))")
+        }
+    }
+
+    /// A chip clicked in an agent chat goes through ``LinkRouter`` (the page's link navigation), not
+    /// the card's Open: clicked again, it too selects the tab the pane on the right has for the page.
+    /// The dogfood of the first fix found this path still opening a tab per click.
+    @Test func aChatChipClickedAgainSelectsItsTabOnTheRight() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let store = services.daemon.store
+            let content = try #require(services.windows.active?.workspaceContent)
+            let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let pane = try #require(services.paneController(for: model))
+            let right = try await Self.splitRight(services, content)
+            try await PinnedPageTests.until({ Self.page(in: pane.view) != nil }, report: { "the source pane shows no agent page" })
+            let chat = try #require(pane.currentTabKey)
+            #expect(services.agentTabs.isAgentTab(chat), "the source tab is not an agent chat")
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            try await PinnedPageTests.until({ content.focusedPane === pane })
+            services.linkOpener.placement = { .splitRight }
+            let tabs = { Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id)) }
+
+            let before = tabs()
+            LinkRouter.shared.openInCmux(Self.link, false, chat)
+            let opened = { tabs().subtracting(before).first { !ProvisionalTab.isProvisional($0) } }
+            try await PinnedPageTests.until({ opened().map { id in right.pane.tabs.contains { $0.id == id } && Self.shownURL(services, id) != nil } == true },
+                                            report: { "the chip's tab is not on the right with its page" })
+            let first = try #require(opened())
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            try await PinnedPageTests.until({ content.focusedPane === pane })
+
+            let again = tabs()
+            LinkRouter.shared.openInCmux(Self.link, false, chat)
+            try await PinnedPageTests.until({ content.focusedPane === right && right.stripModel.selectedID?.rawValue == first },
+                                            report: { Self.describe(content, first) })
+            #expect(tabs().subtracting(again).isEmpty, "the second chip click opened another tab of the same page: \(tabs().subtracting(again))")
         }
     }
 
@@ -205,7 +276,8 @@ struct ClickedLinkFocusTests {
             AgentChatTabActions(tab: { source }, registry: { services.registry })
                 .runBeside("openBrowser", arguments: ["url": .string("http://127.0.0.1:9/")], on: nil)
             @MainActor func opened() -> String? {
-                store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) }?.id
+                // The daemon's tab: a person's link shows a stand-in first (PaneBrowserTabOpener.openStandIn), which it replaces.
+            store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }?.id
             }
             try await PinnedPageTests.until({ opened() != nil }, report: { "Preview opened no tab" })
             let tab = try #require(opened())
@@ -270,7 +342,8 @@ struct ClickedLinkFocusTests {
         let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
         services.linkOpener.openWeb(link, from: pane, background: false)
         @MainActor func opened() -> String? {
-            store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) }?.id
+            // The daemon's tab: a person's link shows a stand-in first (PaneBrowserTabOpener.openStandIn), which it replaces.
+            store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }?.id
         }
         try await PinnedPageTests.until({ opened() != nil }, report: { "the link opened no tab" })
         return try #require(opened())
@@ -288,6 +361,11 @@ struct ClickedLinkFocusTests {
         }
         try await PinnedPageTests.until({ confirmed() != nil }, report: { "the split did not confirm" })
         return try #require(confirmed())
+    }
+
+    /// The page browser tab `id` shows: its live page, else the daemon's record.
+    private static func shownURL(_ services: AppServices, _ id: String) -> URL? {
+        services.cache.existingBrowser(id)?.tab.state.url ?? services.daemon.store.tab(id: id)?.url.flatMap(URL.init(string:))
     }
 
     /// The web view of the agent page `view` shows.

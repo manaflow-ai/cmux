@@ -25,7 +25,9 @@
 #             hang watchdog. Filters come as comma lists, separate arguments,
 #             or both. A failing suite does not stop the ones after it; the
 #             summary lists every suite and the step fails when any failed. A
-#             filter that runs no test fails. The watchdog limits apply to
+#             filter that runs no test fails, and so does one whose tests all
+#             skipped or that skipped any for a missing same-tree cmux-tui
+#             ("no result", never excused as a base red). The watchdog limits apply to
 #             each suite (CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS, 900 s), so N
 #             suites can take N times that; cmux-ci's --timeout covers the step.
 #             Lanes: cmux-ci run --class light --script
@@ -727,7 +729,19 @@ run_suite() {
   fi
   # One build serves every suite. Each suite runs in its own `swift test` so the
   # summary has a result per suite and one failure does not hide the others.
+  # A suite none of whose tests ran (a trait skipped them: no display, no
+  # pasteboard) reads "skipped", never "passed": Swift Testing's own summary
+  # counts skipped tests, so a headless worker printed "passed" for suites
+  # that never ran (aws-m4pro-6, 2026-10-26). CMUX_TEST_REQUIRE_GUI=1 (a job
+  # that asked for a GUI session) fails on any skip.
+  # A suite the lane named that ran none of its tests is no result, and a test
+  # skipped because this tree's cmux-tui is missing ("needs the same-tree
+  # cmux-tui", the live-daemon suites' trait) is no result too: either fails the
+  # step, never "passed" or a green "skipped". The line says "required tests did
+  # not run", which the per-test classifier (test_reds) reads as a run that is not whole, so
+  # the base-red excuse never excuses it.
   local log filter status started result failed=0 first_failure_status=0 rows=()
+  local ran skipped reason daemon_skips display_skips hint
   for filter in "${suite_filters[@]}"; do
     echo "::group::swift test --filter $filter"
     log="$(mktemp -t swift-suite-test.XXXXXX)"
@@ -741,27 +755,67 @@ run_suite() {
     if toolchain_mismatch "$log" "$filter in $suite_package"; then
       [ "$status" -ne 0 ] || status=1
     elif [ "$status" -eq 0 ]; then
-      python3 scripts/ci/require_swift_test_execution.py --log "$log" || status=$?
+      python3 scripts/ci/require_swift_test_execution.py --log "$log" --skip-report "$log.skips" || status=$?
     fi
     echo "::endgroup::"
+    ran=0 skipped=0 display_skips=0 hint=""
+    # Read from the log itself, whatever the exit status or CMUX_TEST_REQUIRE_GUI: a failing test or a GUI
+    # skip beside a missing-cmux-tui skip must not hide the no-result line.
+    daemon_skips="$(grep -cE '(Test|Suite) .+ skipped: "needs the same-tree cmux-tui' "$log" || true)"
+    if [ "$daemon_skips" -gt 0 ]; then
+      echo "::error title=Swift suite no result::$filter in $suite_package: required tests did not run: tests skipped because this tree's cmux-tui is missing (CMUX_NEXT_TUI_TREE_PATH=${CMUX_NEXT_TUI_TREE_PATH:-unset}); no result, never a pass or a base red"
+    fi
     if [ "$status" -eq 0 ]; then
+      read -r ran skipped < "$log.skips"
+      if [ "$skipped" -gt 0 ]; then
+        while IFS= read -r reason; do
+          echo "$filter: skipped $reason"
+          # The suites' own display traits: "the drag tests need a display", "needs an awake display ...",
+          # "run on a GUI host", "no GUI login session".
+          if printf '%s' "$reason" | grep -qiE 'display|screen|GUI'; then display_skips=$((display_skips + 1)); fi
+        done < <(tail -n +2 "$log.skips")
+      fi
+      if [ "$skipped" -gt 0 ] && [ "${CMUX_TEST_REQUIRE_GUI:-}" = 1 ]; then
+        status=1
+      fi
+    fi
+    rm -f "$log.skips"
+    if [ "$status" -eq 0 ] && { [ "$ran" -eq 0 ] || [ "$daemon_skips" -gt 0 ]; }; then
+      failed=$((failed + 1))
+      status=1
+      [ "$first_failure_status" -ne 0 ] || first_failure_status="$status"
+      if [ "$daemon_skips" -gt 0 ]; then
+        result="no result (no cmux-tui)"
+      else
+        result="no result (0 ran)"
+        [ "$display_skips" -eq 0 ] || hint="; this suite needs a display; rerun with CMUX_TEST_REQUIRE_GUI=1"
+        echo "::error title=Swift suite no result::$filter in $suite_package: required tests did not run: none of its $skipped tests ran (all skipped)$hint; no result, never a pass or a base red"
+      fi
+    elif [ "$status" -eq 0 ] && [ "$skipped" -gt 0 ]; then
+      result="passed, $skipped skipped"
+    elif [ "$status" -eq 0 ]; then
       result=passed
+    elif [ "$skipped" -gt 0 ] && [ "${CMUX_TEST_REQUIRE_GUI:-}" = 1 ]; then
+      failed=$((failed + 1))
+      [ "$first_failure_status" -ne 0 ] || first_failure_status="$status"
+      result="failed ($skipped skipped)"
+      echo "::error title=Swift suite skipped::$filter in $suite_package: $skipped tests skipped with CMUX_TEST_REQUIRE_GUI=1"
     else
       failed=$((failed + 1))
       [ "$first_failure_status" -ne 0 ] || first_failure_status="$status"
       if [ "$status" -eq 124 ]; then result="stalled/timeout"; else result="failed (exit $status)"; fi
       echo "::error title=Swift suite failed::$filter in $suite_package: $result after $((SECONDS - started))s"
     fi
-    rows+=("$(printf '%-48s %-18s %6ss' "$filter" "$result" "$((SECONDS - started))")")
+    rows+=("$(printf '%-48s %-24s %6ss' "$filter" "$result" "$((SECONDS - started))")")
   done
   local table
-  table="$(printf '%-48s %-18s %7s\n' suite result time; printf '%s\n' "${rows[@]}")"
+  table="$(printf '%-48s %-24s %7s\n' suite result time; printf '%s\n' "${rows[@]}")"
   printf 'Swift suite results (%s):\n%s\n' "$suite_package" "$table"
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     printf '### Swift suites (%s)\n\n```\n%s\n```\n' "$suite_package" "$table" >> "$GITHUB_STEP_SUMMARY"
   fi
   if [ "$failed" -ne 0 ]; then
-    echo "$failed of ${#suite_filters[@]} suites failed."
+    echo "$failed of ${#suite_filters[@]} suites failed or gave no result."
     exit "$first_failure_status"
   fi
   echo "All ${#suite_filters[@]} suites passed."
@@ -883,6 +937,25 @@ run_compile_tests() {
   fi
   echo "compile-tests: every planned test target compiled (${#rows[@]})"
 }
+
+# cmux NEXT's tests start acpmux daemons. A lane given no home of its own (a fleet step, `cmux-ci
+# run`) gets one for this run, never the host's ~/.acpmux, and ends that home's daemons and agents
+# and deletes it on exit (tests/test_ci_acpmux_job_home.py). An empty ACPMUX_SOCKET is unset.
+end_own_acpmux_home() {
+  local acpmux
+  acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
+  [ -z "$acpmux" ] || env -u ACPMUX_SOCKET ACPMUX_HOME="$own_acpmux_home" "$acpmux" daemon shutdown --end-agents >/dev/null 2>&1 || true
+  rm -rf "$own_acpmux_home"
+}
+case "$phase" in
+  suite|packages|run)
+    if [ -z "${ACPMUX_HOME:-}" ]; then
+      own_acpmux_home="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/acpmux-home.XXXXXX")"
+      export ACPMUX_HOME="$own_acpmux_home" ACPMUX_SOCKET=
+      trap 'status=$?; end_own_acpmux_home; exit "$status"' EXIT
+    fi
+    ;;
+esac
 
 case "$phase" in
   suite)

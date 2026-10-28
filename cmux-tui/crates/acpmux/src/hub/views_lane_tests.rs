@@ -103,3 +103,35 @@ fn whitespace_before_a_secret_does_not_move_the_scan_cut_into_it() {
     let step = lane(&running(&prompt))["step"].as_str().unwrap_or_default().to_owned();
     assert_eq!(step, "[GitHub Personal Access Token] tail");
 }
+
+/// manaflow-ai/cmux#25230: between turns, work the session started that still runs keeps it
+/// working; a failed last turn, a lost agent and a peer gone unreachable still say so.
+#[test]
+fn work_below_the_turn_is_working_unless_the_chat_failed_or_its_peer_went() {
+    use super::status_indicator;
+    let at = |status: &str, last: Option<&str>| {
+        let mut s = json!({"status": status, "turnCount": 1, "updatedAt": 9, "subagentsWorkingSince": 7,
+                           "lastTurn": {"endedAt": 6}});
+        match last {
+            Some(last) => s["lastTurn"]["status"] = json!(last),
+            None => s["lastTurn"] = Value::Null,
+        }
+        s
+    };
+    let ready = at("ready", Some("completed"));
+    assert_eq!(status_indicator(&ready), Some("working"));
+    assert_eq!(lane(&ready)["state"], "working");
+    assert_eq!(lane(&ready)["since"], 7);
+    // Its harness stopped for idleness while a sub-session it started runs.
+    assert_eq!(status_indicator(&at("idle", Some("completed"))), Some("working"));
+    assert_eq!(status_indicator(&at("disconnected", Some("completed"))), Some("working"));
+    assert_eq!(status_indicator(&at("ready", None)), Some("working"));
+    assert_eq!(status_indicator(&at("ready", Some("failed"))), Some("failed"));
+    assert_eq!(status_indicator(&at("disconnected", Some("cancelled"))), Some("lost"));
+    assert_eq!(status_indicator(&at("unreachable", Some("completed"))), Some("done"));
+    assert_eq!(status_indicator(&at("unreachable", None)), None);
+    assert_eq!(status_indicator(&at("closed", Some("completed"))), None);
+    let mut done = at("ready", Some("completed"));
+    done["subagentsWorkingSince"] = Value::Null;
+    assert_eq!(status_indicator(&done), Some("done"));
+}

@@ -12,6 +12,7 @@
 //! unchanged. The route the control plane hands out is the same either way.
 
 use std::fmt;
+use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -19,6 +20,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpStream, UnixStream};
+use zeroize::Zeroizing;
 
 use crate::link::LinkError;
 use crate::provider::socks;
@@ -87,6 +89,47 @@ impl Dialer for OsTcpDialer {
     }
 }
 
+/// The secret a hub's clients present. The hub's starter (the cmux app) makes
+/// one per launch and hands it to the hub (`wg hub --client-token-stdin`) and to
+/// each sidecar (`remote connect --wireguard-hub-token-stdin`) on stdin.
+#[derive(Clone)]
+pub struct HubClientToken(Zeroizing<String>);
+
+impl HubClientToken {
+    /// 32 random bytes, hex encoded.
+    pub fn generate() -> io::Result<Self> {
+        let mut bytes = Zeroizing::new([0u8; 32]);
+        getrandom::fill(bytes.as_mut()).map_err(|error| io::Error::other(error.to_string()))?;
+        let mut text = Zeroizing::new(String::with_capacity(64));
+        for byte in bytes.iter() {
+            use std::fmt::Write as _;
+            let _ = write!(text, "{byte:02x}");
+        }
+        Ok(Self(text))
+    }
+
+    /// A token received from the hub's starter. Empty or longer than SOCKS5's
+    /// 255-byte password field is refused.
+    pub fn new(text: impl Into<String>) -> Option<Self> {
+        let text = Zeroizing::new(text.into());
+        (!text.is_empty() && text.len() <= 255).then_some(Self(text))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl fmt::Debug for HubClientToken {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("HubClientToken(..)")
+    }
+}
+
 /// SOCKS5 CONNECT through a hub process on a Unix socket
 /// (`cmux-tui wg hub`). Used by sidecars that share one WireGuard tunnel: the
 /// hub owns the key, the sidecar owns nothing but this path. Names are
@@ -94,11 +137,19 @@ impl Dialer for OsTcpDialer {
 /// literals only.
 pub struct SocksDialer {
     path: PathBuf,
+    token: Option<HubClientToken>,
 }
 
 impl SocksDialer {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self { path: path.into(), token: None }
+    }
+
+    /// Present `token` to a hub started with one (`wg hub --client-token-stdin`; the hub's
+    /// starter, the cmux app, makes the token and hands it to each sidecar on stdin).
+    pub fn with_token(mut self, token: HubClientToken) -> Self {
+        self.token = Some(token);
+        self
     }
 
     pub fn path(&self) -> &Path {
@@ -128,7 +179,8 @@ impl Dialer for SocksDialer {
                     self.path.display()
                 ))
             })?;
-            match socks::client_connect(&mut stream, address).await {
+            let token = self.token.as_ref().map(HubClientToken::as_bytes);
+            match socks::client_connect(&mut stream, address, token).await {
                 Ok(()) => return Ok(Box::new(stream)),
                 Err(error) => last_error = Some(error),
             }

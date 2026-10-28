@@ -9,10 +9,10 @@
 // moved the whole thread by what grew, also above the reply), and the view dropped 54px when the
 // queue card left the stack, then rose again as its prompt arrived. Growth now moves the view in the
 // frame that draws it (#23807), so nothing waits on a glide.
-// A turn that ends leaves its reply still: its footer takes the running line's place at the same
-// height, and the reply keeps its gap over them (it slid 4px down as its gap went from the message gap
-// to the meta gap; a queued prompt arriving a frame later in WebKit showed it as a 1.5px drop, on
-// #22827's shards). The turn is read once its reply has been drawn to its end (`rest`).
+// A turn that ends leaves its reply and composer still: its footer takes the running line's place at
+// the same height, and a live activity line under a plan reserves that footer slot too. The turn is
+// read once its reply has been drawn to its end (`rest`); the end-of-turn frame strip asserts no edge
+// moves for short, long, or tool-ending replies.
 // A queued prompt deleted from the queue never comes in as a row: the view goes back to its end at
 // once, with no card-high gap held under the last row (held for a second after #22858).
 // A chat whose history is rich (headings, code blocks, tables, lists, each laid out at its own height
@@ -301,20 +301,57 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       return !!footer && (!reply || at(footer) > at(reply));
     }, marker);
 
-  /// One frame: where the row holding `marker` is drawn (transforms included).
-  type Frame = { t: number; marker?: number };
-  /// Samples every painted frame until `stop`.
+  /// One frame: where the row holding `marker` is drawn (its `top` position included).
+  type Frame = {
+    t: number;
+    marker?: number;
+    messageBottom?: number;
+    composerTop?: number;
+    settled?: boolean;
+  };
+  /// Samples every painted frame until `stop`, as the frame paints it: in a ResizeObserver made after
+  /// the pane's, on a probe resized in each frame's callbacks, so the read runs after the frame's
+  /// layout and the pane's own observer (which places a row that grew before paint), right before
+  /// the paint. A read in a task after the frame (cmuxAfterPaint) can come after a task already
+  /// queued has grown the streaming reply: a state no frame painted, a line taller than the rows
+  /// under it were placed for (23 px, on the CI runner's busy main thread).
   const sample = (page: Page, marker: string) =>
     page.evaluate((marker) => {
       const w = window as unknown as { __frames: Frame[]; __stop: () => void };
       w.__frames = [];
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      w.__stop = window.cmuxAfterPaint((frame) => {
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:fixed;left:0;top:0;height:1px;width:1px;pointer-events:none;visibility:hidden";
+      document.body.append(probe);
+      let wide = false;
+      const read = (frame: number) => {
         const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find((each) =>
           each.textContent?.includes(marker),
         );
-        w.__frames.push({ t: Math.round(frame), marker: row?.getBoundingClientRect().top });
-      });
+        const message = row?.querySelector<HTMLElement>(".cv-md");
+        const composer = document.querySelector<HTMLElement>(".acpmux-dock");
+        w.__frames.push({
+          t: Math.round(frame),
+          marker: row?.getBoundingClientRect().top,
+          messageBottom: message?.getBoundingClientRect().bottom,
+          composerTop: composer?.getBoundingClientRect().top,
+          settled: Boolean(document.querySelector(".acpmux-row--last-footer")),
+        });
+      };
+      const observer = new ResizeObserver(() => read(performance.now()));
+      observer.observe(probe);
+      const stopFrames = window.cmuxAfterPaint(
+        () => {},
+        () => {
+          wide = !wide;
+          probe.style.width = wide ? "2px" : "1px";
+        },
+      );
+      w.__stop = () => {
+        stopFrames();
+        observer.disconnect();
+        probe.remove();
+      };
     }, marker);
   const stop = (page: Page) =>
     page.evaluate(() => {
@@ -450,6 +487,60 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     expect(await fromEnd(page)).toBeLessThanOrEqual(4);
     await page.close();
   });
+
+  test.each(engines.map(([name]) => name))(
+    "%s: settling short, long, and tool-ending replies does not move the message or composer",
+    async (name) => {
+      const page = await open(name);
+      for (const scenario of [
+        { label: "short", chunks: 1, toolEnding: false },
+        { label: "long", chunks: 90, toolEnding: false },
+        { label: "tool", chunks: 18, toolEnding: true },
+      ]) {
+        const turn = events.length;
+        const marker = `Settle ${scenario.label} marker ${turn}`;
+        await sample(page, marker);
+        await stream(`settle-${turn}`, `Settle ${scenario.label}`, marker, scenario.chunks, (index) => {
+          if (scenario.toolEnding && index === scenario.chunks - 1) toolCall(`settle-tool-${turn}`);
+        });
+        if (scenario.toolEnding) toolDone(`settle-tool-${turn}`);
+        // The reply paints while the turn still runs before the turn ends, so a frame of it before
+        // the settle exists to compare with: a one-chunk reply and its end can otherwise land in one
+        // WebKit frame.
+        await page.waitForFunction(() => {
+          const frames = (window as unknown as { __frames: Frame[] }).__frames;
+          return frames.some((frame) => frame.messageBottom !== undefined && !frame.settled);
+        });
+        endTurn();
+        await ended(page, marker);
+        await rest(page);
+        const frames = await stop(page);
+        const measured = frames.filter(
+          (frame) =>
+            frame.messageBottom !== undefined &&
+            frame.composerTop !== undefined &&
+            Number.isFinite(frame.messageBottom) &&
+            Number.isFinite(frame.composerTop),
+        );
+        const before = measured.filter((frame) => !frame.settled).at(-1);
+        const after = measured.find((frame) => frame.settled);
+        expect({
+          scenario: scenario.label,
+          samples: measured.length,
+          before: Boolean(before),
+          after: Boolean(after),
+        }).toEqual({
+          scenario: scenario.label,
+          samples: expect.any(Number),
+          before: true,
+          after: true,
+        });
+        expect(Math.abs(after!.messageBottom! - before!.messageBottom!)).toBeLessThanOrEqual(1);
+        expect(Math.abs(after!.composerTop! - before!.composerTop!)).toBeLessThanOrEqual(1);
+      }
+      await page.close();
+    },
+  );
 
   test.each(engines.map(([name]) => name))(
     "%s: a queued prompt sent as the next turn moves the view up only",

@@ -20,6 +20,8 @@ from unittest import mock
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+from nightly_workflow_text import nightly_text  # noqa: E402
 spec = importlib.util.spec_from_file_location("pr_media_privacy", ROOT / "scripts/ci/pr_media_privacy.py")
 assert spec and spec.loader
 privacy = importlib.util.module_from_spec(spec)
@@ -612,13 +614,16 @@ class WriterInventoryTests(unittest.TestCase):
     CHECKS_ITSELF = {"scripts/pr-media.py"}
     # Writes only through scripts/pr-media.py, which checks.
     THROUGH_PR_MEDIA_PY = {"scripts/cmux-next/media/publish.py", "scripts/cmux-next/media/reel.py",
+                           "scripts/cmux-next/media/whats-new-clips.py",
                            ".github/workflows/cmux-next-media.yml", ".github/workflows/nightly.yml",
                            ".github/actions/pr-media-publish/action.yml"}
     # Remove files or rewrite the retention index; they add no capture.
     REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", "scripts/ci/prune_pr_media.py",
                     ".github/workflows/pr-media-prune.yml"}
     # Name the branch or pr-media.py's file names for links; write nothing.
-    NOT_WRITERS = {"scripts/gallery-matrix/report.ts", "scripts/gallery-matrix/compare.test.ts"}
+    # Name pr-media URLs and push words but write nothing there (release-notes.py reads clip URLs).
+    NOT_WRITERS = {"scripts/gallery-matrix/report.ts", "scripts/gallery-matrix/compare.test.ts",
+                   "scripts/cmux-next/release-notes.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
 
     @classmethod
@@ -637,6 +642,9 @@ class WriterInventoryTests(unittest.TestCase):
                 text = (ROOT / path).read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
+            if path == ".github/workflows/nightly.yml":
+                # With its moved step scripts (scripts/ci/nightly-steps/) put back inline.
+                text = nightly_text()
             if cls.MEDIA.search(text) and (cls.DIRECT.search(text) or cls.VIA_TOOL.search(text)):
                 found[path] = text
         return found

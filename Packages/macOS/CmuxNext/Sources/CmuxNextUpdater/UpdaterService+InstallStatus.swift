@@ -1,22 +1,15 @@
 import CmuxUpdater
 import Foundation
 
-/// The install the person waits on (a583): how long it has run, what the relaunch gate holds
-/// it for, a Relaunch that ends the gate's hold, and a give-up that brings the click-hidden
-/// windows back when no relaunch comes (``UpdateInstallStatus``).
+/// The install the person waits on (a583): how long it has run, and a give-up that brings the
+/// click-hidden windows back when no relaunch comes (``UpdateInstallStatus``).
 extension UpdaterService {
     /// The running install's status, or nil outside the install phase. Read by the notice card.
     public var installStatus: UpdateInstallStatus? {
         _ = installTick
         guard let started = installStartedAt else { return nil }
         let elapsed = Duration.milliseconds(Int64(max(0, now().timeIntervalSince(started)) * 1000))
-        return UpdateInstallStatus(elapsed: elapsed, blockers: heldRelaunchBlockers)
-    }
-
-    /// What the relaunch gate holds the relaunch for, or nil when it holds nothing.
-    var heldRelaunchBlockers: UpdateRelaunchBlockers? {
-        guard case .installing(let installing)? = controller?.model.effectiveState else { return nil }
-        return installing.relaunchBlockers
+        return UpdateInstallStatus(elapsed: elapsed)
     }
 
     /// Starts the install's clock when the phase becomes installing; stops it on any other phase.
@@ -34,14 +27,6 @@ extension UpdaterService {
             installCardDismissed = false
             installTimer.cancel()
         }
-    }
-
-    /// The card's Relaunch: the relaunch gate's Install Now, when the gate holds the relaunch.
-    func relaunchNow() {
-        guard case .installing(let installing)? = controller?.model.effectiveState,
-              installing.relaunchBlockers != nil else { return }
-        log.append("install: relaunch now (card)")
-        installing.retryTerminatingApplication()
     }
 
     private func scheduleInstallTick() {

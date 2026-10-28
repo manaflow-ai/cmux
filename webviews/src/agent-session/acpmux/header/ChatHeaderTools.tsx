@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { HeaderIcon } from "./HeaderIcon";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
@@ -306,7 +307,7 @@ export function ChatHeaderTools({
             title={t(sideTabs ? "header.hideTabs" : "header.newTab")}
             onClick={onSideTabs}
           >
-            <Icon name={sideTabs ? "tunable.sidebar" : "action.add"} size={HEADER_GLYPH} />
+            <HeaderIcon name={sideTabs ? "tunable.sidebar" : "action.add"} size={HEADER_GLYPH} />
           </button>
         ) : id === "changes" ? (
           // Hidden, not disabled, without changes (cx-qom0); an open diff keeps it, to close it here.
@@ -321,7 +322,7 @@ export function ChatHeaderTools({
               {...tooltipProps(t("header.changes"), changesKey)}
               onClick={() => onChanges(mode)}
             >
-              <Icon name="diff.file" size={HEADER_GLYPH} />
+              <HeaderIcon name="diff.file" size={HEADER_GLYPH} />
             </button>
           ) : null
         ) : id === "files" ? (
@@ -336,7 +337,7 @@ export function ChatHeaderTools({
               title={t("header.files")}
               onClick={() => onFiles(mode)}
             >
-              <Icon name="folder" size={HEADER_GLYPH} />
+              <HeaderIcon name="folder" size={HEADER_GLYPH} />
             </button>
           ) : null
         ) : id === "preview" ? (
@@ -354,7 +355,7 @@ export function ChatHeaderTools({
               }
               onClick={() => onPreview(previewUrl, mode)}
             >
-              <Icon name="media.play" size={HEADER_GLYPH} />
+              <HeaderIcon name="media.play" size={HEADER_GLYPH} />
             </button>
           ) : null
         ) : id === "splitDown" ? (
@@ -369,7 +370,7 @@ export function ChatHeaderTools({
               {...tooltipProps(t("header.splitDown"), splitDownKey)}
               onClick={() => onSplitDown(mode)}
             >
-              <Icon name="pane.split.down" size={HEADER_GLYPH} />
+              <HeaderIcon name="pane.split.down" size={HEADER_GLYPH} />
             </button>
           ) : null
         ) : id === "terminal" ? (
@@ -383,7 +384,7 @@ export function ChatHeaderTools({
             {...tooltipProps(t("header.terminal"), terminalKey)}
             onClick={() => onTerminal(mode)}
           >
-            <Icon name="terminal" size={HEADER_GLYPH} />
+            <HeaderIcon name="terminal" size={HEADER_GLYPH} />
           </button>
         ) : (
           <button
@@ -398,7 +399,7 @@ export function ChatHeaderTools({
               : tooltipProps(t("header.browser"), browserKey))}
             onClick={() => browserRun(mode)}
           >
-            <Icon name="browser" size={HEADER_GLYPH} />
+            <HeaderIcon name="browser" size={HEADER_GLYPH} />
           </button>
         ),
       )}
@@ -593,7 +594,7 @@ function ChatMenu({
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
       <MenuButton className="acpmux-header-tool" label={label} disabled={disabled}>
-        <Icon name="action.more.vertical" size={HEADER_GLYPH} />
+        <HeaderIcon name="action.more.vertical" size={HEADER_GLYPH} />
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end">
         {children

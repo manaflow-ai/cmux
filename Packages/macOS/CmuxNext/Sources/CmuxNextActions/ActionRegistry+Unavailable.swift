@@ -36,9 +36,9 @@ extension ActionRegistry {
                         invoke: { _ in }, unavailableReason: { reason }, handler: {})); return true
     }
 
-    /// The bound action's current unavailable reason, if any.
+    /// The bound action's current unavailable reason, or why a setting turns it off, if any.
     public func unavailableReason(for id: ActionID) -> String? {
-        action(for: id)?.unavailableReason?()
+        action(for: id)?.unavailableReason?() ?? settingOffReason(canonicalID(for: id))
     }
 
     /// Called by a handler that cannot act on this invocation. The reason

@@ -35,6 +35,15 @@ import CmuxNextCompat
     /// while the person types cannot spend the person's keystroke.
     public var hasFreshAnswerGesture: Bool { lastClick.map { now() - $0 <= Self.answerWindow } ?? false }
 
+    /// Spends the person's fresh click for one answer in another chat (``AgentPaneAskAnswer``):
+    /// true once per click, and it takes the click with the grant, so typing after the click (which
+    /// records a new grant) cannot let the same click answer again.
+    func consumeAnswerClick() -> Bool {
+        guard hasFreshAnswerGesture else { return false }
+        lastClick = nil
+        return consume()
+    }
+
     /// Uses the gesture: true once per recorded gesture, false when there is none or it expired.
     public func consume() -> Bool {
         guard let last else { return false }
@@ -73,13 +82,45 @@ import CmuxNextCompat
     /// How long a prompt held for the folder trust answer keeps its send's gesture.
     public nonisolated static let heldPromptLifetime: TimeInterval = 600
 
+    /// How long an upload that holds a send ticket may go without progress
+    /// (``uploadProgressed(_:)``) before its hold ends and the ticket with it.
+    public nonisolated static let uploadStallLimit: TimeInterval = 60
+
     struct Ticket {
         var connection: Int
         var intent: AgentPaneGestureIntent
         var at: TimeInterval
+        /// The uploads of this send in progress (``holdForUpload(_:upload:connection:sessionId:promptId:)``),
+        /// each with its own last progress.
+        var uploads: [String: TimeInterval] = [:]
+        /// While `uploads` is not empty: when the ticket's clock stopped.
+        var stoppedAt: TimeInterval?
+
+        /// Within its lifetime, not counting the time its uploads held it, and not one of them stalled.
+        func isFresh(_ now: TimeInterval) -> Bool {
+            guard let stoppedAt else { return now - at <= intent.lifetime }
+            return stoppedAt - at <= intent.lifetime
+                && uploads.values.allSatisfy { now - $0 <= AgentPaneUserGestures.uploadStallLimit }
+        }
     }
 
     private var tickets: [String: Ticket] = [:]
+
+    /// The uploads whose send ticket ended while they held it (a newer send's ticket, a prompt that
+    /// went out, the connection's end, a stall): the uploader cancels them. Finish and cancel
+    /// (``releaseUpload(_:)``) are not reported.
+    public var onUploadHoldsEnded: (@MainActor (_ uploads: Set<String>) -> Void)?
+
+    /// Removes the tickets `drop` picks, and reports the uploads they held.
+    private func dropTickets(where drop: (_ key: String, _ ticket: Ticket) -> Bool) {
+        var ended = Set<String>()
+        tickets = tickets.filter { entry in
+            guard drop(entry.key, entry.value) else { return true }
+            ended.formUnion(entry.value.uploads.keys)
+            return false
+        }
+        if !ended.isEmpty { onUploadHoldsEnded?(ended) }
+    }
 
     /// Binds the current gesture to one pick the page sends later (a pick held behind a harness
     /// switch) on `connection`: consumes the gesture and returns a single-use ticket, nil when
@@ -94,8 +135,7 @@ import CmuxNextCompat
     func reserve(connection: Int, intent: AgentPaneGestureIntent, paid: Bool) -> String? {
         guard paid || consume() else { return nil }
         let at = now()
-        tickets = tickets.filter { at - $0.value.at <= $0.value.intent.lifetime
-            && !($0.value.connection == connection && $0.value.intent.slot == intent.slot) }
+        dropTickets { !$1.isFresh(at) || ($1.connection == connection && $1.intent.slot == intent.slot) }
         let ticket = UUID().uuidString
         tickets[ticket] = Ticket(connection: connection, intent: intent, at: at)
         lastTicket = ticket
@@ -105,19 +145,76 @@ import CmuxNextCompat
     /// Spends `ticket` (even when it does not match) and says whether it allows this frame: the
     /// same connection, within its lifetime, and the frame is its pick.
     public func redeem(_ ticket: String, connection: Int, method: String?, params: [String: Any]) -> Bool {
-        redeem(ticket, connection: connection, pick: AgentPaneGesturePick(method: method, params: params))
+        redeem(ticket, connection: connection, pick: AgentPaneGesturePick(method: method, params: params),
+               sessionId: params["sessionId"] as? String)
     }
 
-    /// Spends `ticket`; true when it was this connection's, still fresh, and for exactly `pick`.
-    public func redeem(_ ticket: String, connection: Int, pick: AgentPaneGesturePick?) -> Bool {
+    /// Spends `ticket`; true when it was this connection's, still fresh, for exactly `pick`, for
+    /// `sessionId` when it is bound to a chat, and no upload holds it any more. A prompt ticket bound
+    /// to no chat is a prompt held for the trust answer or behind a harness switch, whose chat may
+    /// not exist yet when it is held; it never held an upload (``holdForUpload``), so no file goes
+    /// with it to another chat (and a chat's uploads resolve only in that chat).
+    public func redeem(_ ticket: String, connection: Int, pick: AgentPaneGesturePick?, sessionId: String? = nil) -> Bool {
         if let seed = redeemSeed(ticket, pick: pick) { return seed }
-        guard let held = tickets.removeValue(forKey: ticket) else { return false }
-        return held.connection == connection && now() - held.at <= held.intent.lifetime && held.intent.matches(pick)
+        guard let held = tickets[ticket] else { return false }
+        dropTickets { key, _ in key == ticket }
+        return held.connection == connection && held.isFresh(now()) && held.intent.matches(pick) && held.uploads.isEmpty
+            && held.intent.sessionId.map { $0 == sessionId } != false
     }
 
     /// Drops every ticket (a reconnect, the end of a harness switch, the page's release).
     /// A seeded prompt's ticket stays: it belongs to the pane's one seed, not to a connection.
-    public func clearTickets() { tickets.removeAll() }
+    public func clearTickets() { dropTickets { _, _ in true } }
+
+    /// Drops the tickets of `connection` (it closed).
+    public func clearTickets(connection: Int) { dropTickets { $1.connection == connection } }
+
+    // MARK: A send ticket held by its uploads
+
+    /// `uploads.begin`'s check: `ticket` is the send ticket the person's Send reserved on this
+    /// `connection` for exactly `promptId` in chat `sessionId` (``AgentPaneGestureIntent/sessionId``),
+    /// still fresh. Then `upload` holds it: the ticket's clock stands still while any of its
+    /// uploads is in progress, so a file of any size still sends. Not spent; false refuses the upload.
+    public func holdForUpload(_ ticket: String, upload: String, connection: Int, sessionId: String, promptId: String) -> Bool {
+        let at = now()
+        dropTickets { !$1.isFresh(at) }
+        guard var held = tickets[ticket], held.connection == connection, held.intent.method == "session/prompt",
+              held.intent.sessionId == sessionId, held.intent.params == ["promptId": .string(promptId)],
+              !holdsTicket(upload: upload) else { return false }
+        if held.uploads.isEmpty { held.stoppedAt = at }
+        held.uploads[upload] = at
+        tickets[ticket] = held
+        return true
+    }
+
+    /// An upload holding a send ticket made progress (a chunk was acknowledged). False when its
+    /// hold ended: the uploader stops.
+    public func uploadProgressed(_ upload: String) -> Bool {
+        let at = now()
+        dropTickets { !$1.isFresh(at) }
+        guard let key = tickets.first(where: { $0.value.uploads[upload] != nil })?.key else { return false }
+        tickets[key]?.uploads[upload] = at
+        return true
+    }
+
+    /// An upload holding a send ticket finished or was cancelled: its hold ends, and when it was
+    /// the last, the ticket's clock runs again from where it stopped. False when it held none.
+    @discardableResult
+    public func releaseUpload(_ upload: String) -> Bool {
+        let at = now()
+        dropTickets { !$1.isFresh(at) }
+        guard let key = tickets.first(where: { $0.value.uploads[upload] != nil })?.key, var held = tickets[key] else { return false }
+        held.uploads.removeValue(forKey: upload)
+        if held.uploads.isEmpty, let stopped = held.stoppedAt {
+            held.at += at - stopped
+            held.stoppedAt = nil
+        }
+        tickets[key] = held
+        return true
+    }
+
+    /// Whether `upload` holds a send ticket.
+    public func holdsTicket(upload: String) -> Bool { tickets.values.contains { $0.uploads[upload] != nil } }
 
     // MARK: A seeded prompt's ticket (cx-k21v gap 4)
 
@@ -141,7 +238,7 @@ import CmuxNextCompat
     public func issueSeedTicket() -> (promptId: String, ticket: String) {
         let issued = SeedTicket(ticket: UUID().uuidString, promptId: UUID().uuidString.lowercased(), at: now())
         seedTicket = issued
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         lastSeed = (issued.promptId, issued.ticket)
         #endif
         return (issued.promptId, issued.ticket)
@@ -165,7 +262,7 @@ import CmuxNextCompat
             && pick?.method == "session/prompt" && pick?.params == ["promptId": .string(seed.promptId)]
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The last seed ticket issued, for the DEBUG replay check (`gesture_state replay_seed`).
     private var lastSeed: (promptId: String, ticket: String)?
 

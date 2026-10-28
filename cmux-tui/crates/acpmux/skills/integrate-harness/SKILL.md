@@ -52,8 +52,10 @@ until every step passes.
 schema = 1
 id = "acme"                     # = file name
 name = "Acme Agent"             # display name
-icon = "acme.svg"               # file next to the profile (svg/png, <= 256 KB), or
-                                # claude, openai, codex, opencode, pi, gemini, meta, terminal, generic
+icon = "acme.svg"               # file next to the profile (svg/png, <= 256 KB), one emoji, an SF
+                                # Symbol (hammer.fill) or an agent mark (claude, goose, ...); leave it
+                                # out and cmux picks the mark of the agent the command runs, else a
+                                # monogram. Set it later: `cmux harness icon acme VALUE`
 protocol = "acp"                # acp | terminal | claude-stdio
 command = "acme-agent"          # program on PATH, or an absolute path (no spaces, no arguments)
 args = ["acp", "--model", "${model}"]   # ${model} = chosen model, ${cwd} = session folder

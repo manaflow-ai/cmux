@@ -121,6 +121,12 @@ fn plain_ip(addr: SocketAddr) -> IpAddr {
 
 pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
     let ready = super::service::take_ready_signal();
+    // One listener per state directory; the OS drops the lock with the
+    // process, so `status` and `stop` never act on a stale pid. Taken before
+    // the config is read: a `config::commit` that saved before this sees the
+    // new config here, and one that saves after finds the lock held and
+    // restarts this listener, so none serves access a write already removed.
+    let _lock = super::service::acquire()?;
     let config = config::load()?;
     if !config.enabled {
         eprintln!("cmux host: remote hosting is disabled (run `cmux host enable`)");
@@ -137,9 +143,6 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
     if self_ips.is_empty() {
         bail!("this machine has no tailnet address");
     }
-    // One listener per state directory; the OS drops the lock with the
-    // process, so `status` and `stop` never act on a stale pid.
-    let _lock = super::service::acquire()?;
     let mut listeners = Vec::new();
     for ip in &self_ips {
         let addr = SocketAddr::new(*ip, config.port);
@@ -309,7 +312,11 @@ fn serve_one(
                     "listener_pid": std::process::id(),
                 }))
             });
-            let result = splice(stream, daemon);
+            let result = if proxied(&config, identity.login.as_deref(), scopes.as_deref()) {
+                super::agent_proxy::run(stream, daemon, identity, peer)
+            } else {
+                splice(stream, daemon)
+            };
             if let Some(id) = guest {
                 host.guest_closed(id);
             }
@@ -334,7 +341,19 @@ fn probe_reply(host: &Host, config: &Config, access: &str) -> Value {
     })
 }
 
-type DaemonStream = Box<dyn cmux_tui_core::platform::transport::Stream>;
+/// Whether a teammate connection takes the filtered agent proxy instead of a raw
+/// splice: a grant without `shell`, and any login with a shared chat even with
+/// `shell` (a share never comes with a raw daemon connection; chat-multiplayer
+/// design section 2). The owner and full-access logins (no scopes) splice.
+pub(super) fn proxied(config: &Config, login: Option<&str>, scopes: Option<&[Scope]>) -> bool {
+    let Some(scopes) = scopes else { return false };
+    let shared = login.is_some_and(|login| {
+        config.shares.iter().any(|share| config::same_login(&share.login, login))
+    });
+    shared || !scopes.contains(&Scope::Shell)
+}
+
+pub(super) type DaemonStream = Box<dyn cmux_tui_core::platform::transport::Stream>;
 
 impl Host {
     fn connect_daemon(&self, config: &Config) -> anyhow::Result<DaemonStream> {

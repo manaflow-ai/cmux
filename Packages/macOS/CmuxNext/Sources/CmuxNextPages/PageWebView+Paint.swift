@@ -10,7 +10,7 @@ extension PageWebView {
     }
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 extension PageWebView {
     /// A ``ChatOpenTrace`` mark of this page, when it is an agent chat's page.
     func traceMark(_ mark: ChatOpenTrace.Mark) {

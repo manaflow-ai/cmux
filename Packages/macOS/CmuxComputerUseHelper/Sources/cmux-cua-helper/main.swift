@@ -3,28 +3,17 @@
 // "cmux Computer Use (dev).app" in DEV builds) with macOS responsibility
 // disclaimed, so Accessibility and Screen Recording belong to the helper,
 // never to cmux or its shells. Upstream Cua Driver runs in process.
-import ApplicationServices
 import CmuxCuaHelperCore
 import Darwin
 import Foundation
 
 signal(SIGPIPE, SIG_IGN)
 let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.cua.dev"
-let insideHelperBundle = Bundle.main.bundleIdentifier?.hasPrefix("com.cmuxterm.cua") == true
 // Before any thread starts and before the driver loads.
 HelperEnvironment(helperBundleID: bundleID).apply()
 
-// Put the helper in the Accessibility list once per helper version, so the
-// user can switch it on (macOS shows its own dialog; nothing else prompts).
-if insideHelperBundle, !AXIsProcessTrusted() {
-    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
-    let key = "accessibilityPromptedVersion"
-    if UserDefaults.standard.string(forKey: key) != version {
-        UserDefaults.standard.set(version, forKey: key)
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
-    }
-}
+// Starting (including after an update) never asks for a grant. The app's
+// Computer Use setup buttons request each permission over the control pipe.
 
 let tools: any ToolInvoking
 let libraryPath = (Bundle.main.privateFrameworksPath ?? "") + "/libcua_driver_sdk.dylib"

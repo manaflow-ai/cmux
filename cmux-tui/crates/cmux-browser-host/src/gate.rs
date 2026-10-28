@@ -21,6 +21,7 @@ mod fetch;
 mod guards;
 #[cfg(unix)]
 mod history;
+mod press;
 mod private_data;
 mod proxy;
 pub use proxy::{NameResolver, system_resolver};
@@ -617,6 +618,9 @@ impl VmHost for Gate {
         let mut params = params;
         if method == "input.insertText" {
             Self::secret_insert(&mut params)?;
+        }
+        if method == "input.mouse" {
+            self.check_press(&mut params)?;
         }
         let typing = self.typing_details(method, &params);
         if matches!(method, "input.insertText" | "input.key") {

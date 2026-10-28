@@ -35,6 +35,9 @@ export type AnchoredCollapseOptions = {
   /// Whether a change plays the fold (default: every one). A folded thought plays only the reader's
   /// toggle, not its automatic fold.
   animates?: () => boolean;
+  /// Whether opening fades the body in (default: yes); false opens it at full opacity, the height
+  /// alone moving, and only closing fades (fold.ts `useFold`).
+  fadeIn?: boolean;
 };
 
 export type AnchoredCollapseBodyProps = {
@@ -110,7 +113,7 @@ export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): Anch
   const [inner, setInner] = useState(options.defaultOpen ?? false);
   const controlled = options.open !== undefined;
   const open = controlled ? options.open! : inner;
-  const fold = useFold(open, options.animates ?? always);
+  const fold = useFold(open, options.animates ?? always, options.fadeIn ?? true);
   const header = useRef<HTMLElement | null>(null);
   const headerRef = useCallback((node: HTMLElement | null) => {
     header.current = node;

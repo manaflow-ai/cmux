@@ -6,7 +6,7 @@
 //   - always: +, the model button with its effort, the access glyph, Send (with a draft typed) and
 //     the access chevron; no label under 3 characters; no two controls overlap;
 //   - first the button's effort shows the level's short name ("Med"), then the model its family
-//     ("Opus"), then its harness mark alone (its name in its tooltip), the effort still beside it;
+//     ("Opus"), then the model's mark alone (its name in its tooltip), the effort still beside it;
 //   - only then the access label goes; the mic never leaves (Leo 2026-10-19: the prompt shrinks
 //     instead).
 // The controls sit in two rows (Leo 2026-10-19, as Claude Code's): +, the mic and Send in the box,

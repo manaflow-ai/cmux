@@ -46,9 +46,9 @@ final class FileExplorerModel {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { watching?.cancel() }
+        watching?.cancel()
     }
 
     /// Watches `folders` (the root, and the repository's `.git` folder): each burst of changes

@@ -72,6 +72,8 @@ public final class HomeSidebarSource {
     @ObservationIgnored private let chiefHarnesses: @MainActor () -> [String: String]
     /// The main Chief and where each Chief runs (``HomeChiefRoster``).
     @ObservationIgnored private let chiefRoster: @MainActor () -> HomeChiefRoster
+    /// Each Chief's own name by its conversation (the user renamed it), over the title its row has.
+    @ObservationIgnored private let chiefNames: @MainActor () -> [ConversationID: String]
     public var query = ""
     public private(set) var pins = HomePins()
     /// Conversations shown unread by the user's Mark as Unread until they open or read them.
@@ -81,7 +83,7 @@ public final class HomeSidebarSource {
     /// This Mac's marks changed here (a Mark as Unread or Read of a row no owner lists): other
     /// sources over the same account read them again (``reloadMarks()``).
     @ObservationIgnored public var onMarksChanged: () -> Void = {}
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// DEBUG: conversations listed besides the store's (`debug.home.sidebar_fixture`).
     @ObservationIgnored public var debugRows: [InboxRow] = []
     /// DEBUG: team members listed besides the directory's (`debug.home.sidebar_fixture` `team`).
@@ -94,7 +96,8 @@ public final class HomeSidebarSource {
          chiefAvatars: @escaping @MainActor () -> [String: HomeChiefAvatar] = { [:] },
          defaultChiefAvatar: @escaping @MainActor () -> HomeChiefAvatar? = { nil },
          chiefHarnesses: @escaping @MainActor () -> [String: String] = { [:] },
-         chiefRoster: @escaping @MainActor () -> HomeChiefRoster = { HomeChiefRoster() }) {
+         chiefRoster: @escaping @MainActor () -> HomeChiefRoster = { HomeChiefRoster() },
+         chiefNames: @escaping @MainActor () -> [ConversationID: String] = { [:] }) {
         self.store = store
         self.inboxes = inboxes
         self.account = account
@@ -105,6 +108,7 @@ public final class HomeSidebarSource {
         self.defaultChiefAvatar = defaultChiefAvatar
         self.chiefHarnesses = chiefHarnesses
         self.chiefRoster = chiefRoster
+        self.chiefNames = chiefNames
     }
 
     /// The owners' replies (nil: that owner does not serve `home-inbox`), for observers of the list.
@@ -145,13 +149,13 @@ public final class HomeSidebarSource {
         guard !replies.isEmpty else {
             return HomeSidebarModel(rows: listed, pins: pins, me: me(), query: query, contacts: people(),
                                     unreadMarks: unreadMarks, chiefAvatars: chiefAvatars(), defaultChiefAvatar: defaultChiefAvatar(),
-                                    chiefHarnesses: chiefHarnesses(), chiefRoster: chiefRoster(), now: now)
+                                    chiefHarnesses: chiefHarnesses(), chiefRoster: chiefRoster(), chiefNames: chiefNames(), now: now)
         }
         let owned = HomeInboxMapping.ordered(replies.map(\.rows))
         let list = HomeInboxMapping(owned: owned, listed: listed, pins: pins, unreadMarks: unreadMarks)
         var model = HomeSidebarModel(ordered: list.rows, pinned: list.pinned, me: me(), query: query, contacts: people(),
                                      unreadMarks: list.unreadMarks, chiefAvatars: chiefAvatars(), defaultChiefAvatar: defaultChiefAvatar(),
-                                     chiefHarnesses: chiefHarnesses(), chiefRoster: chiefRoster(), now: now)
+                                     chiefHarnesses: chiefHarnesses(), chiefRoster: chiefRoster(), chiefNames: chiefNames(), now: now)
         model.cloudState = replies.compactMap(\.cloud).first { $0 != "not_asked" }
         return model
     }

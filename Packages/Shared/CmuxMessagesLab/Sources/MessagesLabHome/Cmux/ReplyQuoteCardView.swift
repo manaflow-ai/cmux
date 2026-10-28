@@ -48,6 +48,15 @@ final class ReplyQuoteCardView: NSView {
 
     @objc private func removeClicked() { onRemove() }
 
+    /// Right-click: Copy the quoted words, and Remove Quote.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        HomeContentMenu().textItems(excerpt.stringValue, selection: nil).forEach(menu.addItem)
+        menu.addItem(.separator())
+        menu.addItem(MenuAction(title: CmuxStrings.replyQuoteRemove, symbol: "xmark.circle") { [weak self] in self?.onRemove() })
+        return menu
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         effectiveAppearance.performAsCurrentDrawingAppearance { bar.layer?.backgroundColor = NSColor.secondaryLabelColor.cgColor }

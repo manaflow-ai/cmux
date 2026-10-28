@@ -35,6 +35,13 @@ enum CEFColorScheme {
         }
         // Every tab switch moves the view and asks again; only a change is worth a round trip.
         guard tab.sentColorScheme != wanted else { return }
+        // From fork API 29 the scheme is a web preference (no DevTools session, so the tab's renderer
+        // stays shareable). Developer Tools' reduced motion still uses emulation, only while it is on.
+        if tab.runtime.forkFeatures.rendererPaths, !tab.devToolsModes.isOn(.toggleReducedMotion),
+           let setScheme = tab.runtime.shim?.tabSetColorScheme {
+            tab.sentColorScheme = setScheme(browserID, wanted == "dark" ? 2 : 1) == 1 ? wanted : nil
+            return
+        }
         tab.sentColorScheme = wanted
         let runtime = tab.runtime
         let media = tab.devToolsModes.emulatedMedia

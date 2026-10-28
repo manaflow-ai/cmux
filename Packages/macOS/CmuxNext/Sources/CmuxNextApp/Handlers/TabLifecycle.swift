@@ -1,6 +1,9 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -16,7 +19,7 @@ enum TabLifecycle {
     /// `asTab`: a tab in the focused pane whatever `newTerminal.opensWorkspace` and
     /// `layout.newPanePlacement` say (Cmd-T with `tabs.terminalFirst`, #23021).
     static func newTerminal(_ ctx: AppActionContext, _ invocation: ActionInvocation, slot: NewTabSlot.Target? = nil, asTab: Bool = false) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.markAction() } // `debug.new_terminal_trace`
         #endif
         guard let focused = ctx.daemonPane(invocation) else { return }
@@ -343,7 +346,7 @@ enum TabLifecycle {
         let browserTabs = ctx.services.cache.browserTabs
         if let refusal = browserTabs.refusal(in: pane) ?? browserTabs.refusal(for: url) { return ctx.refuse(refusal) }
         guard browserTabs.isAvailable(in: pane) else {
-            return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.frontendBrowserTabs))
+            return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapability.frontendBrowserTabs.rawValue))
         }
         let choice: BrowserEngineChoice
         switch browserTabs.resolve(requested: engine, url: url) {
@@ -368,24 +371,36 @@ enum TabLifecycle {
     /// one, the focused pane's selected tab (session-local browser tabs too).
     static func close(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
         guard invocation.target?.kind == .tab || invocation["tab"]?.targetValue != nil else {
+            // The burst bench's marks name the key event that ran this press (its press time).
+            let trace = ctx.services.burstTrace
+            let input = trace.isArmed ? ctx.registry.dispatchingInputEvent()?.timestamp ?? invocation.inputTimestamp : nil
             // Cmd-W while the focus a creation asked for is still on its way (Cmd-D, then Cmd-W at
             // once: its pane may have no controller yet, and the old pane still has the focus): the
             // creation it focuses closes, never the old pane's tab (CancelledCreation).
-            if let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelCreation(tab: id) { return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window) }
-            // A quick Cmd-W after one that emptied its pane closes nothing in the pane the focus
-            // landed in (TabCloseGuard.swallowsCmdW, Leo 2026-10-21).
-            let now = ProcessInfo.processInfo.systemUptime
-            if invocation.origin == .user, TabCloseGuard.swallowsCmdW(ctx.services, at: now) { return }
+            if let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelCreation(tab: id) {
+                trace.mark(.creationCancelled, input: input)
+                return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window)
+            }
+            // A press aimed at a pane the last close emptied (made before the frame showing the
+            // focus elsewhere was presented, or a repeat of the held key that emptied it) closes
+            // nothing, and says so (PaneCloseAim, Leo 2026-10-21, Lawrence 2026-10-23); the refusal
+            // HUD marks it `refusal` for the burst bench.
+            let press = TabCloseGuard.press(ctx, invocation)
+            if invocation.origin == .user, let focus = ctx.focusedContent?.focus, focus.aimsAtEmptiedPane(press) {
+                return ctx.refuse(RefusalStrings.closeAimedAtClosedPane)
+            }
             guard let (pane, selected) = ctx.tab(invocation) else { return }
             // A Cmd-W while the last one's close still asks the daemon closes the next tab (TabCloseGuard).
-            guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane.stripModel) : selected else { return }
+            guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane) : selected else { return }
             // The user's Cmd-W closes a pinned tab, as Chrome's does, unless `tabs.cmdWClosesPinnedTabs`
             // is off (then it keeps it, PINNED-ITEMS-END-TO-END P3); the tab menu, the CLI and MCP close it either way.
             if invocation.origin == .user {
                 let closesPinned = ctx.services.settings?.snapshot.cmdWClosesPinnedTabs ?? CmdWClosesPinnedTabsSetting.fallback
                 // Several selected tabs close together (Chrome); a selected pinned tab stays, as above.
                 if let selected = pane.stripModel.keyboardCloseSelection(id, closesPinned: closesPinned) {
-                    if TabCloseGuard.empties(pane, closing: selected) { ctx.services.emptiedPaneCloseRun.emptied(at: now) }
+                    let empties = TabCloseGuard.empties(pane, closing: selected)
+                    if empties { pane.workspace?.focus.noteEmptied(pane.paneKey, by: press) }
+                    trace.closed(tabs: selected.map(\.rawValue), emptiesPane: empties, input: input)
                     return CloseUndoToasts.close(in: pane, selected)
                 }
                 switch pane.stripModel.keyboardClose(id, closesPinned: closesPinned) {
@@ -397,7 +412,10 @@ enum TabLifecycle {
                 }
             }
             let empties = TabCloseGuard.empties(pane, closing: [id])
-            if invocation.origin == .user, empties { ctx.services.emptiedPaneCloseRun.emptied(at: now) }
+            if invocation.origin == .user {
+                if empties { pane.workspace?.focus.noteEmptied(pane.paneKey, by: press) }
+                trace.closed(tabs: [id.rawValue], emptiesPane: empties, input: input)
+            }
             // A link's tab outside the pane it was clicked in gives the focus back there, only as
             // its pane closes with it; while the pane has tabs, the focus stays (LinkOpener).
             let back = ctx.services.linkOpener.returnPane(closing: id, in: pane, emptiesPane: empties)

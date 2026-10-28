@@ -52,6 +52,12 @@ pub(super) const CLOUD_LIVE_CAPABILITY: &str = "cloud-chief-live-v1";
 /// `conversation-typing` broadcast of a subscribed conversation) for a
 /// connection that echoes it (advertised with `cloud-conversations-v1`).
 pub(super) const CLOUD_TYPING_CAPABILITY: &str = "cloud-conversation-typing-v1";
+/// `cloud-conversation-presence`: the owner's ephemeral `presence.set` frame
+/// (the person views the conversation while any client of the daemon does)
+/// through the daemon, and the `cloud-conversation-presence` event (the
+/// owner's `conversation-presence` set of a subscribed conversation) for a
+/// connection that echoes it (advertised with `cloud-conversations-v1`).
+pub(super) const CLOUD_PRESENCE_CAPABILITY: &str = "cloud-conversation-presence-v1";
 
 /// Whether `client` is the verified cmux app (the `frontend` actor: a
 /// role-main Unix connection whose code signature or install key was
@@ -220,6 +226,13 @@ pub(super) struct TargetParams {
 pub(super) struct TypingParams {
     conversation: String,
     on: bool,
+}
+
+/// `cloud-conversation-presence`.
+#[derive(Deserialize)]
+pub(super) struct PresenceParams {
+    conversation: String,
+    viewing: bool,
 }
 
 /// `cloud-mux-subscribe` / `cloud-mux-unsubscribe` / `cloud-requests-list`: no
@@ -452,6 +465,12 @@ pub(super) fn live(mux: &Mux, client: u64, params: TargetParams) -> anyhow::Resu
 /// stopped, as the owner's `typing` frame on the shared socket.
 pub(super) fn typing(mux: &Mux, client: u64, params: TypingParams) -> anyhow::Result<Value> {
     Ok(lease_user(mux, client)?.typing(client, &params.conversation, params.on)?)
+}
+
+/// `cloud-conversation-presence`: the connection views the conversation or
+/// stopped, as the owner's `presence.set` frame on the shared socket.
+pub(super) fn presence(mux: &Mux, client: u64, params: PresenceParams) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.presence(client, &params.conversation, params.viewing)?)
 }
 
 pub(super) fn unsubscribe(

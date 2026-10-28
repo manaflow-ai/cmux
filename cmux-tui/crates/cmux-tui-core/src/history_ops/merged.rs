@@ -159,16 +159,15 @@ impl HistoryHost {
                 }
             }
         };
-        let saved = mux
-            .workspace_registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .put_journal_reducer_state(
-                AGENT_FOLD_STATE_ID,
-                AGENT_FOLD_STATE_VERSION,
-                cursor,
-                &snapshot,
-            );
+        // The connection alone, never the workspace registry lock: the
+        // snapshot is the whole agent history, and every state commit
+        // (Cmd-N's pin, create and first tab) waited behind it (issue 23038).
+        let saved = mux.registry_connection.put_journal_reducer_state(
+            AGENT_FOLD_STATE_ID,
+            AGENT_FOLD_STATE_VERSION,
+            cursor,
+            &snapshot,
+        );
         match saved {
             Ok(()) => {
                 let mut state = self.lock();
@@ -177,6 +176,15 @@ impl HistoryHost {
             }
             Err(error) => eprintln!("cmux-tui: saving the agent history failed: {error:#}"),
         }
+    }
+
+    /// Marks the agent fold unsaved; returns its cursor.
+    #[cfg(test)]
+    pub(super) fn mark_unsaved_for_test(&self) -> u64 {
+        let mut state = self.lock();
+        state.saved_cursor = 0;
+        state.unsaved_agents = true;
+        state.cursor
     }
 
     /// Folds the journal records scanned after `from` through `scanned`. A

@@ -81,7 +81,8 @@ public final class WorkspaceSync {
             let replies = await client.requests([
                 ("set-client-info", [
                     "name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": deviceID,
-                    "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1"],
+                    // `page-tabs-v1`: the Mac's page tabs read as their page (a phone tab is a simulator tab).
+                    "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"],
                 ]),
                 ("identify", [:]),
                 ("subscribe", ["tree_events": "deltas"]),
@@ -163,10 +164,10 @@ public final class WorkspaceSync {
                 arrangementStale = true
                 await refresh()
             }
-        case .agentChanged(let surface, let state, let agent, let updatedAt):
+        case .agentChanged(let surface, let state, let agent, let updatedAt, let harnessSession):
             // A Mac that reports `updated_at_ms` gives the time; an older one gets the phone's.
             if updatedAt == nil, agents.bySurface[surface]?.state != state { activity[surface] = Date() }
-            agents.bySurface[surface] = AgentState(state: state, agent: agent, updatedAt: updatedAt)
+            agents.bySurface[surface] = AgentState(state: state, agent: agent, updatedAt: updatedAt, harnessSession: harnessSession)
             Task { await refresh() }
         case .other:
             break

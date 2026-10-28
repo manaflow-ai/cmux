@@ -4,6 +4,7 @@
 //! through `use super::*`.
 
 mod deferred_input;
+mod docked_workspaces;
 mod graphics_pointer;
 mod host_input;
 mod machine_sidebar;
@@ -625,6 +626,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         pane_focus_history: PaneFocusHistory::default(),
         reported_focus: None,
         client_focus_id: None,
+        docks: Default::default(),
         rendered_terminal_bounds: HashMap::new(),
         rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),

@@ -4,7 +4,8 @@
   "initialize": "initialize",
   "requests": [
     "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
-    "_acpmux/watch", "_acpmux/sessions", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
+    "_acpmux/watch", "_acpmux/sessions", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/typing", "_acpmux/warm",
+    "_acpmux/peer_snapshot", "_acpmux/retry",
     "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
     "_acpmux/status", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/btw", "_acpmux/queue_remove", "_acpmux/queue_edit",
     "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
@@ -15,7 +16,8 @@
     "_acpmux/harness/health", "_acpmux/side", "_acpmux/offer_respond", "_acpmux/start_mode",
     "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/app_reply", "_acpmux/watch_take_over",
     "_acpmux/process/list", "_acpmux/process/tail", "_acpmux/process/kill", "_acpmux/process/background",
-    "_acpmux/route/list", "_acpmux/chat/route.set", "_acpmux/forum/rules", "_acpmux/set_tools"
+    "_acpmux/route/list", "_acpmux/chat/route.set", "_acpmux/forum/rules", "_acpmux/set_tools",
+    "_acpmux/mcp/reconnect", "_acpmux/subsession/limits"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -27,14 +29,15 @@
     "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side",
     "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
     "_acpmux/watch_take_over",
-    "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools"
+    "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
+    "_acpmux/mcp/reconnect", "_acpmux/subsession/limits"
   ],
   "optionally_session_scoped": ["acp.trust.get", "acp.trust.set"],
   "scoped_session_params": {"_acpmux/side": ["chat"]},
   "optional_scoped_session_params": {"_acpmux/offer_respond": ["childSessionId"]},
   "source_scoped": [
     "acp.session.fork", "_acpmux/handoff_prepare", "_acpmux/handoff_draft", "_acpmux/handoff_start",
-    "_acpmux/handoff_discard"
+    "_acpmux/handoff_discard", "_acpmux/retry"
   ],
   "gesture_rules": {
     "session/prompt": "always",
@@ -53,20 +56,23 @@
   "setting_methods": ["session/set_mode", "session/set_config_option"],
   "known_params": {
     "initialize": {"params": ["protocolVersion", "clientInfo", "clientCapabilities"], "acpmux": []},
-    "session/new": {"params": ["cwd", "mcpServers", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject"]},
-    "session/prompt": {"params": ["sessionId", "prompt", "_meta"], "acpmux": ["promptId", "steer", "interrupt", "context", "surface"]},
+    "session/new": {"params": ["cwd", "mcpServers", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject", "model"]},
+    "session/prompt": {"params": ["sessionId", "prompt", "_meta"], "acpmux": ["promptId", "steer", "interrupt", "context", "surface", "inlineParts"]},
     "session/set_model": {"params": ["sessionId", "modelId"], "acpmux": []},
     "session/cancel": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/watch": {"params": ["enabled", "limit"], "acpmux": []},
     "_acpmux/sessions": {"params": ["limit", "cursor"], "acpmux": []},
     "_acpmux/events": {"params": ["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds"], "acpmux": []},
     "_acpmux/attachment": {"params": ["sessionId", "id"], "acpmux": []},
+    "_acpmux/peer_snapshot": {"params": ["sessionId"], "acpmux": []},
+    "_acpmux/retry": {"params": ["sessionId", "subagentId"], "acpmux": []},
     "_acpmux/attach": {"params": ["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible"], "acpmux": []},
     "_acpmux/detach": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/view": {"params": ["sessionId", "visible"], "acpmux": []},
+    "_acpmux/typing": {"params": ["sessionId", "on"], "acpmux": []},
     "_acpmux/warm": {"params": ["sessionIds", "limit"], "acpmux": []},
     "_acpmux/kill": {"params": ["sessionId", "purge"], "acpmux": []},
-    "_acpmux/prewarm": {"params": ["harness", "cwd"], "acpmux": []},
+    "_acpmux/prewarm": {"params": ["harness", "cwd", "release"], "acpmux": []},
     "_acpmux/start_mode": {"params": ["harness", "cwd"], "acpmux": []},
     "_acpmux/harnesses": {"params": ["cwd"], "acpmux": []},
     "_acpmux/models": {"params": ["refresh"], "acpmux": []},
@@ -78,7 +84,7 @@
     "_acpmux/btw": {"params": ["sessionId", "question", "model"], "acpmux": []},
     "_acpmux/queue_remove": {"params": ["sessionId", "promptId"], "acpmux": []},
     "_acpmux/queue_edit": {"params": ["sessionId", "promptId", "op", "text", "images", "index"], "acpmux": []},
-    "_acpmux/permission_respond": {"params": ["sessionId", "permissionId", "optionId", "answers", "_meta"], "acpmux": []},
+    "_acpmux/permission_respond": {"params": ["sessionId", "permissionId", "optionId", "answers", "annotations", "_meta"], "acpmux": []},
     "_acpmux/handoff_prepare": {"params": ["sessionId", "harness", "handoffKey"], "acpmux": []},
     "_acpmux/handoff_get": {"params": ["sessionId", "handoffId"], "acpmux": []},
     "_acpmux/handoff_draft": {"params": ["handoffId", "revision", "draftKey", "capsule", "checkpoint"], "acpmux": []},
@@ -105,6 +111,8 @@
     "_acpmux/process/background": {"params": ["sessionId", "toolCallId"], "acpmux": []},
     "_acpmux/route/list": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/chat/route.set": {"params": ["sessionId", "routeId", "when"], "acpmux": []},
+    "_acpmux/subsession/limits": {"params": ["sessionId", "maxRunning"], "acpmux": []},
+    "_acpmux/mcp/reconnect": {"params": ["sessionId", "server"], "acpmux": []},
     "acp.session.fork": {"params": ["sessionId", "throughSeq"], "acpmux": []},
     "acp.trust.get": {"params": ["cwd", "sessionId"], "acpmux": []},
     "acp.trust.set": {"params": ["cwd", "level", "sessionId"], "acpmux": []},
@@ -119,11 +127,13 @@
   "path_keys": ["cwd", "path", "additionalDirectories", "directory", "directories", "workingDirectory",
     "folder", "folders", "root", "roots", "worktree", "worktreePath"],
   "question_answers": {
-    "description": "Answers are allowed only for a pending question (toolCall._meta.acpmux.question), as an object of 1 to maximum_items of its item ids or prompts; each value is a string, a list of at most maximum_list_strings strings, or Codex's {answers: [string]}. Each id and each string is at most maximum_value_bytes UTF-8 bytes; the bound is per string, never a list's strings together. Swift (AcpmuxPaneMethods+Answers.swift) and Rust (src/answers.rs) enforce the same rule.",
+    "description": "Answers are allowed only for a pending question (toolCall._meta.acpmux.question), as an object of 1 to maximum_items of its item ids or prompts; each value is a string, a list of at most maximum_list_strings strings, or Codex's {answers: [string]}. Each id and each string is at most maximum_value_bytes UTF-8 bytes; the bound is per string, never a list's strings together. Annotations (Claude Code's {preview?, notes?} per question) go only beside answers, keyed by the same items, each field a string of at most maximum_annotation_bytes. Swift (AcpmuxPaneMethods+Answers.swift) and Rust (src/answers.rs) enforce the same rule.",
     "method": "_acpmux/permission_respond",
     "param": "answers",
     "maximum_items": 64,
     "maximum_list_strings": 64,
-    "maximum_value_bytes": 4096
+    "maximum_value_bytes": 4096,
+    "annotations_param": "annotations",
+    "maximum_annotation_bytes": 65536
   }
 }
