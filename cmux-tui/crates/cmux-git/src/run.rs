@@ -272,7 +272,7 @@ fn run(
                     let limit = libc::rlim_t::try_from(limit).map_err(|_| {
                         std::io::Error::new(std::io::ErrorKind::InvalidInput, "memory limit")
                     })?;
-                    let resource = libc::rlimit { rlim_cur: limit, rlim_max: limit };
+                    let resource = libc::rlimit { rlim_cur: limit as _, rlim_max: limit as _ };
                     if libc::setrlimit(libc::RLIMIT_AS, &resource) == 0 {
                         Ok(())
                     } else {
