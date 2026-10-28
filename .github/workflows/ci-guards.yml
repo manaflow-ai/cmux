@@ -692,6 +692,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_package_lane_suite.py
 
+      - name: Validate the Linux-capable Swift package list
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_swift_linux_packages.py
+
       - name: Validate workflow_run triggers name workflows that exist
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_sources.py

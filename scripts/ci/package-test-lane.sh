@@ -104,7 +104,7 @@ esac
 # the physical core count unless the caller set one. The variable is
 # experimental in swift-testing and is ignored by a toolchain without it.
 if [ -z "${SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH:-}" ]; then
-  SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH="$(sysctl -n hw.physicalcpu 2>/dev/null || echo 4)"
+  SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH="$(sysctl -n hw.physicalcpu 2>/dev/null || nproc 2>/dev/null || echo 4)"
   export SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH
 fi
 event="${EVENT_NAME:-}"
@@ -325,7 +325,7 @@ toolchain_mismatch() {
   local hit
   hit="$(grep -m1 -oE 'SDK is not supported by the compiler|Invalid manifest|no tests found' "$1" || true)"
   [ -n "$hit" ] || return 1
-  echo "::error title=Swift toolchain and SDK differ::$2: swift test reported '$hit' with DEVELOPER_DIR=$DEVELOPER_DIR SDKROOT=${SDKROOT:-unset}; no test result here is valid"
+  echo "::error title=Swift toolchain and SDK differ::$2: swift test reported '$hit' with DEVELOPER_DIR=${DEVELOPER_DIR:-unset} SDKROOT=${SDKROOT:-unset}; no test result here is valid"
 }
 
 # A fleet step has no ghostty submodule checkout, only the empty directory git
@@ -677,9 +677,49 @@ ensure_cmux_tui_tree() {
   echo "::endgroup::"
 }
 
+# On Linux a suite runs only for a package scripts/ci/swift-linux-packages.txt lists, with that row's
+# ENV and only filters that name one of its test targets; it selects no Xcode and no macOS SDK.
+# CMUX_PACKAGE_LANE_TEST_OS stands in for `uname -s` in tests/test_swift_linux_packages.py.
+linux_list=scripts/ci/swift-linux-packages.txt
+lane_os="${CMUX_PACKAGE_LANE_TEST_OS:-$(uname -s)}"
+linux_suite_setup() {
+  local dir targets envs row="" filter target ok pair
+  if [ -f "$linux_list" ]; then
+    row="$(awk -v p="$suite_package" '$1 == p { print; exit }' "$linux_list")"
+  fi
+  if [ -z "$row" ]; then
+    echo "::error title=Not a Linux package::package-test-lane.sh: $suite_package is not in $linux_list; its suites run on macOS" >&2
+    exit 2
+  fi
+  read -r dir targets envs <<< "$row"
+  for filter in "${suite_filters[@]}"; do
+    ok=0
+    IFS=, read -r -a linux_targets <<< "$targets"
+    for target in "${linux_targets[@]}"; do
+      case "$filter" in "$target"|"$target".*|"$target"/*) ok=1 ;; esac
+    done
+    if [ "$ok" -ne 1 ]; then
+      echo "::error title=Not a Linux test target::package-test-lane.sh: filter '$filter' names none of $suite_package's Linux test targets ($targets); it runs on macOS" >&2
+      exit 2
+    fi
+  done
+  if [ "${envs:--}" != - ]; then
+    IFS=, read -r -a linux_envs <<< "$envs"
+    for pair in "${linux_envs[@]}"; do
+      [[ "$pair" =~ ^[A-Z_][A-Z0-9_]*=[A-Za-z0-9_.:/-]*$ ]] || { echo "package-test-lane.sh: bad ENV '$pair' in $linux_list" >&2; exit 2; }
+      export "${pair?}"
+    done
+  fi
+  echo "Linux: $(swift --version 2>/dev/null | head -n 1) (${envs:--})"
+}
+
 run_suite() {
-  select_xcode
-  echo "Xcode: $DEVELOPER_DIR"
+  if [ "$lane_os" = Linux ]; then
+    linux_suite_setup
+  else
+    select_xcode
+    echo "Xcode: $DEVELOPER_DIR"
+  fi
   if grep -q 'GhosttyKit\.xcframework' "$suite_package/Package.swift"; then
     ensure_ghosttykit
   fi
@@ -724,7 +764,8 @@ run_suite() {
   echo "::endgroup::"
   # swift build copies String Catalogs into the resource bundles uncompiled; without the
   # compiled <lang>.lproj tables, localization suites fail (cmux-next.yml runs the same step).
-  if [ -x scripts/cmux-next/compile-string-catalogs.sh ]; then
+  # (xcstringstool is Xcode's: on Linux the listed packages have no catalogs, and their CI job proves it.)
+  if [ "$lane_os" != Linux ] && [ -x scripts/cmux-next/compile-string-catalogs.sh ]; then
     (cd "$suite_package" && "$OLDPWD/scripts/cmux-next/compile-string-catalogs.sh")
   fi
   # One build serves every suite. Each suite runs in its own `swift test` so the
