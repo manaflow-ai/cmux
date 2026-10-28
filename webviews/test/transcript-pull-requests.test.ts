@@ -526,7 +526,9 @@ test("short-circuit and negated shell forms reflect executed mutations", () => {
     ).sources,
   ).toEqual([{ url: "https://github.com/acme/app/pull/50", label: "acme/app #50", kind: "pullRequest" }]);
   expect(
-    transcriptPullRequests(toolsRows(shell("if test -f missing; then true; fi || gh pr merge 51 -R acme/app --squash"))),
+    transcriptPullRequests(
+      toolsRows(shell("if test -f missing; then true; fi || gh pr merge 51 -R acme/app --squash")),
+    ),
   ).toEqual([]);
 });
 
