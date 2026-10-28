@@ -10,7 +10,10 @@ use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
 use acpmux::server::peer_auth::PeerAuth;
-use acpmux::server::{Origin, WsAuth, bind_ws, serve_connection_with, serve_ws_with};
+use acpmux::server::{
+    ConnAuth, Origin, WsAuth, bind_ws, serve_connection_authed, serve_connection_with,
+    serve_ws_with,
+};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -384,4 +387,77 @@ async fn an_added_machines_agent_uses_the_macs_gh_login_and_no_other_peers_does(
         .await
         .unwrap_err();
     assert_eq!(e["data"]["reason"], "github.no_owner", "{e}");
+}
+
+/// The review of the lane part at 1ea8bb6: a Mac counted as lending from its `initialize`, before
+/// its own side of the handshake was done, so an action then reached a Mac that refused it.
+#[tokio::test]
+async fn a_mac_lends_from_its_watch_and_each_action_says_when_it_stops_waiting() {
+    let b = lane_hub();
+    let s = C::new(&b, None)
+        .await
+        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+        .await
+        .unwrap();
+    let session = s["sessionId"].as_str().unwrap().to_owned();
+    // The Mac's link, as the peer listener serves it once it read this machine's peer token.
+    let (mac_tx, mac_in) = mpsc::channel(64);
+    let (mac_out, mut mac_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_authed(
+        b.clone(),
+        mac_in,
+        mac_out,
+        Origin::Peer,
+        ConnAuth::PeerToken,
+    ));
+    let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "mac"},
+        "_meta": {"acpmux": {"githubBroker": true}}});
+    mac_tx.send(Message::request(1, method::INITIALIZE, hello).to_line()).await.unwrap();
+    let read = json!({"action": "read", "repo": "o/r"});
+    let mut agent = C::new(&b, Some(&session)).await;
+    let e = agent.call(GITHUB_ACTION, read.clone()).await.unwrap_err();
+    assert_eq!(e["data"]["reason"], "github.no_owner", "before the Mac's watch: {e}");
+
+    let watch = Message::request(2, method::MUX_WATCH, json!({"enabled": true}));
+    mac_tx.send(watch.to_line()).await.unwrap();
+    // The link lends from the watch's answer on (the watch reply is built asynchronously).
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), mac_rx.recv())
+            .await
+            .expect("the watch is answered")
+            .unwrap();
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v["id"] == json!(2) {
+            assert!(v.get("error").is_none(), "{v}");
+            break;
+        }
+    }
+    // It counts just after its answer is queued: until then an ask finds no Mac.
+    let asked = tokio::spawn(async move {
+        loop {
+            match agent.call(GITHUB_ACTION, read.clone()).await {
+                Err(e) if e["data"]["reason"] == "github.no_owner" => {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                answer => break answer,
+            }
+        }
+    });
+    let ask = loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), mac_rx.recv())
+            .await
+            .expect("the action reaches the Mac")
+            .unwrap();
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v["method"] == GITHUB_ACTION {
+            break v;
+        }
+    };
+    let deadline = ask["params"]["deadlineMs"].as_u64().expect("a deadline");
+    let now = acpmux::store::now_ms();
+    assert!(deadline > now && deadline <= now + 90_000, "{ask}");
+    let answer =
+        Message::ok(ask["id"].clone(), json!({"action": "read", "repo": "o/r", "output": "ok"}));
+    mac_tx.send(answer.to_line()).await.unwrap();
+    assert_eq!(asked.await.unwrap().unwrap()["output"], "ok");
 }

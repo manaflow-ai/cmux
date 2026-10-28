@@ -644,14 +644,13 @@ async fn dispatch_request(
                 *conn.name.lock_or_recover() = name.to_owned();
             }
             // A Mac that lends this machine its GitHub login: only over a link that read this
-            // machine's peer token over ssh, never a paired device's (`hub/github_owner.rs`).
-            if conn.origin == Origin::Peer
+            // machine's peer token over ssh, never a paired device's (`hub/github_owner.rs`). It
+            // counts from its `_acpmux/watch`, once the Mac's side of the handshake is done.
+            let lends = conn.origin == Origin::Peer
                 && conn.auth == ConnAuth::PeerToken
                 && params.pointer("/_meta/acpmux/githubBroker").and_then(Value::as_bool)
-                    == Some(true)
-            {
-                hub.add_github_owner(conn);
-            }
+                    == Some(true);
+            conn.client_requests.lends_github.store(lends, Ordering::SeqCst);
             #[allow(unused_mut)]
             let mut reply = json!({
                 "protocolVersion": 1,
@@ -1790,6 +1789,7 @@ async fn dispatch_request(
         method::MUX_MARK_UNREAD => view::mark_unread(hub, &params),
         method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
+        // A lending Mac counts once this answer is queued (`server/mod.rs`, `github_owner.rs`).
         method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
         method::MUX_EVENTS | method::MUX_ATTACHMENT => events::handle(hub, m, &params),
         method::MUX_MAIL_SEND

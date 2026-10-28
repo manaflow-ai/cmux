@@ -424,8 +424,11 @@ pub async fn handle(
         record("unavailable", Some(&error));
         return Err(error);
     };
-    let wire = serde_json::to_value(&request).map_err(|e| RpcError::internal(e.to_string()))?;
-    let budget = GH_TIMEOUT + std::time::Duration::from_secs(15);
+    // The Mac starts nothing it could not finish before this machine stops waiting.
+    let mut wire = request.clone();
+    wire.deadline_ms = Some(deadline_from(crate::store::now_ms()));
+    let wire = serde_json::to_value(&wire).map_err(|e| RpcError::internal(e.to_string()))?;
+    let budget = GH_TIMEOUT + LINK_SLACK + std::time::Duration::from_secs(5);
     let reply = owner.request_client(crate::rpc::method::MUX_GITHUB_ACTION, wire, budget).await;
     match &reply {
         Ok(_) => record("allowed", None),

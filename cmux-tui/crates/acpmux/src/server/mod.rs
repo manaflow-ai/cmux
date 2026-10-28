@@ -1291,18 +1291,26 @@ async fn serve_connection_from(
                     let _slot = slot;
                     let route = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null));
                     let (result, sent) = list_reply::scope(id.clone(), route).await;
+                    let watched = m == method::MUX_WATCH && result.is_ok();
                     // A shared session list, sent already as the bytes it was serialized to.
-                    if sent && result.is_ok() {
-                        return;
+                    if !(sent && result.is_ok()) {
+                        conn.send(&match result {
+                            Ok(v) => Message::ok(id, v),
+                            Err(mut e) => {
+                                // What kind of failure, and what to do (`recovery.rs`).
+                                crate::recovery::annotate(&mut e, None);
+                                Message::err(id, e)
+                            }
+                        });
                     }
-                    conn.send(&match result {
-                        Ok(v) => Message::ok(id, v),
-                        Err(mut e) => {
-                            // What kind of failure, and what to do (`recovery.rs`).
-                            crate::recovery::annotate(&mut e, None);
-                            Message::err(id, e)
-                        }
-                    });
+                    // A Mac that lends GitHub counts from here: its watch answer is queued, so
+                    // no action reaches it before the answer that opens its side.
+                    if watched
+                        && conn.watch_all.load(Ordering::SeqCst)
+                        && conn.client_requests.lends_github.load(Ordering::SeqCst)
+                    {
+                        hub.add_github_owner(&conn);
+                    }
                 });
             }
             // A read-only machine's notifications (a cancel) change nothing.
