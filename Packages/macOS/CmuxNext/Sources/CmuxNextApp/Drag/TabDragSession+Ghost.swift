@@ -27,29 +27,46 @@ extension TabDragSession {
         drag.presentation = presentation
         let cardness: CGFloat = if case .inline = presentation { 0 } else { 1 }
         drag.motion.setTarget(rect, cardness: cardness, scale: scale, jump: jump)
-        drag.ghost.render(drag.motion)
     }
 
     func wake(_ drag: Drag) {
         drag.link?.activate()
     }
 
-    /// One ghost frame; false once the ghost settled.
+    /// One ghost frame; false once the ghost settled. The pointer events since the last frame get one
+    /// hit test, at the latest point; the ghost renders once, and only when it moved or retargeted, so
+    /// a resting pointer with a settled ghost and nothing to scroll costs nothing.
     func tick(_ current: Drag, elapsed dt: Double) -> Bool { // perf-hot: 2ms drag-frame (every frame of a drag)
         guard current === drag || current === landing else { return false }
-        var moving = current.motion.step(dt)
-        if current === drag, autoscroll(current, dt: dt) {
-            update(current.point)
-            moving = true
+        var retargeted = false
+        if current === drag, current.pointerMoved {
+            resolve(current)
+            retargeted = true
         }
+        var moving = current.motion.step(dt)
+        if current === drag, current.autoscrollIdleAt != current.point {
+            if autoscroll(current, dt: dt) {
+                current.autoscrollIdleAt = nil
+                track(current.point, drag: current)
+                resolve(current)
+                (moving, retargeted) = (true, true)
+            } else {
+                current.autoscrollIdleAt = current.point
+            }
+        }
+        var ticking = moving
         // A pointer resting on a pane edge or a sidebar slot sends no events: hit-test again once it arms.
         if current === drag, let deadline = (current.winner?.provider as? LayoutTabDropTarget)?.dwellDeadline
             ?? (current.winner?.provider as? SidebarTabDropTarget)?.dwellDeadline {
-            if CACurrentMediaTime() >= deadline { update(current.point) }
-            moving = true
+            if CACurrentMediaTime() >= deadline {
+                track(current.point, drag: current)
+                resolve(current)
+                retargeted = true
+            }
+            ticking = true
         }
-        current.ghost.render(current.motion)
-        guard !moving else { return true }
+        if moving || retargeted { current.ghost.render(current.motion) }
+        guard !ticking else { return true }
         if current === landing { finishLanding() }
         return false
     }

@@ -37,11 +37,22 @@ public final class TabDragGhostPanel {
     /// Frames laid out and panel moves sent to the window server (TabDragWorkTests).
     public private(set) var renders = 0
     public private(set) var panelMoves = 0
+    /// The card the tab image is drawn on, in `tabSize` points (y down, as the image); its shadow
+    /// follows that rounded rect instead of the image's alpha, which Core Animation would render
+    /// offscreen every frame.
+    private let tabCard: (rect: CGRect, cornerRadius: CGFloat)?
+    /// What the panel last showed: a frame that changes neither moves nor fades the panel.
+    private var shownOrigin: CGPoint?
+    private var shownShadowSize: CGSize?
 
     /// - Parameter onGlass: The image was rendered without a card (`WindowBackdrop.dragCardFill`)
     ///   in the scope it was lifted from, not the app's: a workspace can pin its own background.
-    public init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat, onGlass: Bool) {
+    /// - Parameter tabCard: The rounded card under the image (`TabStripMetrics.pillFrame`), when it
+    ///   has one; nil shadows the image's alpha.
+    public init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat, onGlass: Bool,
+                tabCard: (rect: CGRect, cornerRadius: CGFloat)? = nil) {
         self.onGlass = onGlass
+        self.tabCard = tabCard
         self.tabSize = tabSize
         self.grabOffset = grabOffset
         pad = DragTunables.ghostPanelPad.value
@@ -134,9 +145,12 @@ public final class TabDragGhostPanel {
         let c = layout.cardness
         let origin = CGPoint(x: (tab.minX - pad).rounded(), y: (tab.maxY + pad - panelSize.height).rounded())
         renders += 1
-        panelMoves += 1
-        panel.setFrameOrigin(origin)
-        panel.alphaValue = motion.presentedOpacity
+        if origin != shownOrigin {
+            shownOrigin = origin
+            panelMoves += 1
+            panel.setFrameOrigin(origin)
+        }
+        if panel.alphaValue != motion.presentedOpacity { panel.alphaValue = motion.presentedOpacity }
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -149,6 +163,14 @@ public final class TabDragGhostPanel {
                                   width: max(0, current.width - inset * 2), height: thumbHeight)
         thumbLayer.opacity = Float(c)
         tabLayer.frame = tabLocal
+        if let tabCard, tabLocal.size != shownShadowSize, tabSize.width > 0, tabSize.height > 0 {
+            shownShadowSize = tabLocal.size
+            let sx = tabLocal.width / tabSize.width, sy = tabLocal.height / tabSize.height
+            let card = CGRect(x: tabCard.rect.minX * sx, y: (tabSize.height - tabCard.rect.maxY) * sy,
+                              width: tabCard.rect.width * sx, height: tabCard.rect.height * sy)
+            let radius = min(tabCard.cornerRadius * min(sx, sy), card.width / 2, card.height / 2)
+            tabLayer.shadowPath = CGPath(roundedRect: card, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        }
         tabLayer.shadowOpacity = onGlass ? 0 : Float(PopupStyle.elevation2.alpha * (1 - c))
         let s = layout.scale
         if s != 1 {

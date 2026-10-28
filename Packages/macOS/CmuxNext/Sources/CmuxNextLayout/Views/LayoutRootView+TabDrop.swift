@@ -25,23 +25,22 @@ extension LayoutRootView {
             return nil
         }
         let local = view.convert(locationInWindow, from: nil)
-        guard var hit = view.dropTarget(at: local, removing: removing, joinsFrom: joinsFrom, previous: tabDropHit, lookups: lookups) else {
+        // One lookup per move: an edge still in its dwell is held as a join of its pane in the same pass.
+        var deadline: CFTimeInterval?
+        let hit = view.dropTarget(at: local, removing: removing, joinsFrom: joinsFrom, previous: tabDropHit, lookups: lookups) { edge in
+            guard edgeDwell > 0 else { return false }
+            let now = CACurrentMediaTime()
+            if tabDragEdge?.hit != edge { tabDragEdge = (edge, now) }
+            let held = (tabDragEdge?.since ?? now) + edgeDwell
+            deadline = held
+            return now < held
+        }
+        guard let hit else {
             hideHighlight()
             return nil
         }
-        tabDragDwellDeadline = nil
-        if edgeDwell > 0, case let .pane(_, zone) = hit.hit, zone != .center {
-            let now = CACurrentMediaTime()
-            if tabDragEdge?.hit != hit.hit { tabDragEdge = (hit.hit, now) }
-            let deadline = (tabDragEdge?.since ?? now) + edgeDwell
-            if now < deadline, let held = view.dropTarget(at: local, removing: removing, joinsFrom: joinsFrom, previous: tabDropHit,
-                                                                   edgesArmed: false, lookups: lookups) {
-                hit = held
-                tabDragDwellDeadline = deadline
-            }
-        } else {
-            tabDragEdge = nil
-        }
+        tabDragDwellDeadline = hit.held ? deadline : nil
+        if edgeDwell > 0, case let .pane(_, zone) = hit.hit, zone != .center {} else { tabDragEdge = nil }
         tabDropHit = hit.hit
         tabDragShownTarget = hit.target
         // The App refused this target at the last move: it stays hidden, nothing redraws (a flicker).
