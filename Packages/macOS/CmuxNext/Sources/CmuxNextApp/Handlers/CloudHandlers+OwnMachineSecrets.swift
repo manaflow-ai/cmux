@@ -62,8 +62,9 @@ extension CloudHandlers {
         guard let names else { throw ActionFailure(message: CloudStrings.secretNamesRequired) }
         let cloud = context.services.cloud, work = context.services.work
         let ssh = sshMachine(id, context)
-        // One delivery at a time per name: an SSH machine by its id, a peer by its acpmux name.
-        let key = ssh.map { "ssh:\($0.machineID)" } ?? "peer:\(id.lowercased())"
+        // One own-machine delivery at a time: names that look different (an ssh config alias, a peer's
+        // user@host) can be one account whose file each would replace, and no name here proves otherwise.
+        let key = "own-machine"
         guard cloud.deliveringSecrets.insert(key).inserted else { throw ActionFailure(message: CloudStrings.secretsDeliveryRunning) }
         let check = "cmux cloud deliver-secrets --target machine:\(id) --names \(names.joined(separator: ","))"
         let pending: [String: ActionResultValue] = ["machine": .string(id), "status": .string("delivering"), "check": .string(check)]
@@ -81,11 +82,6 @@ extension CloudHandlers {
                 case .ssh(let route): destination = route
                 }
             }
-            // And one at a time per account on a host, whatever name reached it (an SSH machine and a peer
-            // alias): both replace the same file, so a slower earlier one never lands over a newer one.
-            let account = "dest:" + destination.sshArgument.lowercased() + ":" + (destination.port.map(String.init) ?? "22")
-            guard cloud.deliveringSecrets.insert(account).inserted else { throw ActionFailure(message: CloudStrings.secretsDeliveryRunning) }
-            defer { cloud.deliveringSecrets.remove(account) }
             let home = FileManager.default.homeDirectoryForCurrentUser
             let indexURL = home.appendingPathComponent(".config/cmux/cloud-secrets.json")
             let index = try await work.run(.userBlocking, mayBlock: .files) { CloudMachineSecrets.read(indexURL.path) }

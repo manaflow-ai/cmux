@@ -138,6 +138,20 @@ struct SSHMachineSecretsTests {
         await run.run.stop()
     }
 
+    /// A stop from a cancelled task still ends an ssh that ignores the hang-up.
+    @Test func aStopFromACancelledTaskStillEndsSSH() async throws {
+        let run = try Self.standIn("trap '' TERM HUP\necho ready\nexec sleep 30\n")
+        defer { try? FileManager.default.removeItem(at: run.home) }
+        _ = try await run.run.waitFor("ready", seconds: 10)
+        let pty = run.run
+        let stopping = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            await pty.stop()
+        }
+        await stopping.value
+        #expect(!pty.isRunning)
+    }
+
     // MARK: Helpers
 
     /// An ssh stand-in running `body` (stdin is the typing), started as the delivery starts one.

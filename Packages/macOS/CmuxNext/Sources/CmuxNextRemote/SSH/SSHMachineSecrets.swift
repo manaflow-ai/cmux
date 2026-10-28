@@ -133,8 +133,8 @@ final class SSHPTYRun: Sendable {
     private let running: Mutex<Running>
     private let input: Int32
     private let changes: AsyncStream<Void>
-    /// Finishes when ssh has exited (its termination handler), for ``stop()`` to wait on.
-    private let exited: AsyncStream<Void>
+    /// Whether ssh has exited (its termination handler), for ``stop()`` to wait on.
+    private let exit: ExitSignal
 
     init(_ argv: [String], environment: [String: String]) throws {
         guard let executable = argv.first else { throw CocoaError(.executableNotLoadable) }
@@ -148,9 +148,9 @@ final class SSHPTYRun: Sendable {
         process.standardError = FileHandle.nullDevice
         let (changes, changed) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
         self.changes = changes
-        let (exited, exit) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
-        self.exited = exited
-        process.terminationHandler = { _ in exit.finish() }
+        let exit = ExitSignal()
+        self.exit = exit
+        process.terminationHandler = { _ in exit.fire() }
         input = stdinPipe.fileHandleForWriting.fileDescriptor
         // A write after ssh ended fails with EPIPE instead of signalling the app.
         _ = fcntl(input, F_SETNOSIGPIPE, 1)
@@ -224,10 +224,11 @@ final class SSHPTYRun: Sendable {
         guard wroteAll else { throw CloudMachineSecrets.DeliveryFailed(reason: "eof") }
     }
 
-    /// Ends the run, once: its stdin closes and ssh stops, which hangs up the receiver's pty.
     /// Whether ssh is still running (tests).
-    var isRunning: Bool { running.withLock { $0.process.isRunning } }
+    var isRunning: Bool { !exit.done }
 
+    /// Ends the run, once: its stdin closes and ssh stops, which hangs up the receiver's pty. Returns
+    /// when ssh has exited, whether or not the caller was cancelled.
     func stop() async {
         let first = running.withLock { running -> (process: Process, stdout: FileHandle)? in
             guard !running.stopped else { return nil }
@@ -237,16 +238,55 @@ final class SSHPTYRun: Sendable {
             return (running.process, running.stdout.fileHandleForReading)
         }
         guard let first else { return }
-        // Waits for ssh to exit, a few seconds at most, then kills it: no stopped run leaves an ssh,
-        // its pipes or the machine's pty behind.
-        let exited = exited
-        let ended = (try? await withDeadline(.seconds(3), label: "secrets ssh exit") { for await _ in exited {} }) != nil
-        if !ended, first.process.isRunning {
-            kill(first.process.processIdentifier, SIGKILL)
-            _ = try? await withDeadline(.seconds(2), label: "secrets ssh kill") { for await _ in exited {} }
+        let pid = first.process.processIdentifier
+        // Its own task, so a cancelled delivery still ends ssh: no stopped run leaves an ssh, its pipes or
+        // the machine's pty behind. An ssh still running 3 s after the hang-up is killed.
+        // task-owner: the stop's own cleanup; it ends when ssh has exited, which SIGKILL guarantees
+        let cleanup = Task { [exit] in
+            // task-owner: the kill deadline; cancelled as soon as ssh exits
+            let killer = Task { [exit] in
+                // wakeup-allow: a one-shot escalation deadline for an ssh that ignores SIGTERM, cancelled once it exits
+                try? await Task.sleep(for: .seconds(3))
+                if !Task.isCancelled, !exit.done { kill(pid, SIGKILL) }
+            }
+            await exit.wait()
+            killer.cancel()
         }
+        await cleanup.value
         first.stdout.readabilityHandler = nil
         try? first.stdout.close()
+    }
+
+}
+
+/// The moment ssh exited, once; waiters before or after it all return.
+private final class ExitSignal: Sendable {
+    private struct State {
+        var done = false
+        var waiters: [CheckedContinuation<Void, Never>] = []
+    }
+
+    private let state = Mutex(State())
+
+    var done: Bool { state.withLock { $0.done } }
+
+    func fire() {
+        let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+            state.done = true
+            defer { state.waiters.removeAll() }
+            return state.waiters
+        }
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func wait() async {
+        await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
+            let done = state.withLock { state -> Bool in
+                if !state.done { state.waiters.append(waiter) }
+                return state.done
+            }
+            if done { waiter.resume() }
+        }
     }
 }
 
