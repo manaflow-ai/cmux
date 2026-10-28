@@ -72,6 +72,8 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
         guard answers.count == items.count else { return false }
         var seen = Set<Data>()
         for item in items {
+            guard let allowsOther = boolean(item["allowsOther"], default: true),
+                  let multiSelect = boolean(item["multiSelect"], default: false) else { return false }
             guard let key = item[codex ? "id" : "prompt"] as? String, !key.isEmpty,
                   key.utf8.count <= AcpmuxPaneMethods.maximumAnswerBytes, seen.insert(Data(key.utf8)).inserted,
                   let value = answers.first(where: { equalBytes($0.key, key) })?.value else { return false }
@@ -80,7 +82,7 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
                 guard let value = value as? [String: Any], Set(value.keys) == ["answers"],
                       let list = value["answers"] as? [String],
                       (1...AcpmuxPaneMethods.maximumAnswerListStrings).contains(list.count),
-                      item["multiSelect"] as? Bool == true || list.count == 1 else { return false }
+                      multiSelect || list.count == 1 else { return false }
                 labels = list
             } else {
                 guard let text = value as? String else { return false }
@@ -88,18 +90,10 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
             }
             guard labels.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && $0.utf8.count <= AcpmuxPaneMethods.maximumAnswerBytes }) else { return false }
-            // Match AgentQuestion.Item and the web decoder: absent/null defaults to true;
-            // a malformed flag must not gain the free-text allowance of that default.
-            let allowsOther: Bool
-            if let raw = item["allowsOther"], !(raw is NSNull) {
-                guard let flag = raw as? NSNumber,
-                      CFGetTypeID(flag) == CFBooleanGetTypeID() else { return false }
-                allowsOther = flag.boolValue
-            } else { allowsOther = true }
             if !allowsOther {
                 let options = item["options"] as? [[String: Any]] ?? []
                 let allowed = options.compactMap { $0["label"] as? String }
-                let picked = !codex && item["multiSelect"] as? Bool == true
+                let picked = !codex && multiSelect
                     ? labels[0].components(separatedBy: ", ").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     : labels.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 // Match the owner's choice-only validation, including distinct multi choices.
@@ -139,6 +133,13 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
             }
         }
         return true
+    }
+
+    /// Shared and web decoders accept absent/null defaults but reject numeric Bool coercion.
+    private static func boolean(_ raw: Any?, default fallback: Bool) -> Bool? {
+        guard let raw, !(raw is NSNull) else { return fallback }
+        guard let flag = raw as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID() else { return nil }
+        return flag.boolValue
     }
 
     private static func equalBytes(_ lhs: String, _ rhs: String) -> Bool { lhs.utf8.elementsEqual(rhs.utf8) }
