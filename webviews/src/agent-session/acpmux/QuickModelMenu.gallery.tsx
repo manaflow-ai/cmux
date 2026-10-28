@@ -13,7 +13,6 @@ type Props = {
   chat?: boolean;
   fast?: boolean;
   many?: boolean;
-  placement?: "left" | "top" | "compact";
   stress?: boolean;
   anchorTop?: boolean;
   anchorMiddle?: boolean;
@@ -87,7 +86,6 @@ export default componentEntry<Props>({
           many,
           anchorTop,
           anchorMiddle,
-          placement = "left",
           stress,
         }: Props) {
           const [isOpen, setOpen] = useState(false);
@@ -127,7 +125,6 @@ export default componentEntry<Props>({
                     current: "claude/Opus 5.5",
                     onModel: () => undefined,
                     ...extras,
-                    harnessPlacement: placement,
                     search: {
                       find: (query) =>
                         list
@@ -172,9 +169,6 @@ export default componentEntry<Props>({
     "claude-many-harnesses": { props: { many: true }, play: open },
     combined: { props: { chat: true }, play: open },
     "combined-fast": { props: { chat: true, fast: true }, play: open },
-    "harness-left": { props: { placement: "left" }, play: open },
-    "harness-top": { props: { placement: "top" }, play: open },
-    "harness-compact": { props: { placement: "compact" }, play: open },
     "harness-stress": { props: { many: true, stress: true }, play: open },
     claude: { props: {}, play: open },
     "claude-more-models": {

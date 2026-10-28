@@ -4,7 +4,7 @@ import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { SearchIcon, type Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
-import { useComposerSettings, type ReasoningSliderStyle, type HarnessPlacement } from "./composerSettings";
+import { type ReasoningSliderStyle } from "./composerSettings";
 import { harnessIcon } from "../shared/harnessIcons";
 import { useT } from "./i18n";
 import { CHAT_COLUMN } from "./modelPickerLayout";
@@ -65,7 +65,6 @@ export type QuickMenu = {
   /// running one, `submenu` makes its row a submenu of providers, `expanded` lists its providers
   /// under its name.
   providers?: QuickProviderLook;
-  harnessPlacement?: HarnessPlacement;
 };
 
 export type QuickSearchField = "always" | "typed" | "long";
@@ -186,8 +185,6 @@ export function QuickModelMenu({
   children: React.ReactNode;
 }) {
   const t = useT();
-  const settings = useComposerSettings();
-  const placement = menu.harnessPlacement ?? settings.harnessPlacement;
   // On New Tab the menu opens down, shows no key hints and opens More models in place (newTabComposer.ts).
   const newTab = useContext(OnNewTab);
   // Choose once for the compact menu's possible height; shorter tabs then stay by the same edge
@@ -719,7 +716,7 @@ export function QuickModelMenu({
         flip={false}
         align="start"
         label={t("picker.model")}
-        className={`acpmux-quick-menu acpmux-quick-placement-${placement}${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
+        className={`acpmux-quick-menu acpmux-quick-placement-left${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
         boundary={CHAT_COLUMN}
         // A native menu panel cannot draw the harness strip or the More models scroll area.
         // Keep this combined surface inside the window in both directions.
