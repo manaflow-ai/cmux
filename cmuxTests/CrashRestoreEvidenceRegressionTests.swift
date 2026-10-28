@@ -8,6 +8,27 @@ import Testing
 #endif
 
 extension CrashDiagnosticSessionPolicyTests {
+    @Test("Legacy group anchors survive a merge when workspace IDs are absent")
+    func crashMergeKeepsLegacyIndexOnlyAnchor() throws {
+        let group = UUID()
+        var original = crashTestWindow([
+            crashTestWorkspace("api", agents: ["a"]), crashTestWorkspace("docs", agents: ["b"])
+        ])
+        for index in original.tabManager.workspaces.indices {
+            original.tabManager.workspaces[index].workspaceId = nil
+            original.tabManager.workspaces[index].groupId = group
+        }
+        original.tabManager.workspaceGroups = [SessionWorkspaceGroupSnapshot(
+            id: group, name: "work", isCollapsed: false, anchorMemberIndex: 1
+        )]
+        let result = try #require(SessionPersistencePolicy.snapshotForLiveRestore(AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion, createdAt: 10, windows: [original, original]
+        )))
+        #expect(result.windows.count == 1)
+        #expect(result.windows[0].tabManager.workspaceGroups?.first?.anchorMemberIndex == 1)
+        #expect(result.windows[0].tabManager.workspaces[1].customTitle == "docs")
+    }
+
     @Test("Ambiguous workspace identities inside one generation are not merged into another")
     func crashMergeRetainsAmbiguousInputOwnership() throws {
         var original = crashTestWindow([
