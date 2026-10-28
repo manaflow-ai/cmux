@@ -13,7 +13,7 @@ struct SessionLayoutRestoreNormalizerTests {
         var normalizer = SessionLayoutRestoreNormalizer(maximumNodes: 100, maximumDepth: 10)
         let result = normalizer.normalize(tree, panelIDs: ids)
         #expect(result.layout == tree)
-        #expect(result.droppedPanelCount == 0)
+        #expect(result.droppedPanelIDs.count == 0)
     }
 
     @Test func deduplicatesReferencesAndCollapsesEmptyBranches() {
@@ -54,7 +54,7 @@ struct SessionLayoutRestoreNormalizerTests {
         var normalizer = SessionLayoutRestoreNormalizer(maximumNodes: 100, maximumDepth: 2)
         let result = normalizer.normalize(tree, panelIDs: [kept, dropped])
         #expect(result.layout == .pane(.init(panelIds: [kept], selectedPanelId: kept)))
-        #expect(result.droppedPanelCount == 1)
+        #expect(result.droppedPanelIDs.count == 1)
     }
 
     @Test func reportsPanelsAbsentFromAnOtherwiseValidLayout() {
@@ -63,7 +63,7 @@ struct SessionLayoutRestoreNormalizerTests {
         var normalizer = SessionLayoutRestoreNormalizer(maximumNodes: 100, maximumDepth: 10)
         let result = normalizer.normalize(tree, panelIDs: [kept, omitted])
         #expect(result.layout == tree)
-        #expect(result.droppedPanelCount == 1)
+        #expect(result.droppedPanelIDs.count == 1)
     }
 
     @Test func maximumSkewedLayoutNormalizesWithoutRecursiveTraversal() {
@@ -77,11 +77,8 @@ struct SessionLayoutRestoreNormalizerTests {
             ))
         }
         var normalizer = SessionLayoutRestoreNormalizer(maximumNodes: 16_384, maximumDepth: 512)
-        let start = ContinuousClock.now
         let result = normalizer.normalize(tree, panelIDs: ids)
-        let elapsed = start.duration(to: .now)
         #expect(result.layout == tree)
-        #expect(result.droppedPanelCount == 0)
-        print("512-panel skewed restore normalization: \(elapsed)")
+        #expect(result.droppedPanelIDs.count == 0)
     }
 }

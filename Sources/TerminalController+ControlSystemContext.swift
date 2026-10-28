@@ -324,6 +324,13 @@ extension TerminalController: ControlSystemContext {
                 imported.snapshot,
                 source: source
             )
+            guard !snapshot.windows.isEmpty else {
+                return .failed(
+                    code: "not_found",
+                    message: Self.sessionImportErrorMessage(.noWindows(imported.fileURL)),
+                    path: imported.fileURL.path
+                )
+            }
             // Count what restore will actually open: crash-diagnostic windows
             // are dropped and the window count is capped.
             let windowCount = min(

@@ -59,7 +59,11 @@ struct SessionSnapshotRestoreNormalizer {
                 }
                 let normalized = layouts.normalize(workspace.layout, panelIDs: workspace.panels.map(\.id))
                 workspace.layout = normalized.layout
-                report.droppedPanelCount += normalized.droppedPanelCount
+                if !normalized.droppedPanelIDs.isEmpty {
+                    panelBudget += normalized.droppedPanelIDs.count
+                    workspace.panels.removeAll { normalized.droppedPanelIDs.contains($0.id) }
+                    report.droppedPanelCount += normalized.droppedPanelIDs.count
+                }
                 if let dock = workspace.dock {
                     workspace.dock = normalizedDock(
                         dock,
@@ -138,7 +142,11 @@ struct SessionSnapshotRestoreNormalizer {
         )
         let normalized = layouts.normalize(dock.layout, panelIDs: result.panels.map(\.id))
         result.layout = normalized.layout
-        report.droppedPanelCount += normalized.droppedPanelCount
+        if !normalized.droppedPanelIDs.isEmpty {
+            budget += normalized.droppedPanelIDs.count
+            result.panels.removeAll { normalized.droppedPanelIDs.contains($0.id) }
+            report.droppedPanelCount += normalized.droppedPanelIDs.count
+        }
         return result
     }
 

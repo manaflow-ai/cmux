@@ -2,4 +2,5 @@
 struct SessionLayoutRestoreResult {
     let layout: SessionWorkspaceLayoutSnapshot
     let isEmpty: Bool
+    let panelIDs: Set<UUID>
 }

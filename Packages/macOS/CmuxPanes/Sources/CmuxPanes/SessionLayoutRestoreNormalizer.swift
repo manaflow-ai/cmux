@@ -24,7 +24,7 @@ public struct SessionLayoutRestoreNormalizer {
     public mutating func normalize(
         _ layout: SessionWorkspaceLayoutSnapshot,
         panelIDs: [UUID]
-    ) -> (layout: SessionWorkspaceLayoutSnapshot, droppedPanelCount: Int) {
+    ) -> (layout: SessionWorkspaceLayoutSnapshot, droppedPanelIDs: Set<UUID>) {
         let allowed = Set(panelIDs)
         var usedPanelIDs = Set<UUID>()
         var nodes = remainingNodes
@@ -33,7 +33,7 @@ public struct SessionLayoutRestoreNormalizer {
             depth: 0, remainingNodes: &nodes, usedPanelIDs: &usedPanelIDs
         )
         remainingNodes = nodes
-        return (bounded.layout, allowed.subtracting(usedPanelIDs).count)
+        return (bounded.layout, allowed.subtracting(usedPanelIDs))
     }
 
     private func boundedLayout(
@@ -59,7 +59,8 @@ public struct SessionLayoutRestoreNormalizer {
                     panelIds: [],
                     selectedPanelId: nil
                 )),
-                isEmpty: true
+                isEmpty: true,
+                panelIDs: []
             )
         }
 
@@ -93,7 +94,8 @@ public struct SessionLayoutRestoreNormalizer {
                             selectedPanelId: selected,
                             isFullWidthTabMode: pane.isFullWidthTabMode
                         )),
-                        isEmpty: panelIDs.isEmpty
+                        isEmpty: panelIDs.isEmpty,
+                        panelIDs: Set(panelIDs)
                     ))
                 case .split(let split):
                     work.append(.assemble(split))
@@ -119,7 +121,8 @@ public struct SessionLayoutRestoreNormalizer {
                             first: first.layout,
                             second: second.layout
                         )),
-                        isEmpty: false
+                        isEmpty: false,
+                        panelIDs: first.panelIDs.union(second.panelIDs)
                     ))
                 }
             }
@@ -132,7 +135,8 @@ public struct SessionLayoutRestoreNormalizer {
                 panelIds: fallback,
                 selectedPanelId: fallback.first
             )),
-            isEmpty: fallback.isEmpty
+            isEmpty: fallback.isEmpty,
+            panelIDs: Set(fallback)
         )
     }
 

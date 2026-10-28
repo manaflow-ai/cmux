@@ -67,7 +67,7 @@ extension SessionSnapshotImportTrustTests {
     @Test("scalar and character truncation preserve the original ANSI control-string boundary")
     func scalarTruncationKeepsANSIContext() {
         let visible = String(repeating: "y", count: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal - 4)
-        let text = "\u{1b}]0;" + String(repeating: "x", count: SessionPersistencePolicy.maxScrollbackScalarsPerTerminal + 10)
+        let text = "\u{1b}]0;" + String(repeating: "x", count: SessionPersistencePolicy.maxScrollbackScalarsPerTerminal + 2_000)
             + "\u{7}" + visible
         #expect(SessionPersistencePolicy.truncatedScrollback(text) == visible)
     }
