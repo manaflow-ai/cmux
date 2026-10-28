@@ -28,6 +28,15 @@ struct AgentCardRasterKey: Equatable {
             && topInset == other.topInset && bottomInset == other.bottomInset && scale == other.scale
     }
 
+    /// Whether a card for this key may show `picture`: one drawn for this
+    /// key, or (while a newer one waits) an older one of the same layout when
+    /// this key can be drawn at all. A key that cannot be drawn (an image
+    /// still loading) shows the live preview: an older picture would freeze
+    /// the card on what it showed before the image arrived.
+    func mayShow(_ picture: AgentCardRasterKey) -> Bool {
+        picture == self || (isDrawable && picture.sameLayout(self))
+    }
+
     /// A card is a still of its page, a running turn included (its working
     /// label would animate every frame on a live card; the card's copy follows
     /// the chat at most once a second, `AgentCardFeed`). An image attachment
@@ -185,7 +194,7 @@ struct AgentTabCard: View {
         Group {
             // The picture, also while a newer one waits for the grid to rest:
             // building a card never lays out a page of transcript then.
-            if let raster = feed.raster, raster.key.sameLayout(key) {
+            if let raster = feed.raster, key.mayShow(raster.key) {
                 Image(uiImage: raster.image)
                     .resizable()
                     .frame(width: page.width, height: key.visibleHeight)
@@ -197,7 +206,10 @@ struct AgentTabCard: View {
         }
         // Asked again when its picture is dropped (the cache's oldest goes).
         .onChange(of: PictureRequest(key: key, drawn: feed.raster?.key == key), initial: true) { _, request in
-            if !request.drawn { rasterizer.want(feed, request.key) }
+            guard !request.drawn else { return }
+            // A key that cannot be drawn: the old picture goes (the card is live until it can).
+            if !request.key.isDrawable, feed.raster != nil { rasterizer.drop(feed); feed.raster = nil }
+            rasterizer.want(feed, request.key)
         }
     }
 }
