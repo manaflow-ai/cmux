@@ -97,24 +97,19 @@ impl App {
     /// not placed) the stage is `area` and shows the active screen.
     pub(super) fn sync_frame(&mut self, area: Rect) -> FrameLayout {
         self.docks.clear_placement();
-        let unframed = |app: &App| FrameLayout {
-            stage: area,
-            stage_screen: app.tree.active_screen().cloned(),
-            dock_screens: Vec::new(),
-        };
         if !self.docked_workspaces_enabled() {
-            return unframed(self);
+            return self.unframed_layout(area);
         }
         if !self.docks.loaded {
             self.restore_docks_from_session();
         }
         self.reconcile_docks();
         if self.docks.record.docks.is_empty() {
-            return unframed(self);
+            return self.unframed_layout(area);
         }
         let Some(active_key) = self.tree.active_workspace().map(|workspace| workspace.key.clone())
         else {
-            return unframed(self);
+            return self.unframed_layout(area);
         };
         let stage_key = {
             let order = self
@@ -128,7 +123,7 @@ impl App {
                 .stage_for(&active_key, &self.docks.recent_stage, &order)
                 .map(str::to_string)
         };
-        let Some(stage_key) = stage_key else { return unframed(self) };
+        let Some(stage_key) = stage_key else { return self.unframed_layout(area) };
         let placement =
             place_frame(area, &self.docks.record.docks, self.docks.record.dock_orientation);
         let active_docked = self.docks.record.is_docked(&active_key);
@@ -139,7 +134,7 @@ impl App {
                 .is_some_and(|dock| dock.workspace_key == active_key)
         });
         if active_docked && !active_placed {
-            return unframed(self);
+            return self.unframed_layout(area);
         }
         let Some((stage_workspace, stage_screen)) = self
             .tree
@@ -148,7 +143,7 @@ impl App {
             .find(|workspace| workspace.key == stage_key)
             .map(|workspace| (workspace.id, workspace.active_screen_ref().cloned()))
         else {
-            return unframed(self);
+            return self.unframed_layout(area);
         };
         self.docks.record.stage_key = Some(stage_key.clone());
         self.docks.note_stage(&stage_key);
@@ -190,6 +185,16 @@ impl App {
         self.docks.stage = Some(placement.stage);
         self.docks.stage_workspace = Some(stage_workspace);
         FrameLayout { stage: placement.stage, stage_screen, dock_screens }
+    }
+
+    /// The layout without a frame: the stage is `area` and shows the
+    /// active screen.
+    fn unframed_layout(&self, area: Rect) -> FrameLayout {
+        FrameLayout {
+            stage: area,
+            stage_screen: self.tree.active_screen().cloned(),
+            dock_screens: Vec::new(),
+        }
     }
 
     /// Bring the record in line with the tree: drop docks of closed
@@ -234,7 +239,7 @@ impl App {
             return RenderAction::Draw;
         };
         self.docks.pending_edge = None;
-        let edge = |action| match action {
+        let edge = |action: Action| match action {
             Action::DockWorkspaceLeft | Action::ToggleDockLeft => Some(DockEdge::Left),
             Action::DockWorkspaceRight | Action::ToggleDockRight => Some(DockEdge::Right),
             Action::DockWorkspaceTop | Action::ToggleDockTop => Some(DockEdge::Top),
@@ -383,11 +388,13 @@ impl App {
             Ok(Some(value)) => match serde_json::from_value::<WindowFrameRecord>(value) {
                 Ok(record) => self.docks.record = record,
                 Err(error) => {
-                    crate::client_log::warn("docks", &format!("unreadable docks: {error}"))
+                    crate::client_log::warn("docks", &format!("unreadable docks: {error}"));
                 }
             },
             Ok(None) => {}
-            Err(error) => crate::client_log::warn("docks", &format!("docks not read: {error}")),
+            Err(error) => {
+                crate::client_log::warn("docks", &format!("docks not read: {error}"));
+            }
         }
     }
 

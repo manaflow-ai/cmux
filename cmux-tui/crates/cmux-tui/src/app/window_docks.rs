@@ -120,7 +120,7 @@ impl WindowFrameRecord {
         let before = self.clone();
         let mut edges = Vec::new();
         self.docks.retain(|dock| {
-            let keep = live(&dock.workspace_key) && !edges.contains(&dock.edge);
+            let keep = live(dock.workspace_key.as_str()) && !edges.contains(&dock.edge);
             if keep {
                 edges.push(dock.edge);
             }
