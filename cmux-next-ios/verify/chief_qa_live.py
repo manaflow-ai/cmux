@@ -405,11 +405,21 @@ def main():  # noqa: C901 - one live run of several scenarios
             mac.quit()
             text = f"sent while mac away {run_id}"
             try:
-                time.sleep(4)
+                # Quit returns before the phone hears of it: wait until the conversation says so.
+                wait_for(lambda: any("Connecting" in t or "isn't connected" in t or "away" in t.lower()
+                                     for t in phone_texts()), 60)
                 phone_send(text)
                 time.sleep(3)
                 shot("mac-chief-mac-away")
-                phone_view = [t for t in phone_texts() if "Waiting" in t or "Not Delivered" in t or "away" in t.lower()]
+                phone_view = [t for t in phone_texts() if "Waiting" in t or "Not Delivered" in t or "away" in t.lower()
+                              or "isn't connected" in t]
+                # The phone holds the message and asks: keep it for when Chief connects.
+                later = sim.wait(label="Send When Chief Connects", timeout=10)
+                if later:
+                    sim.tap_el(later)
+                    time.sleep(2)
+                    shot("mac-chief-waiting-to-send")
+                    phone_view += [t for t in phone_texts() if "Waiting" in t][:3]
             finally:
                 # The Mac comes back whatever happened on the phone (later scenarios need it).
                 mac.launch()
