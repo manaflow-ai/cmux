@@ -6,9 +6,11 @@
 // pane after a relaunch is a fresh copy over the same storage.
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { fileURLToPath } from "node:url";
 
 type Module = typeof import("../src/agent-session/acpmux/inspector/inspectorState");
-const MODULE = new URL("../src/agent-session/acpmux/inspector/inspectorState.ts", import.meta.url).pathname;
+// A path, not a URL path: a checkout under a folder with a space (a fleet step) must still load.
+const MODULE = fileURLToPath(new URL("../src/agent-session/acpmux/inspector/inspectorState.ts", import.meta.url));
 let loads = 0;
 /// A chat pane's page showing chat `sessionId`: its own copy of the module.
 async function page(sessionId: string): Promise<Module> {
