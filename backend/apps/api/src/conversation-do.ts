@@ -586,10 +586,23 @@ export class ConversationDO extends OwnerDO<Head> {
     return this.existingState(entity) ? store.setMultipartUpload(this.sqlStore, id, uploadId) : false
   }
 
-  /** Records a verified part of an open multipart slot (store.recordMultipartPart): false when another part or the expiry came first. */
-  async recordMultipartPart(entity: string, id: string, part: number, etag: string, before: string | null, after: string): Promise<boolean> {
+  /** Claims the next part of an open multipart slot for one request before it reaches R2 (store.claimMultipartPart). */
+  async claimMultipartPart(entity: string, id: string, part: number, before: string | null): Promise<{ ok: true; claim: string } | { ok: false; busy: boolean }> {
+    if (!this.existingState(entity)) return { ok: false, busy: false }
+    const claimed = store.claimMultipartPart(this.sqlStore, id, part, before)
+    this.scheduleAlarm()
+    return claimed
+  }
+
+  /** Ends a part claim whose upload failed (store.releaseMultipartPart). */
+  async releaseMultipartPart(entity: string, id: string, claim: string): Promise<void> {
+    if (this.existingState(entity)) store.releaseMultipartPart(this.sqlStore, id, claim)
+  }
+
+  /** Records a verified part of an open multipart slot under its claim (store.recordMultipartPart): false when another part, another claim or the expiry came first. */
+  async recordMultipartPart(entity: string, id: string, part: number, etag: string, before: string | null, after: string, claim: string): Promise<boolean> {
     if (!this.existingState(entity)) return false
-    const recorded = store.recordMultipartPart(this.sqlStore, id, part, etag, before, after)
+    const recorded = store.recordMultipartPart(this.sqlStore, id, part, etag, before, after, claim)
     this.scheduleAlarm()
     return recorded
   }

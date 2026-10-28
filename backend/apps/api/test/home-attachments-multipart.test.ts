@@ -161,7 +161,7 @@ describe("Home attachments: one request at a time uploads a multipart part", { t
     loser.open()
     const refused = early ?? (await second)
     expect(refused.status).toBe(409)
-    expect(((await refused.json()) as any).error.code).toMatch(/^attachment\.part_(busy|order)$/)
+    expect(((await refused.json()) as any).error).toMatchObject({ code: "attachment.part_busy", retryable: true })
     expect((await m.putPart(2)).status).toBe(200)
     const done = await m.complete()
     expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
@@ -176,6 +176,13 @@ describe("Home attachments: one request at a time uploads a multipart part", { t
     // Short: the R2 part fails and the request answers 400.
     expect((await m.putPart(1, body.subarray(0, 1024))).status).toBe(400)
     expect((await m.putPart(1)).status).toBe(200)
+    // A claim its request never released (a Worker evicted mid-part) holds only while a part may still stream.
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id))
+    const claim = (at: number) => runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET part_claim = '2:held', part_claim_at = ? WHERE id = ?", at, m.slot))
+    await claim(Date.now())
+    const busy = await m.putPart(2)
+    expect([busy.status, busy.json.error.code]).toEqual([409, "attachment.part_busy"])
+    await claim(Date.now() - 2 * 3_600_000)
     expect((await m.putPart(2)).status).toBe(200)
     expect((await m.complete()).status).toBe(200)
   })

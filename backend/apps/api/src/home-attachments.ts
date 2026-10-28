@@ -64,7 +64,9 @@ interface ConversationAttachments {
   settleDerived(entity: string, id: string, etag: string | null): Promise<void>
   settleSlot(entity: string, id: string): Promise<void>
   setMultipartUpload(entity: string, id: string, uploadId: string): Promise<boolean>
-  recordMultipartPart(entity: string, id: string, part: number, etag: string, before: string | null, after: string): Promise<boolean>
+  claimMultipartPart(entity: string, id: string, part: number, before: string | null): Promise<{ ok: true; claim: string } | { ok: false; busy: boolean }>
+  releaseMultipartPart(entity: string, id: string, claim: string): Promise<void>
+  recordMultipartPart(entity: string, id: string, part: number, etag: string, before: string | null, after: string, claim: string): Promise<boolean>
   multipartEtags(entity: string, id: string): Promise<Array<string>>
   reopenMultipart(entity: string, id: string): Promise<boolean>
   commitAttachment(entity: string, slotId: string, etag?: string): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: Image } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }>
@@ -390,20 +392,35 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
   const next = sha.bytes / plan.partBytes + 1
   if (part !== next) return failure({ status: 409, code: "attachment.part_order", message: Number.isInteger(next) ? `send part ${next} next` : "every part is stored; complete the upload" })
   const length = Math.min(plan.partBytes, slot.byte_count - sha.bytes)
-  const upload = env.HOME_ATTACHMENTS!.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
-  const uploaded = await streamPartInto(upload, part, request, length, sha)
-  if (!uploaded) return failure({ status: 400, code: "attachment.size_mismatch", message: `part ${part} must be exactly ${length} bytes` })
-  const after = part < plan.parts ? sha.state() : `${sha.digest()}:${sha.bytes}`
-  if (part === plan.parts && after !== `${slot.hash}:${slot.byte_count}`) {
-    // The parts so far are hashed: no retry can fix the file, so the slot ends here.
-    const used = await conv.uploadSlot(conversation, id, "multipart", true)
-    await upload.abort().catch(() => undefined)
-    if (used) await conv.settleSlot(conversation, id)
-    return failure({ status: 400, code: "attachment.hash_mismatch", message: "the bytes do not match the declared sha256" })
+  // The part is this request's before any byte reaches R2: a concurrent PUT of it is refused here,
+  // so it can never replace the R2 part after this one's etag is recorded.
+  const claimed = await conv.claimMultipartPart(conversation, id, part, slot.multipart_hash ?? null)
+  if (!claimed.ok) {
+    return claimed.busy
+      ? failure({ status: 409, code: "attachment.part_busy", message: `part ${part} is being uploaded by another request; send it again if that one fails`, extra: { retryable: true } })
+      : failure({ status: 409, code: "attachment.part_order", message: "that part was already stored, or the slot ended" })
   }
-  // Another PUT of this part (or the expiry) came first: its etag is the one recorded.
-  if (!(await conv.recordMultipartPart(conversation, id, part, uploaded.etag, slot.multipart_hash ?? null, after))) return failure({ status: 409, code: "attachment.part_order", message: "that part was already stored, or the slot ended" })
-  return success({ part_number: part, byte_count: length, etag: uploaded.etag })
+  let recorded = false
+  try {
+    const upload = env.HOME_ATTACHMENTS!.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
+    const uploaded = await streamPartInto(upload, part, request, length, sha)
+    if (!uploaded) return failure({ status: 400, code: "attachment.size_mismatch", message: `part ${part} must be exactly ${length} bytes` })
+    const after = part < plan.parts ? sha.state() : `${sha.digest()}:${sha.bytes}`
+    if (part === plan.parts && after !== `${slot.hash}:${slot.byte_count}`) {
+      // The parts so far are hashed: no retry can fix the file, so the slot ends here.
+      const used = await conv.uploadSlot(conversation, id, "multipart", true)
+      await upload.abort().catch(() => undefined)
+      if (used) await conv.settleSlot(conversation, id)
+      return failure({ status: 400, code: "attachment.hash_mismatch", message: "the bytes do not match the declared sha256" })
+    }
+    // The claim ended (the slot expired or ended): nothing was recorded.
+    recorded = await conv.recordMultipartPart(conversation, id, part, uploaded.etag, slot.multipart_hash ?? null, after, claimed.claim)
+    if (!recorded) return failure({ status: 409, code: "attachment.part_order", message: "that part was already stored, or the slot ended" })
+    return success({ part_number: part, byte_count: length, etag: uploaded.etag })
+  } finally {
+    // A part that was not recorded frees its claim at once, so the client sends it again.
+    if (!recorded) await conv.releaseMultipartPart(conversation, id, claimed.claim).catch(() => undefined)
+  }
 }
 
 /**
