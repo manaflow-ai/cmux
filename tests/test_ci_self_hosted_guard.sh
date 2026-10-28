@@ -1333,43 +1333,53 @@ check_no_github_hosted_runners() {
   # on fixtures first, so a narrowed key pattern cannot pass vacuously.
   hosted_scan() {
     local dir="$1" line file content stripped exception allowed
-    # A runner selection spread over several lines (a block scalar, or a
-    # plain or quoted scalar that wraps) is invisible to the line scan below.
-    # YAML parses each workflow, and a multi-line value under runs-on, os or a
-    # *runner* key fails when its joined text names a hosted label (the same
-    # fork-branch and nightly rules; no exact-line exception can name it).
-    python3 -W ignore::FutureWarning - "$dir" "$ROOT_DIR" "$hosted" "$fork_branch" "$trusted_list" "$nightly_hosted" <<'PY'
-import pathlib, re, sys, yaml
+    # YAML parses each workflow, so no spelling of a runner selection hides
+    # from the line scan below: every scalar under runs-on, os, labels, group
+    # or any key naming a runner (quoted keys, list items and values that
+    # span lines included) fails when it names a hosted label, with the same
+    # fork-branch, trusted-list and nightly rules. A one-line value may match
+    # an exact exception; a multi-line one never can. Both scans print the
+    # same line for a one-line hit, and duplicates are dropped.
+    {
+    EXCEPTIONS="$(printf '%s\n' "${exceptions[@]}")" python3 -W ignore::FutureWarning - "$dir" "$ROOT_DIR" "$hosted" "$fork_branch" "$trusted_list" "$nightly_hosted" <<'PY'
+import os, pathlib, re, sys, yaml
 root, repo = pathlib.Path(sys.argv[1]), sys.argv[2]
+exceptions = set(filter(None, os.environ.get("EXCEPTIONS", "").split("\n")))
 hosted, fork, trusted, nightly = (re.compile(p) for p in sys.argv[3:7])
 key = re.compile(r"^(runs-on|runs_on|os|labels|group|[A-Za-z0-9_-]*runner[A-Za-z0-9_-]*)$", re.IGNORECASE)
 def spans(node):
-    """A scalar under a runner key that starts and ends on different lines."""
+    """Every scalar under a runner key, with whether it spans lines."""
     if isinstance(node, yaml.MappingNode):
         for k, v in node.value:
             if isinstance(k, yaml.ScalarNode) and key.match(str(k.value)):
                 for leaf in ([v] if isinstance(v, yaml.ScalarNode) else
                              [x for x in v.value if isinstance(x, yaml.ScalarNode)] if isinstance(v, yaml.SequenceNode) else []):
-                    if leaf.end_mark.line > leaf.start_mark.line and (leaf.end_mark.column > 0 or leaf.end_mark.line > leaf.start_mark.line + 1):
-                        yield k.value, leaf.start_mark.line + 1, str(leaf.value)
+                    multi = leaf.end_mark.line > leaf.start_mark.line and (leaf.end_mark.column > 0 or leaf.end_mark.line > leaf.start_mark.line + 1)
+                    yield k.value, leaf.start_mark.line + 1, str(leaf.value), multi
             yield from spans(v)
     elif isinstance(node, yaml.SequenceNode):
         for v in node.value:
             yield from spans(v)
 for f in sorted(root.rglob("*.y*ml")):
     try:
-        doc = yaml.compose(f.read_text(encoding="utf-8"))
+        source = f.read_text(encoding="utf-8")
+        doc = yaml.compose(source)
     except yaml.YAMLError:
         continue
+    rows = source.split("\n")
     is_nightly = re.search(r"(nightly|notarization)[^/]*[.]yml$", f.name) is not None
-    for name, line, text in spans(doc):
+    for name, line, text, multi in spans(doc):
         text = " ".join(text.split())
         if is_nightly:
             text = nightly.sub("", text)
         if not hosted.search(trusted.sub("", fork.sub("", text))):
             continue
-        print(f"FAIL: multi-line runner selection (write it on one line so this guard can read it): "
-              f"{str(f).removeprefix(repo + '/')}:{line}: {name}"[:260])
+        where = str(f).removeprefix(repo + "/")
+        if multi:
+            print(f"FAIL: multi-line runner selection (write it on one line so this guard can read it): "
+                  f"{where}:{line}: {name}"[:260])
+        elif f"{f.name}:{rows[line - 1]}" not in exceptions:
+            print(f"FAIL: GitHub-hosted runner label: {where}:{line}:{rows[line - 1]}"[:260])
 PY
     while IFS= read -r line; do
       file="${line%%:*}"
@@ -1389,6 +1399,7 @@ PY
       [[ "$allowed" -eq 1 ]] && continue
       echo "FAIL: GitHub-hosted runner label: ${line#"$ROOT_DIR"/}" | cut -c1-260
     done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runs_on|runs-on|[A-Za-z0-9_-]*[Rr]unner)\"?:[[:space:]]|\"?[A-Za-z0-9_-]*RUNNER[A-Za-z0-9_-]*\"?:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$dir")
+    } | awk '!seen[$0]++'
   }
   local fixture scan_out failed=0
   fixture="$(mktemp -d)"
@@ -1406,6 +1417,11 @@ jobs:
       LINUX_BUILD_RUNNER: ubuntu-22.04
     env:
       "LINUX_RUNNER": ubuntu-latest
+      'MACOS_RUNNER': macos-15
+      runner_label: ubuntu-latest
+  h:
+    runs-on:
+      - 'ubuntu-latest'
   g:
     strategy:
       matrix:
@@ -1438,8 +1454,8 @@ jobs:
 YAML
   scan_out="$(hosted_scan "$fixture")"
   rm -rf "$fixture"
-  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 9 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
-    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the nine hosted selections in its fixture and nothing in the clean one:"
+  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 12 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
+    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the twelve hosted selections in its fixture and nothing in the clean one:"
     echo "$scan_out"
     exit 1
   fi
