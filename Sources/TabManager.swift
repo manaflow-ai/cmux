@@ -2095,7 +2095,12 @@ class TabManager: ObservableObject {
         cleanupGeneratedAnchorsAfterWorkspaceRemoval(
             previousMemberships: previousMemberships
         )
-        if handled, origin == .user { noteUserWorkspaceMove(movedIds: [tabId], before: before) }
+        if handled, origin == .user {
+            // A request below the current place is a move down (Move Down at the bottom edge
+            // is clamped and changes nothing); a drag or a placement at or above it is not.
+            let movingUp = isDragOperation || before.firstIndex(of: tabId).map { targetIndex <= $0 } ?? true
+            noteUserWorkspaceMove(movedIds: [tabId], before: before, movingUp: movingUp)
+        }
         return handled
     }
 

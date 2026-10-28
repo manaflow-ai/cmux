@@ -24,8 +24,15 @@ extension TabManager {
     /// - Parameters:
     ///   - movedIds: The workspaces the entry point moved.
     ///   - before: The visible workspace order before the move.
-    func noteUserWorkspaceMove(movedIds: [UUID], before: [UUID]) {
-        sessionPriorityRank.recordUserMove(movedIds: movedIds, before: before, after: tabs.map(\.id))
+    ///   - movingUp: Whether the user asked to move them up or to a place;
+    ///     `false` for a move down. Used only when the order did not change.
+    func noteUserWorkspaceMove(movedIds: [UUID], before: [UUID], movingUp: Bool = true) {
+        sessionPriorityRank.recordUserMove(
+            movedIds: movedIds,
+            before: before,
+            after: tabs.map(\.id),
+            movingUp: movingUp
+        )
         SessionPriorityCoordinatorHook.userDidReorder?(self)
     }
 

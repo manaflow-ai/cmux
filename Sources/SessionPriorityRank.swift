@@ -63,16 +63,21 @@ struct SessionPriorityRank: Equatable, Sendable {
     /// move and lower for a downward one.
     ///
     /// A move that left the order as it was (to the top where the workspace
-    /// already is, or below a pinned one) affirms the requested ids' visible
-    /// place: each run of them is placed as for an upward move (ruling R24).
-    mutating func recordUserMove(movedIds: [UUID], before: [UUID], after: [UUID]) {
+    /// already is, below a pinned one, or past the list's edge) affirms the
+    /// requested ids' visible place (ruling R24): each run of them is placed
+    /// by the rule for the direction the user asked for.
+    ///
+    /// - Parameter movingUp: Whether the user asked to move the ids up (or to
+    ///   a place, such as Move to Top, a drag or `--before`). Read only when
+    ///   the order did not change; a move that changed it has its own direction.
+    mutating func recordUserMove(movedIds: [UUID], before: [UUID], after: [UUID], movingUp: Bool = true) {
         sync(visibleOrder: after)
         let beforeIndex = Self.indexById(before)
         let afterIndex = Self.indexById(after)
         guard before != after else {
             let affirmed = Set(movedIds.filter { afterIndex[$0] != nil })
             for run in Self.contiguousRuns(of: affirmed, in: after) {
-                insert(run: run, movedUp: true, after: after, afterIndex: afterIndex)
+                insert(run: run, movedUp: movingUp, after: after, afterIndex: afterIndex)
             }
             return
         }
