@@ -668,7 +668,7 @@ async fn dispatch_request(
     match m {
         method::MUX_DISPATCH => dispatch_brief(hub, conn, params).await,
         method::MUX_STEER => briefs::steer(hub, conn, params).await,
-        method::MUX_BRIEFS => briefs::list(hub, params).await,
+        method::MUX_BRIEFS => briefs::list(hub, conn, params).await,
         method::MUX_REPORT => briefs::report(hub, conn, params).await,
         method::MUX_TASK_NEW => briefs::task_new(hub, conn, params).await,
         method::MUX_TASKS => briefs::tasks(hub, conn, params).await,
