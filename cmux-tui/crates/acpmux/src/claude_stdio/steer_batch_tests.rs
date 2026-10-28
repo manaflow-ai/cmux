@@ -147,6 +147,7 @@ async fn the_persons_steer_and_one_read_now_are_written_at_once() {
     let person = steer(4, "use Rust", json!({"steer": true, "promptId": "p4"}));
     let Outbound::Lines(lines) = t.outbound(&person).await else { panic!() };
     assert_eq!(text_of(&lines[0]), "use Rust", "the person's steer waited: {lines:?}");
+    q.take(lines);
     let mut urgent = from(5, "lane-c", "stop now");
     if let Message::Request { params: Some(p), .. } = &mut urgent {
         p["_meta"]["steerNow"] = json!(true);
