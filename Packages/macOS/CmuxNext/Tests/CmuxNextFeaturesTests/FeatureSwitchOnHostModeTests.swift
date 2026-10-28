@@ -1,6 +1,8 @@
 import CmuxNextFeatures
 import Testing
 
+// The host-mode switches are benchOnly: declared only in Debug and bench builds, so these tests exist only there.
+#if DEBUG || CMUX_BENCH_HOOKS
 /// Feature switch policy (plans/cmux-next/feature-switch-policy.md, rule 1), batch "host mode" (2026-10-28): the
 /// Chromium Host mode switches, which act only while Chromium tabs run in the host (cefHelperHost, Debug and bench
 /// builds) and whose unit tests pass on the fleet: each switch below is on by default in DEV and NIGHTLY and stays
@@ -37,3 +39,4 @@ struct FeatureSwitchOnHostModeTests {
         }
     }
 }
+#endif
