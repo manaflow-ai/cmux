@@ -1,20 +1,20 @@
 /* The composer's Milkdown prompt (MarkdownField.tsx), drawn as the plain textarea it replaces
-   (.acpmux-composer-field): 15px on 22px lines, no chrome. Formatting shows only where the
-   user formats. Theme tokens only. */
+   (.acpmux-composer-field): the chat font size and line height, no chrome. Formatting shows
+   only where the user formats. Theme tokens only. */
 .acpmux-md-field {
   position: relative;
   /* Keep long drafts inside the composer: it grows to 40% of the pane, never less than eight
      lines, and leaves the transcript and location shelf anchored while the draft grows (Leo,
      2026-10-24: "I think we can afford to expand the composer text area a bit more than we do right
      now. When there's lots of text."). A short pane still gives up height (bottomStack.css). */
-  max-height: max(calc(var(--text-body--line-height, 22px) * 8 + var(--cmux-control-height, 23px)), 40vh);
+  max-height: max(calc(var(--text-content--line-height) * 8 + var(--cmux-control-height, 23px)), 40vh);
   overflow-y: auto;
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
      not shift anything): no chaining into the transcript, no bounce. */
   overscroll-behavior: contain;
   padding: calc(15px * var(--cmux-interface-scale, 1)) calc(16px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1));
-  font-size: var(--text-title, 15px);
-  line-height: var(--text-title--line-height, 22px);
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
   color: var(--agent-text);
 }
 /* A long draft's soft edges (Leo 2026-10-21), the transcript's (.acpmux-scroll, conversation.css):
@@ -124,7 +124,7 @@
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-md {
-  min-height: var(--text-title--line-height, 22px);
+  min-height: var(--text-content--line-height);
   outline: none;
   white-space: pre-wrap;
   word-break: break-word;
@@ -149,7 +149,7 @@
   border-radius: 4px;
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 13px;
+  font-size: var(--cv-code-size, calc(var(--text-content) * 13 / 14));
 }
 .acpmux-md pre {
   padding: 8px 10px;
@@ -157,10 +157,11 @@
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
   overflow-x: auto;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 13px;
-  line-height: 19px;
+  font-size: var(--cv-codeblock-size, calc(var(--text-content) * 12 / 14));
+  line-height: var(--cv-codeblock-line-height, calc(var(--text-content) * 20 / 14));
 }
 .acpmux-md pre code {
+  font-size: inherit;
   padding: 0;
   background: none;
 }
@@ -184,7 +185,7 @@
 .acpmux-md h1,
 .acpmux-md h2,
 .acpmux-md h3 {
-  font-size: 15px;
+  font-size: inherit;
   font-weight: 600;
 }
 .acpmux-md hr {
