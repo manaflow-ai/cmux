@@ -351,6 +351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
         services.startHibernation(settings: settings)
         services.autoArchive.start() // workspaces.autoArchive: first pass 30 s after launch
+        services.workspaceHibernation.start() // workspaces.hibernation: first pass 60 s after launch
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)
