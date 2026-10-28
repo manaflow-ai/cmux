@@ -2,7 +2,7 @@ public import AppKit
 
 /// Builds the menu bar menu (``MenuBarMenuSpec``): native rows, each a registry item (its
 /// effective shortcut from the key bindings, its run through the registry's menu target), with
-/// SF Symbols. Info lines are disabled rows; the first account line shows `avatar`.
+/// Raycast's monochrome icons (``MenuBarMenuIcon``). Info lines are disabled rows; the first account line shows `avatar`.
 ///
 /// ```swift
 /// let menu = NSMenu()
@@ -36,12 +36,12 @@ public import AppKit
             case .info(let text, let symbol, let isAvatar):
                 let row = NSMenuItem(title: text, action: nil, keyEquivalent: "")
                 row.isEnabled = false
-                row.image = isAvatar ? avatar : symbol.flatMap { Self.symbol($0, label: text) }
+                row.image = isAvatar ? avatar : symbol.flatMap { Self.image(.symbol($0), label: text) }
                 menu.addItem(row)
-            case .action(let id, let title, let symbol):
+            case .action(let id, let title, let icon):
                 guard let row = registry.makeMenuItem(for: id) else { continue }
                 if let title { row.title = title }
-                row.image = Self.symbol(symbol, label: row.title)
+                row.image = icon.flatMap { Self.image($0, label: row.title) }
                 if id == "showMainWindow", state.showsGlobalKey { showGlobalKey(on: row) }
                 menu.addItem(row)
             }
@@ -53,6 +53,28 @@ public import AppKit
         guard let shortcut = registry.effectiveShortcut(for: "showHideAllWindows") else { return }
         row.keyEquivalent = shortcut.key
         row.keyEquivalentModifierMask = shortcut.modifiers
+    }
+
+    private static func image(_ icon: MenuBarMenuIcon, label: String) -> NSImage? {
+        switch icon {
+        case .symbol(let name): symbol(name, label: label)
+        case .brand(let brand): mark(brand, label: label)
+        }
+    }
+
+    /// A brand mark as a template in the box of a full-size symbol row (`info.circle`), so its
+    /// title lines up with the SF Symbol rows; the glyph fills 85% of it, a circle symbol's weight.
+    private static func mark(_ brand: MenuBarBrand, label: String) -> NSImage? {
+        guard let glyph = NSImage(data: Data(brand.svg.utf8)) else { return nil }
+        let box = symbol("info.circle", label: label)?.size ?? NSSize(width: 16, height: 16)
+        let image = NSImage(size: box, flipped: false) { rect in
+            let side = min(rect.width, rect.height) * 0.85
+            glyph.draw(in: NSRect(x: rect.midX - side / 2, y: rect.midY - side / 2, width: side, height: side))
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = label
+        return image
     }
 
     private static func symbol(_ name: String, label: String) -> NSImage? {
