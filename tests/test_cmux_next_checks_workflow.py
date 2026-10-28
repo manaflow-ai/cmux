@@ -1128,10 +1128,10 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     following = job_steps[after] if after < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
-        # request-nightly-next runs on GitHub-hosted ubuntu-latest (70d5128f784b), never a mini.
+        # The nightly-next requests read LINUX_RUNNER (Blacksmith Linux, never GitHub-hosted).
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
-                                           "release-compile", "swift-canary", "swift-test",
-                                           "web-bundles"])
+                                           "release-compile", "request-nightly-next", "request-nightly-next-fast",
+                                           "swift-canary", "swift-test", "web-bundles"])
 
 
 

@@ -36,17 +36,8 @@ const sqlFiles = (dir: string) => readdirSync(dir).filter((file) => file.endsWit
   .map((file) => ({ name: file.replace(/\.sql$/, ""), sql: readFileSync(path.join(dir, file), "utf8") }));
 const mainRunMigrations = sqlFiles(path.join(fixtureDir, "main"));
 const oldVersions = sqlFiles(path.join(fixtureDir, "next-before-b1"));
-
-// next-only columns main's tables lack. The reconcile migration's expand step (B2, section 4 step 2
-// of the note) adds them to a database with main's shape; until then they are the known gap there.
-const addedByB2 = {
-  runs: ["cancel_requested_at"],
-  run_attempts: [
-    "attach_ticket_consumed_at", "attach_ticket_expires_at", "attach_ticket_hash", "cleanup_lease_expires_at",
-    "cleanup_lease_token", "exit_code", "lease_expires_at", "lease_generation", "lease_token",
-    "provider_terminal_id", "provider_workspace_id", "source_digest", "terminal_retain_until",
-  ],
-};
+// B2's reconcile steps (section 4 steps 1 to 3 of the note), byte for byte the same files on main.
+const runModelSteps = ["20261028000000_run_model_enums", "20261028000100_run_model_expand", "20261028000200_run_model_validate"];
 
 const scratchRoot = mkdtempSync(path.join(tmpdir(), "cmux-run-migrations-replay-"));
 let folderCount = 0;
@@ -157,7 +148,7 @@ describe("Run migrations replay onto every starting shape", () => {
     expect(await catalog(pool)).toEqual(snapshot);
   });
 
-  dbTest("a database with main's Run model, holding rows, migrates and keeps every row", async () => {
+  dbTest("a database with main's Run model, holding rows, migrates, keeps every row and gets next's columns", async () => {
     const pool = await freshDatabase();
     await applyPendingMigrations(pool, webDir, folder({ before: firstRunMigration, extra: mainRunMigrations }));
     const orphanRuntime = "00000000-0000-4000-8000-000000000001";
@@ -177,29 +168,62 @@ describe("Run migrations replay onto every starting shape", () => {
     const names = (await journal(pool)).map((row) => row.name);
     for (const name of [...mainRunMigrations.map((m) => m.name), ...rewritten]) expect(names).toContain(name);
 
-    // main's tables keep their shape and rows. runtime_id keeps main's FK-less column and its orphan value.
+    // main's tables keep their rows. The one rewrite: run_model_validate sets the orphan runtime_id
+    // (main's column had no FK) to NULL before it validates the FK run_model_expand added.
     expect((await pool.query("select runtime_id::text, variant, status::text from run_attempts")).rows)
-      .toEqual([{ runtime_id: orphanRuntime, variant: {}, status: "running" }]);
+      .toEqual([{ runtime_id: null, variant: {}, status: "running" }]);
     expect((await pool.query("select owner_team_id from runs")).rows).toEqual([{ owner_team_id: "team-a" }]);
     expect((await pool.query("select kind::text from run_events")).rows).toEqual([{ kind: "run.cancelled" }]);
     expect((await pool.query("select payload from run_artifacts")).rows).toEqual([{ payload: { k: 1 } }]);
     expect((await pool.query("select lifecycle_state::text from cloud_runtimes")).rows).toEqual([{ lifecycle_state: "released" }]);
-    const runtimeForeignKeys = await pool.query(`select count(*)::int as n from pg_constraint c
+    const runtimeForeignKeys = await pool.query(`select c.conname, c.convalidated from pg_constraint c
       join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any(c.conkey)
       where c.conrelid = 'run_attempts'::regclass and c.contype = 'f' and a.attname = 'runtime_id'`);
-    expect(runtimeForeignKeys.rows).toEqual([{ n: 0 }]);
+    expect(runtimeForeignKeys.rows).toEqual([{ conname: "run_attempts_runtime_id_fkey", convalidated: true }]);
+    // main's artifact row breaks next's digest check ('sha256:x'): the row is kept and that check stays NOT VALID.
+    expect((await pool.query(`select conname, convalidated from pg_constraint where conrelid = 'run_artifacts'::regclass and contype = 'c' order by conname`)).rows)
+      .toEqual([{ conname: "run_artifacts_digest_check", convalidated: false }, { conname: "run_artifacts_size_check", convalidated: true }]);
     // next's runtime index exists; next's same-named lease index did not replace main's.
     const indexes = (await pool.query("select indexname, indexdef from pg_indexes where tablename = 'run_attempts'")).rows as Array<{ indexname: string; indexdef: string }>;
     expect(indexes.map((index) => index.indexname)).toContain("run_attempts_runtime_idx");
     expect(indexes.find((index) => index.indexname === "run_attempts_lease_idx")?.indexdef).toContain("lease_until");
 
-    expect(await missingSchemaColumns(pool)).toEqual(addedByB2);
+    expect(await missingSchemaColumns(pool)).toEqual({ runs: [], run_attempts: [] });
 
     // A second replay of the two rewritten files over main's shape is also a no-op.
     const snapshot = await catalog(pool);
     await pool.query("delete from drizzle.__drizzle_migrations where name = any($1)", [rewritten]);
     expect(await applyRealFolder(pool)).toBe(2);
     expect(await catalog(pool)).toEqual(snapshot);
+  });
+
+  dbTest("on next's own shape the run_model steps change nothing but add one index, and keep every row", async () => {
+    const pool = await freshDatabase();
+    await applyPendingMigrations(pool, webDir, folder({ before: runModelSteps[0] }));
+    await pool.query(`
+      insert into cloud_runtimes (id, owner_team_id) values ('00000000-0000-4000-8000-0000000000aa', 'team-a');
+      insert into runs (id, user_id, request_digest, source, recipe, status) values ('00000000-0000-4000-8000-000000000010', 'user-a', 'digest', '{}', 'recipe', 'cancelling');
+      insert into run_attempts (id, run_id, ordinal, status, runtime_id, lease_token, lease_generation)
+        values ('00000000-0000-4000-8000-000000000020', '00000000-0000-4000-8000-000000000010', 0, 'leased', '00000000-0000-4000-8000-0000000000aa', 'tok', 3);
+      insert into run_events (run_id, attempt_id, sequence, attempt_sequence, external_id, kind)
+        values ('00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000020', 1, 1, 'e1', 'attempt.heartbeat');
+      insert into run_artifacts (run_id, attempt_id, name, size_bytes, digest, uri)
+        values ('00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000020', 'a', 1, 'sha256:${"a".repeat(64)}', 'r2://b/a');
+    `);
+    const snapshotRows = async () => Object.fromEntries(await Promise.all(["runs", "run_attempts", "run_events", "run_artifacts", "cloud_runtimes"]
+      .map(async (table) => [table, (await pool.query(`select to_jsonb(t) as row from "${table}" t order by id`)).rows])));
+    const before = { catalog: await catalog(pool), rows: await snapshotRows() };
+
+    expect(await applyRealFolder(pool)).toBe(runModelSteps.length);
+    const after = await catalog(pool);
+    expect({ ...after, indexes: [] }).toEqual({ ...before.catalog, indexes: [] });
+    // The one addition: next's (status, lease_expires_at) index under the name main's databases need while
+    // main's own run_attempts_lease_idx is still in use; the contract step renames it.
+    type Index = { indexname: string };
+    const added = after.indexes.filter((index: Index) => !before.catalog.indexes.some((old: Index) => old.indexname === index.indexname));
+    expect(added.map((index: Index) => index.indexname)).toEqual(["run_attempts_lease_expires_idx"]);
+    expect(after.indexes.filter((index: Index) => index.indexname !== "run_attempts_lease_expires_idx")).toEqual(before.catalog.indexes);
+    expect(await snapshotRows()).toEqual(before.rows);
   });
 
   // next's databases recorded the old versions alone; staging recorded them and then main's four (the hybrid).
