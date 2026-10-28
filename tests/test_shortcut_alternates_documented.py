@@ -62,6 +62,16 @@ def any_branch(document: dict, name: str = "shortcutBinding") -> dict | None:
     return None
 
 
+def is_chord_shape(branch: dict) -> bool:
+    """A real chord: a two-stroke array.
+
+    A one-item array is a single stroke -- `ShortcutBinding.parse` returns
+    `.stroke` for one element and `.chord` only for two -- so `maxItems` tells
+    the two apart.
+    """
+    return branch.get("type") == "array" and branch.get("maxItems") == 2
+
+
 def bindings_description(document: dict) -> str:
     return document["properties"]["shortcuts"]["properties"]["bindings"]["description"]
 
@@ -116,25 +126,28 @@ class SchemaAcceptsAlternatesTests(unittest.TestCase):
         branch = any_branch(schema())
         self.assertIsNotNone(branch)
         items = branch["properties"]["any"]["items"]["oneOf"]
-        kinds = {"array" if item.get("type") == "array" else "stroke" for item in items}
-        self.assertEqual(
-            kinds, {"stroke", "array"},
-            "each `any` item should be a key string or a two-item chord array",
+        self.assertTrue(
+            any(item.get("type") != "array" for item in items),
+            "an `any` item should be writable as a plain key string",
+        )
+        self.assertTrue(
+            any(is_chord_shape(item) for item in items),
+            "an `any` item should be writable as a two-item chord array",
         )
 
     def test_a_chord_capable_def_takes_chord_alternates(self):
-        """A def that accepts a chord accepts a chord as an alternate too."""
+        """A def that accepts a chord accepts a chord as an alternate too.
+
+        A one-item array is a single stroke, not a chord
+        (``ShortcutBinding.parse``), so only a two-item array counts here.
+        """
         document = schema()
         for name in BINDING_DEFS:
-            takes_chord = any(
-                branch.get("type") == "array" for branch in document["$defs"][name]["oneOf"]
-            )
+            takes_chord = any(is_chord_shape(b) for b in document["$defs"][name]["oneOf"])
             branch = any_branch(document, name)
             self.assertIsNotNone(branch, name)
             items = branch["properties"]["any"]["items"]
-            has_chord_item = any(
-                item.get("type") == "array" for item in items.get("oneOf", [items])
-            )
+            has_chord_item = any(is_chord_shape(i) for i in items.get("oneOf", [items]))
             with self.subTest(definition=name):
                 self.assertEqual(
                     has_chord_item, takes_chord,
@@ -229,6 +242,31 @@ class AlternatesValidateTests(unittest.TestCase):
         self.assertBinding("diffViewerScrollDown", {"any": ["j", "ctrl+n"]}, valid=True)
         self.assertBinding("diffViewerScrollDown", {"any": ["j", ["ctrl+b", "g"]]}, valid=True)
         self.assertBinding("diffViewerScrollDown", {"any": ["j", ["g", "g"]]}, valid=False)
+
+    def test_a_one_item_array_is_a_single_stroke_not_a_chord(self):
+        """`ShortcutBinding.parse` reads a one-element array as `.stroke`.
+
+        Its `.array` branch returns `.stroke(strokes[0])` for one item and
+        `.chord(...)` only for two, so the Cmd/Ctrl chord rule must not reach a
+        one-item array. Holding one to it rejected `{"any": [["j"], "ctrl+n"]}`
+        and `{"any": [["space"]]}`, which the app parses and applies.
+        """
+        # A regular action: a one-item array follows the single-stroke rule,
+        # which allows Shift and Option and bare Space.
+        self.assertBinding("nextSurface", {"any": [["cmd+j"]]}, valid=True)
+        self.assertBinding("nextSurface", {"any": [["shift+b"]]}, valid=True)
+        self.assertBinding("nextSurface", {"any": [["opt+b"]]}, valid=True)
+        self.assertBinding("nextSurface", {"any": [["space"]]}, valid=True)
+        # An action that takes a bare single key takes it in a one-item array too.
+        self.assertBinding("diffViewerScrollDown", {"any": [["j"], "ctrl+n"]}, valid=True)
+        self.assertBinding("diffViewerScrollDown", {"any": [["g"]]}, valid=True)
+        self.assertBinding("fileExplorerOpenSelection", {"any": [["return"], "o"]}, valid=True)
+        # The two-item form is still a chord, and still needs Cmd or Ctrl.
+        self.assertBinding("diffViewerScrollDown", {"any": [["g", "g"]]}, valid=False)
+        self.assertBinding("nextSurface", {"any": [["shift+b", "n"]]}, valid=False)
+        self.assertBinding("nextSurface", {"any": [["space", "n"]]}, valid=False)
+        # A one-item array still has to be a key the action accepts.
+        self.assertBinding("nextSurface", {"any": [["j"]]}, valid=False)
 
     def test_the_plain_chord_form_stays_as_wide_as_classic(self):
         """Don't narrow a form classic honours.
