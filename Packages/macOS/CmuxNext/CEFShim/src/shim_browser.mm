@@ -7,7 +7,9 @@
 #include <cstring>
 
 #include "include/cef_parser.h"
+#include "include/cef_task.h"
 #include "include/cef_values.h"
+#include "frame_renderers.h"
 #include "renderer_end.h"
 #include "shim_internal.h"
 
@@ -99,9 +101,44 @@ void SetPopupMenuHandler(int browser_id, bool on) {
   }
 }
 
+// The browsers whose frame renderers changed and the set each last reported (frame_renderers.h).
+FrameRenderers& frame_renderers() {
+  static FrameRenderers renderers;
+  return renderers;
+}
+
+// The check NoteFrameRenderersChanged posts: after the task's frame changes, FRAME_RENDERERS when the
+// browser's renderer set is new.
+class CheckFrameRenderers : public CefTask {
+ public:
+  explicit CheckFrameRenderers(int browser_id) : browser_id_(browser_id) {}
+  void Execute() override {
+    CefRefPtr<CefBrowser> browser = BrowserById(browser_id_);
+    if (!browser) {
+      frame_renderers().Forget(browser_id_);  // it closed before the check ran
+      return;
+    }
+    if (frame_renderers().Check(browser_id_, FrameRendererClientIDs(browser))) {
+      Emit(CMUX_SHIM_FRAME_RENDERERS, browser_id_);
+    }
+  }
+
+ private:
+  int browser_id_;
+  IMPLEMENT_REFCOUNTING(CheckFrameRenderers);
+};
+
 }  // namespace
 
 namespace cmux_shim {
+
+void NoteFrameRenderersChanged(int browser_id) {
+  if (frame_renderers().Changed(browser_id)) CefPostTask(TID_UI, new CheckFrameRenderers(browser_id));
+}
+
+void ForgetFrameRenderers(int browser_id) {
+  frame_renderers().Forget(browser_id);
+}
 
 void ApplyPopupMenus(int browser_id) {
   if (popup_menus_on() && HasPopupMenuCalls()) SetPopupMenuHandler(browser_id, true);

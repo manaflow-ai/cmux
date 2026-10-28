@@ -25,6 +25,7 @@ nonisolated enum CEFMirrorField: String, CaseIterable, Sendable {
     case sidePanelState = "tab.side_panel_state[browser_id]"
     case omniboxKeywords = "tab.omnibox_keywords[browser_id]"
     case devToolsInspectedBounds = "tab.devtools_inspected_bounds[browser_id]"
+    case rendererClientIDs = "tab.renderer_client_ids[browser_id]"
     case popupWindowBounds = "popup_window.bounds[window_id]"
 
     /// The shim export the key answers.
@@ -51,6 +52,7 @@ nonisolated enum CEFMirrorField: String, CaseIterable, Sendable {
         case .sidePanelState: "cmux_shim_side_panel_state"
         case .omniboxKeywords: "cmux_shim_omnibox_keywords"
         case .devToolsInspectedBounds: "cmux_shim_devtools_inspected_bounds"
+        case .rendererClientIDs: "cmux_shim_renderer_client_ids"
         case .popupWindowBounds: "cmux_shim_popup_window_bounds"
         }
     }
@@ -78,6 +80,7 @@ nonisolated enum CEFMirrorField: String, CaseIterable, Sendable {
         case .extList, .extCommands, .omniboxKeywords: [.afterCreated, .tab(.extensionsChanged)]
         case .sidePanelState: [.afterCreated, .tab(.inserted), .tab(.moved), .tab(.sidePanelChanged)]
         case .devToolsInspectedBounds: [.tab(.devToolsDeviceMode), .devToolsClosed, .beforeClose]
+        case .rendererClientIDs: [.afterCreated, .address, .loadEnd, .renderTerminated, .frameRenderers, .beforeClose]
         case .popupWindowBounds: [.tab(.popupWindowCreated), .tab(.popupWindowBounds), .tab(.windowDestroyed)]
         }
     }
@@ -117,6 +120,8 @@ nonisolated struct CEFMirrorTrigger: Hashable, Sendable {
     static let loadEnd = CEFMirrorTrigger(kind: 9)
     static let devToolsOpened = CEFMirrorTrigger(kind: 21)
     static let devToolsClosed = CEFMirrorTrigger(kind: 22)
+    static let renderTerminated = CEFMirrorTrigger(kind: 23)
+    static let frameRenderers = CEFMirrorTrigger(kind: 67)
     static func tab(_ event: CEFForkTabEvent) -> CEFMirrorTrigger { CEFMirrorTrigger(kind: 16, tabEvent: event.rawValue) }
 }
 
@@ -135,6 +140,8 @@ extension CEFShimEvent {
         case .tab(let kind, let browser, let window, _): (CEFMirrorTrigger.tab(kind), browser, window)
         case .devToolsOpened(let browser, _, _): (CEFMirrorTrigger.devToolsOpened, browser, 0)
         case .devToolsClosed(let browser, _): (CEFMirrorTrigger.devToolsClosed, browser, 0)
+        case .renderTerminated(let browser, _, _, _, _, _): (CEFMirrorTrigger.renderTerminated, browser, 0)
+        case .frameRenderers(let browser): (CEFMirrorTrigger.frameRenderers, browser, 0)
         default: nil
         }
     }

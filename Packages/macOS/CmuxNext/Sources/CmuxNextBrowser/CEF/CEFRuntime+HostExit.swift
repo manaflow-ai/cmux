@@ -53,6 +53,7 @@ extension CEFRuntime {
         if let hostStart, state == .ready, shutdownSequence == nil {
             hostStart.hostEnded()
             hostStart.pagesAwaitEnd = true
+            publishHelperParent()  // none until the next host is attached
             shim = nil
             state = .idle
         }

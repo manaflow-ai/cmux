@@ -61,6 +61,9 @@ final class CEFHostStart {
     private(set) var acksWheels = false
     /// The attached host ended (``hostEnded()``) and no new one is attached yet.
     private(set) var hostGone = false
+    /// The attached host's pid (``CEFAttachedHost/hostPID``), whose children are the Chromium helpers; nil while
+    /// none is attached (task p01-process-225).
+    private(set) var hostPID: pid_t?
     /// The host's UI-thread watch: the busy banner and its hang reports (feature `chromiumHostHangBanner`,
     /// `CEFRuntime.watchHostHangs(reports:)`, task p01-process-084); nil without it. One for every host:
     /// each attached host that acks its input dispatch reports to it.
@@ -121,7 +124,7 @@ final class CEFHostStart {
         self.task = task
         let outcome = await task.value
         guard case .success(let host) = outcome else { return outcome }
-        (remote, mapsClientIDs, acksWheels, hostGone, pagesAwaitEnd) = (host.remote, host.mapsClientIDs, host.acksWheels, false, false)
+        (remote, mapsClientIDs, acksWheels, hostGone, pagesAwaitEnd, hostPID) = (host.remote, host.mapsClientIDs, host.acksWheels, false, false, host.hostPID)
         // A host that acks its dispatch counts waiting input for the busy banner; one that does not never shows it.
         if let hangMonitor, host.watchesHangs { watchesHangs = host.remote.watchHost(hangMonitor) }
         // Once per attach, before initialize: a preinit op, which the remote shim replays to every later host.
@@ -134,7 +137,7 @@ final class CEFHostStart {
     /// starts, as a mojo `Remote` whose peer closed is rebound to a new pipe, never reused.
     func hostEnded() {
         remote?.detach()
-        (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
+        (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes, hostPID) = (nil, nil, false, false, true, nil, nil)
         watchesHangs = false
         generation += 1
     }
@@ -211,7 +214,8 @@ final class CEFHostStart {
                                             locale: locale, loadDuration: elapsed.now - started,
                                             mapsClientIDs: hostExports.contains(CEFAttachedHost.clientIDsHelloName),
                                             acksWheels: hostExports.contains(CEFAttachedHost.wheelAcksHelloName),
-                                            watchesHangs: hostExports.contains(CEFAttachedHost.hangWatchHelloName)))
+                                            watchesHangs: hostExports.contains(CEFAttachedHost.hangWatchHelloName),
+                                            hostPID: attachment.hostPID()))
         } catch {
             // The shim holds the host's wire from the attach on.
             remote.detach()
@@ -240,6 +244,8 @@ nonisolated struct CEFAttachedHost: Sendable {
     /// The host acks the input its UI thread dispatched and reports its UI hangs (its HELLO lists
     /// ``hangWatchHelloName``; HOST/src/host_hang_watcher.h): the busy banner counts on it.
     var watchesHangs = false
+    /// The host's pid, read after its hello (``ChromiumHostAttachment/hostPID()``): the parent of its helpers.
+    var hostPID: pid_t?
 
     /// `cmux_host::mint::kClientIdsHelloName` (HOST/src/chromium_host_mint.h).
     static let clientIDsHelloName = "cmux_host_client_ids"

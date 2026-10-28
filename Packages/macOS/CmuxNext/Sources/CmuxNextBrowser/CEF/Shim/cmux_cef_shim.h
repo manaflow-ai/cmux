@@ -280,6 +280,13 @@ typedef enum {
   // source pane's, else the normalized profile directory). An INSERT's tab
   // comes in its own AFTER_CREATED, which names it by that minted id.
   CMUX_SHIM_WINDOW_REQUEST_RESULT = 66,
+  // The renderer processes that host browser_id's frames changed: a frame
+  // attached to its renderer, left it or became the main frame
+  // (CefFrameHandler), as an iframe added after the load, an out-of-process
+  // iframe's swap or its renderer's end do. Sent once after a task's
+  // changes, and only when the set of the frames' renderer client ids
+  // (cmux_shim_renderer_client_ids) differs from the one it last reported.
+  CMUX_SHIM_FRAME_RENDERERS = 67,
 } cmux_shim_event_kind_t;
 
 typedef enum {

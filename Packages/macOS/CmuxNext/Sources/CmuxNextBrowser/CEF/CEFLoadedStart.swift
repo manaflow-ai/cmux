@@ -24,6 +24,7 @@ final class CEFLoadedStart {
         guard runtime.startError() == nil, runtime.state != .ready else { return }
         if let hostStart = runtime.hostStart {
             boot = await hostStart.attached().map(CEFRuntimeBoot.host)
+            runtime.publishHelperParent()  // the attached host's pid (task p01-process-225), as `CEFRuntime.start` does
         } else {
             // Behind the startup fence the preload's map is made only after its framework read (p08-startup-045).
             await runtime.libraryLoadEnded()
