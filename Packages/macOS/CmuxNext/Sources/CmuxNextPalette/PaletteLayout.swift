@@ -99,9 +99,13 @@ enum PaletteText {
     }
 
     /// Width that shows the whole string. `intrinsicContentSize` of a
-    /// truncating label is unreliable after its value changes.
+    /// truncating label is unreliable after its value changes. At least the cell's own width
+    /// without bounds, which adds its text padding: `space2` alone is less than that padding at
+    /// Ultra-compact, and "Search", "Open" and "Actions" truncated there (#26606).
     static func fittingWidth(_ field: NSTextField) -> CGFloat {
-        ceil(field.attributedStringValue.size().width) + Metrics.space2
+        let unbounded = NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        let cell = ceil(field.cell?.cellSize(forBounds: unbounded).width ?? 0)
+        return max(cell, ceil(field.attributedStringValue.size().width) + Metrics.space2)
     }
 
     /// Configured SF Symbol images, made once per name and size: rows are
