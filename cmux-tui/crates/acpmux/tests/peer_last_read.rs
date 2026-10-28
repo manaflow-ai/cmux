@@ -155,7 +155,7 @@ fn last_of_a_connected_peer_that_stops_answering_is_bounded() {
 fn forwarded_history_reads_have_a_deadline_and_release_pending_replies() {
     run(async {
         futures_util::future::join_all(
-            [method::MUX_INFO, method::MUX_ATTACH, method::MUX_EVENTS].into_iter().map(
+            [method::MUX_INFO, method::MUX_EVENTS, method::MUX_HISTORY].into_iter().map(
                 |m| async move {
                     let f = Fixture::new(m).await;
                     let client = acpmux::client::Client::connect(&f.socket).await.unwrap();

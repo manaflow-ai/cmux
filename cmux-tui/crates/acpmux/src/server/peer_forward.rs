@@ -321,13 +321,11 @@ async fn forward_inner(
         // must reach the peer even when its client is gone.
         // A page goes on the link it is labelled with, or fails.
         let on = pages.then_some(link);
-        let result = if matches!(
-            m,
-            method::MUX_INFO | method::MUX_ATTACH | method::MUX_EVENTS | method::MUX_HISTORY
-        ) {
+        let result = if matches!(m, method::MUX_INFO | method::MUX_EVENTS | method::MUX_HISTORY) {
             // History reads answer from the current snapshot, even during a running turn.
             // A connected link can still have a stuck handler; do not inherit its ten-minute
-            // generic deadline. Dropping this future releases its pending reply entry.
+            // generic deadline. Dropping this future releases its pending reply entry. Attach
+            // keeps its existing lifecycle: it installs a live subscription before replying.
             tokio::time::timeout(std::time::Duration::from_secs(30), peer.request_on(m, p, on))
                 .await
                 .unwrap_or_else(|_| Err(RpcError::internal(format!(
