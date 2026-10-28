@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 
 /// Places a dialog view in its scope and blocks only that scope. The app
 /// uses `CmuxDialogOverlayHost` (the R84 `WindowOverlayHost`, above every
@@ -9,6 +10,13 @@ public protocol CmuxDialogHosting: AnyObject {
     /// tab or window closed), and the center then cancels the dialog.
     func show(_ dialog: CmuxDialogView, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void)
     func hide(_ dialog: CmuxDialogView)
+    /// `dialog` shows a new spec in place (`CmuxDialogView.update(_:)`) and may have a new size.
+    func dialogDidUpdate(_ dialog: CmuxDialogView)
+}
+
+public extension CmuxDialogHosting {
+    /// A host that places nothing on screen has nothing to resize.
+    func dialogDidUpdate(_ dialog: CmuxDialogView) {}
 }
 
 /// Dialogs on the R84 overlay host: a window-scope dialog is a dimming
@@ -92,6 +100,16 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         detach(entry)
     }
 
+    /// The panel takes its new rows' size and the overlay places it again, as a Chrome bubble does on
+    /// `SizeToContents()` (ui/views/bubble/bubble_dialog_delegate.cc).
+    public func dialogDidUpdate(_ dialog: CmuxDialogView) {
+        guard let entry = shown[ObjectIdentifier(dialog)] else { return }
+        // sync-layout: the new rows' wrapped text sets the fitting size the overlay is placed by.
+        dialog.layoutSubtreeIfNeeded()
+        dialog.setFrameSize(dialog.fittingSize)
+        entry.handle?.contentDidResize()
+    }
+
     /// Presents or withdraws the overlay to match the scope's visibility.
     private func sync(_ entry: Shown) {
         guard let scope = entry.scope.live else { return detach(entry) }
@@ -125,10 +143,17 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
 /// An invisible view filling a tab's view: tells the dialog host when the
 /// tab shows or stops showing (it leaves its window or is hidden) and when
 /// it changes size.
+///
+/// Whether the tab is hidden (itself or an ancestor) is its ``node``'s state: AppKit sends this view
+/// `viewDidHide` and `viewDidUnhide` for both, and the node's flips tell the host, so no hide walks
+/// ancestors (p06-scheduler.md, recipe R-hide).
 @MainActor
 final class CmuxDialogScopeWatcher: NSView {
     var onVisibilityChange: (() -> Void)?
     var onResize: (() -> Void)?
+    /// Visible while the tab's view and its ancestors are not hidden.
+    let node = VisibilityNode(root: "CmuxDialogScope", own: .visible)
+    private var flips: VisibilitySubscription?
 
     init(watching view: NSView) {
         super.init(frame: view.bounds)
@@ -136,13 +161,15 @@ final class CmuxDialogScopeWatcher: NSView {
         alphaValue = 0
         setAccessibilityElement(false)
         view.addSubview(self)
+        readHiddenState()
+        flips = node.subscribe(owner: "CmuxDialogScopeWatcher") { [weak self] _ in self?.onVisibilityChange?() }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     /// In a window and not hidden (itself or an ancestor).
-    var isShowing: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
+    var isShowing: Bool { window != nil && node.isVisible }
 
     /// The tab's rect in window coordinates.
     var windowRect: NSRect? { superview.map { $0.convert($0.bounds, to: nil) } }
@@ -156,22 +183,31 @@ final class CmuxDialogScopeWatcher: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        readHiddenState()
         onVisibilityChange?()
     }
 
     override func viewDidHide() {
         super.viewDidHide()
-        onVisibilityChange?()
+        node.set(.hidden)
     }
 
     override func viewDidUnhide() {
         super.viewDidUnhide()
-        onVisibilityChange?()
+        node.set(.visible)
+    }
+
+    /// The node's state from AppKit where it sends no hide or unhide: as the watcher attaches, and when it
+    /// moves to a window (the tab moved to another window or pane).
+    private func readHiddenState() {
+        // visibility-walk-allow: one read per attach or window move; hide and unhide keep the state after it
+        node.set(isHiddenOrHasHiddenAncestor ? .hidden : .visible)
     }
 
     func stop() {
         onVisibilityChange = nil
         onResize = nil
+        flips = nil
         removeFromSuperview()
     }
 }

@@ -3,8 +3,9 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextInput
-import CmuxNextWakeups
+import CmuxNextLayout
 import CmuxNextSignposts
+import CmuxNextWakeups
 import CmuxNextTabs
 import QuartzCore
 
@@ -57,13 +58,13 @@ extension TabDragSession {
         drag.link?.activate()
     }
 
-    /// Wakes the frame clock after a pointer event over `controller`. The CPU path steps the ghost
-    /// on it; on the render server it runs only while the pointer auto-scrolls a columns screen or a
+    /// Wakes the frame clock after a hit test. The CPU path steps the ghost on it; on the render
+    /// server it runs only while the auto-scroll the hit test resolved scrolls a columns screen or a
     /// dwell is armed, as Chrome's tab drag runs its scroll timer only in the edge zone
     /// (chrome/browser/ui/views/tabs/tab_drag_controller.cc `StartScrollingTimer`).
-    func wake(_ drag: Drag, over controller: WindowController?) {
+    func wakeAfterHitTest(_ drag: Drag) {
         guard drag.ghost.rendersOnServer else { return wake(drag) }
-        if dwellDeadline(drag) != nil || autoscrolls(drag, in: controller) { wake(drag) }
+        if dwellDeadline(drag) != nil || autoscrolls(drag) { wake(drag) }
     }
 
     /// When a pointer resting on a pane edge or a sidebar slot arms its drop.
@@ -71,10 +72,10 @@ extension TabDragSession {
         (drag.winner?.provider as? LayoutTabDropTarget)?.dwellDeadline ?? (drag.winner?.provider as? SidebarTabDropTarget)?.dwellDeadline
     }
 
-    /// Whether the pointer sits in a columns screen's auto-scroll band of `controller`.
-    func autoscrolls(_ drag: Drag, in controller: WindowController?) -> Bool {
-        guard let layout = controller?.content(atScreen: drag.point)?.layoutView, let window = layout.window else { return false }
-        return layout.tabDragAutoscrolls(locationInWindow: window.convertPoint(fromScreen: drag.point))
+    /// Whether the edge auto-scroll the last hit test resolved scrolls its columns screen now.
+    func autoscrolls(_ drag: Drag) -> Bool {
+        guard let target = drag.autoscroll, let layout = drag.autoscrollLayout else { return false }
+        return layout.tabDragAutoscrolls(target)
     }
 
     /// One ghost frame; false once the ghost settled. On the render server nothing steps the
@@ -87,14 +88,16 @@ extension TabDragSession {
         defer { motionSignposter.end(.motionDragFrame, frame) }
         let onServer = current.ghost.rendersOnServer
         var moving = onServer ? false : current.motion.step(dt)
-        if current === drag, autoscroll(current, dt: dt) {
-            update(current.point, shown: current.shownPoint)
-            moving = true
-        }
-        // A pointer resting on a pane edge or a sidebar slot sends no events: hit-test again once it arms.
-        if current === drag, let deadline = dwellDeadline(current) {
-            if CACurrentMediaTime() >= deadline { update(current.point, shown: current.shownPoint) }
-            moving = true
+        if current === drag {
+            let scrolled = autoscroll(current, dt: dt)
+            // A pointer resting on a pane edge or a sidebar slot sends no events: hit-test again once it arms.
+            let dwell = dwellDeadline(current)
+            let armed = dwell.map { CACurrentMediaTime() >= $0 } ?? false
+            // Content moved under the pointer or a dwell armed: one hit test for the frame, whichever asked, unless
+            // the frame's moves hit-tested (two per frame at most; the next delivery or frame sees the scroll).
+            if scrolled || armed, !current.movedSinceFrame { retarget(current.point, shown: current.shownPoint, drag: current) }
+            current.movedSinceFrame = false
+            moving = moving || scrolled || dwell != nil
         }
         if !onServer { current.ghost.render(current.motion) }
         guard !moving else { return true }
@@ -108,13 +111,22 @@ extension TabDragSession {
         return UInt64(min((seconds * 1_000_000).rounded(), Double(UInt32.max)))
     }
 
-    /// Auto-scrolls the columns screen under the pointer. Strips and the
-    /// sidebar auto-scroll themselves while they hold a drag.
+    /// Auto-scrolls the columns screen under the pointer, as the last hit test resolved it: a frame
+    /// picks no window. Strips and the sidebar auto-scroll themselves while they hold a drag.
     func autoscroll(_ drag: Drag, dt: Double) -> Bool {
-        guard let controller = window(at: drag.point), let layout = controller.content(atScreen: drag.point)?.layoutView, let window = layout.window else {
-            return false
+        guard let target = drag.autoscroll, let layout = drag.autoscrollLayout else { return false }
+        return layout.stepTabDragAutoscroll(target, dt: dt)
+    }
+
+    /// Resolves the edge auto-scroll at `point` in `controller` (the window under it), for the frames
+    /// until the next hit test.
+    func resolveAutoscroll(_ drag: Drag, at point: CGPoint, in controller: WindowController?) {
+        let layout = controller?.content(atScreen: point)?.layoutView
+        let target = layout.flatMap { layout in
+            layout.window.flatMap { layout.tabDragAutoscroll(locationInWindow: $0.convertPoint(fromScreen: point)) }
         }
-        return layout.autoscrollTabDrag(locationInWindow: window.convertPoint(fromScreen: drag.point), dt: dt)
+        drag.autoscroll = target
+        drag.autoscrollLayout = target == nil ? nil : layout
     }
 
     // MARK: Finish

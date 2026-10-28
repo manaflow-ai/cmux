@@ -5,7 +5,8 @@ import Testing
 
 /// Input latency in the opt-in report (p04-input-010): `input_latency[]` rows whose bucket counts
 /// add up to `count`, labelled by display, Chrome's scroll jank histograms under their names,
-/// numbers and enum case names only, nothing when no input was counted, and nothing in schema 2.
+/// numbers and enum case names only, nothing when no input was counted, and nothing in schema 2;
+/// and `interaction_latency`, cmux's INP (p04-input-097).
 /// Run: `swift test --filter InputLatencyReportTests`.
 struct InputLatencyReportTests {
     private static let ms: UInt64 = 1_000_000
@@ -173,6 +174,75 @@ struct InputLatencyReportTests {
         ])
         #expect(safe.histograms[0].samples == [.init(value: 0, count: 2), .init(value: 100, count: 1)])
         #expect(safe.histograms[1].samples == [.init(value: HangReport.maxMissedVsyncs, count: 1)])
+    }
+
+    // MARK: interaction latency (p04-input-097)
+
+    /// 120 key interactions (each a press of key 3 and its release), the press of the last three taking
+    /// 300, 200 and 40 ms and the others 4 to 13 ms, through the ledger the report's field source keeps.
+    static func interactionSnapshot() -> InputLatencySnapshot {
+        var slots: [InputLatencySlot] = []
+        for index in 0..<120 {
+            let latency: UInt64 = switch index {
+            case 117: 300
+            case 118: 200
+            case 119: 40
+            default: 4 + UInt64(index % 10)
+            }
+            let generated = 1_000 + UInt64(index) * 1_000
+            for kind in [InputEventKind.keyPress, .keyRelease] {
+                var slot = InputLatencySlot(kind: kind, target: .terminal, entrypoint: .person, keyCode: 3)
+                slot.generated = (kind == .keyPress ? generated : generated + 500) * ms
+                slot.dispatchEnd = slot.generated + (kind == .keyPress ? latency : 1) * ms
+                slots.append(slot)
+            }
+        }
+        var ledger = InputLatencyLedger()
+        ledger.fold(InputLatencyBatch(slots: slots, vsyncNanos: vsync, display: proMotion))
+        return ledger.snapshot
+    }
+
+    @Test func interactionLatencyReportsTheThirdWorstOf120AndPassesTheScanAndTheServerRules() throws {
+        let report = Self.report(Self.interactionSnapshot())
+        #expect(report.interactionLatency == HangReport.InteractionLatency(count: 120, worstMs: 300, highPctMs: 40, kindOfWorst: "key"))
+        #expect(report.inputLatency == nil, "no input reached a presented frame: the interactions stand alone")
+        #expect(!report.hasNoFindings)
+        let body = try HangReport.encoder.encode(report)
+        let text = String(decoding: body, as: UTF8.self)
+        #expect(text.contains(#""interaction_latency":{"count":120,"high_pct_ms":40,"kind_of_worst":"key","worst_ms":300}"#))
+        #expect(!text.contains("terminal"), "the target of the worst stays on the Mac")
+        #expect(PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms + ["Key", "tap"]).findings(in: body).isEmpty)
+        #expect(HangReportServerRules.violations(in: body).isEmpty)
+        #expect(try JSONDecoder().decode(HangReport.self, from: body) == report, "the report round-trips")
+    }
+
+    @Test func schemaTwoAndNoInteractionCarryNoInteractionLatency() throws {
+        let schema2 = Self.report(Self.interactionSnapshot(), wireSchema: .v2)
+        #expect(schema2.interactionLatency == nil)
+        #expect(!String(decoding: try HangReport.encoder.encode(schema2), as: UTF8.self).contains("interaction"))
+        for snapshot in [nil, InputLatencyLedger().snapshot] {
+            let report = Self.report(snapshot)
+            #expect(report.interactionLatency == nil)
+            #expect(!String(decoding: try HangReport.encoder.encode(report), as: UTF8.self).contains("interaction"))
+        }
+    }
+
+    @Test func anInteractionOutsideTheClosedSetOrNotAFiniteDurationNeverReachesTheWire() {
+        typealias Interactions = InputLatencySnapshot.Interactions
+        let kept = HangReportBuilder.interactionLatency(Interactions(count: 3, worstMilliseconds: 12.346,
+                                                                     highPercentileMilliseconds: 99, kindOfWorst: "tap"))
+        #expect(kept == HangReport.InteractionLatency(count: 3, worstMs: 12.35, highPctMs: 12.35, kindOfWorst: "tap"),
+                "two decimals, the percentile at most the worst")
+        let huge = HangReportBuilder.interactionLatency(Interactions(count: 1, worstMilliseconds: .infinity,
+                                                                     highPercentileMilliseconds: 1e12, kindOfWorst: "drag"))
+        #expect(huge == HangReport.InteractionLatency(count: 1, worstMs: 0, highPctMs: 0, kindOfWorst: "drag"))
+        for unsafe in [
+            Interactions(count: 3, worstMilliseconds: 9, highPercentileMilliseconds: 9, kindOfWorst: "/Users/alice"),
+            Interactions(count: 3, worstMilliseconds: 9, highPercentileMilliseconds: 9, kindOfWorst: nil),
+            Interactions(count: 0, worstMilliseconds: 9, highPercentileMilliseconds: 9, kindOfWorst: "key"),
+        ] {
+            #expect(HangReportBuilder.interactionLatency(unsafe) == nil)
+        }
     }
 
     @Test func aReportWithOnlyInputLatencyHasFindings() {

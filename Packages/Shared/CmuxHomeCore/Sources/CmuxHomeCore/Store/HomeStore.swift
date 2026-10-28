@@ -175,14 +175,17 @@ public final class HomeStore {
     /// Drafts, scroll anchors and the coalesced cache writes.
     @ObservationIgnored let viewCache: HomeClientViewCache
 
+    /// - Parameter waitsForPrime: The cache is read elsewhere and given to ``primeFromCache(_:)`` (the Mac's
+    ///   launch read): the store writes nothing to it before then.
     public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.defaultBlobCacheDirectory,
                 clock: any Clock<Duration> = ContinuousClock(), cache: HomeCache? = nil,
-                cacheWriteDelay: Duration = .milliseconds(250)) {
+                cacheWriteDelay: Duration = .milliseconds(250), waitsForPrime: Bool = false) {
         self.source = source
         self.blobCacheDirectory = blobCacheDirectory
         self.clock = clock
         self.cache = cache
-        self.viewCache = HomeClientViewCache(cache: cache, writeDelay: cacheWriteDelay, clock: clock)
+        self.viewCache = HomeClientViewCache(cache: cache, writeDelay: cacheWriteDelay, clock: clock,
+                                             holdsWritesUntilRestored: waitsForPrime)
         viewCache.ownerState = { [weak self] in self?.ownerCacheState() ?? HomeCacheState() }
     }
 

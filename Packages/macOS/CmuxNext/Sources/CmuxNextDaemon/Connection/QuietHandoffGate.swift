@@ -53,10 +53,19 @@ final class QuietHandoffGate: Sendable {
     private let quietWanted = Atomic<Bool>(false)
     private let waits = Mutex(Waits())
     private let observe: @Sendable (Wait) -> Void
+    /// Told each time the count of requests in flight leaves or reaches 0 (p14-energy-064: the
+    /// heartbeat asks on its shown cadence while a request waits for its reply). It is told with the
+    /// gate, not the edge: edges of two threads can arrive out of order, so it reads
+    /// ``requestsInFlight`` under its own lock and the last reader sees the latest count.
+    private let busyEdge: @Sendable (QuietHandoffGate) -> Void
 
-    /// - Parameter observe: Told each time a wait parks (a test seam; the default ignores it).
-    init(observe: @escaping @Sendable (Wait) -> Void = { _ in }) {
+    /// - Parameters:
+    ///   - observe: Told each time a wait parks (a test seam; the default ignores it).
+    ///   - busyEdge: Told each time the count of requests in flight leaves or reaches 0.
+    init(observe: @escaping @Sendable (Wait) -> Void = { _ in },
+         busyEdge: @escaping @Sendable (QuietHandoffGate) -> Void = { _ in }) {
         self.observe = observe
+        self.busyEdge = busyEdge
     }
 
     /// Requests counted in flight (diagnostics, tests).
@@ -74,18 +83,24 @@ final class QuietHandoffGate: Sendable {
     /// handoff's own requests), or when the task is cancelled (it goes on and fails as before). Every
     /// return must be paired with one ``leave()``.
     func enter(passes: Bool) async {
-        inFlight.wrappingAdd(1, ordering: .sequentiallyConsistent)
+        count()
         // Each turn parks until a hold ends; a new hold after it parks the request again.
         while !passes, holding.load(ordering: .sequentiallyConsistent), !Task.isCancelled {
             leave()
             await parkUntilReleased()
-            inFlight.wrappingAdd(1, ordering: .sequentiallyConsistent)
+            count()
         }
+    }
+
+    /// Counts one request in flight; the first tells `busyEdge`.
+    private func count() {
+        if inFlight.wrappingAdd(1, ordering: .sequentiallyConsistent).newValue == 1 { busyEdge(self) }
     }
 
     /// Ends a request that ``enter(passes:)`` counted; the last one lets a handoff waiting for quiet go on.
     func leave() {
         let left = inFlight.wrappingSubtract(1, ordering: .sequentiallyConsistent).newValue
+        if left == 0 { busyEdge(self) }
         guard left == 0, quietWanted.load(ordering: .sequentiallyConsistent) else { return }
         let quiet = waits.withLock { waits -> [HandoffWait] in
             guard inFlight.load(ordering: .sequentiallyConsistent) == 0 else { return [] }

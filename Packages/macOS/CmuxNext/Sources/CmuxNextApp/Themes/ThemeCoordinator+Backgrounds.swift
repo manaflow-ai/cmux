@@ -39,7 +39,7 @@ extension ThemeCoordinator {
     /// notice (`AppServices.appEvents`) calls it in the notice's turn.
     func observeDayChanges() -> [EventSubscription] {
         [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange].map { name in
-            services.appEvents.subscribe(name, owner: "ThemeCoordinator.dayChange") { [weak self] in
+            appEvents.subscribe(name, owner: "ThemeCoordinator.dayChange") { [weak self] in
                 guard let self, [workspaceBackgrounds, appearanceScopes].contains(where: { $0.backgrounds.values.contains(where: BackdropSelectionSetting.shuffles) }) else { return }
                 apply()
             }
@@ -48,7 +48,7 @@ extension ThemeCoordinator {
 
     /// The store key of a workspace: its home session and durable key.
     func workspaceBackgroundKey(_ workspaceID: String) -> String? {
-        WindowProfiles.qualified(workspaceID, machines: services.machines)
+        WindowProfiles.qualified(workspaceID, machines: machines)
             .map { WorkspaceBackgroundStore.key(session: $0.session, workspace: $0.key) }
     }
 

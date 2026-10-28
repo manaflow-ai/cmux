@@ -215,7 +215,7 @@ extension CrashReporter {
     public static let sentryCapture: ScopedCapture = { SentrySDK.capture(event: $0, scope: $1) }
 
     /// Sends the previous run's fatal app hang (``FatalHangRecord/event()``), with the run's black box as
-    /// `blackbox.txt` when one is given (``blackboxAttachment(_:hangReportsOptIn:)``). Does nothing while crash
+    /// `blackbox.txt` when one is given (``blackboxAttachment(_:hangReportsOptIn:scrubber:)``). Does nothing while crash
     /// reporting is off.
     public nonisolated func reportFatalHang(_ record: FatalHangRecord, blackbox: Attachment?,
                                             capture: ScopedCapture = CrashReporter.sentryCapture) {

@@ -1,9 +1,8 @@
 import AppKit
 import CmuxNextDesign
 
-// Pane chrome (focus ring, dim, attention), visibility and hit testing, and
-// the travel a split has left (debug.motion), split out of
-// ScreenContentView.swift to keep it under its size budget.
+// Pane chrome (focus ring, dim, attention), visibility from the motion plan and hit testing, split out
+// of ScreenContentView.swift to keep it under its size budget.
 extension ScreenContentView {
     // MARK: Chrome
 
@@ -56,36 +55,75 @@ extension ScreenContentView {
 
     // MARK: Visibility and hit testing
 
-    /// Panes whose displayed frame intersects the viewport. During a fling on the render server, the
-    /// panes it shows on its way to rest too: the strip's viewport is swept over the translation left, and
-    /// a pane a row or scroll area fling carries over what that fling has left (``scrollerFlingLeft(of:)``).
-    func visiblePanes() -> Set<PaneID> {
+    /// Panes whose sweep (``displayedSweeps()``) meets the viewport. During a fling on the render server, the
+    /// panes it shows on its way to rest too: the strip's viewport is swept over the fling's whole way, and a pane
+    /// a row or scroll area fling carries over that fling's whole way (``scrollerFlingReach(of:)``).
+    func visiblePanes() -> Set<PaneID> { visiblePanes(displayedSweeps()) }
+
+    /// ``visiblePanes()`` for the sweeps of one pass.
+    func visiblePanes(_ sweeps: [PaneID: CGRect]) -> Set<PaneID> {
         var result: Set<PaneID> = []
-        let left = stripContainer.fling == nil ? 0 : stripContainer.shownTranslation
-        let uncovered = uncoveredRect.union(uncoveredRect.offsetBy(dx: left, dy: 0))
-        let scrollersFling = scrollerContainers.values.contains { $0.fling != nil }
-        for (pane, frame) in paneFrames {
+        let uncovered = flingViewport
+        for (pane, frame) in paneFrames where max(frame.alpha.value, frame.alpha.target) > 0.01 {
+            guard let sweep = sweeps[pane] else { continue }
             // A strip pane wholly under a docked column is hidden.
-            let scrolls = geometry.scrolls(pane: pane)
-            var displayed = displayedRect(frame.rect, pane: pane)
-            if scrollersFling, let moved = scrollerFlingLeft(of: pane) {
-                displayed = displayed.union(displayed.offsetBy(dx: moved.dx, dy: moved.dy))
-            }
-            let overlap = displayed.intersection(scrolls ? uncovered : bounds)
-            if !overlap.isNull, overlap.width > 0.5, overlap.height > 0.5, frame.alpha.value > 0.01 {
-                result.insert(pane)
-            }
+            let overlap = sweep.intersection(geometry.scrolls(pane: pane) ? uncovered : bounds)
+            if !overlap.isNull, overlap.width > 0.5, overlap.height > 0.5 { result.insert(pane) }
         }
         return result
     }
 
-    /// Panes whose displayed frame lies within one viewport width of the
+    /// Panes whose sweep lies within one viewport width of the
     /// viewport on either side (architecture.md 4): visible panes plus the
     /// off-screen columns a short scroll brings in. Their content stays
     /// alive, paused, so scrolling back shows it at once.
-    func keepAlivePanes() -> Set<PaneID> {
-        KeepAliveBand.panes(displayed: paneFrames.reduce(into: [:]) { $0[$1.key] = displayedRect($1.value.rect, pane: $1.key) },
-                            viewport: bounds)
+    func keepAlivePanes() -> Set<PaneID> { keepAlivePanes(displayedSweeps()) }
+
+    /// ``keepAlivePanes()`` for the sweeps of one pass.
+    func keepAlivePanes(_ sweeps: [PaneID: CGRect]) -> Set<PaneID> { KeepAliveBand.panes(displayed: sweeps, viewport: bounds) }
+
+    /// The whole way each pane goes from now to its rest, in local coordinates: its rest with every camera at its
+    /// rest, grown by how far each spring that moves it still reaches (``RectExcursion``): its CPU frame spring,
+    /// the render-server springs of its plan (``renderTracks``) and the cameras that carry it (the strip's, its row
+    /// column's, its scroll area's, and the row or scroll area flings on the render server, ``scrollerFlingReach(of:)``).
+    /// Velocity and bounce carry a spring past its rest; the sweep holds that too, so no frame on the way shows a pane
+    /// outside it.
+    func displayedSweeps() -> [PaneID: CGRect] {
+        let policy = Motion.panes.policy, now = renderClockTime
+        let camera = cameraSpring(policy: policy), areaSpring = policy.spring(.scroll)
+        let strip = isUserScrolling ? Excursion.zero : camera.excursion(of: scrollState.spring).negated
+        let scrollersFling = scrollerContainers.values.contains { $0.fling != nil }
+        var sweeps: [PaneID: CGRect] = [:]
+        for (pane, frame) in paneFrames {
+            let scrolls = geometry.scrolls(pane: pane)
+            let row = baseGeometry.rowColumnOfPane[pane].flatMap { rowScrolls[$0]?.state }
+            let area = baseGeometry.scrollAreaOfPane[pane].flatMap { areaScrolls[$0]?.state }
+            let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStripShift : 0) - (area?.restOffset ?? 0), dy: -(row?.restOffset ?? 0))
+            var reach = RectExcursion(frame, on: frameSpring(of: pane, policy: policy))
+            if let track = renderTracks.panes[pane] { reach.add(track, at: now) }
+            if scrolls { reach.x.add(strip) }
+            if let area, !area.isGestureActive { reach.x.add(areaSpring.excursion(of: area.spring).negated) }
+            if let row, !row.isGestureActive { reach.y.add(camera.excursion(of: row.spring).negated) }
+            if scrollersFling, let fling = scrollerFlingReach(of: pane) {
+                reach.x.add(fling.x)
+                reach.y.add(fling.y)
+            }
+            sweeps[pane] = reach.sweep(around: rest)
+        }
+        return sweeps
+    }
+
+    /// The strip's view shift with its camera at rest (at the finger while a pan holds it).
+    var restStripShift: CGFloat { isUserScrolling ? stripShift : geometry.viewShift(offset: scrollState.spring.target) }
+
+    /// Where strip content shows (``uncoveredRect``) over the whole way of a fling on the render server
+    /// (`StripClipContainerView.fling`): the translation it shows now, its rest, and its overshoot.
+    private var flingViewport: CGRect {
+        let uncovered = uncoveredRect
+        guard let fling = stripContainer.fling else { return uncovered }
+        let rest = stripContainer.translation, shown = stripContainer.shown
+        let reach = fling.spring.excursion(displacement: shown.translation - rest, velocity: shown.velocity)
+        return uncovered.union(uncovered.offsetBy(dx: rest + reach.low, dy: 0)).union(uncovered.offsetBy(dx: rest + reach.high, dy: 0))
     }
 
     /// The pane under `localPoint`: a docked column's pane above the strip.
@@ -104,17 +142,5 @@ extension ScreenContentView {
     /// Displayed frame of `pane` in local coordinates: its host's frame (on the pixel grid, `applyPresentation`).
     func displayedFrame(of pane: PaneID) -> CGRect? {
         paneFrames[pane].map { displayedRect($0.rect.pixelEdges(scale), pane: pane) }
-    }
-
-    // MARK: Motion trace
-
-    /// The points every pane and divider still has to travel (all four
-    /// edges): the layout spring's path, sampled per frame for debug.motion.
-    var travelLeft: CGFloat {
-        func left(_ frame: AnimatedFrame) -> CGFloat {
-            abs(frame.x.target - frame.x.value) + abs(frame.y.target - frame.y.value)
-                + abs(frame.width.target - frame.width.value) + abs(frame.height.target - frame.height.value)
-        }
-        return paneFrames.values.reduce(0) { $0 + left($1) } + dividerFrames.values.reduce(0) { $0 + left($1) }
     }
 }

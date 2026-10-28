@@ -93,9 +93,10 @@ struct WebKitClipboard {
         let (tab, session) = try driver.target(params)
         _ = try await driver.run(Self.recordKey, [:], nil, AgentWorld.hostWorld, tab)
         _ = try await driver.inputKey(params, nativeCommand: false)
-        let pasted: [Any] = kind == "paste" ? session.clipboard.map(\.foundationValue) : []
+        let pasted = kind == "paste" ? session.clipboard : []
+        let driver = driver
         let result = try await CallDeadline.run(.seconds(5), what: kind) { () throws(DriverError) in
-            try await driver.run(Self.runCommand, ["kind": kind, "items": pasted], nil, AgentWorld.hostWorld, tab)
+            try await driver.run(Self.runCommand, ["kind": kind, "items": pasted.map(\.foundationValue)], nil, AgentWorld.hostWorld, tab)
         }
         guard case .object(let fields) = result else { return .null }
         if kind == "paste" {

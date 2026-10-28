@@ -79,6 +79,8 @@ extension AppsClient {
     private func enqueue(_ operation: @escaping @MainActor (any AppsTransport) async -> Void) {
         let previous = tail
         // task-owner: one transport call chained after the previous one (mount, unmount and event order)
+        // main-hop-allow: the transport is main-actor (AppsTransport); each send awaits the one before it, so the
+        // supervisor sees mounts, unmounts and the person's events in order; the daemon I/O runs off main
         tail = Task { [transport] in
             await previous?.value
             await operation(transport)

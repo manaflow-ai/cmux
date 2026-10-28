@@ -99,7 +99,6 @@ import CmuxNextWakeups
         #expect(rows.band == CGRect(x: 0, y: 66, width: 900, height: 30))
         #expect(rows.content == CGRect(x: 0, y: 96, width: 900, height: 504))
         #expect(rows.progressLine.maxY == rows.toolbar.maxY, "the progress line runs along the toolbar's page edge")
-        #expect(BrowserChromeLayout.bandOffset(toolbarHeight: 40, accessoryHeight: 26) == rows.band.minY)
     }
 
     @Test func atTheBottomTheRowsAreMirrored() {
@@ -110,7 +109,7 @@ import CmuxNextWakeups
         #expect(rows.band.maxY == rows.accessoryBar.minY)
         #expect(rows.content == CGRect(x: 0, y: 0, width: 900, height: 504))
         #expect(rows.progressLine.minY == rows.toolbar.minY)
-        #expect(600 - rows.band.maxY == BrowserChromeLayout.bandOffset(toolbarHeight: 40, accessoryHeight: 26))
+        #expect(600 - rows.band.maxY == 66, "the toolbar and the accessory bar from the bottom edge")
     }
 
     @Test func aHiddenToolbarGivesThePageItsRoom() {
@@ -279,10 +278,31 @@ import CmuxNextWakeups
         chrome.setAccessoryView(NSView(), height: 26)
         chrome.setPaneHeaderBandHeight(30)
         let band = chrome.paneHeaderBandRect
+        chrome.layoutSubtreeIfNeeded()
         #expect(band.height == 30)
-        // The guide's frame comes from the constraint engine, which rounds to the pixel grid.
-        #expect(abs(band.maxY - chrome.accessoryBar.frame.minY) <= 0.5, "the band starts under the accessory bar")
-        #expect(abs(chrome.contentContainer.frame.maxY - band.minY) <= 0.5, "the page starts under the band")
+        #expect(band.maxY == chrome.accessoryBar.frame.minY, "the band starts under the accessory bar")
+        #expect(chrome.contentContainer.frame.maxY == band.minY, "the page starts under the band")
+    }
+
+    /// The layout pass that hides the toolbar (Toggle Omnibar, a fullscreen page) reports the band's
+    /// final row, the same pass the rows take theirs from, so a pane's strip framed from the report
+    /// lands next to the page in that pass, inside the hide animation too.
+    @Test func hidingTheToolbarReportsTheBandsFinalRowInTheSamePass() throws {
+        let chrome = Self.chrome()
+        chrome.setPaneHeaderBandHeight(30)
+        chrome.layoutSubtreeIfNeeded()
+        var reported: [CGRect] = []
+        chrome.onPaneHeaderBandLayout = { reported.append($0) }
+        chrome.toggleOmnibar()
+        let hidden = try #require(reported.last, "the hide's layout pass reports the band")
+        #expect(hidden.maxY == chrome.bounds.maxY, "y up: the band is the top row with the toolbar hidden")
+        #expect(hidden.minY == chrome.contentContainer.frame.maxY, "the page starts under the band")
+        #expect(hidden == chrome.paneHeaderBandRect)
+        reported.removeAll()
+        chrome.toggleOmnibar()
+        let shown = try #require(reported.last, "the show's layout pass reports the band")
+        #expect(shown.maxY == chrome.toolbar.frame.minY, "back under the toolbar")
+        #expect(shown.minY == chrome.contentContainer.frame.maxY)
     }
 
     @Test func theOmnibarOnlyRowFramesItsBarAndButtons() throws {

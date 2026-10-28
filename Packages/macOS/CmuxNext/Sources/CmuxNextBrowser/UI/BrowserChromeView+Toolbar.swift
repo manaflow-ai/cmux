@@ -43,7 +43,7 @@ extension BrowserChromeView {
         needsLayout = true
         let toggle = toolbarToggles
         Motion.overlays.animateTimed(isToolbarHidden ? .disappear : .appear, in: self, {
-            self.syncHeaderBand(animated: true)
+            // The pane's strip on the band takes its frame in this pass too (`reportHeaderBandLayout`).
             // sync-layout: inside the animation group, so the rows' frames animate to the new toolbar height.
             self.layoutSubtreeIfNeeded()
         }, completion: { [weak self] in self?.landToolbarToggle(toggle) })
@@ -51,16 +51,16 @@ extension BrowserChromeView {
 
     /// The render server moves the rows: the next layout places them at rest and starts the slide.
     private func slideToolbar() {
-        // A strip pinned to the band is the pane's and cannot follow the slide: with the band
+        // A strip framed on the band is the pane's and cannot follow the slide: with the band
         // open, and outside a window, every row lands in one frame.
-        let slides = window != nil && (headerBand.height?.constant ?? 0) == 0
+        let slides = window != nil && headerBand.height == 0
         // The frames of the last layout and the row's opacity before this change; two changes
         // before one layout start from the frames the first one found.
         let found = pendingToolbarSlide ?? ToolbarSlide(self)
         toolbarParks = true
         toolbar.alphaValue = isToolbarHidden ? 0 : 1
-        syncHeaderBand(animated: false)
-        // invalidate: the rows move (`toolbarRowHeight`, the parked row); that one layout starts the slide.
+        // invalidate: the rows move (`toolbarRowHeight`, the parked row); that one layout frames the
+        // pane's strip on the band (`reportHeaderBandLayout`) and starts the slide.
         needsLayout = true
         guard slides else {
             stopToolbarSlide()

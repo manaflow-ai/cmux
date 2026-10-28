@@ -89,8 +89,7 @@ final class NewTabPreload {
 
     /// In place of ``AgentTabs/makeSpare(_:)`` (WebKit's first load, on the main thread): tests stall it.
     var makeSpare: ((AgentPaneNewTab) -> AgentPaneView?)?
-    /// WebKit's setup on this host; a slow one gets no preload this run.
-    let webKit = WebKitSetupGate()
+    let webKit: WebKitSetupGate  // WebKit's setup on this host; a slow one gets no preload this run
 
     /// - Parameters:
     ///   - slot: The app's one preload slot; tests pass their own.
@@ -107,12 +106,15 @@ final class NewTabPreload {
         (self.input, self.preloadOnMakeVisible, self.parksHidden) = (input, preloadOnMakeVisible, parksHidden)
         warmTimer = MainDeadline(owner: "NewTabPreload.warm", workClass: .background, scheduler: deadlines)
         fitTimer = MainDeadline(owner: "NewTabPreload.fit", workClass: .background, scheduler: deadlines)
+        webKit = WebKitSetupGate(deadlines: deadlines)
         spareMemory = SpareMemoryConsumer(
             name: "new-tab-spare", registry: memory, spares: { [weak self] in self?.spareView == nil ? 0 : 1 },
             drop: { [weak self] in self?.dropForPressure() }, refill: { [weak self] in self?.scheduleWarm() })
         // New Tab is the slot's default preload: when another page leaves the slot, it arms its own
         // (its own take arms the next one; its own drop arms none, so `drop_spare` leaves it cold).
-        slot.onEmptied = { [weak self] key in if key != NewTabPreload.key { self?.scheduleWarm() } }
+        slot.observeEmptied { [weak self] key in if key != NewTabPreload.key { self?.scheduleWarm() } }
+        // A web update dropped its own page: it makes one again from the new files.
+        slot.observeStaleDropped { [weak self] key in if key == NewTabPreload.key { self?.scheduleWarm() } }
     }
 
     // MARK: Reading

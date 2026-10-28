@@ -11,13 +11,36 @@ enum QuitAgents {
     /// The acpmux this app starts (its build's home), or nil when the app runs
     /// a mock agent host or has no acpmux binary. A DEV build with
     /// `CMUX_NEXT_ACPMUX_ATTACH` gets that home's daemon instead, attached (never its own).
+    ///
+    /// The answer `main` resolved on the system lane (``AppEnvironment/appAcpmux``): no file or signature check
+    /// here, on the main thread. Nil while that resolve still runs (a few milliseconds after launch, longer on a
+    /// cold signature check); ``resolvedEnvironment(_:)`` waits for it.
     static func environment(_ services: AppServices) -> AcpmuxEnvironment? {
+        attached(services.environment.appAcpmux?.value ?? nil, services: services)
+    }
+
+    /// ``environment(_:)`` once `main`'s resolve has landed (the caller suspends; no thread waits).
+    static func resolvedEnvironment(_ services: AppServices) async -> AcpmuxEnvironment? {
+        attached(await services.environment.appAcpmux?.finished() ?? nil, services: services)
+    }
+
+    /// Runs `body` with ``environment(_:)`` on the main thread once `main`'s resolve has landed: now when it has
+    /// (or when there is none to wait for), else posted as `owner` when it lands. Launch steps that need the
+    /// acpmux follow it this way and never wait for it.
+    static func whenResolved(_ services: AppServices, owner: String,
+                             _ body: @escaping @MainActor @Sendable (AcpmuxEnvironment?) -> Void) {
+        guard let read = services.environment.appAcpmux else { return body(attached(nil, services: services)) }
+        let now = read.valueNow(orPostTo: services.mainWork, class: .visible, owner: owner) { [weak services] own in
+            guard let services else { return }
+            body(attached(own, services: services))
+        }
+        if let now { body(attached(now, services: services)) }
+    }
+
+    private static func attached(_ own: AcpmuxEnvironment?, services: AppServices) -> AcpmuxEnvironment? {
         let variables = ProcessInfo.processInfo.environment
         if services.environment.showcase || variables["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" { return nil }
-        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        let build = services.environment.build
-        let own = AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin, environment: variables)
-        guard let home = AcpmuxEnvironment.attachHome(build: build, environment: variables) else { return own }
+        guard let home = AcpmuxEnvironment.attachHome(build: services.environment.build, environment: variables) else { return own }
         return own?.attached(to: home)
     }
 

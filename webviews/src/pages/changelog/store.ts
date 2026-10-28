@@ -2,6 +2,7 @@
 // projection of the provider; the page keeps no copy beyond a per-build cache. React reads it
 // through `useSyncExternalStore` (no effects).
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { restoredPageInputs } from "../shared/pageState";
 import {
   ACTION_RUN,
   ChangelogOps,
@@ -91,6 +92,20 @@ function within(version: string, span: UpdateSpan): boolean {
   return (!span.from || compareVersions(version, span.from) > 0) && compareVersions(version, span.to) <= 0;
 }
 
+/** The page name its saved state carries (pageState.ts). */
+export const CHANGELOG_PAGE = "changelog";
+
+/** What the page keeps across a discard: the build the person reads. The span is the route's. */
+export interface ChangelogInputs {
+  selected?: string;
+}
+
+/** The valid fields of the inputs a discarded document saved; the rest keep their defaults. */
+export function restoredChangelogInputs(state: unknown): ChangelogInputs {
+  const selected = (state as { selected?: unknown } | null | undefined)?.selected;
+  return typeof selected === "string" && selected ? { selected } : {};
+}
+
 export class ChangelogStore {
   private snapshot: ChangelogSnapshot;
   private readonly listeners = new Set<() => void>();
@@ -103,8 +118,11 @@ export class ChangelogStore {
   private latestSpan?: UpdateSpan;
   /** ``start``'s load (the list, then the span's or the selected build's notes). */
   private started: Promise<void> = Promise.resolve();
+  /** The build a discarded document of this page showed: selected again once the list has it. */
+  private restoredBuild?: string;
 
   constructor(private readonly client: PageClient | null) {
+    this.restoredBuild = restoredChangelogInputs(restoredPageInputs(client, CHANGELOG_PAGE)).selected;
     this.snapshot = {
       builds: [],
       loading: client !== null,
@@ -122,6 +140,12 @@ export class ChangelogStore {
   };
 
   getSnapshot = (): ChangelogSnapshot => this.snapshot;
+
+  /** What the page keeps when it hides (pageState.ts `keep`); `restoredChangelogInputs` reads it back. */
+  pageInputs(): ChangelogInputs {
+    const { selected } = this.snapshot;
+    return selected ? { selected } : {};
+  }
 
   private set(next: Partial<ChangelogSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...next };
@@ -154,16 +178,19 @@ export class ChangelogStore {
       const builds = list.builds.length ? list.builds : [];
       this.listed = true;
       this.set({ builds, current: list.current, loading: false });
+      // The build a discarded document showed, while the list still has it.
+      const restored = builds.some((entry) => entry.build === this.restoredBuild) ? this.restoredBuild : undefined;
+      this.restoredBuild = undefined;
       // A route change while the list loaded wins over the first route.
-      if (this.latestSpan) return this.setSpan(this.latestSpan);
-      await this.select(list.current || builds[0]?.build);
+      if (this.latestSpan) return this.setSpan(this.latestSpan, restored);
+      await this.select(restored ?? (list.current || builds[0]?.build));
     } catch (error) {
       this.set({ loading: false, failed: isPageError(error) ? error.message : String(error) });
     }
   }
 
-  /** Shows an update's span: its builds marked, the newest one selected. */
-  async setSpan(span: UpdateSpan | undefined): Promise<void> {
+  /** Shows an update's span: its builds marked, `selected` or else the newest one selected. */
+  async setSpan(span: UpdateSpan | undefined, selected?: string): Promise<void> {
     this.latestSpan = span;
     if (!this.listed) return;
     const inSpan = span ? this.snapshot.builds.filter((b) => within(b.shortVersion, span)) : [];
@@ -172,7 +199,7 @@ export class ChangelogStore {
     // The update's section reads every build of the span at once (the index keeps at most 50).
     for (const b of inSpan) void this.ensure(b.build);
     for (const b of inSpan) void this.ensureReel(b.build);
-    await this.select(newest?.build ?? (this.snapshot.current || this.snapshot.builds[0]?.build));
+    await this.select(selected ?? newest?.build ?? (this.snapshot.current || this.snapshot.builds[0]?.build));
   }
 
   async select(build: string | undefined): Promise<void> {

@@ -77,6 +77,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::TraceStatus => {
             cmd_server::trace_control(mux, client, || Ok(trace_control::Call::Status))
         }
+        Command::MemoryReport => cmd_server::memory_report(mux, client),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, client, machine_metadata, revisions)
@@ -851,6 +852,10 @@ pub(super) fn handle_command_with_cancellation(
         Command::CancelStream(terminal_io_wire::CancelStreamParams { stream }) => {
             attach_streams::cancel_stream(mux, client, writer, stream)
         }
+        Command::SetStreamPriority(terminal_io_wire::SetStreamPriorityParams {
+            stream,
+            priority,
+        }) => stream_priority::set_stream_priority(mux, client, writer, stream, &priority),
         Command::FocusPane { pane } => cmd_panes::focus_pane(mux, actor, pane),
         Command::SelectTab(params) => cmd_tabs::select_tab(mux, actor, params),
         Command::SelectScreen { index, delta } => {
@@ -904,6 +909,44 @@ pub(super) fn handle_command_with_cancellation(
                 snapshot,
                 stream,
             )
+        }
+    }
+}
+
+impl Command {
+    /// A person's input to one surface: text and keys, a paste, a browser
+    /// pointer, wheel or key event, a scroll. On its connection it runs before
+    /// other surfaces' queued requests (`connection_scheduler`), as Chrome's
+    /// input queue outranks the browser's other task queues
+    /// (content/browser/scheduler/browser_task_queues.h, `kUserInput`).
+    /// spec/events.md "Ordering Guarantees" lists these commands.
+    pub(super) fn is_input(&self) -> bool {
+        matches!(
+            self,
+            Self::Send(_)
+                | Self::SendKey(_)
+                | Self::PasteImage(_)
+                | Self::BrowserMouse { .. }
+                | Self::BrowserMouseGuarded { .. }
+                | Self::BrowserWheel { .. }
+                | Self::BrowserWheelGuarded { .. }
+                | Self::BrowserKey { .. }
+                | Self::BrowserKeyPress { .. }
+                | Self::BrowserInsertText { .. }
+                | Self::ScrollSurface(_)
+        )
+    }
+
+    /// A read that copies a surface's history or its VT snapshot: its cost
+    /// grows with the scrollback, so it runs on a work item off the
+    /// connection's dispatcher (`connection_scheduler`), as clear-history runs
+    /// on a worker.
+    /// spec/events.md "Ordering Guarantees" lists these commands.
+    pub(super) fn is_long_read(&self) -> bool {
+        match self {
+            Self::ReadScrollback(_) | Self::VtState(_) => true,
+            Self::Copy(CopyParams { mode, .. }) => mode == "scrollback",
+            _ => false,
         }
     }
 }

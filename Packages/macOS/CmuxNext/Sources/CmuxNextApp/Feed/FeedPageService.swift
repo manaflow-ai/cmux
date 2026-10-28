@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
@@ -16,20 +17,23 @@ extension InternalPageID {
 /// menu-bar feed panel.
 @MainActor
 final class FeedPageService: InternalPageProvider {
-    private unowned let services: AppServices
+    private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
     /// Sends report replies off the main thread.
     private let replies: AcpmuxReplySender
     /// Each tab's view while it has one, for its keep reasons.
     private var hosts: [String: FeedHostView] = [:]
 
     init(services: AppServices, replies: AcpmuxReplySender = AcpmuxReplySender()) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
         self.replies = replies
     }
 
     /// Opens the Inbox in the active window without activating it for agent
     /// or socket callers when `focus` is false.
     func open(focus: Bool) throws {
+        guard let services else { throw ActionFailure.appClosing }
         guard let window = services.windows.active else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
         services.feed.startIfSignedIn()
         guard services.pages.show(.inbox, in: window, focus: focus) != nil else {
@@ -43,13 +47,14 @@ final class FeedPageService: InternalPageProvider {
     var icon: IconName? { .inbox }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        guard let services else { return NSView() }
         let feed = services.feed
         FeedGitHubActions.install(on: feed.model, services: services)
         let layout: FeedLayout = FeedTunables.reportsBasket.value ? .reportsBasket : .inbox
         let replies = replies
         // Resolved once at startup: a reply runs no executable lookup or signature check.
         let environment = feed.acpmuxEnvironment
-        let host = FeedHostView(model: feed.model, layoutOverride: layout, mainWork: services.mainWork) { reply in
+        let host = FeedHostView(model: feed.model, layoutOverride: layout, mainWork: services.mainWork, surfaces: feed.surfaces) { reply in
             // A report poster's authenticated identity is its ACP session. A
             // human reply intentionally wakes that session, unlike delivery
             // into the reports basket. The feed owner remains the source of

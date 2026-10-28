@@ -10,6 +10,7 @@ import {
 } from "react";
 import { Dialog } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
+import { frameInput } from "../../../ui/frameInput";
 import { useT } from "../i18n";
 import { postNative } from "../native";
 import type { ChatImage } from "./chatImages";
@@ -23,6 +24,21 @@ const STEP = 2;
 
 type View = { scale: number; x: number; y: number };
 const FIT: View = { scale: 1, x: 0, y: 0 };
+
+/// The wheel events of one frame: a zoom (Control or Command) adds up deltaY about the newest
+/// point, a scroll adds up its pan.
+export type WheelFrame = { zoom: number; x: number; y: number; point: { x: number; y: number } };
+
+export function mergeWheel(held: WheelFrame, next: WheelFrame): WheelFrame {
+  return { zoom: held.zoom + next.zoom, x: held.x + next.x, y: held.y + next.y, point: next.point };
+}
+
+/// `view` after one frame's wheel: the zoom first (about the point), then the pan of a zoomed image.
+export function applyWheel(view: View, wheel: WheelFrame): View {
+  const zoomed = wheel.zoom === 0 ? view : zoomAbout(view, view.scale * Math.exp(-wheel.zoom * 0.01), wheel.point);
+  if (zoomed.scale === MIN_SCALE || (wheel.x === 0 && wheel.y === 0)) return zoomed;
+  return { ...zoomed, x: zoomed.x - wheel.x, y: zoomed.y - wheel.y };
+}
 
 /**
  * Base UI can restore focus to a Dialog.Trigger, but the viewer is opened by a markdown or
@@ -101,6 +117,16 @@ export function ImageViewer({
   }, []);
   const close = useRef<HTMLButtonElement>(null);
   const drag = useRef<{ id: number; x: number; y: number } | undefined>(undefined);
+  // A drag pans once per frame, by that frame's moves (ui/frameInput.ts).
+  const [dragMoves] = useState(() =>
+    frameInput(window, (point: { id: number; x: number; y: number }) => {
+      const from = drag.current;
+      if (!from || from.id !== point.id) return;
+      drag.current = point;
+      setView((current) => ({ ...current, x: current.x + point.x - from.x, y: current.y + point.y - from.y }));
+    }),
+  );
+  useEffect(() => () => dragMoves.cancel(), [dragMoves]);
   const count = images.length;
   const restoreFocus = useRef<HTMLElement | null>(activeElementToRestore());
 
@@ -141,37 +167,47 @@ export function ImageViewer({
   };
 
   // A pinch zooms about the pointer: WebKit sends it as gesture events, other engines as a wheel
-  // event with Control. Command-scroll zooms too; a scroll pans a zoomed image. The listeners are
-  // not passive, so the pane never scrolls or magnifies behind.
+  // event with Control. Command-scroll zooms too; a scroll pans a zoomed image. The view changes
+  // once per frame, from that frame's events (ui/frameInput.ts).
   useEffect(() => {
     const element = stageElement;
     if (!element) return;
+    const win = element.ownerDocument.defaultView ?? window;
     let pinchFrom: View | undefined;
+    // A gesture's scale is from its start, so the newest one wins.
+    const pinch = frameInput(win, (change: { scale: number; point: { x: number; y: number } }) => {
+      if (pinchFrom) setView(zoomAbout(pinchFrom, pinchFrom.scale * change.scale, change.point));
+    });
+    const wheels = frameInput(win, (wheel: WheelFrame) => setView((current) => applyWheel(current, wheel)), mergeWheel);
+    // Not passive: preventDefault keeps WebKit from magnifying the whole pane behind the viewer.
     const onGesture = (event: Event) => {
       event.preventDefault();
       const gesture = event as Event & { scale?: number; clientX?: number; clientY?: number };
       if (event.type === "gesturestart") pinchFrom = viewRef.current;
       else if (event.type === "gesturechange" && pinchFrom && typeof gesture.scale === "number") {
-        const from = pinchFrom;
         const point = fromCenter(gesture.clientX ?? center().x, gesture.clientY ?? center().y);
-        setView(zoomAbout(from, from.scale * gesture.scale, point));
-      } else if (event.type === "gestureend") pinchFrom = undefined;
+        pinch.push({ scale: gesture.scale, point });
+      } else if (event.type === "gestureend") {
+        pinch.flush();
+        pinchFrom = undefined;
+      }
     };
     for (const type of ["gesturestart", "gesturechange", "gestureend"]) element.addEventListener(type, onGesture);
+    // Not passive: the viewer covers the pane, and preventDefault keeps the pane from scrolling (or
+    // zooming, with Control) behind it.
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
-      if (event.ctrlKey || event.metaKey) {
-        const point = fromCenter(event.clientX, event.clientY);
-        setView((current) => zoomAbout(current, current.scale * Math.exp(-event.deltaY * 0.01), point));
-      } else
-        setView((current) =>
-          current.scale === MIN_SCALE
-            ? current
-            : { ...current, x: current.x - event.deltaX, y: current.y - event.deltaY },
-        );
+      const point = fromCenter(event.clientX, event.clientY);
+      wheels.push(
+        event.ctrlKey || event.metaKey
+          ? { zoom: event.deltaY, x: 0, y: 0, point }
+          : { zoom: 0, x: event.deltaX, y: event.deltaY, point },
+      );
     };
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => {
+      pinch.cancel();
+      wheels.cancel();
       element.removeEventListener("wheel", onWheel);
       for (const type of ["gesturestart", "gesturechange", "gestureend"]) element.removeEventListener(type, onGesture);
     };
@@ -196,16 +232,13 @@ export function ImageViewer({
     drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
   };
   const onPointerMove = (event: ReactPointerEvent) => {
-    const from = drag.current;
-    if (!from || from.id !== event.pointerId) return;
-    drag.current = { ...from, x: event.clientX, y: event.clientY };
-    setView((current) => ({
-      ...current,
-      x: current.x + event.clientX - from.x,
-      y: current.y + event.clientY - from.y,
-    }));
+    if (drag.current?.id !== event.pointerId) return;
+    dragMoves.push({ id: event.pointerId, x: event.clientX, y: event.clientY });
   };
-  const endDrag = () => (drag.current = undefined);
+  const endDrag = () => {
+    dragMoves.flush();
+    drag.current = undefined;
+  };
 
   if (!image) return null;
   const copyLabel =

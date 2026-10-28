@@ -39,12 +39,13 @@ public struct SettingsAnchor: Hashable, Sendable {
     /// cmux.json key path (`tabs.newTabPosition`), a card (`theme` or
     /// `card.theme`), a section header (`section.keyboard`), or an action
     /// button (`importFromBrowser`, or its anchor id). Nil when Settings
-    /// shows no such thing.
-    public init?(key: String) {
+    /// shows no such thing; a schema row counts only while `availability`
+    /// shows it (``SettingsAvailability/isShownOnSettingsPage(_:)``).
+    public init?(key: String, availability: SettingsAvailability) {
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return nil }
         let path = key.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
-        if let descriptor = SettingsSchema.descriptor(for: path), descriptor.isShownOnSettingsPage {
+        if let descriptor = SettingsSchema.descriptor(for: path), availability.isShownOnSettingsPage(descriptor) {
             self = .setting(descriptor)
             return
         }

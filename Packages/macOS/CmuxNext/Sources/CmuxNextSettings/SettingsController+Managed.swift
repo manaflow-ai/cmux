@@ -1,4 +1,3 @@
-import AppKit
 public import CmuxNextWakeups
 public import Foundation
 
@@ -14,8 +13,7 @@ extension SettingsController {
     /// activation observer on `events` (the event-driven backstop next to the managed-file watchers).
     /// The app follows after the first frame: the launch read and the watchers' first reload cover the launch.
     public func followActivation(on events: AppEvents) {
-        // raw-observer-allow: this is the AppEvents subscription recipe R-notif asks for (the app's one observer); only the notice's name matches
-        activation = events.subscribe(NSApplication.didBecomeActiveNotification, owner: "Settings.managedActivation") { [weak self] in
+        activation = events.subscribeToActivation(owner: "Settings.managedActivation") { [weak self] in
             self?.managedPreferencesMayHaveChanged()
         }
     }
@@ -89,12 +87,14 @@ extension SettingsController {
     }
 
     /// Watches the managed preference files (and their nearest existing
-    /// ancestor directories while they do not exist) with kernel file events.
+    /// ancestor directories while they do not exist) with kernel file events; each event asks for a
+    /// reload in one `visible` task on ``mainWork``.
     func startManagedWatchers() {
         guard managedWatchers.isEmpty else { return }
+        let mainWork = mainWork
         managedWatchers = managedWatchFiles.map { url in
             ConfigFileWatcher(url: url) { [weak self] in
-                Task { @MainActor in self?.requestReload() }
+                mainWork.postFromAnyThread(.visible, owner: "Settings.managedFileChanged") { [weak self] in self?.requestReload() }
             }
         }
         managedWatchers.forEach { $0.startWithoutWaiting() }

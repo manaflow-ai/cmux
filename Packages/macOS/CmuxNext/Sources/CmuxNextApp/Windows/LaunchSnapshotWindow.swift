@@ -122,6 +122,8 @@ struct LaunchSnapshotWindow {
         let front = shown.picture
         let shell = ShellWindow.main(frame: opening.frame)
         shell.setFrame(opening.frame, display: false)  // contentRect grows by the titlebar: the saved frame exactly
+        // Where its pages draw, before any overlay or panel of the picture reads it (as the controller sets it).
+        shell.pageSurface = services.chromiumRuntime.source.backend.pageSurface
         // Before any view reaches the window, as the controller does: its visibility node, its key family.
         _ = services.appVisibility.windowNode(shell, name: "window:\(window.id)")
         WindowMaterialView.observeKeyFamily(of: shell, through: services.appEvents)

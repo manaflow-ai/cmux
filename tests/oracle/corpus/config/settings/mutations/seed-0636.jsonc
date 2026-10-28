@@ -1,0 +1,21 @@
+{
+	"updates": {
+		"meteredNetwork": "defer-low-data",
+	},
+	"sidebar": {
+		"workspaceRow": {
+			"branch": 1,
+			"mixed": {
+				"lastActivity": false
+			},
+		}
+	},
+	"newTerminal": {
+		"opensWorkspace": false
+	},
+	"oracleUnknown": {
+		"nested": {
+			"key": "x"
+		},
+	}
+}

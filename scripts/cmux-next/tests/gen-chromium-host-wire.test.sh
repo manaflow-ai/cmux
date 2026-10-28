@@ -391,6 +391,38 @@ else
   echo "note: no C++ compiler; the generated .inc files were not compiled" >&2
 fi
 
+# A record struct of numbers only (as cmux_shim_ime_span: int, unsigned int, int64_t) goes field by
+# field with each field's own wire type, and the host keeps no string slots to wipe for it.
+records="$work/records"
+fixture "$records"
+hand_written "$records"
+cat >>"$records/$shimh" <<'EOF'
+typedef struct {
+  int start;
+  unsigned int color;
+  int64_t stamp;
+} cmux_shim_span;
+CMUX_SHIM_EXPORT int cmux_shim_send_spans(int browser_id, const cmux_shim_span* spans, int span_count);
+EOF
+edit_ops "$records" 'd["exports"].append({"name": "cmux_shim_send_spans", "class": "post", "args": [
+    {"name": "browser_id", "type": "int"}, {"name": "spans", "type": "const cmux_shim_span*"},
+    {"name": "span_count", "type": "int"}], "returns": "int", "result_used_by": [], "mirror_key": None,
+    "refresh_events": [], "pending_keys": [], "reply_event": None, "reason": "", "channel": "input"})'
+expect 0 "17/17 exports classified" "a numeric record export is valid" -- --root "$records" --check-ops
+python3 "$gen" --root "$records" >/dev/null
+rclient="$records/${outputs[1]}"
+has "$rclient" 'op_w.I32(arg_spans[i].start);' "a record's int field is not sent as I32"
+has "$rclient" 'op_w.U32(arg_spans[i].color);' "a record's unsigned int field is not sent as U32"
+has "$rclient" 'op_w.I64(arg_spans[i].stamp);' "a record's int64_t field is not sent as I64"
+spans="$(case_of "$records/${outputs[0]}" kOpSendSpans)"
+grep -qF 'arg_spans[i].start = r.I32();' <<<"$spans" || fail "a record's int field is not read as I32"
+grep -qF 'arg_spans[i].color = r.U32();' <<<"$spans" || fail "a record's unsigned int field is not read as U32"
+grep -qF 'arg_spans[i].stamp = r.I64();' <<<"$spans" || fail "a record's int64_t field is not read as I64"
+grep -qE 'arg_spans_s|Wipe' <<<"$spans" && fail "a record without strings keeps string slots"
+if [[ -n "$cxx" ]]; then
+  compile_inc "$records" "numeric records"
+fi
+
 # The result-use check: the fixture caller drops every post result.
 expect 0 "0 stand-in results read" "dropped results pass" -- --root "$base" --check-return-use
 sites="$(python3 "$gen" --root "$base" --swift-sites)"
@@ -613,6 +645,39 @@ sites="$(python3 "$gen" --root "$settled" --swift-sites)"
 listed 42 && fail "a kept site is listed: $sites"
 listed 15 || fail "a reply entry settled a call not in the token form: $sites"
 listed 38 && fail "a host_exit site is listed: $sites"
+# needs client (task p01-process-025): a local export the client defines by hand (HOST/client, outside
+# generated/) is the same call in both backends. change names its wire entry point; the site stays
+# listed until HOST/client defines the export and calls that entry point (its own declarations,
+# definitions and member forwarders are no call).
+edit_ops "$settled" 'd["host_mode_rewrites"][0] = {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.boot(_:)",
+  "exports": ["cmux_shim_initialize"], "needs": "client", "change": "The same call in both backends.", "task": "p01-process-025"}'
+expect 1 "needs client names the client's wire entry point" "a client entry that names no wire entry point" -- --root "$settled" --check-ops
+edit_ops "$settled" 'd["host_mode_rewrites"][0]["change"] = "The same call in both backends, sent by cmux_remote::PostInitialize."'
+expect 0 "" "a client entry is valid" -- --root "$settled" --check-ops
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+listed 42 || fail "a client site whose export HOST/client does not define is not listed: $sites"
+hand_written "$settled"
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+listed 42 || fail "a client site whose wire entry point nothing calls is not listed: $sites"
+wire_file="$settled/Packages/macOS/CmuxNext/ChromiumHost/client/remote_shim_wire.mm"
+cat >"$wire_file" <<'EOF'
+bool PostInitialize(uint32_t token, InitializedFn done);
+char* PostInitialize(int unused);
+bool PostInitialize(uint32_t token, InitializedFn done) { return R().PostInitialize(token, done); }
+bool Runtime::PostInitialize(uint32_t token, InitializedFn done) { return runtime->PostInitialize(token, done); }
+// cmux_remote::PostInitialize(token, &Deliver) in a comment is no call.
+EOF
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+listed 42 || fail "declarations, definitions and member calls of the wire entry point settled a client site: $sites"
+cat >>"$wire_file" <<'EOF'
+bool SendInitialize(void*, uint32_t token) { return cmux_remote::PostInitialize(token, &DeliverInitialize); }
+EOF
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+listed 42 && fail "a client site whose export HOST/client defines and whose wire entry point it calls is listed: $sites"
+rm "$wire_file"
+edit_ops "$settled" 'd["host_mode_rewrites"][0]["site"] = "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.window(_:)"
+d["host_mode_rewrites"][0]["exports"] = ["cmux_shim_create_window"]'
+expect 1 "needs client is for local exports the client defines; cmux_shim_create_window is mint" "a client mint" -- --root "$settled" --check-ops
 edit_ops "$settled" 'd["host_mode_rewrites"][0] = {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.window(_:)",
   "exports": ["cmux_shim_create_window"], "needs": "kept", "change": "returns the minted id", "task": "p01-process-021"}'
 expect 0 "" "a kept mint site is valid" -- --root "$settled" --check-ops
@@ -961,6 +1026,13 @@ if [[ -f "$repo/$ops" ]]; then
   if [[ -n "$cxx" ]]; then
     compile_inc "$scratch" "the real header"
   fi
+  # A record field named *browser_id carries cmux's id: the host maps it as it maps a browser argument.
+  policy="$(case_of "$scratch/${outputs[0]}" kOpSetWindowRequestPolicy)"
+  grep -qF 'arg_windows[i].anchor_browser_id = ctx.Browser(static_cast<int32_t>(r.I64()));' <<<"$policy" ||
+    fail "a record's browser id reaches the host shim unmapped"
+  grep -qF 'arg_clicks[i].browser_id = ctx.Browser(static_cast<int32_t>(r.I64()));' <<<"$policy" ||
+    fail "a click record's browser id reaches the host shim unmapped"
+  grep -qF 'arg_windows[i].flags = r.I64();' <<<"$policy" || fail "a plain record field is mapped as a browser id"
   expect 0 "0 mirror reads before attach" "the real startup path" -- --root "$repo" --check-pre-attach
   # Every vendored remote_cocoa mojom method is mapped (tasks p01-process-055, 059), except pending rows,
   # which the check counts unmapped until their task names the carrier: no other problem, and the

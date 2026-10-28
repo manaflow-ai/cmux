@@ -22,7 +22,7 @@ use crate::app::{
 };
 use crate::pty_input::PtyInputSender;
 use crate::session::{
-    AgentInfo, AmbiguousCreation, Session, SurfaceHandle, SurfaceSizeState, TreeView,
+    AgentInfo, AmbiguousCreation, ClientInfo, Session, SurfaceHandle, SurfaceSizeState, TreeView,
 };
 
 mod attach;
@@ -240,6 +240,7 @@ impl OrderedSession {
     pub(super) fn refresh_machine_usage_background(&self) {
         let session = self.inner.clone();
         let events = self.events.clone();
+        // supervise-allow: one background refresh request; a panic ends that refresh only and the next change event refreshes again.
         let spawn =
             std::thread::Builder::new().name("machine-usage-refresh".into()).spawn(move || {
                 match session.machine_usage() {
@@ -257,22 +258,32 @@ impl OrderedSession {
     }
 
     pub(super) fn refresh_clients_background(&self) {
+        let session = self.inner.clone();
+        self.refresh_clients_with(move || session.clients().map_err(|error| error.to_string()));
+    }
+
+    /// [`Self::refresh_clients_background`] with the list read by `fetch`.
+    pub(super) fn refresh_clients_with(
+        &self,
+        mut fetch: impl FnMut() -> Result<Vec<ClientInfo>, String> + Send + 'static,
+    ) {
         self.client_refresh_generation.fetch_add(1, Ordering::AcqRel);
         self.client_refresh_dirty.store(true, Ordering::Release);
         if self.client_refresh_queued.swap(true, Ordering::AcqRel) {
             return;
         }
-        let session = self.inner.clone();
         let events = self.events.clone();
         let queued = self.client_refresh_queued.clone();
         let dirty = self.client_refresh_dirty.clone();
         let generation = self.client_refresh_generation.clone();
+        // supervise-allow: one background refresh request; a panic ends that refresh only and the next change event refreshes again.
         let spawn =
             std::thread::Builder::new().name("client-list-refresh".into()).spawn(move || {
+                let _release = ReleaseClaimOnPanic(queued.clone());
                 loop {
                     dirty.store(false, Ordering::Release);
                     let request_generation = generation.load(Ordering::Acquire);
-                    let result = session.clients().map_err(|error| error.to_string());
+                    let result = fetch();
                     if request_generation != generation.load(Ordering::Acquire) {
                         continue;
                     }
@@ -477,5 +488,17 @@ impl OrderedSession {
     /// `None` for local sessions and deliberate local disconnects.
     pub(super) fn transport_disconnect_reason(&self) -> Option<String> {
         self.inner.transport_disconnect_reason()
+    }
+}
+
+/// Releases the client-list refresh claim when its thread unwinds, so the
+/// next change starts a refresh again; a normal end releases it in the loop.
+struct ReleaseClaimOnPanic(Arc<AtomicBool>);
+
+impl Drop for ReleaseClaimOnPanic {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.0.store(false, Ordering::Release);
+        }
     }
 }

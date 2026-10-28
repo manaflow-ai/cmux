@@ -17,6 +17,8 @@ use zeroize::Zeroize;
 #[cfg(target_os = "linux")]
 use zeroize::Zeroizing;
 
+#[cfg(target_os = "linux")]
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::{
     Mux, ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
     ProviderWorkspaceAuthorityUpdateError,
@@ -163,7 +165,7 @@ fn read_message(mut reader: impl Read) -> io::Result<SensitiveBytes> {
         match reader.read(&mut *byte) {
             Ok(0) => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
             Ok(1) => {
-                let value = byte[0];
+                let [value] = *byte;
                 byte.zeroize();
                 if value == b'\n' {
                     break;
@@ -176,7 +178,12 @@ fn read_message(mut reader: impl Read) -> io::Result<SensitiveBytes> {
                     ));
                 }
             }
-            Ok(_) => unreachable!("a one-byte read cannot return more than one byte"),
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "a one-byte read returned more than one byte",
+                ));
+            }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => return Err(error),
         }
@@ -202,13 +209,13 @@ fn peer_uid(stream: &std::os::unix::net::UnixStream) -> io::Result<u32> {
 pub fn serve(
     listener: std::os::unix::net::UnixListener,
     mux: Arc<Mux>,
-) -> io::Result<std::thread::JoinHandle<()>> {
+) -> io::Result<supervised::SupervisedThread<()>> {
     // SAFETY: PR_SET_DUMPABLE takes only integer arguments and touches no memory.
     let result = unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
     if result != 0 {
         return Err(io::Error::last_os_error());
     }
-    std::thread::Builder::new().name("provider-management".into()).spawn(move || {
+    supervised::spawn("provider-management", Fatal, ShutdownBehavior::Continue, move || {
         // Descriptor exhaustion persists across accepts; an immediate retry
         // spun this thread at 100% CPU.
         let mut backoff =
@@ -227,7 +234,10 @@ pub fn serve(
                 }
             };
             let mux = mux.clone();
-            let _ = std::thread::Builder::new().name("provider-management-peer".into()).spawn(
+            let _ = supervised::spawn(
+                "provider-management-peer",
+                Fatal,
+                ShutdownBehavior::Continue,
                 move || {
                     let Ok(uid) = peer_uid(&stream) else { return };
                     if uid != 0 {
@@ -321,6 +331,10 @@ pub fn install(
         code: "unmanaged".into(),
         message: "running mux is not managed through the provider socket".into(),
     })?;
+    let authority = std::str::from_utf8(authority.expose()).map_err(|_| ClientError::Rejected {
+        code: "invalid_authority".into(),
+        message: "provider authority is not UTF-8".into(),
+    })?;
     let response = exchange(
         socket,
         &InstallRequest {
@@ -329,8 +343,7 @@ pub fn install(
             mux_generation,
             expected_authority_generation: status.authority_generation,
             authority_generation,
-            authority: std::str::from_utf8(authority.expose())
-                .expect("validated provider authority is UTF-8"),
+            authority,
         },
     )?;
     response_status(response)
@@ -365,5 +378,25 @@ mod tests {
         let (client, server) = UnixStream::pair().unwrap();
         assert_eq!(peer_uid(&server).unwrap(), crate::platform::effective_uid());
         drop(client);
+    }
+
+    /// A reader that claims more bytes than the buffer it was given holds.
+    #[cfg(target_os = "linux")]
+    struct Overreporting;
+
+    #[cfg(target_os = "linux")]
+    impl Read for Overreporting {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            buffer.fill(b'x');
+            Ok(buffer.len() + 1)
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_reader_that_reports_more_than_one_byte_is_invalid_data() {
+        assert_eq!(read_message(&b"{}\nnext"[..]).unwrap().0, b"{}");
+        let error = read_message(Overreporting).err().unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{error}");
     }
 }

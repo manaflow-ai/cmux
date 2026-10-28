@@ -28,22 +28,20 @@ public final class MockPermissionProbe: PermissionProbe {
 
     public func changes() -> AsyncStream<Void> {
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let id = nextListener
+        listeners[nextListener] = continuation
         nextListener += 1
-        listeners[id] = continuation
-        continuation.onTermination = { [weak self] _ in
-            // task-owner: one bookkeeping hop back to the main actor when a listener ends.
-            Task { @MainActor in self?.listeners[id] = nil }
-        }
         return stream
     }
 
-    /// Sets one grant and tells every listener.
+    /// Sets one grant and tells every listener; a listener whose stream ended is dropped here, on the main actor,
+    /// with no hop from its termination.
     public func set(_ kind: PermissionKind, _ status: PermissionStatus) {
         statuses[kind] = status
-        for listener in listeners.values { listener.yield() }
+        for (id, listener) in listeners {
+            if case .terminated = listener.yield() { listeners[id] = nil }
+        }
     }
 
-    /// How many listeners follow the changes now.
+    /// How many listeners follow the changes now (an ended one counts until the next ``set(_:_:)``).
     public var listenerCount: Int { listeners.count }
 }

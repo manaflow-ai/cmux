@@ -51,6 +51,8 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         /// It changed its title or icon while hidden (`PageBackgroundActivity`): the timeout keeps
         /// it and it does not freeze (`HibernationPlanner.freezePlan`), memory pressure does not.
         package var hasBackgroundActivity = false
+        /// It still loads: it does not freeze until the load ends (Chrome's kLoading); a discard ignores it.
+        package var isLoading = false
 
         /// The tab sits beside a pane's shown tab or was just hovered (browser pages).
         package var isNeighbor = false
@@ -130,7 +132,8 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         /// per critical pressure event (`UrgentPageDiscardingPolicy`,
         /// chrome/browser/performance_manager/policies/urgent_page_discarding_policy.cc), then one
         /// every 5 s while it stays critical. Browser pages keep their own paces
-        /// (`HibernationPlanner.pace(at:)`) until task 114 measures both.
+        /// (`HibernationPlanner.pace(at:urgent:)`): at critical, cmux's relieves more within 30 s
+        /// (`HibernationPlanner.UrgentPace.browsers`).
         package static let chromeUrgent = Self(perPass: 1, interval: 5, minimumHidden: 0)
     }
 

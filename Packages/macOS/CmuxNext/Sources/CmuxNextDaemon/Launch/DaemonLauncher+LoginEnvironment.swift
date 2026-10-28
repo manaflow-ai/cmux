@@ -48,12 +48,12 @@ extension DaemonLauncher {
     /// at `.userInitiated` only when nothing is remembered.
     private static func startCaptureIfNothingRemembered(_ cache: LoginEnvironmentCache) {
         // task-owner: one store read; a capture it starts ends with its own timeout.
-        Task(priority: .userInitiated) { await cache.startIfNothingRemembered() }
+        Task(priority: .userInitiated) { @concurrent in await cache.startIfNothingRemembered() }
     }
 
     /// Off main: the refresh of the copy the next launch remembers, at `.utility`.
     private static func refresh(_ cache: LoginEnvironmentCache) {
         // task-owner: one-shot refresh of the process-lifetime login-env cache; ends with the capture's own timeout.
-        Task(priority: .utility) { await cache.start() }
+        Task(priority: .utility) { @concurrent in await cache.start() }
     }
 }

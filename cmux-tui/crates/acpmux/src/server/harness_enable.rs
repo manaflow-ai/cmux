@@ -36,7 +36,7 @@ pub(super) async fn handle(hub: &Hub, origin: Origin, params: &Value) -> Result<
     let id = text("id").ok_or_else(|| RpcError::invalid_params("id is required"))?.to_owned();
     let confirm = text("sha256").map(str::to_owned);
     let cfg = hub.config.read().await.clone();
-    tokio::task::spawn_blocking(move || {
+    crate::daemon::spawn_blocking(move || {
         let gate = cfg.folder_gate.as_ref().ok_or_else(|| {
             RpcError::invalid_params("this daemon has no home: folder profiles are off")
         })?;

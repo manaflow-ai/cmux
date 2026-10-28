@@ -54,7 +54,10 @@ extension TypingLatencyProbe {
     }
 
     /// Sets or clears `bits` of ``modes``.
-    func setModes(_ bits: UInt8, on: Bool) {
+    ///
+    /// - Returns: ``modes`` as it was just before this change, so a caller sees whether its bits changed.
+    @discardableResult
+    func setModes(_ bits: UInt8, on: Bool) -> UInt8 {
         var current = modes.load(ordering: .relaxed)
         var exchanged = false
         // wakeup-allow: bounded: a compare-exchange retry; it loops only when another writer moved the word first.
@@ -64,6 +67,7 @@ extension TypingLatencyProbe {
             exchanged = result.exchanged
             current = result.original
         } while !exchanged
+        return current
     }
 
     /// Whether the key-down being opened is the echo sampler's: echo sampling is on, no echo sample is open, this

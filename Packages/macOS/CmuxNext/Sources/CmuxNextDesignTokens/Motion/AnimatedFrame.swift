@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// A rect and opacity driven by springs.
 public nonisolated struct AnimatedFrame: Hashable, Sendable {

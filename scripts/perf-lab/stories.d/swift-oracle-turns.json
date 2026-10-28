@@ -1,0 +1,18 @@
+{
+  "id": "swift-oracle-turns",
+  "tier": "builder",
+  "description": "OracleActionTurnsBench: what the disarmed OracleActionTurns observer adds per perform over no observer, one paired difference per interleaved round.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-oracle-turns", "--filter", "OracleActionTurnsBench", "--env", "CMUX_ORACLE_TURNS_BENCH=1"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.oracle_turns\\.(no_observer|disarmed_added)_ns", "unit": "ns", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/OracleActionTurnsBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "PL-oracle",
+  "component": "Oracle>Turns",
+  "hot_paths": ["action-perform"]
+}

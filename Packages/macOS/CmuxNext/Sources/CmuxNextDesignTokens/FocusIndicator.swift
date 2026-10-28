@@ -1,4 +1,4 @@
-public import CoreGraphics
+import Foundation
 
 /// `appearance.focusIndicator` in cmux.json: what marks the focused pane
 /// when more than one shows. `border` draws the focus ring, `tabs` draws

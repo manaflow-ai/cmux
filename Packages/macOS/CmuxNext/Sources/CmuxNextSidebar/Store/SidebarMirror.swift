@@ -27,50 +27,82 @@ public final class SidebarMirror {
 
     #if CMUX_SIDEBAR_MIRROR_FFI
     /// The mirror handle. Used on the main actor only; the deinit frees it once nothing else can.
+    ///
+    /// Memory safety: `pointer` is the mirror `make()` created and the
+    /// owning `SidebarMirror`'s deinit frees once, so it is live for every
+    /// call; a typed reply stays valid until the next typed call
+    /// (cmux_layout_reducer_ffi.h), and `call` reads each before it returns.
     // crash-allow: the handle is never shared; only the owning mirror (main actor) and its deinit touch it.
-    private nonisolated struct Handle: @unchecked Sendable { let pointer: OpaquePointer }
+    @safe private nonisolated struct Handle: @unchecked Sendable { let pointer: OpaquePointer }
     private let owned: Handle
-    private var handle: OpaquePointer { owned.pointer }
+    // SAFETY: the live handle (see Handle).
+    private var handle: OpaquePointer { unsafe owned.pointer }
 
     private init(handle: OpaquePointer) {
-        owned = Handle(pointer: handle)
+        // SAFETY: takes ownership of the new handle `make()` got; deinit frees it.
+        owned = unsafe Handle(pointer: handle)
     }
 
     /// This build links the mirror FFI (rows come from the sidebar document when the daemon serves it).
     public static let isLinked = true
 
     public static func make() -> SidebarMirror? {
-        guard let handle = cmux_sidebar_mirror_new() else { return nil }
-        return SidebarMirror(handle: handle)
+        // SAFETY: the mirror returns a new handle or NULL; the new SidebarMirror owns it.
+        guard let handle = unsafe cmux_sidebar_mirror_new() else { return nil }
+        return unsafe SidebarMirror(handle: handle)
     }
 
     nonisolated deinit {
-        cmux_sidebar_mirror_free(owned.pointer)
+        // SAFETY: frees the handle init took, exactly once; nothing uses it after.
+        unsafe cmux_sidebar_mirror_free(owned.pointer)
     }
 
-    /// One typed call: JSON in, a reply the mirror owns (valid until the next typed call), read at once.
+    /// One typed call: JSON in, a reply the mirror owns (valid until the next typed call), read at once. The
+    /// caller vouches that `entry` is a typed entry returning a `Typed` reply and that `read` copies what it
+    /// keeps out of the reply's buffers.
+    @unsafe
     private func call<Typed, Value>(_ name: String, _ entry: (OpaquePointer?, UnsafePointer<UInt8>?, Int) -> UnsafePointer<Typed>?,
                                     _ request: Data, _ read: (Typed) -> Value?) -> Value? {
         Self.calls[name, default: 0] += 1
-        return request.withUnsafeBytes { input in
-            entry(handle, input.bindMemory(to: UInt8.self).baseAddress, request.count).flatMap { read($0.pointee) }
+        // SAFETY: `input` views the request's request.count bytes, valid for the closure; the handle is live (see
+        // Handle), and the reply is read here, before any other call on the handle.
+        return unsafe request.withUnsafeBytes { input in
+            unsafe entry(handle, input.bindMemory(to: UInt8.self).baseAddress, request.count).flatMap { unsafe read($0.pointee) }
         }
     }
 
-    private func load(raw: Data) -> Reply? { call("load", cmux_sidebar_mirror_load_typed, raw, Reply.init) }
-    private func applyBatch(raw: Data) -> Reply? { call("batch", cmux_sidebar_mirror_apply_batch_typed, raw, Reply.init) }
-    private func applyIntent(raw: Data) -> Reply? { call("intent", cmux_sidebar_mirror_apply_intent_typed, raw, Reply.init) }
-    private func view(raw: Data) -> [SidebarDocRow]? { call("view", cmux_sidebar_mirror_view_typed, raw, Self.rows) }
+    // SAFETY (the five calls below): each entry returns the reply type its reader takes, and each reader copies
+    // the reply's buffers before it returns.
+    private func load(raw: Data) -> Reply? { unsafe call("load", cmux_sidebar_mirror_load_typed, raw, Reply.init) }
+    private func applyBatch(raw: Data) -> Reply? { unsafe call("batch", cmux_sidebar_mirror_apply_batch_typed, raw, Reply.init) }
+    private func applyIntent(raw: Data) -> Reply? { unsafe call("intent", cmux_sidebar_mirror_apply_intent_typed, raw, Reply.init) }
+    private func view(raw: Data) -> [SidebarDocRow]? { unsafe call("view", cmux_sidebar_mirror_view_typed, raw, Self.rows) }
     private func dragBegin(raw: Data) -> [String: SidebarDocAcceptance]? {
-        call("drag_begin", cmux_sidebar_mirror_drag_begin_typed, raw, Self.acceptance)
+        unsafe call("drag_begin", cmux_sidebar_mirror_drag_begin_typed, raw, Self.acceptance)
     }
 
-    /// The reply's strings (`CmuxSidebarStrings`): string i is bytes[offsets[i] ..< offsets[i + 1]].
+    /// The `count` elements at `start` as an array (none for nil or 0). The
+    /// caller vouches that `start` is nil or readable for `count` elements.
+    @unsafe
+    private nonisolated static func copy<Element>(_ start: UnsafePointer<Element>?, count: Int) -> [Element] {
+        // SAFETY: the caller's contract: `start` is nil or points to `count` readable elements.
+        guard let start = unsafe start, count > 0 else { return [] }
+        return unsafe Array(UnsafeBufferPointer(start: start, count: count))
+    }
+
+    /// The reply's strings (`CmuxSidebarStrings`): string i is bytes[offsets[i] ..< offsets[i + 1]]. The caller
+    /// vouches that the table is a live reply's; a string whose offsets fall outside its bytes reads as "".
+    @unsafe
     private static func strings(_ table: CmuxSidebarStrings) -> [String] {
-        guard table.count > 0, let bytes = table.bytes, let offsets = table.offsets else { return [] }
-        return (0..<Int(table.count)).map { index in
-            let start = Int(offsets[index])
-            return String(decoding: UnsafeBufferPointer(start: bytes + start, count: Int(offsets[index + 1]) - start), as: UTF8.self)
+        // SAFETY: the caller's contract: `offsets` holds count + 1 entries, and `bytes` the offsets[count] bytes
+        // they index (cmux_layout_reducer_ffi.h); both are copied here.
+        let offsets = unsafe copy(table.offsets, count: table.count > 0 ? Int(table.count) + 1 : 0)
+        guard let end = offsets.last else { return [] }
+        let bytes = unsafe copy(table.bytes, count: Int(end))
+        return (0..<offsets.count - 1).map { index -> String in
+            let start = Int(offsets[index]), end = Int(offsets[index + 1])
+            guard start <= end, end <= bytes.count else { return "" }
+            return String(decoding: bytes[start..<end], as: UTF8.self)
         }
     }
 
@@ -79,11 +111,16 @@ public final class SidebarMirror {
         index == UInt32.max || Int(index) >= strings.count ? nil : strings[Int(index)]
     }
 
+    /// The caller vouches that `reply` is the live reply of the call just made.
+    @unsafe
     private static func rows(_ reply: CmuxSidebarRows) -> [SidebarDocRow]? {
-        guard reply.ok != 0 else { return nil }
-        let strings = strings(reply.strings)
+        // SAFETY: the caller's contract: the reply's rows hold row_count rows and its string table is live; both
+        // are copied here, before the reply can be replaced.
+        guard unsafe reply.ok != 0 else { return nil }
+        let strings = unsafe strings(reply.strings)
+        let rows = unsafe copy(reply.rows, count: Int(reply.row_count))
         let text = { (index: UInt32) in string(strings, index) }
-        return UnsafeBufferPointer(start: reply.rows, count: Int(reply.row_count)).compactMap { row in
+        return rows.compactMap { row in
             guard let key = text(row.key), let section = text(row.section) else { return nil }
             var ref: SidebarDocWorkspaceRef?
             if let session = text(row.ref_session), let workspace = text(row.ref_workspace) {
@@ -95,12 +132,17 @@ public final class SidebarMirror {
         }
     }
 
+    /// The caller vouches that `reply` is the live reply of the call just made.
+    @unsafe
     private static func acceptance(_ reply: CmuxSidebarAcceptanceTable) -> [String: SidebarDocAcceptance]? {
-        guard reply.ok != 0 else { return nil }
-        let strings = strings(reply.strings)
+        // SAFETY: the caller's contract: the reply's entries hold count entries and its string table is live; both
+        // are copied here, before the reply can be replaced.
+        guard unsafe reply.ok != 0 else { return nil }
+        let strings = unsafe strings(reply.strings)
+        let entries = unsafe copy(reply.entries, count: Int(reply.count))
         var table: [String: SidebarDocAcceptance] = [:]
-        table.reserveCapacity(Int(reply.count))
-        for entry in UnsafeBufferPointer(start: reply.entries, count: Int(reply.count)) {
+        table.reserveCapacity(entries.count)
+        for entry in entries {
             guard let key = string(strings, entry.key) else { continue }
             // CMUX_SIDEBAR_ACCEPT_BEFORE 1, _INTO 2, _AFTER 4.
             table[key] = SidebarDocAcceptance(before: entry.flags & 1 != 0, into: entry.flags & 2 != 0, after: entry.flags & 4 != 0,
@@ -186,14 +228,18 @@ public final class SidebarMirror {
         var ops: Data?
 
         #if CMUX_SIDEBAR_MIRROR_FFI
+        /// The caller vouches that `reply` is the live reply of the call just made.
+        @unsafe
         init(_ reply: CmuxSidebarReply) {
-            ok = reply.ok != 0 && reply.refetch == 0
-            stale = reply.stale != 0
-            if reply.refusal_len > 0, let bytes = reply.refusal {
-                refusal = String(decoding: UnsafeBufferPointer(start: bytes, count: reply.refusal_len), as: UTF8.self)
-            }
-            revision = reply.has_revision != 0 ? reply.revision : nil
-            if reply.ops_len > 0, let bytes = reply.ops { ops = Data(bytes: bytes, count: reply.ops_len) }
+            // SAFETY: the caller's contract: refusal and ops are nil or hold refusal_len and ops_len bytes; both are
+            // copied here, and the rest are scalar fields of the local copy `reply`.
+            ok = unsafe reply.ok != 0 && reply.refetch == 0
+            stale = unsafe reply.stale != 0
+            let refusalBytes = unsafe SidebarMirror.copy(reply.refusal, count: reply.refusal_len)
+            if !refusalBytes.isEmpty { refusal = String(decoding: refusalBytes, as: UTF8.self) }
+            revision = unsafe reply.has_revision != 0 ? reply.revision : nil
+            let opsBytes = unsafe SidebarMirror.copy(reply.ops, count: reply.ops_len)
+            if !opsBytes.isEmpty { ops = Data(opsBytes) }
         }
         #endif
     }

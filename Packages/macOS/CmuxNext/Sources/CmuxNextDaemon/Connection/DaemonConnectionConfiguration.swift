@@ -11,11 +11,18 @@ public struct DaemonConnectionConfiguration: Sendable {
     public var retry: RetryPolicy
     /// A connection that stays up this long resets the reconnect backoff.
     public var healthyAfter: Duration
-    /// The connection asks the daemon this often whether it still answers;
-    /// `heartbeatMisses` unanswered asks in a row close it (`.disconnected`,
-    /// then reconnect). A bridged connection always asks (a lost server: the
-    /// link itself waits 10 min); a local one only with `localHeartbeat`.
+    /// After this long with nothing from the daemon, while a window shows or a
+    /// request waits, the connection asks it whether it still answers (and
+    /// waits this long for the answer); `heartbeatMisses` unanswered asks in a
+    /// row close it (`.disconnected`, then reconnect). A bridged connection
+    /// always asks (a lost server: the link itself waits 10 min); a local one
+    /// only with `localHeartbeat` (``ConnectionHeartbeat``).
     public var heartbeat: Duration = .seconds(15)
+    /// The silence that asks while no window shows and no request waits, for a
+    /// connection that carries a notification stream (a bridge: a server lost
+    /// over a closed lid must still be found); nil asks nothing then. Other
+    /// connections ask nothing while hidden and once when a window shows.
+    public var hiddenHeartbeat: Duration? = .seconds(60)
     public var heartbeatMisses = 2
     /// Heartbeat a local daemon too: an owner stopped (SIGSTOP) or wedged
     /// keeps its socket open, so no EOF ends the connection (cx-jniyz.4).
@@ -65,6 +72,23 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// `daemon.line` scope, never its `read(2)` wait). The App's composition root sets it to its
     /// ``HangWatch``; nil (the default) watches nothing.
     public var hangWatch: (any HangWatchScoping)?
+    /// Terminal views attach as client-minted streams on this connection (`attach-streams-v1`, p05-ipc-095)
+    /// instead of a connection each: the `terminalStreams` feature, on by default in DEV and NIGHTLY (p05-ipc-094).
+    /// The connection echoes the grant and, with `sizingDevice`, joins shared sizing as that device; a daemon that does not offer the
+    /// grant keeps every view on a connection of its own (``TerminalAttachment/attach(on:target:size:claimGeometry:snapshotVersion:localHistory:images:clientName:device:hangs:createIntent:inputQueue:)``).
+    /// Only a `main` connection streams terminals.
+    public var terminalStreams = false
+    /// The device this connection's terminal streams are sized for (`shared-sizing-v1`): the views of one
+    /// connection are one sizing participant. Read at each handshake (the Mac's name is read off the main
+    /// thread), only with ``terminalStreams``.
+    public var sizingDevice: TerminalStreamsDevice?
+    /// The framed IPC upgrades the handshake asks for (``DaemonWireUpgrades``); none by default, so the
+    /// connection speaks JSON lines whatever the daemon offers.
+    public var wireUpgrades = DaemonWireUpgrades.none
+    /// Echoes `diagnostic-sites-v1`, so the daemon pushes its first-seen blocking, inversion and slow-request
+    /// sites as `server-diagnostic-site` events; the connection hands each to ``DaemonConnection/diagnosticSites``.
+    /// Only the app's control connection to its local daemon sets it (`DaemonService.localConfiguration`).
+    public var reportsDiagnosticSites = false
     /// Told each time the connection's quiet-handoff gate parks a wait (a test seam; the default ignores it).
     var handoffWaits: @Sendable (QuietHandoffGate.Wait) -> Void = { _ in }
 
@@ -84,7 +108,8 @@ public struct DaemonConnectionConfiguration: Sendable {
         sessionEvents: Bool = false,
         role: DaemonClientRole = .main,
         relayIdentity: PageRelayIdentity? = nil,
-        clientHello: ClientHelloIdentity? = nil
+        clientHello: ClientHelloIdentity? = nil,
+        terminalStreams: TerminalStreamsDevice? = nil
     ) {
         self.clientName = clientName
         self.requiredCapabilities = requiredCapabilities
@@ -102,6 +127,9 @@ public struct DaemonConnectionConfiguration: Sendable {
         self.role = role
         self.relayIdentity = relayIdentity
         self.clientHello = clientHello
+        // A device turns terminal streams on (``terminalStreams`` alone streams with no sizing device).
+        self.terminalStreams = terminalStreams != nil
+        sizingDevice = terminalStreams
     }
 }
 
@@ -110,17 +138,34 @@ public struct ClientHelloIdentity: Sendable {
     /// Nil: role main only (the daemon may still verify the app by its
     /// code signature).
     public var installKey: FrontendInstallKey?
+    /// The app's daemon features, sent in each hello (p12-perf-process-150); nil sends none.
+    public var features: DaemonFeatureHello?
 
-    public init(installKey: FrontendInstallKey?) {
+    public init(installKey: FrontendInstallKey?, features: DaemonFeatureHello? = nil) {
         self.installKey = installKey
+        self.features = features
     }
 }
 
 extension DaemonConnectionConfiguration {
-    /// What the connection echoes in `set-client-info`.
+    /// What the connection echoes in `set-client-info`. A daemon ignores a capability it does not grant, so
+    /// the stream grant is echoed before `identify` says whether it is offered.
     var handshakeCapabilities: [String] {
         DaemonCapability.handshakeCapabilities(advertisedCapabilities,
                                                  resolvesShellIntegration: resolvesShellIntegration,
                                                  echoesPlacementShift: echoesPlacementShift)
+            + (streamsTerminals ? [TerminalAttachment.streamsCapability] : [])
+            + (streamSizingDevice == nil ? [] : [DaemonCapability.sharedSizing.rawValue])
+            + (reportsDiagnosticSites ? [DaemonCapability.diagnosticSites.rawValue] : [])
     }
+
+    /// This connection asks for terminal streams.
+    var streamsTerminals: Bool { terminalStreams && role == .main }
+
+    /// The device a streaming connection declares in `set-client-info`; nil without terminal streams.
+    var streamSizingDevice: TerminalStreamsDevice? { streamsTerminals ? sizingDevice : nil }
 }
+
+/// The device a connection's terminal streams are sized for (``DaemonConnectionConfiguration/sizingDevice``),
+/// read when the connection identifies itself.
+public typealias TerminalStreamsDevice = @Sendable () async -> TerminalSizingDevice

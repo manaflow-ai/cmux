@@ -25,6 +25,12 @@ windows-thin-exe = []
 # cfg(any(debug_assertions, feature = "oracle")). Off by default; release
 # builds never have it. The oracle builds `--profile oracle --features oracle`.
 oracle = ["cmux-tui-core/oracle"]
+# Crash injectors for the fleet's crash matrix, here and in cmux-tui-core and
+# acpmux (the daemon's `debug-panic`, acpmux's `_acpmux/debug_panic` in the
+# `cmux acp` multicall): code behind cfg(any(debug_assertions, feature = "bench")).
+# Off by default; release builds never have it. A release-codegen bench daemon
+# builds `--release --features bench`.
+bench = ["cmux-tui-core/bench", "acpmux/bench"]
 # Fuzz entry points (`cmux_tui::fuzzing`) for the cmux-tui/fuzz workspace, which
 # drives the input schedulers and key decoding without a terminal or session.
 # Off by default; only that workspace turns it on.
@@ -69,9 +75,11 @@ cmux-ipc = { workspace = true, features = ["client"] }
 # `cmux vm`: the cmux-vm child starts through the daemon-safe spawn.
 cmux-process.workspace = true
 # The owner's main thread is a registry row at UserInitiated (owner_start).
-cmux-threads.workspace = true
+cmux-threads = { workspace = true, features = ["tokio"] }
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
+# `__oracle-api-compat` (debug and oracle builds): one translation per oracle case.
+cmux-api-compat.workspace = true
 # The daemon's feature snapshot (feature_flags::daemon_features) and the
 # table feature_flags::features filters the signed document's Features to.
 cmux-features = { workspace = true, features = ["sources"] }
@@ -93,6 +101,7 @@ unicode-segmentation.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 cmux-panic-log.workspace = true
+cmux-hang-watch.workspace = true
 # `cmux agents wait --regex` checks a pattern as the daemon's terminal.wait does.
 regex.workspace = true
 # `cmux mcp serve` code mode: `cmux_exec` scripts run in an embedded engine.

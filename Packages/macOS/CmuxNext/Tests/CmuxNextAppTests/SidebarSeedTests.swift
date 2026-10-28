@@ -1,4 +1,5 @@
 @testable import CmuxNextSidebar
+import CmuxNextWakeups
 import Testing
 
 /// Regression coverage for the launch-only Cloud rows in ``SidebarSeed``.
@@ -18,19 +19,18 @@ struct SidebarSeedTests {
         sections.flatMap(\.workspaces).contains { $0.rowState == .placeholder }
     }
 
-    /// Lets the injected zero-delay grace timer finish without making the test
-    /// wait on wall-clock time.
-    private static func drainGrace() async {
-        for _ in 0..<4 { await Task.yield() }
+    /// A seed whose grace is a deadline on `rig`: it ends when the test fires the rig, never on wall-clock time.
+    private static func seed(_ rig: MainDeadlineRig) -> SidebarSeed {
+        SidebarSeed(grace: SidebarPlaceholderGrace(deadlines: rig.deadlines))
     }
 
-    @Test func connectingMachineGetsBarsOnlyDuringLaunch() async {
-        let grace = SidebarPlaceholderGrace(clock: ImmediateClock())
-        var seed = SidebarSeed(grace: grace)
+    @Test func connectingMachineGetsBarsOnlyDuringLaunch() {
+        let rig = MainDeadlineRig()
+        var seed = Self.seed(rig)
         let connecting = [Self.section()]
 
         #expect(!Self.hasPlaceholders(seed.merge(connecting, launching: true)))
-        await Self.drainGrace()
+        rig.fireAndRun()
         #expect(Self.hasPlaceholders(seed.merge(connecting, launching: true)))
 
         // A late connecting snapshot after launch settlement is an empty
@@ -38,12 +38,12 @@ struct SidebarSeedTests {
         #expect(!Self.hasPlaceholders(seed.merge(connecting, launching: false)))
     }
 
-    @Test func unavailableMachineRemovesBarsAndDoesNotResurrect() async {
-        let grace = SidebarPlaceholderGrace(clock: ImmediateClock())
-        var seed = SidebarSeed(grace: grace)
+    @Test func unavailableMachineRemovesBarsAndDoesNotResurrect() {
+        let rig = MainDeadlineRig()
+        var seed = Self.seed(rig)
         let connecting = [Self.section()]
         _ = seed.merge(connecting, launching: true)
-        await Self.drainGrace()
+        rig.fireAndRun()
         #expect(Self.hasPlaceholders(seed.merge(connecting, launching: true)))
 
         // The daemon can still label the header `connecting` while startup
@@ -52,12 +52,12 @@ struct SidebarSeedTests {
         #expect(!Self.hasPlaceholders(seed.merge(connecting, launching: true)))
     }
 
-    @Test func failedStatusAlsoSuppressesLaunchBars() async {
-        let grace = SidebarPlaceholderGrace(clock: ImmediateClock())
-        var seed = SidebarSeed(grace: grace)
+    @Test func failedStatusAlsoSuppressesLaunchBars() {
+        let rig = MainDeadlineRig()
+        var seed = Self.seed(rig)
         let connecting = [Self.section()]
         _ = seed.merge(connecting, launching: true)
-        await Self.drainGrace()
+        rig.fireAndRun()
         #expect(Self.hasPlaceholders(seed.merge(connecting, launching: true)))
 
         let failed = [Self.section(status: .failed)]
@@ -72,7 +72,7 @@ struct SidebarSeedTests {
     @Test func aSavedSidebarWithNoRowsShowsInTheFirstFrame() {
         let local = MachineID("local")
         let saved = SidebarSection(kind: .machine(SidebarMachine(id: local, name: "This Mac", kind: .local, status: .connected)), nodes: [])
-        var seed = SidebarSeed(sections: [saved])
+        var seed = SidebarSeed(sections: [saved], grace: SidebarPlaceholderGrace(deadlines: MainDeadlineRig().deadlines))
         let shown = seed.merge([saved], launching: true)
         #expect(seed.isReadyForReveal(shown, launching: true), "the saved sidebar (no workspaces) stayed clear until the launch ended")
     }
@@ -82,26 +82,39 @@ struct SidebarSeedTests {
         let machine = SidebarMachine(id: local, name: "This Mac", kind: .local, status: .connected)
         let row = SidebarWorkspace(id: WorkspaceID("w1"), machineID: local, title: "w1", rowState: .stale)
         let saved = SidebarSection(kind: .machine(machine), nodes: [.workspace(row)])
-        var seed = SidebarSeed(sections: [saved])
+        var seed = SidebarSeed(sections: [saved], grace: SidebarPlaceholderGrace(deadlines: MainDeadlineRig().deadlines))
         let empty = SidebarSection(kind: .machine(machine), nodes: [])
         #expect(seed.isReadyForReveal(seed.merge([empty], launching: true), launching: true), "the saved rows stand in: they show in the first frame")
         let bars = SidebarSection(kind: .machine(machine), nodes: SidebarSeed.placeholders(machine: local).map(SidebarNode.workspace))
         #expect(!seed.isReadyForReveal([bars], launching: true), "placeholder bars alone are not the sidebar's rows")
     }
-}
 
-/// A clock whose sleeps complete on the next task turn.
-private struct ImmediateClock: Clock {
-    struct Instant: InstantProtocol {
-        var offset: Duration = .zero
+    /// The grace is a `visible` deadline on the app's placer (p06-scheduler-329, R-timer): no bars before its 300 ms, one
+    /// rows pass (`onEnd`) when it fires, and a section that stops loading cancels its wake.
+    @Test func theGraceIsAVisibleDeadlineThatEndsOnceAndCancelsWithItsSection() {
+        let rig = MainDeadlineRig()
+        let grace = SidebarPlaceholderGrace(deadlines: rig.deadlines)
+        var ends = 0
+        grace.onEnd = { ends += 1 }
+        var seed = SidebarSeed(grace: grace)
+        let connecting = [Self.section()]
 
-        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
-        func duration(to other: Instant) -> Duration { other.offset - offset }
-        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+        #expect(!Self.hasPlaceholders(seed.merge(connecting, launching: true)))
+        #expect(rig.hasArmedWake, "the first ask armed no grace deadline")
+        rig.advance(by: .milliseconds(100))
+        rig.fireAtNow()
+        #expect(ends == 0 && !Self.hasPlaceholders(seed.merge(connecting, launching: true)), "the bars came before the grace")
+        rig.fireAndRun()
+        #expect(rig.elapsed >= 0.3, "the grace ended \(rig.elapsed) s in")
+        #expect(ends == 1, "the grace's end ran \(ends) rows passes")
+        #expect(Self.hasPlaceholders(seed.merge(connecting, launching: true)))
+
+        let other = SidebarSection(kind: .machine(SidebarMachine(id: MachineID("cloud-2"), name: "Cloud 2", kind: .cloud, status: .connecting)),
+                                   nodes: [])
+        _ = seed.merge(connecting + [other], launching: true)
+        #expect(rig.hasArmedWake, "a second connecting section armed no grace")
+        grace.reset(other.id)
+        rig.fireAndRun()
+        #expect(ends == 1, "a reset section's grace still ran its end")
     }
-
-    var now: Instant { Instant() }
-    var minimumResolution: Duration { .nanoseconds(1) }
-
-    func sleep(until _: Instant, tolerance _: Duration?) async throws {}
 }

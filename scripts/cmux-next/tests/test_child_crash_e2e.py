@@ -477,7 +477,8 @@ class HostArms(unittest.TestCase):
                 self.assertNotIn("CMUX_ENABLE_FEATURES", env)
                 self.assertTrue(crash.TUNABLES_FILE.startswith("CMUX_NEXT_"), "LaunchIdentity keeps CMUX_NEXT_ knobs")
                 with open(path) as handle:
-                    self.assertEqual(json.load(handle), {"version": 1, "values": {"browserHost.helper": arm == "on"}})
+                    expected = {"browserHost.helper": arm == "on", "browserHost.tabs": arm == "on"}
+                    self.assertEqual(json.load(handle), {"version": 1, "values": expected})
 
     def test_the_on_arm_waits_for_the_toggle_and_records_that_snapshot(self):
         app = self.FakeApp([self.snapshot("off", "default"), self.snapshot("off", "default"), self.snapshot("on")])

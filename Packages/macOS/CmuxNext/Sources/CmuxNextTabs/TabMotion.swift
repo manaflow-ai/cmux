@@ -46,6 +46,7 @@ struct TabStripMove {
     /// The model geometry of `root`, its sublayers (`depth` levels: a chip's pill content) and their
     /// masks, read before a change.
     struct Snapshot {
+        // memory: fixed a value read before one change and kept by no one after `animate`: one entry per layer of one root to `depth` (2) levels and their masks
         fileprivate var layers: [(layer: CALayer, isMask: Bool, position: CGPoint, size: CGSize, opacity: Float)] = []
     }
 
@@ -126,6 +127,8 @@ struct TabStripMove {
     static func cancel(_ root: CALayer) {
         for old in snapshot(root).layers {
             for key in old.layer.animationKeys() ?? [] where key.hasPrefix(keyPrefix) { old.layer.removeAnimation(forKey: key) }
+            // A shadow outline that followed the move (a lifted chip's pill) is at its model now too.
+            old.layer.stopFollowingShadowPath()
         }
     }
 

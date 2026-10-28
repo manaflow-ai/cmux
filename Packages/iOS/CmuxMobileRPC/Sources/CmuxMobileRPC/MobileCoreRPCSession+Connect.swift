@@ -128,7 +128,7 @@ extension MobileCoreRPCSession {
             connectionID = UUID()
             cancellationClose =
                 MobileRPCConnectCancellationClose()
-            task = Task.detached {
+            task = Task {
                 do {
                     if let initialSessionPurpose,
                        let updating =
@@ -140,7 +140,7 @@ extension MobileCoreRPCSession {
                     try await withTaskCancellationHandler {
                         try await candidate.connect()
                     } onCancel: {
-                        Task.detached {
+                        Task {
                             await cancellationClose.start(candidate)
                         }
                     }
@@ -216,7 +216,7 @@ extension MobileCoreRPCSession {
                 waiters: [waiterID],
                 completed: false
             )
-            Task.detached { [weak self] in
+            Task { [weak self] in
                 _ = await task.result
                 await self?.markConnectingCompleted(id: connectionID)
             }

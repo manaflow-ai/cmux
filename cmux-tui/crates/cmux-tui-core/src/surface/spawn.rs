@@ -1,7 +1,8 @@
 //! The local runtime spawn path of a terminal surface: the parser, the
-//! reader (bytes -> terminal state -> events, `local_reader`) and the reaper
-//! thread (the end of the far side). A PTY child and an app's byte-backend
-//! terminal (`terminal_backend`) both start here, from a [`LocalLaunch`].
+//! reader (bytes -> terminal state -> events, `local_reader`) and the end of
+//! the far side (a PTY child's exit through the mux's reaper, or a wait
+//! thread). A PTY child and an app's byte-backend terminal
+//! (`terminal_backend`) both start here, from a [`LocalLaunch`].
 
 use std::io::{Read, Write};
 #[cfg(unix)]
@@ -12,8 +13,21 @@ use std::sync::{Arc, Condvar, Mutex, Weak};
 use cmux_pty::{ChildKiller, MasterPty};
 use ghostty_vt::{Callbacks, RenderState, Terminal};
 
+use super::terminal_runtime::{EndingTerminal, LocalReaper};
 use super::*;
 use crate::terminal_end::TerminalEnd;
+
+/// How a local terminal learns that its far side ended.
+pub(crate) enum LocalEnd {
+    /// Blocks until the far side ended; runs on its own thread. Dropping it
+    /// without a call must stop the far side.
+    Wait(Box<dyn FnOnce() -> TerminalEnd + Send>),
+    /// A child of this process: the mux's one reaper waits for its exit
+    /// (`cmux_threads::reaper`), no thread of its own. Dropping the guard
+    /// kills and reaps it.
+    #[cfg(unix)]
+    Child(PtyChildStartupGuard),
+}
 
 /// What the local runtime of one terminal runs on.
 pub(crate) struct LocalLaunch {
@@ -21,9 +35,7 @@ pub(crate) struct LocalLaunch {
     pub reader: Box<dyn Read + Send>,
     pub writer: Box<dyn Write + Send>,
     pub killer: Box<dyn ChildKiller + Send>,
-    /// Blocks until the far side ended; runs on the reaper thread. Dropping
-    /// it without a call must stop the far side (the PTY guard kills).
-    pub wait: Box<dyn FnOnce() -> TerminalEnd + Send>,
+    pub end: LocalEnd,
     pub pid: Option<u32>,
     pub command: Vec<String>,
     pub cwd: Option<String>,
@@ -74,7 +86,7 @@ impl Surface {
             reader,
             writer,
             killer,
-            wait,
+            end,
             pid,
             command: argv,
             cwd,
@@ -113,7 +125,7 @@ impl Surface {
         let callbacks = Callbacks {
             on_pty_write: Some(Box::new({
                 let pending = pending_responses.clone();
-                move |bytes| pending.lock().unwrap().extend_from_slice(bytes)
+                move |bytes| pending.lock().recover_poison().extend_from_slice(bytes)
             })),
             on_title_changed: Some(Box::new({
                 let flag = title_changed.clone();
@@ -155,7 +167,7 @@ impl Surface {
         )));
         #[cfg(unix)]
         let shared_output = read_fd.map(|_| output.clone());
-        let surface = Arc::new(Surface::Pty(PtySurface {
+        let pty = PtySurface {
             meta: SurfaceMeta {
                 id,
                 resource_identity,
@@ -180,6 +192,7 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                thread_qos: cmux_threads::DesiredQos::new(crate::echo_thread::ECHO_PATH_QOS),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: terminal_runtime::TerminalCell::new(Box::new(term)),
@@ -226,6 +239,8 @@ impl Surface {
                 pwd: Mutex::new(None),
                 published_directory: Mutex::new(PublishedDirectory::Reported(None)),
                 directory_pending: AtomicBool::new(true),
+                publication_posted: AtomicBool::new(false),
+                publications: Arc::default(),
                 directory_reported: AtomicBool::new(false),
                 geometry: RankedMutex::new(LockRank::Geometry, "pty.geometry", initial_geometry),
                 kitty_graphics_limits: Box::new(RankedMutex::new(
@@ -251,6 +266,7 @@ impl Surface {
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
                 last_input_flow: Default::default(),
+                input_fifo: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
                     LockRank::Leaf,
@@ -275,7 +291,11 @@ impl Surface {
                 frame_producer_before_upgrade,
             }),
             viewport: Mutex::new(TerminalViewportState::default()),
-        }));
+        };
+        // The reader and reaper slots, held apart from the surface so they
+        // need no `as_pty` lookup.
+        let threads = pty.terminal.clone();
+        let surface = Arc::new(Surface::Pty(pty));
 
         if let Some(reservation) = kitty_reservation
             && let Err(error) = reservation.commit(&surface, initial_kitty_limits)
@@ -287,51 +307,107 @@ impl Surface {
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events,
         // on the owner's read loop for a direct PTY (local_reader.rs).
-        let local_reader = local_reader::LocalReader::new(surface.clone(), output, reader);
+        let local_reader = local_reader::LocalReader::new(
+            surface.clone(),
+            output,
+            reader,
+            threads.reader_completion.clone(),
+        );
         let local_reader = local_reader.start(id)?;
-        *surface
-            .as_pty()
-            .expect("local PTY surface owns its reader")
-            .reader_thread
-            .lock()
-            .unwrap() = Some(local_reader);
+        *threads.reader_thread.lock().recover_poison() = Some(local_reader);
 
         // Child reaper: retain the native status and rendezvous with PTY EOF
         // so final output is visible before the mux observes completion.
-        let reaper_completion =
-            surface.as_pty().expect("local PTY surface owns its reaper").reaper_completion.clone();
+        let reaper_completion = threads.reaper_completion.clone();
         reaper_completion.reset();
-        // Keep the surface alive with the join handle until the child wait
-        // completes. This prevents a deadline timeout from detaching a live
-        // reaper when teardown drops the last external surface reference.
-        let reaper_surface = surface.clone();
-        let reaper_thread = match cmux_tui_platform::qos::spawn_outside_request(
-            format!("surface-{id}-wait"),
-            move || {
-                let _reaper_completion = ReaderCompletionGuard(reaper_completion);
-                let end = wait();
-                if let Some(pty) = reaper_surface.as_pty() {
-                    *pty.exit.lock().unwrap() = Some(end);
-                }
-                close_local_terminal_master_after_exit(&reaper_surface);
-                publish_local_exit_if_ready(&reaper_surface);
-            },
-        ) {
-            Ok(reaper_thread) => reaper_thread,
-            Err(error) => {
-                close_local_terminal_master_after_exit(&surface);
-                return Err(error.into());
+        let reaper = match end {
+            LocalEnd::Wait(wait) => {
+                LocalReaper::Thread(spawn_end_wait(&surface, reaper_completion, wait)?)
+            }
+            #[cfg(unix)]
+            LocalEnd::Child(child) => {
+                watch_child_end(&surface, reaper_completion, child)?;
+                LocalReaper::Watched
             }
         };
-        *surface
-            .as_pty()
-            .expect("local PTY surface owns its reaper")
-            .reaper_thread
-            .lock()
-            .unwrap() = Some(reaper_thread);
+        *threads.reaper_thread.lock().recover_poison() = Some(reaper);
 
         Ok(surface)
     }
+}
+
+/// Records the far side's `end`, then publishes the exit once the reader has
+/// drained the PTY, so final output is visible before the mux observes
+/// completion. `completion` is marked only after the publish, so a finished
+/// reaper always means a published exit; a shutdown the publish itself
+/// starts sees [`EndingTerminal`] and does not wait for it.
+fn record_local_end(surface: &Arc<Surface>, end: TerminalEnd, completion: ReaderCompletionGuard) {
+    let ending = EndingTerminal::enter(&completion.0);
+    if let Some(pty) = surface.as_pty() {
+        *pty.exit.lock().recover_poison() = Some(end);
+    }
+    close_local_terminal_master_after_exit(surface);
+    publish_local_exit_if_ready(surface);
+    drop(ending);
+    drop(completion);
+}
+
+/// Runs `wait` on thread `surface-<id>-wait`. The thread keeps the surface
+/// alive until the wait returns, so a deadline timeout in teardown never
+/// detaches a live wait when the last external surface reference drops.
+/// `completion` is the surface's reset `reaper_completion`.
+fn spawn_end_wait(
+    surface: &Arc<Surface>,
+    completion: Arc<ReaderCompletion>,
+    wait: Box<dyn FnOnce() -> TerminalEnd + Send>,
+) -> anyhow::Result<std::thread::JoinHandle<()>> {
+    let waited = surface.clone();
+    cmux_tui_platform::qos::spawn_outside_request(
+        format!("surface-{}-wait", surface.id),
+        move || {
+            let completion = ReaderCompletionGuard(completion);
+            let end = wait();
+            record_local_end(&waited, end, completion);
+        },
+    )
+    .map_err(|error| {
+        close_local_terminal_master_after_exit(surface);
+        error.into()
+    })
+}
+
+/// Hands the PTY child to the mux's reaper: its exit status is recorded on a
+/// work item, with no thread of this terminal waiting. The watch keeps the
+/// surface alive until the child ends, as a wait thread would. Without a
+/// mux (it is being dropped), or when nothing can wait for the child, the
+/// launch fails and dropping `child` kills and reaps it.
+/// `completion` is the surface's reset `reaper_completion`.
+#[cfg(unix)]
+fn watch_child_end(
+    surface: &Arc<Surface>,
+    completion: Arc<ReaderCompletion>,
+    mut child: PtyChildStartupGuard,
+) -> anyhow::Result<()> {
+    let owner = surface.as_pty().and_then(|pty| pty.mux.upgrade());
+    let (Some(owner), Some(pid)) = (owner, child.process_id()) else {
+        close_local_terminal_master_after_exit(surface);
+        anyhow::bail!("the terminal's child has no reaper: its mux is gone");
+    };
+    let watched = surface.clone();
+    let on_exit: cmux_threads::reaper::OnExit = Box::new(move |status| {
+        let completion = ReaderCompletionGuard(completion);
+        let end = TerminalEnd::ProcessEnded(child.reaped(status));
+        record_local_end(&watched, end, completion);
+    });
+    if let Err(unwatched) = owner.reaper.watch(pid, on_exit) {
+        close_local_terminal_master_after_exit(surface);
+        // `into_error` drops the guard uncalled: the child is killed and
+        // reaped here, as when a wait thread did not start.
+        return Err(
+            anyhow::Error::new(unwatched.into_error()).context("watch the terminal's child")
+        );
+    }
+    Ok(())
 }
 
 impl Surface {
@@ -374,7 +450,7 @@ impl Surface {
             reader,
             writer,
             killer: Box::new(BackendKiller(side.clone())),
-            wait: Box::new(move || wait_end(&side)),
+            end: LocalEnd::Wait(Box::new(move || wait_end(&side))),
             pid: None,
             command,
             cwd: None,

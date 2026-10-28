@@ -3,6 +3,7 @@ import CmuxNextAgentActivity
 @testable import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -44,9 +45,10 @@ struct SidebarPriorityRemoteRowsTests {
     }
 
     /// The feed of `chats`, running on a sidebar as a window's does.
-    static func running(_ chats: AgentPriorityChats) -> (feed: SidebarPriorityFeed, task: Task<Void, Never>) {
+    static func running(_ chats: AgentPriorityChats) -> (feed: SidebarPriorityFeed, task: ServiceObservation<SidebarPriorityPanel?>) {
         let feed = SidebarPriorityFeed(settings: .init(enabled: { true }, shown: { true }),
-                                       hooks: .init(shortcut: { nil }, open: { _ in }, rowAction: { _ in }, toggleShown: {}), chats: chats)
+                                       hooks: .init(shortcut: { nil }, open: { _ in }, rowAction: { _ in }, toggleShown: {}), chats: chats,
+                                       deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         let view = SidebarView(model: SidebarModel(sections: []), design: DesignSettings())
         return (feed, feed.start(view))
     }
@@ -271,7 +273,8 @@ struct SidebarPriorityRemoteRowsTests {
     @Test func archivingARemoteRowDoesNothing() throws {
         let vm = Remote.tree([Remote.chatTab(1, session: "vm-done", host: "install:vm", title: "Bump", notice: (95, .info, unread: true))])
         let chats = Self.chats { [SidebarPriorityMachine(name: "gpu-box", store: vm)] }
-        #expect(!chats.archive("vm-done"), "no acpmux here owns another machine's chat")
+        #expect(!chats.archive("vm-done", on: MainWorkScheduler(budget: MainFrameBudget()), as: .userBlocking),
+                "no acpmux here owns another machine's chat")
         #expect(chats.marks.state.archived.isEmpty)
         #expect(chats.entries().map(\.id) == ["vm-done"], "the row stays")
     }

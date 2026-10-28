@@ -55,8 +55,15 @@ extension HangReportService {
             fieldData = sources
             captureBlackBox = { await sources.captureBlackBox() }
         }
+        // Another process's frames are classified by name and UUID (ImageClassifier.frame(foreign:loaded:)), with this
+        // process's image of that UUID when one is loaded (the system libraries share the dyld cache).
+        let resolveForeign: HangReportCollector.ResolveForeign = { frames in
+            frames.map { frame in
+                builder.classifier.frame(foreign: frame, loaded: frame.uuid.flatMap { builder.resolver.image(uuid: $0.uppercased()) })
+            }
+        }
         let collector = HangReportCollector(resolve: resolve, resolveBlocking: resolveBlocking, captureBlackBox: captureBlackBox,
-                                            keepsThreadHangs: builder.wireSchema.carriesThreadHangs)
+                                            keepsThreadHangs: builder.wireSchema.carriesThreadHangs, resolveForeign: resolveForeign)
         let mainThread = builder.wireSchema.carriesMainThread ? MainThreadReportLedger(histograms: mainThreadHistograms) : nil
         let blocking = builder.wireSchema.carriesBlockingSites ? BlockingSiteLedger(sites: blockingSites) : nil
         let info = Bundle.main.infoDictionary ?? [:]

@@ -244,7 +244,7 @@ impl Translator {
             // Off the stdout loop, and only what was written since the last read.
             (Some((dir, tail)), None) => {
                 let read =
-                    tokio::task::spawn_blocking(move || tail.read(&dir)).await.ok().flatten();
+                    crate::daemon::spawn_blocking(move || tail.read(&dir)).await.ok().flatten();
                 match read {
                     Some(tail) => {
                         let counts = json!({"done": tail.done, "started": tail.started});

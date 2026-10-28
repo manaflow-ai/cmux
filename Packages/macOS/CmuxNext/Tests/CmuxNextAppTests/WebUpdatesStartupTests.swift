@@ -22,10 +22,11 @@ import Testing
         func add() { value.withLock { $0 += 1 } }
     }
 
-    /// A ``WebUpdates`` on its own overlay and served views, whose transport answers every pointer
-    /// read 304 (unchanged) and counts the reads, following `updates.web: every-merge`.
-    private final class Rig {
-        let clock = ManualClock()
+    /// A ``WebUpdates`` on its own overlay, whose transport answers every pointer
+    /// read 304 (unchanged) and counts the reads, following `updates.web: every-merge`. Its checks
+    /// are deadlines on a rig's scheduler whose wakes the test fires (p06-scheduler-338).
+    @MainActor private final class Rig {
+        let deadlines = MainDeadlineRig(framed: false)
         let root: URL
         let overlay = WebBundleOverlay(bases: [])
         let web: WebUpdates
@@ -46,9 +47,8 @@ import Testing
                     let response = try #require(HTTPURLResponse(url: url, statusCode: 304, httpVersion: nil, headerFields: nil))
                     return (Data(), response)
                 },
-                download: { _ in throw URLError(.cancelled) },
-                clock: clock)
-            web = WebUpdates(overlay: overlay, servedViews: WebBundleServedViews(), transport: transport)
+                download: { _ in throw URLError(.cancelled) })
+            web = WebUpdates(overlay: overlay, transport: transport)
             let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
             let app = WebUpdater.App(abi: 2, webBuiltAt: 1_700_000_000)
             launch = LaunchRead<WebUpdates.Launch?>(on:WebUpdatesStartupTests.work, dropped: .some(nil)) {
@@ -62,7 +62,9 @@ import Testing
         func prepare() {
             var settings = UpdatesSettings()
             settings.web = .everyMerge
-            web.prepare(settings, launch: launch, files: WebUpdatesStartupTests.work, energy: EnergyPolicySource(), shown: nil)
+            web.prepare(settings, launch: launch, inputs: WebUpdates.Inputs(
+                files: WebUpdatesStartupTests.work, energy: EnergyPolicySource(), shown: nil, deadlines: deadlines.deadlines,
+                appEvents: AppEvents(center: NotificationCenter()), checkNode: nil))
         }
 
         /// Waits until the launch check settled: the pages' first request waits for it, and it
@@ -70,6 +72,16 @@ import Testing
         func launchSettled() async {
             _ = await launch.finished()
             _ = await overlay.root(for: root)
+        }
+
+        /// The time left until the booked check's wake (nil: none is booked).
+        var booked: Duration? { deadlines.deadlines.nextFire }
+
+        /// Waits until a check is booked again (a check's end books the next one on main).
+        func waitForBooking() async throws {
+            let deadline = ContinuousClock.now + .seconds(3)
+            while booked == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+            try #require(booked != nil, "the check booked no next one")
         }
 
         /// Waits for the next pointer read.
@@ -98,18 +110,20 @@ import Testing
         let updater = try #require(rig.web.updater, "the launch read made no updater")
         #expect(updater.channel == .everyMerge)
         #expect(updater.checksHeld, "an updater made before startup completed was not held")
-        #expect(rig.clock.sleeperCount == 0, "a held updater booked a check")
+        #expect(rig.booked == nil, "a held updater booked a check")
         // test-deadline: a bound on a wait that must find nothing, not a settle
         #expect(await rig.readStarts(within: .milliseconds(300)) == false, "the pointer was read before startup completed")
         #expect(rig.readCount.count == 0)
 
         rig.web.startChecks()
         #expect(!updater.checksHeld)
+        #expect(rig.booked != nil, "no check was booked")
+        rig.deadlines.fireAndRun()
         await rig.nextRead()
-        try await rig.clock.waitForSleeper()
+        try await rig.waitForBooking()
         #expect(rig.readCount.count == 1)
         // The next read waits an interval (a minute in the front, ten behind other apps).
-        #expect((rig.clock.sleepRequests.last?.deadline.offset ?? .zero) >= .seconds(60))
+        #expect((rig.booked ?? .zero) >= .seconds(60))
         updater.noteShown(false)
     }
 
@@ -124,11 +138,13 @@ import Testing
         await rig.launchSettled()
         let updater = try #require(rig.web.updater, "the launch read made no updater")
         #expect(!updater.checksHeld, "an updater made after startup completed was held")
+        #expect(rig.booked != nil, "no check was booked")
+        rig.deadlines.fireAndRun()
         await rig.nextRead()
-        try await rig.clock.waitForSleeper()
+        try await rig.waitForBooking()
         #expect(rig.readCount.count == 1)
         // The next read waits an interval (a minute in the front, ten behind other apps).
-        #expect((rig.clock.sleepRequests.last?.deadline.offset ?? .zero) >= .seconds(60))
+        #expect((rig.booked ?? .zero) >= .seconds(60))
         updater.noteShown(false)
     }
 }

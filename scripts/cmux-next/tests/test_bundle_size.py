@@ -116,6 +116,74 @@ def test_real_budget_rejects_the_x86_64_snapshot(tmp: Path) -> None:
     assert "v8_context_snapshot.x86_64.bin" in r.stderr, r.stderr
 
 
+def load_tool():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("bundle_size_under_test", TOOL)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def story_values(tool):
+    writer = tool._load("perf_result", ROOT / "scripts/perf-lab/perf_result.py")
+    build = writer.Build(sha="c" * 40, config="bench", measure_version=tool.STORY_MEASURE_VERSION)
+    host = writer.Host(fingerprint="d" * 64, host_class="apple-m6/16gb/0hz", chip="Apple M6", macos="26.1",
+                       macos_build="25B78", display_hz=None)
+    return writer, build, host
+
+
+def test_story_writes_result_v1_of_the_app_and_its_cef_framework(tmp: Path) -> None:
+    tool = load_tool()
+    writer, build, host = story_values(tool)
+    app = make_app(tmp)
+    out = tmp / "out"
+    path = tool.write_story(app, out, build, host)
+    stored = {r.metric: r for r in writer.read_file(path)}
+    assert sorted(stored) == ["bundle.app_bytes", "bundle.cef_framework_bytes"], sorted(stored)
+    assert stored["bundle.app_bytes"].samples == [4600], stored["bundle.app_bytes"].samples
+    assert stored["bundle.cef_framework_bytes"].samples == [3100], stored["bundle.cef_framework_bytes"].samples
+    assert {(r.story, r.unit, r.better, r.engine) for r in stored.values()} == {("bundle-size", "bytes", "lower", "none")}
+    import hashlib
+    digest = "sha256:" + hashlib.sha256((out / tool.REPORT_FILE).read_bytes()).hexdigest()
+    assert {a.digest for r in stored.values() for a in r.attachments} == {digest}
+
+
+def test_story_metrics_are_the_ones_its_story_claims(tmp: Path) -> None:
+    import re
+    tool = load_tool()
+    story = json.loads((ROOT / "scripts/perf-lab/stories.d/bundle-size.json").read_text())
+    assert story["command"][:2] == ["scripts/cmux-next/bundle-size.py", "story"], story["command"]
+    _, series = tool.story_series(make_app(tmp))
+    for metric, _size in series:
+        assert any(re.fullmatch(m["name"], metric) and m["unit"] == "bytes" for m in story["metrics"]), metric
+
+
+def test_story_refuses_an_app_without_cef_and_writes_nothing(tmp: Path) -> None:
+    tool = load_tool()
+    _, build, host = story_values(tool)
+    app = tmp / "cmux DEV x.app"
+    write(app, "Contents/MacOS/cmux DEV", 10)
+    try:
+        tool.write_story(app, tmp / "out", build, host)
+    except tool.StoryError as error:
+        assert "Chromium Embedded Framework" in str(error), error
+    else:
+        raise AssertionError("an app without CEF was measured")
+    assert not (tmp / "out").exists()
+
+
+def test_story_cli_refuses_a_bundle_with_no_build_sha(tmp: Path) -> None:
+    app = make_app(tmp)
+    out = tmp / "out"
+    env = {k: v for k, v in os.environ.items() if k not in ("CMUX_CI_SHA", "PERF_LAB_CONFIG")}
+    r = subprocess.run([sys.executable, "-I", str(TOOL), "story", "--app", str(app), "--out", str(out)],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 2, (r.returncode, r.stderr)
+    assert "story refused" in r.stderr and "no build sha" in r.stderr, r.stderr
+    assert not out.exists() or not list(out.glob("*.ndjson"))
+
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

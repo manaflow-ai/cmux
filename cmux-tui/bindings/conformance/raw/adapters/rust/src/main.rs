@@ -353,6 +353,7 @@ fn close_pending_stream(request: &Request) -> Result<Value, CmuxError> {
     let mut stream = open_stream(&mut client, request)?;
     let closer = stream.closer();
     let (sender, receiver) = mpsc::channel();
+    // supervise-allow: one probe of this conformance adapter; a panic drops `sender`, so the recv_timeout below ends at once and reports unblocked false.
     thread::spawn(move || {
         let _ = stream.recv();
         let _ = sender.send(());

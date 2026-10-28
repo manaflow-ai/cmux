@@ -1,5 +1,6 @@
 public import Foundation
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// The one web theme (plans/cmux-next/windows.md, "One background token"):
 /// the CSS custom properties every cmux web page reads, from the same

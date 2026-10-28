@@ -947,6 +947,10 @@
         "id": 2570,
         "priority": "control"
       },
+      "memory-report": {
+        "id": 277,
+        "priority": "background"
+      },
       "mint-terminal-renderer": {
         "id": 778,
         "priority": "control"
@@ -1355,6 +1359,10 @@
         "id": 1543,
         "priority": "control"
       },
+      "set-stream-priority": {
+        "id": 795,
+        "priority": "input"
+      },
       "set-tab-pinned": {
         "id": 1812,
         "priority": "control"
@@ -1713,6 +1721,10 @@
         "id": 50178,
         "priority": "control"
       },
+      "input-failed": {
+        "id": 49165,
+        "priority": "control"
+      },
       "keybindings-changed": {
         "id": 49670,
         "priority": "control"
@@ -1816,6 +1828,10 @@
       "scroll-changed": {
         "id": 49161,
         "priority": "control"
+      },
+      "server-diagnostic-site": {
+        "id": 49676,
+        "priority": "background"
       },
       "settings-changed": {
         "id": 49674,

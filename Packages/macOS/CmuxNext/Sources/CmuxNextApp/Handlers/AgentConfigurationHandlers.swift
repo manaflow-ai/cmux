@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextSettings
 import Foundation
 
 /// The command-palette/CLI/MCP setters for a live agent chat's model, effort
@@ -67,39 +68,47 @@ enum AgentConfigurationHandlers {
             default: return previous?(source) ?? []
             }
         }
-        let center = context.services.agentHarnesses
-        Task { @MainActor in
+        let center = context.services.agentHarnesses, mainWork = context.services.mainWork
+        // The catalog is asked and sorted off main; only the palette reads it, so it lands in one background task.
+        context.services.work.task(.bestEffort) {
             guard let answer = try? await center.models(), let harnesses = answer["harnesses"]?.arrayValue else { return }
-            var modelsByHarness: [String: [String: ActionEnumCase]] = [:]
-            for harness in harnesses {
-                guard let harnessID = harness["harness"]?.stringValue,
-                      let models = harness["models"]?.arrayValue else { continue }
-                var choices: [String: ActionEnumCase] = [:]
-                for model in models {
-                    if let id = model.stringValue, !id.isEmpty {
-                        choices[id] = ActionEnumCase(value: id, title: id)
-                    } else if let id = model["id"]?.stringValue, !id.isEmpty {
-                        choices[id] = ActionEnumCase(value: id, title: model["name"]?.stringValue ?? id)
-                    }
+            let catalog = modelCatalog(harnesses)
+            mainWork.postFromAnyThread(.background, owner: "AgentConfigurationHandlers.models") { store.modelsByHarness = catalog }
+        }
+    }
+
+    /// The palette's model rows per harness id from `_acpmux/models`' `harnesses`, sorted by title, plus each
+    /// harness's last path component as an alias when no two harnesses share it.
+    nonisolated static func modelCatalog(_ harnesses: [CmuxNextSettings.JSONValue]) -> [String: [ActionEnumCase]] {
+        var modelsByHarness: [String: [String: ActionEnumCase]] = [:]
+        for harness in harnesses {
+            guard let harnessID = harness["harness"]?.stringValue,
+                  let models = harness["models"]?.arrayValue else { continue }
+            var choices: [String: ActionEnumCase] = [:]
+            for model in models {
+                if let id = model.stringValue, !id.isEmpty {
+                    choices[id] = ActionEnumCase(value: id, title: id)
+                } else if let id = model["id"]?.stringValue, !id.isEmpty {
+                    choices[id] = ActionEnumCase(value: id, title: model["name"]?.stringValue ?? id)
                 }
-                modelsByHarness[harnessID] = choices
             }
-            var aliases: [String: [String: ActionEnumCase]] = [:]
-            var collisions = Set<String>()
-            for (harnessID, choices) in modelsByHarness {
-                guard let short = harnessID.split(separator: "/").last.map(String.init) else { continue }
-                if aliases[short] != nil { collisions.insert(short) } else { aliases[short] = choices }
-            }
-            for collision in collisions {
-                aliases[collision] = nil
-                // The pane records only the final harness component. If a
-                // peer and local profile share it, fail closed instead of
-                // showing either profile's models for an ambiguous session.
-                modelsByHarness[collision] = nil
-            }
-            store.modelsByHarness = modelsByHarness.merging(aliases) { current, _ in current }.mapValues { choices in
-                choices.values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-            }
+            modelsByHarness[harnessID] = choices
+        }
+        var aliases: [String: [String: ActionEnumCase]] = [:]
+        var collisions = Set<String>()
+        for (harnessID, choices) in modelsByHarness {
+            guard let short = harnessID.split(separator: "/").last.map(String.init) else { continue }
+            if aliases[short] != nil { collisions.insert(short) } else { aliases[short] = choices }
+        }
+        for collision in collisions {
+            aliases[collision] = nil
+            // The pane records only the final harness component. If a
+            // peer and local profile share it, fail closed instead of
+            // showing either profile's models for an ambiguous session.
+            modelsByHarness[collision] = nil
+        }
+        return modelsByHarness.merging(aliases) { current, _ in current }.mapValues { choices in
+            choices.values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         }
     }
 

@@ -173,12 +173,77 @@ Cleanup follows the measured damage owners (`render-idle-damage.py`, task 003), 
 
 | cmux | Chrome |
 |---|---|
-| Spike task 017 selects the form for Ghostty: a `CAMetalLayer` for each surface that presents on the renderer thread (`presentsWithTransaction = false`, the in-tree `CmuxNextRemoteView/Present/MetalFramePresenter.swift`), or a `CAContext` for each renderer shown through a `CALayerHost`. | `gpu/ipc/service/image_transport_surface_overlay_mac.h`: the GPU process commits its own context. |
+| Spike task 017 selects the form for Ghostty: a `CAMetalLayer` for each surface that presents on the renderer thread (`presentsWithTransaction = false`, the in-tree `CmuxNextRemoteView/Present/MetalFramePresenter.swift`), or a `CAContext` for each renderer shown through a `CALayerHost`. See "Spike 017" below. | `gpu/ipc/service/image_transport_surface_overlay_mac.h`: the GPU process commits its own context. |
 | The renderer is the only writer of the presented contents. Main hides, shows and purges through a Ghostty API. A path with two writers uses a monotonic frame sequence, so an old frame never replaces a newer one. | One producer for each surface (`components/viz/service/surfaces/surface.h`). |
 | External vsync from `VSyncHub` replaces the `CVDisplayLink` of each surface. Only dirty, visible surfaces arm. `wakeup_cb` ticks coalesce to one for each frame. | `components/viz/service/frame_sinks/external_begin_frame_source_mac.h`. |
 
 Rejected: a `CATransaction` on the renderer thread into a layer of the tree that main owns. It causes lock
 contention with the main commit, priority inversion and a teardown race (rule 5 in section 4).
+
+#### Spike 017: Ghostty present form
+
+Prototype: ghostty-next branch `cp/p03-rendering-017`. The Ghostty config key `macos-present-form` selects the
+form when the surface is made; the default `main-contents` is the shipped path. Files:
+`src/renderer/metal/OffMainPresenter.zig` (both off-main forms), `src/renderer/Metal.zig` and
+`src/renderer/metal/Frame.zig` (the hooks), `src/renderer/metal/IOSurfaceLayer.zig` (the overlay generation),
+`src/renderer/metal/PresentHistogram.zig` (the wait histogram).
+
+| Form | What the renderer does for each frame | Main thread |
+|---|---|---|
+| `main-contents` (shipped) | Sets the frame as the contents of `IOSurfaceLayer` through `dispatch_async` to main | One turn for each frame |
+| (a) `metal-layer` | Copies the frame into a drawable of a `CAMetalLayer` and calls `presentDrawable:` on the command buffer (`presentsWithTransaction = false`). No CA transaction. | No turn for each frame |
+| (b) `layer-host` | Sets the frame as the contents of the root layer of its own `CAContext`, in a transaction that it commits; a `CALayerHost` under a flipped layer shows that context (Chrome: `gpu/ipc/service/image_transport_surface_overlay_mac.h`, `ui/accelerated_widget_mac/display_ca_layer_tree.h`) | No turn for each frame |
+
+Both off-main forms use the same main-thread rule:
+- The off-main layer (the overlay) is a sublayer of `IOSurfaceLayer`. Main writes the overlay (`hidden`,
+  `drawableSize`, `contentsScale`); the renderer writes only drawables (a) or its own context (b).
+- A frame for a new size is still presented by main in its own transaction (the resize pre-commit of G1,
+  `presentHostSized`). That present hides the overlay and starts a new overlay generation.
+- The first frame that the renderer encodes after the hide posts one reveal of that generation. The reveal shows
+  the overlay and clears the root contents. A reveal of an older generation does nothing, so the overlay never
+  comes back with a frame older than the one that main presented. Cost: one main turn for each resize, not for
+  each frame.
+
+Measure: `scripts/cmux-next/ghostty-present-form-bench.py --app APP --out OUT --vdisplay 120` on a fleet GUI mini,
+with a cmux build that embeds the spike branch. It runs 10 terminals with `yes` in each form and records main time
+for each frame and missed frames (`debug.frames`), xctrace Animation Hitches and commit times, Ghostty frames, one
+resize, and the teardown of the 10 terminals while `yes` writes. Each renderer logs its counters when it is freed
+(os_log category `present_form`): frames sent to main, frames shown off main, refused frames, main presents,
+reveals, and the off-main wait (a: `nextDrawable`; b: the commit of the renderer's own transaction, the signal for
+lock contention with the main commit).
+
+| 10 `yes` terminals, 120 Hz | `main-contents` | (a) `metal-layer` | (b) `layer-host` |
+|---|---|---|---|
+| Main turns for each Ghostty frame (`main_hops_per_frame`) | not measured | not measured | not measured |
+| Main time for each display frame p95 (ms) | not measured | not measured | not measured |
+| Main CA commit p95 (ms, hitches-updates) | not measured | not measured | not measured |
+| Hitches in 3 x 10 s | not measured | not measured | not measured |
+| Off-main wait p50 / p95 / max (us) | - | not measured | not measured |
+| Teardown with `yes` running: app answers, renderers logged | not measured | not measured | not measured |
+
+Status: the numbers are not recorded. The spike branch was written on a Linux host, where Ghostty's macOS renderer
+does not compile and no app can run. The next fleet round must run `zig build test` on the spike branch and the bench
+above, and put the numbers in this table.
+
+Choice (provisional until the table has numbers): (a) `metal-layer`.
+- It is public API with no SPI (risk 11 in section 4), and it is the in-tree pattern
+  (`CmuxNextRemoteView/Present/MetalFramePresenter.swift`).
+- A drawable present has no CA transaction at all, so it cannot contend with the main commit. Form (b) still
+  commits a transaction on the renderer thread, in its own context.
+- It gives a true presented time (`addPresentedHandler:`), which difference 5 below needs for Ghostty.
+- The chosen form has no CATransaction off main into a layer that an `NSView` owns: the renderer calls only
+  `nextDrawable` and `presentDrawable:` and sets no layer property.
+- Teardown: `Metal` keeps its reference to the overlay until `Metal.deinit`, which runs after the renderer thread
+  stopped and its frames completed. A frame in flight holds its drawable, and the drawable holds the layer.
+- (b) replaces (a) if the bench shows a p99 `nextDrawable` wait over 2 ms, or more hitches than `main-contents`.
+
+Costs of (a) that task 080 must remove before it ships:
+- One copy for each frame and 3 drawables for each surface, next to the 3 IOSurfaces of the swap chain. Task 080
+  draws into the drawable and keeps an IOSurface only for the resize frame. Measure the bytes with `bench_memory.py`.
+- `nextDrawable` runs under the renderer's draw mutex, and a main-thread synchronous draw (the first frame) takes the
+  same mutex. Task 080 gets the drawable before it takes the mutex.
+- The reveal is a `dispatch_async` to main. Task 080 moves it into the display pass of the embedder, so that no
+  Ghostty code posts work to main.
 
 #### Ghostty integrator lane (task 079)
 

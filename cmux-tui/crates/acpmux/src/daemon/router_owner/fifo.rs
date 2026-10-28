@@ -164,6 +164,7 @@ fn let_go(owner: FifoOwner, stop: bool) {
         drop(child);
         return;
     }
+    crate::daemon::hang_watch::will_block();
     if matches!(child.wait_timeout(ROUTER_STOP_BUDGET), Ok(Some(_))) {
         return;
     }

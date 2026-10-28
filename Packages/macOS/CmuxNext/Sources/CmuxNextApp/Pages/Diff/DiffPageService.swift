@@ -1,8 +1,11 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextControl
+import CmuxNextDaemonService
 import CmuxNextDesign
 import typealias CmuxNextDaemon.SurfaceID
 import CmuxNextDiff
@@ -11,6 +14,7 @@ import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 
 extension InternalPageID {
     /// The diff viewer (diff-host.md Q4: a pane tab in the workspace).
@@ -49,30 +53,44 @@ final class DiffPageService: InternalPageProvider {
         var viewState: JSONValue?
     }
 
-    // crash-allow: AppServices owns this service for the app's whole life (ViewerService's lazy page services), so it outlives it.
-    private unowned let services: AppServices
+    private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
+    /// This Mac's agent git link (``AppServices/agentGit``) and the launch's identity, read when the service is made.
+    private let localGit: AgentPaneGitLink
+    private let launch: LaunchIdentity
+    /// The app's main-thread work scheduler (``AppServices/mainWork``), read when the service is made.
+    private let mainWork: MainWorkScheduler
     /// Made on the first tab (tests pass their own).
-    private lazy var runtime = DiffPageRuntime(git: services.agentGit.local)
-    private lazy var recentsStore = DiffRecents(url: DiffRecents.standardURL(launch: services.environment.launch))
+    private lazy var runtime = DiffPageRuntime(git: localGit, mainWork: mainWork)
+    private lazy var recentsStore = DiffRecents(url: DiffRecents.standardURL(launch: launch))
     /// Prefs (`diff.*` settings) and viewed marks (next to the recents), shared by every tab.
-    private lazy var stores = DiffPageStores(prefs: SettingsDiffPrefs { [weak services] in services?.settings },
+    private lazy var stores = DiffPageStores(prefs: SettingsDiffPrefs(mainWork: mainWork) { [servicesReference] in servicesReference.resolve()?.settings },
                                              viewed: DiffViewedFiles(url: DiffViewedFiles.standardURL(recents: recentsStore.url)))
     /// The diff page draws at the display's full rate (120 Hz), as the agent pane does, not
     /// WebKit's default nearest 60 fps.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
     /// Every tab's Stage, Commit and Push (cx-ueuc8), through this Mac's agent git link.
-    private lazy var diffGit: any DiffGitRunning = DiffAgentGit(link: services.agentGit.local)
+    private lazy var diffGit: any DiffGitRunning = DiffAgentGit(link: localGit)
     /// The folder picker of `cmux.diff.chooseFolder`.
     var chooser: any DiffFolderChoosing = OpenPanelFolderChooser()
     var tabs: [String: Tab] = [:]
     /// Teardowns still closing sessions (tests wait on them).
-    private(set) var closing: [Task<Void, Never>] = []
+    private(set) var closing: [UUID: Task<Void, Never>] = [:]
     /// The clock of the view state deadline (``viewStateTimeout``).
     let clock: any Clock<Duration>
+    /// Replies to the tabs' async calls (a card's reopen), each on its tab's node queue: held while the
+    /// tab is hidden, dropped when it closes.
+    private lazy var replies = PageTabReplies(owner: "diff.page-reply", on: mainWork) { [servicesReference] key in
+        servicesReference.resolve().map { $0.cache.node(for: $0.pages.stripTab(ofKey: key)) }
+    }
 
     init(services: AppServices, runtime: DiffPageRuntime? = nil, recents: DiffRecents? = nil, stores: DiffPageStores? = nil,
          clock: any Clock<Duration> = ContinuousClock()) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
+        localGit = services.agentGit.local
+        launch = services.environment.launch
+        mainWork = services.mainWork
         self.clock = clock
         if let runtime { self.runtime = runtime }
         if let recents { recentsStore = recents }
@@ -134,13 +152,14 @@ final class DiffPageService: InternalPageProvider {
         guard let provider = tabs[key]?.provider, let page = tabs[key]?.page else { return }
         let previous = tabs[key]?.reopen
         previous?.cancel()
-        // task-owner: one reopen of this tab's repository, after the one before it; ends when the page reloads or a newer card takes over
-        tabs[key]?.reopen = Task {
+        let folder = URL(fileURLWithPath: repository.root, isDirectory: true)
+        // The open runs after the one before it; the reload is its reply on the tab's queue. A newer card cancels it.
+        tabs[key]?.reopen = replies.reply(for: key) {
             await previous?.value
-            guard !Task.isCancelled,
-                  (try? await provider.open(folder: URL(fileURLWithPath: repository.root, isDirectory: true), source: .turn)) != nil,
-                  !Task.isCancelled else { return }
-            page.reload()
+            guard !Task.isCancelled, (try? await provider.open(folder: folder, source: .turn)) != nil else { return false }
+            return !Task.isCancelled
+        } apply: { [weak page] opened in
+            if opened { page?.reload() }
         }
     }
 
@@ -154,6 +173,7 @@ final class DiffPageService: InternalPageProvider {
     /// tab (`created` gets its surface); else as an app-only tab.
     private func show(in pane: PaneController, focus: Bool, _ tab: Tab, created: (@MainActor (SurfaceID) -> Void)?,
                       matching: (Tab) -> Bool) -> String {
+        guard let services else { return "" }
         let window = services.windowController(showing: pane)
         for candidate in window?.content?.panes.values.map({ $0 }) ?? [pane] {
             let keys = services.pages.tabIDs(in: candidate.paneKey) + candidate.pane.tabs.compactMap { services.pages.storeKey(of: $0.id) }
@@ -175,14 +195,15 @@ final class DiffPageService: InternalPageProvider {
     }
 
     private func reveal(_ key: String, in pane: PaneController) {
+        guard let services else { return }
         pane.select(services.pages.stripID(showing: key, in: pane) ?? StripTabID(key))
         pane.focusContent()
     }
 
     private func record(_ repository: DiffRepository, source: DiffOpenSource) {
         let recents = recentsStore
-        // task-owner: one ordered append to the recents file; DiffRecents chains its writes
-        Task { await recents.record(repository, source: source) }
+        // task-owner: one ordered append to the recents file; DiffRecents chains its writes. It only starts it.
+        Task { @concurrent in await recents.record(repository, source: source) }
     }
 
     /// The repository root the tab opened on (page-tab-route-v1).
@@ -224,7 +245,7 @@ final class DiffPageService: InternalPageProvider {
         if tabs[key]?.repository?.root != repository.root { tabs[key]?.turn = nil }
         tabs[key]?.repository = repository
         tabs[key]?.source = source
-        if let pane = services.paneController(showingTab: key) { pane.apply(pane.snapshot()) }
+        if let pane = services?.paneController(showingTab: key) { pane.apply(pane.snapshot()) }
     }
 
     /// The page a file of the diff opens on in a tab (D4): its source in the code editor, at the
@@ -249,6 +270,7 @@ final class DiffPageService: InternalPageProvider {
     /// ``filePage(for:line:)``; the editor app goes through `file.open`, Finder through the reveal.
     /// False when nothing opened (the page then says so).
     fileprivate func openFile(_ file: URL, line: Int?, target: DiffFileTarget, from key: String) -> Bool {
+        guard let services else { return false }
         guard let pane = services.linkOpener.source(tab: key) else { return false }
         switch target {
         case .tab:
@@ -276,6 +298,7 @@ final class DiffPageService: InternalPageProvider {
     // MARK: InternalPageProvider
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        guard let services else { return NSView() }
         // A store tab restored without its repository (the daemon keeps only
         // its page) shows the empty state: recents and a folder chooser.
         var tab = tabs[key] ?? Tab(repository: nil, source: .default)
@@ -329,6 +352,7 @@ final class DiffPageService: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         guard let tab = tabs.removeValue(forKey: key) else { return }
+        replies.close(key)
         release(tab)
     }
 
@@ -337,12 +361,10 @@ final class DiffPageService: InternalPageProvider {
         tab.reopen?.cancel()
         tab.page?.close()
         guard let provider = tab.provider else { return }
-        let teardown = Task { await provider.close() }
-        closing.append(teardown)
-        // task-owner: drops the finished teardown from `closing`
-        Task { [weak self] in
-            await teardown.value
-            self?.closing.removeAll { $0 == teardown }
+        let id = UUID()
+        // The close of its sessions and grant, then a reply with no tab (the tab closed): it leaves `closing`.
+        closing[id] = replies.reply(for: nil) { await provider.close() } apply: { [weak self] _ in
+            self?.closing[id] = nil
         }
     }
 
@@ -419,8 +441,12 @@ final class DiffTabHost: DiffTabHosting {
     func repository(at folder: URL) async -> DiffRepository? { await service?.repository(at: folder) }
 
     func prepare(_ repository: DiffRepository, source: DiffOpenSource) -> Task<DiffTabReady, any Error> {
-        service?.prepare(repository, source: source, for: key)
-            ?? Task { throw DiffTabFailure(title: repository.name, message: DiffPageStrings.unavailable) }
+        guard let service else {
+            // The service is gone: a task that fails at once, off main.
+            let failure = DiffTabFailure(title: repository.name, message: DiffPageStrings.unavailable)
+            return Task { @concurrent in throw failure }
+        }
+        return service.prepare(repository, source: source, for: key)
     }
 
     func recents() async -> JSONValue { await service?.recents.page() ?? ["items": .array([])] }

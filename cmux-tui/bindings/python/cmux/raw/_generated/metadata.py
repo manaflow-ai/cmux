@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be'
+IR_SHA256 = '974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc'
 
 
 @dataclass(frozen=True)
@@ -1046,6 +1046,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'features': CommandFieldMetadata(None, None),
             'install_id': CommandFieldMetadata(None, None),
             'page': CommandFieldMetadata(None, None),
             'proof': CommandFieldMetadata(None, None),
@@ -2765,6 +2766,16 @@ COMMANDS = {
             'authority': CommandFieldMetadata(None, None),
         },
     ),
+    'memory-report': CommandMetadata(
+        'memory-report',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'mint-terminal-renderer': CommandMetadata(
         'mint-terminal-renderer',
         'frontend',
@@ -4201,6 +4212,18 @@ COMMANDS = {
             'transaction': CommandFieldMetadata(9, 'layout-undo-v1'),
         },
     ),
+    'set-stream-priority': CommandMetadata(
+        'set-stream-priority',
+        'frontend',
+        12,
+        'attach-streams-v1',
+        ('frontend',),
+        None,
+        {
+            'priority': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-tab-pinned': CommandMetadata(
         'set-tab-pinned',
         'control',
@@ -4885,6 +4908,7 @@ EVENTS = {
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'history-changed': EventMetadata('history-changed', 12, 'history-v1', ('subscribe',), 'emitted'),
+    'input-failed': EventMetadata('input-failed', 12, 'ipc-frames-v2', ('attach-byte',), 'emitted'),
     'keybindings-changed': EventMetadata('keybindings-changed', 12, 'keybindings-v1', ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'loopback-closed': EventMetadata('loopback-closed', 12, 'loopback-forward-v1', ('control',), 'emitted'),
@@ -4911,6 +4935,7 @@ EVENTS = {
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'script-log': EventMetadata('script-log', 12, None, ('control',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'server-diagnostic-site': EventMetadata('server-diagnostic-site', 12, 'diagnostic-sites-v1', ('subscribe',), 'emitted'),
     'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),

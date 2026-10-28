@@ -18,7 +18,17 @@
 //! `apps.enable`, `workspace.agent_folder.set`, `history.backups.purge`,
 //! `history.visit.record`, `history.visit.title`, `history.visit.import`
 //! and `history.trail.record` need origin `user`.
+//!
+//! Page streams (`page-streams-v1`, request-origin.md "Page streams"): one
+//! streamed page relay connection carries every page of the app, one stream
+//! per page, as Mojo carries many associated endpoints over one message pipe
+//! (`mojo/public/cpp/bindings/README.md`, "Associated Interfaces"). A
+//! stream's page is fixed when it opens and lasts its whole life; every
+//! request names its stream in its `origin` claim and is judged with that
+//! page's allow list, and a confirmation token is bound to one stream.
 
+use std::collections::BTreeMap;
+use std::num::NonZeroU16;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
@@ -129,6 +139,43 @@ pub struct OriginClaim {
     pub claim: RequestOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confirmation: Option<String>,
+    /// The page stream the request speaks for (`page-streams-v1`): required
+    /// on a streamed page relay, refused on every other connection. Stream 0
+    /// is the connection's own (open and close only), so it names no page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream: Option<NonZeroU16>,
+}
+
+/// Advertised in a streamed page relay's `client-hello` reply
+/// (`page_streams: true`): `open-stream {stream, page}`, `close-stream
+/// {stream}` and the `origin.stream` claim member.
+pub(crate) const PAGE_STREAMS_CAPABILITY: &str = "page-streams-v1";
+
+/// The open page streams of one streamed page relay connection.
+#[derive(Default)]
+pub(crate) struct PageStreams {
+    open: BTreeMap<NonZeroU16, PageStream>,
+}
+
+/// One open page stream: its page, fixed for the stream's life.
+struct PageStream {
+    page: String,
+    /// The `relay_connection_id` the verified app names to
+    /// `origin.confirmation.issue` for this stream. It comes from the
+    /// connection id counter, so it names no connection and is never
+    /// reused: a token for a closed stream cannot reach a reopened one.
+    relay_id: u64,
+}
+
+/// Why a page stream did not open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OpenStreamRefusal {
+    /// The connection is not a streamed page relay.
+    NotStreamed,
+    /// The id names an open stream, whose page never changes.
+    InUse,
+    /// The connection has as many open page streams as it may.
+    Limit,
 }
 
 /// What the daemon knows about one connection's origin. Lives in the
@@ -164,6 +211,10 @@ pub(crate) struct ConnectionOrigin {
     /// Admitted with a page-bound credential (`page-credential {page}`): its
     /// `subscribe` hears only its page's conversation events.
     pub(crate) scoped_page: bool,
+    /// A streamed page relay's open page streams (`page-streams-v1`), set by
+    /// its `client-hello {streams: true}`; `None` on every other connection.
+    /// Such a relay has no connection page: each request takes its stream's.
+    pub(crate) page_streams: Option<PageStreams>,
     /// Tokens issued for this connection as a relay (page relays only).
     confirmations: Vec<Confirmation>,
 }
@@ -174,6 +225,10 @@ struct Confirmation {
     /// (page-router-v1 namespaces).
     operation: String,
     params_sha256: String,
+    /// The page stream relay id the token was issued for, or `None` for a
+    /// one-page relay connection. Only a request on that endpoint may
+    /// present it.
+    endpoint: Option<u64>,
     /// Monotonic deadline ([`OriginClock::monotonic_ms`]).
     deadline_ms: u64,
 }
@@ -218,33 +273,49 @@ impl ConnectionOrigin {
         now_ms: u64,
     ) {
         let operation = operation.wire_name().to_owned();
-        self.store_named_confirmation(token, operation, params_sha256, deadline_ms, now_ms);
+        self.store_named_confirmation(token, operation, params_sha256, None, deadline_ms, now_ms);
     }
 
     /// [`Self::store_confirmation`] for an operation by wire name (catalog
-    /// or routed).
+    /// or routed), for `endpoint`: a page stream's relay id, or `None` for
+    /// a one-page relay connection.
     pub(crate) fn store_named_confirmation(
         &mut self,
         token: String,
         operation: String,
         params_sha256: String,
+        endpoint: Option<u64>,
         deadline_ms: u64,
         now_ms: u64,
     ) {
         self.confirmations.retain(|confirmation| confirmation.deadline_ms > now_ms);
-        if self.confirmations.len() >= MAX_CONFIRMATIONS_PER_RELAY {
-            self.confirmations.remove(0);
+        // The cap is per endpoint, so one page stream's gestures never
+        // evict another page's tokens.
+        let held = self.confirmations.iter().filter(|held| held.endpoint == endpoint).count();
+        if held >= MAX_CONFIRMATIONS_PER_RELAY
+            && let Some(oldest) =
+                self.confirmations.iter().position(|held| held.endpoint == endpoint)
+        {
+            self.confirmations.remove(oldest);
         }
-        self.confirmations.push(Confirmation { token, operation, params_sha256, deadline_ms });
+        self.confirmations.push(Confirmation {
+            token,
+            operation,
+            params_sha256,
+            endpoint,
+            deadline_ms,
+        });
     }
 
     /// Consumes `token` whatever the outcome (single use), and says whether
-    /// it was issued for exactly this operation and params and is live.
+    /// it was issued for exactly this operation, params and endpoint and is
+    /// live.
     fn consume_confirmation(
         &mut self,
         token: &str,
         operation: &str,
         params: &Value,
+        endpoint: Option<u64>,
         now_ms: u64,
     ) -> bool {
         let Some(index) = self
@@ -256,8 +327,84 @@ impl ConnectionOrigin {
         };
         let confirmation = self.confirmations.remove(index);
         confirmation.deadline_ms > now_ms
+            && confirmation.endpoint == endpoint
             && confirmation.operation == operation
             && cmux_local_auth::tokens_match(&params_sha256(params), &confirmation.params_sha256)
+    }
+
+    /// Opens page stream `stream` for `page` on a streamed page relay, with
+    /// `relay_id` as its confirmation endpoint. An open id is never rebound,
+    /// so the page is the stream's for its whole life. At most `limit`
+    /// streams are open at once.
+    pub(crate) fn open_page_stream(
+        &mut self,
+        stream: NonZeroU16,
+        page: String,
+        relay_id: u64,
+        limit: usize,
+    ) -> Result<(), OpenStreamRefusal> {
+        let streams = self.page_streams.as_mut().ok_or(OpenStreamRefusal::NotStreamed)?;
+        if streams.open.contains_key(&stream) {
+            return Err(OpenStreamRefusal::InUse);
+        }
+        if streams.open.len() >= limit {
+            return Err(OpenStreamRefusal::Limit);
+        }
+        streams.open.insert(stream, PageStream { page, relay_id });
+        Ok(())
+    }
+
+    /// Closes page stream `stream` and drops every token issued for it.
+    /// False when it was not open (closing is idempotent).
+    pub(crate) fn close_page_stream(&mut self, stream: NonZeroU16) -> bool {
+        let closed = self.page_streams.as_mut().and_then(|streams| streams.open.remove(&stream));
+        let Some(closed) = closed else { return false };
+        self.confirmations.retain(|confirmation| confirmation.endpoint != Some(closed.relay_id));
+        true
+    }
+
+    /// Whether `relay_id` names one of this connection's open page streams.
+    pub(crate) fn has_page_stream(&self, relay_id: u64) -> bool {
+        self.page_streams
+            .as_ref()
+            .is_some_and(|streams| streams.open.values().any(|open| open.relay_id == relay_id))
+    }
+
+    /// The confirmation endpoint of a request with `claim`, once its stream
+    /// tag fits the connection: on a streamed page relay every request names
+    /// an open stream; every other connection refuses a stream tag.
+    fn endpoint(&self, claim: Option<&OriginClaim>) -> Result<Option<u64>, ResourceError> {
+        let refusal = |message: &str, reason: &str| {
+            forbidden(message, json!({"derived": self.derive().wire_name(), "reason": reason}))
+        };
+        match (&self.page_streams, claim.and_then(|claim| claim.stream)) {
+            (Some(streams), Some(stream)) => match streams.open.get(&stream) {
+                Some(open) => Ok(Some(open.relay_id)),
+                None => Err(refusal("the page stream is not open", "stream_not_open")),
+            },
+            (Some(_), None) => Err(refusal(
+                "a request on a streamed page relay names its open page stream",
+                "stream_required",
+            )),
+            (None, Some(_)) => Err(refusal(
+                "only a streamed page relay connection carries page streams",
+                "page_stream_not_here",
+            )),
+            (None, None) => Ok(None),
+        }
+    }
+
+    /// The page a request with `claim` speaks for: its stream's on a
+    /// streamed page relay ([`Self::endpoint`] checked it is open), else the
+    /// connection's.
+    fn request_page(&self, claim: Option<&OriginClaim>) -> Option<&str> {
+        match &self.page_streams {
+            Some(streams) => {
+                let stream = claim?.stream?;
+                streams.open.get(&stream).map(|open| open.page.as_str())
+            }
+            None => self.page.as_deref(),
+        }
     }
 
     /// The origin of one request on this connection: the derived origin,
@@ -271,7 +418,8 @@ impl ConnectionOrigin {
         claim: Option<&OriginClaim>,
         now_ms: u64,
     ) -> Result<RequestOrigin, ResourceError> {
-        let origin = self.narrow(operation.wire_name(), params, claim, now_ms)?;
+        let endpoint = self.endpoint(claim)?;
+        let origin = self.narrow(operation.wire_name(), params, claim, endpoint, now_ms)?;
         if self.role == HelloRole::PageRelay
             && operation == ResourceOperation::OriginConfirmationIssue
         {
@@ -282,8 +430,9 @@ impl ConnectionOrigin {
         }
         // Default deny for pages (page_access.rs), whatever a page relay
         // claims: a confirmed-user result still reaches page JS. A page
-        // connection gets its own page's allow list, whatever its role.
-        let refusal = match self.page.as_deref() {
+        // connection (or page stream) gets its own page's allow list,
+        // whatever its role.
+        let refusal = match self.request_page(claim) {
             Some(page) => page_access::page_refusal(page, operation, params, origin),
             None if self.role == HelloRole::PageRelay || origin == RequestOrigin::Page => {
                 page_access::refusal(operation, params)
@@ -305,12 +454,14 @@ impl ConnectionOrigin {
     }
 
     /// The derived origin narrowed by `claim` (a page relay's confirmed
-    /// `user` claim consumes its token for `operation`, by wire name).
+    /// `user` claim consumes its token for `operation`, by wire name, on
+    /// `endpoint`, the request's page stream).
     fn narrow(
         &mut self,
         operation: &str,
         params: &Value,
         claim: Option<&OriginClaim>,
+        endpoint: Option<u64>,
         now_ms: u64,
     ) -> Result<RequestOrigin, ResourceError> {
         let derived = self.derive();
@@ -318,13 +469,13 @@ impl ConnectionOrigin {
             (_, None) => derived,
             (
                 HelloRole::PageRelay,
-                Some(OriginClaim { claim: RequestOrigin::Page, confirmation: None }),
+                Some(OriginClaim { claim: RequestOrigin::Page, confirmation: None, .. }),
             ) => RequestOrigin::Page,
             (
                 HelloRole::PageRelay,
-                Some(OriginClaim { claim: RequestOrigin::User, confirmation: Some(token) }),
+                Some(OriginClaim { claim: RequestOrigin::User, confirmation: Some(token), .. }),
             ) => {
-                if !self.consume_confirmation(token, operation, params, now_ms) {
+                if !self.consume_confirmation(token, operation, params, endpoint, now_ms) {
                     return Err(forbidden(
                         "the confirmation is not valid for this request",
                         json!({"derived": derived.wire_name(), "claim": "user", "reason": "confirmation_invalid"}),
@@ -334,7 +485,7 @@ impl ConnectionOrigin {
             }
             (
                 HelloRole::Main | HelloRole::Legacy,
-                Some(OriginClaim { claim, confirmation: None }),
+                Some(OriginClaim { claim, confirmation: None, .. }),
             ) if *claim <= derived => *claim,
             (_, Some(claim)) => {
                 return Err(forbidden(
@@ -360,8 +511,9 @@ impl ConnectionOrigin {
         now_ms: u64,
     ) -> Result<RequestOrigin, ResourceError> {
         use page_router_table::PageGrant;
-        let origin = self.narrow(operation, params, claim, now_ms)?;
-        if let Some(page) = self.page.as_deref() {
+        let endpoint = self.endpoint(claim)?;
+        let origin = self.narrow(operation, params, claim, endpoint, now_ms)?;
+        if let Some(page) = self.request_page(claim) {
             let grant = page_router_table::grant(page, operation);
             let confirmed = matches!(grant, PageGrant::Gesture | PageGrant::Confirm)
                 && origin == RequestOrigin::User;

@@ -18,9 +18,11 @@ Chrome reference (chromium/src):
 - The CQ's "(retry shards with patch)": the first retry reruns the whole shard with the same
   config, so an order-dependent failure reproduces before the case runs alone.
 
-Subcommands owned here: run, diff, merge, check, gen, rebaseline. These delegate to the
+Subcommands owned here: run, diff, bisect-switches, merge, check, gen, rebaseline. These delegate to the
 sibling script that owns them (`oracle.py <cmd> ARGS` runs `python3 -I <script> ARGS`):
 confirm, select, bisect, report, minimize, switches, route, coverage, selftest.
+`selftest --mutants` is the mutation smoke run (mutant_catch.py, p15-oracle-115): every seeded patch
+mutant against its base through the smallest selection that catches it; it fails below 19/20.
 
 Driver protocol (owned here; driver_<product>.py implements it):
     open_session(session_ctx: dict) -> session
@@ -45,23 +47,36 @@ A result is {"status": "Pass"|"Failure"|"Crash"|"Timeout", "checkpoints": [{"ste
 "checkpoint": "before"|"turn"|"settled", "snapshot": <canonical snapshot (normalize.py)>,
 optional "uncertain": true, optional "notComparable": [facet, ...]}], "message": str,
 optional "step" (where a Crash or Timeout happened), optional "session_dirty": true (a lost or
-unusable process: the next case gets a fresh session, with no reset check), optional "switch_hits": {name: {arm:
-count}}}. This file hashes each snapshot (sha256 of its sorted-key compact JSON) and decides
-flakiness by hashes; diff.py compares the snapshot values.
+unusable process: the next case gets a fresh session, with no reset check), optional "switch_hits":
+{name: {arm: count}} (the per-site hit counters, by the arm each site ran), optional
+"launch_switch_hits" (the same, counted from the session's launch to its first case: startup
+sites), optional "switch_readback": {name: arm} (the arm the product reports: snapshot.switches
+for the app, identify and oracle-state for the daemon; task 049)}. Switch names are registry names
+(plans/cmux-next/refactor-switches/<name>.json). A driver raises switches.ArmNotApplied from
+run_case when the product reads back other arms than the run applied: the run stops there with
+one `arm_not_applied` verdict in the receipt, with no retry and no relaunch, since every later
+case would run on the same arms. This file hashes each snapshot (sha256 of its sorted-key
+compact JSON) and decides flakiness by hashes; diff.py compares the snapshot values.
 
 Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra fields below):
     receipt.json       {"schema": "cmux-oracle-run-v1", "runId", "sha", "host": {"name", "os",
-                        "osVersion", "arch"}, "platform", "product", "arm" (baseline arm or null),
+                        "osVersion", "arch", "display"}, "platform", "product", "arm" (baseline arm or null),
                         "shards": [i], "seeds": {"i": seed}, "selection", "isolation" (the run's case
                         isolation: "mode" asked, "kind" netns|none got, "reason", "uid"; merge refuses
                         shards of different kinds), "cases": {"<suite>/<case>": {"suite", "result"
                         (Flaky for a flaky case), "outcome", "flaky", "reasons", "expected", "attempts",
                         "checkpoints": N, "leaked_state": [leak], "environment" (the first attempt's
-                        env and isolation, when the driver reports it)}},
+                        env and isolation, when the driver reports it), "switch_readback" (the first
+                        attempt's)}},
                         "leaked_state": [case ids], "order" (the plan's case order), "sessions":
                         [{"session", "iteration", "attempt", "phase", "cases" (run order), "end"
-                        (batch-end, dirty, leaked, relaunch or fixture-unreadable), "reason"}],
-                        "counts", ...}
+                        (batch-end, dirty, leaked, relaunch, fixture-unreadable or arm-not-applied),
+                        "reason"}], "counts", "switch_hits" (cases and launches), "launch_switch_hits",
+                        "switch_readback" ({name: {arm: attempts}}), "arm_applied", "arm_exercised",
+                        "arm_not_applied" (null, or {"verdict", "case", "phase", "problems",
+                        "readback"}), "arms_read_back" (null when the run requested no switch, else
+                        {"ok", "missing" (requested, never read back), "wrong" ({name: arms} read back
+                        other than requested)}; not ok makes `ok` false and a diff refuses the side), ...}
                         A leak is {"case", "pointers" (first differing RFC 6901 pointers; "" is
                         the whole snapshot), "count",
                         "error", "launch_order" (the cases that ran in its launch, up to it),
@@ -76,23 +91,60 @@ Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra f
 run format baselines.py (016) reads (a `cases` list, the case name without its suite) and runs
 `baselines.py rebaseline` on it.
 
+`run --arm launch-config` sets every registry switch to its `planned` arm; `diff --arm launch-config` runs it against
+all-default. `run --switches NAME=ARM,...` runs one explicit set (a bisect probe; other switches at their default).
+`bisect-switches CASE` (task 183) names the smallest switch set at its planned arm whose run of CASE diverges from
+all-default: switches.bisect_switch_set (ddmin in an order shuffled by --seed, then a size-ascending proof) over
+probes that each run that set and compare it with one all-default run. A switch planned at its default arm is
+`inert` and never a suspect. It writes OUT/bisect.json (cmux-oracle-bisect-switches-v1: case, seed, planned,
+inert, order, verdict, switches, minimality, reason, every probe with its run dir and comparison)
+and exits 1 when it names a set, 0 when every switch at its planned arm does not diverge, 3 when a probe was
+flaky or refused (arms not read back), 2 on bad input.
+
+Engine parity (spec 3F.4, task 113): `run --engine webkit|chromium` is one engine arm (the app's
+browser.defaultEngine, also the engine of a case that pins one; recorded as config.engine), and
+`diff --product app --engine webkit,chromium --ref SHA` runs both arms of one build through fleet.py.
+An engine arm's driver canonicalizes without the tabs' `engine` (normalize Context.drop, so no set order
+or id label depends on it) and records each checkpoint's raw tab engines as `engines`. Any comparison of
+two different engine arms requires each arm to read its own engine back (else `engine-not-exercised`) and
+no tab to still show one (else `engine-not-neutral`), and applies tests/oracle/engine-parity.json, the
+engine differences with their reasons.
+
 `diff` exit codes: 0 no unexplained divergence, 1 divergences, 2 bad input, 3 refused (host
-mismatch, an incomplete or mismatched shard set, nothing compared), 4 diff.py internal error.
+mismatch, an incomplete or mismatched shard set, nothing compared, a queued side that did not
+build or run, and for --switch: arm-not-applied, arm-not-exercised, arms-read-back-same,
+arms-differ-beyond-switch), 4 diff.py internal error. Every diff writes comparison.json and
+divergences.jsonl (one line per divergent case; empty when the comparison is refused or clean)
+in --out.
+
+`diff --switch NAME` (spec 3F.2, task 111) is the virtual suite of one refactor switch, like
+`run_web_tests.py --flag-specific=NAME`: the same build runs the switch's `suites` on arm old and
+arm new, shard by shard with the two arms back to back on this host (`--shards N` runs every
+shard here, `--shard I/N` one shard for a worker; `--base-run`/`--head-run` compare the old and
+new arm runs a worker wrote; on the Linux VM each arm of a shard is a `linux_run.sh run` job of
+--ref in the runnerd queue; app runs go to fleet.py, which compares its arm runs here). The
+registry's expected_differences are its FlagExpectations. The comparison is evidence only when
+each arm read back its own arm, the arms read back differently in every snapshot (diff.py
+--arm-pointer), and the hit counters show each arm ran its own sites and none of the other's,
+with hits in every case that lists the switch.
 
 Sibling interfaces this file calls:
-    diff.py A_DIR B_DIR --out divergence.json [--expected FILE] [--case GLOB]       (014)
+    diff.py A_DIR B_DIR --out divergence.json [--expected FILE] [--arm-pointer P]   (014, 111)
     baselines.Store(root).read(suite, case, pdir, arm), platform_dir(platform, product),
         suite_class(suite), BaselineError; baselines.py rebaseline --run DIR         (016)
     expectations.Expectations.load_root(root), RunConfig, resolve, should_run, lint  (015)
     linux_run.sh run SHA [--suite S] [--arm A] [--side L] [--fresh] [-- RUN_OPTIONS]
         -> last stdout line is the run dir; every daemon run on the VM goes through it (007, 024)
     fleet.py diff ARGS: the app product's base/head and switch diffs                (050)
+    confirm.py --diff DIR: reruns the divergent cases of DIR/comparison.json (its a_dir, b_dir and
+        expected_files) and routes only "head fails twice, base passes" through route.py (184, 118)
 """
 
 from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import fnmatch
 import glob
 import hashlib
@@ -106,6 +158,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
 from dataclasses import dataclass, field, replace
@@ -163,6 +216,14 @@ CRASH_KINDS = frozenset({"renderer", "gpu", "browser", "utility", "daemon", "hol
 PLATFORMS = ("linux", "mac", "windows")
 BUILDS = ("debug", "bench", "asan", "tsan")
 ARMS = ("old", "new")
+# Engine parity (spec 3F.4, task 113): an engine arm is the app's `browser.defaultEngine` (BrowserDefaultEngine raw
+# values, which are also the case-v1 environment.engine names), and the tabs facet reads each tab's engine back as
+# BrowserEngineKind. An engine arm canonicalizes without ENGINE_FIELD (driver_app.ENGINE_DROP) and a comparison of
+# two engine arms explains the differences ENGINE_PARITY_FILE lists, the way run_web_tests.py --flag-specific reads FlagExpectations/<flag>
+# (third_party/blink/web_tests/FlagExpectations/README.txt).
+ENGINE_READBACK = {"webkit": "webkit", "chromium": "cef"}
+ENGINE_FIELD = "engine"
+ENGINE_PARITY_FILE = REPO / "tests" / "oracle" / "engine-parity.json"
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 DEFAULT_RETRY_LIMIT = 3
 # The VM default is 200 jobs (spec 3G); a fleet mini runs one GUI app at a time.
@@ -175,19 +236,19 @@ DEFAULT_BUILD = {"app": "bench"}
 # Products served by the cmux-tui binary that linux_run.sh builds per SHA.
 RUST_PRODUCTS = frozenset({"daemon", "cli", "mcp", "tui"})
 
-DIFF_OK, DIFF_DIVERGENT, DIFF_BAD_INPUT, DIFF_HOST_MISMATCH, DIFF_INTERNAL = 0, 1, 2, 3, 4
+DIFF_OK, DIFF_DIVERGENT, DIFF_BAD_INPUT, DIFF_HOST_MISMATCH, DIFF_INTERNAL, DIFF_ARMS_SAME = 0, 1, 2, 3, 4, 5
 EXIT_REFUSED = 3
 
 DELEGATES: Dict[str, Tuple[str, Tuple[str, ...], str]] = {
     "confirm": ("confirm.py", (), "p15-oracle-184"),
-    "select": ("select.py", (), "p15-oracle-009"),
-    "bisect": ("bisect.py", (), "p15-oracle-009"),
+    "select": ("select_suites.py", (), "p15-oracle-009"),
+    "bisect": ("bisect_case.py", (), "p15-oracle-009"),
     "report": ("report.py", (), "p15-oracle-116"),
     "minimize": ("minimize.py", (), "p15-oracle-098"),
     "switches": ("switches.py", (), "p15-oracle-018"),
     "route": ("route.py", (), "p15-oracle-118"),
     "coverage": ("coverage.py", (), "p15-oracle-190"),
-    "selftest": ("selftest.py", (), "p15-oracle-019"),
+    "selftest": ("selftest.py", (), "p15-oracle-019"),  # --mutants: mutant_catch.py (p15-oracle-115)
 }
 
 
@@ -222,14 +283,52 @@ def current_platform() -> str:
     return "linux"
 
 
-def host_info() -> Dict[str, str]:
-    """The host keys diff.py checks (3F.1: base and head run on one host)."""
+def host_info(read_displays: Optional[Callable[[], Optional[Dict[str, Any]]]] = None) -> Dict[str, Optional[str]]:
+    """The host keys diff.py checks (3F.1, task 008: base and head run on one host, OS and display)."""
     return {
         "name": socket.gethostname(),
         "os": platform_mod.system(),
         "osVersion": platform_mod.mac_ver()[0] or platform_mod.release(),
         "arch": platform_mod.machine(),
+        "display": display_info(read_displays or system_displays),
     }
+
+
+def system_displays() -> Optional[Dict[str, Any]]:
+    """`system_profiler SPDisplaysDataType -json` on macOS; None when it cannot be read."""
+    try:
+        proc = subprocess.run(["/usr/sbin/system_profiler", "SPDisplaysDataType", "-json"], check=False,
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=60)
+        profile = json.loads(proc.stdout)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+    return profile if proc.returncode == 0 and isinstance(profile, dict) else None
+
+
+def display_info(read_displays: Callable[[], Optional[Dict[str, Any]]]) -> Optional[str]:
+    """The main display the app opens on: points and refresh, pixels, and how many displays there are.
+
+    "none" off macOS and on a Mac with no display; None (diff.py refuses it as not recorded) when the
+    profile cannot be read or names no main display, so an unknown display never compares equal.
+    """
+    if sys.platform != "darwin":
+        return "none"
+    profile = read_displays()
+    if profile is None:
+        return None
+    displays = [d for gpu in profile.get("SPDisplaysDataType") or [] if isinstance(gpu, dict)
+                for d in gpu.get("spdisplays_ndrvs") or [] if isinstance(d, dict)]
+    if not displays:
+        return "none"
+    main = [d for d in displays if d.get("spdisplays_main") == "spdisplays_yes"]
+    chosen = main[0] if len(main) == 1 else (displays[0] if len(displays) == 1 else None)
+    if chosen is None:
+        return None
+    resolution, pixels = chosen.get("_spdisplays_resolution"), chosen.get("_spdisplays_pixels")
+    if not resolution and not pixels:
+        return None
+    count = f"{len(displays)} display" + ("" if len(displays) == 1 else "s")
+    return f"{resolution or 'unknown points'} ({pixels or 'unknown'} px), {count}"
 
 
 def digest(items: Iterable[str]) -> str:
@@ -515,12 +614,19 @@ class Attempt:
     reset_ms: Optional[int] = field(default=None, hash=False, compare=False)
     # The driver's `environment` (hermetic_env CaseEnv.receipt(): every variable and the isolation).
     environment: Optional[Dict[str, Any]] = field(default=None, hash=False, compare=False)
+    # The arms the product read back for this attempt (switches.ArmNotApplied when they are not the plan's) and
+    # the hits its launch counted before its first case (startup sites).
+    switch_readback: Dict[str, str] = field(default_factory=dict, hash=False, compare=False)
+    launch_switch_hits: Dict[str, Dict[str, int]] = field(default_factory=dict, hash=False, compare=False)
 
 
 @dataclass(frozen=True)
 class Work:
     case: Case
     ctx: Dict[str, Any] = field(hash=False, compare=False)
+
+
+ARM_NOT_APPLIED = "arm-not-applied"
 
 
 def crash(message: str) -> Dict[str, Any]:
@@ -549,7 +655,12 @@ def coerce_result(raw: Any) -> Dict[str, Any]:
         for extra in ("uncertain", "notComparable"):
             if cp.get(extra):
                 row[extra] = cp[extra]
+        if isinstance(cp.get("engines"), dict):  # an engine arm's raw tab engines (driver_app.tab_engines)
+            row["engines"] = cp["engines"]
         rows.append(row)
+    readback = raw.get("switch_readback") or {}
+    if not (isinstance(readback, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in readback.items())):
+        return crash(f"driver returned a malformed switch_readback {readback!r:.200}")
     step = raw.get("step")
     environment = raw.get("environment")
     return {
@@ -560,8 +671,23 @@ def coerce_result(raw: Any) -> Dict[str, Any]:
         "step": step if isinstance(step, str) else None,
         "session_dirty": bool(raw.get("session_dirty")),
         "switch_hits": raw.get("switch_hits") or {},
+        "switch_readback": dict(readback),
+        "launch_switch_hits": raw.get("launch_switch_hits") or {},
         "environment": environment if isinstance(environment, dict) else None,
     }
+
+
+def arm_refusals() -> Tuple[type, ...]:
+    """The driver exception that ends a run: the product reads back other arms than the run applied."""
+    module = load_sibling("switches")
+    return (module.ArmNotApplied,) if module is not None else ()
+
+
+def arm_refusal(work: Work, error: Any) -> Dict[str, Any]:
+    """The receipt's `arm_not_applied`: where the run stopped, every mismatch and what was read back."""
+    return {"verdict": ARM_NOT_APPLIED, "case": work.case.id, "phase": work.ctx.get("phase"),
+            "problems": [str(p) for p in getattr(error, "problems", ()) or (str(error),)],
+            "readback": dict(sorted(getattr(error, "readback", {}).items()))}
 
 
 # The first differing pointers a leak lists; `count` has them all.
@@ -637,15 +763,17 @@ def reset_check(session: Any, fixture: Any) -> ResetOutcome:
 
 @dataclass(frozen=True)
 class BatchOutput:
-    """(work, result, ms, session number, position, reset ms) per case that ran, infra errors, one log per launch."""
+    """(work, result, ms, session number, position, reset ms) per case that ran, infra errors, one log per launch,
+    and the arm-not-applied refusal that ended the batch (arm_refusal), if any."""
 
     results: Tuple[Tuple[Work, Dict[str, Any], int, int, int, Optional[int]], ...]
     errors: Tuple[str, ...]
     sessions: Tuple[Dict[str, Any], ...]
+    refusal: Optional[Dict[str, Any]] = None
 
 
 def run_batch(works: Sequence[Work], open_session: SessionOpener, session_ctx: Dict[str, Any],
-              numbers: Iterator[int]) -> BatchOutput:
+              numbers: Iterator[int], stop: Optional[threading.Event] = None) -> BatchOutput:
     """Runs one batch in as few launches as possible, with the reset check after each case.
 
     A dirty session (lost process), a leak or a reset that asks for one closes the launch; the next
@@ -653,10 +781,17 @@ def run_batch(works: Sequence[Work], open_session: SessionOpener, session_ctx: D
     the case it was opened for did not run (no result; execute retries it). `ms` is the case alone;
     the reset check's time is `reset ms`. `numbers` gives out session numbers (itertools.count: one
     atomic step per launch).
+
+    An arm-not-applied from the driver (switches.ArmNotApplied) ends the launch and the batch and sets
+    `stop`, so no other batch starts a case: the product would run every case on the same wrong arms,
+    launch after launch. The case it was raised for has no result.
     """
+    stop = threading.Event() if stop is None else stop
     results = []
     errors: List[str] = []
     logs: List[Dict[str, Any]] = []
+    refusal: Optional[Dict[str, Any]] = None
+    refusals = arm_refusals()
     session: Any = None
     fixture: Any = NO_RESET
     log: Dict[str, Any] = {}
@@ -678,6 +813,8 @@ def run_batch(works: Sequence[Work], open_session: SessionOpener, session_ctx: D
 
     try:
         for work in works:
+            if stop.is_set():
+                break
             if not log or "end" in log:
                 ctx = work.ctx
                 log = {"session": next(numbers), "iteration": ctx.get("iteration"), "attempt": ctx.get("attempt"),
@@ -701,6 +838,11 @@ def run_batch(works: Sequence[Work], open_session: SessionOpener, session_ctx: D
             start = time.monotonic()
             try:
                 result = coerce_result(session.run_case(work.case.data, dict(work.ctx)))
+            except refusals as error:
+                refusal = arm_refusal(work, error)
+                stop.set()
+                end(ARM_NOT_APPLIED, "; ".join(refusal["problems"])[:500])
+                break
             except Exception as error:  # noqa: BLE001 - a driver failure fails this case only
                 result = {**crash(f"driver error: {error!r}"), "session_dirty": True}
             ms = int((time.monotonic() - start) * 1000)
@@ -727,27 +869,37 @@ def run_batch(works: Sequence[Work], open_session: SessionOpener, session_ctx: D
     finally:
         if log and "end" not in log:
             end("batch-end")
-    return BatchOutput(tuple(results), tuple(errors), tuple(logs))
+    return BatchOutput(tuple(results), tuple(errors), tuple(logs), refusal)
 
 
 def run_phase(
     batches: Sequence[Sequence[Work]], open_session: SessionOpener, session_ctx: Dict[str, Any], jobs: int,
     numbers: Iterator[int],
-) -> Tuple[list, list, list]:
+    stop: Optional[threading.Event] = None,
+) -> Tuple[list, list, list, list]:
+    """The results, infra errors, launch logs and arm-not-applied refusals of one phase's batches; `stop` is
+    shared by the batches, so a refusal in one keeps the others from starting a case."""
+    stop = threading.Event() if stop is None else stop
     outputs: Iterable[BatchOutput]
+
+    def one(batch: Sequence[Work]) -> BatchOutput:
+        return run_batch(batch, open_session, session_ctx, numbers, stop)
+
     if jobs <= 1 or len(batches) <= 1:
-        outputs = [run_batch(b, open_session, session_ctx, numbers) for b in batches]
+        outputs = [one(b) for b in batches]
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(jobs, len(batches))) as pool:
-            outputs = list(pool.map(lambda b: run_batch(b, open_session, session_ctx, numbers), batches))
+            outputs = list(pool.map(one, batches))
     results: list = []
     errors: list = []
     sessions: list = []
+    refusals: list = []
     for output in outputs:
         results.extend(output.results)
         errors.extend(output.errors)
         sessions.extend(output.sessions)
-    return results, errors, sessions
+        refusals.extend([output.refusal] if output.refusal else [])
+    return results, errors, sessions, refusals
 
 
 @dataclass(frozen=True)
@@ -778,6 +930,11 @@ class RunOptions:
     expectations_root: Path = DEFAULT_EXPECTATIONS_ROOT
     # hermetic_env.ISOLATION_MODES: netns refuses a host without unprivileged user namespaces.
     isolation: str = "netns"
+    # The engine arm (an ENGINE_READBACK key): every launch's browser.defaultEngine; None is the app's default.
+    engine: Optional[str] = None
+    # The refactor switch registry the run's switches are checked against (`--switch-registry`); the driver
+    # gets the same directory, so the run and the product's launch plan never read two registries.
+    switch_registry: Path = SWITCH_REGISTRY
 
     @property
     def filtered(self) -> bool:
@@ -813,6 +970,7 @@ class RunOptions:
             "switches": dict(sorted(self.switches.items())),
             "ref": self.ref,
             "tag": self.tag,
+            "engine": self.engine,
         }
 
 
@@ -823,7 +981,8 @@ def needs_retry(attempt: Tuple[str, Optional[str]], expected: Expected) -> bool:
 
 
 def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expected: Dict[str, Expected],
-            isolation: Mapping[str, Any]) -> Tuple[List[Attempt], List[str], List[Dict[str, Any]]]:
+            isolation: Mapping[str, Any]
+            ) -> Tuple[List[Attempt], List[str], List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """Runs every iteration of the plan with the retry policy of spec 3G.
 
     Retry 1 reruns the whole shard with the same order and batches; retries 2..limit run each
@@ -831,6 +990,8 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
     here, on one thread, before work is dispatched. `isolation` (resolve_isolation, probed once
     for the run) reaches every session as `isolation`, so no session probes the host again. Returns
     the attempts, the infra errors and one log per launch (the cases it ran, in order, and why it ended).
+    An arm-not-applied from the driver stops the run with no retry: the fourth value is that refusal
+    (arm_refusal), else None.
     """
     run_key = base36(int.from_bytes(hashlib.sha256(options.run_id.encode()).digest()[:4], "big"))[-6:]
     keys = itertools.count()
@@ -846,6 +1007,8 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
         "binary": options.binary,
         "out_dir": str(options.out),
         "isolation": dict(isolation),
+        "engine": options.engine,
+        "switch_registry": str(options.switch_registry.resolve()),
     }
     runnable = [tuple(c for c in batch if not expected[c.id].skip) for batch in plan.batches]
     runnable = [batch for batch in runnable if batch]
@@ -853,12 +1016,6 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
     errors: List[str] = []
     sessions: List[Dict[str, Any]] = []
     numbers = itertools.count()
-
-    def phase_of(batches: Sequence[Sequence[Work]], jobs: int) -> list:
-        results, errs, logs = run_phase(batches, open_session, session_ctx, jobs, numbers)
-        errors.extend(errs)
-        sessions.extend(logs)
-        return results
 
     def works(batch: Sequence[Case], iteration: int, attempt: int, phase: str) -> Tuple[Work, ...]:
         out = []
@@ -901,31 +1058,52 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
                     work.case.id, iteration, attempt, phase, result["status"], result.get("step"), result["checkpoints"],
                     result["message"], ms, result.get("switch_hits") or {}, result["rows"] if first else (),
                     session, position, leak, reset_ms, result.get("environment"),
+                    result.get("switch_readback") or {}, result.get("launch_switch_hits") or {},
                 )
             )
             statuses[work.case.id] = (result["status"], result.get("step"))
         return statuses
 
+    stop = threading.Event()
+    refused: List[Dict[str, Any]] = []
+
     def not_settled(statuses: Dict[str, Tuple[str, Optional[str]]], case: Case) -> bool:
         status = statuses.get(case.id)
         return status is None or needs_retry(status, expected[case.id])
 
+    def run(batches: Sequence[Sequence[Work]], iteration: int, attempt: int, phase: str,
+            jobs: int) -> Optional[Dict[str, Tuple[str, Optional[str]]]]:
+        """The statuses of one phase, or None when the driver refused the arms: the run ends there."""
+        results, errs, logs, refusals = run_phase(batches, open_session, session_ctx, jobs, numbers, stop)
+        errors.extend(errs)
+        sessions.extend(logs)
+        statuses = record(results, iteration, attempt, phase)
+        refused.extend(refusals)
+        return None if refusals else statuses
+
     for iteration in range(options.repeat):
-        results = phase_of([works(b, iteration, 0, "run") for b in runnable], options.jobs)
-        statuses = record(results, iteration, 0, "run")
+        statuses = run([works(b, iteration, 0, "run") for b in runnable], iteration, 0, "run", options.jobs)
+        if statuses is None:
+            break
         failing = [c for b in runnable for c in b if not_settled(statuses, c)]
         if failing and options.retry_limit >= 1:
-            results = phase_of([works(b, iteration, 1, "shard-retry") for b in runnable], options.jobs)
-            statuses = record(results, iteration, 1, "shard-retry")
+            statuses = run([works(b, iteration, 1, "shard-retry") for b in runnable], iteration, 1, "shard-retry",
+                           options.jobs)
+            if statuses is None:
+                break
             failing = [c for c in failing if not_settled(statuses, c)]
         for attempt in range(2, options.retry_limit + 1):
             if not failing:
                 break
-            results = phase_of([works((c,), iteration, attempt, "alone-retry") for c in failing], 1)
-            statuses = record(results, iteration, attempt, "alone-retry")
+            statuses = run([works((c,), iteration, attempt, "alone-retry") for c in failing], iteration, attempt,
+                           "alone-retry", 1)
+            if statuses is None:
+                break
             failing = [c for c in failing if not_settled(statuses, c)]
+        if refused:
+            break
     sessions.sort(key=lambda log: log["session"])
-    return attempts, errors, sessions
+    return attempts, errors, sessions, (refused[0] if refused else None)
 
 
 def classify(attempts: Sequence[Attempt], expected: Expected) -> Dict[str, Any]:
@@ -996,13 +1174,44 @@ def sum_switch_hits(hit_maps: Iterable[Mapping[str, Mapping[str, int]]]) -> Dict
     return total
 
 
-def run_summary(cases: Mapping[str, Mapping[str, Any]], *, hits: Dict[str, Dict[str, int]], config: Mapping[str, Any],
-                dry_run: bool, infra_errors: Sequence[str]) -> Dict[str, Any]:
-    """The receipt fields that follow from its cases; one function for a shard and a merge."""
+def count_readback(readbacks: Iterable[Mapping[str, str]]) -> Dict[str, Dict[str, int]]:
+    """Attempts per (switch, arm read back): the same shape as the hit counters, so shards sum."""
+    return sum_switch_hits({name: {arm: 1} for name, arm in (readback or {}).items()} for readback in readbacks)
+
+
+def arms_seen(counts: Mapping[str, Mapping[str, int]], name: str) -> List[str]:
+    return sorted(arm for arm, n in (counts.get(name) or {}).items() if n)
+
+
+def arms_read_back(requested: Mapping[str, str], readback: Mapping[str, Mapping[str, int]]) -> Dict[str, Any]:
+    """Whether every requested switch read back its requested arm and nothing else (Chrome's
+    base/feature_list.cc: a field trial counts only once the frozen FeatureList reported it active)."""
+    missing = sorted(name for name in requested if not arms_seen(readback, name))
+    wrong = {name: arms_seen(readback, name) for name in sorted(requested)
+             if arms_seen(readback, name) and arms_seen(readback, name) != [requested[name]]}
+    return {"ok": not missing and not wrong, "missing": missing, "wrong": wrong}
+
+
+def run_summary(cases: Mapping[str, Mapping[str, Any]], *, hits: Dict[str, Dict[str, int]],
+                readback: Dict[str, Dict[str, int]], config: Mapping[str, Any],
+                dry_run: bool, infra_errors: Sequence[str],
+                arm_not_applied: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """The receipt fields that follow from its cases; one function for a shard and a merge.
+
+    `hits` counts every case and every launch (a site that runs only at startup still counts);
+    `arm_not_applied` is the refusal that stopped the run, which fails it whatever the cases show.
+    """
     arm_exercised: Optional[bool] = None
+    arm_applied: Optional[bool] = None
     switch, arm = config.get("switch"), config.get("arm")
-    if switch and arm and not dry_run and any(r["attempts"] for r in cases.values()):
+    ran = not dry_run and any(r["attempts"] for r in cases.values())
+    if switch and arm and ran:
         arm_exercised = hits.get(switch, {}).get(arm, 0) > 0
+        arm_applied = arms_seen(readback, switch) == [arm]
+    if arm_not_applied is not None:
+        arm_applied = False
+    requested = config.get("switches") or {}
+    read_back_check = arms_read_back(requested, readback) if requested and ran else None
     counts: Dict[str, int] = {}
     for record in cases.values():
         counts[record["outcome"]] = counts.get(record["outcome"], 0) + 1
@@ -1015,8 +1224,13 @@ def run_summary(cases: Mapping[str, Mapping[str, Any]], *, hits: Dict[str, Dict[
         "unexpected": unexpected,
         "unexpected_passes": sorted(cid for cid, r in cases.items() if r["outcome"] == "unexpected-pass"),
         "switch_hits": hits,
+        "switch_readback": readback,
         "arm_exercised": arm_exercised,
-        "ok": not unexpected and not leaked and not infra_errors and arm_exercised is not False,
+        "arm_applied": arm_applied,
+        "arm_not_applied": arm_not_applied,
+        "arms_read_back": read_back_check,
+        "ok": (not unexpected and not leaked and not infra_errors and arm_exercised is not False
+               and arm_applied is not False and (read_back_check is None or read_back_check["ok"])),
     }
 
 
@@ -1075,6 +1289,8 @@ def perform_run(
     """Selects, shards, runs and writes receipt.json, checkpoints.jsonl, events.jsonl, index.md."""
     started = time.time()
     check_out_dir(options.out)
+    if options.engine:
+        cases = [engine_arm_case(case, options.engine) for case in cases]
     selected, not_applicable = select_cases(
         cases, suites=options.suites, filters=options.filters, product=options.product, platform=options.platform
     )
@@ -1085,12 +1301,13 @@ def perform_run(
     attempts: List[Attempt] = []
     errors: List[str] = []
     sessions: List[Dict[str, Any]] = []
+    refusal: Optional[Dict[str, Any]] = None
     isolation: Dict[str, Any] = {"mode": options.isolation, "kind": None, "reason": "dry run: nothing ran"}
     if not options.dry_run:
         if open_session is None:
             raise UsageError("no driver to run cases with")
         isolation = isolate(options.isolation)
-        attempts, errors, sessions = execute(plan, options, open_session, expected, isolation)
+        attempts, errors, sessions, refusal = execute(plan, options, open_session, expected, isolation)
     by_case: Dict[str, List[Attempt]] = {c.id: [] for c in plan.order}
     for a in attempts:
         by_case[a.case].append(a)
@@ -1102,15 +1319,24 @@ def perform_run(
         if options.dry_run:
             record = {"outcome": "skipped" if exp.skip else "planned", "result": "Skip" if exp.skip else None,
                       "status": "Skip" if exp.skip else None, "flaky": False, "reasons": [], "attempts": 0}
+        elif refusal is not None and not exp.skip and not by_case[case.id]:
+            # The run stopped on arm-not-applied before this case ran.
+            record = {"outcome": "not-run", "result": None, "status": None, "flaky": False, "reasons": [ARM_NOT_APPLIED],
+                      "attempts": 0}
         else:
             record = classify(by_case[case.id], exp)
         first = min((a for a in by_case[case.id] if a.iteration == 0), key=lambda a: a.attempt, default=None)
         record.update(suite=case.suite, expected=sorted(exp.results), checkpoints=len(first.checkpoints) if first else 0)
+        if case.data.get("switches"):
+            # The compared attempt's hits: a case that lists a switch must hit it on each arm.
+            record.update(switches=sorted(case.data["switches"]), switch_hits=sum_switch_hits([first.switch_hits] if first else []))
         leaks = [a.leaked_state for a in by_case[case.id] if a.leaked_state]
         if leaks:
             record["leaked_state"] = leaks
         if first is not None and first.environment is not None:
             record["environment"] = first.environment
+        if first is not None and first.switch_readback:
+            record["switch_readback"] = dict(sorted(first.switch_readback.items()))
         records[case.id] = record
         if first is not None:
             rows.extend(checkpoint_rows(case.id, first.rows, attempt=first.attempt, result=first.status))
@@ -1141,8 +1367,12 @@ def perform_run(
         "sessions": sessions,
         "cases": records,
         "infra_errors": errors,
-        **run_summary(records, hits=sum_switch_hits(a.switch_hits for a in attempts), config=config,
-                      dry_run=options.dry_run, infra_errors=errors),
+        "launch_switch_hits": sum_switch_hits(a.launch_switch_hits for a in attempts),
+        **run_summary(records, hits=sum_switch_hits([*(a.switch_hits for a in attempts),
+                                                     *(a.launch_switch_hits for a in attempts)]),
+                      readback=count_readback([*(a.switch_readback for a in attempts),
+                                               *([refusal["readback"]] if refusal else [])]),
+                      config=config, dry_run=options.dry_run, infra_errors=errors, arm_not_applied=refusal),
     }
     write_json(options.out / "receipt.json", receipt)
     write_jsonl(options.out / "checkpoints.jsonl", rows)
@@ -1189,6 +1419,10 @@ def write_index(options: RunOptions, receipt: Dict[str, Any]) -> None:
         f"relaunched for state the reset cannot put back); LeakedState: {len(receipt['leaked_state'])}",
         f"- ok: {receipt['ok']}",
     ]
+    refusal = receipt["arm_not_applied"]
+    if refusal:
+        lines.append(f"- {ARM_NOT_APPLIED} at {refusal['case']} ({refusal['phase']}), the run stopped: "
+                     + "; ".join(refusal["problems"]))
     for cid in receipt["leaked_state"][:50]:
         lines.append(f"  - LeakedState: {leak_line(receipt['cases'][cid]['leaked_state'][0])}")
     for cid in receipt["unexpected"][:50]:
@@ -1288,8 +1522,11 @@ def merge_runs(directories: Sequence[Path], *, require_complete: bool) -> Tuple[
         "sessions": [{**log, "runId": r["runId"]} for r in loaded for log in r.get("sessions") or ()],
         "cases": cases,
         "infra_errors": infra,
-        **run_summary(cases, hits=sum_switch_hits(r.get("switch_hits") or {} for r in loaded), config=config,
-                      dry_run=dry_run, infra_errors=infra),
+        "launch_switch_hits": sum_switch_hits(r.get("launch_switch_hits") or {} for r in loaded),
+        **run_summary(cases, hits=sum_switch_hits(r.get("switch_hits") or {} for r in loaded),
+                      readback=sum_switch_hits(r.get("switch_readback") or {} for r in loaded), config=config,
+                      dry_run=dry_run, infra_errors=infra,
+                      arm_not_applied=next((r["arm_not_applied"] for r in loaded if r.get("arm_not_applied")), None)),
     }
     merged["ok"] = merged["ok"] and complete and not errors
     return RunView(merged, tuple(directories), tuple(sorted(owner)), total, complete, seeds), errors
@@ -1314,12 +1551,144 @@ def write_merged(view: RunView, out: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------------------
+# Engine parity (spec 3F.4, task 113)
+
+
+def parse_engines(text: str) -> Tuple[str, str]:
+    """`diff --engine A,B`: two different engine arms, A the comparison's a side."""
+    engines = parse_list([text])
+    if len(engines) != 2 or engines[0] == engines[1] or not set(engines) <= set(ENGINE_READBACK):
+        raise UsageError(f"--engine {text}: two different engines of {', '.join(ENGINE_READBACK)}, comma separated "
+                         "(webkit,chromium)")
+    return engines[0], engines[1]
+
+
+def check_engine_product(product: str) -> None:
+    """Only a product that draws browser tabs has a default engine to set."""
+    if "chromium" not in PRODUCTS[product]:
+        raise UsageError(f"--engine: the {product} product has no browser engine to set (the daemon launches no "
+                         "browser); engine parity runs the app product")
+
+
+def engine_arm_case(case: Case, engine: str) -> Case:
+    """The case as an engine arm runs it. A case that pins a browser engine (environment.engine webkit or chromium)
+    runs on the arm's engine, so both arms run the same journey; `none` (no engine needed) stays as it is."""
+    environment = case.data.get("environment") or {}
+    if environment.get("engine") not in ENGINE_READBACK or environment["engine"] == engine:
+        return case
+    return replace(case, data={**case.data, "environment": {**environment, "engine": engine}})
+
+
+def browser_tabs(snapshot: Any) -> List[Any]:
+    """The tabs of every pane of a canonical snapshot's tabs facet; none when the facet is absent or not comparable."""
+    facets = snapshot.get("facets") if isinstance(snapshot, dict) else None
+    tabs = facets.get("tabs") if isinstance(facets, dict) else None
+    panes = tabs.get("panes") if isinstance(tabs, dict) else None
+    if not isinstance(panes, list):
+        return []
+    return [tab for pane in panes if isinstance(pane, dict) and isinstance(pane.get("tabs"), list) for tab in pane["tabs"]]
+
+
+def read_checkpoint_rows(run_dir: Path) -> Iterator[Dict[str, Any]]:
+    path = run_dir / "checkpoints.jsonl"
+    if not path.is_file():
+        return
+    with path.open(encoding="utf-8") as handle:
+        for number, line in enumerate(handle, 1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                raise UsageError(f"{path}:{number}: not a JSON line") from None
+            if not isinstance(row, dict):
+                raise UsageError(f"{path}:{number}: not a checkpoint object")
+            yield row
+
+
+def engine_readback(run_dir: Path) -> Tuple[Dict[str, int], Optional[str]]:
+    """How many browser tabs of the run's checkpoints showed each engine (BrowserEngineKind) before the driver
+    dropped it, and the first checkpoint whose canonical tabs still show an engine (None when none does)."""
+    counts: Dict[str, int] = {}
+    kept = None
+    for row in read_checkpoint_rows(run_dir):
+        for kind, count in (row.get("engines") or {}).items():
+            if isinstance(kind, str) and isinstance(count, int):
+                counts[kind] = counts.get(kind, 0) + count
+        if kept is None and any(isinstance(tab, dict) and ENGINE_FIELD in tab for tab in browser_tabs(row.get("snapshot"))):
+            kept = f"{row.get('case')} {row.get('step')}/{row.get('checkpoint')}"
+    return dict(sorted(counts.items())), kept
+
+
+def engine_sides(a: RunView, b: RunView, labels: Tuple[str, str]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """(engine parity record, refusal) of a comparison; (None, None) when both sides ran one engine setting."""
+    engines = (a.receipt["config"].get("engine"), b.receipt["config"].get("engine"))
+    if engines[0] == engines[1]:
+        return None, None
+    # `dropped`: the driver leaves it out before canonicalization (driver_app.ENGINE_DROP).
+    record = {"engines": dict(zip(labels, engines)), "dropped": f"/facets/tabs/panes/*/tabs/*/{ENGINE_FIELD}",
+              "expected": str(ENGINE_PARITY_FILE)}
+    if None in engines:
+        return record, ("engine parity compares two --engine arms; one side ran the app's default engine: "
+                        "run both with --engine, or neither")
+    return record, None
+
+
+def check_engine_exercised(record: Dict[str, Any], dirs: Tuple[Path, Path]) -> Optional[str]:
+    """Like arm-not-exercised for a switch: each arm must read its own engine back from at least one browser tab,
+    else the setting never reached the app or no case opened a browser tab, and equal sides prove nothing. And
+    no canonical tab may still show its engine: the set order and id labels would then depend on it."""
+    readback = {label: engine_readback(d) for label, d in zip(record["engines"], dirs)}
+    record["readback"] = {label: counts for label, (counts, _) in readback.items()}
+    for label, (_, kept) in readback.items():
+        if kept is not None:
+            return (f"engine-not-neutral: side {label} checkpoint {kept} still shows the tabs' {ENGINE_FIELD}; an "
+                    "engine arm is canonicalized without it (driver_app.ENGINE_DROP), else the pane order and "
+                    "labels depend on the engine")
+    for label, engine in record["engines"].items():
+        if not record["readback"][label].get(ENGINE_READBACK[engine]):
+            return (f"engine-not-exercised: side {label} (--engine {engine}) shows no {ENGINE_READBACK[engine]} "
+                    f"browser tab at any checkpoint (read back: {record['readback'][label] or 'no browser tab'})")
+    first, second = record["readback"].values()
+    if first == second:
+        # A tab that pins its engine (TabLifecycle.newBrowser engine webkit) reads back on both arms.
+        return f"engine-not-exercised: both arms read back the same tab engines ({first}); --engine changed no tab"
+    return None
+
+
+# ---------------------------------------------------------------------------------------
 # Comparing runs through diff.py
 
 
 # What an order-parity comparison lets differ: the order (seed), the launch sharing (batch limit)
 # and what never takes part in a merge fingerprint either.
 ORDER_KEYS = frozenset({"seed", "batch_limit", "shard_index", "jobs", "binary"})
+
+
+def read_back_refusal(a: RunView, b: RunView) -> Optional[str]:
+    """A side whose requested switches did not read back, or two sides that asked for different switches
+    and read back the same arms: either way the comparison would not compare the arms it names. A `--switch`
+    arm run is left to switch_verdict, whose arm-not-applied and arms-read-back-same name the one switch."""
+    if any(side.receipt["config"].get("switch") for side in (a, b)):
+        return None
+    for label, side in (("a", a), ("b", b)):
+        stopped = side.receipt.get("arm_not_applied")
+        if stopped:
+            # The driver stopped the run (task 049): the side's cases ran on other arms or not at all.
+            return f"{ARM_NOT_APPLIED}: side {label}; " + "; ".join(stopped.get("problems") or ())
+        check = side.receipt.get("arms_read_back")
+        if check and not check["ok"]:
+            wrong = ", ".join(f"{name} read back {'/'.join(arms)}" for name, arms in check["wrong"].items())
+            missing = ", ".join(check["missing"])
+            return (f"arms-not-read-back: side {label}"
+                    + (f"; never read back: {missing}" if missing else "") + (f"; {wrong}" if wrong else ""))
+    asked = [side.receipt["config"].get("switches") or {} for side in (a, b)]
+    got = [{name: arms_seen(counts, name) for name in sorted(counts) if arms_seen(counts, name)}
+           for counts in (side.receipt.get("switch_readback") or {} for side in (a, b))]
+    if asked[0] != asked[1] and got[0] and got[0] == got[1]:
+        return "arms-read-back-same: both sides read back " + ", ".join(
+            f"{name}={'/'.join(arms)}" for name, arms in got[0].items())
+    return None
 
 
 def comparability(a: RunView, b: RunView, *, partial: bool, order_parity: bool = False) -> Optional[str]:
@@ -1331,6 +1700,9 @@ def comparability(a: RunView, b: RunView, *, partial: bool, order_parity: bool =
     """
     if a.receipt.get("dry_run") or b.receipt.get("dry_run"):
         return "a dry run has no results"
+    refusal = read_back_refusal(a, b)
+    if refusal:
+        return refusal
     if order_parity:
         mine, theirs = ({k: v for k, v in side.receipt["config"].items() if k not in ORDER_KEYS} for side in (a, b))
         if mine != theirs:
@@ -1350,11 +1722,17 @@ def comparability(a: RunView, b: RunView, *, partial: bool, order_parity: bool =
     return None
 
 
-def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path]) -> Tuple[int, Dict[str, Any]]:
+def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path],
+                arm_pointers: Sequence[str] = (), cases: Sequence[str] = ()) -> Tuple[int, Dict[str, Any]]:
+    """diff.py over two run dirs; `cases` limits it to those case ids (confirm.py's reruns)."""
     script = require_sibling("diff", "p15-oracle-014")
     command = [sys.executable, "-I", str(Path(script.__file__)), str(a_dir), str(b_dir), "--out", str(out)]
     for path in expected:
         command += ["--expected", str(path)]
+    for pointer in arm_pointers:
+        command += ["--arm-pointer", pointer]
+    for case_id in cases:
+        command += ["--case", glob.escape(case_id)]
     proc = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         document = json.loads(out.read_text(encoding="utf-8"))
@@ -1362,35 +1740,62 @@ def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path]) -
         raise UsageError(f"diff.py exited {proc.returncode} without a readable {out}: {proc.stderr.strip()[-500:]}") from None
     if proc.returncode == DIFF_BAD_INPUT:
         raise UsageError(f"diff.py refused its input: {document.get('error')}")
-    if proc.returncode not in (DIFF_OK, DIFF_DIVERGENT, DIFF_HOST_MISMATCH, DIFF_INTERNAL):
+    if proc.returncode not in (DIFF_OK, DIFF_DIVERGENT, DIFF_HOST_MISMATCH, DIFF_INTERNAL, DIFF_ARMS_SAME):
         raise UsageError(f"diff.py exited {proc.returncode}: {proc.stderr.strip()[-500:]}")
     return proc.returncode, document
+
+
+def write_divergences(path: Path, document: Mapping[str, Any], comparison: Mapping[str, Any]) -> None:
+    """One line per divergent case (diff.py's finding) with the comparison it came from: confirm.py
+    and route.py read these (MQ-divergences). Replaced on every diff, so no old finding survives."""
+    switch = (comparison.get("switch") or {}).get("name")
+    rows = ({**finding, "a_label": comparison["a"], "b_label": comparison["b"], "switch": switch,
+             "comparison": str(path.parent / "comparison.json")} for finding in document.get("divergences", []))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.tmp")
+    write_jsonl(temp, rows)
+    temp.replace(path)
 
 
 def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path, labels: Tuple[str, str],
                   partial: bool, expected: Sequence[Path], rules: Sequence[Dict[str, str]],
                   not_comparable: Optional[Dict[str, str]] = None, refused: Optional[str] = None,
-                  as_json: bool = False, order_parity: bool = False) -> int:
+                  as_json: bool = False, order_parity: bool = False, arm_pointers: Sequence[str] = (),
+                  switch: Optional[Dict[str, Any]] = None) -> int:
     """Checks that the sides are comparable, then hands every comparison to diff.py.
 
-    diff.py owns the host check, the first divergence per case and expected differences, so an
-    all-match comparison from two hosts is refused like a divergent one. Flaky cases are
-    reported as flaky by diff.py and never count as compared. With `order_parity`, a case that
-    leaked state on one side only is a divergence too: its leak depends on the order.
+    diff.py owns the host check, the first divergence per case, expected differences and the
+    snapshot readback of a switch's arms, so an all-match comparison from two hosts, or of two
+    arms that read back the same, is refused like a divergent one. Flaky cases are reported as
+    flaky by diff.py and never count as compared. With `order_parity`, a case that leaked state
+    on one side only is a divergence too: its leak depends on the order. Two sides of
+    different `--engine` arms are an engine parity comparison: each arm must read its engine back
+    and show no tab engine (its driver dropped it), and ENGINE_PARITY_FILE explains the differences it lists.
     """
     target = out / "divergence.json"
     target.unlink(missing_ok=True)
     refused = refused or comparability(a, b, partial=partial, order_parity=order_parity)
+    engine, engine_refusal = engine_sides(a, b, labels)
+    refused = refused or engine_refusal
+    if engine is not None and refused is None:
+        refused = check_engine_exercised(engine, (a_dir, b_dir))
+    if engine is not None and refused is None:
+        expected = [*expected, ENGINE_PARITY_FILE]
     document: Dict[str, Any] = {}
     code = None
+    files = list(expected)
     if refused is None:
-        files = list(expected)
         if rules:
             write_json(out / "expectation-rules.json", list(rules))
             files.append(out / "expectation-rules.json")
-        code, document = run_diff_py(a_dir, b_dir, target, files)
+        code, document = run_diff_py(a_dir, b_dir, target, files, arm_pointers)
         if code == DIFF_HOST_MISMATCH:
             refused = "host-mismatch: " + "; ".join(f"{k}: {', '.join(v)}" for k, v in sorted(document["mismatched"].items()))
+        elif code == DIFF_ARMS_SAME:
+            same = document["readback"]["same"]
+            refused = (f"arms-read-back-same: {document['readback']['sameCount']} snapshots read back the same arm, first "
+                       f"{same[0]['case']} {same[0]['step']} {same[0]['checkpoint']} {same[0]['pointer']}="
+                       f"{json.dumps(same[0]['value'], sort_keys=True)}")
     summary = document.get("summary") or {}
     statuses = {row["case"]: row["status"] for row in document.get("cases", [])}
     compared = sum(summary.get(k, 0) for k in ("equal", "explained", "divergent"))
@@ -1417,12 +1822,23 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         "flaky_excluded": sorted(cid for cid, s in statuses.items() if s == "flaky"),
         "not_comparable": dict(sorted((not_comparable or {}).items())),
         "divergence": str(target) if target.is_file() else None,
+        "divergences": str(out / "divergences.jsonl"),
+        # What confirm.py (task 184) reruns and compares with: the two run dirs, diff.py's --expected files
+        # and the switch's arm readback pointers (task 111; empty unless the sides are two arms).
+        "a_dir": str(a_dir),
+        "b_dir": str(b_dir),
+        "expected_files": [str(path) for path in files],
+        "arm_pointers": list(arm_pointers),
         "order_parity": order_parity,
         "leaked_state": leaks,
         "leaks_differ": leaks_differ,
+        "engine_parity": engine,
         "ok": refused is None and code == DIFF_OK and not leaks_differ,
     }
+    if switch is not None:
+        comparison["switch"] = {**switch, "readback_snapshots": (document.get("readback") or {}).get("differs")}
     write_json(out / "comparison.json", comparison)
+    write_divergences(Path(comparison["divergences"]), document if refused is None else {}, comparison)
     if as_json:
         print(json.dumps(comparison, indent=1, sort_keys=True))
     else:
@@ -1433,6 +1849,11 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         for item in document.get("divergences", [])[:20]:
             print(f"  divergent: {item['journey']} step={item['step']} checkpoint={item['checkpoint']} "
                   f"pointer={item['pointer']} a={json.dumps(item['a'], sort_keys=True)} b={json.dumps(item['b'], sort_keys=True)}")
+        if engine is not None:
+            print("  engine parity: " + " vs ".join(f"{label} --engine {name}" for label, name in engine["engines"].items())
+                  + f"; tabs canonicalized without {ENGINE_FIELD}; explained by {ENGINE_PARITY_FILE.relative_to(REPO)}")
+            for label, counts in (engine.get("readback") or {}).items():
+                print(f"  engine read back on {label}: {counts or 'no browser tab'}")
         for cid in leaks_differ:
             side = "a" if cid in leaks["a"] else "b"
             print(f"  LeakedState on side {side} only (order-dependent): {cid}")
@@ -1575,7 +1996,120 @@ def switch_expected_files(registry: Dict[str, Dict[str, Any]], names: Iterable[s
     return [root / f"{name}.json" for name in sorted(set(names)) if registry.get(name, {}).get("expected_differences")]
 
 
-def resolve_switches(registry: Dict[str, Dict[str, Any]], switch: Optional[str], arm: Optional[str]) -> Dict[str, str]:
+def pointer_token(token: str) -> str:
+    return token.replace("~", "~0").replace("/", "~1")
+
+
+def switch_key(name: str, entry: Mapping[str, Any]) -> str:
+    """The key the product reports the switch under: its app_key or daemon_key (task 018)."""
+    return str(entry.get("app_key") or entry.get("daemon_key") or name)
+
+
+def arm_pointers(name: str, entry: Mapping[str, Any]) -> List[str]:
+    """Snapshot values that read back the switch's arm: the app facet and the daemon oracle-state.
+
+    The app passes its switches to the daemon it launches (task 180), so both can carry either key.
+    """
+    key = pointer_token(switch_key(name, entry))
+    return [f"/facets/switches/arms/{key}", f"/facets/daemon/oracle/switches/{key}"]
+
+
+def arm_under_test_rules(name: str) -> List[Dict[str, str]]:
+    """The per-site hit list differs by arm by construction; the receipt hit counters are checked instead."""
+    return [{"pointer": "/facets/switches/hits",
+             "reason": f"the sites each arm of {name} ran; checked through the receipts' switch_hits"}]
+
+
+# A switch diff is one build run twice: only the arm and per-run values (the shuffle seed and
+# shard index, which comparability() checks, and the job count) may differ between the arm receipts.
+ARM_FIELDS = frozenset({"switch", "arm", "switches"})
+PER_RUN_FIELDS = frozenset({"seed", "shard_index", "jobs"})
+
+
+def other_arm(arm: str) -> str:
+    return ARMS[1 - ARMS.index(arm)]
+
+
+def switch_verdict(name: str, views: Mapping[str, RunView]) -> Tuple[Optional[str], Dict[str, Any]]:
+    """Why the arm runs of one switch are no evidence, or None; and the record of what each arm showed.
+
+    Chrome's FeatureList passes the state to every child (`--enable-features`), so a test can trust
+    it; here the product must prove it: each arm reads back its own arm, the two read back
+    differently, each ran its own sites and none of the other's, and every case that lists the
+    switch hit it.
+    """
+    build = {}
+    for arm in ARMS:
+        config = views[arm].receipt["config"]
+        if config.get("switch") != name or config.get("arm") != arm:
+            raise UsageError(f"the {arm} side is not a --switch {name} --arm {arm} run "
+                             f"(it is switch {config.get('switch')!r} arm {config.get('arm')!r})")
+        build[arm] = {k: v for k, v in config.items() if k not in ARM_FIELDS and k not in PER_RUN_FIELDS}
+    block: Dict[str, Any] = {"name": name, "arms": {}}
+    reasons: List[str] = []
+    readback = {}
+    for arm in ARMS:
+        receipt = views[arm].receipt
+        hits = (receipt.get("switch_hits") or {}).get(name, {})
+        seen = arms_seen(receipt.get("switch_readback") or {}, name)
+        unexercised = sorted(
+            cid for cid, record in receipt["cases"].items()
+            if name in (record.get("switches") or ()) and record.get("outcome") not in ("skipped", "flaky")
+            and not (record.get("switch_hits") or {}).get(name, {}).get(arm, 0)
+        )
+        readback[arm] = seen
+        block["arms"][arm] = {"readback": seen, "hits": dict(sorted(hits.items())), "unexercised_cases": unexercised,
+                              "sha": receipt.get("sha"), "host": receipt.get("host")}
+        if seen and seen != [arm]:
+            reasons.append(f"arm-not-applied: {name} read back {', '.join(seen)} on the {arm} arm")
+        elif not seen:
+            reasons.append(f"arm-not-applied: no readback of {name} on the {arm} arm")
+        if hits.get(other_arm(arm), 0):
+            reasons.append(f"arm-not-applied: the {arm} arm ran {hits[other_arm(arm)]} {other_arm(arm)}-arm site hits")
+        if not hits.get(arm, 0):
+            reasons.append(f"arm-not-exercised: 0 hits of {name} on the {arm} arm")
+        elif unexercised:
+            reasons.append(f"arm-not-exercised: {len(unexercised)} cases that list {name} had 0 hits on the {arm} arm: "
+                           + ", ".join(unexercised[:5]))
+    beyond = sorted(k for k in set(build["old"]) | set(build["new"]) if build["old"].get(k) != build["new"].get(k))
+    if beyond:
+        reasons.insert(0, "arms-differ-beyond-switch: "
+                       + ", ".join(f"{k} {build['old'].get(k)!r} vs {build['new'].get(k)!r}" for k in beyond))
+    if readback["old"] == readback["new"]:
+        reasons.insert(0, f"arms-read-back-same: {name} read back {', '.join(readback['old']) or 'nothing'} on both arms")
+    block["refusals"] = reasons
+    return (reasons[0] if reasons else None), block
+
+
+
+
+def parse_switch_set(registry: Dict[str, Dict[str, Any]], text: str) -> Dict[str, str]:
+    """`--switches NAME=ARM,...`: one explicit set of registry switches (every other switch at its default)."""
+    out: Dict[str, str] = {}
+    for item in parse_list([text]):
+        name, sep, arm = item.partition("=")
+        if not sep or arm not in ARMS:
+            raise UsageError(f"--switches {item}: NAME=old or NAME=new")
+        if name not in registry:
+            raise UsageError(f"--switches {name}: no plans/cmux-next/refactor-switches/{name}.json")
+        if name in out:
+            raise UsageError(f"--switches names {name} twice")
+        out[name] = arm
+    if not out:
+        raise UsageError("--switches needs NAME=ARM[,NAME=ARM...]")
+    return dict(sorted(out.items()))
+
+
+def format_switch_set(switches: Mapping[str, str]) -> str:
+    return ",".join(f"{name}={arm}" for name, arm in sorted(switches.items()))
+
+
+def resolve_switches(registry: Dict[str, Dict[str, Any]], switch: Optional[str], arm: Optional[str],
+                     explicit: Optional[str] = None) -> Dict[str, str]:
+    if explicit is not None:
+        if switch or arm not in (None, "default"):
+            raise UsageError("--switches is one explicit set: no --switch or --arm with it")
+        return parse_switch_set(registry, explicit)
     if switch:
         if switch not in registry:
             raise UsageError(f"--switch {switch}: no plans/cmux-next/refactor-switches/{switch}.json")
@@ -1622,6 +2156,8 @@ def add_selection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--flaky-out", type=Path, help="append flaky cases as JSON lines (MQ-flakes)")
     parser.add_argument("--dry-run", action="store_true", help="plan and write the receipt; run nothing")
     parser.add_argument("--run-id", help="default: UTC time plus 6 random characters")
+    parser.add_argument("--switch-registry", type=Path, default=SWITCH_REGISTRY,
+                        help="refactor switch registry dir (default plans/cmux-next/refactor-switches)")
     parser.add_argument("--json", action="store_true", help="print the receipt or comparison as JSON")
 
 
@@ -1643,7 +2179,7 @@ def new_seed() -> int:
 
 def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int], out: Path, run_id: str,
                       switch: Optional[str], arm: Optional[str], switches: Dict[str, str],
-                      ref: Optional[str], binary: Optional[str]) -> RunOptions:
+                      ref: Optional[str], binary: Optional[str], engine: Optional[str] = None) -> RunOptions:
     suites = tuple(parse_list(args.suite)) or ("all",)
     filters = tuple(parse_list(args.filter))
     seed = args.seed
@@ -1657,6 +2193,8 @@ def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int],
             raise UsageError(f"--{name.replace('_', '-')} must be >= 1")
     if args.retry_limit is not None and args.retry_limit < 0:
         raise UsageError("--retry-limit must be >= 0")
+    if engine is not None:
+        check_engine_product(product)
     options = RunOptions(
         product=product,
         suites=suites,
@@ -1683,6 +2221,8 @@ def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int],
         flaky_out=args.flaky_out,
         expectations_root=args.expectations_root,
         isolation=args.isolation,
+        engine=engine,
+        switch_registry=args.switch_registry,
     )
     if args.retry_limit is not None:
         retry = args.retry_limit
@@ -1698,6 +2238,11 @@ def run_expectations(options: RunOptions) -> Optional[ExpectationStore]:
                              product=options.product, build=options.build)
 
 
+def switch_roots(registry: Path) -> Any:
+    """The switches.Roots a run checks its switches against: the run's registry, this checkout's catalogs."""
+    return require_sibling("switches", "p15-oracle-018").Roots(registry=registry.resolve())
+
+
 def run_one(options: RunOptions, *, open_session: Optional[SessionOpener] = None) -> Tuple[Dict[str, Any], int]:
     cases, errors = load_corpus(options.corpus)
     if errors:
@@ -1707,6 +2252,13 @@ def run_one(options: RunOptions, *, open_session: Optional[SessionOpener] = None
         "expectations": "used" if store else "absent (p15-oracle-015): every case expects Pass",
         "normalize": "present" if (HERE / "normalize.py").is_file() else "absent (p15-oracle-013): drivers send canonical snapshots",
     }
+    if options.switches and not options.dry_run:
+        # An unknown switch, arm or key (or no catalog to check the key in) aborts before any product starts.
+        switches = require_sibling("switches", "p15-oracle-018")
+        try:
+            switches.arm_plan(options.switches, switch_roots(options.switch_registry))
+        except switches.UnknownSwitch as error:
+            raise UsageError(f"{error}; nothing ran") from None
     if open_session is None and not options.dry_run:
         driver = load_sibling(f"driver_{options.product}")
         # driver_daemon.py has the facet capture (021) before its case runner (023).
@@ -1728,10 +2280,19 @@ def print_run(receipt: Dict[str, Any], options: RunOptions, as_json: bool) -> No
         print(f"  flaky, left out of comparisons: {len(receipt['flaky'])}")
     for cid in receipt["unexpected"][:20]:
         print(f"  unexpected: {cid} ({receipt['cases'][cid]['status']})")
+    refusal = receipt["arm_not_applied"]
+    if refusal:
+        print(f"  {ARM_NOT_APPLIED} at {refusal['case']}, the run stopped: {'; '.join(refusal['problems'])}; "
+              f"read back {json.dumps(refusal['readback'], sort_keys=True)}")
+    elif receipt["arm_applied"] is False:
+        seen = arms_seen(receipt["switch_readback"], options.switch)
+        print(f"  {ARM_NOT_APPLIED}: {options.switch}={options.arm} read back {seen or 'nothing'}")
     for cid in receipt["leaked_state"][:20]:
         print(f"  LeakedState: {leak_line(receipt['cases'][cid]['leaked_state'][0])}")
     if receipt["arm_exercised"] is False:
         print(f"  arm-not-exercised: {options.switch}={options.arm} had 0 hits")
+    if options.engine:
+        print(f"  engine arm: browser.defaultEngine {options.engine}")
     for error in receipt["infra_errors"][:10]:
         print(f"  infra: {error}")
     print(f"  receipt: {options.out / 'receipt.json'}")
@@ -1754,9 +2315,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         raise UsageError(f"{QUEUE_HINT}; `oracle.py run` itself runs only inside a runnerd job")
     run_id = args.run_id or new_run_id()
     out = args.out or DEFAULT_OUT_BASE / run_id
-    switches = resolve_switches(load_switch_registry(), args.switch, args.arm)
+    switches = resolve_switches(load_switch_registry(args.switch_registry), args.switch, args.arm, args.switches)
     options = options_from_args(args, retry_default=None, out=out, run_id=run_id, switch=args.switch, arm=args.arm,
-                                switches=switches, ref=args.ref, binary=args.binary)
+                                switches=switches, ref=args.ref, binary=args.binary, engine=args.engine)
     receipt, code = run_one(options)
     print_run(receipt, options, args.json)
     return code
@@ -1772,6 +2333,18 @@ class Side:
     binary: Optional[str]
 
 
+def side_refusal(receipt: Mapping[str, Any], side: Side) -> Optional[str]:
+    """Why one side's run is no evidence for a diff: it ran on other arms than it applied, or never ran its arm."""
+    if receipt.get("arm_applied") is False:
+        refusal = receipt.get("arm_not_applied") or {}
+        seen = arms_seen(receipt.get("switch_readback") or {}, side.switch or "")
+        return (f"{ARM_NOT_APPLIED}: the {side.label} side "
+                + ("; ".join(refusal.get("problems") or ()) or f"read back {side.switch}={','.join(seen) or 'nothing'}"))
+    if receipt.get("arm_exercised") is False:
+        return f"arm-not-exercised: {side.switch}={side.arm}"
+    return None
+
+
 def diff_sides(args: argparse.Namespace, registry: Dict[str, Dict[str, Any]]) -> Tuple[Tuple[Side, Side], List[Path]]:
     """The two sides to run and the expected-differences files that apply to them."""
     if args.base or args.head:
@@ -1782,16 +2355,145 @@ def diff_sides(args: argparse.Namespace, registry: Dict[str, Dict[str, Any]]) ->
         # On the VM, queued_diff builds the refs; elsewhere the caller brings the binaries.
         return (Side("base", None, None, {}, args.base, args.base_binary),
                 Side("head", None, None, {}, args.head, args.head_binary)), []
-    if args.switch:
-        sides = tuple(Side(arm, args.switch, arm, resolve_switches(registry, args.switch, arm), args.ref, args.binary) for arm in ARMS)
-        return sides, switch_expected_files(registry, [args.switch])  # type: ignore[return-value]
     if args.arm == "launch-config":
         planned = resolve_switches(registry, None, "launch-config")
         return (
             Side("default", None, "default", {}, args.ref, args.binary),
             Side("launch-config", None, "launch-config", planned, args.ref, args.binary),
-        ), switch_expected_files(registry, planned)
+        ), switch_expected_files(registry, planned, args.switch_registry)
     raise UsageError("diff needs --base/--head, --switch NAME, --arm launch-config, --base-run/--head-run or --baselines")
+
+
+def shard_list(args: argparse.Namespace) -> List[Tuple[int, int]]:
+    """`--shards N`: every shard here, in order; else the one `--shard I/N` (a worker's share)."""
+    if args.shards is None:
+        return [parse_shard(args.shard)]
+    if args.shards < 1:
+        raise UsageError("--shards must be >= 1")
+    if args.shard != "0/1":
+        raise UsageError("--shards N runs every shard; --shard I/N runs one: pass one of them")
+    return [(index, args.shards) for index in range(args.shards)]
+
+
+def run_switch_arms(args: argparse.Namespace, registry: Dict[str, Dict[str, Any]], out: Path,
+                    open_session: Optional[SessionOpener]) -> Optional[Dict[str, List[Path]]]:
+    """Runs each shard on arm old, then the same shard on arm new, so the two arms of a case run
+    back to back on this host with the same build (spec 3F.1): each arm's shard run directories.
+    On the Linux VM the arms are runnerd jobs (queued_switch_arms); None when one wrote no receipt."""
+    if open_session is None and outside_vm_queue(args.product) and not args.dry_run:
+        return queued_switch_arms(args)
+    name = args.switch
+    run_id = args.run_id or new_run_id()
+    runs: Dict[str, List[Path]] = {arm: [] for arm in ARMS}
+    # With --json, stdout holds only the comparison.
+    with contextlib.redirect_stdout(sys.stderr) if args.json else contextlib.nullcontext():
+        for index, total in shard_list(args):
+            for arm in ARMS:
+                options = options_from_args(args, retry_default=DEFAULT_RETRY_LIMIT, out=out / arm / f"shard-{index}",
+                                            run_id=f"{run_id}-{arm}-{index}", switch=name, arm=arm,
+                                            switches=resolve_switches(registry, name, arm), ref=args.ref, binary=args.binary)
+                options = replace(options, shard=(index, total))
+                receipt, _ = run_one(options, open_session=open_session)
+                print_run(receipt, options, False)
+                runs[arm].append(options.out)
+    return runs
+
+
+def queued_switch_arms(args: argparse.Namespace) -> Optional[Dict[str, List[Path]]]:
+    """`diff --switch` on the Linux VM: each shard's two arms are `linux_run.sh run` jobs of one
+    --ref build in the runnerd queue, side by side on this host like queued_diff's sides."""
+    if args.binary:
+        raise UsageError(f"{QUEUE_HINT}; a prebuilt --binary cannot run in it")
+    if not args.ref:
+        raise UsageError(f"{QUEUE_HINT}; --switch needs --ref to build")
+    sha = resolve_commit(args.ref)
+    suites = ",".join(parse_list(args.suite)) or "all"
+    runs: Dict[str, List[Path]] = {arm: [] for arm in ARMS}
+    for index, total in shard_list(args):
+        run_args = queued_run_args(argparse.Namespace(**{**vars(args), "shard": f"{index}/{total}"}))
+        if args.switch_registry.resolve() != SWITCH_REGISTRY.resolve():
+            run_args += ["--switch-registry", str(args.switch_registry.resolve())]
+        procs = []
+        for arm in ARMS:
+            command = ["bash", str(HERE / "linux_run.sh"), "run", sha, "--suite", suites, "--arm", f"{args.switch}={arm}"]
+            command += ["--fresh"] if args.fresh else []
+            command += ["--", *run_args]
+            command += ["--run-id", f"{args.run_id}-{arm}-{index}"] if args.run_id else []
+            procs.append(subprocess.Popen(command, stdout=subprocess.PIPE, text=True))
+        finished = [(proc.communicate()[0], proc.returncode) for proc in procs]
+        for arm, (stdout, code) in zip(ARMS, finished):
+            lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+            run_dir = Path(lines[-1]) if lines else None
+            if run_dir is None or not (run_dir / "receipt.json").is_file():
+                print(f"refused: the {arm} arm of {args.switch} at {args.ref} shard {index}/{total} wrote no receipt "
+                      f"(linux_run.sh exit {code})", file=sys.stderr)
+                return None
+            print(f"{args.switch}={arm}: {args.ref} shard {index}/{total} run {run_dir} (oracle.py run exit {code})",
+                  file=sys.stderr if args.json else sys.stdout)
+            runs[arm].append(run_dir)
+    return runs
+
+
+def merge_arm_runs(runs: Mapping[str, Sequence[Path]], out: Path) -> Tuple[Dict[str, Path], Dict[str, RunView]]:
+    views: Dict[str, RunView] = {}
+    dirs: Dict[str, Path] = {}
+    for arm in ARMS:
+        view, errors = merge_runs(list(runs[arm]), require_complete=False)
+        if errors:
+            raise UsageError(f"{arm} arm: " + "; ".join(errors))
+        views[arm] = view
+        dirs[arm] = write_merged(view, out / f"{arm}-merged")
+    return dirs, views
+
+
+def suites_not_run(listed: Sequence[str], view: RunView) -> List[str]:
+    ran = view.receipt["config"].get("suites") or ["all"]
+    return [] if "all" in ran else sorted(set(listed) - set(ran))
+
+
+def diff_switch(args: argparse.Namespace, out: Path, open_session: Optional[SessionOpener] = None) -> int:
+    """`diff --switch NAME`: the switch's suites on both arms of one build, compared through diff.py.
+
+    `open_session` is the product driver's (default: driver_<product>.py)."""
+    check_out_dir(out)
+    out.mkdir(parents=True, exist_ok=True)
+    registry = load_switch_registry(args.switch_registry)
+    name = args.switch
+    if name not in registry:
+        raise UsageError(f"--switch {name}: no plans/cmux-next/refactor-switches/{name}.json")
+    entry = registry[name]
+    listed = [str(suite) for suite in entry.get("suites") or ()]
+    if args.order_parity:
+        raise UsageError("--order-parity compares one config in two orders; --switch compares two arms")
+    if args.base_run or args.head_run:
+        if not (args.base_run and args.head_run):
+            raise UsageError("--switch with runs: --base-run is the old arm's run, --head-run the new arm's")
+        if args.shards is not None:
+            raise UsageError("--shards runs the arms; with --base-run/--head-run the runs are given")
+        dirs, views = merge_arm_runs({"old": args.base_run, "new": args.head_run}, out)
+    else:
+        if args.base or args.head or args.baselines:
+            raise UsageError("--switch compares two arms of one build: no --base/--head or --baselines")
+        if not args.suite:
+            args.suite = [",".join(listed)] if listed else None
+        if args.shuffle and args.seed is None:
+            args.seed = new_seed()  # one seed for both arms: they must run the same order
+        runs = run_switch_arms(args, registry, out, open_session)
+        if runs is None:
+            return EXIT_REFUSED  # an arm that did not build or run, like queued_diff's sides
+        dirs, views = merge_arm_runs(runs, out)
+    refused, block = switch_verdict(name, views)
+    block.update(suites=listed, suites_not_run=suites_not_run(listed, views["new"]))
+    if block["suites_not_run"]:
+        print(f"note: {name} lists suites this diff did not run: {', '.join(block['suites_not_run'])}", file=sys.stderr)
+    for reason in block["refusals"][1:]:
+        print(f"  also: {reason}", file=sys.stderr)
+    refused = comparability(views["old"], views["new"], partial=args.partial) or refused
+    return compare_views(views["old"], views["new"], a_dir=dirs["old"], b_dir=dirs["new"], out=out,
+                         labels=(f"{name}=old", f"{name}=new"), partial=args.partial,
+                         expected=switch_expected_files(registry, [name], args.switch_registry),
+                         rules=[*arm_under_test_rules(name), *comparison_rules(views["new"], args.expectations_root)],
+                         refused=refused, arm_pointers=arm_pointers(name, entry), switch=block, as_json=args.json)
 
 
 def comparison_rules(view: RunView, root: Path) -> List[Dict[str, str]]:
@@ -1806,9 +2508,20 @@ def comparison_rules(view: RunView, root: Path) -> List[Dict[str, str]]:
 def cmd_diff(args: argparse.Namespace) -> int:
     if args.order_parity and not (args.base_run and args.head_run and not args.baselines):
         raise UsageError("--order-parity compares two existing runs: give --base-run and --head-run")
+    if args.engine:
+        parse_engines(args.engine)
+        if args.base or args.head or args.switch or args.arm or args.base_run or args.head_run or args.baselines:
+            raise UsageError("--engine is its own diff (one build, one arm per engine); --base-run and --head-run "
+                             "read each side's engine from its receipt")
+        check_engine_product(args.product)
     out = args.out or DEFAULT_OUT_BASE / ("diff-" + new_run_id())
     check_out_dir(out)
     out.mkdir(parents=True, exist_ok=True)
+    if args.switch and (args.base_run or args.head_run or args.product != "app"):
+        # App arms run on the fleet (fleet.py, below), which compares its arm runs through here.
+        return diff_switch(args, out)
+    if args.shards is not None and (args.product != "app" or args.base_run or args.head_run):
+        raise UsageError("--shards is for --switch and fleet app diffs; a base/head diff runs one --shard I/N")
     if args.head_run:
         head, head_errors = merge_runs(args.head_run, require_complete=False)
         if args.baselines:
@@ -1834,12 +2547,8 @@ def cmd_diff(args: argparse.Namespace) -> int:
         if not fleet.is_file():
             raise UsageError("app diffs run on the fleet through fleet.py, not on this branch yet (p15-oracle-050)")
         return subprocess.run([sys.executable, "-I", str(fleet), "diff", *args.raw_argv], check=False).returncode
-    registry = load_switch_registry()
+    registry = load_switch_registry(args.switch_registry)
     sides, expected = diff_sides(args, registry)
-    if args.switch and not args.suite:
-        minimum = registry[args.switch].get("minimum_suites")
-        if minimum:
-            args.suite = [",".join(minimum)]
     if args.shuffle and args.seed is None:
         args.seed = new_seed()  # one seed for both sides: they must run the same order
     if outside_vm_queue(args.product) and not args.dry_run:
@@ -1856,8 +2565,9 @@ def cmd_diff(args: argparse.Namespace) -> int:
                                     ref=side.ref, binary=side.binary)
         receipt, _ = run_one(options)
         print_run(receipt, options, False)
-        if receipt["arm_exercised"] is False:
-            print(f"arm-not-exercised: {side.switch}={side.arm}")
+        refused = side_refusal(receipt, side)
+        if refused:
+            print(refused)
             return EXIT_REFUSED
         view, errors = merge_runs([options.out], require_complete=False)
         if errors:
@@ -1879,6 +2589,40 @@ def resolve_commit(ref: str) -> str:
 def side_arm(side: Side) -> str:
     """The side's arm as `linux_run.sh run --arm` takes it."""
     return f"{side.switch}={side.arm}" if side.switch else side.arm or "-"
+
+
+def side_run_args(side: Side) -> List[str]:
+    """`oracle.py run` options of an explicit switch set (a side with switches but no arm)."""
+    explicit = side.switches and not side.switch and side.arm is None
+    return ["--switches", format_switch_set(side.switches)] if explicit else []
+
+
+def queued_side_command(args: argparse.Namespace, side: Side, sha: str, run_args: Sequence[str],
+                        same: bool) -> List[str]:
+    """The `linux_run.sh run` request of one side; `same` labels each of two otherwise identical requests."""
+    suites = ",".join(parse_list(args.suite)) or "all"
+    command = ["bash", str(HERE / "linux_run.sh"), "run", sha, "--suite", suites, "--arm", side_arm(side)]
+    command += ["--side", side.label] if same else []
+    command += ["--fresh"] if args.fresh else []
+    command += ["--", *run_args, *side_run_args(side)]
+    command += ["--run-id", f"{args.run_id}-{side.label}"] if args.run_id else []
+    return command
+
+
+def queued_side_view(side: Side, stdout: str, code: int) -> Optional[Tuple[RunView, Path]]:
+    """The run dir `linux_run.sh run` printed last, loaded as one side; None (printed as refused) when it wrote
+    no receipt: a side that did not build or run is a refused diff, not bad input (bisect_case.py skips that commit)."""
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    run_dir = Path(lines[-1]) if lines else None
+    if run_dir is None or not (run_dir / "receipt.json").is_file():
+        print(f"refused: the {side.label} run of {side.ref} wrote no receipt (linux_run.sh exit {code})",
+              file=sys.stderr)
+        return None
+    print(f"{side.label}: {side.ref} run {run_dir} (oracle.py run exit {code})")
+    view, errors = merge_runs([run_dir], require_complete=False)
+    if errors:
+        raise UsageError("; ".join(errors))
+    return view, run_dir
 
 
 def queued_run_args(args: argparse.Namespace) -> List[str]:
@@ -1922,36 +2666,165 @@ def queued_diff(args: argparse.Namespace, sides: Tuple[Side, Side], expected: Li
             raise UsageError(f"{QUEUE_HINT}; --switch and --arm launch-config need --ref to build")
     shas = [resolve_commit(side.ref) for side in sides]
     # One SHA and arm on both sides (a determinism check) must run twice, not join one job.
-    same = shas[0] == shas[1] and side_arm(sides[0]) == side_arm(sides[1])
-    suites = ",".join(parse_list(args.suite)) or "all"
+    same = shas[0] == shas[1] and len({(side_arm(side), tuple(side_run_args(side))) for side in sides}) == 1
     run_args = queued_run_args(args)
-    procs = []
-    for side, sha in zip(sides, shas):
-        command = ["bash", str(HERE / "linux_run.sh"), "run", sha, "--suite", suites, "--arm", side_arm(side)]
-        command += ["--side", side.label] if same else []
-        command += ["--fresh"] if args.fresh else []
-        command += ["--", *run_args]
-        command += ["--run-id", f"{args.run_id}-{side.label}"] if args.run_id else []
-        procs.append(subprocess.Popen(command, stdout=subprocess.PIPE, text=True))
+    procs = [subprocess.Popen(queued_side_command(args, side, sha, run_args, same), stdout=subprocess.PIPE, text=True)
+             for side, sha in zip(sides, shas)]
     finished = [(proc.communicate()[0], proc.returncode) for proc in procs]
     views, dirs = [], []
     for side, (stdout, code) in zip(sides, finished):
-        lines = [line.strip() for line in stdout.splitlines() if line.strip()]
-        run_dir = Path(lines[-1]) if lines else None
-        if run_dir is None or not (run_dir / "receipt.json").is_file():
-            raise UsageError(f"the {side.label} run of {side.ref} wrote no receipt (linux_run.sh exit {code})")
-        print(f"{side.label}: {side.ref} run {run_dir} (oracle.py run exit {code})")
-        if read_receipt(run_dir)["arm_exercised"] is False:
-            print(f"arm-not-exercised: {side.switch}={side.arm}")
+        loaded = queued_side_view(side, stdout, code)
+        if loaded is None:
             return EXIT_REFUSED
-        view, errors = merge_runs([run_dir], require_complete=False)
-        if errors:
-            raise UsageError("; ".join(errors))
+        view, run_dir = loaded
+        refused = side_refusal(read_receipt(run_dir), side)
+        if refused:
+            print(refused)
+            return EXIT_REFUSED
         views.append(view)
         dirs.append(run_dir)
     return compare_views(views[0], views[1], a_dir=dirs[0], b_dir=dirs[1], out=out,
                          labels=(sides[0].label, sides[1].label), partial=args.partial, expected=expected,
                          rules=comparison_rules(views[1], args.expectations_root), as_json=args.json)
+
+
+BISECT_SCHEMA = "cmux-oracle-bisect-switches-v1"
+
+
+class SwitchBisectRefused(Exception):
+    """The all-default run of a bisect wrote no receipt: nothing to compare a probe with (exit 3)."""
+
+
+class SwitchBisect:
+    """`bisect-switches CASE`: one all-default run of CASE, then one run per switch set the search probes,
+    each compared with that run through compare_views (diff.py, the sets' expected_differences, the
+    Expectations pointer rules). A probe's verdict is divergent, same (equal or explained), flaky, or
+    refused (a side whose arms did not read back, a host mismatch, a queued run that wrote no receipt)."""
+
+    def __init__(self, args: argparse.Namespace, registry: Dict[str, Dict[str, Any]], out: Path,
+                 open_session: Optional[SessionOpener]) -> None:
+        self.args = args
+        self.registry = registry
+        self.planned = resolve_switches(registry, None, "launch-config")
+        self.out = out
+        self.open_session = open_session
+        self.queued = open_session is None and outside_vm_queue(args.product)
+        self.run_args = queued_run_args(args) if self.queued else []
+        if self.queued and args.switch_registry.resolve() != SWITCH_REGISTRY.resolve():
+            self.run_args += ["--switch-registry", str(args.switch_registry.resolve())]
+        self.run_id = args.run_id or new_run_id()
+        self.probes: List[Dict[str, Any]] = []
+        default = self.run_side(Side("default", None, "default", {}, args.ref, args.binary))
+        if default is None:
+            raise SwitchBisectRefused("the all-default run wrote no receipt")
+        self.default_view, self.default_dir = default
+        order = self.default_view.receipt["order"]
+        if order != [args.case]:
+            raise UsageError(f"{args.case} selects {len(order)} cases on {args.product} ({', '.join(order[:5])}): "
+                             "bisect-switches takes one case id")
+
+    def run_side(self, side: Side) -> Optional[Tuple[RunView, Path]]:
+        if self.queued:
+            if side.binary or not side.ref:
+                raise UsageError(f"{QUEUE_HINT}; bisect-switches on the VM builds --ref and takes no --binary")
+            command = queued_side_command(self.args, side, resolve_commit(side.ref), self.run_args, same=False)
+            proc = subprocess.run(command, check=False, stdout=subprocess.PIPE, text=True)
+            return queued_side_view(side, proc.stdout, proc.returncode)
+        options = options_from_args(self.args, retry_default=DEFAULT_RETRY_LIMIT, out=self.out / side.label,
+                                    run_id=f"{self.run_id}-{side.label}", switch=None, arm=side.arm,
+                                    switches=side.switches, ref=side.ref, binary=side.binary)
+        run_one(options, open_session=self.open_session)
+        view, errors = merge_runs([options.out], require_complete=False)
+        if errors:
+            raise UsageError("; ".join(errors))
+        return view, options.out
+
+    def probe(self, names: Tuple[str, ...]) -> str:
+        label = f"probe-{len(self.probes):03d}"
+        switches = {name: self.planned[name] for name in names}
+        ran = self.run_side(Side(label, None, None, switches, self.args.ref, self.args.binary))
+        if ran is None:
+            verdict = "refused: the probe run wrote no receipt"
+            self.probes.append({"probe": label, "switches": switches, "verdict": verdict, "run": None,
+                                "comparison": None})
+            return verdict
+        view, run_dir = ran
+        compare_dir = self.out / f"{label}-compare"
+        compare_dir.mkdir(parents=True, exist_ok=True)
+        compare_views(self.default_view, view, a_dir=self.default_dir, b_dir=run_dir, out=compare_dir,
+                      labels=("default", label), partial=False,
+                      expected=switch_expected_files(self.registry, names, self.args.switch_registry),
+                      rules=comparison_rules(view, self.args.expectations_root))
+        comparison = json.loads((compare_dir / "comparison.json").read_text(encoding="utf-8"))
+        case = self.args.case
+        if comparison["refused"]:
+            verdict = f"refused: {comparison['refused']}"
+        elif case in comparison["divergent"]:
+            verdict = "divergent"
+        elif case in comparison["flaky_excluded"]:
+            verdict = "flaky"
+        else:
+            verdict = "same" if comparison["compared"] else "not compared"
+        self.probes.append({"probe": label, "switches": switches, "verdict": verdict, "run": str(run_dir),
+                            "comparison": str(compare_dir / "comparison.json")})
+        return verdict
+
+
+def bisect_switches(args: argparse.Namespace, *, open_session: Optional[SessionOpener] = None) -> int:
+    if args.dry_run:
+        raise UsageError("bisect-switches runs its probes: no --dry-run")
+    if args.suite or args.filter or args.shard != "0/1":
+        raise UsageError("bisect-switches selects its one CASE: no --suite, --filter or --shard")
+    switches_py = require_sibling("switches", "p15-oracle-018")
+    registry = load_switch_registry(args.switch_registry)
+    if not registry:
+        raise UsageError(f"no switches in {args.switch_registry}: nothing to bisect")
+    if args.max_proof_probes is None:
+        args.max_proof_probes = switches_py.DEFAULT_MAX_PROOF_PROBES
+    if args.max_proof_probes < 0:
+        raise UsageError("--max-proof-probes must be >= 0")
+    args.filter = [args.case]
+    # One seed orders the search and every run, so both sides of each probe run one order.
+    args.seed = args.seed if args.seed is not None else new_seed()
+    out = args.out or DEFAULT_OUT_BASE / ("bisect-switches-" + new_run_id())
+    check_out_dir(out)
+    out.mkdir(parents=True, exist_ok=True)
+    try:
+        bisect = SwitchBisect(args, registry, out, open_session)
+    except SwitchBisectRefused as refused:
+        print(f"refused: bisect-switches {args.case}: {refused}", file=sys.stderr)
+        return EXIT_REFUSED
+    # A switch planned at its default arm runs all-default either way (its read back proves it): not a suspect.
+    inert = sorted(name for name, arm in bisect.planned.items() if arm == registry[name].get("default"))
+    suspects = sorted(set(bisect.planned) - set(inert))
+    found = switches_py.bisect_switch_set(suspects, bisect.probe, seed=args.seed,
+                                          max_proof_probes=args.max_proof_probes)
+    document = {
+        "schema": BISECT_SCHEMA,
+        "case": args.case,
+        "product": args.product,
+        "ref": args.ref,
+        "seed": args.seed,
+        "registry": str(args.switch_registry),
+        "planned": bisect.planned,
+        "inert": inert,
+        "order": list(found.order),
+        "verdict": found.verdict,
+        "switches": {name: bisect.planned[name] for name in found.switches},
+        "minimality": found.minimality,
+        "reason": found.reason,
+        "default_run": str(bisect.default_dir),
+        "probes": bisect.probes,
+    }
+    write_json(out / "bisect.json", document)
+    if args.json:
+        print(json.dumps(document, indent=1, sort_keys=True))
+    else:
+        named = format_switch_set(document["switches"]) or "-"
+        detail = f"{named} ({found.minimality})" if found.verdict == "found" else found.reason
+        print(f"bisect-switches {args.case}: {found.verdict}: {detail}; {len(bisect.probes)} probes, seed {args.seed}")
+        print(f"  receipt: {out / 'bisect.json'}")
+    return {"found": DIFF_DIVERGENT, "not-reproducible": DIFF_OK}.get(found.verdict, EXIT_REFUSED)
 
 
 def cmd_merge(args: argparse.Namespace) -> int:
@@ -2174,7 +3047,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_selection_args(run)
     run.add_argument("--switch", help="refactor switch name (plans/cmux-next/refactor-switches)")
     run.add_argument("--arm", help="old or new with --switch; launch-config or default without")
+    run.add_argument("--switches", metavar="NAME=ARM,...",
+                     help="one explicit switch set, every other switch at its default (a bisect-switches probe)")
     run.add_argument("--ref", help="source ref recorded in the receipt")
+    run.add_argument("--engine", choices=sorted(ENGINE_READBACK),
+                     help="engine arm: every launch's browser.defaultEngine, and the engine of a case that pins one")
     run.add_argument("--out", type=Path, help=f"run directory (default {DEFAULT_OUT_BASE}/<run id>)")
     run.set_defaults(func=cmd_run)
 
@@ -2184,9 +3061,12 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("--head", help="head ref")
     diff.add_argument("--base-binary", help="prebuilt base binary instead of building --base")
     diff.add_argument("--head-binary", help="prebuilt head binary instead of building --head")
-    diff.add_argument("--switch", help="same build, arm old against arm new")
+    diff.add_argument("--switch", help="same build, arm old against arm new, on the switch's suites")
+    diff.add_argument("--shards", type=int, help="--switch: run every shard of N here, each on both arms back to back")
     diff.add_argument("--arm", choices=["launch-config"], help="every switch at its planned arm against all default")
-    diff.add_argument("--ref", help="source ref recorded for --switch and --arm runs")
+    diff.add_argument("--engine", help="engine parity: webkit,chromium runs the same build once per engine arm and "
+                                       f"compares without the tabs' engine ({ENGINE_PARITY_FILE.relative_to(REPO)})")
+    diff.add_argument("--ref", help="source ref recorded for --switch, --arm and --engine runs")
     diff.add_argument("--base-run", type=Path, action="append", help="existing run directory (repeat for shards)")
     diff.add_argument("--head-run", type=Path, action="append", help="existing run directory (repeat for shards)")
     diff.add_argument("--baselines", action="store_true", help="compare --head-run golden cases with reviewed baselines")
@@ -2199,6 +3079,18 @@ def build_parser() -> argparse.ArgumentParser:
                       help="on the VM, rerun both sides even when the queue has a receipt (confirm, flake checks)")
     diff.add_argument("--out", type=Path, help="comparison directory")
     diff.set_defaults(func=cmd_diff)
+
+    bisect = sub.add_parser("bisect-switches", help="the smallest switch set at its planned arm whose run of CASE "
+                                                    "diverges from all-default")
+    bisect.add_argument("case", help="one case id (suite/case)")
+    add_selection_args(bisect)
+    bisect.add_argument("--ref", help="source ref (on the VM: built in the runnerd queue)")
+    bisect.add_argument("--max-proof-probes", type=int,
+                        help="probes the smallest-set proof may spend below ddmin's set, else the set is only "
+                             "1-minimal (default switches.py DEFAULT_MAX_PROOF_PROBES)")
+    bisect.add_argument("--fresh", action="store_true", help="on the VM, rerun every probe even when the queue has it")
+    bisect.add_argument("--out", type=Path, help="bisect directory (bisect.json, each probe's run and comparison)")
+    bisect.set_defaults(func=bisect_switches)
 
     merge = sub.add_parser("merge", help="merge shard run directories; refuses a gap or an overlap")
     merge.add_argument("dirs", type=Path, nargs="+")

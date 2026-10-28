@@ -17,6 +17,28 @@ import Testing
         #expect(forwarders.acpmuxPanics == nil, "this test's acpmux maker finds no acpmux")
     }
 
+    /// p09-observability-097: a helper crash forwarder that waits for its release (the hang-reports controller's first
+    /// decision) does no pass in ``CrashForwarders/run()`` before it; the other forwarders do theirs.
+    @Test func aSystemForwarderThatWaitsForItsReleaseDoesNoPassBeforeIt() throws {
+        let dir = try CrashForwardersScratch()
+        defer { dir.remove() }
+        let sent = CrashForwardersSent()
+        let forwarders = dir.forwarders(sent: sent, systemWaitsForRelease: true)
+        forwarders.run()
+        #expect(sent.values == ["owner: boom", "acpmux.made"])
+        #expect(!FileManager.default.fileExists(atPath: dir.systemState.path), "the helper forwarder ran before its release")
+    }
+
+    @Test func aSystemForwarderReleasedBeforeTheRunDoesItsPassInIt() throws {
+        let dir = try CrashForwardersScratch()
+        defer { dir.remove() }
+        let forwarders = dir.forwarders(sent: nil, systemWaitsForRelease: true)
+        forwarders.releaseSystem()
+        #expect(!FileManager.default.fileExists(atPath: dir.systemState.path), "the release alone started the helper forwarder")
+        forwarders.run()
+        #expect(FileManager.default.fileExists(atPath: dir.systemState.path), "the run skipped the released helper forwarder")
+    }
+
     @Test func startSendsThePreviousRunsPanicOnTheForwardersQueue() async throws {
         let dir = try CrashForwardersScratch()
         defer { dir.remove() }
@@ -66,19 +88,22 @@ private struct CrashForwardersScratch {
 
     var log: URL { root.appending(path: "owner-panics-s.jsonl") }
     var ownerState: URL { root.appending(path: "owner-state.json") }
+    var systemState: URL { root.appending(path: "system-state.json") }
 
     /// The forwarders over this folder; each sent panic and the acpmux search go to `sent` or `report`.
-    func forwarders(sent: CrashForwardersSent?, report: @escaping @Sendable (String) -> Void = { _ in }) -> CrashForwarders {
+    func forwarders(sent: CrashForwardersSent?, systemWaitsForRelease: Bool = false,
+                    report: @escaping @Sendable (String) -> Void = { _ in }) -> CrashForwarders {
         let record: @Sendable (String) -> Void = { value in
             sent?.append(value)
             report(value)
         }
         let system = SystemCrashForwarder(directory: root.appending(path: "DiagnosticReports", directoryHint: .isDirectory),
-                                          stateFile: root.appending(path: "system-state.json"), bundlePath: root.path,
-                                          mainExecutable: nil, capture: { _ in record("system") })
+                                          stateFile: systemState, bundlePath: root.path,
+                                          mainExecutable: nil, hostExeRoot: nil, ownRustBinaries: [], artifacts: nil,
+                                          capture: { _, _ in record("system") })
         let owner = OwnerPanicForwarder(log: log, stateFile: ownerState, sends: true,
                                         capture: { event in record("owner: \(event.exceptions?.first?.value ?? "")") })
-        return CrashForwarders(system: system, ownerPanics: owner) {
+        return CrashForwarders(system: system, ownerPanics: owner, systemWaitsForRelease: systemWaitsForRelease) {
             record("acpmux.made")
             return nil
         }

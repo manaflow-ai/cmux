@@ -1,3 +1,4 @@
+import CmuxThreading
 import Foundation
 import Network
 import class CmuxSafeConcurrency.OnceContinuation
@@ -99,37 +100,36 @@ public final class NetworkRFBTransport: RFBTransport {
 
 /// Whether the transport was closed, and the open waiting for the
 /// connection: resumed exactly once, by the connection state or by a close.
-// crash-allow: `closed` and `opening` are read and written only while `lock` is held; the continuation resumes outside it, once.
-final class TransportLifecycle: @unchecked Sendable {
-    private let lock = NSLock()
-    private var closed = false
-    private var opening: OnceContinuation<Void, any Error>?
+/// The continuation always resumes after the lock is released.
+final class TransportLifecycle: Sendable {
+    private struct State {
+        var closed = false
+        var opening: OnceContinuation<Void, any Error>?
+    }
+
+    private let state = CmuxThreading.Mutex(State())
 
     /// False (and the continuation already failed) when closed.
     func beginOpen(_ continuation: OnceContinuation<Void, any Error>) -> Bool {
-        lock.lock()
-        guard !closed else {
-            lock.unlock()
-            continuation.resume(throwing: RFBError.connectionClosed)
-            return false
+        let opened = state.withLock { state -> Bool in
+            guard !state.closed else { return false }
+            state.opening = continuation
+            return true
         }
-        opening = continuation
-        lock.unlock()
-        return true
+        if !opened { continuation.resume(throwing: RFBError.connectionClosed) }
+        return opened
     }
 
     func finishOpen(_ error: (any Error)?) {
-        lock.lock()
-        let continuation = opening
-        opening = nil
-        lock.unlock()
+        let continuation = state.withLock { state -> OnceContinuation<Void, any Error>? in
+            defer { state.opening = nil }
+            return state.opening
+        }
         if let error { continuation?.resume(throwing: error) } else { continuation?.resume(returning: ()) }
     }
 
     func close() {
-        lock.lock()
-        closed = true
-        lock.unlock()
+        state.withLock { $0.closed = true }
         finishOpen(RFBError.connectionClosed)
     }
 }

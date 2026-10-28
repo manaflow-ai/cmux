@@ -920,7 +920,7 @@ async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
     fn failed(why: impl std::fmt::Display) -> RpcError {
         RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
     }
-    let dir = cmux_blocking::spawn_blocking(move || -> Result<PathBuf, RpcError> {
+    let dir = crate::daemon::spawn_blocking(move || -> Result<PathBuf, RpcError> {
         let dir = peer_scratch_root()?.join(name);
         let mut builder = std::fs::DirBuilder::new();
         builder.recursive(true);

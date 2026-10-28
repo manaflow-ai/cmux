@@ -34,7 +34,7 @@ struct PageWebViewChromiumTests {
         let page = try #require(hosting.made.first)
         #expect(Array(page.calls.prefix(3).map(\.method)) == ["Page.enable", "Runtime.enable", "Runtime.addBinding"])
         #expect(page.calls.contains { $0.method == "Page.addScriptToEvaluateOnNewDocument" &&
-            ($0.params["source"] as? String) == PageChromiumDocumentScripts.navigationScript })
+            ($0.params["source"] as? String)?.contains(PageChromiumDocumentScripts.navigationScript) == true })
         #expect(page.loaded == [descriptor.url(route: "#/start")])
         #expect(view.focusView === page.contentView)
         #expect(page.contentView.superview === view)

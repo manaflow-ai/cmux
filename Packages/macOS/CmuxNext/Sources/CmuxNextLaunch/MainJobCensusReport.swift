@@ -115,8 +115,9 @@ public nonisolated struct MainJobCensusReport: Sendable, Encodable {
     /// The demangled `Task` and `MainActor` members (the mangled ones are ``MainJobRing/enqueueRuntimeSymbolPrefixes``):
     /// `Task.init` is not inlined in a Debug build and would name every `Task { }` of a module as one enqueuer.
     static let runtimeSymbolNames = ["Swift.Task<", "Swift.Task.", "Swift.MainActor."]
-    /// The census's own frames between the post and its site: the ring and the posting seams.
-    static let censusSymbols = ["MainJobRing.", "MainDelivery.", "MainRunLoopBlock.", "MainJobCensus."]
+    /// The census's own frames between the post and its site: the ring and the posting seams (a classed
+    /// ``MainDelivery`` hop posts through the scheduler's `postFromAnyThread` to a `MainRunLoopBlock`; p06-scheduler-217).
+    static let censusSymbols = ["MainJobRing.", "MainDelivery.", "MainWorkScheduler.postFromAnyThread", "MainRunLoopBlock.", "MainJobCensus."]
     /// The caller of a job whose stack holds no frame of its enqueuer.
     static let unknownCaller = "unknown"
 

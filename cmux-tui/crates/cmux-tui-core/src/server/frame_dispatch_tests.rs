@@ -23,25 +23,25 @@ use crate::server::*;
 
 /// What the daemon sent: a line, or a frame and its JSON payload.
 #[derive(Debug)]
-enum Got {
+pub(in crate::server) enum Got {
     Line(Value),
     Frame(FrameHeader, Value),
 }
 
-struct Client {
-    mux: Arc<Mux>,
-    socket: UnixStream,
-    read_half: UnixStream,
-    reader: FrameReader,
+pub(in crate::server) struct Client {
+    pub(in crate::server) mux: Arc<Mux>,
+    pub(in crate::server) socket: UnixStream,
+    pub(in crate::server) read_half: UnixStream,
+    pub(in crate::server) reader: FrameReader,
     served: JoinHandle<ConnectionEnd>,
 }
 
-fn method(name: &str) -> &'static MethodAttrs {
+pub(in crate::server) fn method(name: &str) -> &'static MethodAttrs {
     let tables = MethodTables::schema();
     tables.v12_id(name).and_then(|id| tables.method(id)).expect("a v12 method")
 }
 
-fn call_frame(
+pub(in crate::server) fn call_frame(
     kind: FrameKind,
     request_id: u32,
     method_id: u16,
@@ -56,7 +56,7 @@ fn call_frame(
 }
 
 /// A REQUEST frame for `body`'s `cmd`, with its table priority.
-fn request(request_id: u32, body: &Value) -> Vec<u8> {
+pub(in crate::server) fn request(request_id: u32, body: &Value) -> Vec<u8> {
     let method = method(body["cmd"].as_str().unwrap());
     call_frame(
         FrameKind::Request,
@@ -67,7 +67,7 @@ fn request(request_id: u32, body: &Value) -> Vec<u8> {
     )
 }
 
-fn cancel(request_id: u32, name: &str) -> Vec<u8> {
+pub(in crate::server) fn cancel(request_id: u32, name: &str) -> Vec<u8> {
     let method = method(name);
     call_frame(FrameKind::Cancel, request_id, method.id.raw(), method.priority, b"")
 }
@@ -75,20 +75,36 @@ fn cancel(request_id: u32, name: &str) -> Vec<u8> {
 impl Client {
     /// A same-user local peer whose `set-client-info` declared frames.
     fn granted(label: &str) -> Client {
+        Client::granted_with(label, &[])
+    }
+
+    /// [`Client::granted`] that also declares `capabilities`.
+    pub(in crate::server) fn granted_with(label: &str, capabilities: &[&str]) -> Client {
+        Client::granted_with_frames(label, capabilities, RequestFrames::default)
+    }
+
+    /// [`Client::granted_with`] served by the lane `frames` makes.
+    pub(in crate::server) fn granted_with_frames(
+        label: &str,
+        capabilities: &[&str],
+        frames: impl FnOnce() -> RequestFrames + Send + 'static,
+    ) -> Client {
         let mux =
             Mux::new_for_test(format!("frame-dispatch-{label}"), crate::SurfaceOptions::default());
         let (socket, server) = UnixStream::pair().unwrap();
         let served_mux = mux.clone();
         let served = std::thread::spawn(move || {
             let stream: Box<dyn transport::Stream> = Box::new(server);
+            let peer = origin_gate::AcceptedPeer::resolve(&served_mux, &*stream);
             serve_connection(
                 served_mux,
                 stream,
+                peer,
                 Arc::new(RenderService::new()),
                 None,
                 ClientTransport::Unix,
                 &admission::LocalAdmission,
-                &mut RequestFrames::default(),
+                &mut frames(),
             )
         });
         let read_half = socket.try_clone().unwrap();
@@ -110,7 +126,7 @@ impl Client {
             "id": 1,
             "cmd": "set-client-info",
             "name": "frames",
-            "capabilities": ["ipc-frames-v2"],
+            "capabilities": ([["ipc-frames-v2"].as_slice(), capabilities].concat()),
             "api_revision": current,
         }));
         match client.next() {
@@ -121,7 +137,7 @@ impl Client {
     }
 
     /// The connection's client (a fresh test mux has no other Unix client).
-    fn client_id(&self) -> u64 {
+    pub(in crate::server) fn client_id(&self) -> u64 {
         let state = self.mux.control_clients.state.lock().unwrap();
         let mut unix = state
             .clients
@@ -133,16 +149,16 @@ impl Client {
         client
     }
 
-    fn line(&mut self, value: &Value) {
+    pub(in crate::server) fn line(&mut self, value: &Value) {
         self.socket.write_all(format!("{value}\n").as_bytes()).unwrap();
     }
 
-    fn send(&mut self, bytes: &[u8]) {
+    pub(in crate::server) fn send(&mut self, bytes: &[u8]) {
         self.socket.write_all(bytes).unwrap();
     }
 
     /// The next reply (events skipped); `None` once the daemon closed.
-    fn next(&mut self) -> Option<Got> {
+    pub(in crate::server) fn next(&mut self) -> Option<Got> {
         loop {
             match self.reader.next_message().unwrap() {
                 Some(Message::Json(line)) if line.trim().is_empty() => {}
@@ -165,7 +181,7 @@ impl Client {
         }
     }
 
-    fn line_reply(&mut self, body: &Value) -> Value {
+    pub(in crate::server) fn line_reply(&mut self, body: &Value) -> Value {
         self.line(body);
         match self.next() {
             Some(Got::Line(reply)) => reply,
@@ -173,7 +189,11 @@ impl Client {
         }
     }
 
-    fn frame_reply(&mut self, request_id: u32, body: &Value) -> (FrameHeader, Value) {
+    pub(in crate::server) fn frame_reply(
+        &mut self,
+        request_id: u32,
+        body: &Value,
+    ) -> (FrameHeader, Value) {
         self.send(&request(request_id, body));
         match self.next() {
             Some(Got::Frame(header, reply)) => (header, reply),
@@ -181,14 +201,21 @@ impl Client {
         }
     }
 
-    fn finish(self) -> ConnectionEnd {
+    pub(in crate::server) fn finish(self) -> ConnectionEnd {
         let _ = self.socket.shutdown(Shutdown::Write);
         self.served.join().unwrap()
     }
 
-    /// The daemon closes at once, and says why.
+    /// The daemon closes at once, and says why. Only the ERROR of a request
+    /// the close cancelled (a `wait-for` before the bad frame) may still
+    /// arrive; the bad frame itself is never answered.
     fn closed_with(mut self, refusal: CallRefusal) {
-        assert!(self.next().is_none(), "the daemon answered a bad message");
+        while let Some(got) = self.next() {
+            assert!(
+                matches!(&got, Got::Frame(header, _) if header.kind() == FrameKind::Error),
+                "the daemon answered a bad message: {got:?}"
+            );
+        }
         assert_eq!(self.finish(), ConnectionEnd::BadMessage(ConnectionBadMessage::Call(refusal)));
     }
 }
@@ -251,6 +278,43 @@ fn frame_dispatch_a_feature_route_answers_method_not_framed() {
     let (header, _) = client.frame_reply(6, &json!({"cmd": "ping"}));
     assert_answers(&header, FrameKind::Reply, 6, "ping");
     assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
+}
+
+/// `identify {revisions}` tells a connection offered frames what it may
+/// frame: the schema its method table must come from and the methods
+/// answered on frames, so it never learns one by a refusal, and every
+/// listed method is answered on a frame.
+#[test]
+fn frame_dispatch_identify_lists_the_framed_methods_and_their_schema() {
+    let mut client = Client::granted("identify");
+    let reply = client.line_reply(&json!({"id": 2, "cmd": "identify", "revisions": true}));
+    let identity = &reply["data"];
+    let digest = format!("{:016x}", cmux_ipc::SCHEMA_IDENTITY.sdk_schema_digest);
+    assert_eq!(identity["sdk_schema_digest"], json!(digest), "{identity}");
+    let framed: Vec<u16> = serde_json::from_value(identity["framed_methods"].clone()).unwrap();
+    assert!(framed.windows(2).all(|pair| pair[0] < pair[1]), "in id order: {framed:?}");
+    let tables = MethodTables::schema();
+    assert!(framed.iter().all(|id| tables.v12(cmux_ipc::MethodId::new(*id)).is_some()));
+    assert!(framed.contains(&method("ping").id.raw()));
+    assert!(framed.contains(&method("identify").id.raw()));
+    assert!(!framed.contains(&method("apps-list").id.raw()), "a feature route answers lines");
+    let (header, _) = client.frame_reply(3, &json!({"id": 3, "cmd": "identify"}));
+    assert_answers(&header, FrameKind::Reply, 3, "identify");
+    // Without `revisions` the reply keeps its shape.
+    let plain = client.line_reply(&json!({"id": 4, "cmd": "identify"}));
+    assert!(plain["data"].get("framed_methods").is_none(), "{plain}");
+    assert!(plain["data"].get("sdk_schema_digest").is_none(), "{plain}");
+    assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
+}
+
+/// A connection that is not offered frames never reads the framed set.
+#[test]
+fn frame_dispatch_identify_without_the_offer_lists_no_framed_methods() {
+    let mux = Mux::new_for_test("frame-dispatch-no-offer", crate::SurfaceOptions::default());
+    let identity = cmd_server::identify(&mux, 0, false, true).unwrap();
+    assert!(identity.get("api_revision").is_some(), "{identity}");
+    assert!(identity.get("framed_methods").is_none(), "{identity}");
+    assert!(identity.get("sdk_schema_digest").is_none(), "{identity}");
 }
 
 #[test]

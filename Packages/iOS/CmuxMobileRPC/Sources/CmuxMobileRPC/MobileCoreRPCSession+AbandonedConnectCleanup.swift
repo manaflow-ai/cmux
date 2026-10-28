@@ -4,7 +4,7 @@ import Foundation
 extension MobileCoreRPCSession {
     func abandonConnectionTask(_ connecting: ConnectingTask) async {
         let cleanupID = UUID()
-        let cleanupTask = Task.detached {
+        let cleanupTask = Task {
             do {
                 let candidate = try await connecting.task.value
                 if let cancellationCloseTask =
@@ -59,7 +59,7 @@ extension MobileCoreRPCSession {
         lateCloseTimeoutNanoseconds: UInt64
     ) {
         let cleanupID = UUID()
-        let cleanupTask = Task.detached {
+        let cleanupTask = Task {
             [connectAttemptRegistry, weak self] in
             let taskTimeout = RPCTaskTimeout()
             let cleaner = MobileRPCAbandonedConnectCleaner(

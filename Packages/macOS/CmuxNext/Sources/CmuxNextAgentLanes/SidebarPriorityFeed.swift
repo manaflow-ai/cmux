@@ -1,7 +1,7 @@
 public import CmuxNextAgentActivity
 import CmuxNextCompat
 public import CmuxNextSidebar
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -52,31 +52,44 @@ public final class SidebarPriorityFeed {
     private let ranking = AgentPriorityRanking()
     /// Bumped when a snooze ends or an idle chat ages out, so the rows redraw with no other change.
     private let clock = PriorityClock()
-    private let nextChange = DemandTimer(owner: "sidebar-priority-next-change")
+    /// The next snooze end or age-out. `visible`: a row shows or goes; nobody's input waits on it.
+    private let nextChange: MainDeadline
+    private let mainWork: MainWorkScheduler
 
-    public init(settings: Settings, hooks: Hooks, chats: AgentPriorityChats) {
+    /// - Parameters:
+    ///   - settings: The view's two settings.
+    ///   - hooks: What the feed asks of the App.
+    ///   - chats: The chats and their marks.
+    ///   - deadlines: The app's one deadline scheduler: the next snooze end, and the feed's observation on its
+    ///     main-thread scheduler.
+    public init(settings: Settings, hooks: Hooks, chats: AgentPriorityChats, deadlines: MainDeadlineScheduler) {
         self.settings = settings
         self.hooks = hooks
         self.chats = chats
+        mainWork = deadlines.work
+        nextChange = MainDeadline(owner: "SidebarPriorityFeed.nextChange", workClass: .visible, scheduler: deadlines)
     }
 
-    /// Feeds `view` until the task is cancelled (the window's sidebar bridge owns it).
-    public func start(_ view: SidebarView) -> Task<Void, Never> {
+    /// Feeds `view` until the token is released or cancelled (the window's sidebar bridge owns it).
+    ///
+    /// A service observation, not a view's: besides the view it arms the next snooze end and prunes the marks,
+    /// which must happen with the sidebar hidden too. `visible`: an agent's change shows in the rows; a person's
+    /// mark or the bell flushes before its frame. The token holds the feed: it lives as long as the window's
+    /// sidebar shows it.
+    public func start(_ view: SidebarView) -> ServiceObservation<SidebarPriorityPanel?> {
         view.onPriorityAction = { [weak self] action in self?.perform(action) }
-        // task-owner: the sidebar bridge (cancelled in teardown); event-driven (Observation)
-        // The task holds the feed: it lives as long as the window's sidebar shows it.
-        return Task { [self, weak view] in
-            for await panel in ObservationStream({ self.panel() }) {
-                view?.showPriority(panel)
-                // The chats the rows were built from (`panel`), else (the view not installed) built now.
-                let built = self.built ?? chats.snapshot()
-                self.built = nil
-                scheduleNextChange(built)
-                // A store is empty while its watch is down or not up yet (a machine's tree while it
-                // is not connected): pruning then would drop the marks of every chat it reports, so
-                // prune only while every one is live.
-                if chats.complete(built) { marks.prune(keeping: Set(built.lanes.map(\.id))) }
-            }
+        return ServiceObservation(.visible, owner: "SidebarPriorityFeed.panel", on: mainWork) { [self] in
+            panel()
+        } apply: { [self, weak view] panel in
+            view?.showPriority(panel)
+            // The chats the rows were built from (`panel`), else (the view not installed) built now.
+            let built = self.built ?? chats.snapshot()
+            self.built = nil
+            scheduleNextChange(built)
+            // A store is empty while its watch is down or not up yet (a machine's tree while it
+            // is not connected): pruning then would drop the marks of every chat it reports, so
+            // prune only while every one is live.
+            if chats.complete(built) { marks.prune(keeping: Set(built.lanes.map(\.id))) }
         }
     }
 
@@ -117,7 +130,7 @@ public final class SidebarPriorityFeed {
         }
         // Rounded up and a little late, so the wake never lands just before the change.
         let milliseconds = Int64((max(1, next.timeIntervalSince(now)) * 1000).rounded(.up)) + 50
-        nextChange.scheduleOnMain(after: .milliseconds(milliseconds)) { [weak self] in
+        nextChange.schedule(after: .milliseconds(milliseconds)) { [weak self] in
             guard let self else { return }
             clock.ticks += 1
             scheduleNextChange(chats.snapshot())

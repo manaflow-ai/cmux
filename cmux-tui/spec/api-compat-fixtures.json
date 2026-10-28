@@ -1,3 +1,848 @@
 {
-  "cases": []
+  "cases": [],
+  "vectors": [
+    {
+      "id": "rename-upgrades",
+      "title": "A rename under a wildcard upgrades every array element that has the member",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "rename",
+                  "path": "/ws/*/name",
+                  "to": "title"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 1,
+        "to": 2,
+        "input": "{\"ws\":[{\"name\":\"a\",\"id\":1},{\"id\":2}]}"
+      },
+      "expect": {
+        "bytes": "{\"ws\":[{\"title\":\"a\",\"id\":1},{\"id\":2}]}"
+      }
+    },
+    {
+      "id": "rename-downgrades",
+      "title": "The same rename downgrades back to the old name",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "rename",
+                  "path": "/ws/*/name",
+                  "to": "title"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 2,
+        "to": 1,
+        "input": "{\"ws\":[{\"title\":\"a\",\"id\":1},{\"id\":2}]}"
+      },
+      "expect": {
+        "bytes": "{\"ws\":[{\"name\":\"a\",\"id\":1},{\"id\":2}]}"
+      }
+    },
+    {
+      "id": "add-and-remove-upgrade",
+      "title": "Old writer to new reader: the added member gets its default, the removed one is dropped",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "add",
+                  "path": "/opts/zoom",
+                  "default": 1
+                }
+              ]
+            },
+            {
+              "rev": 3,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "remove",
+                  "path": "/legacy",
+                  "default": "x"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 1,
+        "to": 3,
+        "input": "{\"opts\":{},\"legacy\":\"y\"}"
+      },
+      "expect": {
+        "bytes": "{\"opts\":{\"zoom\":1}}"
+      }
+    },
+    {
+      "id": "add-keeps-a-present-member",
+      "title": "An add keeps a member the writer already sent",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "add",
+                  "path": "/opts/zoom",
+                  "default": 1
+                }
+              ]
+            },
+            {
+              "rev": 3,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "remove",
+                  "path": "/legacy",
+                  "default": "x"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 1,
+        "to": 3,
+        "input": "{\"opts\":{\"zoom\":2}}"
+      },
+      "expect": {
+        "bytes": "{\"opts\":{\"zoom\":2}}"
+      }
+    },
+    {
+      "id": "add-and-remove-downgrade",
+      "title": "New writer to old reader: the added member is removed, the removed one comes back with its default",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "add",
+                  "path": "/opts/zoom",
+                  "default": 1
+                }
+              ]
+            },
+            {
+              "rev": 3,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "remove",
+                  "path": "/legacy",
+                  "default": "x"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 3,
+        "to": 1,
+        "input": "{\"opts\":{\"zoom\":2}}"
+      },
+      "expect": {
+        "bytes": "{\"opts\":{},\"legacy\":\"x\"}"
+      }
+    },
+    {
+      "id": "remove-then-move-downgrade",
+      "title": "Fleet proptest find 5f9ba6b: downgrading a move back onto a removed member gives that member once, with the remove default",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "remove",
+                  "path": "/a",
+                  "default": 0
+                }
+              ]
+            },
+            {
+              "rev": 3,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "move",
+                  "from": "/a",
+                  "path": "/r1"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 3,
+        "to": 1,
+        "input": "{\"a\":null}"
+      },
+      "expect": {
+        "bytes": "{\"a\":0}"
+      }
+    },
+    {
+      "id": "rename-onto-an-existing-key-replaces-it",
+      "title": "Fleet proptest find 5f9ba6b: a rename replaces a member that already has the target name, never emits it twice",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "rename",
+                  "path": "/a",
+                  "to": "b"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 1,
+        "to": 2,
+        "input": "{\"b\":1,\"a\":2}"
+      },
+      "expect": {
+        "bytes": "{\"b\":2}"
+      }
+    },
+    {
+      "id": "rename-target-without-source-is-dropped",
+      "title": "A rename drops the target name when the source is missing",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "rename",
+                  "path": "/a",
+                  "to": "b"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 1,
+        "to": 2,
+        "input": "{\"b\":1}"
+      },
+      "expect": {
+        "bytes": "{}"
+      }
+    },
+    {
+      "id": "add-under-a-parent-a-move-created",
+      "title": "Fleet proptest find ba8b81c: a move creates the missing parents of its destination, so a later add under that parent runs",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "move",
+                  "from": "/e",
+                  "path": "/c/r0"
+                }
+              ]
+            },
+            {
+              "rev": 3,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "add",
+                  "path": "/c/r1",
+                  "default": 1
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 1,
+        "to": 3,
+        "input": "{\"e\":null}"
+      },
+      "expect": {
+        "json": {
+          "c": {
+            "r0": null,
+            "r1": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "move-across-parents-upgrades",
+      "title": "A move to another parent upgrades",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "move",
+                  "from": "/cwd",
+                  "path": "/location/cwd"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 1,
+        "to": 2,
+        "input": "{\"cwd\":\"/tmp\",\"id\":3}"
+      },
+      "expect": {
+        "json": {
+          "location": {
+            "cwd": "/tmp"
+          },
+          "id": 3
+        }
+      }
+    },
+    {
+      "id": "move-across-parents-downgrades",
+      "title": "The same move downgrades and leaves the created parent",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "move",
+                  "from": "/cwd",
+                  "path": "/location/cwd"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 2,
+        "to": 1,
+        "input": "{\"location\":{\"cwd\":\"/tmp\"},\"id\":3}"
+      },
+      "expect": {
+        "json": {
+          "location": {},
+          "cwd": "/tmp",
+          "id": 3
+        }
+      }
+    },
+    {
+      "id": "retype-and-rename-value-upgrade",
+      "title": "A retype and an enum value rename upgrade together; other values stay",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "retype",
+                  "path": "/ws/*/unread",
+                  "up": {
+                    "kind": "number_to_string"
+                  },
+                  "down": {
+                    "kind": "string_to_number"
+                  }
+                }
+              ]
+            },
+            {
+              "rev": 3,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "rename_value",
+                  "path": "/ws/*/state",
+                  "from": "idle",
+                  "to": "ready"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 1,
+        "to": 3,
+        "input": "{\"ws\":[{\"unread\":3,\"state\":\"idle\"},{\"unread\":0,\"state\":\"busy\"}]}"
+      },
+      "expect": {
+        "bytes": "{\"ws\":[{\"unread\":\"3\",\"state\":\"ready\"},{\"unread\":\"0\",\"state\":\"busy\"}]}"
+      }
+    },
+    {
+      "id": "retype-and-rename-value-downgrade",
+      "title": "The same retype and value rename downgrade",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "retype",
+                  "path": "/ws/*/unread",
+                  "up": {
+                    "kind": "number_to_string"
+                  },
+                  "down": {
+                    "kind": "string_to_number"
+                  }
+                }
+              ]
+            },
+            {
+              "rev": 3,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "rename_value",
+                  "path": "/ws/*/state",
+                  "from": "idle",
+                  "to": "ready"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 3,
+        "to": 1,
+        "input": "{\"ws\":[{\"unread\":\"3\",\"state\":\"ready\"}]}"
+      },
+      "expect": {
+        "bytes": "{\"ws\":[{\"unread\":3,\"state\":\"idle\"}]}"
+      }
+    },
+    {
+      "id": "fill-down-skips-an-upgrade",
+      "title": "A down fill does nothing when upgrading",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "fill",
+                  "path": "/title",
+                  "default": "",
+                  "direction": "down"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 1,
+        "to": 2,
+        "input": "{}"
+      },
+      "expect": {
+        "bytes": "{}"
+      }
+    },
+    {
+      "id": "fill-down-fills-a-downgrade",
+      "title": "A down fill inserts its default when downgrading",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "fill",
+                  "path": "/title",
+                  "default": "",
+                  "direction": "down"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 2,
+        "to": 1,
+        "input": "{}"
+      },
+      "expect": {
+        "bytes": "{\"title\":\"\"}"
+      }
+    },
+    {
+      "id": "fill-up-fills-an-upgrade",
+      "title": "An up fill inserts its default when upgrading",
+      "translation": {
+        "schema": {
+          "protocol": "prop",
+          "base": 0,
+          "revisions": [
+            {
+              "rev": 1,
+              "changes": [
+                {
+                  "message": "m",
+                  "op": "fill",
+                  "path": "/a",
+                  "default": 1,
+                  "direction": "up"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "m",
+        "from": 0,
+        "to": 1,
+        "input": "{}"
+      },
+      "expect": {
+        "bytes": "{\"a\":1}"
+      }
+    },
+    {
+      "id": "fill-up-skips-a-downgrade",
+      "title": "An up fill does nothing when downgrading",
+      "translation": {
+        "schema": {
+          "protocol": "prop",
+          "base": 0,
+          "revisions": [
+            {
+              "rev": 1,
+              "changes": [
+                {
+                  "message": "m",
+                  "op": "fill",
+                  "path": "/a",
+                  "default": 1,
+                  "direction": "up"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "m",
+        "from": 1,
+        "to": 0,
+        "input": "{}"
+      },
+      "expect": {
+        "bytes": "{}"
+      }
+    },
+    {
+      "id": "untouched-values-copied-byte-for-byte",
+      "title": "Spacing, number forms, raw UTF-8 and escapes outside the rule path survive as written",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "rename",
+                  "path": "/a/name",
+                  "to": "title"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 1,
+        "to": 2,
+        "input": "{ \"big\" : [1.0e10, -0.0, \"é\\u00e9\\n\"] , \"a\" : {\"name\" : 1 , \"x\" : { \"y\" : 2 }}}\n"
+      },
+      "expect": {
+        "bytes": "{\"big\":[1.0e10, -0.0, \"é\\u00e9\\n\"],\"a\":{\"title\":1,\"x\":{ \"y\" : 2 }}}\n"
+      }
+    },
+    {
+      "id": "escaped-key-matches-its-rule",
+      "title": "An escaped key (a\\/b) matches the rule path /a~1b",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "rename",
+                  "path": "/a~1b",
+                  "to": "c"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 1,
+        "to": 2,
+        "input": "{\"a\\/b\":1}"
+      },
+      "expect": {
+        "bytes": "{\"c\":1}"
+      }
+    },
+    {
+      "id": "empty-revision-copies-the-input",
+      "title": "A revision with no change for the message copies it",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": []
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 1,
+        "to": 2,
+        "input": "{\"a\":1}"
+      },
+      "expect": {
+        "bytes": "{\"a\":1}"
+      }
+    },
+    {
+      "id": "other-message-copies-the-input",
+      "title": "A message kind that no rule names is copied",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": []
+            }
+          ]
+        },
+        "message": "event:other",
+        "from": 1,
+        "to": 2,
+        "input": "{\"a\":1}"
+      },
+      "expect": {
+        "bytes": "{\"a\":1}"
+      }
+    },
+    {
+      "id": "malformed-input-on-a-rule-path-is-refused",
+      "title": "Truncated JSON on a rule path is a malformed refusal",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "rename",
+                  "path": "/a/name",
+                  "to": "title"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 1,
+        "to": 2,
+        "input": "{\"a\":{\"name\":1"
+      },
+      "expect": {
+        "error": "malformed"
+      }
+    },
+    {
+      "id": "trailing-bytes-are-refused",
+      "title": "Bytes after the message are a malformed refusal",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "rename",
+                  "path": "/a/name",
+                  "to": "title"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 1,
+        "to": 2,
+        "input": "{\"a\":1} trailing"
+      },
+      "expect": {
+        "error": "malformed"
+      }
+    },
+    {
+      "id": "revision-above-current-is-refused",
+      "title": "A reader revision above the newest is refused",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "rename",
+                  "path": "/a",
+                  "to": "b"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 1,
+        "to": 3,
+        "input": "{}"
+      },
+      "expect": {
+        "error": "unsupported_revision"
+      }
+    },
+    {
+      "id": "revision-below-base-is-refused",
+      "title": "A writer revision below the base is refused",
+      "translation": {
+        "schema": {
+          "protocol": "test",
+          "base": 1,
+          "revisions": [
+            {
+              "rev": 2,
+              "changes": [
+                {
+                  "message": "event:workspace",
+                  "op": "rename",
+                  "path": "/a",
+                  "to": "b"
+                }
+              ]
+            }
+          ]
+        },
+        "message": "event:workspace",
+        "from": 0,
+        "to": 2,
+        "input": "{}"
+      },
+      "expect": {
+        "error": "unsupported_revision"
+      }
+    }
+  ]
 }

@@ -71,9 +71,14 @@ mkdir -p "$CARGO_TARGET_DIR/$target/release"
 printf '#!/bin/sh\necho %s\n' "$OPTCHAT_BUILD_COMMIT" > "$CARGO_TARGET_DIR/$target/release/optchat-chief"
 chmod 755 "$CARGO_TARGET_DIR/$target/release/optchat-chief"
 # rustc's packed dSYM, when the build asks for line tables in one: written in
-# deps/ and linked into release/ by a relative symlink, as cargo does.
+# deps/ and linked into release/ by a relative symlink, as cargo does. rustc
+# makes it with `dsymutil` from PATH and fails the link when there is none.
 dsym="$CARGO_TARGET_DIR/$target/release/deps/optchat-chief-abc123.dSYM"
 rm -rf "$dsym" "$CARGO_TARGET_DIR/$target/release/optchat-chief.dSYM"
+if [[ "${CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO:-}" == packed ]] && ! command -v dsymutil >/dev/null 2>&1; then
+  echo 'error: unable to run `dsymutil`: No such file or directory (os error 2)' >&2
+  exit 101
+fi
 if [[ "${CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO:-}" == packed && "${CARGO_PROFILE_RELEASE_DEBUG:-}" == line-tables-only ]]; then
   mkdir -p "$dsym/Contents/Resources/DWARF"
   echo "$OPTCHAT_BUILD_COMMIT" > "$dsym/Contents/Resources/DWARF/optchat-chief"
@@ -82,12 +87,19 @@ fi
 echo "$OPTCHAT_BUILD_COMMIT" >> "$FAKE_CARGO_LOG"
 EOF
 printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/rustup"
+# A Mac's dsymutil, apart from $TMP/bin so a run can leave it off PATH (the
+# Linux pool has none).
+mkdir -p "$TMP/dsymutil-bin"
+printf '#!/bin/sh\nexit 0\n' > "$TMP/dsymutil-bin/dsymutil"
+chmod 755 "$TMP/dsymutil-bin/dsymutil"
 printf '#!/bin/sh\necho "$@" >&2\nexit 1\n' > "$TMP/bin/lipo"
 chmod 755 "$TMP/bin/cargo" "$TMP/bin/rustup" "$TMP/bin/lipo"
 : > "$TMP/cargo.log"
 
 run() {
-  env -i PATH="$TMP/bin:$python_dir:/usr/bin:/bin" HOME="$TMP" TMPDIR="$TMP" CI=1 FAKE_CARGO_LOG="$TMP/cargo.log" \
+  local dsymutil_dir=":$TMP/dsymutil-bin"
+  [[ -z "${NO_DSYMUTIL:-}" ]] || dsymutil_dir=""
+  env -i PATH="$TMP/bin$dsymutil_dir:$python_dir:/usr/bin:/bin" HOME="$TMP" TMPDIR="$TMP" CI=1 FAKE_CARGO_LOG="$TMP/cargo.log" \
     CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="${ARCHS_UNDER_TEST:-arm64}" CMUX_NEXT_OPTCHAT_CHIEF_CACHE="$TMP/cache" \
     CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$TMP/target" "$@" "$src/scripts/cmux-next/build-optchat-chief.sh" --output "$TMP/out/optchat-chief"
 }
@@ -177,4 +189,17 @@ grep -q 'keying by commit' "$TMP/err" || fail "an unreadable manifest did not fa
 for i in 1 2 3 4 5 6 7 8 9; do echo "# broken $i" >> "$src/docs/notes.md"; commit "broken $i"; keyed; done
 fallbacks=$(find "$TMP/cache" -maxdepth 1 -type d | grep -cE '/[0-9a-f]{40}$' || true)
 [[ "$fallbacks" -le 8 ]] || fail "the cache kept $fallbacks commit-keyed fallback entries"
+# A host with no dsymutil (the Linux pool's cross build) builds the Chief with
+# no dSYM; asking rustc for one there fails the link ("unable to run dsymutil").
+if [[ -x /usr/bin/dsymutil || -x /bin/dsymutil || -x "$python_dir/dsymutil" ]]; then
+  echo "optchat-chief-input-cache: no-dsymutil case skipped (this host has a dsymutil on the test PATH)"
+else
+  echo '# no dsymutil' >> "$src/Native/OptChat/optchat-core/Cargo.toml"; commit no-dsymutil
+  rm -rf "$TMP/out"
+  NO_DSYMUTIL=1 run CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED=1 >/dev/null 2>"$TMP/err" \
+    || fail "a host with no dsymutil could not build the Chief: $(cat "$TMP/err")"
+  [[ -x "$TMP/out/optchat-chief" ]] || fail "a host with no dsymutil delivered no Chief"
+  [[ ! -e "$TMP/out/optchat-chief.dSYM" ]] || fail "a host with no dsymutil delivered a dSYM"
+  grep -q 'builds without a dSYM' "$TMP/err" || fail "the build did not say it has no dSYM: $(cat "$TMP/err")"
+fi
 echo "optchat-chief-input-cache: ok ($n builds)"

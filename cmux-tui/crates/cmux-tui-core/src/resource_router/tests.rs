@@ -325,3 +325,41 @@ fn run_validation_preserves_exact_argv_and_rejects_empty_executable() {
     .unwrap_err();
     assert_eq!(invalid.code, "validation.invalid");
 }
+
+#[test]
+fn malformed_request_without_a_usable_id_is_answered_with_the_invalid_id() {
+    let error = ResourceError::validation_invalid(None, "malformed request");
+    let response = malformed_resource_response("{\"id\":\"\"}", error.clone());
+    assert_eq!(response["id"], "invalid");
+    assert_eq!(response["ok"], false);
+
+    let numeric = malformed_resource_response("{\"id\":7}", error);
+    assert_eq!(numeric["id"], 7);
+    assert_eq!(numeric["error"]["code"], "validation.invalid");
+}
+
+#[test]
+fn notification_terminal_id_that_is_not_a_string_is_a_validation_error() {
+    let mut fields = Map::new();
+    assert!(notification_terminal(&fields).unwrap().is_none());
+    fields.insert("terminal_id".to_owned(), json!(42));
+    let error = notification_terminal(&fields).unwrap_err();
+    assert_eq!(error.code, "validation.invalid");
+}
+
+#[test]
+fn mutation_without_an_idempotency_key_is_an_error_not_a_trap() {
+    let params =
+        json!({"machine":"current", "session":"current", "title":"t", "body":"b", "level":"info"});
+    let mut parsed = parse_resource_request(&request(
+        "notification-no-key",
+        "notification.create",
+        params,
+        Some("notification-no-key"),
+    ))
+    .unwrap();
+    parsed.envelope.idempotency_key = None;
+    assert!(parsed.mutation().is_err());
+    let error = create_notification(&test_mux(), parsed).unwrap_err();
+    assert_eq!(error.code, "validation.invalid");
+}

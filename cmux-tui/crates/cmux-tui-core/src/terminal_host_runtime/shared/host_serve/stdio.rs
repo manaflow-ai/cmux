@@ -6,12 +6,12 @@
 //! entry points (`sys::adopt_launch`) and the service-manager signal hooks
 //! (`sys::host_signals`).
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::fs as files;
 use cmux_threads::checked::sync as waits;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::thread;
 use std::time::{Duration, Instant};
 
 use super::super::super::sys::{
@@ -29,13 +29,31 @@ pub fn serve_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
     // Key-press flow marks start here, before any PTY or client work (`CMUX_TRACE_FLOWS`).
     cmux_flow_trace::init();
     let (mut reader, mut writer) = sys::host_bootstrap_streams(args)?;
-    serve_terminal_host_stdio(args, &mut reader, &mut writer)
+    serve_host(args, &mut reader, &mut writer, HangWatch::Process)
 }
 
+/// [`serve_terminal_host_process`] on given bootstrap streams, inside a process that is not only
+/// this host (a test): the process's hang watch is not started.
 pub fn serve_terminal_host_stdio(
     args: &[String],
     reader: &mut impl Read,
     writer: &mut impl Write,
+) -> anyhow::Result<()> {
+    serve_host(args, reader, writer, HangWatch::Embedded)
+}
+
+/// Whether the host owns its process, and so starts the process's hang watch.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HangWatch {
+    Process,
+    Embedded,
+}
+
+fn serve_host(
+    args: &[String],
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    hang_watch: HangWatch,
 ) -> anyhow::Result<()> {
     let adopt_fd = adopt_launch::adopt_pty_fd(args)?;
     let mut bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
@@ -46,6 +64,10 @@ pub fn serve_terminal_host_stdio(
         return Ok(());
     };
     let (launch, adopt) = adopt_launch::decode(&launch_frame, adopt_fd, &mut bootstrapped)?;
+    // Before the loops start, so each one registers with it.
+    if hang_watch == HangWatch::Process {
+        super::super::host_shared::start_process_hang_watch(Path::new(&launch.record_path));
+    }
     crate::debug_spans::install(crate::debug_spans::Trace::start("host", Instant::now()));
     crate::debug_spans::label_terminal(|| bootstrapped.terminal_id.to_hex());
     let (shared, _pty_lock) = match adopt_launch::start(&launch, adopt, &bootstrapped) {
@@ -106,6 +128,7 @@ pub fn serve_terminal_host_stdio(
         supports_shell_activity: true,
         supports_trace_control: true,
         supports_input_flow: true,
+        supports_thread_qos: true,
         orphan_grace_secs: host_orphan_grace().map(|grace| grace.as_secs()),
     };
     let record_root = Path::new(&launch.record_path)
@@ -172,14 +195,19 @@ pub fn serve_terminal_host_stdio(
     // The discovery files' remaining syncs, after Ready: they only order
     // the files on disk for a power cut, which also ends this host.
     let record_dir = Path::new(&launch.record_path).parent().map(Path::to_path_buf);
-    let _ = thread::Builder::new().name("terminal-host-publication-sync".into()).spawn(move || {
-        if let Some(lease) = unsynced_lease {
-            let _ = sys::barrier_sync(&lease);
-        }
-        if let Some(record_dir) = record_dir {
-            let _ = sys::barrier_sync_dir(&record_dir);
-        }
-    });
+    let _ = supervised::spawn(
+        "terminal-host-publication-sync",
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            if let Some(lease) = unsynced_lease {
+                let _ = sys::barrier_sync(&lease);
+            }
+            if let Some(record_dir) = record_dir {
+                let _ = sys::barrier_sync_dir(&record_dir);
+            }
+        },
+    );
 
     let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
     let mut backoff = host_accept::AcceptBackoff::new();
@@ -312,7 +340,7 @@ fn wait_at_test_gate(variable: &str) {
         return;
     };
     let (opened, wait) = std::sync::mpsc::channel();
-    let _ = thread::Builder::new().name("host-test-gate".into()).spawn(move || {
+    let _ = supervised::spawn("host-test-gate", Fatal, ShutdownBehavior::Continue, move || {
         let _ = files::open(&gate);
         let _ = opened.send(());
     });

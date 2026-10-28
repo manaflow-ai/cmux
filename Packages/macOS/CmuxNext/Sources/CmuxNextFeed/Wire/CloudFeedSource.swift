@@ -43,6 +43,8 @@ public final class CloudFeedSource: FeedSource {
     private var generation = 0
     /// The pong deadline of the latest ``checkAlive()``: a later probe replaces it, its pong drops it.
     private let probe: DemandTimer
+    /// The app's main-thread scheduler: a ping's answer is one background task on it.
+    private let mainWork: MainWorkScheduler
     /// Counts probes, so only the latest one's pong drops the deadline.
     private var probes = 0
     /// How long ``checkAlive()`` waits for the pong; a flexible deadline (WakeLeeway: 1 s leeway).
@@ -58,14 +60,17 @@ public final class CloudFeedSource: FeedSource {
     private var known: Set<String> = []
 
     /// `energy` is the app's Energy Saver policy (`MainWorkScheduler.energy`); nil keeps the socket as if always awake.
-    public convenience init(apiBaseURL: URL, device: String, energy: EnergyPolicySource? = nil, token: @escaping TokenProvider) {
-        self.init(apiBaseURL: apiBaseURL, device: device, token: token, reconnect: Backoff(initial: .milliseconds(500), maximum: .seconds(30)),
-                  connect: nil, energy: energy)
+    /// `mainWork` is the app's one main-thread scheduler: a ping's answer from URLSession's queue is posted on it.
+    public convenience init(apiBaseURL: URL, device: String, energy: EnergyPolicySource? = nil, mainWork: MainWorkScheduler,
+                            token: @escaping TokenProvider) {
+        self.init(apiBaseURL: apiBaseURL, device: device, mainWork: mainWork, token: token,
+                  reconnect: Backoff(initial: .milliseconds(500), maximum: .seconds(30)), connect: nil, energy: energy)
     }
 
-    init(apiBaseURL: URL, device: String, token: @escaping TokenProvider, reconnect: Backoff, connect: Connect?,
+    init(apiBaseURL: URL, device: String, mainWork: MainWorkScheduler, token: @escaping TokenProvider, reconnect: Backoff, connect: Connect?,
          clock: any Clock<Duration> = ContinuousClock(), energy: EnergyPolicySource? = nil,
          wakeJitter: @escaping @Sendable () -> Double = { Double.random(in: 0..<1) }) {
+        self.mainWork = mainWork
         var c = URLComponents(url: apiBaseURL, resolvingAgainstBaseURL: false) ?? URLComponents()
         c.scheme = c.scheme == "http" ? "ws" : "wss"
         c.path = "/v1/wire/feed"
@@ -88,6 +93,8 @@ public final class CloudFeedSource: FeedSource {
         probe.cancel()
         generation += 1
         let generation = generation
+        // task-owner: `runner`; the connection loop of this generation; stop() and reset() cancel it
+        // main-hop-allow: the feed's main-actor connection loop (its awaits are the token, the socket and its Backoff); frames apply in order to the main-actor mirror and sink
         runner = Task { await self.run(generation) }
     }
 
@@ -120,11 +127,16 @@ public final class CloudFeedSource: FeedSource {
     public func checkAlive() {
         guard let socket, connected else { return }
         let answer = armPongLimit { socket.cancel(with: .goingAway, reason: nil) }
+        let mainWork = mainWork
         socket.sendPing { error in
             let failed = error != nil
-            Task { @MainActor in answer(failed) }
+            // R-hop: the pong (or a failed ping) comes on URLSession's queue; its answer only drops or fires the deadline.
+            mainWork.postFromAnyThread(.background, owner: Self.pongOwner) { answer(failed) }
         }
     }
+
+    /// The ping answers' owner in the board and the wakeup ledger.
+    nonisolated static let pongOwner = "CloudFeedSource.pong"
 
     /// Arms one probe's pong deadline: `close` runs at ``pongLimit``, off the main actor, unless the
     /// returned answer, a later probe, a start or a stop comes first. A failed ping closes at once and

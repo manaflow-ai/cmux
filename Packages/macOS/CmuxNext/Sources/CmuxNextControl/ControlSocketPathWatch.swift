@@ -58,6 +58,7 @@ final class ControlSocketPathWatch: Sendable {
     // timer's handler; a tiny struct, never held across a call out.
     private let failures = Mutex(Failures())
     /// The retry after ``maxFailedRestores`` failures in a row.
+    // timer-class-allow: off main: the retry runs on the watch's queue
     private let retry = DemandTimer(owner: "ControlSocketPathWatch.retry")
     #if DEBUG
     /// Path checks run so far: each is one wakeup of `queue` (tests count them).
@@ -73,14 +74,17 @@ final class ControlSocketPathWatch: Sendable {
     /// The hang-watched lane of `queue` (the server's `control.accept`): each job this watch runs there, a check
     /// or a restore, is one scope of it. Nil watches nothing.
     private let lane: HangWatchedLane?
+    /// The watch's record in the launch's arm census (Debug and bench builds, p08-startup-085).
+    private let census: ArmCensusWatch
 
     init(path: String, queue: DispatchQueue, lane: HangWatchedLane? = nil, yieldsToHeldPath: Bool = false,
-         onMissing: @escaping @Sendable () -> Bool) {
+         file: StaticString = #fileID, line: UInt = #line, onMissing: @escaping @Sendable () -> Bool) {
         self.path = path
         self.queue = queue
         self.lane = lane
         self.yieldsToHeldPath = yieldsToHeldPath
         self.onMissing = onMissing
+        census = ArmCensusWatch(.watcher, owner: "ControlSocketPathWatch", file: file, line: line)
     }
 
     deinit {
@@ -97,7 +101,7 @@ final class ControlSocketPathWatch: Sendable {
                 var info = stat()
                 // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
                 // `info`, a local.
-                if unsafe lstat(self.path, &info) != 0, errno == ENOENT, self.checkPath() { self.watch() }
+                if unsafe blockingLstat(self.path, &info) != 0, errno == ENOENT, self.checkPath() { self.watch() }
             }
         }
     }
@@ -132,7 +136,7 @@ final class ControlSocketPathWatch: Sendable {
         // O_NONBLOCK: whatever is at the path is opened, and a FIFO there would block open(2) on this
         // queue until some process opened it for writing (the accept queue: no request answered).
         // SAFETY: open reads the NUL-terminated copy of the path made for the call.
-        let entry = unsafe open(path, O_EVTONLY | O_SYMLINK | O_NONBLOCK)
+        let entry = unsafe blockingOpen(path, O_EVTONLY | O_SYMLINK | O_NONBLOCK)
         let followsEntry = entry >= 0
         if entryOnly, !followsEntry { return }
         let descriptor: Int32
@@ -149,7 +153,7 @@ final class ControlSocketPathWatch: Sendable {
                 return
             }
             // SAFETY: open reads the NUL-terminated copy of the path made for the call.
-            descriptor = unsafe open(parent.isEmpty ? "." : parent, O_EVTONLY)
+            descriptor = unsafe blockingOpen(parent.isEmpty ? "." : parent, O_EVTONLY)
             guard descriptor >= 0 else {
                 // Without the watch a deleted socket stays gone until relaunch; say so once.
                 let error = POSIXErrorText(errno).description
@@ -163,6 +167,7 @@ final class ControlSocketPathWatch: Sendable {
         // wakeup-allow: kqueue event on the entry (or its directory), no timer; one lstat per event
         watch.setEventHandler { [weak self] in
             guard let self else { return }
+            self.census.fired()
             self.job { self.changed(followingEntry: followsEntry) }
         }
         watch.setCancelHandler { close(descriptor) }
@@ -175,7 +180,7 @@ final class ControlSocketPathWatch: Sendable {
             current = watch
             return true
         }
-        if !installed { watch.cancel() }
+        if installed { census.armed() } else { watch.cancel() }
     }
 
     /// On `queue`: cancels the current watch and watches nothing.
@@ -204,7 +209,7 @@ final class ControlSocketPathWatch: Sendable {
         var info = stat()
         // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local.
-        return unsafe lstat(path, &info) == 0
+        return unsafe blockingLstat(path, &info) == 0
     }
 
     /// A sticky, world-writable directory (/tmp): every process on the Mac writes there.
@@ -212,7 +217,7 @@ final class ControlSocketPathWatch: Sendable {
         var info = stat()
         // SAFETY: stat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local.
-        return unsafe stat(directory, &info) == 0 && info.st_mode & S_ISVTX != 0 && info.st_mode & S_IWOTH != 0
+        return unsafe blockingStat(directory, &info) == 0 && info.st_mode & S_ISVTX != 0 && info.st_mode & S_IWOTH != 0
     }
 
     /// Logs `message` once per watch, so idle measurements can see it.
@@ -232,7 +237,7 @@ final class ControlSocketPathWatch: Sendable {
         var info = stat()
         // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local.
-        guard unsafe lstat(path, &info) != 0, errno == ENOENT, !stopped.load(ordering: .sequentiallyConsistent) else {
+        guard unsafe blockingLstat(path, &info) != 0, errno == ENOENT, !stopped.load(ordering: .sequentiallyConsistent) else {
             failures.withLock { $0 = Failures() }
             return false
         }

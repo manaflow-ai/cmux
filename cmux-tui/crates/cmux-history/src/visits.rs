@@ -627,6 +627,17 @@ impl VisitStore {
         Ok(())
     }
 
+    /// Frees the log's unused page cache on the owner's thread
+    /// ([`crate::page_cache::release`]).
+    pub fn release_memory(&self) -> Result<(), HistoryError> {
+        crate::page_cache::release(&self.connection)
+    }
+
+    /// The bytes the log's page cache holds now.
+    pub fn cache_used_bytes(&self) -> Option<u64> {
+        crate::page_cache::cache_used_bytes(&self.connection)
+    }
+
     pub fn count(&self) -> Result<u64, HistoryError> {
         let count: i64 =
             self.connection.query_row("SELECT COUNT(*) FROM visits", [], |row| row.get(0))?;

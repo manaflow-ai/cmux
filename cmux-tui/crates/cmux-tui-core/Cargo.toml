@@ -20,6 +20,10 @@ oracle = []
 # Decoder entry points for the cmux-tui/fuzz targets (`fuzz_entry`): only the
 # fuzz workspace (cmux-tui/fuzz/Cargo.toml) turns it on.
 fuzz = []
+# Crash injectors for the fleet's crash matrix (`debug-panic`,
+# server/debug_crash_inject.rs): code behind cfg(any(debug_assertions,
+# feature = "bench")), so release builds never have it. Off by default.
+bench = []
 # The lab's tokio slow-poll detector (cmux-blocking; RUSTFLAGS="--cfg tokio_unstable").
 cmux-stability = ["cmux-blocking/cmux-stability"]
 
@@ -36,12 +40,16 @@ cmux-unix-socket.workspace = true
 cmux-pty.workspace = true
 # The panic log and the process's hang watcher: request, journal writer and holder-link scopes.
 cmux-panic-log.workspace = true
+# The Release hang watch (p09-observability 3E): frame, request, journal batch,
+# terminal job and line-out write scopes, and the terminal host's loop
+# registrations (p09-observability-074).
+cmux-hang-watch.workspace = true
 cmux-holder.workspace = true
 cmux-ipc.workspace = true
 cmux-process.workspace = true
 cmux-features.workspace = true
 cmux-flow-trace.workspace = true
-cmux-threads.workspace = true
+cmux-threads = { workspace = true, features = ["tokio"] }
 # wake::deadline, EnergyMode and the MaintenanceClock (re-exported as `wake`).
 cmux-wake.workspace = true
 cmux-trace.workspace = true

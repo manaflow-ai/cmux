@@ -48,6 +48,7 @@ package final class ActionLatencyHUD {
         guard watch == nil else { return }
         let runs = monitor.samples(everyRun: true)
         // task-owner: this HUD (cancelled in hide); event-driven (the monitor's stream).
+        // main-hop-allow: Debug HUD shown on request: the monitor yields each run on main, and adding its row is the HUD's only work
         watch = Task { [weak self] in
             for await run in runs { self?.add(run) }
         }

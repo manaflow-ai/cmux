@@ -128,6 +128,15 @@ struct MainJobCensusTests {
         #expect(MainJobCensusReport.caller([], kind: .mainDelivery) == "unknown")
     }
 
+    /// A classed delivery hop posts through the scheduler to a run-loop block: its caller is the app frame past both.
+    @Test func aClassedDeliveryHopNamesTheAppCaller() {
+        let block = Frame(image: "cmux", symbol: "static CmuxNextCompat.MainRunLoopBlock.censused(_:)", imageOffset: 0x11)
+        let post = Frame(image: "cmux", symbol: "CmuxNextWakeups.MainWorkScheduler.postFromAnyThread(_:owner:site:_:)", imageOffset: 0x12)
+        let delivery = Frame(image: "cmux", symbol: "CmuxNextWakeups.MainDelivery.run(file:line:_:)", imageOffset: 0x13)
+        let app = Frame(image: "cmux", symbol: "BrowserTab.frameChanged()", imageOffset: 0x14)
+        #expect(MainJobCensusReport.caller([block, post, delivery, app], kind: .runLoopBlock) == "BrowserTab.frameChanged()")
+    }
+
     /// A stack with nothing of the app past the runtime (an `await` resumed from a pool thread whose async frames were
     /// cut) has no enqueuer: never the thread start or a runtime frame.
     @Test func aStackOfRuntimeFramesOnlyHasAnUnknownCaller() {

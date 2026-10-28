@@ -65,6 +65,42 @@ struct PageWebViewEngineNeutralTests {
         view.close()
     }
 
+    /// p01-process-232: on the page channel the page script names its event, and a post after the page's commit
+    /// reaches the handler in the event's turn, each message of a batched post in order, with no DevTools call.
+    @Test func aPageChannelPostReachesTheHandlerWithNoDevToolsCall() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.onMade = { $0.pageHostEvent = "cmux-page-host-post" }
+        var heard: [String] = []
+        let (view, page) = try await started(hosting) { view in
+            view.addMessageHandler("testReport") { body in heard.append((body as? [String: Any])?["text"] as? String ?? "?") }
+        }
+        #expect(page.calls.contains { $0.method == "Page.addScriptToEvaluateOnNewDocument" &&
+            (($0.params["source"] as? String)?.contains(#"const channelEvent = "cmux-page-host-post";"#) ?? false) })
+        page.onEvent?(.committed(descriptor.url(route: "")))
+        let before = page.calls.count
+        page.onEvent?(.pageHostPost(#"[{"name":"testReport","body":{"text":"a"}},{"name":"testReport","body":{"text":"b"}}]"#,
+                                    sender: descriptor.url(route: "")))
+        #expect(heard == ["a", "b"], "the post's messages reach the handler in its turn")
+        #expect(page.calls.count == before, "a DevTools call for the post: \(page.calls.dropFirst(before).map(\.method))")
+        view.close()
+    }
+
+    /// A new document's first-paint report that arrives before its commit is held, and delivered after the view
+    /// reset for that commit: the page stays painted instead of the reset clearing the paint it already reported.
+    @Test func aPaintReportBeforeItsCommitSurvivesTheCommit() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.onMade = { $0.pageHostEvent = "cmux-page-host-post" }
+        let (view, page) = try await started(hosting)
+        let url = descriptor.url(route: "")
+        page.onEvent?(.pageHostPost(#"{"name":"\#(PagePaintProbe.handlerName)","body":1}"#, sender: url))
+        #expect(!view.hasPainted, "a post was judged before its document's commit")
+        page.onEvent?(.committed(url))
+        #expect(view.hasPainted, "the commit's reset cleared the paint its document reported before it")
+        view.close()
+    }
+
     /// The next-frame wait runs through the page's `evaluate`: on the renderer path (`tabEvaluate`)
     /// it makes no DevTools call, and the body runs once the page answers.
     @Test func theNextFrameWaitRunsThroughTheChromiumPagesEvaluate() async throws {

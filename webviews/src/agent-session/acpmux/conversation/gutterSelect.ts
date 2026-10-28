@@ -336,6 +336,8 @@ export function installGutterSelect(
       row,
       selecting: false,
     };
+    // Not passive: onMove cancels the native selection drag once the margin drag selects. Its
+    // work already runs once per frame (`tick`).
     win.addEventListener("mousemove", onMove, true);
     win.addEventListener("mouseup", onUp, true);
     win.addEventListener("blur", stop);

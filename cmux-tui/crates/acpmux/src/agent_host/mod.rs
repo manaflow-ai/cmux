@@ -19,6 +19,10 @@
 
 #[cfg(unix)]
 pub mod host;
+#[cfg(unix)]
+mod host_process;
+#[cfg(unix)]
+pub use host_process::PANIC_LOG_ENV;
 /// Windows port: the agent host process comes in a later landing.
 #[cfg(not(unix))]
 pub mod host {
@@ -26,6 +30,7 @@ pub mod host {
         Err(crate::platform::unsupported("the agent host"))
     }
 }
+pub mod entry_queue;
 pub mod link;
 pub mod program_wait;
 #[cfg(unix)]
@@ -260,6 +265,12 @@ pub struct UnreadableRecord {
 /// Hosts directory of this acpmux home.
 pub fn hosts_dir() -> PathBuf {
     crate::config::home().join("hosts")
+}
+
+/// The agent hosts' panic log, `$ACPMUX_HOME/agent-host-panics.jsonl`,
+/// beside the daemon's `panics.jsonl`; every host of this home appends to it.
+pub fn panic_log_path() -> PathBuf {
+    crate::config::home().join("agent-host-panics.jsonl")
 }
 
 pub fn record_path(dir: &Path, session_id: &str) -> PathBuf {
@@ -516,6 +527,7 @@ pub fn terminate_unadoptable(
     }
     // SAFETY: the held lock proves `pid` is this session's live host.
     unsafe { libc::kill(pid, libc::SIGTERM) };
+    crate::daemon::hang_watch::will_block();
     if dead_within(TERM_GRACE) {
         return Ok(true);
     }
@@ -676,6 +688,13 @@ pub async fn write_frame<W: AsyncWriteExt + Unpin, T: Serialize>(
 pub async fn read_frame<R: AsyncReadExt + Unpin, T: for<'de> Deserialize<'de>>(
     r: &mut R,
 ) -> Result<Option<T>> {
+    Ok(read_sized_frame(r).await?.map(|(frame, _)| frame))
+}
+
+/// [`read_frame`] with the frame's body length in bytes.
+pub async fn read_sized_frame<R: AsyncReadExt + Unpin, T: for<'de> Deserialize<'de>>(
+    r: &mut R,
+) -> Result<Option<(T, usize)>> {
     let mut len = [0u8; 4];
     match r.read_exact(&mut len).await {
         Ok(_) => {}
@@ -688,7 +707,7 @@ pub async fn read_frame<R: AsyncReadExt + Unpin, T: for<'de> Deserialize<'de>>(
     }
     let mut body = vec![0u8; len];
     r.read_exact(&mut body).await?;
-    Ok(Some(serde_json::from_slice(&body)?))
+    Ok(Some((serde_json::from_slice(&body)?, len)))
 }
 
 /// Pick the highest protocol version both sides speak.

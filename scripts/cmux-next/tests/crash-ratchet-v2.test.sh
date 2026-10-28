@@ -11,7 +11,7 @@
 #    spell its selector (PointerHover's `mouseEntered(with:)` was exported as
 #    `mouseEnteredWith:` and AppKit raised "unrecognized selector");
 #  - dynamic_dispatch: string selectors and KVC by string key are counted;
-#  - invariant_check / dump_will_be_check: Invariant API sites need an allowlist entry.
+#  - invariant_check / dump_will_be_check: report-only (p10-stability-199); the CI compare never judges them.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp="$(mktemp -d)"
@@ -372,32 +372,25 @@ if out="$(ratchet)"; then fail "an array or Data index, or an inferred read, pas
 g reset -q
 reset
 
-# 20. The Invariant API (p10-stability-099): with invariant_check and dump_will_be_check banned, a
-#    check or dumpWillBeCheck site passes only with an allowlist entry (an inline crash-allow does not
-#    waive it); notFatalUntil is not a class, and a doc comment that names a call never counts.
+# 20. The Invariant API (p10-stability-099, 199): invariant_check and dump_will_be_check are report-only, so the CI
+#    compare passes a check or dumpWillBeCheck site with no crash-allowlist entry, even when the allowlist names the
+#    classes as banned (an unknown class bans nothing); --report counts each once. notFatalUntil is not a class, and a
+#    doc comment that names a call never counts. guardrails.py's local-only invariant-site rule judges the sites.
 cat > "$tmp/scripts/cmux-next/crash-allowlist.json" <<'JSON'
 {"banned": ["swift.as_bang", "swift.objc_selector", "swift.invariant_check", "swift.dump_will_be_check"], "allow": []}
 JSON
 cat > "$app/Sources/M/A.swift" <<'SWIFT'
 /// Invariant.check(a, "doc") in a doc comment.
 Invariant.notFatalUntil(ok, "tab-in-workspace", build: 100)
-Invariant.check(ok, "persisted-order") // crash-allow: an inline escape does not waive a ban
+Invariant.check(ok, "persisted-order")
 Invariant.dumpWillBeCheck(ok, "cache-coherent")
 SWIFT
 g add -A
-if out="$(ratchet)"; then fail "an unlisted Invariant.check or dumpWillBeCheck passed: $out"; fi
-[[ "$out" == *"banned invariant_check in Packages/macOS/CmuxNext/Sources/M/A.swift: 1 hit(s)"* ]] \
-    || fail "the check site is not reported once: $out"
-[[ "$out" == *"banned dump_will_be_check in Packages/macOS/CmuxNext/Sources/M/A.swift: 1 hit(s)"* ]] \
-    || fail "the dumpWillBeCheck site is not reported once: $out"
-cat > "$tmp/scripts/cmux-next/crash-allowlist.json" <<'JSON'
-{"banned": ["swift.as_bang", "swift.objc_selector", "swift.invariant_check", "swift.dump_will_be_check"],
- "allow": [{"path": "Packages/macOS/CmuxNext/Sources/M/A.swift", "class": "swift.invariant_check", "count": 1,
-            "reason": "fixture: going on would write a corrupt order file", "reviewer": "crash-lead"},
-           {"path": "Packages/macOS/CmuxNext/Sources/M/A.swift", "class": "swift.dump_will_be_check", "count": 1,
-            "reason": "fixture: the cache rebuilds", "reviewer": "crash-lead"}]}
-JSON
-out="$(ratchet)" || fail "allowlisted Invariant sites did not pass: $out"
+out="$(ratchet)" || fail "the CI compare judged an Invariant site: $out"
+out="$(python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" --report invariant_check,dump_will_be_check)" \
+    || fail "--report invariant_check,dump_will_be_check failed: $out"
+counts="$(printf '%s' "$out" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["invariant_check"]["total"], d["dump_will_be_check"]["total"])')"
+[[ "$counts" == "1 1" ]] || fail "the Invariant sites are not reported once each: $out"
 g reset -q
 reset
 
@@ -758,6 +751,136 @@ out="$(ratchet)" || fail "the CI compare read the report baseline: $out"
 python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" --update-baseline >/dev/null || true
 cmp -s "$ci" "$tmp/ci-before.json" || fail "--update-baseline wrote a report row into crash-safety-baseline.json: $(cat "$ci")"
 rm -f "$tmp/ci-before.json" "$rb"
+reset
+
+# 24. --classify (p10-stability-205, Q21): every hit gets exactly one trap class, input or invariant, and the
+#     rule that gave it. Input: a decode entry point (Swift parse*, Rust decode*), its same-file callees, a body
+#     that reads file bytes, a `// trap-class: input` mark. Invariant: an `INVARIANT:` reason (Rust) or no rule.
+#     A string or a block comment never declares a function, and a bad mark is an error (exit 1).
+cp "$here/trap-classes.json" "$tmp/scripts/cmux-next/"
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+func parseHeader(_ text: String) -> Int {
+    let n = Int(text.count)
+    return width(n)
+}
+func width(_ n: Int) -> Int {
+    rows[n + 1]
+}
+func layout() -> Int {
+    let s = "func parseFake() { width(1) }"
+    /* func parseFake() {
+       width(2) } */
+    return rows[k + 1]
+}
+func load(path: URL) -> Int {
+    let data = try? Data(contentsOf: path)
+    return cells[m + 1]
+}
+func marked() -> Int {
+    // trap-class: input the count comes from a peer frame
+    return cells[m + 2]
+}
+SWIFT
+cat > "$tmp/cmux-tui/crates/x/src/lib.rs" <<'RUST'
+pub fn decode_frame(text: &str) -> usize {
+    let n: usize = text.parse().unwrap();
+    width(n)
+}
+fn width(n: usize) -> usize {
+    Some(n).expect("width")
+}
+pub fn layout() -> usize {
+    let s = "fn decode_fake() { width(1) }";
+    Some(1).unwrap()
+}
+pub fn checked() -> usize {
+    // INVARIANT: the table is built with one row
+    Some(2).expect("one row")
+}
+RUST
+g add -A
+classify() { python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" --classify; }
+out="$(classify)" || fail "--classify failed on good marks: $out"
+summary="$(python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+for h in d["hits"]:
+    print(h["path"].split("/")[-1], h["line"], h["kind"], h["class"], h["rule"].split(" ")[0])
+print("classes", d["classes"]["input"], d["classes"]["invariant"], sum(h["hits"] for h in d["hits"]))
+' <<<"$out")"
+expect() { [[ "$summary" == *"$1"* ]] || fail "--classify: expected '$1' in: $summary"; }
+expect "F.swift 2 int_conversion input entry:parseHeader"
+expect "F.swift 6 index_subscript input callee:width"
+expect "F.swift 12 index_subscript invariant default"
+expect "F.swift 16 index_subscript input bytes:load"
+expect "F.swift 20 index_subscript input annotation"
+expect "lib.rs 2 unwrap input entry:decode_frame"
+expect "lib.rs 6 expect input callee:width"
+expect "lib.rs 10 unwrap invariant default"
+expect "lib.rs 14 expect invariant invariant-reason"
+# Nine hits, each in exactly one class.
+expect "classes 6 3 9"
+# --report's classes classify too.
+printf 'func parseX() async { await withCheckedContinuation { c in c.resume() } }\nfunc idle() async { await withCheckedContinuation { c in c.resume() } }\n' > "$shared/Sources/MessagesLabHome/F.swift"
+g add -A
+out="$(python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" --report raw_continuation --classify)" \
+  || fail "--report raw_continuation --classify failed: $out"
+[[ "$(python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); print(d["classes"])' <<<"$out")" == "{'input': 1, 'invariant': 1}" ]] \
+  || fail "--report --classify did not class one input and one invariant continuation: $out"
+# The trap classes of --report (task 092) classify over the scope --report counts them in: index_subscript and
+# int_conversion over the index modules, or every module with --all-modules; trap_api over every package. Every hit
+# --report counts has exactly one class (Q09: --report trap_api,index_subscript,int_conversion --all-modules --classify).
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+func parseRow(_ text: String) -> Int {
+    let n = UInt8(text.count)
+    return rows[Int(n)]
+}
+func layout() -> Int {
+    queue.removeFirst()
+    return cells[j]
+}
+SWIFT
+printf 'func idle() -> Int {\n    return cells[k]\n}\n' > "$shared/Sources/MessagesLabHome/F.swift"
+g add -A
+crash() { python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" "$@"; }
+rows() { python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+for h in d["hits"]:
+    print(h["path"].split("/")[-1], h["line"], h["kind"], h["hits"], h["class"], h["rule"].split(" ")[0])
+print("classes", d["classes"]["input"], d["classes"]["invariant"])
+'; }
+out="$(crash --report index_subscript,int_conversion --classify)" || fail "--report index_subscript,int_conversion --classify failed: $out"
+summary="$(rows <<<"$out")"
+[[ "$summary" == $'F.swift 2 index_subscript 1 invariant default\nclasses 0 1' ]] \
+    || fail "--classify without --all-modules left the index modules: $summary"
+out="$(crash --report index_subscript,int_conversion --all-modules --classify)" \
+    || fail "--report index_subscript,int_conversion --all-modules --classify failed: $out"
+summary="$(rows <<<"$out")"
+expect "A.swift 2 int_conversion 1 input entry:parseRow"
+expect "A.swift 3 index_subscript 1 input entry:parseRow"
+expect "A.swift 3 int_conversion 1 input entry:parseRow"
+expect "A.swift 7 index_subscript 1 invariant default"
+expect "F.swift 2 index_subscript 1 invariant default"
+expect "classes 3 2"
+out="$(crash --report trap_api,index_subscript,int_conversion --all-modules --classify)" \
+    || fail "the Q09 command failed: $out"
+summary="$(rows <<<"$out")"
+expect "A.swift 6 trap_api 1 invariant default"
+counted="$(crash --report trap_api,index_subscript,int_conversion --all-modules \
+    | python3 -c 'import json, sys; print(sum(row["total"] for row in json.load(sys.stdin).values()))')"
+[[ "$summary" == *"classes 3 3"* && "$counted" == 6 ]] \
+    || fail "--classify does not give each of --report's $counted hits exactly one class: $summary"
+if out="$(crash --report trap_api --classify --update-report-baseline 2>&1)"; then
+    fail "--classify wrote the report baseline: $out"
+fi
+if out="$(crash --classify --all-modules 2>&1)"; then fail "--all-modules without --report was accepted: $out"; fi
+# A mark without a class or a reason is an error.
+printf 'func f() -> Int {\n    // trap-class: maybe\n    return rows[k + 1]\n}\n' > "$shared/Sources/MessagesLabHome/F.swift"
+g add -A
+if out="$(classify 2>&1)"; then fail "a trap-class mark without a class passed: $out"; fi
+[[ "$out" == *"F.swift:2: a \`// trap-class:\` mark needs input or invariant and a reason"* ]] || fail "the bad mark is not named: $out"
+g reset -q
 reset
 
 echo "crash-ratchet-v2.test.sh: ok"

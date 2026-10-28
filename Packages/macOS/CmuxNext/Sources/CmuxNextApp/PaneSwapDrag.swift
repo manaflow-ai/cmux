@@ -34,6 +34,8 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     private let now: () -> TimeInterval
     /// Where the preview's pointer was last drawn (window coordinates); nil before the drag's first preview.
     private(set) var shownPointer: CGPoint?
+    /// Pane hit tests and previews run (tests: at most two per frame interval, its first move and the frame's latest).
+    private(set) var previews = 0
 
     init(strip: TabStripView, pane: LayoutPaneID, input: InputEventTap, layout: @escaping () -> LayoutRootView?,
          swap: @escaping (LayoutPaneID, LayoutPaneID) -> Void, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
@@ -152,6 +154,7 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     /// Previews the drop for the real pointer `real` (window coordinates): the pane under it shows the join
     /// fill, drawn from the pointer at `shown` (nil: at `real`).
     private func preview(real: CGPoint, shown: CGPoint?, in layout: LayoutRootView) {
+        previews += 1
         let pointer = shown ?? real
         shownPointer = pointer
         if let target = otherPane(atWindow: real, in: layout) {

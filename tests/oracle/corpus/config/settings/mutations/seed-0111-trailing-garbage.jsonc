@@ -1,0 +1,30 @@
+{
+    "appearance": {
+        "chromeStyle": true
+    },
+    "browser": {
+        "toolbar": {
+            "media": true
+        }
+    },
+    "workspaces": {
+        "autoName": true
+    },
+    "sidebar": {
+        "workspaceRow": {
+            "mixed": {
+                "branch": "true"
+            },
+            "tabCount": 1
+        }
+    },
+    "palette": {
+        "scopes": {
+            "scopes": {
+                "prefix": "."
+            }
+        }
+    }
+}
+
+}

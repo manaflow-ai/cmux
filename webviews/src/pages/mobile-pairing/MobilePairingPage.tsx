@@ -14,11 +14,7 @@ export function MobilePairingPage({ store, strings }: { store: MobilePairingStor
   const expiresAt = status?.qr?.expiresAt;
 
   // A shown code is replaced when it expires.
-  useEffect(() => {
-    if (expiresAt === undefined) return;
-    const timer = setTimeout(() => void store.refreshIfExpired(), Math.max(0, expiresAt - Date.now()) + 250);
-    return () => clearTimeout(timer);
-  }, [store, expiresAt]);
+  useEffect(() => (expiresAt === undefined ? undefined : store.refreshOnExpiry(expiresAt)), [store, expiresAt]);
 
   return (
     <div className="pairing">

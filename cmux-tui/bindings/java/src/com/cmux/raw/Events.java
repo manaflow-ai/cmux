@@ -51,6 +51,7 @@ public final class Events {
     public static final EventMetadata FRONTEND_PROJECTION_CHANGED = new EventMetadata("frontend-projection-changed", 7, null, List.of("subscribe"), true);
     public static final EventMetadata GRAPHICS_STATUS = new EventMetadata("graphics-status", 10, null, List.of("subscribe"), true);
     public static final EventMetadata HISTORY_CHANGED = new EventMetadata("history-changed", 12, "history-v1", List.of("subscribe"), true);
+    public static final EventMetadata INPUT_FAILED = new EventMetadata("input-failed", 12, "ipc-frames-v2", List.of("attach-byte"), true);
     public static final EventMetadata KEYBINDINGS_CHANGED = new EventMetadata("keybindings-changed", 12, "keybindings-v1", List.of("subscribe"), true);
     public static final EventMetadata LAYOUT_CHANGED = new EventMetadata("layout-changed", 6, null, List.of("subscribe"), true);
     public static final EventMetadata LOOPBACK_CLOSED = new EventMetadata("loopback-closed", 12, "loopback-forward-v1", List.of("control"), true);
@@ -77,6 +78,7 @@ public final class Events {
     public static final EventMetadata SCREEN_RENAMED = new EventMetadata("screen-renamed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCRIPT_LOG = new EventMetadata("script-log", 12, null, List.of("control"), true);
     public static final EventMetadata SCROLL_CHANGED = new EventMetadata("scroll-changed", 6, null, List.of("subscribe", "attach-byte", "attach-render", "attach-browser"), true);
+    public static final EventMetadata SERVER_DIAGNOSTIC_SITE = new EventMetadata("server-diagnostic-site", 12, "diagnostic-sites-v1", List.of("subscribe"), true);
     public static final EventMetadata SETTINGS_CHANGED = new EventMetadata("settings-changed", 12, "settings-v1", List.of("subscribe"), true);
     public static final EventMetadata SIZE_STATE = new EventMetadata("size-state", 12, "shared-sizing-v1", List.of("subscribe", "attach-byte", "attach-render"), true);
     public static final EventMetadata STATUS = new EventMetadata("status", 5, null, List.of("subscribe"), true);
@@ -148,6 +150,7 @@ public final class Events {
         values.put("frontend-projection-changed", FRONTEND_PROJECTION_CHANGED);
         values.put("graphics-status", GRAPHICS_STATUS);
         values.put("history-changed", HISTORY_CHANGED);
+        values.put("input-failed", INPUT_FAILED);
         values.put("keybindings-changed", KEYBINDINGS_CHANGED);
         values.put("layout-changed", LAYOUT_CHANGED);
         values.put("loopback-closed", LOOPBACK_CLOSED);
@@ -174,6 +177,7 @@ public final class Events {
         values.put("screen-renamed", SCREEN_RENAMED);
         values.put("script-log", SCRIPT_LOG);
         values.put("scroll-changed", SCROLL_CHANGED);
+        values.put("server-diagnostic-site", SERVER_DIAGNOSTIC_SITE);
         values.put("settings-changed", SETTINGS_CHANGED);
         values.put("size-state", SIZE_STATE);
         values.put("status", STATUS);

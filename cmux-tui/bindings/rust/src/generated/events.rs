@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be.
+// cmux-tui mux protocol 12, IR 974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -544,6 +544,32 @@ pub struct HistoryChangedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InputFailedEventReason {
+    #[serde(rename = "terminal_ended")]
+    TerminalEnded,
+    #[serde(rename = "not_a_terminal")]
+    NotATerminal,
+    #[serde(rename = "write_failed")]
+    WriteFailed,
+    #[serde(rename = "daemon_handoff")]
+    DaemonHandoff,
+    #[serde(rename = "overflow")]
+    Overflow,
+    #[serde(rename = "attach_failed")]
+    AttachFailed,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InputFailedEvent {
+    pub bytes: u64,
+    pub reason: InputFailedEventReason,
+    /// The attach stream the INPUT frame named; the stream's tag, as on every item of an attach stream.
+    pub stream: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum KeybindingsChangedEventOrigin {
     #[serde(rename = "user")]
     User,
@@ -850,6 +876,44 @@ pub struct ScrollChangedEvent {
     pub cause: Option<T::EventCause>,
     pub offset: u64,
     pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServerDiagnosticSiteEventFamily {
+    #[serde(rename = "blocking")]
+    Blocking,
+    #[serde(rename = "inversion")]
+    Inversion,
+    #[serde(rename = "hang")]
+    Hang,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerDiagnosticSiteEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
+    /// Blocking and inversion: the crate of the call site without its version, or other. Never a path.
+    #[serde(rename = "crate", default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub crate_: Option<String>,
+    /// blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold, or a holder-link frame or a journal commit past its hang tier.
+    pub family: ServerDiagnosticSiteEventFamily,
+    /// Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub file_hash: Option<String>,
+    /// The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or for a hang its scope: request, holder-link or journal-writer.
+    pub kind: String,
+    /// Blocking: a work item's wait for other work.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub lane_sync: Option<bool>,
+    /// Blocking and inversion: the call site's line.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    /// Hang: what ran: the request's command or v2 operation name (a colon written as a dot), the holder frame kind (data, exit, ...) or commit-batch.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -1237,6 +1301,7 @@ pub enum Event {
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
     GraphicsStatus(GraphicsStatusEvent),
     HistoryChanged(HistoryChangedEvent),
+    InputFailed(InputFailedEvent),
     KeybindingsChanged(KeybindingsChangedEvent),
     LayoutChanged(LayoutChangedEvent),
     LoopbackClosed(LoopbackClosedEvent),
@@ -1263,6 +1328,7 @@ pub enum Event {
     ScreenRenamed(ScreenRenamedEvent),
     ScriptLog(ScriptLogEvent),
     ScrollChanged(ScrollChangedEvent),
+    ServerDiagnosticSite(ServerDiagnosticSiteEvent),
     SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
     Status(StatusEvent),
@@ -1337,6 +1403,7 @@ impl Event {
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
             Self::GraphicsStatus(_) => Some("graphics-status"),
             Self::HistoryChanged(_) => Some("history-changed"),
+            Self::InputFailed(_) => Some("input-failed"),
             Self::KeybindingsChanged(_) => Some("keybindings-changed"),
             Self::LayoutChanged(_) => Some("layout-changed"),
             Self::LoopbackClosed(_) => Some("loopback-closed"),
@@ -1363,6 +1430,7 @@ impl Event {
             Self::ScreenRenamed(_) => Some("screen-renamed"),
             Self::ScriptLog(_) => Some("script-log"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
+            Self::ServerDiagnosticSite(_) => Some("server-diagnostic-site"),
             Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
             Self::Status(_) => Some("status"),
@@ -1436,6 +1504,7 @@ impl Event {
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
             Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
             Self::HistoryChanged(_) => Some(&HISTORY_CHANGED_EVENT_METADATA),
+            Self::InputFailed(_) => Some(&INPUT_FAILED_EVENT_METADATA),
             Self::KeybindingsChanged(_) => Some(&KEYBINDINGS_CHANGED_EVENT_METADATA),
             Self::LayoutChanged(_) => Some(&LAYOUT_CHANGED_EVENT_METADATA),
             Self::LoopbackClosed(_) => Some(&LOOPBACK_CLOSED_EVENT_METADATA),
@@ -1462,6 +1531,7 @@ impl Event {
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
             Self::ScriptLog(_) => Some(&SCRIPT_LOG_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
+            Self::ServerDiagnosticSite(_) => Some(&SERVER_DIAGNOSTIC_SITE_EVENT_METADATA),
             Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
             Self::Status(_) => Some(&STATUS_EVENT_METADATA),
@@ -1818,6 +1888,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("input-failed") => match serde_json::from_value::<InputFailedEvent>(raw.clone()) {
+            Ok(event) => Event::InputFailed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("keybindings-changed") => match serde_json::from_value::<KeybindingsChangedEvent>(raw.clone()) {
             Ok(event) => Event::KeybindingsChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -2020,6 +2098,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("scroll-changed") => match serde_json::from_value::<ScrollChangedEvent>(raw.clone()) {
             Ok(event) => Event::ScrollChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("server-diagnostic-site") => match serde_json::from_value::<ServerDiagnosticSiteEvent>(raw.clone()) {
+            Ok(event) => Event::ServerDiagnosticSite(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

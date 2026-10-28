@@ -232,12 +232,14 @@
         "invariants",
         "switches",
         "cli",
-        "mcp"
+        "mcp",
+        "reply",
+        "tui"
       ]
     },
     "facetPointer": {
       "type": "string",
-      "pattern": "^/(topology|daemon|focus|layout|sidebar|tabs|overlays|settings|intents|windows|history|notifications|agents|terminals|webviews|ax|crashes|liveObjects|invariants|switches|cli|mcp)(/([^~/]|~[01])*)*$",
+      "pattern": "^/(topology|daemon|focus|layout|sidebar|tabs|overlays|settings|intents|windows|history|notifications|agents|terminals|webviews|ax|crashes|liveObjects|invariants|switches|cli|mcp|reply|tui)(/([^~/]|~[01])*)*$",
       "description": "JSON pointer into a snapshot, starting with a facet name."
     },
     "stepRef": {
@@ -293,6 +295,10 @@
         "terminal": {"$ref": "#/$defs/handle"},
         "browser": {"$ref": "#/$defs/handle"},
         "agent": {"$ref": "#/$defs/handle"},
+        "overlay": {
+          "enum": ["palette"],
+          "description": "key steps only: the open overlay panel that takes the keys, as a person's keys go to the command palette while it is the key panel (debug.key target palette). It routes keys and names no object."
+        },
         "process": {
           "enum": ["app", "daemon", "holder", "renderer", "gpu", "browser", "utility"],
           "description": "The process a kill or restart step acts on."
@@ -314,6 +320,10 @@
           "maxItems": 32,
           "items": {"$ref": "#/$defs/keystroke"},
           "description": "Keystrokes sent in order through the real key path, one turn each."
+        },
+        "keyWindow": {
+          "enum": ["page"],
+          "description": "The window that is key for these keystrokes, as when a person types in it: the Chromium page window of the focused pane (an agent chat or a web page). Absent: the step window's own shell window, whose first responder gets them (a terminal, an address bar); the open command palette takes keys through target.overlay palette instead. Not with target.overlay."
         }
       }
     },
@@ -322,7 +332,10 @@
       "additionalProperties": false,
       "required": ["outcome"],
       "properties": {
-        "outcome": {"enum": ["ok", "error"]},
+        "outcome": {
+          "enum": ["ok", "error", "any"],
+          "description": "any: a resource.call mutation whose outcome depends on the state a generated sequence reached (a walk move, scripts/cmux-next/oracle/gen_walks.py). The step passes with either; its reply (ok with replayed, or the typed error) is the reply facet of its settled checkpoint, so a differential run compares it. receipt names the kind an ok reply gives."
+        },
         "error": {
           "type": "string",
           "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$",
@@ -351,7 +364,11 @@
       "dependentRequired": {"resultExcept": ["result"]},
       "if": {"properties": {"outcome": {"const": "error"}}},
       "then": {"required": ["error"]},
-      "else": {"not": {"anyOf": [{"required": ["error"]}, {"required": ["errorDetails"]}]}}
+      "else": {
+        "not": {"anyOf": [{"required": ["error"]}, {"required": ["errorDetails"]}]},
+        "if": {"properties": {"outcome": {"const": "any"}}},
+        "then": {"not": {"anyOf": [{"required": ["result"]}, {"required": ["noReceiptReason"]}]}}
+      }
     },
     "expectMutation": {
       "description": "I1: a mutation gives exactly one receipt or one typed error. An ok outcome names its receipt or says why none exists; an error outcome has its typed error and no receipt.",
@@ -362,7 +379,11 @@
           {"required": ["noReceiptReason"], "not": {"required": ["receipt"]}}
         ]
       },
-      "else": {"not": {"anyOf": [{"required": ["receipt"]}, {"required": ["noReceiptReason"]}]}}
+      "else": {
+        "if": {"properties": {"outcome": {"const": "any"}}},
+        "then": {"required": ["receipt"]},
+        "else": {"not": {"anyOf": [{"required": ["receipt"]}, {"required": ["noReceiptReason"]}]}}
+      }
     },
     "waitFor": {
       "type": "object",
@@ -452,7 +473,7 @@
           "uniqueItems": true,
           "items": {"enum": ["before", "turn", "settled"]},
           "default": ["settled"],
-          "description": "Snapshots to record: before the step, at the end of its input turn (app action.run and key only), and after debug.oracle.settle."
+          "description": "Snapshots to record: before the step, at the end of its input turn, and after debug.oracle.settle. A turn is the app's input turn for action.run and key, and for tui.key the first complete frame that meets the step's waitFor on /tui (driver_tui.py), for a state the settle probe cannot reach, such as an open overlay."
         },
         "settleMaxMs": {
           "type": "integer",
@@ -476,16 +497,34 @@
           }
         },
         {
-          "$comment": "resource.call, cli and mcp mutate unless readOnly is true.",
+          "$comment": "resource.call, cli and mcp mutate unless readOnly is true; a connection-scoped resource.call has its own rule below.",
           "if": {
             "required": ["op"],
-            "properties": {"op": {"enum": ["resource.call", "cli", "mcp"]}, "readOnly": {"const": false}}
+            "properties": {
+              "op": {"enum": ["resource.call", "cli", "mcp"]},
+              "readOnly": {"const": false},
+              "args": {"not": {"required": ["scope"]}}
+            }
           },
           "then": {"required": ["target", "expect"], "properties": {"expect": {"$ref": "#/$defs/expectMutation"}}}
         },
         {
+          "$comment": "A connection-scoped call (stream_open, connection_control) acts on its sending connection: it needs an expected outcome, and a target only when the operation has selectors (request.cancel has none).",
+          "if": {"required": ["op", "args"], "properties": {"op": {"const": "resource.call"}, "args": {"required": ["scope"]}}},
+          "then": {
+            "required": ["expect"],
+            "not": {"required": ["readOnly"]},
+            "properties": {"expect": {"$ref": "#/$defs/expectMutation"}}
+          }
+        },
+        {
           "$comment": "Only a mutating resource.call ends a process on purpose.",
           "if": {"required": ["ends"]},
+          "then": {"required": ["op"], "properties": {"op": {"const": "resource.call"}, "readOnly": {"const": false}}}
+        },
+        {
+          "$comment": "Only a resource.call mutation has an any outcome: its reply facet records what it gave.",
+          "if": {"required": ["expect"], "properties": {"expect": {"required": ["outcome"], "properties": {"outcome": {"const": "any"}}}}},
           "then": {"required": ["op"], "properties": {"op": {"const": "resource.call"}, "readOnly": {"const": false}}}
         },
         {
@@ -494,8 +533,8 @@
           "then": {"not": {"anyOf": [{"required": ["target"]}, {"required": ["readOnly"]}]}}
         },
         {
-          "$comment": "Turn checkpoints come from the app's OracleRecorder, which records input turns.",
-          "if": {"required": ["op"], "properties": {"op": {"not": {"enum": ["action.run", "key"]}}}},
+          "$comment": "Turn checkpoints come from the app's OracleRecorder, which records input turns, and from the frame that meets a tui.key step's waitFor.",
+          "if": {"required": ["op"], "properties": {"op": {"not": {"enum": ["action.run", "key", "tui.key"]}}}},
           "then": {"properties": {"checkpoint": {"not": {"contains": {"const": "turn"}}}}}
         },
         {
@@ -503,8 +542,15 @@
           "then": {"required": ["args"], "properties": {"args": {"$ref": "#/$defs/argsResourceCall"}}}
         },
         {
-          "$comment": "resource-operations-v2: idempotency is required for every mutation and forbidden for every read.",
-          "if": {"required": ["op"], "properties": {"op": {"const": "resource.call"}, "readOnly": {"const": false}}},
+          "$comment": "resource-operations-v2: idempotency is required for every mutation and forbidden for every read, stream_open and connection_control operation.",
+          "if": {
+            "required": ["op"],
+            "properties": {
+              "op": {"const": "resource.call"},
+              "readOnly": {"const": false},
+              "args": {"not": {"required": ["scope"]}}
+            }
+          },
           "then": {"properties": {"args": {"required": ["idempotencyKey"]}}},
           "else": {"properties": {"args": {"not": {"required": ["idempotencyKey"]}}}}
         },
@@ -578,6 +624,18 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
           "description": "Required for a mutation and refused for a read, as resource-operations-v2 declares. I10 retries reuse it."
+        },
+        "scope": {
+          "const": "connection",
+          "description": "The operation is a stream_open or connection_control operation of resource-operations-v2: it acts on the connection that sends it, the catalog forbids its idempotency key and I10 has nothing to retry. A stream_open step's reply is its open result (stream_id, attachment_lease); the driver keeps the stream and records its items until the case or the stream ends."
+        },
+        "connection": {
+          "$ref": "#/$defs/slug",
+          "description": "The case connection that sends the call; omitted means main. The driver opens one SDK connection per name, so request.cancel, stream.cancel, client.* with client current and a viewer lease act on the sender's own requests, streams and attachments."
+        },
+        "inFlight": {
+          "const": true,
+          "description": "Send the call and go on without its reply: the step's reply is {request_id}, which a later request.cancel on the same connection names. Only for an operation a client may cancel (terminal.wait, terminal.wait_exit)."
         }
       }
     },
@@ -595,6 +653,10 @@
         "entrypoint": {
           "enum": ["key", "pointer", "unattributed", "cli", "mcp", "script", "remote", "page"],
           "description": "ActionEntrypoint the run is attributed to (CmuxNextActions/ActionEntrypoint.swift)."
+        },
+        "focus": {
+          "type": "boolean",
+          "description": "action.run's focus: the run may change focus, selection and the shown workspace, as a person's would (ControlActionRequest.focus, ActionInvocation.allowsViewChange). Without it a socket caller's new tab opens unselected beside the focused one."
         }
       }
     },

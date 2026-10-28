@@ -1,5 +1,3 @@
-import CmuxNextDesign
-
 /// Email verification AutoFill in cmux.json (plans/cmux-next/email-verification-autofill/DESIGN.md):
 ///
 /// ```jsonc

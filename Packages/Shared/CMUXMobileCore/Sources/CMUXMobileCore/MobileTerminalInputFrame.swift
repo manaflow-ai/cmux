@@ -42,9 +42,9 @@ public struct MobileTerminalInputFrame: Equatable, Sendable {
         }
         var metadata = Data()
         var flags: UInt32 = 0
-        if var sequence = sequence?.bigEndian {
+        if let sequence {
             flags |= Self.markerFlag
-            withUnsafeBytes(of: &sequence) { metadata.append(contentsOf: $0) }
+            metadata.appendBigEndian(sequence)
         }
         if let delivery {
             flags |= Self.deliveryFlag
@@ -53,8 +53,8 @@ public struct MobileTerminalInputFrame: Equatable, Sendable {
         guard let length = UInt32(exactly: bytes.count + metadata.count), length <= Self.lengthMask else {
             throw FrameError.invalidLength
         }
-        var header = (length | flags).bigEndian
-        var frame = withUnsafeBytes(of: &header) { Data($0) }
+        var frame = Data(capacity: 4 + metadata.count + bytes.count)
+        frame.appendBigEndian(length | flags)
         frame.append(metadata)
         frame.append(bytes)
         return frame
@@ -67,9 +67,9 @@ public struct MobileTerminalInputFrame: Equatable, Sendable {
         defer {
             if reader.remainingCount < buffer.count { buffer = reader.remaining }
         }
-        while true {
-            var frame = reader
-            guard let header = frame.bigEndian(UInt32.self) else { break }
+        // `frame` reads ahead; `reader` moves only past whole frames.
+        var frame = reader
+        while let header = frame.bigEndian(UInt32.self) {
             let marked = header & markerFlag != 0
             let delivered = header & deliveryFlag != 0
             let metadataBytes = (marked ? markerByteCount : 0)

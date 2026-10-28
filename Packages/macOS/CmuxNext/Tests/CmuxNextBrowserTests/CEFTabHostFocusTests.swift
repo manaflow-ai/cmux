@@ -4,15 +4,17 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// Task 046 of plans/cmux-next/chrome-parity/p01-process.md: in host mode a page's focus is the
-/// pane's page view as cmux's first responder plus the fork's embedder-active state, never CEF's
-/// `SetFocus` (which makes the host's page window key and activates the host, an app with cmux's
-/// bundle id). In process the focus stays `SetFocus`.
+/// Task 046 of plans/cmux-next/chrome-parity/p01-process.md: a page the Chromium Host hosts
+/// detached (no window of the host orders in) takes focus through the fork's embedder-active
+/// state, never CEF's `SetFocus` (which makes the host's page window key and activates the host, an
+/// app with cmux's bundle id). A page that is not detached (in process, or a host page before task
+/// 053 detaches it) keeps `SetFocus`: its page window is the only one that can take its keys.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct CEFTabHostFocusTests {
-    @Test func hostModeFocusIsEmbedderActiveNeverSetFocus() throws {
+    @Test func aDetachedPageFocusIsEmbedderActiveNeverSetFocus() throws {
         let runtime = try Self.runtime(hostMode: true)
         let (host, tab) = try Self.livePane(runtime)
         host.present(tab, in: NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)))
+        tab.hostDetachedPage(browser: Self.firstBrowser)
 
         tab.setFocused(true)
         tab.setFocused(true)  // a re-apply posts nothing new
@@ -23,10 +25,25 @@ import Testing
         #expect(FocusSpy.setFocus.isEmpty, "SetFocus activates the host")
     }
 
+    /// Before the host detaches the page, its page window is the only window that can take its
+    /// keys: embedder-active would focus nothing.
+    @Test func aHostPageNotDetachedKeepsSetFocus() throws {
+        let runtime = try Self.runtime(hostMode: true)
+        let (host, tab) = try Self.livePane(runtime)
+        host.present(tab, in: NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)))
+
+        tab.setFocused(true)
+        tab.setFocused(false)
+
+        #expect(FocusSpy.setFocus.map(\.focus) == [1, 0])
+        #expect(FocusSpy.embedderActive.isEmpty, "embedder-active is the key state of a detached page only")
+    }
+
     @Test func inProcessFocusIsSetFocus() throws {
         let runtime = try Self.runtime(hostMode: false)
         let (host, tab) = try Self.livePane(runtime)
         host.present(tab, in: NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)))
+        tab.hostDetachedPage(browser: Self.firstBrowser)  // no host: nothing is detached
 
         tab.setFocused(true)
         tab.setFocused(false)
@@ -35,46 +52,84 @@ import Testing
         #expect(FocusSpy.embedderActive.isEmpty)
     }
 
-    /// Focus asked for before the browser exists applies at its AFTER_CREATED, as embedder-active.
+    /// Focus asked for before the browser exists applies at its AFTER_CREATED, the way the page
+    /// takes focus then (not detached yet: `SetFocus`).
     @Test func hostModePendingFocusAppliesAtAttach() throws {
         let runtime = try Self.runtime(hostMode: true)
         let (host, tab) = Self.pane(runtime)
         host.present(tab, in: NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)))
         tab.setFocused(true)
-        #expect(FocusSpy.embedderActive.isEmpty, "no browser yet")
+        #expect(FocusSpy.setFocus.isEmpty, "no browser yet")
         let request = try #require(runtime.pendingWindows.keys.first { runtime.pendingWindows[$0] === host })
 
         runtime.handle(.afterCreated(browser: Self.firstBrowser, request: request, window: 1))
 
+        #expect(FocusSpy.setFocus.map(\.focus) == [1])
+        #expect(FocusSpy.embedderActive.isEmpty)
+    }
+
+    /// Focus asked for before the host detached the page moves to embedder-active when it does.
+    @Test func focusAskedBeforeTheDetachAppliesAfterIt() throws {
+        let runtime = try Self.runtime(hostMode: true)
+        let (host, tab) = try Self.livePane(runtime)
+        host.present(tab, in: NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)))
+        tab.setFocused(true)
+        #expect(FocusSpy.embedderActive.isEmpty, "not detached yet")
+
+        tab.hostDetachedPage(browser: Self.firstBrowser)
+        tab.hostDetachedPage(browser: Self.firstBrowser)  // a repeat posts nothing new
+
         #expect(FocusSpy.embedderActive.map(\.active) == [1])
+    }
+
+    /// A detach of a page that does not have focus focuses nothing.
+    @Test func aDetachGivesNoFocusOfItsOwn() throws {
+        let runtime = try Self.runtime(hostMode: true)
+        let (host, tab) = try Self.livePane(runtime)
+        host.present(tab, in: NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)))
+
+        tab.hostDetachedPage(browser: Self.firstBrowser)
+
+        #expect(FocusSpy.embedderActive.isEmpty)
         #expect(FocusSpy.setFocus.isEmpty)
     }
 
-    /// The pane's page view reports its first responder changes to the tab it shows.
-    @Test func hostModePageViewFirstResponderDrivesEmbedderActive() throws {
+    /// A restarted host's browser has a new id: it is not detached until the host says so, and then
+    /// it hears the state again.
+    @Test func aNewBrowserIsNotDetachedUntilTheHostSaysSo() throws {
+        let runtime = try Self.runtime(hostMode: true)
+        let (host, tab) = try Self.livePane(runtime)
+        host.present(tab, in: NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)))
+        tab.hostDetachedPage(browser: Self.firstBrowser)
+        tab.setFocused(true)
+
+        let next = Self.firstBrowser + 1
+        runtime.register(tab, browser: next)
+        tab.hostDetachedPage(browser: Self.firstBrowser)  // the old browser's: ignored
+
+        #expect(FocusSpy.setFocus.map(\.browser) == [next], "pending focus at the new attach, not detached yet")
+        tab.hostDetachedPage(browser: next)
+        #expect(FocusSpy.embedderActive.map(\.browser) == [Self.firstBrowser, next])
+        #expect(FocusSpy.embedderActive.map(\.active) == [1, 1])
+    }
+
+    /// The pane's page view reports its first responder changes to the tab it shows: embedder-active
+    /// once the host detached the page, nothing before.
+    @Test func hostModePageViewFirstResponderDrivesEmbedderActiveOnceDetached() throws {
         let runtime = try Self.runtime(hostMode: true)
         let (host, tab) = try Self.livePane(runtime)
         host.present(tab, in: NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)))
         let page = try #require(host.hostedPageView)
 
         page.onFocusChange?(true)
+        #expect(FocusSpy.embedderActive.isEmpty, "not detached yet")
+
+        tab.hostDetachedPage(browser: Self.firstBrowser)
+        page.onFocusChange?(true)
         page.onFocusChange?(false)
 
         #expect(FocusSpy.embedderActive.map(\.active) == [1, 0])
         #expect(FocusSpy.setFocus.isEmpty)
-    }
-
-    /// A restarted host's browser has a new id: it hears the state again.
-    @Test func aNewBrowserHearsTheStateAgain() throws {
-        let runtime = try Self.runtime(hostMode: true)
-        let (host, tab) = try Self.livePane(runtime)
-        host.present(tab, in: NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)))
-        tab.setFocused(true)
-
-        runtime.register(tab, browser: Self.firstBrowser + 1)
-        tab.setFocused(true)
-
-        #expect(FocusSpy.embedderActive.map(\.browser) == [Self.firstBrowser, Self.firstBrowser + 1])
     }
 
     @Test func pageViewReportsFirstResponderChanges() {

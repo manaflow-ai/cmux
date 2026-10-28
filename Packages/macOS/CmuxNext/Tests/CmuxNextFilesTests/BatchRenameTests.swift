@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextFiles
+import CmuxNextWakeups
 
 /// Finder's Rename Items sheet: Replace Text, Add Text and Format, applied to the name stem.
 struct BatchRenameTests {
@@ -68,7 +69,7 @@ struct BatchRenameTests {
     @Test func modelRenamesTheSelectionAndUndoes() async throws {
         let temp = try TempFolder()
         for name in ["IMG_1.jpg", "IMG_2.jpg", "keep.txt"] { try temp.file(name) }
-        let model = FileBrowserModel(folder: temp.url, watcher: NeverWatcher())
+        let model = FileBrowserModel(folder: temp.url, work: MainWorkScheduler(budget: MainFrameBudget()), watcher: NeverWatcher())
         await model.reload()
         model.selection = ["IMG_1.jpg", "IMG_2.jpg"]
         await model.batchRename(BatchRename(rule: .replace(find: "IMG", with: "Trip", caseSensitive: true)))
@@ -83,7 +84,7 @@ struct BatchRenameTests {
     @Test func modelRefusesAPlanWithProblems() async throws {
         let temp = try TempFolder()
         for name in ["a.txt", "b.txt"] { try temp.file(name) }
-        let model = FileBrowserModel(folder: temp.url, watcher: NeverWatcher())
+        let model = FileBrowserModel(folder: temp.url, work: MainWorkScheduler(budget: MainFrameBudget()), watcher: NeverWatcher())
         await model.reload()
         model.selection = ["a.txt"]
         await model.batchRename(BatchRename(rule: .replace(find: "a", with: "b", caseSensitive: true)))
@@ -97,7 +98,7 @@ struct BatchRenameTests {
     @Test func modelSaysTheStartNumberIsTooLarge() async throws {
         let temp = try TempFolder()
         for name in ["a.txt", "b.txt"] { try temp.file(name) }
-        let model = FileBrowserModel(folder: temp.url, watcher: NeverWatcher())
+        let model = FileBrowserModel(folder: temp.url, work: MainWorkScheduler(budget: MainFrameBudget()), watcher: NeverWatcher())
         await model.reload()
         model.selection = ["a.txt", "b.txt"]
         await model.batchRename(BatchRename(rule: .format(base: "n", style: .counter, position: .afterName, start: .max)))
@@ -110,7 +111,7 @@ struct BatchRenameTests {
         let temp = try TempFolder()
         try Data("one".utf8).write(to: temp.url.appendingPathComponent("n 2"))
         try Data("two".utf8).write(to: temp.url.appendingPathComponent("n 1"))
-        let model = FileBrowserModel(folder: temp.url, sortOrder: FileSortOrder(field: .size), watcher: NeverWatcher())
+        let model = FileBrowserModel(folder: temp.url, work: MainWorkScheduler(budget: MainFrameBudget()), sortOrder: FileSortOrder(field: .size), watcher: NeverWatcher())
         await model.reload()
         model.selection = ["n 1", "n 2"]
         // Display order is by size (equal), then name: "n 1" (two) -> "n 2", "n 2" (one) -> "n 3".

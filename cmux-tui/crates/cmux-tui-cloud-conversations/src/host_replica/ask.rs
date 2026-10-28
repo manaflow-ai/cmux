@@ -20,7 +20,8 @@ impl Inner {
             let Some(expires_at) = state.lease.as_ref().map(|lease| lease.expires_at) else {
                 return;
             };
-            let slot = &mut state.asked[usize::from(reason != "expiring")];
+            let [expiring, unauthenticated] = &mut state.asked;
+            let slot = if reason == "expiring" { expiring } else { unauthenticated };
             if slot.is_some_and(|at| now.saturating_sub(at) < reask) {
                 return;
             }

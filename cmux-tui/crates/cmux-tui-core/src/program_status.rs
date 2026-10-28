@@ -228,7 +228,7 @@ impl ProgramStatusRecords {
             if current.is_empty() {
                 return None;
             }
-            current = current.rfind('/').map_or("", |slash| &current[..slash]);
+            current = current.rsplit_once('/').map_or("", |(parent, _)| parent);
         }
     }
 

@@ -389,7 +389,7 @@ async fn dispatch_brief(
     let task_via = params.pointer("/_meta/acpmux/via").cloned();
     let task_agent = row.get("from").and_then(Value::as_str).map(str::to_owned);
     let task_device = super::remote_guard::full_access_device(hub, conn, &prompt);
-    tokio::spawn(async move {
+    hub.supervise("server.brief", Fatal, ShutdownBehavior::Skip, async move {
         let mut blocks =
             vec![json!({"type":"text","text":prompt.get("text").cloned().unwrap_or(Value::Null)})];
         let web = super::trust_gate::for_web(task_conn.origin, &prompt);
@@ -1129,7 +1129,7 @@ async fn dispatch_request(
             let value = str_param(&params, "path").unwrap_or("");
             let path = crate::tui::directory::resolve(&base, value, &home, None)
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
-            let result = cmux_blocking::spawn_blocking(move || -> Result<Value, std::io::Error> {
+            let result = crate::daemon::spawn_blocking(move || -> Result<Value, std::io::Error> {
                 let path = cmux_blocking::fs::canonicalize(path)?;
                 if !cmux_blocking::fs::metadata(&path).is_ok_and(|m| m.is_dir()) { return Err(std::io::Error::other("not a directory")); }
                 let children = crate::tui::directory::children(&path);

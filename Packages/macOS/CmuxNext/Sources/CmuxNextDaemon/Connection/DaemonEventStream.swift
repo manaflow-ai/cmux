@@ -4,40 +4,56 @@
 /// (``DaemonConnection/discardEvents()``). Another consumer subscribes
 /// (``DaemonConnection/subscribe(filter:limit:)``): a second iteration traps in Debug, since two
 /// iterators would each get part of the events.
+///
+/// Bounded (p05-ipc-093): the events wait in the route's ``EventInbox`` backlog, so a reader that
+/// falls more than 4096 events behind gets one ``DaemonEvent/overflow(_:)`` in place of the ones it
+/// lost and must re-read; the backlog never holds more than 4096 events of any kind (lifecycle
+/// events and what a re-read cannot restore are kept while they fit, then only the newest of each
+/// lifecycle event), and whole-value surface events it has not read yet coalesce to the newest.
+/// Before that, past the route's byte bound, the connection's reader waits for this consumer
+/// (``DaemonEventRoute``), so the daemon's bounded outbound queue applies its budget first.
 public struct DaemonEventStream: AsyncSequence, Sendable {
     public typealias Element = DaemonEventEnvelope
 
-    let base: AsyncThrowingStream<DaemonEventEnvelope, any Error>
     let route: DaemonEventRoute
 
     public func makeAsyncIterator() -> Iterator {
-        route.takeStream()
-        return Iterator(base: base.makeAsyncIterator(), consumer: Consumer(route: route))
+        route.takeStream(iterating: true)
+        return Iterator(consumer: Consumer(route: route))
     }
 
-    /// Takes the events in order and tells the route each one is taken, so its reader, waiting past the
-    /// stream's byte bound (``DaemonEventRoute``), resumes as the consumer catches up. When it ends or is
-    /// dropped, the reader no longer waits for it.
+    /// Takes the route's backlog a batch at a time and yields it in order; each take lets the
+    /// route's reader, waiting past the byte bound, resume. When it ends or is dropped, the reader no
+    /// longer waits for it.
     public struct Iterator: AsyncIteratorProtocol {
-        var base: AsyncThrowingStream<DaemonEventEnvelope, any Error>.Iterator
-        let consumer: Consumer
+        public typealias Element = DaemonEventEnvelope
+        public typealias Failure = any Error
 
-        /// `@concurrent`, as the stream iterator's own `next()`: `base` stays in this task's region.
-        /// A caller-isolated (nonsending) `next()` would send `base` out of the caller's isolation.
-        @concurrent public mutating func next() async throws -> DaemonEventEnvelope? {
-            let envelope: DaemonEventEnvelope?
+        let consumer: Consumer
+        private var batch: IndexingIterator<[DaemonEventEnvelope]> = [DaemonEventEnvelope]().makeIterator()
+
+        init(consumer: Consumer) {
+            self.consumer = consumer
+        }
+
+        /// The next event; nil once the connection closed and every event was read, or once the
+        /// consuming task is cancelled. Throws, once, what ended the connection.
+        public mutating func next() async throws -> DaemonEventEnvelope? {
+            if let envelope = batch.next() { return envelope }
+            let next: [DaemonEventEnvelope]?
             do {
-                envelope = try await base.next()
+                next = try await consumer.route.nextBatch()
             } catch {
                 consumer.route.consumerEnded()
                 throw error
             }
-            guard let envelope else {
+            // A batch is never empty.
+            guard let next else {
                 consumer.route.consumerEnded()
                 return nil
             }
-            consumer.route.took()
-            return envelope
+            batch = next.makeIterator()
+            return batch.next()
         }
     }
 

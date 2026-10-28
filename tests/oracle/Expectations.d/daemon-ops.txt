@@ -50,7 +50,8 @@ p15-oracle-245 [ new ] daemon-ops/terminal-project-error [ Failure ]
 p15-oracle-245 [ new ] daemon-ops/terminal-project-ok [ Failure ]
 p15-oracle-245 [ new ] daemon-ops/terminal-viewport-scroll-error [ Failure ]
 p15-oracle-246 daemon-ops/terminal-viewport-scroll-ok [ Skip ]
-p15-oracle-064 daemon-ops/workspace-agent-folder-set-ok [ Skip ]
+p15-oracle-237 daemon-ops/workspace-agent-folder-set-ok [ Skip ]
+p15-oracle-248 daemon-ops/workspace-ensure-app-ok [ Skip ]
 # END scripts/cmux-next/oracle/gen_daemon_ops.py
 # The holder arm: the idle holder outlives the teardown (p15-oracle-245), as in every terminal case above.
 p15-oracle-245 [ new ] daemon-ops/terminal-holder-crash-new [ Failure ]

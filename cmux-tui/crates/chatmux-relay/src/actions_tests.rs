@@ -46,7 +46,12 @@ fn request(verb: &str, args: Value, root: &Path) -> Value {
 fn find_and_exec_check_their_paths_off_the_runtime_driver() {
     let root = scratch("off-driver");
     let context = context(&root);
-    let runtime = cmux_blocking::runtime::current_thread().build().expect("runtime");
+    let runtime = cmux_blocking::runtime::current_thread(
+        "chatmux-relay-test",
+        cmux_threads::ThreadQos::Utility,
+    )
+    .build()
+    .expect("runtime");
     let stalled = cmux_blocking::counts().stalled;
     let requests = [
         request("find", json!({ "path": "src" }), &root),

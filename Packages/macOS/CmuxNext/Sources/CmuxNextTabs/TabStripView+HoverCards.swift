@@ -11,11 +11,11 @@ extension TabStripView {
         set { hoverCard.coordinator = newValue }
     }
 
-    /// Makes the strip report to `coordinator` (the App's one), registers its hover card's thumbnails and samples, one
-    /// memory consumer, with `memory` (the App's memory coordinator), and has its tab cards ask `energy` (nil: none).
-    public func attachHoverCards(_ coordinator: HoverCardCoordinator, memory: any MemoryConsumerRegistry, energy: (any TabEnergySource)? = nil) {
-        hoverCards = coordinator
-        hoverCard.energy = energy
+    /// Makes the strip report to `coordinator` (the App's one), registers its hover card's thumbnails (pixels in `thumbnailPages`,
+    /// p07-memory-107) and samples, one memory consumer, with `memory`, and has its tab cards ask `energy` (nil: none).
+    public func attachHoverCards(_ coordinator: HoverCardCoordinator, memory: any MemoryConsumerRegistry, thumbnailPages: PurgeableAllocator = .resident, energy: (any TabEnergySource)? = nil) {
+        (hoverCards, hoverCard.energy) = (coordinator, energy)
+        hoverCard.thumbnails = TabThumbnailCache(allocator: thumbnailPages)
         registerHoverCardMemory(with: memory)
     }
 
@@ -36,7 +36,7 @@ extension TabStripView {
         guard let window else { return }
         let point = convert(window.convertPoint(fromScreen: hoverCards.currentPointer()), from: nil)
         let lit = buttonReveal.pointerInStrip || hoveredID != nil || groups.hoveredChip != nil
-        let inside = bounds.intersection(visibleRect).contains(point) && !isHiddenOrHasHiddenAncestor
+        let inside = bounds.intersection(visibleRect).contains(point) && isShownInWindow
         if inside {
             if lit { updateHover(at: point, moved: false) }
         } else if lit || newTabButton.isHovered || closingModeWidth != nil { pointerLeft() }

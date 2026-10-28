@@ -96,13 +96,15 @@ final class BrowserTabService {
     /// Stored-history reads in flight, by tab id (cancelled with the page).
     private var historyFetches: [String: Task<Void, Never>] = [:]
     /// Restored pages that start once their saved history is read.
-    let historyStarts = BrowserHistoryStarts()
+    let historyStarts: BrowserHistoryStarts
     /// The App's incognito profiles (the engines' ``BrowserSharedStores``).
     let offTheRecord: OffTheRecordProfiles
     /// Per tab: the page follows the tab record's `extra.emulation` (`trackEmulation`).
     var emulationFollowers: [String: ServiceObservation<CmuxNextDaemon.JSONValue?>] = [:]
     /// The app's main-thread scheduler: each tab's emulation change applies as a task on it.
     let mainWork: MainWorkScheduler
+    /// The app's one ``AppEvents``: each history writer saves when the app resigns active.
+    private let appEvents: AppEvents
     /// True for a pane of an incognito window (the App sets it).
     var isIncognitoPane: @MainActor (PaneModel) -> Bool = { _ in false }
     /// True for a tab of an incognito window, by tab id (the App sets it).
@@ -128,9 +130,14 @@ final class BrowserTabService {
     /// - Parameters:
     ///   - chromium: The App's Chromium engine slot: its stores now; the engine at the first Chromium question.
     ///   - mainWork: The app's main-thread scheduler (`TabContentCache.mainWork`).
-    init(daemon local: DaemonService, chromium: ChromiumEngineSlot, mainWork: MainWorkScheduler) {
+    ///   - deadlines: The app's one deadline scheduler on `mainWork`, for each held page's history budget.
+    ///   - appEvents: The app's one ``AppEvents``, for the history writers' leave-the-app saves.
+    init(daemon local: DaemonService, chromium: ChromiumEngineSlot, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
+         appEvents: AppEvents) {
         offTheRecord = chromium.stores.offTheRecord
         self.mainWork = mainWork
+        self.appEvents = appEvents
+        historyStarts = BrowserHistoryStarts(deadlines: deadlines)
         // The service lives in the cache, which the App owns beside the local daemon (no cycle).
         daemonForPane = { [local] _ in local }
         daemonForTab = { [local] _ in local }
@@ -365,7 +372,7 @@ final class BrowserTabService {
             tab: page, recorded: BrowserRecord(tab: tab), tracksState: keeps,
             daemonRecord: { [weak self] in self?.tabModel(id).map(BrowserRecord.init(tab:)) },
             recordURL: machineRecordURL(page, tab: tab),
-            delay: writeBackDelay, sleep: sleep
+            delay: writeBackDelay, sleep: sleep, mainWork: mainWork
         ) { [weak self] fields in
             guard let tab = self?.tabModel(id) else { return false }
             let daemon = daemonForTab(tab)
@@ -408,7 +415,8 @@ final class BrowserTabService {
             }
             self.historyWriters[id] = BrowserHistoryWriter(page: restoring, recorded: saved, keepsEngineState: daemon.isLocal
                                                            && !self.offTheRecord.isOffTheRecord(page.profileID),
-                                                           delay: self.writeBackDelay, sleep: self.sleep) { [weak self] history in
+                                                           delay: self.writeBackDelay, sleep: self.sleep, mainWork: self.mainWork,
+                                                           appEvents: self.appEvents) { [weak self] history in
                 guard let tab = self?.tabModel(id) else { return false }
                 // Engine state stays on this Mac, also for a tab that moved to another machine.
                 let daemon = daemonForTab(tab)

@@ -53,7 +53,8 @@ struct OnceInitializerMainAccessTests {
     func webUpdateKeys() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "once-keys-\(UUID().uuidString)", directoryHint: .isDirectory)
         let updater = WebUpdater(store: WebUpdateStore(base: root), app: .init(abi: 2, webBuiltAt: 1_700_000_000),
-                                 keys: .bundled(Self.work), energy: EnergyPolicySource())
+                                 keys: .bundled(Self.work), energy: EnergyPolicySource(),
+                                 deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())), work: Self.work)
         var keys: WebUpdateKeys?
         let sites = await mainSites { keys = try? await updater.trustedKeys() }
         #expect(sites.isEmpty, "the bundled keys were read on the main thread: \(sites)")

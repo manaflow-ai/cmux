@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The reader's wait for a consumer behind the event stream's byte bound (``DaemonEventRoute``) is idle
+/// The reader's wait for a consumer behind the event backlog's byte bound (``DaemonEventRoute``) is idle
 /// time, not a hang: it runs after the line's `daemon.line` scope closed (HangWatchScoping.swift: "never
 /// a wait for a queue slot"), so a designed backpressure wait never shows as a reader hang
 /// (p07-memory-098). A fixture bridge sends 32 event lines of 1 KiB to a route whose high water is
@@ -19,11 +19,9 @@ import Testing
             print('{"event":"title-changed","pad":"%s"}' % pad, flush=True)
         """#
         let hangs = ScopeStackHangWatch()
-        let (base, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self)
         let (parks, parked) = AsyncStream.makeStream(of: [ScopeStackHangWatch.Scope].self)
-        let route = DaemonEventRoute(continuation, highWater: 4 << 10, lowWater: 1 << 10,
-                                     onReaderParked: { parked.yield(hangs.open("daemon.line")) })
-        let events = DaemonEventStream(base: base, route: route)
+        let route = DaemonEventRoute(highWater: 4 << 10, onReaderParked: { parked.yield(hangs.open("daemon.line")) })
+        let events = DaemonEventStream(route: route)
         var iterator = events.makeAsyncIterator()
 
         let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script])
@@ -31,11 +29,15 @@ import Testing
                                                      role: .control, stats: nil, hangs: hangs)
         defer { transport.close() }
         transport.start(
+            // Light: each emit runs inline on the reader (its lane stays idle), so the park is owed before the
+            // reader's wait after that line; on a heavy lane the wait lags the emits by the lane's backlog
+            // (p05-ipc-144), and the fixture's EOF could come first.
+            dispatch: EventDispatch(weigh: { _, _ in .light }, readerWait: { route.waitWhileReaderParked() }),
             onCausedEvent: { _, line, index, _ in
-                route.emit(DaemonEventEnvelope(sequence: index, event: .titleChanged(surface: 1, title: "t")),
+                // A bell: the backlog coalesces titles of one surface, so each line stays one event.
+                route.emit(DaemonEventEnvelope(sequence: index, event: .bell(surface: 1)),
                            bytes: line.count, parksReader: true)
             },
-            waitForConsumer: { route.waitWhileReaderParked() },
             onClose: { _ in route.finish() })
 
         var parkWaits = parks.makeAsyncIterator()

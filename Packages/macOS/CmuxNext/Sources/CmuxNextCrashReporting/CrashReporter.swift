@@ -1,5 +1,6 @@
 public import CmuxNextTrace
 public import CmuxSentryReporting
+public import CmuxSentryScrubbing
 public import Darwin
 public import Foundation
 public import Sentry
@@ -14,15 +15,16 @@ import CmuxNextCompat
 /// logs: cmux-next has no log bridge, so it sends nothing the main app does
 /// not. App hangs come from ``HangTracking``.
 ///
-/// Idle cost (p09-observability-076). On macOS the SDK's app-hang tracker
-/// (`SentryANRTrackerV1`) is a thread that posts a block to the main queue
-/// every `appHangTimeoutInterval / 5` (1.6 s at 8 s), idle or not: 0.625 main
-/// wakeups per second. Chrome's HangWatcher wakes for nothing while no scope
-/// is open (base/threading/hang_watcher.cc), and neither does the main-thread
-/// watchdog that reports cmux-next's hangs, so the tracker is off whenever
-/// the fatal-hang record covers the hang the app does not survive
-/// (``HangTracking/watchdog``). Every other option that would add an
-/// integration, a swizzle or a wakeup is set here and checked against
+/// Idle cost (p09-observability-076, p14-energy-101). On macOS the SDK's
+/// app-hang tracker (`SentryANRTrackerV1`) is a thread that posts a block to
+/// the main queue every `appHangTimeoutInterval / 5` (1.6 s at 8 s), idle or
+/// not: 0.625 main wakeups per second. Chrome has one HangWatcher per process,
+/// which wakes for nothing while no scope is open
+/// (base/threading/hang_watcher.cc), and neither does the main-thread watchdog,
+/// so the tracker is off wherever the watchdog runs (``HangTracking/watchdog``):
+/// its episodes of ``appHangThreshold`` and up are the app hangs
+/// (``AppHangReporter``). Every other option that would add an integration, a
+/// swizzle or a wakeup is set here and checked against
 /// `CLISentryRuntimePolicy` by `CrashReporterOptionsTests`.
 ///
 /// Signal order. Start after the run marker installs its handlers
@@ -61,30 +63,56 @@ public final class CrashReporter: Sendable {
     /// no-op handler (`ChildSignalDefaults`), SIGTERM a requested quit.
     public static let appOwnedSignals: [Int32] = [SIGPIPE, SIGTERM]
 
+    /// A main-thread hang this long is an app hang (``AppHangReporter``),
+    /// as the SDK's `appHangTimeoutInterval` was.
+    public static let appHangThreshold: Duration = .seconds(8)
+
     /// Which part of the app reports main-thread hangs.
     public nonisolated enum HangTracking: Sendable, Equatable {
-        /// Sentry's app-hang tracker, 8 s: the only report of a hang the app does not survive. Its thread
-        /// wakes the main queue every 1.6 s for the whole run.
+        /// Sentry's app-hang tracker, 8 s: a process with no main-thread watchdog. Its thread wakes the main
+        /// queue every 1.6 s for the whole run.
         case sentry
-        /// The main-thread watchdog reports each hang (`MainThreadWatchdog.onHang`) and keeps the fatal-hang
-        /// record the next launch reports (p09-observability-110); Sentry's tracker is off. The app sets both
+        /// The process's one hang watcher, the main-thread watchdog, reports each hang
+        /// (`MainThreadWatchdog.onHang`), each episode of ``CrashReporter/appHangThreshold`` and up as an app
+        /// hang (``AppHangReporter``, p14-energy-101), and with feature `fatalHangReports` keeps the fatal-hang
+        /// record the next launch reports (p09-observability-110); Sentry's tracker is off. The app sets these
         /// sinks before ``CrashReporter/start(profile:)`` (`WatchdogHangSinks`), so a launch hang is reported too.
         case watchdog
-
-        /// The launch's choice: ``watchdog`` once the fatal-hang record is kept (feature `fatalHangReports`).
-        public init(fatalHangRecordOn: Bool) {
-            self = fatalHangRecordOn ? .watchdog : .sentry
-        }
     }
 
     public let policy: CrashReportingPolicy
     public let hangTracking: HangTracking
-    private let sentryHandlers = Mutex<SignalActions?>(nil)
+    /// The previous run's crash keys and black box, put on its crash event at this launch (task 079).
+    public let previousRun: PreviousRunCrashEvidence?
+    private let sentryHandlers = Mutex<SignalActions?>(nil, rank: .crashReporterSentryHandlers)
 
-    public init(policy: CrashReportingPolicy, hangTracking: HangTracking = .sentry) {
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// With `CMUX_NEXT_SENTRY_RECORDER=<dir>`, every event goes to a file in `<dir>` instead of Sentry.
+    private let recorder: SentryRecorderTransport?
+
+    /// - Parameters:
+    ///   - previousRun: The previous run's files, read when its crash event is sent; nil after a clean
+    ///     exit or outside the app process.
+    ///   - recorder: Records events instead of sending them; by default the one the process
+    ///     environment asks for (``SentryRecorderTransport/environmentKey``).
+    public init(policy: CrashReportingPolicy,
+                hangTracking: HangTracking = .sentry,
+                previousRun: PreviousRunCrashEvidence? = nil,
+                recorder: SentryRecorderTransport? = SentryRecorderTransport(environment: ProcessInfo.processInfo.environment)) {
         self.policy = policy
         self.hangTracking = hangTracking
+        self.previousRun = previousRun
+        self.recorder = recorder
     }
+    #else
+    /// - Parameter previousRun: The previous run's files, read when its crash event is sent; nil after a clean
+    ///   exit or outside the app process.
+    public init(policy: CrashReportingPolicy, hangTracking: HangTracking = .sentry, previousRun: PreviousRunCrashEvidence? = nil) {
+        self.policy = policy
+        self.hangTracking = hangTracking
+        self.previousRun = previousRun
+    }
+    #endif
 
     /// Whether Sentry runs in this process.
     public var isStarted: Bool { sentryHandlers.withLock { $0 != nil } }
@@ -102,6 +130,8 @@ public final class CrashReporter: Sendable {
         // No tracing, so no auto-instrumentation: network, file I/O and Core Data spans stay off even if a
         // sample rate is set later.
         options.enableAutoPerformanceTracing = false
+        // One hang watcher per process (Chrome's HangWatcher): with the main-thread watchdog the SDK's ANR
+        // thread is off and the watchdog's episodes are the app hangs (AppHangReporter).
         options.enableAppHangTracking = hangTracking == .sentry
         options.appHangTimeoutInterval = 8.0
         // MetricKit's hang, CPU and disk diagnostics repeat what the watchdog and the system crash forwarder
@@ -121,10 +151,28 @@ public final class CrashReporter: Sendable {
         options.enableLogs = false
         let scrubber = SentryEventScrubber()
         let labels = CrashEventLabels(policy: policy)
-        options.beforeSend = { event in
+        let prepare: (Event) -> Event = { event in
             let scrubbed = scrubber.scrub(event)
             labels.apply(to: scrubbed)
             return scrubbed
+        }
+        if let previousRun {
+            // The hint form of beforeSend: only its hint can add an attachment to one event (the previous run's
+            // crash). The previous run's tags go on before the scrub, so they are scrubbed with the rest.
+            // sentry-cocoa 9 calls only this one when it is set, never `beforeSend` too.
+            let prepareWithHint: (Event, Hint) -> Event = { event, hint in
+                previousRun.decorate(event, hint: hint)
+                return prepare(event)
+            }
+            options.beforeSendWithHint = { event, hint in prepareWithHint(event, hint) }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            recorder?.install(on: options, prepareWithHint: prepareWithHint)
+            #endif
+        } else {
+            options.beforeSend = { event in prepare(event) }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            recorder?.install(on: options, prepare: prepare)
+            #endif
         }
         options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
         options.beforeSendSpan = { span in scrubber.scrub(span) }
@@ -304,15 +352,40 @@ public final class CrashReporter: Sendable {
         SentrySDK.capture(event: event)
     }
 
-    /// The previous run's black box as the crash event's `blackbox.txt` (p09-observability-128): nil without
-    /// the hang-reports opt-in, and never a key-timing, per-key PTY or flow record (``TraceBlackBoxUpload``).
-    /// The caller passes it through the scrubber like every other attachment.
-    public func blackboxAttachment(_ records: [TraceBlackBoxUpload.Record], hangReportsOptIn: Bool) -> Attachment? {
+    /// Sends one app hang from the main-thread watchdog (``AppHangReporter``).
+    /// Call off the main thread (builds debug-image metadata). Does nothing
+    /// while Sentry is off.
+    public nonisolated func reportAppHang(_ hang: AppHangEvent) {
+        guard isStarted else { return }
+        SentrySDK.capture(event: hang.event())
+    }
+
+    /// Sends a Chromium helper's Crashpad dump (``ChromiumMinidumpCollector``, p01-process task 226) as a crash
+    /// event, under the same consent as the app's own crashes: nothing while Sentry is off (consent, a debug
+    /// build), and a dump found while it was off is never sent later. The event holds the crashed thread's
+    /// frames and the image list (``ChromiumMinidumpReport/systemReport``), no annotation and no memory.
+    /// The host's own dump is not sent: its crash also reaches macOS's crash reporter
+    /// (`BrowserCrashForwardingEnabled` in crash_reporter.cfg), whose `.ips` report ``SystemCrashForwarder``
+    /// sends, and two events would count one crash twice. Any thread.
+    public func sendChromiumDump(_ report: ChromiumMinidumpReport) {
+        guard isStarted, !report.isBrowserProcess else { return }
+        // A clean scope, as SystemCrashForwarder's: the app's breadcrumbs do not describe a helper's crash.
+        SentrySDK.capture(event: SystemCrashEvent(report: report.systemReport, source: .crashpad).event(), scope: Scope())
+    }
+
+    /// The previous run's black box as the crash event's `blackbox.txt` (p09-observability-128, 079): nil without
+    /// the hang-reports opt-in, never a key-timing, per-key PTY or flow record (``TraceBlackBoxUpload``), and
+    /// passed through `scrubber` like every other text that leaves the Mac.
+    public static func blackboxAttachment(_ records: [TraceBlackBoxUpload.Record], hangReportsOptIn: Bool,
+                                          scrubber: SentryScrubber = SentryScrubber()) -> Attachment? {
         guard let text = TraceBlackBoxUpload().crashAttachmentText(records, hangReportsOptIn: hangReportsOptIn) else {
             return nil
         }
-        return Attachment(data: Data(text.utf8), filename: "blackbox.txt", contentType: "text/plain")
+        return Attachment(data: Data(scrubber.scrub(text).utf8), filename: blackboxFileName, contentType: "text/plain")
     }
+
+    /// The black box attachment's file name.
+    public static let blackboxFileName = "blackbox.txt"
 
     /// Tags the current scope so a crash this process causes on purpose
     /// (`debug.crash.app`, `debug.crash.exception`) can be filtered out.

@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/FlightRecorder.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/FlightRecorder.swift
-@@ -19,9 +19,11 @@
+@@ -19,9 +19,19 @@
  /// ~/Library/Logs/MessagesLab/blink-<time>/ and logs one line to stderr. At
  /// most one dump per 15 s. "Save Last 10 Seconds" (Cmd+Shift+S) writes the
  /// same without a finding.
@@ -9,11 +9,19 @@
      static let shared = FlightRecorder()
 -    static var enabled: Bool { !ProcessInfo.processInfo.arguments.contains("--no-flight-recorder") }
 +    // cmux: the app's policy (HomeFlightRecorder: DEV on, NIGHTLY opt-in, Release off), read live.
-+    static var enabled: Bool { HomeFlightRecorder.isEnabled() && !ProcessInfo.processInfo.arguments.contains("--no-flight-recorder") }
++    static var enabled: Bool { HomeFlightRecorder.isEnabled() && !argumentOff }
++    nonisolated private static let argumentOff = ProcessInfo.processInfo.arguments.contains("--no-flight-recorder")
++    /// cmux: the policy this recorder reads, live (the app's for `shared`; tests pass their own). While it is
++    /// off the recorder makes no display link, schedules no capture burst and keeps no event (p14-energy-051).
++    private let isEnabled: @MainActor () -> Bool
++    init(isEnabled: @escaping @MainActor () -> Bool = { FlightRecorder.enabled }) {
++        self.isEnabled = isEnabled
++        super.init()
++    }
  
      /// Raw per-frame storage, preallocated (no strings, dictionaries or allocation per
      /// frame; formatting happens only in `dump`). Rows are interned key ids.
-@@ -37,8 +39,8 @@
+@@ -37,8 +47,8 @@
          /// The finding's numbers, rounded as its text prints them (the old rule compared texts).
          var unfilledSig = 0
      }
@@ -24,7 +32,7 @@
      private var samples = [RawSample](repeating: RawSample(), count: capacity)
      private var rows = [RawRow](repeating: RawRow(), count: capacity * maxRows)
      private var morphRows = [RawRow](repeating: RawRow(), count: capacity * maxMorphs)
-@@ -59,19 +61,22 @@
+@@ -59,19 +69,22 @@
      private var lastDump: CFTimeInterval = -.infinity
      private var pendingFinding: (CFTimeInterval, String)?
      private(set) var dumps: [String] = []
@@ -52,7 +60,42 @@
          }
      }
  
-@@ -129,9 +134,10 @@
+@@ -79,7 +92,7 @@
+ 
+     /// An engine action (ChatController.dispatch and the wake timer call it).
+     func action(_ a: Action) {
+-        guard FlightRecorder.enabled, c != nil else { return }
++        guard isEnabled(), c != nil else { return }  // cmux: the recorder's policy
+         let name: String
+         switch a {
+         case .send: name = "send"; lastSend = CACurrentMediaTime()
+@@ -111,6 +124,7 @@
+     }
+ 
+     func event(_ s: String) {
++        guard isEnabled() else { return }  // cmux: off, the window observers keep nothing
+         events.append((CACurrentMediaTime(), s))
+         if events.count > 400 { events.removeFirst(events.count - 400) }
+     }
+@@ -120,24 +134,36 @@
+ 
+     /// Something may animate: sample until it settles.
+     func kick() {
+-        guard FlightRecorder.enabled, link == nil, let c else { return }
++        guard isEnabled(), link == nil, let c else { return }  // cmux: the recorder's policy
++        // wakeup-allow: debug the recorder samples frames only while its policy is on (DEV, NIGHTLY opt-in) and something moves
+         let l = c.host.displayLink(target: self, selector: #selector(tick(_:)))
+         l.add(to: .main, forMode: .common)
+         link = l
+     }
+ 
++    /// cmux: the link stops on its next frame once the policy is off, the pane has no transcript or
++    /// nothing is left to sample (`displayFrame`).
++    private func stopSampling() {
++        link?.invalidate()
++        link = nil
++    }
++
      // MARK: Sampling
  
      /// Main-thread cost of each tick (bench evidence; target 0.3 ms or less).
@@ -66,15 +109,27 @@
      /// Adaptive stride: every frame while a sample costs under 0.2 ms; every 2nd-4th frame
      /// while presented geometry is expensive (many cells, each with many additive springs
      /// during fast sends: presentation() applies them all). Target 0.3 ms per frame.
-@@ -145,18 +151,18 @@
+     private var stride = 1, skip = 0
+-    @objc private func tick(_ l: CADisplayLink) {
+-        guard let c, let v = c.demo else { return }
++    @objc private func tick(_ l: CADisplayLink) { displayFrame() }
++
++    /// cmux: one display frame of the link (tests call it): samples, or stops the link.
++    func displayFrame() {
++        guard isEnabled(), let c, let v = c.demo else { stopSampling(); return }
+         let now = CACurrentMediaTime()
+         if skip > 0 {
+             skip -= 1
+@@ -145,18 +171,18 @@
              // blink of a row (hidden, opacity 0, no contents) is never missed.
              let m0 = CACurrentMediaTime()
              if now - lastSend < 10 { modelCheck(v) }
 -            FlightRecorder.modelChecks += 1
 -            FlightRecorder.modelCheckMsMax = max(FlightRecorder.modelCheckMsMax, (CACurrentMediaTime() - m0) * 1000)
+-            if !(v.isAnimating || now - lastSend < 10 || pendingFinding != nil) { l.invalidate(); link = nil }
 +            modelChecks += 1
 +            modelCheckMsMax = max(modelCheckMsMax, (CACurrentMediaTime() - m0) * 1000)
-             if !(v.isAnimating || now - lastSend < 10 || pendingFinding != nil) { l.invalidate(); link = nil }
++            if !(v.isAnimating || now - lastSend < 10 || pendingFinding != nil) { stopSampling() }
              return
          }
          defer {
@@ -90,7 +145,7 @@
          }
          let slot = head
          sample(c, v, now, into: slot)
-@@ -170,10 +176,10 @@
+@@ -170,13 +196,13 @@
          let t3 = CACurrentMediaTime()
          // A slow tick (above 2 ms): its phases, for the bench.
          if t3 - now > 0.002 {
@@ -102,8 +157,12 @@
 +            if slowTicks.count > 8 { slowTicks.removeFirst() }
          }
          let busy = v.isAnimating || now - lastSend < 10 || pendingFinding != nil
-         if !busy { l.invalidate(); link = nil }
-@@ -205,10 +211,10 @@
+-        if !busy { l.invalidate(); link = nil }
++        if !busy { stopSampling() }
+     }
+ 
+     private func intern(_ key: String) -> Int32 {
+@@ -205,10 +231,10 @@
              originY = Float(Double(listOrigin.y + list.sublayerTransform.m42) + v.containerTranslation(at: Animate.now(v.layer)))
              if FlightRecorder.verifyMath, MessagesWindowView.commitLog?.isEmpty ?? true, let lp = list.presentation() {
                  let d = abs(Double(originY) - Double(listOrigin.y + list.bounds.minY - lp.bounds.minY + lp.sublayerTransform.m42))
@@ -116,7 +175,7 @@
          let base = slot * FlightRecorder.maxRows
          var n = 0
          // Coverage gaps from the same rows (FlashCheck.coverageGaps rules), unfilled outgoing bubbles.
-@@ -223,8 +229,8 @@
+@@ -223,8 +249,8 @@
              if FlightRecorder.verifyMath {
                  let ip = v.collection.indexPath(for: cell)?.item
                  let mk = ip.flatMap { v.model.rows[checked: $0]?.spec.key } ?? "-" // checked
@@ -127,7 +186,7 @@
              }
              let cl = cell.layer
              let cellPY = presented(cl, "position.y", .cell, entries, cell.applied, lnow)
-@@ -321,13 +327,13 @@
+@@ -321,13 +347,13 @@
              // Only ticks with no transaction earlier in the same run-loop pass: otherwise the model
              // holds changes that the presentation (last commit) does not show yet.
              let lid = ObjectIdentifier(l).hashValue &+ keyPath.count
@@ -148,7 +207,7 @@
                  // The layer's animations on this key path and the ledger's view of them (cause hunt).
                  func r(_ x: Double) -> Double { (x * 1000).rounded() / 1000 }
                  let es = entries.filter { $0.keyPath == keyPath }.map {
-@@ -338,16 +344,17 @@
+@@ -338,16 +364,17 @@
                      let from = (a as? CABasicAnimation)?.fromValue ?? (a as? CAKeyframeAnimation)?.values?.first
                      return "\(k) b \(r(a.beginTime - now)) dur \(r(a.duration)) from \(from ?? "?")"
                  }
@@ -170,8 +229,12 @@
  
      private var previousSlot = -1
      /// Ages and last positions for the next frame (every frame, detector or not).
-@@ -450,10 +457,11 @@
-         guard let c else { return }
+@@ -447,13 +474,14 @@
+     @objc func saveLastSeconds(_ sender: Any?) { dump(reason: "Save Last 10 Seconds", all: []) }
+ 
+     func dump(reason: String, all: [String]) {
+-        guard let c else { return }
++        guard isEnabled(), let c else { return }  // cmux: off, no files and no capture burst
          let f = DateFormatter()
          f.dateFormat = "yyyyMMdd-HHmmss.SSS"
 -        let dir = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Logs/MessagesLab/blink-\(f.string(from: Date()))")
@@ -185,7 +248,7 @@
          let order = (0..<filled).map { (head - filled + $0 + FlightRecorder.capacity) % FlightRecorder.capacity }
          let t0 = order.first.flatMap { self.samples[checked: $0]?.t } ?? CACurrentMediaTime() // checked
          // Formatting and writing run off main on copies of the raw arrays (a dump cost 8-9 ms on main).
-@@ -481,32 +489,33 @@
+@@ -481,32 +509,34 @@
          }
          try? lines.joined(separator: "\n").write(toFile: dir + "/frames.ndjson", atomically: true, encoding: .utf8)
          }
@@ -227,6 +290,7 @@
 -            if i >= count { timer.cancel(); FlightRecorder.bursts.removeAll { $0 === timer } }
 +        let start = CACurrentMediaTime(), now = DispatchTime.now()
 +        for i in 0..<max(0, count) {
++            // wakeup-allow: debug 30 one-shot captures after a dump, only with the policy and window captures opted in
 +            q.asyncAfter(deadline: now + Double(i) / 60) {
 +                let t = CACurrentMediaTime() - start
 +                // cmux: LiveRecord is not vendored (HomeFlightRecorder.grab, .writeJPEG).

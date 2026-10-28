@@ -502,7 +502,7 @@ struct PageDiscardRestoreTests {
         #expect(view.webView.navigationDelegate === view)
     }
 
-    /// The pool's parked spare refuses (the pool owns its life); a pooled host a page claimed is a page
+    /// A page parked in the preload slot refuses (the slot owns its life); a parked page an open claimed is a page
     /// like any other: it discards, and its show brings it back.
     @Test func aClaimedPooledHostDiscardsAndTheParkedSpareRefuses() throws {
         let configuration = WKWebViewConfiguration()
@@ -512,7 +512,7 @@ struct PageDiscardRestoreTests {
                                chromium: nil)
         defer { view.close() }
         #expect(view.isPooled)
-        let parking = PageHostParking()
+        let parking = PagePreloadParkingView(frame: .zero)
         parking.addSubview(view)
         #expect(view.isParkedSpare)
         #expect(!view.discardPage(decoder: decoder))

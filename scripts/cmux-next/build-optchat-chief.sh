@@ -152,6 +152,17 @@ if command -v rustup >/dev/null 2>&1; then
 fi
 
 mkdir -p "$cache_dir"
+# Line tables go to a packed .dSYM beside each slice, cached beside the binary.
+# rustc makes it by running `dsymutil` from PATH after the link, so a host with
+# no dsymutil (the Linux pool's cross build of the app components, where acpmux
+# and cmux-tui have no dSYM either) builds without one: asking for it there
+# fails the link ("unable to run `dsymutil`"). A Mac always has /usr/bin/dsymutil.
+dsym_env=()
+if command -v dsymutil >/dev/null 2>&1; then
+  dsym_env=(CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed)
+else
+  echo "note: no dsymutil on PATH: optchat-chief builds without a dSYM" >&2
+fi
 slices=()
 for target in "${targets[@]}"; do
   echo "==> building optchat-chief ($commit, $target)"
@@ -163,10 +174,8 @@ for target in "${targets[@]}"; do
   fi
   # An app build never ships the inspector's placeholder page: build.rs fails
   # when the page was not built (build-web-bundles.sh runs before this).
-  # Line tables go to a packed .dSYM beside the slice, cached beside the binary.
-  (cd "$crate" && OPTCHAT_BUILD_COMMIT="${commit:0:11}" OPTCHAT_REQUIRE_INSPECTOR_PAGE=1 CARGO_TARGET_DIR="$target_dir" \
-    CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed \
-    cargo "+$toolchain" build --locked --release --bin optchat-chief --target "$target")
+  (cd "$crate" && env ${dsym_env[@]+"${dsym_env[@]}"} OPTCHAT_BUILD_COMMIT="${commit:0:11}" OPTCHAT_REQUIRE_INSPECTOR_PAGE=1 \
+    CARGO_TARGET_DIR="$target_dir" cargo "+$toolchain" build --locked --release --bin optchat-chief --target "$target")
   slice="$target_dir/$target/release/optchat-chief"
   [[ -x "$slice" ]] || { echo "error: cargo did not produce $slice" >&2; exit 1; }
   slices+=("$slice")

@@ -100,6 +100,7 @@ public struct SignpostActionRunTiming: ActionRunTiming {
             if signposts, outcome == .committed {
                 monitor?.recordPresentEstimate(index, start: start, commitEnd: end, inputAgeMilliseconds: read.ageMilliseconds)
             }
+            if outcome == .committed { monitor?.onCommit?(index, read.entrypoint) }
         }
         return result
     }

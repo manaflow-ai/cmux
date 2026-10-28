@@ -109,6 +109,7 @@ import func CmuxSafeConcurrency.withOnceContinuation
             }
         } onCancel: {
             // task-owner: one hop to the main actor that owns the waiters; a waiter already resumed is not found.
+            // main-hop-allow: a cancel handler runs on any thread; the hop only drops the cancelled waiter's slot (a resumed one is not found)
             Task { @MainActor in self.abandon(slot, serial) }
         }
     }

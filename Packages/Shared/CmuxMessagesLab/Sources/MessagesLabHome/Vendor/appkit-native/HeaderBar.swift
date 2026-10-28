@@ -357,7 +357,7 @@ enum AvatarShadow {
     static let sigma = HeaderBar.flag("--avatar-shadow-sigma", 3)
     /// The image's margin around the 40 pt disc: the drop plus 3 sigma.
     static var margin: CGFloat { (drop + 3 * sigma).rounded(.up) }
-    private static var cache: [CGFloat: CGImage] = [:]
+    private static var cache: [CGFloat: CGImage] = [:] // cmux: memory: fixed one shadow per display scale (1x to 3x)
 
     /// The shadow at `scale` (device pixels per point): (40 + 2 margin) pt square, the disc's frame
     /// inset by -margin; nil if the bitmap cannot be made (no shadow, as before).

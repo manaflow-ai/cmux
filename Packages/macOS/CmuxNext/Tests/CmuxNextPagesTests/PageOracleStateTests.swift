@@ -99,7 +99,7 @@ struct PageOracleStateTests {
             // Read first, then expect: inside this closure the #expect expansion does not see the typed throw as handled.
             let unloaded = try await page.oracleState(within: .seconds(1), clock: PageTestClock.never)
             #expect(unloaded == .loading)
-            let parking = PageHostParking()
+            let parking = PagePreloadParkingView(frame: .zero)
             parking.addSubview(page)
             let parked = try await page.oracleState(within: .seconds(1), clock: PageTestClock.never)
             #expect(parked == nil)

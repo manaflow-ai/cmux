@@ -29,6 +29,11 @@ import CmuxNextWakeups
 /// on it (tooltips, popovers, toasts, menus, drag ghosts, dialogs) are
 /// therefore always above pages.
 ///
+/// That page-window order is in-process machinery (``PageSurface/childWindows``). With pages in
+/// the view tree (``PageSurface/views``, the Chromium Host) no child window is a page but a content
+/// panel (`ContentChildPanel`), no page is re-added behind the app's back, and the order is checked
+/// only when a child is added; the window's other notices check nothing.
+///
 /// The panel ignores the mouse except over interactive overlays (and the
 /// whole window under a modal or dimming overlay, or a tab-region
 /// `modalRegion`), and becomes key only while a modal overlay shows. It is a
@@ -56,11 +61,11 @@ public final class WindowOverlayHost {
     var nextID = 1
     /// The window's layout planes need the panel (pages show) even with no overlay presented.
     var planesWantPanel = false
-    var observers: [any NSObjectProtocol] = []
+    var closeWatch: EventSubscription?  // the window's close notice, through its WindowEvents: the host goes with the window
     /// Window notice subscriptions held while the panel is attached.
     var windowObservers: [EventSubscription] = []
-    /// Order checks run on a window notice (tests).
-    private(set) var orderChecks = 0
+    /// Order checks run on a window notice (`debug.layers` `order_checks`; none with pages in the view tree).
+    public private(set) var orderChecks = 0
     /// The tap observer of pointer moves and clicks that keeps the panel's mouse routing current,
     /// held while an interactive region or agent cursor tag shows (``updateMouseRouting()``).
     var mouseRouting: InputSubscription? {
@@ -202,12 +207,9 @@ public final class WindowOverlayHost {
         if let host = hosts[key], host.window === window { return host }
         let host = WindowOverlayHost(window: window)
         hosts[key] = host
-        host.observers.append(NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification, object: window, queue: .main
-        ) { [weak host] _ in
-            // main-proof: observer on queue: .main
-            MainActor.assumeIsolated { host?.tearDown() }
-        })
+        host.closeWatch = WindowEvents.of(window).subscribe(NSWindow.willCloseNotification, owner: "WindowOverlayHost.close") { [weak host] in
+            host?.tearDown()
+        }
         return host
     }
 
@@ -280,8 +282,8 @@ public final class WindowOverlayHost {
     func tearDown() {
         isTearingDown = true
         for handle in handles { handle.dismiss() }
-        observers.forEach(NotificationCenter.default.removeObserver)
-        observers.removeAll()
+        closeWatch?.cancel()
+        closeWatch = nil
         mouseRouting = nil
         updateEscapeIntercept()
         if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
@@ -350,12 +352,13 @@ public final class WindowOverlayHost {
         // AppKit places its own children (the full screen titlebar); they are never re-added.
         let children = (window.childWindows ?? []).filter { !Self.isAppKitChrome($0) }
         guard let index = children.firstIndex(where: { $0 === panel }) else { return }
+        let surface = pageSurface
         let visible = children.enumerated().filter { $0.element.isVisible || $0.element === panel }
-        let pageAbove = visible.contains { $0.offset > index && Self.isPageWindow($0.element) }
-        let panelBelow = visible.contains { $0.offset < index && !Self.isPageWindow($0.element) && $0.element.level <= panel.level }
+        let pageAbove = visible.contains { $0.offset > index && Self.isPageWindow($0.element, on: surface) }
+        let panelBelow = visible.contains { $0.offset < index && !Self.isPageWindow($0.element, on: surface) && $0.element.level <= panel.level }
         guard pageAbove || panelBelow else { return }
         reorderCount += 1
-        let panels = children.filter { $0 !== panel && !Self.isPageWindow($0) && $0.level <= panel.level }
+        let panels = children.filter { $0 !== panel && !Self.isPageWindow($0, on: surface) && $0.level <= panel.level }
         window.removeChildWindow(panel)
         window.addChildWindow(panel, ordered: .above)
         for child in panels {
@@ -369,16 +372,29 @@ public final class WindowOverlayHost {
     public var isAbovePages: Bool {
         guard let window else { return true }
         let children = window.childWindows ?? []
-        guard let last = children.lastIndex(where: { Self.isPageWindow($0) && $0.isVisible }) else { return true }
+        let surface = pageSurface
+        guard let last = children.lastIndex(where: { Self.isPageWindow($0, on: surface) && $0.isVisible }) else { return true }
         guard let index = children.firstIndex(where: { $0 === madePanel }) else { return false }
         return index > last
     }
 
+    /// Where the parent window's pages draw (``PageSurface/of(_:)``).
+    public var pageSurface: PageSurface { PageSurface.of(window) }
+
     /// Page windows are the child windows that are not panels (Chromium),
     /// and content panels (`ContentChildPanel`: remote browser popups).
-    /// AppKit's own child windows are not pages (`isAppKitChrome`).
+    /// AppKit's own child windows are not pages (`isAppKitChrome`). The
+    /// in-process rule (``PageSurface/childWindows``): ``isPageWindow(_:on:)``
+    /// answers for a parent's own surface.
     public nonisolated static func isPageWindow(_ child: NSWindow) -> Bool {
+        isPageWindow(child, on: .childWindows)
+    }
+
+    /// ``isPageWindow(_:)`` for a parent whose pages draw on `surface`: with pages in the view tree
+    /// (``PageSurface/views``) only content panels are page content; any other child is the app's.
+    public nonisolated static func isPageWindow(_ child: NSWindow, on surface: PageSurface) -> Bool {
         if child is ContentChildPanel { return true }
+        guard surface == .childWindows else { return false }
         return !(child is NSPanel) && !isAppKitChrome(child)
     }
 
@@ -401,23 +417,29 @@ public final class WindowOverlayHost {
 
     /// The window's own notices while the panel is attached, through its ``WindowEvents``. The
     /// order is checked when it can break: a child window was added (``childWindowsDidChange(of:)``,
-    /// from the `addChildWindow` override of every window that shows pages), the window shows
-    /// again, takes key or enters or leaves full screen; never per event cycle.
+    /// from the `addChildWindow` override of every window that shows pages), and in process
+    /// (``PageSurface/childWindows``) when the window shows again, takes key or enters or leaves
+    /// full screen, where the fork re-adds its page windows; never per event cycle.
     private func observeWindow(_ window: NSWindow) {
         stopObservingWindow()
         let events = WindowEvents.of(window)
-        for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification, NSWindow.didEnterFullScreenNotification,
-                     NSWindow.didExitFullScreenNotification, NSWindow.didChangeScreenNotification] {
-            windowObservers.append(events.subscribe(name, owner: "WindowOverlayHost.geometry") { [weak self] in
-                self?.windowGeometryDidChange()
-            })
-        }
-        for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification, NSWindow.didBecomeKeyNotification,
-                     NSWindow.didChangeOcclusionStateNotification, NSWindow.didDeminiaturizeNotification] {
-            windowObservers.append(events.subscribe(name, owner: "WindowOverlayHost.order") { [weak self] in
-                self?.checkOrder()
-            })
-        }
+        let geometry: @MainActor () -> Void = { [weak self] in self?.windowGeometryDidChange() }
+        windowObservers = [
+            events.subscribe(NSWindow.didResizeNotification, owner: "WindowOverlayHost.geometry", geometry),
+            events.subscribe(NSWindow.didMoveNotification, owner: "WindowOverlayHost.geometry", geometry),
+            events.subscribe(NSWindow.didEnterFullScreenNotification, owner: "WindowOverlayHost.geometry", geometry),
+            events.subscribe(NSWindow.didExitFullScreenNotification, owner: "WindowOverlayHost.geometry", geometry),
+            events.subscribe(NSWindow.didChangeScreenNotification, owner: "WindowOverlayHost.geometry", geometry),
+        ]
+        guard PageSurface.of(window) == .childWindows else { return }
+        let order: @MainActor () -> Void = { [weak self] in self?.checkOrder() }
+        windowObservers += [
+            events.subscribe(NSWindow.didEnterFullScreenNotification, owner: "WindowOverlayHost.order", order),
+            events.subscribe(NSWindow.didExitFullScreenNotification, owner: "WindowOverlayHost.order", order),
+            events.subscribe(NSWindow.didBecomeKeyNotification, owner: "WindowOverlayHost.order", order),
+            events.subscribe(NSWindow.didChangeOcclusionStateNotification, owner: "WindowOverlayHost.order", order),
+            events.subscribe(NSWindow.didDeminiaturizeNotification, owner: "WindowOverlayHost.order", order),
+        ]
     }
 
     private func stopObservingWindow() {

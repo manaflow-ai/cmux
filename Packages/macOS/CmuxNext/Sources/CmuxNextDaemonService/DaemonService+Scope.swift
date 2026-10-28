@@ -35,7 +35,7 @@ extension DaemonService {
         ticket.scope.end(ticket.ticket, failure: error.map { Self.scopeFailure(label, $0) }, label: label)
     }
 
-    static func scopeFailure(_ label: String, _ error: any Error) -> DaemonCommandScope.Failure {
+    nonisolated static func scopeFailure(_ label: String, _ error: any Error) -> DaemonCommandScope.Failure {
         let daemonError = error as? DaemonError
         let terminal = daemonError?.isTerminalStartTimeout == true
         var timedOut = terminal

@@ -26,6 +26,7 @@ use cmux_pty::{MasterPty, PtySize};
 use sha2::{Digest, Sha256};
 
 use crate::control::{CONTROL_TIMEOUT_MS, ControlHandle, connect_control};
+use crate::panic_free::{LockRevalidated as _, RecoverPoison as _, Revalidate, filled};
 use crate::pty::{
     CmuxTui, DataSink, EnsureDaemon, ExitSink, PtyControl, PtyDeps, PtyHandle, PtyOutput,
     ResolvedCwd, SpawnSpec, session_name_ok,
@@ -180,6 +181,15 @@ struct SourceState {
     overflowed: bool,
 }
 
+impl Revalidate for SourceState {
+    const LOCK: &'static str = "ThreadOutput.state";
+
+    /// `backlog_bytes` is the byte count of `backlog`.
+    fn revalidate(&mut self) {
+        self.backlog_bytes = self.backlog.iter().map(Bytes::len).sum();
+    }
+}
+
 struct ThreadOutput {
     state: Mutex<SourceState>,
     overflow_handler: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -197,7 +207,7 @@ impl ThreadOutput {
     /// overflows. The callback is invoked at most once and never while the
     /// source mutex is held.
     fn set_overflow_handler(&self, handler: Arc<dyn Fn() + Send + Sync>) {
-        *self.overflow_handler.lock().expect("overflow handler lock") = Some(handler);
+        *self.overflow_handler.lock().recover_poison() = Some(handler);
     }
 
     /// Bind overflow cleanup without extending the control owner's lifetime.
@@ -233,7 +243,7 @@ impl ThreadOutput {
     fn drain(&self) {
         loop {
             let next = {
-                let mut state = self.state.lock().expect("source lock");
+                let mut state = self.state.lock_revalidated();
                 if let Some(chunk) = state.backlog.pop_front() {
                     state.backlog_bytes = state.backlog_bytes.saturating_sub(chunk.len());
                     (Some(chunk), None, state.on_data.clone(), state.on_exit.clone())
@@ -260,7 +270,7 @@ impl ThreadOutput {
             return;
         }
         let (should_drain, overflowed) = {
-            let mut state = self.state.lock().expect("source lock");
+            let mut state = self.state.lock_revalidated();
             if state.exited || state.overflowed {
                 return;
             }
@@ -276,10 +286,7 @@ impl ThreadOutput {
             }
             (Self::start_delivery(&mut state), overflowed)
         };
-        if overflowed
-            && let Some(handler) =
-                self.overflow_handler.lock().expect("overflow handler lock").clone()
-        {
+        if overflowed && let Some(handler) = self.overflow_handler.lock().recover_poison().clone() {
             handler();
         }
         if should_drain {
@@ -289,7 +296,7 @@ impl ThreadOutput {
 
     fn push_exit(&self, code: i64) {
         let should_drain = {
-            let mut state = self.state.lock().expect("source lock");
+            let mut state = self.state.lock_revalidated();
             if state.exited {
                 return;
             }
@@ -306,7 +313,7 @@ impl ThreadOutput {
 impl PtyOutput for ThreadOutput {
     fn subscribe(&self, on_data: DataSink, on_exit: ExitSink) {
         let should_drain = {
-            let mut state = self.state.lock().expect("source lock");
+            let mut state = self.state.lock_revalidated();
             state.on_data = Some(Arc::clone(&on_data));
             state.on_exit = Some(Arc::clone(&on_exit));
             Self::start_delivery(&mut state)
@@ -407,17 +414,18 @@ impl ProcessOutputCompletion {
     }
 
     fn child_exited(self: &Arc<Self>, code: i64) {
-        let should_watch = {
-            let mut state = self.state.lock().expect("process output completion lock");
+        let watch_grace = {
+            let mut state = self.state.lock().recover_poison();
             if state.child_exit.is_some() {
                 return;
             }
             state.child_exit = Some(code);
-            state.readers_remaining != 0 && self.post_exit_grace.is_some()
+            self.post_exit_grace.filter(|_| state.readers_remaining != 0)
         };
-        if should_watch {
+        if let Some(grace) = watch_grace {
             let completion = Arc::clone(self);
-            std::thread::spawn(move || completion.wait_for_readers());
+            // supervise-allow: one process's post-exit grace, bounded by post_exit_grace; a panic ends that process's output only.
+            std::thread::spawn(move || completion.wait_for_readers(grace));
         } else {
             self.emit_if_ready();
         }
@@ -425,7 +433,7 @@ impl ProcessOutputCompletion {
 
     fn reader_finished(&self) {
         {
-            let mut state = self.state.lock().expect("process output completion lock");
+            let mut state = self.state.lock().recover_poison();
             if state.readers_remaining == 0 {
                 return;
             }
@@ -435,14 +443,13 @@ impl ProcessOutputCompletion {
         self.emit_if_ready();
     }
 
-    fn wait_for_readers(self: Arc<Self>) {
-        let grace = self.post_exit_grace.expect("bounded completion grace");
+    fn wait_for_readers(self: Arc<Self>, grace: Duration) {
         let deadline = Instant::now() + grace;
-        let mut state = self.state.lock().expect("process output completion lock");
+        let mut state = self.state.lock().recover_poison();
         while state.readers_remaining != 0 && state.child_exit.is_some() {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { break };
-            let (next, timeout) = cmux_blocking::sync::wait_timeout(&self.wake, state, remaining)
-                .expect("process output completion lock");
+            let (next, timeout) =
+                cmux_blocking::sync::wait_timeout(&self.wake, state, remaining).recover_poison();
             state = next;
             if timeout.timed_out() {
                 break;
@@ -471,7 +478,7 @@ impl ProcessOutputCompletion {
 
     fn emit_if_ready(&self) {
         let code = {
-            let mut state = self.state.lock().expect("process output completion lock");
+            let mut state = self.state.lock().recover_poison();
             (state.readers_remaining == 0).then(|| state.child_exit.take()).flatten()
         };
         if let Some(code) = code {
@@ -508,12 +515,13 @@ impl SpawnedChildCleanup {
         Self { child: Some(child) }
     }
 
-    fn child(&self) -> &(dyn cmux_pty::Child + Send + Sync) {
-        self.child.as_deref().expect("spawned child cleanup owns a child")
-    }
-
-    fn take(&mut self) -> Box<dyn cmux_pty::Child + Send + Sync> {
-        self.child.take().expect("spawned child cleanup owns a child")
+    /// Hand the child to its wait thread; the cleanup no longer kills it.
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: `new` stores the child and only this method, which consumes self, takes it"
+    )]
+    fn into_child(mut self) -> Box<dyn cmux_pty::Child + Send + Sync> {
+        self.child.take().expect("INVARIANT: the cleanup owns its child until into_child")
     }
 }
 
@@ -645,9 +653,9 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         ProcessOutputCompletion::with_pty_cancellation(1, Arc::clone(&output))?;
     let spawned = pair.spawn(command)?;
     let cmux_pty::SpawnedPty { master, child } = spawned;
-    let mut child_cleanup = SpawnedChildCleanup::new(child);
+    let killer = child.clone_killer();
+    let child_cleanup = SpawnedChildCleanup::new(child);
     let writer = master.take_writer()?;
-    let killer = child_cleanup.child().clone_killer();
     let control = Arc::new(MasterControl {
         master: Mutex::new(master),
         writer: Mutex::new(writer),
@@ -660,12 +668,14 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     // Blocking reader thread -> output sink.
     let data_output = Arc::clone(&output);
     let data_completion = Arc::clone(&completion);
+    // supervise-allow: one terminal's reader; it ends at EOF or cancellation, and a panic ends that terminal's output only.
     std::thread::spawn(move || {
         pump_pty(reader, cancel_reader, data_output, data_completion);
     });
     // Blocking wait thread -> exit.
-    let mut child = child_cleanup.take();
+    let mut child = child_cleanup.into_child();
     let exit_completion = Arc::clone(&completion);
+    // supervise-allow: one terminal's waiter; it ends when its child exits, and a panic loses that terminal's exit code only.
     std::thread::spawn(move || {
         let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
         exit_completion.child_exited(code);
@@ -692,6 +702,8 @@ fn pump_pty(
             libc::pollfd { fd: reader_fd, events: libc::POLLIN, revents: 0 },
             libc::pollfd { fd: cancel_fd, events: libc::POLLIN, revents: 0 },
         ];
+        // SAFETY: `poll_fds` is a live array and the count passed is its length, so poll touches
+        // only those two entries; both descriptors stay open across the call.
         let poll_result = unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as _, -1) };
         if poll_result < 0 {
             if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
@@ -709,7 +721,7 @@ fn pump_pty(
             Ok(0) => break,
             Err(error) if error.raw_os_error() == Some(libc::EIO) => break,
             Err(_) => break,
-            Ok(count) => output.push_data(Bytes::copy_from_slice(&buffer[..count])),
+            Ok(count) => output.push_data(Bytes::copy_from_slice(filled(&buffer, count))),
         }
     }
     completion.reader_finished();
@@ -736,6 +748,9 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
     // Keep cwd pinned to the validated directory descriptor. The descriptor
     // is captured by the child-side pre_exec hook, after which path rebinding
     // cannot redirect this process.
+    // SAFETY: the pre_exec closure runs in the forked child and only calls fchdir and reads errno,
+    // both async-signal-safe; it allocates nothing and takes no lock. `directory` is moved into the
+    // closure, so its descriptor is open in the child.
     unsafe {
         command.pre_exec(move || {
             if libc::fchdir(directory.as_raw_fd()) == -1 {
@@ -767,22 +782,26 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
             if let Some(stdout) = child.stdout.take() {
                 let out = Arc::clone(&output);
                 let done = Arc::clone(&completion);
+                // supervise-allow: one process's stdout reader; it ends at EOF or cancellation, and a panic ends that process's output only.
                 std::thread::spawn(move || pump_pipe(stdout, out, done));
             }
             if let Some(stderr) = child.stderr.take() {
                 let out = Arc::clone(&output);
                 let done = Arc::clone(&completion);
+                // supervise-allow: one process's stderr reader; it ends at EOF or cancellation, and a panic ends that process's output only.
                 std::thread::spawn(move || pump_pipe(stderr, out, done));
             }
             // Observe exit without reaping. The owner thread handles both
             // overflow kill requests and the final wait, so all process
             // signals use the still-owned Child handle.
             let observer_tx = command_tx;
+            // supervise-allow: one process's exit observer; it ends when the child exits, and a panic loses that process's exit notice only (a kill through its control still ends it).
             std::thread::spawn(move || {
                 let _ = wait_for_child_exit_without_reaping(pid);
                 let _ = observer_tx.send(PipeChildCommand::ExitReady);
             });
             let wait_completion = Arc::clone(&completion);
+            // supervise-allow: one process's owner thread; it ends after the child's wait, and a panic loses that process's exit code only.
             std::thread::spawn(move || {
                 let mut exit_ready = false;
                 while !exit_ready {
@@ -830,6 +849,8 @@ fn pump_pipe(
             break;
         }
         let mut poll_fd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        // SAFETY: `poll_fd` is one live pollfd and the count passed is 1, so poll touches only it;
+        // `stream` keeps the descriptor open across the call.
         let poll_result = unsafe { libc::poll(&mut poll_fd, 1, PIPE_READ_POLL_MS) };
         if poll_result < 0 {
             if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
@@ -846,7 +867,7 @@ fn pump_pipe(
         match stream.read(&mut buffer) {
             Ok(0) => break,
             Err(_) => break,
-            Ok(count) => output.push_data(Bytes::copy_from_slice(&buffer[..count])),
+            Ok(count) => output.push_data(Bytes::copy_from_slice(filled(&buffer, count))),
         }
     }
     completion.reader_finished();
@@ -861,6 +882,9 @@ async fn socket_exists(path: &Path) -> bool {
 /// children it may have spawned before readiness failed.
 async fn cleanup_daemon(mut child: tokio::process::Child) {
     if let Some(pid) = child.id() {
+        // SAFETY: kill takes integers only. `child.id()` is Some, so the child is not reaped yet
+        // and its pid, which leads its own process group (process_group(0)), cannot have been
+        // reused.
         unsafe {
             let _ = libc::kill(-(pid as libc::pid_t), libc::SIGTERM);
         }
@@ -873,6 +897,9 @@ async fn cleanup_daemon(mut child: tokio::process::Child) {
         }
     }
     if let Some(pid) = child.id() {
+        // SAFETY: kill takes integers only. `child.id()` is Some, so the child is not reaped yet
+        // and its pid, which leads its own process group (process_group(0)), cannot have been
+        // reused.
         unsafe {
             let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
         }
@@ -998,6 +1025,9 @@ impl PtyDeps for RealPtyDeps {
         // Tokio exposes the underlying std::process::Command for Unix
         // pre_exec setup. fchdir runs in the child after fork and pins the
         // daemon to the validated directory descriptor.
+        // SAFETY: the pre_exec closure runs in the forked child and only calls fchdir and reads
+        // errno, both async-signal-safe; it allocates nothing and takes no lock. `directory` is
+        // moved into the closure, so its descriptor is open in the child.
         unsafe {
             command.as_std_mut().pre_exec(move || {
                 if libc::fchdir(directory.as_raw_fd()) == -1 {
@@ -1108,5 +1138,22 @@ mod tests {
             .expect("spawn child");
         wait_for_child_exit_without_reaping(child.id() as libc::pid_t).expect("observe child");
         assert_eq!(child.wait().expect("reap child").code(), Some(23));
+    }
+
+    #[test]
+    fn a_source_backlog_torn_by_a_panic_keeps_counting_against_its_cap() {
+        let output = ThreadOutput::new();
+        let torn = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut state = output.state.lock_revalidated();
+            state.backlog.push_back(Bytes::from(vec![0_u8; THREAD_OUTPUT_BACKLOG_CAP]));
+            std::panic::panic_any("panic before backlog_bytes is updated");
+        }));
+        assert!(torn.is_err());
+        // The repaired count is at the cap, so one more byte overflows the
+        // source instead of queueing past the cap.
+        output.push_data(Bytes::from_static(b"x"));
+        let state = output.state.lock_revalidated();
+        assert_eq!(state.backlog_bytes, THREAD_OUTPUT_BACKLOG_CAP);
+        assert!(state.overflowed && !output.state.is_poisoned());
     }
 }

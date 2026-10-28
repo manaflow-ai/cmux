@@ -82,6 +82,8 @@ CHECK_CASES = ("renderer", "gpu", "webkit", "agent")
 # features.list reports the toggle's value with source `local`. The file loads off the main thread after launch.
 HOST_FEATURE = "cefHelperHost"
 HOST_TOGGLE = "browserHost.helper"
+# chromiumHostTabs' local override: with the host on, the arm's Chromium tabs run in it (p01-process-080).
+HOST_TABS_TOGGLE = "browserHost.tabs"
 TUNABLES_FILE = "CMUX_NEXT_DEBUG_TUNABLES_FILE"
 HOST_SETTLE_SECONDS = 15
 NETWORK_SERVICE = "network.mojom.NetworkService"
@@ -816,7 +818,7 @@ def arm_env(arm, probe, tunables_path):
     """The launch environment of one run of `arm`: the typing probe, and a tunables file of its own that sets the
     host toggle to the arm (off too, so a developer's own Debug Settings never pick the off arm's value)."""
     with open(tunables_path, "w") as handle:
-        json.dump({"version": 1, "values": {HOST_TOGGLE: arm == "on"}}, handle)
+        json.dump({"version": 1, "values": {HOST_TOGGLE: arm == "on", HOST_TABS_TOGGLE: arm == "on"}}, handle)
     return {"CMUX_NEXT_TYPING_PROBE": probe, TUNABLES_FILE: tunables_path}
 
 

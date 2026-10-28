@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 25480,
-            "T2": 44580
+            "T1": 27040,
+            "T2": 48780
           },
           "stories": {
             "T1": [
@@ -59,6 +59,8 @@
               "palette-open-webkit",
               "pane-stress",
               "perf-gate",
+              "power",
+              "qos-inversions",
               "relaunch-e2e",
               "remote-browser-media",
               "renderer-sharing",
@@ -103,6 +105,7 @@
               "browser-engine-chromium",
               "browser-engine-webkit",
               "browser-idle-cost",
+              "browser-macro",
               "burst-stress",
               "cef-resize-sync",
               "cef-resize-sync-stress",
@@ -154,7 +157,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 44580
+            "T2": 48780
           },
           "stories": {
             "T2": [
@@ -181,6 +184,7 @@
               "browser-engine-chromium",
               "browser-engine-webkit",
               "browser-idle-cost",
+              "browser-macro",
               "burst-stress",
               "cef-resize-sync",
               "cef-resize-sync-stress",
@@ -232,7 +236,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 12790
+            "T1": 13450
           },
           "stories": {
             "T0": [
@@ -262,6 +266,7 @@
               "open-panel",
               "palette-open-webkit",
               "pane-stress",
+              "power",
               "sidebar-doc",
               "sidebar-drag",
               "sidebar-rows-live",
@@ -278,7 +283,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 12690
+            "T1": 13590
           },
           "stories": {
             "T0": [
@@ -312,6 +317,7 @@
               "omnibar-click-webkit",
               "palette-open",
               "perf-gate",
+              "qos-inversions",
               "relaunch-e2e",
               "remote-browser-media",
               "renderer-sharing",

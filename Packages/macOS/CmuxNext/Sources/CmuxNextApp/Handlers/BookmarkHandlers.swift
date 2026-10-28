@@ -70,10 +70,13 @@ enum BookmarkHandlers {
             let shown = !services.bookmarks.isBarShown
             services.bookmarks.setBarShown(shown)
             guard let settings = services.settings else { return }
-            services.registry.track(Task { @MainActor in
-                do { try await settings.setShowBookmarksBar(shown) } catch { return ActionWorkFailure(String(describing: error)) }
-                return nil
-            })
+            // The write is awaited off the action's turn; its failure is one task of the run's completion.
+            services.registry.trackWork(owner: "BookmarkHandlers.toggleBar", on: services.mainWork) {
+                try await settings.setShowBookmarksBar(shown)
+            } then: { result in
+                guard case .failure(let error) = result else { return nil }
+                return ActionWorkFailure(String(describing: error))
+            }
         })
         registry.bind("bookmark.manager", run: { _ in services.bookmarkPages.open() })
         registry.bind("bookmark.import", run: { invocation in
@@ -91,17 +94,28 @@ enum BookmarkHandlers {
             }
             // CLI and agents (bookmarks are not secrets, I5): name the browser, optionally the profile.
             let source = invocation["source"]?.stringValue
-            registry.track(Task { @MainActor in
-                let found = await Task.detached { BookmarkBrowserImport.sources(environment: BookmarkBrowserImport.liveEnvironment()) }.value
-                let picked = BookmarkBrowserImport.match(found, browser: browser, source: source)
-                guard !picked.isEmpty else {
-                    return ActionWorkFailure(BookmarkAppStrings.importUnknownSource([browser, source].compactMap { $0 }.joined(separator: " ")))
+            let work = services.work, priority = invocation.completionPriority
+            // The browsers' folders and the picked profiles' bookmarks are blocking file and SQLite reads, on the
+            // files lane; the import (one undo step) and its summary are one task of the run's completion.
+            registry.trackWork(owner: "BookmarkHandlers.importFromBrowser", on: services.mainWork) { () -> [BookmarkBrowserImport.Read]? in
+                try await work.run(priority, mayBlock: .files) {
+                    let found = BookmarkBrowserImport.sources(environment: BookmarkBrowserImport.liveEnvironment())
+                    let picked = BookmarkBrowserImport.match(found, browser: browser, source: source)
+                    return picked.isEmpty ? nil : BookmarkBrowserImport.read(picked)
                 }
-                let work = BookmarkBrowserImport(services: services)
-                let outcome = await work.run(picked, target: profile)
-                work.announce(outcome, in: window)
-                return outcome.failed.isEmpty ? nil : ActionWorkFailure(BookmarkAppStrings.importFailed(outcome.failed.joined(separator: ", ")))
-            })
+            } then: { result in
+                switch result {
+                case .success(let reads?):
+                    let importer = BookmarkBrowserImport(services: services)
+                    let outcome = importer.apply(reads, target: profile)
+                    importer.announce(outcome, in: window)
+                    return outcome.failed.isEmpty ? nil : ActionWorkFailure(BookmarkAppStrings.importFailed(outcome.failed.joined(separator: ", ")))
+                case .success(nil):
+                    return ActionWorkFailure(BookmarkAppStrings.importUnknownSource([browser, source].compactMap { $0 }.joined(separator: " ")))
+                case .failure(let error):
+                    return ActionWorkFailure(String(describing: error))
+                }
+            }
         })
         registry.bind("bookmark.export", run: { invocation in
             let profile = resolver.profile(invocation)

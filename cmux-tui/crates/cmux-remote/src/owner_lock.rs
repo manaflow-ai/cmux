@@ -69,6 +69,7 @@ fn validate_private_lock(path: &Path, file: &File) -> io::Result<()> {
             format!("lock {} is not a regular file", path.display()),
         ));
     }
+    // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
     if metadata.uid() != unsafe { libc::geteuid() } {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,

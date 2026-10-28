@@ -55,6 +55,7 @@ extension HandsService {
     /// Runs `work` without waiting for it; the log records how it ended.
     private func start(_ label: String, _ work: @escaping @MainActor () async throws -> Void) {
         // task-owner: HandsService.debug: one proof-driven level change; it ends with its prompt or request.
+        // main-hop-allow: debug.hands drives the service's main-actor async raise (the presence prompt is AppKit UI); its end is logged here
         Task { @MainActor [weak self] in
             let ended = await Self.describe { try await work() }
             self?.note("\(label): \(ended)")

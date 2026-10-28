@@ -49,7 +49,7 @@ enum AppBrowserPage {
         // anything else wakes it in the background and runs on the restored page.
         services.cache.hibernation?.noteAgentUse(tabID)
         if !answersWhileHibernated(operation) {
-            guard let live = await awakePage(tabID, page: page, cache: services.cache, within: actionWait) else { throw wakeFailed }
+            guard let live = await awakePage(tabID, page: page, cache: services.cache, within: actionWait) else { throw wakeError(tabID, cache: services.cache) }
             page = live
         }
         try rebuildStale(stale, tabID: tabID, for: operation, services: services)
@@ -95,6 +95,10 @@ enum AppBrowserPage {
             // Trusted input after the page's first load, as a script acts on the loaded document.
             _ = await awaitPendingNavigation(page, within: actionWait, work: services.mainWork)
             return try await services.browserNativeInputs.deliver(input, to: page, key: tabID)
+        }
+        // A step on a hibernated page runs once it wakes; a deferred wake keeps it for the tab's next show.
+        if page is HibernatedBrowserTab, let deferral = services.cache.hibernation?.deferral(of: tabID) {
+            return ["deferred": .string(deferral.rawValue)]
         }
         return [:]
     }

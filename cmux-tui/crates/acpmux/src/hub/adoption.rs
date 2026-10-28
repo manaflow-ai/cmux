@@ -38,7 +38,7 @@ impl Hub {
         let family = family.to_owned();
         let id = agent_session_id.to_owned();
         let index = self.chats.get().filter(|_| !remote).cloned();
-        let (found, _) = tokio::task::spawn_blocking(move || {
+        let (found, _) = crate::daemon::spawn_blocking(move || {
             let others = indexed_stores(index.as_deref(), &family, &id);
             crate::adopt::find_any(&family, &id, &homes, &others)
         })
@@ -100,7 +100,7 @@ impl Hub {
         // Watching starts nothing on the conversation, so it may watch one that runs elsewhere.
         let check = a.if_live == IfLive::Refuse && !a.watch;
         let (fam, id) = (family.to_owned(), a.agent_session_id.clone());
-        let ((found, store), live) = tokio::task::spawn_blocking(move || {
+        let ((found, store), live) = crate::daemon::spawn_blocking(move || {
             let others = indexed_stores(index.as_deref(), &fam, &id);
             let (found, store) = crate::adopt::find_any(&fam, &id, &homes, &others)?;
             // The holder the harness records in the store that holds the chat; one that has
@@ -233,7 +233,7 @@ pub(super) fn session_cwd(
         // agent-home chat). A gone folder needs the person's pick (`needsFolder`), which must
         // stand in for it: a chat moved from another machine records that machine's folder.
         (Some(given), Some(recorded)) if family == "claude" && !same_dir(&given, &recorded) => {
-            if recorded.is_dir() {
+            if cmux_blocking::fs::metadata(&recorded).is_ok_and(|m| m.is_dir()) {
                 recorded
             } else {
                 let home = dirs::home_dir();
@@ -261,7 +261,7 @@ pub(super) fn session_cwd(
     };
     let cwd =
         if cwd.is_absolute() { cwd } else { std::env::current_dir().unwrap_or_default().join(cwd) };
-    if !cwd.is_dir() {
+    if !cmux_blocking::fs::metadata(&cwd).is_ok_and(|m| m.is_dir()) {
         return Err(RpcError::invalid_params(format!("cwd {} is not a directory", cwd.display())));
     }
     Ok((cwd, remapped_from))
@@ -304,7 +304,7 @@ pub(super) fn remapped_cwd(
             None => return Err("no cwd map (FROM=TO) maps it onto this machine".into()),
         },
     };
-    if !mapped.is_dir() {
+    if !cmux_blocking::fs::metadata(&mapped).is_ok_and(|m| m.is_dir()) {
         return Err(format!("{}, where it maps here, is not a folder either", mapped.display()));
     }
     if explicit && same_dir(&mapped, given) {
@@ -346,26 +346,26 @@ fn home_swap(recorded: &Path, home: &Path) -> Option<PathBuf> {
 /// normalized, and its path below the repository root. `None` outside a git
 /// checkout or without a remote.
 fn repo_identity(dir: &Path) -> Option<(String, PathBuf)> {
+    crate::daemon::hang_watch::will_block();
     let git = |args: &[&str]| -> Option<String> {
-        let out = std::process::Command::new("git")
-            .arg("-C")
+        let mut git = std::process::Command::new("git");
+        git.arg("-C")
             .arg(dir)
             .args(args)
             // An inherited repository would answer for every folder.
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
-            .stderr(std::process::Stdio::null())
-            .output()
-            .ok()?;
+            .stderr(std::process::Stdio::null());
+        let out = cmux_blocking::process::output(&mut git).ok()?;
         let text = String::from_utf8_lossy(&out.stdout).trim().to_owned();
         (out.status.success() && !text.is_empty()).then_some(text)
     };
-    let top = std::fs::canonicalize(git(&["rev-parse", "--show-toplevel"])?).ok()?;
+    let top = cmux_blocking::fs::canonicalize(git(&["rev-parse", "--show-toplevel"])?).ok()?;
     let remote = git(&["remote", "get-url", "origin"]).or_else(|| {
         let first = git(&["remote"])?.lines().next()?.to_owned();
         git(&["remote", "get-url", &first])
     })?;
-    let path = std::fs::canonicalize(dir).ok()?.strip_prefix(&top).ok()?.to_path_buf();
+    let path = cmux_blocking::fs::canonicalize(dir).ok()?.strip_prefix(&top).ok()?.to_path_buf();
     Some((normalize_remote(&remote), path))
 }
 
@@ -410,7 +410,7 @@ pub(super) fn adopted_in(
 /// True when both paths name one directory (`/tmp` and `/private/tmp`,
 /// a trailing slash, a relative path).
 fn same_dir(a: &Path, b: &Path) -> bool {
-    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+    match (cmux_blocking::fs::canonicalize(a), cmux_blocking::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
     }
@@ -435,7 +435,7 @@ impl Hub {
         }
         let fam = family.to_owned();
         let Ok(turns) =
-            tokio::task::spawn_blocking(move || crate::adopt_replay::read(&fam, &file)).await
+            crate::daemon::spawn_blocking(move || crate::adopt_replay::read(&fam, &file)).await
         else {
             return;
         };

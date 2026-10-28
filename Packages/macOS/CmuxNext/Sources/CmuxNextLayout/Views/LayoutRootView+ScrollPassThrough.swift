@@ -47,10 +47,11 @@ extension LayoutRootView {
 
     /// Whether `event` comes from one of this layout's page windows (a non-panel child of its window,
     /// as ``scrollOrigin(of:at:in:)`` counts one) as a scroll the layout never takes: no Command under
-    /// `command`, any scroll under `none`, and focus follows mouse off.
+    /// `command`, any scroll under `none`, and focus follows mouse off. A window whose pages draw in its
+    /// view tree (``PageSurface/views``) has no page window: its pages' scrolls are its own events.
     private func isPlainPageScroll(_ event: NSEvent, from eventWindow: NSWindow?) -> Bool {
         guard let window, let eventWindow, eventWindow !== window, eventWindow.parent === window,
-              !(eventWindow is NSPanel), WindowOverlayHost.isPageWindow(eventWindow) else { return false }
+              !(eventWindow is NSPanel), WindowOverlayHost.isPageWindow(eventWindow, on: PageSurface.of(window)) else { return false }
         let layoutModifier = model.scrollModifier == .command && event.modifierFlags.contains(.command)
         return !layoutModifier && !model.focusFollowsMouse
     }
@@ -91,11 +92,13 @@ extension LayoutRootView {
     ///   gesture that starts there ends the last one's lock.
     ///
     /// Other panels never count: overlays, and the remote browser's popups (`ContentChildPanel`),
-    /// whose lists scroll themselves. Nil: not this layout's.
+    /// whose lists scroll themselves. Catcher panels and page windows are in-process machinery: a
+    /// window whose pages draw in its view tree (``PageSurface/views``) has neither, so only its own
+    /// events are the layout's. Nil: not this layout's.
     static func scrollOrigin(of eventWindow: NSWindow?, at location: NSPoint, in window: NSWindow?) -> ScrollOrigin? {
         guard let window, let eventWindow else { return nil }
         if eventWindow === window { return ScrollOrigin(locationInWindow: location, isPageWindow: false) }
-        guard eventWindow.parent === window else { return nil }
+        guard eventWindow.parent === window, PageSurface.of(window) == .childWindows else { return nil }
         let isCatcher = eventWindow is DividerMousePanel
         guard isCatcher || (!(eventWindow is NSPanel) && WindowOverlayHost.isPageWindow(eventWindow)) else { return nil }
         let point = window.convertPoint(fromScreen: eventWindow.convertPoint(toScreen: location))

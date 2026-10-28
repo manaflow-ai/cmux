@@ -61,6 +61,8 @@ extension AppControl {
             },
             // The startup trace (CMUX_TRACE_STARTUP): write what it holds now, its file and counts.
             DebugTimings.startupTraceMethod,
+            // This launch's milestones, temperature, startup tasks and first frame (bench-startup.py, startup-queue.py).
+            .mainActor("debug.startup") { [startupReport] _ in .value(try JSONValue(foundation: startupReport.report.foundationObject()) ?? .null) },
             // The launch's main jobs and main turns until startup completed (startup-queue.py mainjobs, p08-startup-080):
             // copied on main, symbolized off it.
             .mainActor("debug.startup.main_jobs") { [weak services] _ in
@@ -86,6 +88,9 @@ extension AppControl {
                     return try JSONValue(foundation: report.foundationObject()) ?? .null
                 }
             },
+            // The timers, deadlines and folder watches armed until startup completed, with their first fires
+            // (startup-queue.py arms, p08-startup-085): copied and encoded off main.
+            .async("debug.startup.arms") { _ in JSONValue(foundation: WakeupLedger.shared.armCensus.snapshot().foundationObject) ?? .null },
             // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
             .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.timer.handle(call.params, key: "switches")) },
             // Each pane focus move's own time: intent to settled, and to the next frame (perf-gate.py pane_focus).
@@ -97,8 +102,8 @@ extension AppControl {
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { [weak services] call in
                 let roots = services?.windows.controllers.flatMap { $0.mountedContents.map(\.layoutView) } ?? []
-                return .value(DebugLayoutCounters.handle(call.params, roots: roots,
-                                                         hiddenWork: services?.hiddenLayoutWork))
+                return .value(DebugLayoutCounters.handle(call.params, roots: roots, hiddenWork: services?.hiddenLayoutWork,
+                                                         visibilityWork: services?.visibilityWorkCounts))
             },
             // A full-screen or Space transition: notifications, resizes, layout passes (fullscreen-transition.py).
             .mainActor("debug.window_transition") { [events = services.workspaceEvents] call in
@@ -121,8 +126,9 @@ extension AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugHints.report(services.windowHints, menus: services.menuTracking, params: call.params))
             },
-            .mainActor("debug.page_host_pool") { [weak services] call in
-                .value(DebugPageHostPool.handle(call.params, services: services))
+            // The Settings, History and Cloud preload in the preload slot (p13-webui-045); `action`: `drop`, `preload`.
+            .mainActor("debug.page_preload") { [weak services] call in
+                .value(services?.pagePreloads.debugReport(action: call.params["action"]?.stringValue) ?? .null)
             },
             // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md); `deactivate` backgrounds the app first.
             .mainActor("debug.focus") { [weak services] call in
@@ -164,6 +170,11 @@ extension AppControl {
                 guard let services else { return .value(.null) }
                 if call.params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
                 return .value(DebugLayers.report(services: services, params: call.params))
+            },
+            // Overlay reorders per event cycle (p01-process-223); `reset: true` starts the counts over first.
+            .mainActor("debug.overlay") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugLayers.overlay(services: services, params: call.params))
             },
             // The one hover card: machine phase, card window, timer, monitor.
             // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
@@ -210,6 +221,9 @@ extension AppControl {
                 } else if call.params["file_dialog_cancel"]?.boolValue == true {
                     _ = services.cache.cef.answerHostFileDialog(with: nil)
                 }
+                // {"color_chooser_pick": 0xRRGGBB} or {"color_chooser_close": true}: the open <input type=color>'s panel (p01-process-228).
+                if let color = call.params["color_chooser_pick"]?.intValue { _ = services.cache.cef.pickHostColor(UInt32(truncatingIfNeeded: color)) }
+                if call.params["color_chooser_close"]?.boolValue == true { _ = services.cache.cef.closeHostColorChooser() }
                 return .value(DebugCEF.report(services))
             },
             // Remote localhost proxy: port, counters, recent outcomes.

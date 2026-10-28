@@ -74,13 +74,15 @@ public final class TerminalLaunchFrames {
     init(directory: URL?, reader: LaunchFileReader = LaunchFileReader(), clock: any Clock<Duration> = ContinuousClock()) {
         self.directory = directory
         self.reader = reader
+        // timer-class-allow: made in the app's main() before the deadline scheduler exists, on the injected clock the tests step; one drop of decoded frames per launch
         discard = DemandTimer(owner: "terminal.launch-frames.keep", clock: clock)
     }
 
     /// The frames kept in `state`, the app's state directory (beside its sidebar snapshot); nil keeps none.
     /// The app makes one per launch, so a frame taken at launch is not handed out again.
-    public convenience init(state: URL?) {
-        self.init(directory: state?.appending(path: Self.directoryName, directoryHint: .isDirectory))
+    /// `reader` reads the saved frames; the app's skips every one in a crash streak's safe launch (`LaunchSafeMode`).
+    public convenience init(state: URL?, reader: LaunchFileReader = LaunchFileReader()) {
+        self.init(directory: state?.appending(path: Self.directoryName, directoryHint: .isDirectory), reader: reader)
     }
 
     /// The folder of the saved frames in the app's state directory.
@@ -112,6 +114,7 @@ public final class TerminalLaunchFrames {
         // A deadline: the frames no pane took by then are dropped (decoded frames are large).
         discard.scheduleOnMain(after: keep) { [weak self] in self?.dropRead() }
         // task-owner: shows the frames of the panes that asked before the read ended; ends then.
+        // main-hop-allow: made in the app's main() before the app's MainWorkScheduler exists; the one resume per launch shows the frames of the panes that asked before the read ended
         return Task { [weak self] in
             _ = await read.finished()
             await beforeHandoff?()
@@ -212,6 +215,7 @@ public final class TerminalLaunchFrames {
         var frames: [String: NSImage] = [:]
         for (key, session) in sessions where !session.isRenderingSuspended {
             let surface = session.surfaceView
+            // visibility-walk-allow: the quit saves the frame each terminal shows on screen, the view state AppKit composites; read once per terminal at quit
             guard surface.window?.isVisible == true, !surface.isHiddenOrHasHiddenAncestor, surface.bounds.width > 0,
                   let frame = await session.snapshotInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
             frames[key] = NSImage(cgImage: frame, size: surface.bounds.size)
@@ -250,16 +254,15 @@ public final class TerminalLaunchFrames {
     }
 
     private nonisolated static func write(_ frames: [String: CGImage], to directory: URL) {
-        let manager = FileManager.default
-        try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
-            try? manager.removeItem(at: directory.appending(path: old))
+        try? FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        for old in (try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
+            try? FileManager.checked.removeItem(at: directory.appending(path: old))
         }
         for (name, frame) in frames {
             let url = directory.appending(path: name)
             guard let data = NSBitmapImageRep(cgImage: frame).representation(using: .jpeg, properties: [.compressionFactor: 0.9]),
                   (try? data.write(to: url, options: [.atomic])) != nil else { continue }
-            try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            try? FileManager.checked.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
     }
 

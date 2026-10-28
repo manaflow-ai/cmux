@@ -103,13 +103,19 @@ fn plan_column_move(
 ) -> Result<(usize, usize, usize, usize), ColumnMoveError> {
     let (workspace, screen) =
         state.screen_of(pane).ok_or(ColumnMoveError::PaneNotFound { pane })?;
-    let columns = &state.workspaces[workspace].screens[screen].layout_columns;
+    let columns = &state
+        .workspaces
+        .get(workspace)
+        .and_then(|workspace| workspace.screens.get(screen))
+        .ok_or(ColumnMoveError::PaneNotFound { pane })?
+        .layout_columns;
     // A screen stored as one split tree is one implicit column.
-    let index = columns
+    let (index, column) = columns
         .iter()
-        .position(|column| column.root.contains(pane))
+        .enumerate()
+        .find(|(_, column)| column.root.contains(pane))
         .ok_or(ColumnMoveError::AtEdge)?;
-    if columns[index].dock.is_some() {
+    if column.dock.is_some() {
         return Err(ColumnMoveError::Docked);
     }
     let target = match direction {
@@ -150,16 +156,19 @@ impl Mux {
                     let (workspace, screen, index, target_index) =
                         plan_column_move(state, pane, direction)?;
                     let mut projected = state.clone();
-                    let target = &mut projected.workspaces[workspace].screens[screen];
+                    let target = projected
+                        .workspaces
+                        .get_mut(workspace)
+                        .and_then(|workspace| workspace.screens.get_mut(screen))
+                        .ok_or(ColumnMoveError::PaneNotFound { pane })?;
                     let before = target.layout_snapshot_for_coalescing_change(None);
                     target.layout_columns.swap(index, target_index);
                     target.sync_layout_column_projection();
                     target.record_prepared_layout_change(before, Vec::new(), None);
-                    let outcome = ColumnMoveOutcome {
-                        screen: target.id,
-                        column: target.layout_columns[target_index].id,
-                        index: target_index,
-                    };
+                    let column =
+                        target.layout_columns.get(target_index).ok_or(ColumnMoveError::AtEdge)?.id;
+                    let outcome =
+                        ColumnMoveOutcome { screen: target.id, column, index: target_index };
                     let pane_id = projected
                         .resource_indexes
                         .pane_ids

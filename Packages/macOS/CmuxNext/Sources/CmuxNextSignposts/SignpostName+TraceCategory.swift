@@ -15,7 +15,8 @@ nonisolated extension SignpostName {
         case .createTab, .createWorkspace: .create
         case .cefPump, .cefCreateBrowser, .cefGeometry, .cefHostInput, .cefMemoryPressureVote: .cef
         case .launchProcessToMain, .launchFirstWindow, .launchFirstFrame, .launchDaemonReady,
-             .launchFirstTerminalOutput, .launchStartupTask, .launchStartupComplete, .launchReadDone:
+             .launchFirstTerminalOutput, .launchStartupTask, .launchStartupComplete, .launchReadDone,
+             .launchActionCatalogFirstMainAccess:
             .launch
         case .stallMainTask, .stallOverBudget, .stallMainTurn, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen,
              .stallRenderStarved, .stallGhosttyRuntimePhase:

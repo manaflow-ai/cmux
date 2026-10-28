@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be. */
+/* cmux-tui mux protocol 12, IR 974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc. */
 
 
 import type * as T from "./types.js";
@@ -386,6 +386,14 @@ export type HistoryChangedEvent = { event: "history-changed" } & {
   "revision": bigint;
 };
 
+/** Protocol v12; emission: emitted; streams: attach-byte. */
+export type InputFailedEvent = { event: "input-failed" } & {
+  "bytes": bigint;
+  "reason": "terminal_ended" | "not_a_terminal" | "write_failed" | "daemon_handoff" | "overflow" | "attach_failed";
+  /** The attach stream the INPUT frame named; the stream's tag, as on every item of an attach stream. */
+  "stream": number;
+};
+
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type KeybindingsChangedEvent = { event: "keybindings-changed" } & {
   /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
@@ -612,6 +620,26 @@ export type ScrollChangedEvent = { event: "scroll-changed" } & {
   "cause"?: T.EventCause;
   "offset": bigint;
   "surface": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ServerDiagnosticSiteEvent = { event: "server-diagnostic-site" } & {
+  /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+  "cause"?: T.EventCause;
+  /** Blocking and inversion: the crate of the call site without its version, or other. Never a path. */
+  "crate"?: string;
+  /** blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold, or a holder-link frame or a journal commit past its hang tier. */
+  "family": "blocking" | "inversion" | "hang";
+  /** Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path. */
+  "file_hash"?: string;
+  /** The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or for a hang its scope: request, holder-link or journal-writer. */
+  "kind": string;
+  /** Blocking: a work item's wait for other work. */
+  "lane_sync"?: boolean;
+  /** Blocking and inversion: the call site's line. */
+  "line"?: number;
+  /** Hang: what ran: the request's command or v2 operation name (a colon written as a dot), the holder frame kind (data, exit, ...) or commit-batch. */
+  "method"?: string;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -905,6 +933,7 @@ export type KnownCmuxEvent =
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | HistoryChangedEvent
+  | InputFailedEvent
   | KeybindingsChangedEvent
   | LayoutChangedEvent
   | LoopbackClosedEvent
@@ -931,6 +960,7 @@ export type KnownCmuxEvent =
   | ScreenRenamedEvent
   | ScriptLogEvent
   | ScrollChangedEvent
+  | ServerDiagnosticSiteEvent
   | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
@@ -1013,6 +1043,7 @@ export type KnownSubscribeEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | ServerDiagnosticSiteEvent
   | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
@@ -1059,6 +1090,7 @@ export type KnownAttachEvent =
   | ColorsChangedEvent
   | DetachedEvent
   | FrameEvent
+  | InputFailedEvent
   | NotificationEvent
   | OutputEvent
   | OverflowEvent
@@ -1074,6 +1106,7 @@ export type KnownAttachEvent =
 export type KnownByteAttachEvent =
   | ColorsChangedEvent
   | DetachedEvent
+  | InputFailedEvent
   | NotificationEvent
   | OutputEvent
   | OverflowEvent

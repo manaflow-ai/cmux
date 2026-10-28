@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CoreText
 
 /// One emoji drawn whole inside its square. The view measures the glyph's
@@ -67,18 +68,16 @@ final class SidebarEmojiGlyphView: NSView {
         let key = Key(text: text, size: size, pixelScale: pixelScale)
         if let cached = inkCache[key] { return cached }
         let side = Int(ceil(size * 3 * pixelScale)), origin = size
-        guard side > 0,
-              let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
-                                      space: CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        context.scaleBy(x: pixelScale, y: pixelScale)
-        context.textPosition = CGPoint(x: origin, y: origin)
-        CTLineDraw(line(text, size: size), context)
-        guard let data = context.data else { return nil }
-        let bytes = data.bindMemory(to: UInt8.self, capacity: side * side * 4)
+        let drawn = line(text, size: size)
+        guard let pixels = DrawnPixels(width: side, height: side, bytesPerPixel: 4, space: CGColorSpaceCreateDeviceRGB(),
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue, draw: { context in
+            context.scaleBy(x: pixelScale, y: pixelScale)
+            context.textPosition = CGPoint(x: origin, y: origin)
+            CTLineDraw(drawn, context)
+        }) else { return nil }
         var minX = side, minY = side, maxX = -1, maxY = -1
         for row in 0..<side {
-            for column in 0..<side where bytes[(row * side + column) * 4 + 3] > 38 {
+            for column in 0..<side where pixels[column, row, 3] > 38 {
                 minX = min(minX, column); maxX = max(maxX, column)
                 minY = min(minY, row); maxY = max(maxY, row)
             }

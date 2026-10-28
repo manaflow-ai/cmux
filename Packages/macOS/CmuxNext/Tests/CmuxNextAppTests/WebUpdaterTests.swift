@@ -31,7 +31,9 @@ import Testing
     static func updater(_ server: Server, store: WebUpdateStore, app: WebUpdater.App = .init(abi: 2, webBuiltAt: 1_700_000_000),
                         kept: WebUpdater.Kept? = nil) -> WebUpdater {
         let updater = WebUpdater(
-            store: store, app: app, keys: .keys(WebUpdatePointerTests.keys), energy: EnergyPolicySource(), kept: kept,
+            store: store, app: app, keys: .keys(WebUpdatePointerTests.keys), energy: EnergyPolicySource(),
+            deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())), work: BackgroundWork(label: "test.web-updater"),
+            kept: kept,
             fetch: { request in
                 server.pointerReads += 1
                 let url = try #require(request.url)
@@ -346,12 +348,12 @@ import Testing
         server.etag = "\"2\""
         await updater.check()
         // Pages still load the second update's files when it is rolled back.
-        var served: URL? = store.tree(for: second.key).root
+        var served = [store.tree(for: second.key).root]
         updater.served = { served }
         try await updater.rollBack()
         #expect(FileManager.default.fileExists(atPath: store.tree(for: second.key).root.path))
         // The safe point swapped the first one in: now the second goes.
-        served = store.tree(for: first.key).root
+        served = [store.tree(for: first.key).root]
         await updater.pruneUnused()
         #expect(!FileManager.default.fileExists(atPath: store.tree(for: second.key).root.path))
         #expect(FileManager.default.fileExists(atPath: store.tree(for: first.key).root.path))

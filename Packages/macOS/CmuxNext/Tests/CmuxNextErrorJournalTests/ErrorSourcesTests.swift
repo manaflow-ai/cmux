@@ -64,6 +64,23 @@ struct ErrorSourcesTests {
         #expect(harvest.events.isEmpty)
     }
 
+    @Test func aLogReadStoppedAtItsBoundSaysMoreIsWaiting() async throws {
+        let log = directory.appendingPathComponent("long.log")
+        try append("ERROR one\nERROR two\nERROR three\n", to: log)
+        let source = LogFileErrorSource(url: log, source: "x", maxReadBytes: 20)
+        let first = try await source.collect(after: "\(try inode(of: log)):0")
+        #expect(first.events.map(\.message) == ["one", "two"])
+        #expect(first.more, "a read stopped at maxReadBytes did not say more is waiting")
+        let rest = try await source.collect(after: first.cursor)
+        #expect(rest.events.map(\.message) == ["three"])
+        #expect(!rest.more, "a read to the end said more is waiting")
+    }
+
+    private func inode(of url: URL) throws -> UInt64 {
+        let attributes = try FileManager().attributesOfItem(atPath: url.path)
+        return try #require((attributes[.systemFileNumber] as? NSNumber)?.uint64Value)
+    }
+
     @Test func theFirstHarvestReadsOnlyTheTail() async throws {
         let log = directory.appendingPathComponent("big.log")
         try append(String(repeating: "ERROR old line\n", count: 100) + "ERROR newest\n", to: log)

@@ -1,4 +1,4 @@
-package import CoreGraphics
+import Foundation
 
 /// Whether a ``ThinScroller``'s knob shows and how wide it is: a pure state machine, so the fade and
 /// the grow are tested without a window, a pointer or a clock.
