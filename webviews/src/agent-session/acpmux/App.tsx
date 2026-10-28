@@ -2881,16 +2881,22 @@ export function VirtualTranscript({
   // held for a sent prompt (`floor`) reaches past the rows, it already covers the card: the lift on
   // screen stays as it is (shrinking it drew every row down by the queue card that left, and up
   // again as its prompt came), and growth meanwhile never adds to it. A card shorter than it was
-  // draws the rows down within the room it left. Whole pixels, as the offset.
+  // draws the rows down within the room it left. The lift is the card's growth exactly, not rounded:
+  // a composer line is fractional (22.75px at the chat font, #26523), and a rounded lift changed the
+  // room under the rows by a fraction each line, which moved the content's rounded height and the
+  // followed offset a pixel. The cap is whole pixels, as the offset.
   const floorHolds = floorHeight > rowsAtDock;
-  const lifted = Math.round(
+  const lifted =
     grown > 0
       ? Math.max(
           0,
-          Math.min(grown, atDock - height - FOLLOW_BOTTOM_DEADBAND_PX - 1, floorHolds ? liftedBefore.current : grown),
+          Math.min(
+            grown,
+            Math.round(atDock - height - FOLLOW_BOTTOM_DEADBAND_PX - 1),
+            floorHolds ? liftedBefore.current : grown,
+          ),
         )
-      : grown,
-  );
+      : grown;
   const room = sessionSwitched || following ? dockSpace - lifted : heldRoom.current;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + room;
   // The held room less the lift, as the rows' end is: what the reader sees stays where it was drawn.
