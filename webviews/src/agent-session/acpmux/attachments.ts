@@ -630,11 +630,13 @@ export function recordingAttachment(
 
 /// The notice for a recording that goes no further than its transcript: the host left it out
 /// (`DictationUpdate.audioOmitted`), `audioAttachment` refused it past `MAX_AUDIO_BYTES` (an old
-/// host's inline clip), or its file stays on this Mac for a chat that runs elsewhere.
+/// host's inline clip), its file stays on this Mac for a chat that runs elsewhere, or the host could
+/// not save it (`writeFailed`: a full disk, a folder it cannot write).
 export function recordingLeftOutNotice(
   reason: "tooLong" | "tooLarge" | "narrowband" | "elsewhere" | "writeFailed",
 ): StringKey {
   if (reason === "elsewhere") return "dictation.recordingElsewhere";
+  if (reason === "writeFailed") return "dictation.recordingNotSaved";
   return reason === "narrowband" ? "dictation.recordingNarrowband" : "dictation.recordingTooLong";
 }
 

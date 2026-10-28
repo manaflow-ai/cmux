@@ -15,7 +15,8 @@ export type DictationUpdate = {
   /// chat's harness takes voice input (`dictation.audio`).
   audio?: DictationRecording;
   /// Why such a session's recording was left out (the mic was narrowband; `tooLong` from a host
-  /// that stopped keeping audio at two minutes): its prompt goes as text alone.
+  /// that stopped keeping audio at two minutes; `writeFailed`, the host could not save it): its
+  /// prompt goes as text alone, with a notice.
   audioOmitted?: "tooLong" | "narrowband" | "writeFailed";
 };
 

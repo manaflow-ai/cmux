@@ -21646,6 +21646,138 @@
         }
       }
     },
+    "dictation.recordingNotSaved": {
+      "comment": "Agent pane: notice when a dictation session's audio is lost because this Mac could not save the recording (a full disk, a folder it cannot write); the prompt gets the transcript",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر حفظ التسجيل الصوتي على هذا الـ Mac، لذا تتضمن المطالبة النص المكتوب فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glasovni snimak nije mogao biti sačuvan na ovom Macu, pa upit dobija samo transkript."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stemmeoptagelsen kunne ikke gemmes på denne Mac, så prompten får kun transskriptionen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Sprachaufnahme konnte auf diesem Mac nicht gespeichert werden, daher enthält der Prompt nur das Transkript."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The voice recording couldn't be saved on this Mac, so the prompt gets the transcript only."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo guardar la grabación de voz en este Mac, así que el prompt solo lleva la transcripción."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’enregistrement vocal n’a pas pu être enregistré sur ce Mac : le prompt ne contient que la transcription."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non è stato possibile salvare la registrazione vocale su questo Mac, quindi il prompt riceve solo la trascrizione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "音声録音をこの Mac に保存できなかったため、プロンプトには文字起こしのみが入ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចរក្សាទុកការថតសំឡេងនៅលើ Mac នេះបានទេ ដូច្នេះប្រអប់បញ្ចូលទទួលបានតែអត្ថបទប្រែសម្រួលប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "음성 녹음을 이 Mac에 저장할 수 없어 프롬프트에는 받아쓴 텍스트만 들어갑니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taleopptaket kunne ikke lagres på denne Macen, så ledeteksten får bare transkripsjonen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się zapisać nagrania głosowego na tym Macu, więc prompt otrzyma tylko transkrypcję."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível salvar a gravação de voz neste Mac, então o prompt recebe só a transcrição."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось сохранить голосовую запись на этом Mac, поэтому в запрос попадёт только расшифровка."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถบันทึกเสียงที่อัดไว้ลงใน Mac เครื่องนี้ได้ พรอมต์จึงได้เฉพาะข้อความถอดเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ses kaydı bu Mac'e kaydedilemedi, bu yüzden isteme yalnızca döküm gider."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося зберегти голосовий запис на цьому Mac, тому запит отримає лише розшифровку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể lưu bản ghi âm trên máy Mac này, nên lời nhắc chỉ nhận bản chép lời."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法在这台 Mac 上保存语音录音，因此提示只包含转写文字。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法在這台 Mac 上儲存語音錄音，因此提示只包含轉寫文字。"
+          }
+        }
+      }
+    },
     "dictation.recordingTooLong": {
       "comment": "Agent pane: notice when a dictation session's audio is left out because it ran past two minutes or past the size cap",
       "extractionState": "manual",

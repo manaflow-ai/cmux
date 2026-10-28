@@ -30,7 +30,9 @@ public struct DictationAudio: Equatable, Sendable {
 /// memory, and each full second goes to the file on ``writer``, never on the
 /// tap's thread or the main actor. From input below 16 kHz it keeps nothing
 /// and ``finish()`` returns nil: that session goes as its transcript alone,
-/// and ``omission`` says why.
+/// and ``omission`` says why. So does a recording whose file could not be
+/// written or read back (a full disk, a folder that is not writable):
+/// ``Omission/writeFailed``, so the person learns the audio was lost.
 ///
 /// The tap is a synchronous audio callback, so it cannot hop to an actor; one
 /// unfair lock guards the state, and each tap holds it for one buffer's append.
@@ -153,7 +155,8 @@ public final class DictationAudioRecording: Sendable {
         }
     }
 
-    /// Why ``finish()`` has nothing, when the session's audio was left out rather than silent.
+    /// Why ``finish()`` has nothing, when the session's audio was left out rather than silent. Read
+    /// it after ``finish()`` returns: a write failure is set on ``writer`` before the finish answers.
     public var omission: Omission? { state.withLock { $0.omitted } }
 
     /// Ends the recording: the last samples and the WAV header go to the file on ``writer``. A
@@ -248,6 +251,8 @@ public final class DictationAudioRecording: Sendable {
             }
         }
         guard closed else {
+            // Heard, not left out, yet not saved: a write failed (a discard never reaches this close).
+            if omitted == nil, samples > 0 { lost() }
             removeFile()
             return nil
         }
@@ -260,7 +265,13 @@ public final class DictationAudioRecording: Sendable {
         }
         let data = (try? Data(blockingContentsOf: file)).map { Self.plainHeader(samples: samples) + $0.dropFirst(Self.headerBytes) }
         removeFile()
+        if data == nil { lost() }
         return data.map { DictationAudio(byteCount: inlineBytes, data: $0) }
+    }
+
+    /// The recording was heard but could not be saved: ``omission`` says so.
+    private func lost() {
+        state.withLock { $0.omitted = $0.omitted ?? .writeFailed }
     }
 
     /// The file's header length: RIFF's 12 bytes, a 36-byte JUNK (or ds64) chunk, the 24-byte fmt
