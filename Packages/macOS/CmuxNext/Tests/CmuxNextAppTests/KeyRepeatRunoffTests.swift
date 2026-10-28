@@ -14,7 +14,7 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(4)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct KeyRepeatRunoffTests {
     /// A shortcut of the shortcut-spam list and the action its default key runs.
-    struct Shortcut: Sendable, CustomTestStringConvertible {
+    nonisolated struct Shortcut: Sendable, CustomTestStringConvertible {
         var name: String
         var characters: String
         var keyCode: UInt16
