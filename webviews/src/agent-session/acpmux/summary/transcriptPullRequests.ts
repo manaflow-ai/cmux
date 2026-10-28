@@ -197,7 +197,8 @@ function callTarget(rest: string): { ref: Ref; number: number } | undefined {
 function toolFindings(tool: Tool): Finding[] {
   if (!succeeded(tool)) return [];
   const command = tool.command ?? "";
-  const plain = bare(command);
+  // Strip body/title payloads before URL and shorthand scans; those are data, not activity.
+  const plain = callText(command);
   const parts = callText(command)
     .replace(/(?<!\\)\$\(([^()]*)\)/g, "\n$1\n")
     .split(/[\n;&|]+/);
