@@ -66,6 +66,14 @@ struct CloudWorkspaceSetupLifecycleTests {
 }
 
 @MainActor
+private final class CloudSignInTestSignal {
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait() async { await withCheckedContinuation { continuation = $0 } }
+    func fire() { continuation?.resume(); continuation = nil }
+}
+
+@MainActor
 private final class CloudSignInTestGate {
     private var result: CheckedContinuation<Bool, Never>?
     private var requested: CheckedContinuation<Void, Never>?
@@ -91,11 +99,12 @@ struct CloudSignedOutCreationContinuationTests {
     @Test func resumesExactlyOnceAfterSignIn() async {
         let handoff = CloudSignedOutCreationContinuation()
         let gate = CloudSignInTestGate()
+        let resumed = CloudSignInTestSignal()
         var resumes = 0
-        handoff.replace(signIn: { await gate.wait() }, resume: { resumes += 1 })
+        handoff.replace(signIn: { await gate.wait() }, resume: { resumes += 1; resumed.fire() })
         await gate.waitUntilRequested()
         gate.resolve(true)
-        while resumes == 0 { await Task.yield() }
+        await resumed.wait()
         #expect(resumes == 1)
     }
 
@@ -103,16 +112,17 @@ struct CloudSignedOutCreationContinuationTests {
         let handoff = CloudSignedOutCreationContinuation()
         let first = CloudSignInTestGate()
         let second = CloudSignInTestGate()
+        let resumed = CloudSignInTestSignal()
         var resumes = 0
-        handoff.replace(signIn: { await first.wait() }, resume: { resumes += 1 })
+        handoff.replace(signIn: { await first.wait() }, resume: { resumes += 1; resumed.fire() })
         await first.waitUntilRequested()
-        handoff.replace(signIn: { await second.wait() }, resume: { resumes += 1 })
+        handoff.replace(signIn: { await second.wait() }, resume: { resumes += 1; resumed.fire() })
         await second.waitUntilRequested()
         first.resolve(true)
         await Task.yield()
         #expect(resumes == 0)
         second.resolve(true)
-        while resumes == 0 { await Task.yield() }
+        await resumed.wait()
         #expect(resumes == 1)
     }
 
