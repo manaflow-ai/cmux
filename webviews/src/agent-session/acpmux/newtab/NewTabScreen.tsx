@@ -16,10 +16,11 @@ import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
-import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
+import type { AttachmentError, ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
 import type { UploadResult } from "../cloudUploads";
 import {
   AttachmentStrip,
+  attachmentErrorText,
   backspacedAttachment,
   useAttachmentIntake,
   useSendWhenAttached,
@@ -33,7 +34,8 @@ import { OpenTabsList } from "./OpenTabsList";
 import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
 import { ArrowUpIcon, PaperclipIcon, PlusIcon } from "../ComposerPickers";
 import { PaletteMenu, paletteSections } from "../PaletteMenu";
-import { composerPlusRegistry, type ComposerPlusExtension } from "../composerPlusRegistry";
+import type { ComposerPlusExtension } from "../composerPlusRegistry";
+import { newTabCommandDraft, newTabPlusEntries, type NewTabPlusModePick, type NewTabPlusTarget } from "./plusActions";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
@@ -133,6 +135,10 @@ export type NewTabScreenActions = {
   onPaletteAction?(id: string): Promise<void> | void;
   plusExtensions?: readonly ComposerPlusExtension[];
   onPlusOpen?(): void;
+  /** The existing native composer.capture flow. Cancellation returns no file and keeps the draft. */
+  capture?(mode: "screen" | "window"): Promise<File | AttachmentError | undefined>;
+  /** The host uses its existing deferred chat starter, preserving this exact harness/model/target. */
+  onPlusMode?(pick: NewTabPlusModePick): Promise<void>;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
   /// The machine the page runs on and its chat starts on (the host's name for it), for the
@@ -1118,6 +1124,56 @@ export function NewTabScreen(props: Props) {
   /// split draws the chat composer's box instead.
   const pill = template === "cards" && !split;
 
+  const plusTarget: NewTabPlusTarget | undefined = harness
+    ? {
+        harness,
+        ...(none ? { noProject: true as const } : {}),
+        ...((environment?.folder ?? machine?.folder ?? chatFolder)
+          ? { cwd: environment?.folder ?? machine?.folder ?? chatFolder }
+          : {}),
+        ...(chipSnapshot.summary?.model ? { model: chipSnapshot.summary.model } : {}),
+        ...(environment?.kind === "ssh" ? { peer: environment.host } : machine ? { peer: machine.peer } : {}),
+      }
+    : undefined;
+  const plusEntries = newTabPlusEntries({
+    snapshot,
+    target: plusTarget,
+    translate: t,
+    capture: Boolean(props.capture && !shell),
+    commands: !shell,
+    project: Boolean(props.onBrowseProject && !shell),
+    mode: Boolean(
+      props.onPlusMode &&
+      !shell &&
+      props.runMode?.mode !== "sandboxed" &&
+      !(environment?.kind === "local" && environment.worktree),
+    ),
+  });
+  const pickPlus = async (id: string): Promise<void | "keep"> => {
+    const entry = plusEntries.find((row) => row.id === id);
+    if (!entry) return "keep";
+    const action = entry.action;
+    if (action.kind === "slash") {
+      const next = newTabCommandDraft(action.command, field.current?.value ?? text);
+      touch();
+      setText(next);
+      requestAnimationFrame(() => {
+        field.current?.focus();
+        field.current?.setSelectionRange(next.length, next.length);
+      });
+    } else if (action.id === "composer.attachFiles") chooser.current?.click();
+    else if (action.id === "composer.attachScreenshot" || action.id === "composer.attachWindow") {
+      const file = await props.capture?.(action.id === "composer.attachWindow" ? "window" : "screen");
+      if (file && "reason" in file) throw new Error(attachmentErrorText(file, t));
+      if (file) await attach([file], true);
+    } else if (action.id === "composer.chooseProject") {
+      const choice = ++projectChoice.current;
+      const folder = await props.onBrowseProject?.();
+      if (folder && choice === projectChoice.current) pickProject(folder);
+    } else if (action.id === "composer.planMode" && action.modeId && plusTarget && props.onPlusMode) {
+      await props.onPlusMode({ ...plusTarget, modeId: action.modeId });
+    } else return "keep";
+  };
   const attachmentPicker = (
     <>
       <input
@@ -1135,7 +1191,18 @@ export function NewTabScreen(props: Props) {
         }}
       />
       <PaletteMenu
-        onOpen={props.onPlusOpen}
+        onOpen={() => {
+          props.onPlusOpen?.();
+          // The same lazy capability load as typing /, bound to the local deferred chat.
+          if (
+            harness &&
+            !snapshot.summary?.sessionId &&
+            !plusTarget?.peer &&
+            !(environment?.kind === "local" && environment.worktree) &&
+            props.runMode?.mode !== "sandboxed"
+          )
+            onCommands?.(harness, chatFolder);
+        }}
         label={t("composer.add")}
         tooltip={t("composer.addTooltip")}
         className={`acpmux-composer-plus acpmux-newtab-plus${split ? " nt-split-plus" : ""}`}
@@ -1145,17 +1212,14 @@ export function NewTabScreen(props: Props) {
         sections={[
           {
             title: t("composer.add"),
-            choices: composerPlusRegistry({ translate: t, canCapture: false })
-              .filter((entry) => entry.id === "add.files")
-              .map((entry) => ({
-                id: entry.id,
-                name: entry.name,
-                description: entry.description,
-                icon: <PaperclipIcon />,
-              })),
-            onPick: (id) => {
-              if (id === "add.files") chooser.current?.click();
-            },
+            choices: plusEntries.map((entry) => ({
+              id: entry.id,
+              name: entry.name,
+              description: entry.description,
+              keywords: entry.keywords,
+              icon: entry.id === "add.files" ? <PaperclipIcon /> : <Icon name={entry.icon} size={16} />,
+            })),
+            onPick: pickPlus,
           },
           ...paletteSections(
             (id) => {
