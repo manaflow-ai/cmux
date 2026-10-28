@@ -158,8 +158,8 @@ public final class UpdaterService {
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
     @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (true, .deferLowData)
-    /// The App's observation of the `updates.*` settings.
-    @ObservationIgnored public var settingsObservation: Task<Void, Never>?
+    /// The App's observation of the `updates.*` settings; releasing or cancelling it stops it.
+    @ObservationIgnored public var settingsObservation: ServiceObservation<Void>?
     @ObservationIgnored let now: () -> Date
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The card kind last written to the update harness's timeline.

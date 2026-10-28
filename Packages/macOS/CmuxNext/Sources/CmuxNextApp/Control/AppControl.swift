@@ -168,6 +168,8 @@ final class AppControl {
             ControlRouter.metricsMethod(enabled: services.features.isEnabled(.metricsView)),
         ])
         router.register(DebugHibernationControl.methods(services)) // debug.memory and debug.discards serve release builds too
+        // trace.start, trace.stop and trace.status (p09-observability 020), behind the default-off traceControl feature.
+        if services.features.isEnabled(.traceControl) { router.register(services.daemon.traceMethods(blackBox: services.traceBlackBox?.blackBox, work: services.work)) }
     }
 
     func startSnapshotPublisher(_ services: AppServices, on router: ControlRouter) {

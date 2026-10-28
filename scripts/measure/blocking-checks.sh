@@ -6,7 +6,8 @@
 #      nightly-next track and `reload.sh --config bench-checks` passes): it compiles, and the detector is in it (the flag reaches
 #      the package targets).
 #   3. Nightly's tests and cost: CmuxNextCompat and its blocking tests in a scratch package built
-#      `-c release -DCMUX_BLOCKING_CHECKS` (no DEBUG): records, never traps, and a clean checked call
+#      `-c release -DCMUX_BLOCKING_CHECKS` (no DEBUG): records by default, traps only with CMUX_BLOCKING_TRAP=1
+#      (the opt-in crash mode, BlockingCheckTrapModeTests), and a clean checked call
 #      costs < 50 ns (BlockingCheckCostTests).
 # Fleet: cmux-ci run --class exclusive --script scripts/measure/blocking-checks.sh --ref SHA
 #        --artifact artifacts/blocking-checks.tar.gz
@@ -290,7 +291,7 @@ swift package dump-package --package-path "$pkg" >"$OUT/nightly-tests-manifest.j
   || fail "nightly tests: the scratch Package.swift does not parse (see nightly-tests-manifest.log)"
 flags=(-c release -Xswiftc -enable-testing -Xswiftc -DCMUX_BLOCKING_CHECKS)
 # The tests use the probe-free table seams (@testable); a Nightly-configuration test run proves the record-only
-# path, the clean-path cost (< 50 ns per checked call) and that a Nightly never traps.
+# default, the clean-path cost (< 50 ns per checked call) and the CMUX_BLOCKING_TRAP=1 opt-in crash mode.
 if swift build --build-tests "${flags[@]}" --package-path "$pkg" >"$OUT/nightly-tests-build.log" 2>&1; then
   swift test --skip-build "${flags[@]}" --package-path "$pkg" >"$OUT/nightly-tests.log" 2>&1
   test_status=$?

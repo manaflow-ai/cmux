@@ -15,12 +15,16 @@
 //                             its op ran, so its pending marks clear first; a password reveal's
 //                             (PostPasswordReveal) to its own sink only: one bytes field, the
 //                             password, or none
+//                 kOpInputDispatched, kOpHostHang  the ring input the host's UI thread
+//                             dispatched and its hangs (host_hang_watcher.h), to the host watch
+//                             callback; kOpAck and kOpReply ack control-channel input there too
 // Anything else from the host is malformed and ends it, as bad_message::ReceivedBadMessage ends
 // a renderer (content/browser/bad_message.cc).
 
 #include "cmux_cef_shim.h"
 #include "cmux_page_path.h"
 #include "host_energy_saver.h"
+#include "host_hang_watcher.h"
 #include "host_locks.h"
 #include "host_resize.h"
 #include "remote_shim_choosers.h"
@@ -337,17 +341,11 @@ class Runtime {
 
   bool Post(uint16_t op, uint32_t token, const TlvWriter& args) {
     CMUX_REMOTE_ASSERT_MAIN();
-    if (IsControlInputOp(op)) ++boundary_;
-    Message message = MakeMessage(op, token, args.fields());
-    // Detached, the op is dropped: a seq it took would never reach the next host, and input
-    // stamped with it would wait there.
-    if (IsOrderedOp(op) && link_ != Link::kDetached) {
-      ctl_seq_ = cmux_host::NextSeq(ctl_seq_);
-      message.ctl_seq = ctl_seq_;
-      message.after_input = input_seq_;
+    if (IsControlInputOp(op)) {
+      ++boundary_;
+      return PostControlInput(op, token, args);
     }
-    const std::optional<uint64_t> key = token == 0 ? StateKeyFor(op, message.fields) : std::nullopt;
-    return Route(std::move(message), key);
+    return PostOp(op, token, args);
   }
 
   // Input on the control channel until the ring lands (041, 042): it keeps its place among the
@@ -355,7 +353,7 @@ class Runtime {
   bool PostInput(uint16_t op, uint32_t token, const TlvWriter& args) {
     CMUX_REMOTE_ASSERT_MAIN();
     ++boundary_;
-    return Post(op, token, args);
+    return PostControlInput(op, token, args);
   }
 
   // The input ring's writer (tasks 041 and 042), for the frame it writes next: its input seq,
@@ -368,7 +366,15 @@ class Runtime {
     input_seq_ = cmux_host::NextSeq(input_seq_);
     ++boundary_;
     if (ctl_seq != nullptr) *ctl_seq = ctl_seq_;
+    if (watches_host_) Tell(input_acks_.Written(input_seq_));
     return input_seq_;
+  }
+
+  // Main thread. Where the host watch's changes go (cmux_remote_shim_set_host_watch).
+  void SetHostWatch(void* ctx, cmux_remote_host_watch_fn watch) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    host_watch_ = watch;
+    host_watch_ctx_ = ctx;
   }
 
   // Takes the send right to the attached host's fence inbox (0: none); the one held goes.
@@ -516,7 +522,7 @@ class Runtime {
   int32_t MintID(uint16_t op) {
     CMUX_REMOTE_ASSERT_MAIN();
     if (op == kOpDevtoolsCall) return next_devtools_id_ < kEndMintedDevToolsID ? next_devtools_id_++ : 0;
-    return next_browser_id_ < std::numeric_limits<int32_t>::max() ? next_browser_id_++ : 0;
+    return next_browser_id_ < kEndMintedBrowserID ? next_browser_id_++ : 0;
   }
 
   void MarkPending(uint16_t mirror_op, uint32_t token, const TlvWriter& key, uint32_t wildcards) {
@@ -572,6 +578,30 @@ class Runtime {
     TlvWriter args;
     cmux_host::WriteEnergySaver(saver, &args);
     return MakeMessage(cmux_host::kOpEnergySaver, 0, args.Take());
+  }
+
+  // Control-channel input on a host that acks its dispatch (watches_host_: attached, and its HELLO
+  // listed kHangWatchHelloName) goes with a token; the kOpAck the host sends once the op ran
+  // (HostContext::Ack after DispatchOp) is its ack in the input acks.
+  bool PostControlInput(uint16_t op, uint32_t token, const TlvWriter& args) {
+    const bool counted = token == 0 && watches_host_;
+    if (counted) token = NextToken();
+    const bool sent = PostOp(op, token, args);
+    if (sent && counted) Tell(input_acks_.ControlWritten(token));
+    return sent;
+  }
+
+  bool PostOp(uint16_t op, uint32_t token, const TlvWriter& args) {
+    Message message = MakeMessage(op, token, args.fields());
+    // Detached, the op is dropped: a seq it took would never reach the next host, and input
+    // stamped with it would wait there.
+    if (IsOrderedOp(op) && link_ != Link::kDetached) {
+      ctl_seq_ = cmux_host::NextSeq(ctl_seq_);
+      message.ctl_seq = ctl_seq_;
+      message.after_input = input_seq_;
+    }
+    const std::optional<uint64_t> key = token == 0 ? StateKeyFor(op, message.fields) : std::nullopt;
+    return Route(std::move(message), key);
   }
 
   // A post waiting for the first attach or for the host's HELLO.
@@ -726,6 +756,8 @@ class Runtime {
     // The next host has a new ring and a new ordered stream: both seqs start again.
     ctl_seq_ = 0;
     input_seq_ = 0;
+    watches_host_ = false;
+    Tell(input_acks_.Reset());  // nothing waits for a host that is gone
     stats_.unsendable += queued_live_;  // posts that waited for this host's HELLO
     queued_.clear();
     queued_keys_.clear();
@@ -814,6 +846,7 @@ class Runtime {
       case kOpAck:
         if (!message.fields.empty()) return false;
         mirror_.Ack(message.token);
+        Tell(input_acks_.ControlAcked(message.token));
         return true;
       case kOpReply: {
         if (const auto reveal = reveals_.find(message.token); reveal != reveals_.end()) {
@@ -833,6 +866,7 @@ class Runtime {
         if (awaiting_.erase(message.token) == 0) return false;  // a reply to no request
         if (!cmux_host::control::EncodeFields(message.fields, &fields)) return false;
         mirror_.Ack(message.token);  // the op ran: the callback reads what it changed
+        Tell(input_acks_.ControlAcked(message.token));
         if (reply_) {
           reply_(reply_ctx_, message.token, fields.data(), fields.size());
         } else {
@@ -846,6 +880,8 @@ class Runtime {
         if (!r.ok() || !r.AtEnd() || wire != std::optional<std::string>(kWireID)) return false;
         host_exports_ = std::unordered_set<std::string>(exports.begin(), exports.end());
         hello_ = true;
+        // Input ordered from here on is counted against the host's dispatch acks.
+        watches_host_ = host_exports_.count(cmux_host::hang::kHangWatchHelloName) > 0;
         Flush();
         // Behind the queue: the handlers cmux set go to this host.
         choosers::Attach(&chooser_transport_);
@@ -853,9 +889,33 @@ class Runtime {
         AnswerDroppedReveals();
         return true;
       }
+      case cmux_host::hang::kOpInputDispatched: {
+        uint32_t seq = 0;
+        if (!cmux_host::hang::ReadDispatched(message, &seq)) return false;
+        Tell(input_acks_.Dispatched(seq));
+        return true;
+      }
+      case cmux_host::hang::kOpHostHang: {
+        cmux_host::hang::Hang hang;
+        if (!cmux_host::hang::ReadHang(message, &hang)) return false;
+        if (host_watch_) {
+          host_watch_(host_watch_ctx_, CMUX_REMOTE_HOST_HANG, static_cast<int64_t>(hang.duration_ns), hang.flags);
+        }
+        return true;
+      }
       default:
         return false;
     }
+  }
+
+  // One change of the input acks to the host watch callback.
+  void Tell(cmux_host::hang::InputAcks::Change change) {
+    using Change = cmux_host::hang::InputAcks::Change;
+    if (host_watch_ == nullptr || change == Change::kNone) return;
+    const int32_t event = change == Change::kOutstanding ? CMUX_REMOTE_HOST_INPUT_OUTSTANDING
+                          : change == Change::kProgress  ? CMUX_REMOTE_HOST_INPUT_PROGRESS
+                                                         : CMUX_REMOTE_HOST_INPUT_SETTLED;
+    host_watch_(host_watch_ctx_, event, 0, 0);
   }
 
   // A password reveal's REPLY: one bytes field, the password, or none (`password` stays NULL:
@@ -926,6 +986,12 @@ class Runtime {
   // host attached OrderInput stamps nothing and a detached Post takes no seq.
   uint32_t ctl_seq_ = 0;
   uint32_t input_seq_ = 0;
+  // The attached host's HELLO listed kHangWatchHelloName: OrderInput's seqs count against its
+  // kOpInputDispatched and control-channel input's tokens against its kOpAck (task p01-process-084).
+  bool watches_host_ = false;
+  cmux_host::hang::InputAcks input_acks_;
+  cmux_remote_host_watch_fn host_watch_ = nullptr;
+  void* host_watch_ctx_ = nullptr;
   // Input written so far, on the ring or the control channel: the coalescing boundary.
   uint32_t boundary_ = 0;
   // A send right to the attached host's fence inbox (task 052), 0 while none; and the last
@@ -1057,6 +1123,10 @@ void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send_fn send) {
 
 uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq) {
   return R().OrderInput(ctl_seq);
+}
+
+void cmux_remote_shim_set_host_watch(void* ctx, cmux_remote_host_watch_fn watch) {
+  R().SetHostWatch(ctx, watch);
 }
 
 // --- local exports (chromium-host-ops.json class local) --------------------------------------

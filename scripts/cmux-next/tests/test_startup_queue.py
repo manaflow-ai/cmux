@@ -15,6 +15,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -230,6 +231,22 @@ class GapsTests(unittest.TestCase):
         hits = sq.mark_gaps(runs, 5.0, "t warm")
         self.assertEqual([(h["from"], h["to"], h["p50_ms"]) for h in hits],
                          [("main_start", "first_window_frame_committed", 190.0)])
+
+    def test_every_value_the_app_sends_is_a_value_mark(self):
+        """The value names the app sends (task 007's StartupCounterReader `*Name` constants, and the run loop's
+        page-ins of LaunchSlices) are VALUE_MARKS here and in bench-startup.py, so no count or CPU time lands on a
+        launch timeline as a time."""
+        sources = HERE.parent.parent / "Packages/macOS/CmuxNext/Sources"
+        counters = (sources / "CmuxNextLaunch/StartupCounterReader.swift").read_text()
+        slices = (sources / "CmuxNextSignposts/LaunchSlices+Mark.swift").read_text()
+        sent = set(re.findall(r'public static let \w+Name = "(launch\.[a-z_.]+)"', counters))
+        sent |= set(re.findall(r'public static let pageinsValueMark = "(launch\.[a-z_.]+)"', slices))
+        self.assertEqual(sent, {"launch.pageins_run_loop_start", "launch.pageins_first_frame", "launch.main_cpu_ms"})
+        spec = importlib.util.spec_from_file_location("bench_startup", HERE / "bench-startup.py")
+        bench = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bench)
+        self.assertLessEqual(sent, sq.VALUE_MARKS)
+        self.assertLessEqual(sent, set(bench.VALUE_MARKS))
 
     def test_bad_input_is_an_input_error_not_a_hit(self):
         files = Files()

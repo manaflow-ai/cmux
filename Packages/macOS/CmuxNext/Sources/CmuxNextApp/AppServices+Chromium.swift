@@ -159,6 +159,8 @@ extension AppServices {
         chromiumRuntime.source.drawsHostChoosers = features.isEnabled(.chromiumHostChoosers) // p01-process-228
         // Host mode only: page file choosers in cmux's picker, the files sent as paths (p01-process-064).
         chromiumRuntime.source.hostFileDialogs = features.isEnabled(.chromiumHostFileDialogs) ? ChromiumFileDialogPanels(openPanel: openPanel) : nil
+        // Host mode only: "Chromium is busy" after 2 s of undispatched input (p01-process-084).
+        chromiumRuntime.source.watchesHostHangs = features.isEnabled(.chromiumHostHangBanner)
         chromiumRuntime.source.handlesHostLocks = features.isEnabled(.chromiumHostLocks) // pointer and keyboard locks, p01-process-229
         chromiumRuntime.source.appEvents = appEvents // the app's resign-active ends a page's pointer lock
         // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).

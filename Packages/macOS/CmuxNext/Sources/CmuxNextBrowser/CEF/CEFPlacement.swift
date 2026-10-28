@@ -16,9 +16,29 @@ nonisolated struct CEFPlacement: Equatable, Sendable {
     }
 }
 
-/// Placements by Chromium window id, oldest first.
+/// Placements by Chromium window id, and by the id the Chromium Host minted for the tab, oldest first.
 nonisolated struct CEFPlacementQueue: Equatable, Sendable {
     private var queues: [Int32: [CEFPlacement]] = [:]
+    /// By the id the Chromium Host minted for the tab (task 031), oldest first. A tab Chromium never
+    /// created leaves its entry until ``maxTabPlacements`` newer ones push it out.
+    private var tabs: [TabPlacement] = []
+    static let maxTabPlacements = 64
+
+    private struct TabPlacement: Equatable, Sendable {
+        var tab: Int32
+        var placement: CEFPlacement
+    }
+
+    mutating func record(tab: Int32, _ placement: CEFPlacement) {
+        tabs.removeAll { $0.tab == tab }
+        if tabs.count >= Self.maxTabPlacements { tabs.removeFirst(tabs.count - Self.maxTabPlacements + 1) }
+        tabs.append(TabPlacement(tab: tab, placement: placement))
+    }
+
+    mutating func take(tab: Int32) -> CEFPlacement? {
+        guard let index = tabs.firstIndex(where: { $0.tab == tab }) else { return nil }
+        return tabs.remove(at: index).placement
+    }
 
     mutating func record(window: Int32, _ placement: CEFPlacement) {
         queues[window, default: []].append(placement)
