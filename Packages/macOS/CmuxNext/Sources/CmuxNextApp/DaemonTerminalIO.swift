@@ -284,15 +284,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     }
 
     /// Called by `ResizeCoordinator` once the size settled.
-    @MainActor func applySettled(_ size: CellSize) {
-        driver.resize(size)
-    }
+    @MainActor func applySettled(_ size: CellSize) { driver.resize(size) }
 
-    /// Called by `ResizeCoordinator` for a step of a live resize (a drag): the daemon applies it
-    /// and rebuilds byte mirrors once, at the settled grid that ends it (`live-resize-v1`).
-    @MainActor func applyLive(_ size: CellSize) {
-        driver.resize(size, live: true)
-    }
+    /// A live step (`ResizeCoordinator`): byte mirrors rebuild once, at the settled grid (`live-resize-v1`).
+    @MainActor func applyLive(_ size: CellSize) { driver.resize(size, live: true) }
 
     @MainActor var awaitsEcho: Bool { !driver.machine.echoesDue.isEmpty }
 
