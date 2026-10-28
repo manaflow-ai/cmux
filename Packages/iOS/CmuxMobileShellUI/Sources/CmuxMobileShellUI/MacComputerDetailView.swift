@@ -60,6 +60,8 @@ struct MacComputerDetailView: View {
     @State private var irohSettingsModel: MobileIrohSettingsModel?
     @State private var showsPrivatePathEditor = false
     @State private var showsPrivatePathRemoveConfirmation = false
+    @State private var directoryTogglePairingTask: Task<Void, Never>?
+    @State private var directoryToggleFailureMessage: String?
 
     /// Curated icon choices: a few computer/utility SF Symbols + emojis.
     private static let symbolChoices = [
@@ -289,7 +291,12 @@ struct MacComputerDetailView: View {
             irohSettingsModel = model
             await model.observe(recordingScreenEvents: false)
         }
-        .onDisappear { irohSettingsModel?.cancelOperations() }
+        .onDisappear {
+            irohSettingsModel?.cancelOperations()
+            directoryTogglePairingTask?.cancel()
+            if isDirectoryOnly { store.cancelPairing() }
+            directoryTogglePairingTask = nil
+        }
         .sheet(isPresented: $showsPrivatePathEditor) {
             if let irohSettingsModel {
                 MobileIrohCustomPrivatePathEditor(
@@ -395,6 +402,9 @@ struct MacComputerDetailView: View {
                 Toggle(isOn: Binding(
                     get: { configuration.isEnabled },
                     set: { isEnabled in
+                        directoryTogglePairingTask?.cancel()
+                        if isDirectoryOnly { store.cancelPairing() }
+                        directoryTogglePairingTask = nil
                         let draft = CmxIrohCustomPrivatePathDraft(
                             macDeviceID: configuration.macDeviceID,
                             instanceTag: configuration.instanceTag,
@@ -402,11 +412,19 @@ struct MacComputerDetailView: View {
                             addresses: configuration.addresses,
                             isEnabled: isEnabled
                         )
-                        Task {
+                        directoryToggleFailureMessage = nil
+                        directoryTogglePairingTask = Task { @MainActor in
                             let saved = await model.upsertCustomPrivatePath(draft)
                             if saved, isDirectoryOnly {
-                                _ = await store.connectDiscoveredIrohMac(using: draft)
+                                if draft.isEnabled {
+                                    let connected = await store.connectDiscoveredIrohMac(using: draft)
+                                    if !connected {
+                                        directoryToggleFailureMessage = store.connectionErrorGuidance ?? store.connectionError
+                                    }
+                                }
                             }
+                            guard !Task.isCancelled else { return }
+                            directoryTogglePairingTask = nil
                         }
                     }
                 )) {
@@ -425,7 +443,11 @@ struct MacComputerDetailView: View {
                 // the guarded mutation would be dropped silently, leaving the
                 // switch out of sync with the persisted value.
                 .disabled(model.isMutating)
-                .accessibilityIdentifier("MobileComputerPrivateAddressesToggle")
+                    .accessibilityIdentifier("MobileComputerPrivateAddressesToggle")
+                if let directoryToggleFailureMessage {
+                    Label(directoryToggleFailureMessage, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                }
                 Button(L10n.string("mobile.common.edit", defaultValue: "Edit")) {
                     showsPrivatePathEditor = true
                 }
@@ -434,6 +456,9 @@ struct MacComputerDetailView: View {
                     L10n.string("mobile.common.remove", defaultValue: "Remove"),
                     role: .destructive
                 ) {
+                    directoryTogglePairingTask?.cancel()
+                    if isDirectoryOnly { store.cancelPairing() }
+                    directoryTogglePairingTask = nil
                     showsPrivatePathRemoveConfirmation = true
                 }
                 .disabled(model.isMutating)
