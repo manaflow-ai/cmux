@@ -488,7 +488,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let auth = services.cloud.auth
         let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
         guard destination == .auth else { return }
-        Task { _ = await auth.handleCallback(url) }
+        Task {
+            guard await !auth.handleCallback(url) else { return }
+            await auth.awaitRestored()
+            guard auth.signInFailed, !auth.isSignedIn, !auth.isSigningIn else { return }
+            try? services.settingsWindow.show(section: .accounts)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
