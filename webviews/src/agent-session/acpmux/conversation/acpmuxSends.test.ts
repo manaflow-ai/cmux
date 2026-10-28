@@ -408,6 +408,11 @@ describe("shellCommands", () => {
       expect(shellCommands(command).every((part) => part.grouped)).toBe(true);
       expect(recordedMessageBodyChanges(command)).toEqual([{ reset: true }]);
     }
+    for (const command of [
+      "bash -c '(acpmux send lane - < /tmp/message)'",
+      "reach box '{ acpmux send lane - < /tmp/message; }'",
+    ])
+      expect(recordedMessageBodyChanges(command)).toEqual([{ reset: true }]);
   });
 
   test("operators split commands; redirects and here-documents are not words", () => {
@@ -436,7 +441,6 @@ describe("shellCommands", () => {
       writeFile: { text: "out", literal: true },
       redirectWrites: 1,
       stdout: true,
-      grouped: true,
     });
   });
 

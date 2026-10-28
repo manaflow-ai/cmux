@@ -136,7 +136,7 @@ export function shellCommands(line: string): ShellCommand[] {
   let writes = false;
   let redirectWrites = 0;
   let redirectUnsafe = false;
-  const opaqueGrouping = /[(){}]/.test(line);
+  let grouped = false;
   let writeFile: ShellCommand["writeFile"];
   let stdout = false;
   let runs: string[] = [];
@@ -164,7 +164,6 @@ export function shellCommands(line: string): ShellCommand[] {
         ...(writes && { writes: true as const }),
         ...(redirectWrites && { redirectWrites }),
         ...(redirectUnsafe && { redirectUnsafe: true as const }),
-        ...(opaqueGrouping && { grouped: true as const }),
         ...(writeFile && { writeFile }),
         ...(stdout && { stdout: true as const }),
         ...(runs.length && { runs }),
@@ -328,6 +327,9 @@ export function shellCommands(line: string): ShellCommand[] {
       continue;
     }
     if (char === ";" || char === "&" || char === "|" || char === "(" || char === ")") {
+      // Only syntax reached by the lexer counts. Quoted words, substitutions, comments and
+      // heredoc bodies are consumed elsewhere and may contain these characters as message text.
+      if (char === "(" || char === ")") grouped = true;
       const two = line.slice(index, index + 2);
       if (two === "&&" || two === "||" || two === ";;" || two === "|&") {
         index += 2;
@@ -344,6 +346,7 @@ export function shellCommands(line: string): ShellCommand[] {
     index = next;
     // `{ …; }` groups commands; the braces are not words of them.
     if (raw === "{" || raw === "}") {
+      grouped = true;
       end(";");
       continue;
     }
@@ -351,6 +354,8 @@ export function shellCommands(line: string): ShellCommand[] {
   }
   end("");
   readBodies();
+  // A group can close after its command was emitted; mark the complete parsed line once.
+  if (grouped) for (const command of commands) command.grouped = true;
   return commands;
 }
 
@@ -427,8 +432,9 @@ export function recordedMessageBodyChanges(line: string): RecordedMessageBodyCha
     !command.stdinUnsafe &&
     (command.stdinRedirects ?? 0) <= 1
   ) {
-    const send = acpmuxSend(line);
-    if (send?.ownsExit && !send.unsure && !send.others) return [];
+    const provenance = { unsafe: false };
+    const send = readAcpmuxSend(line, undefined, 0, undefined, undefined, provenance);
+    if (!provenance.unsafe && send?.ownsExit && !send.unsure && !send.others) return [];
   }
   const change = recordedMessageBodyChange(commands[0]!);
   return change ? [change] : [];
@@ -713,6 +719,17 @@ export function acpmuxSend(
   // A shell/reach wrapper's recorded stdin, inherited unless its inner command replaces it.
   inheritedStdin?: ShellWord | "file",
 ): AcpmuxSend | undefined {
+  return readAcpmuxSend(line, host, depth, priorFiles, inheritedStdin);
+}
+
+function readAcpmuxSend(
+  line: string,
+  host: string | undefined,
+  depth: number,
+  priorFiles?: ReadonlyMap<string, string>,
+  inheritedStdin?: ShellWord | "file",
+  provenance?: { unsafe: boolean },
+): AcpmuxSend | undefined {
   if (depth > 3 || !/acp/.test(line)) return undefined;
   const commands = shellCommands(line);
   // File-backed bodies come only from recorded writers in this turn. Pass the current safe map
@@ -727,6 +744,7 @@ export function acpmuxSend(
   if (uncertainControlFlow) {
     recordedFiles.clear();
     inheritedStdin = undefined;
+    if (provenance) provenance.unsafe = true;
   }
   let found: AcpmuxSend | undefined;
   let at = -1;
@@ -753,6 +771,7 @@ export function acpmuxSend(
     ) {
       recordedFiles.clear();
       inheritedStdin = undefined;
+      if (provenance) provenance.unsafe = true;
     }
     const words = unwrapped(command.words);
     const name = program(words[0]);
@@ -767,12 +786,13 @@ export function acpmuxSend(
       const rest = words.slice(at);
       const inner = rest.slice(1);
       if (rest[0]?.literal && !rest[0].text.startsWith("-") && inner.length && inner.every((word) => word.literal))
-        send = acpmuxSend(
+        send = readAcpmuxSend(
           inner.map((word) => word.text).join(" "),
           rest[0].text,
           depth + 1,
           new Map([...recordedFiles].map(([path, body]) => [path, body.text])),
           stdinOf(commands, index, recordedFiles, inheritedStdin),
+          provenance,
         );
     } else if (SHELLS.has(name)) {
       // `-c` among the options before the first operand (`bash script -c …` runs script).
@@ -787,12 +807,13 @@ export function acpmuxSend(
       }
       const script = flag > 0 ? words[flag + 1] : undefined;
       if (script?.literal)
-        send = acpmuxSend(
+        send = readAcpmuxSend(
           script.text,
           host,
           depth + 1,
           new Map([...recordedFiles].map(([path, body]) => [path, body.text])),
           stdinOf(commands, index, recordedFiles, inheritedStdin),
+          provenance,
         );
     } else if (name === "acpmux" || name === "acpmux-debug-cli") {
       let sub = 1;
