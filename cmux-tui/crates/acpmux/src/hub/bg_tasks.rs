@@ -42,7 +42,7 @@ impl Hub {
 
     /// Tests run the runner from the acpmux binary they name, and a smaller spool segment.
     pub fn set_bg_runner(&self, exe: PathBuf, segment: u64) {
-        *self.bg_runner.lock().unwrap() =
+        *self.bg_runner.lock().unwrap_or_else(|e| e.into_inner()) =
             Some((crate::self_command::SelfCommand::new(exe, Vec::new()), segment));
     }
 
@@ -88,7 +88,8 @@ impl Hub {
         std::fs::create_dir_all(&dir).map_err(internal)?;
         let generation = bg_generation(&dir, true).map_err(internal)?;
         let id = format!("bg-{}", &uuid::Uuid::now_v7().simple().to_string()[20..]);
-        let (runner, segment) = match self.bg_runner.lock().unwrap().clone() {
+        let set = self.bg_runner.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let (runner, segment) = match set {
             Some(set) => set,
             None => {
                 (crate::self_command::SelfCommand::current().map_err(internal)?, bg_run::SEGMENT)
