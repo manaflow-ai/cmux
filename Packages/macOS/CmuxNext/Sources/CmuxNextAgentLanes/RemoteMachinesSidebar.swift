@@ -106,6 +106,9 @@ public final class RemoteMachinesSidebar {
     @ObservationIgnored private let refresh = DemandTimer(owner: "sidebar.remoteMachines")
     /// The peer list read in flight.
     @ObservationIgnored private var peerRead: Task<Void, Never>?
+    /// Bumped by each pushed change (`peerStateChanged`) that moves the list or asks for it: a read
+    /// in flight then answers from before it, so its answer is dropped and the list read again.
+    @ObservationIgnored private var peerPushes = 0
 
     public init(lanes: AgentLaneStore = .shared) {
         self.lanes = lanes
@@ -141,13 +144,16 @@ public final class RemoteMachinesSidebar {
     /// or its watch (re)opened (`peer` nil). A listed peer's header follows at once and a repeat
     /// changes nothing; an unknown peer, an offline for one already down (it may be removed), or a
     /// reopened watch reads the list again (one read at a time, as a rebuild does). Nothing runs
-    /// before `bind` or after `stop()`.
+    /// before `bind` or after `stop()`. A read in flight when a push lands is read again after it.
     public func peerStateChanged(peer: String?, state: String?) {
         guard laneWatch != nil else { return }
         switch Self.push(peer: peer, state: state, onto: peers) {
         case .same: return
-        case .read: askForPeers()
+        case .read:
+            peerPushes += 1
+            askForPeers()
         case .list(let next):
+            peerPushes += 1
             peers = next
             rebuild()
         }
@@ -279,14 +285,18 @@ public final class RemoteMachinesSidebar {
     }
 
     /// One bounded `_acpmux/peers` (the daemon answers from memory, never asking a peer),
-    /// unless a read is in flight; a changed answer arms `refresh`.
+    /// unless a read is in flight; a changed answer arms `refresh`. An answer a pushed change
+    /// overtook (`peerPushes` moved while it was in flight) is dropped and the list read again.
     private func askForPeers() {
         guard peerRead == nil, let read = host?.peers else { return }
-        // task-owner: this instance; one read, bounded by its 2 s deadline, cancelled by `stop()`
+        let pushes = peerPushes
+        // task-owner: this instance; one read at a time, each bounded by its 2 s deadline, cancelled by `stop()`;
+        // a follow-up only when a push came during it (pushes come only on a state change, so a burst ends)
         peerRead = Task { [weak self] in
             let next = await read()
             guard let self, !Task.isCancelled else { return }
             peerRead = nil
+            guard pushes == peerPushes else { return askForPeers() }
             if next != peers {
                 peers = next
                 // Through the same gate as a lane change: still one rebuild per refreshInterval.
