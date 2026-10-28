@@ -983,22 +983,27 @@ on a dead pool needs force-cancel and then rerun.
 Blacksmith is overflow, so when it stops starting jobs the fix is to stop
 sending overflow there, not to reroute a lane. `ci-cloud-overflow-probe.yml`
 does that automatically (`scripts/ci/cloud_overflow_switch.py`). Every 10
-minutes its `probe` job asks for one Blacksmith label and prints a line, and
-its `watch` job waits for the probe. The watch never runs on GitHub-hosted
-Ubuntu: while overflow is on it takes `blacksmith-16vcpu-ubuntu-2404` (a size
-the probe does not ask for), and while it is off it takes
-`blacksmith-6vcpu-macos-26`, so it can always put overflow back. On
+minutes its `probe` jobs ask for each Blacksmith Linux size compiles run on
+(`PROBE_LABELS`: `blacksmith-32vcpu-ubuntu-2404` and
+`blacksmith-16vcpu-ubuntu-2404`, one matrix job each) and print a line, and
+its `watch` job waits for them. Never one label: on 2026-10-28 the 4 vCPU
+label alone stalled four times while the other sizes started jobs, and each
+stall flipped the whole fleet. The watch never runs on GitHub-hosted Ubuntu
+or on a size the probes ask for: it takes `blacksmith-6vcpu-macos-26`, so it
+can always put overflow back. On
 2026-10-27 a watch on hosted Ubuntu queued 94 minutes behind the switch's own
 failover and held the workflow's concurrency group, so every later run was
 evicted with nothing decided.
 
-- **The probe waits `CI_CLOUD_PROBE_MINUTES` (default 5, 2 to 20) with no
+- **Every probe waits `CI_CLOUD_PROBE_MINUTES` (default 5, 2 to 20) with no
   runner.** Overflow goes off. The switch first writes the
   `CI_CLOUD_OVERFLOW_SAVED` record (each variable's value before, its
   failover, when and which run), then points the variables at their
   failovers: `LINUX_RUNNER` to `blacksmith-16vcpu-ubuntu-2404` and
   `CI_TRUSTED_RUNNER` to `blacksmith-2vcpu-ubuntu-2404` (another Blacksmith
-  size; never GitHub-hosted Ubuntu), `MACOS_RUNNER_15`,
+  size; never GitHub-hosted Ubuntu, and never a size whose probe just
+  stalled: when every size `LINUX_RUNNER` could move to stalled, it is left
+  alone), `MACOS_RUNNER_15`,
   `_26_LARGE`, `_PR` and `_DUAL_XCODE` to the std owned pool of the lane's
   Xcode pin (`glaeda-std-xcode-<version>` from `CMUX_CI_XCODE_APP_PR`),
   `MACOS_RUNNER_DISPLAY` to its gui label, `MACOS_RUNNER_IOS` to
@@ -1019,13 +1024,13 @@ evicted with nothing decided.
   listed. If a variable write fails after the record is saved, the next
   stalled probe retries entries still at their recorded before-value and
   leaves hand edits alone. The run force-cancels itself whenever the watcher
-  did not observe a started probe, including a switch failure before it could
-  publish its outcome, since a queued probe would otherwise hold the
-  concurrency group.
-- **The probe starts.** If the record exists, each variable it changed is put
+  did not observe a started probe, or another probe is still queued, including
+  a switch failure before it could publish its outcome, since a queued probe
+  would otherwise hold the concurrency group.
+- **Any probe starts.** If the record exists, each variable it changed is put
   back (a variable changed by hand since is left alone and named) and the
-  record is deleted. While the record exists the probe asks for the label it
-  names, not `LINUX_RUNNER`, which names the failover size then.
+  record is deleted. The probes ask for the same sizes whatever the record
+  says.
 
 The lane switches (`CI_PR_POOL_OWNED`, `CI_E2E_OWNED_UI`, `CI_IOS_OWNED` and
 the other `CI_OWNED_*`) are never touched: minis first does not change, only
@@ -1043,7 +1048,7 @@ variable `GLAEDA_ROUTE_APP_ID` and its key in the repository secret
 `GLAEDA_ROUTE_APP_KEY`. Without it the watch still probes, names each value to
 set by hand, and fails. A manual dispatch is a dry run by default.
 
-One Linux probe decides for macOS too: on 2026-09-29 both went at once. A
+The Linux probes decide for macOS too: on 2026-09-29 both went at once. A
 probe can start on a pool that is only partly back; the next probe, 10
 minutes later, turns overflow off again if that pool still starts nothing.
 

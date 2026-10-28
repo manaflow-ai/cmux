@@ -8,22 +8,22 @@ lands on. On 2026-09-29 Blacksmith stopped starting jobs org-wide from about
 10:15Z; about 150 runs sat queued for two hours until someone pointed those
 variables at the owned pools and GitHub-hosted Linux by hand.
 
-ci-cloud-overflow-probe.yml runs this every 10 minutes. Its `probe` job asks
-for one Blacksmith label (the record's `probe`, else LINUX_RUNNER when it is
-a Blacksmith label, else the Blacksmith Linux fallback every workflow bakes
-in) and only prints a line. This script, in the `watch` job on a
-GitHub-hosted runner, waits for it:
+ci-cloud-overflow-probe.yml runs this every 10 minutes. Its `probe` jobs ask
+for each Blacksmith Linux size in PROBE_LABELS (32 and 16 vCPU), one job per
+label, and only print a line. This script, in the `watch` job on Blacksmith
+macOS, waits for them:
 
-- The probe starts within PROBE_MINUTES of being queued: Blacksmith serves.
+- Any probe starts within PROBE_MINUTES of being queued: Blacksmith serves.
   If this switch turned overflow off (the CI_CLOUD_OVERFLOW_SAVED record
   exists), every variable it changed is put back, unless someone changed that
   variable since, and the record is deleted.
-- It does not: Blacksmith is not serving. Unless overflow is already off,
+- None does: Blacksmith is not serving. Unless overflow is already off,
   the record is written first (what each variable held, what it gets, when
   and why), then each variable is pointed at its failover. Then, if it is
   cheap, runs already stuck on a Blacksmith label are force-cancelled and
   re-run so they pick their runners again. The workflow then force-cancels
-  its own run, whose probe would otherwise stay queued.
+  its own run, whose probes would otherwise stay queued (so does a run
+  where one probe started and another is still queued).
 
 One probe, one switch: the only state is the variables and the record. The
 failover of each variable (failover_values()) is derived from the lane's
@@ -85,8 +85,13 @@ RECORD_VARIABLE = "CI_CLOUD_OVERFLOW_SAVED"
 OVERRIDES_VARIABLE = "CI_CLOUD_FAILOVER"
 PAID_OVERFLOW_VARIABLE = "CI_PAID_MACOS_OVERFLOW"
 CLOUD_PREFIX = pr_runner_pool.EPHEMERAL_PREFIX  # "blacksmith-"
-# Every workflow's fallback when LINUX_RUNNER is unset (docs/ci-runners.md).
-DEFAULT_PROBE_LABEL = "blacksmith-4vcpu-ubuntu-2404"
+# What the probe asks for: the Blacksmith Linux sizes compiles run on, every
+# one of them (the workflow's probe matrix restates this). Overflow goes off
+# only when none of them starts its probe; one that starts means Blacksmith
+# serves. A single probed label is a pin: on 2026-10-28 the 4 vCPU label
+# alone queued past 5 minutes at 21:59Z, 22:13Z, 22:53Z and 23:30Z while the
+# other sizes started jobs, and each time the whole fleet failed over.
+PROBE_LABELS = ("blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
 # Where Linux overflow goes while the probed label stalls: another Blacksmith
 # Linux size, never GitHub-hosted Ubuntu. CI_TRUSTED_RUNNER's readers accept
 # only ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it
@@ -176,14 +181,9 @@ def linux_cloud_label(label: str | None) -> bool:
     return bool(re.fullmatch(r"blacksmith-\d+vcpu-ubuntu-\d+", str(label or "")))
 
 
-def probe_label(record: Mapping[str, Any] | None, linux_runner: str | None) -> str:
-    """The Blacksmith label a probe asks for; the workflow's runs-on restates this."""
-    saved = (record or {}).get("probe")
-    if cloud_label(saved):
-        return str(saved)
-    if cloud_label(linux_runner):
-        return str(linux_runner)
-    return DEFAULT_PROBE_LABEL
+def probe_job_name(label: str) -> str:
+    """The name of the probe job for one label (the workflow's matrix job name)."""
+    return f"{PROBE_JOB} ({label})"
 
 
 def parse_record(raw: str | None) -> dict[str, Any] | None:
@@ -346,17 +346,26 @@ def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None]) ->
     return resumes
 
 
-# Where each Linux variable may go, in order, when its failover is the stalled label.
+# Where each Linux variable may go, in order, when its failover is a stalled label.
 LINUX_FAILOVER_CHAIN = {LINUX_VARIABLE: (LINUX_FAILOVER, ALTERNATE_FAILOVERS[LINUX_FAILOVER]),
                         TRUSTED_VARIABLE: (TRUSTED_FAILOVER, ALTERNATE_FAILOVERS[TRUSTED_FAILOVER])}
 
 
-def away_from_probe(failover: Mapping[str, str], probe: str) -> dict[str, str]:
-    """A Linux failover, an override included, never names the label whose stall triggered it."""
+def away_from_probe(failover: Mapping[str, str], probes: Iterable[str]) -> dict[str, str]:
+    """A Linux failover, an override included, never names a label whose stall triggered it.
+
+    When every label in its chain stalled too, the variable is left alone:
+    moving it from one stalled size to another moves nothing.
+    """
+    stalled = set(probes)
     values = dict(failover)
     for name in LINUX_VARIABLES:
-        if values.get(name) == probe:
-            values[name] = next(label for label in LINUX_FAILOVER_CHAIN[name] if label != probe)
+        if values.get(name) in stalled:
+            other = next((label for label in LINUX_FAILOVER_CHAIN[name] if label not in stalled), None)
+            if other is None:
+                values.pop(name)
+            else:
+                values[name] = other
     return values
 
 
@@ -389,7 +398,7 @@ def migrate_hosted_linux(record: Mapping[str, Any], current: Mapping[str, str | 
     return {**record, "changed": changed}, moves
 
 
-def failover_destinations(record: Mapping[str, Any] | None, probe: str) -> set[str]:
+def failover_destinations(record: Mapping[str, Any] | None, probes: Iterable[str]) -> set[str]:
     """Linux labels the switch moved overflow onto: a job queued there has nowhere better to go.
 
     A label that was also some variable's value before (or the probed one)
@@ -399,7 +408,7 @@ def failover_destinations(record: Mapping[str, Any] | None, probe: str) -> set[s
                if name in LINUX_VARIABLES and isinstance(change, Mapping)]
     afters = {str(change.get("after")) for change in changes if change.get("after")}
     befores = {str(change.get("before")) for change in changes if change.get("before")}
-    return afters - befores - {probe}
+    return afters - befores - set(probes)
 
 
 def job_started(job: Mapping[str, Any]) -> bool:
@@ -512,23 +521,36 @@ class GitHub:
                 raise
 
 
-def wait_for_probe(api: GitHub, run_id: int, attempt: int, minutes: int, *,
+def probe_set_outcome(jobs: Iterable[Mapping[str, Any]], labels: Sequence[str], now: dt.datetime,
+                      minutes: int) -> tuple[str, int]:
+    """("started" when any probe started, "stalled" when every one stalled, else "waiting"; probes not started)."""
+    by_name = {str(job.get("name")): job for job in jobs}
+    outcomes = [probe_outcome(by_name.get(probe_job_name(label)), now, minutes) for label in labels]
+    pending = sum(outcome != "started" for outcome in outcomes)
+    if "started" in outcomes:
+        return "started", pending
+    if outcomes and all(outcome == "stalled" for outcome in outcomes):
+        return "stalled", pending
+    return "waiting", pending
+
+
+def wait_for_probe(api: GitHub, run_id: int, attempt: int, minutes: int, labels: Sequence[str], *,
                    now: Callable[[], dt.datetime], sleep: Callable[[float], None],
-                   log: Callable[[str], None]) -> str:
-    """Watch this run's probe job until it starts or has waited `minutes`."""
+                   log: Callable[[str], None]) -> tuple[str, int]:
+    """Watch this run's probe jobs until one starts or every one has waited `minutes`."""
     deadline = now() + dt.timedelta(minutes=minutes + 5)
     while True:
         try:
-            probe = next((job for job in api.jobs(run_id, attempt) if job.get("name") == PROBE_JOB), None)
+            jobs = api.jobs(run_id, attempt)
         except RuntimeError as error:
             log(f"could not list this run's jobs ({error}); trying again")
-            probe = None
-        outcome = probe_outcome(probe, now(), minutes)
+            jobs = []
+        outcome, pending = probe_set_outcome(jobs, labels, now(), minutes)
         if outcome != "waiting":
-            return outcome
+            return outcome, pending
         if now() >= deadline:
-            # Never saw the probe: nothing measured, so nothing is decided.
-            return "unknown"
+            # Never saw every probe decide: nothing measured, so nothing is decided.
+            return "unknown", pending
         sleep(POLL_SECONDS)
 
 
@@ -661,23 +683,27 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         log(f"::warning title=Cloud overflow switch::{problem}")
     names = sorted(set(SWITCHED_VARIABLES) | set(failover) | set((record or {}).get("changed") or {}))
     current = current_values(env, names)
-    label = probe_label(record, current.get(LINUX_VARIABLE))
+    labels: tuple[str, ...] = PROBE_LABELS
     drill = (env.get("PROBE_LABEL_DRILL") or "").strip()
     if drill:
         # A drill (workflow_dispatch probe_label) probes another label and never writes.
-        label, args.dry_run = drill, True
+        labels, args.dry_run = (drill,), True
         log(f"drill: probing {drill} instead; a dry run whatever it finds")
-    failover = away_from_probe(failover, label)
+    label = ", ".join(labels)
+    # A record from before the switch left GitHub-hosted Ubuntu still moves onto the Blacksmith failover.
+    hosted_migration = failover
+    failover = away_from_probe(failover, labels)
     state = f"off since {record.get('since')}" if record else "on"
-    log(f"Blacksmith overflow is {state}; probing {label} (a probe queued {minutes} min with no runner is a stall)")
+    log(f"Blacksmith overflow is {state}; probing {label} (a stall is every probe queued {minutes} min with no "
+        "runner)")
 
-    outcome = wait_for_probe(api, run_id, attempt, minutes, now=now, sleep=sleep, log=log)
+    outcome, pending = wait_for_probe(api, run_id, attempt, minutes, labels, now=now, sleep=sleep, log=log)
     stamp = iso(now())
     code = 0
     if outcome == "unknown":
         log("::warning title=Cloud overflow switch::never saw the probe job; nothing decided")
     elif outcome == "started":
-        log(f"{stamp}: the probe started on {label}; Blacksmith is serving")
+        log(f"{stamp}: a probe started on one of {label}; Blacksmith is serving")
         if record:
             restores = plan_on(record, current)
             if args.dry_run:
@@ -702,11 +728,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 switch.delete_variable(RECORD_VARIABLE)
                 log(f"overflow back on; {RECORD_VARIABLE} deleted (it was off since {record.get('since')})")
     else:
-        log(f"{stamp}: the probe waited {minutes} min on {label} with no runner; Blacksmith is not serving")
+        log(f"{stamp}: every probe waited {minutes} min on {label} with no runner; Blacksmith is not serving")
         if not record:
             changed = plan_off(current, failover)
-            new_record = {"since": stamp, "probe": label, "reason": f"probe on {label} queued {minutes} min "
-                          "with no runner", "run": f"https://github.com/{repo}/actions/runs/{run_id}",
+            new_record = {"since": stamp, "probe": label, "reason": f"every probe on {label} queued {minutes} "
+                          "min with no runner", "run": f"https://github.com/{repo}/actions/runs/{run_id}",
                           "changed": changed}
             if args.dry_run:
                 for name, change in changed.items():
@@ -725,7 +751,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 log(f"overflow off; {RECORD_VARIABLE} holds the values to put back")
                 record = new_record
         else:
-            migrated, moves = migrate_hosted_linux(record, current, failover)
+            migrated, moves = migrate_hosted_linux(record, current, hosted_migration)
             if migrated != record:
                 if args.dry_run:
                     for item in moves:
@@ -765,12 +791,14 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             for line in rescue_stuck_runs(api, own_run_id=run_id, minutes=minutes, now=now, sleep=sleep,
                                           log=log, dry_run=args.dry_run,
                                           failovers=failover_destinations(
-                                              record or {"changed": plan_off(current, failover)}, label)):
+                                              record or {"changed": plan_off(current, failover)}, labels)):
                 log(f"- {line}")
     out = env.get("GITHUB_OUTPUT")
     if out:
         with open(out, "a", encoding="utf-8") as handle:
             handle.write(f"outcome={outcome}\n")
+            # Probes still queued keep this run (and the workflow's concurrency group) open.
+            handle.write(f"pending={pending}\n")
     write_summary(env, lines)
     return code
 

@@ -9,6 +9,8 @@ import re
 import sys
 import tempfile
 import unittest
+
+import yaml
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,7 +32,7 @@ def ago(minutes: float) -> str:
 
 
 def probe_job(minutes: float, **extra: object) -> dict:
-    return {"name": switch.PROBE_JOB, "status": "queued", "created_at": ago(minutes),
+    return {"name": switch.probe_job_name(switch.PROBE_LABELS[0]), "status": "queued", "created_at": ago(minutes),
             # GitHub stamps started_at on a queued job too; only a runner means it started.
             "started_at": ago(minutes), "runner_name": None, "labels": ["blacksmith-4vcpu-ubuntu-2404"], **extra}
 
@@ -59,7 +61,12 @@ class FakeActions:
 
     def jobs(self, run_id: int, attempt: int | None = None) -> list[dict]:
         if run_id == 1:
-            return [self.probe] if self.probe else []
+            # The same state for every probe in the set (and a drill's label); tests of one
+            # probe starting while another stalls pass a list.
+            if isinstance(self.probe, list):
+                return self.probe
+            labels = (*switch.PROBE_LABELS, DRILL)
+            return [{**self.probe, "name": switch.probe_job_name(label)} for label in labels] if self.probe else []
         return self.run_jobs.get(run_id, [])
 
     def runs(self, status: str) -> list[dict]:
@@ -88,6 +95,8 @@ class FakeSwitch:
     def delete_variable(self, name: str) -> None:
         self.writes.append((name, None))
 
+
+DRILL = "blacksmith-0vcpu-no-such-label"
 
 BLACKSMITH_STEADY = {
     "VAR_LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404",
@@ -132,7 +141,7 @@ class FailoverTests(unittest.TestCase):
         for name, value in values.items():
             if switch.cloud_label(value):
                 self.assertIn(name, switch.LINUX_VARIABLES)
-                self.assertNotEqual(value, switch.DEFAULT_PROBE_LABEL)
+                self.assertNotEqual(value, "blacksmith-4vcpu-ubuntu-2404")
 
     def test_overrides_replace_drop_and_refuse(self) -> None:
         values, problems = switch.failover_values(PIN, json.dumps({
@@ -307,11 +316,9 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(switch.probe_minutes("1"), 2)
         self.assertEqual(switch.probe_minutes("90"), 20)
 
-    def test_probe_label_prefers_the_record(self) -> None:
-        self.assertEqual(switch.probe_label({"probe": "blacksmith-8vcpu-ubuntu-2404"}, "ubuntu-24.04"),
-                         "blacksmith-8vcpu-ubuntu-2404")
-        self.assertEqual(switch.probe_label(None, "ubuntu-24.04"), switch.DEFAULT_PROBE_LABEL)
-        self.assertEqual(switch.probe_label(None, "blacksmith-2vcpu-ubuntu-2404"), "blacksmith-2vcpu-ubuntu-2404")
+    def test_the_probe_set_is_the_compile_sizes(self) -> None:
+        # Never one label: one stalled size must not flip the fleet (Leo's no-pins order, 2026-10-28).
+        self.assertEqual(switch.PROBE_LABELS, ("blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"))
 
     def test_stuck_job_needs_a_blacksmith_label_and_the_wait(self) -> None:
         jobs = [
@@ -357,10 +364,12 @@ class MainTests(unittest.TestCase):
         self.assertIn("outcome=stalled", out)
         self.assertEqual(writer.writes[0][0], "CI_CLOUD_OVERFLOW_SAVED")
         record = json.loads(str(writer.writes[0][1]))
-        self.assertEqual(record["probe"], "blacksmith-4vcpu-ubuntu-2404")
-        self.assertEqual(record["changed"]["LINUX_RUNNER"]["before"], "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(record["probe"], ", ".join(switch.PROBE_LABELS))
+        # Every Linux size it could move to stalled with the probes, so LINUX_RUNNER is left alone.
+        self.assertNotIn("LINUX_RUNNER", record["changed"])
         written = dict(writer.writes[1:])
-        self.assertEqual(written["LINUX_RUNNER"], "blacksmith-16vcpu-ubuntu-2404")
+        self.assertNotIn("LINUX_RUNNER", written)
+        self.assertEqual(written["CI_TRUSTED_RUNNER"], "blacksmith-2vcpu-ubuntu-2404")
         self.assertEqual(written["MACOS_RUNNER_PR"], "glaeda-std-xcode-26.6")
         self.assertEqual(written["CI_PAID_MACOS_OVERFLOW"], "1")
         for name in LANE_SWITCHES:
@@ -449,27 +458,42 @@ class MainTests(unittest.TestCase):
         self.assertEqual([(r.name, r.value, r.skipped) for r in restores],
                          [("LINUX_RUNNER", "blacksmith-4vcpu-ubuntu-2404", "")])
 
-    def test_the_failover_is_never_the_stalled_probe_label(self) -> None:
-        # LINUX_RUNNER already names 16 vCPU, so the probe asks for 16 vCPU; its failover is the next size.
-        env = {"VAR_LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
-        writer = FakeSwitch()
-        code, out, _ = run_main(env, FakeActions(probe_job(0)), writer)
-        self.assertEqual(code, 0)
-        self.assertIn("outcome=stalled", out)
-        saved = json.loads(writer.writes[0][1])
-        self.assertEqual(saved["probe"], "blacksmith-16vcpu-ubuntu-2404")
-        self.assertEqual(saved["changed"]["LINUX_RUNNER"], {"before": "blacksmith-16vcpu-ubuntu-2404",
-                                                            "after": "blacksmith-32vcpu-ubuntu-2404"})
-        self.assertIn(("LINUX_RUNNER", "blacksmith-32vcpu-ubuntu-2404"), writer.writes)
+    def test_the_failover_is_never_a_stalled_probe_label(self) -> None:
+        # Every size LINUX_RUNNER could move to stalled with the probes, so it is left alone.
+        self.assertEqual(switch.away_from_probe({"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
+                                                 "MACOS_RUNNER_PR": "glaeda-std-xcode-26.6"}, switch.PROBE_LABELS),
+                         {"MACOS_RUNNER_PR": "glaeda-std-xcode-26.6"})
         self.assertEqual(switch.away_from_probe({"CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404"},
-                                                "blacksmith-2vcpu-ubuntu-2404"),
+                                                ["blacksmith-2vcpu-ubuntu-2404"]),
                          {"CI_TRUSTED_RUNNER": "blacksmith-4vcpu-ubuntu-2404"})
-        # An override naming the probed label is moved off it too.
+        # A drill's single label: an override naming it is moved off it too.
         self.assertEqual(switch.away_from_probe({"CI_TRUSTED_RUNNER": "blacksmith-4vcpu-ubuntu-2404",
-                                                 "LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"},
-                                                "blacksmith-4vcpu-ubuntu-2404"),
-                         {"CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404",
-                          "LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"})
+                                                 "LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"},
+                                                ["blacksmith-16vcpu-ubuntu-2404"]),
+                         {"CI_TRUSTED_RUNNER": "blacksmith-4vcpu-ubuntu-2404",
+                          "LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"})
+
+    def test_one_started_probe_means_blacksmith_serves(self) -> None:
+        stalled = probe_job(6)
+        started = {**probe_job(6, runner_name="bs-1", status="in_progress"),
+                   "name": switch.probe_job_name(switch.PROBE_LABELS[1])}
+        self.assertEqual(switch.probe_set_outcome([stalled, started], switch.PROBE_LABELS, NOW, 5), ("started", 1))
+        self.assertEqual(switch.probe_set_outcome([stalled], switch.PROBE_LABELS, NOW, 5), ("waiting", 2))
+        both = [{**stalled, "name": switch.probe_job_name(label)} for label in switch.PROBE_LABELS]
+        self.assertEqual(switch.probe_set_outcome(both, switch.PROBE_LABELS, NOW, 5), ("stalled", 2))
+        # 2026-10-28: the 4 vCPU label stalled while 16 and 32 served; with a record set, that restores.
+        record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
+            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"}}}
+        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_MACOS_RUNNER_PR": "glaeda-std-xcode-26.6",
+               "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        writer = FakeSwitch()
+        code, out, _ = run_main(env, FakeActions([stalled, started]), writer)
+        self.assertEqual(code, 0)
+        self.assertIn("outcome=started", out)
+        # The stalled probe still holds the run open, so the workflow cancels it.
+        self.assertIn("pending=1", out)
+        self.assertEqual(writer.writes, [("MACOS_RUNNER_PR", "blacksmith-6vcpu-macos-26"),
+                                         ("CI_CLOUD_OVERFLOW_SAVED", None)])
 
     def test_a_legacy_record_without_the_switch_token_fails_loudly(self) -> None:
         record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
@@ -490,7 +514,8 @@ class MainTests(unittest.TestCase):
         code, out, summary = run_main(BLACKSMITH_STEADY, actions, None)
         self.assertEqual(code, 1)
         self.assertIn("outcome=stalled", out)
-        self.assertIn("LINUX_RUNNER -> blacksmith-16vcpu-ubuntu-2404", summary)
+        self.assertIn("MACOS_RUNNER_PR -> glaeda-std-xcode-26.6", summary)
+        self.assertNotIn("LINUX_RUNNER ->", summary)
         self.assertEqual(actions.calls, [])
 
     def test_dry_run_changes_nothing(self) -> None:
@@ -534,11 +559,18 @@ class MainTests(unittest.TestCase):
 class WorkflowTests(unittest.TestCase):
     text = WORKFLOW.read_text(encoding="utf-8")
 
-    def test_probe_restates_probe_label(self) -> None:
-        runs_on = re.search(r"name: Blacksmith probe\n(?:.*\n)*?\s+runs-on: (.*)", self.text).group(1)
-        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED", runs_on)
-        self.assertIn(f"'{switch.DEFAULT_PROBE_LABEL}'", runs_on)
-        self.assertIn(f"name: {switch.PROBE_JOB}\n", self.text)
+    def test_probe_matrix_restates_the_probe_set(self) -> None:
+        document = yaml.safe_load(self.text)
+        probe = document["jobs"]["probe"]
+        self.assertEqual(probe["name"], f"{switch.PROBE_JOB} (${{{{ matrix.label }}}})")
+        self.assertEqual(switch.probe_job_name("x"), f"{switch.PROBE_JOB} (x)")
+        self.assertIs(probe["strategy"]["fail-fast"], False)
+        matrix = probe["strategy"]["matrix"]["label"]
+        listed = json.loads(re.search(r"\|\| '(\[.*?\])'", matrix).group(1))
+        self.assertEqual(tuple(listed), switch.PROBE_LABELS)
+        self.assertTrue(probe["runs-on"].endswith("|| matrix.label }}"))
+        # A started probe beside a queued one still ends the run, so the queued one frees the group.
+        self.assertIn("steps.switch.outputs.pending != '0'", self.text)
 
     def test_watch_runs_off_blacksmith_and_passes_every_switched_variable(self) -> None:
         # Never GitHub-hosted Ubuntu: on 2026-10-27 the watch queued 94 minutes there behind the
@@ -547,15 +579,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("ubuntu-24.04", runs_on)
         self.assertNotIn("ubuntu-latest", runs_on)
         self.assertNotIn("github-hosted-required", runs_on)
-        # Overflow on: a Blacksmith Linux size the probe does not ask for. Overflow off: Blacksmith macOS,
-        # so the watch can put overflow back whatever the Linux sizes do.
-        # Whenever the probe itself may ask for that size, the watch takes macOS, so it never queues
-        # behind its own probe.
-        self.assertEqual(runs_on, "${{ (vars.CI_CLOUD_OVERFLOW_SAVED || startsWith(vars.LINUX_RUNNER, "
-                                  "'blacksmith-16vcpu-') || startsWith(inputs.probe_label, 'blacksmith-16vcpu-')) && "
-                                  f"'blacksmith-6vcpu-macos-26' || '{switch.LINUX_FAILOVER}' }}}}")
-        self.assertTrue(switch.LINUX_FAILOVER.startswith("blacksmith-16vcpu-"))
-        self.assertNotEqual(switch.LINUX_FAILOVER, switch.DEFAULT_PROBE_LABEL)
+        # Blacksmith macOS: never a size the probes ask for, so it never queues behind them.
+        self.assertEqual(runs_on, "blacksmith-6vcpu-macos-26")
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
         for name in names:
@@ -581,7 +606,7 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn(f"            {name}=${{{{ vars.{name} }}}}\n", self.text)
 
     def test_a_drill_probes_its_label_and_is_always_a_dry_run(self) -> None:
-        self.assertIn("inputs.probe_label != '' && inputs.probe_label ||", self.text)
+        self.assertIn("inputs.probe_label != '' && format('[\"{0}\"]', inputs.probe_label) ||", self.text)
         self.assertIn("(inputs.dry_run || inputs.probe_label != '')", self.text)
 
 
