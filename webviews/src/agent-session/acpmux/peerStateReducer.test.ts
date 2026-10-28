@@ -85,3 +85,13 @@ test("a complete empty snapshot removes stale state without inventing an offline
   expect([...events.entries()]).toEqual([]);
   expect(events.authoritative).toBe(true);
 });
+
+test("a new connection has no inherited capability while initialize is pending", () => {
+  const events = fixture();
+  const read = events.readStarted();
+  events.configure(undefined);
+  expect(events.changed(note("offline"))).toBe(false);
+  expect(events.snapshot({ peers: [{ name: "studio-mac", state: "offline" }] }, 0, read)).toBe(false);
+  expect(events.supported).toBe(false);
+  expect([...events.entries()]).toEqual([]);
+});
