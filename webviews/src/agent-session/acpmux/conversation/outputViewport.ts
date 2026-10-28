@@ -16,9 +16,13 @@ export function watchOutputViewport(node: HTMLElement, onOverflow: (overflow: bo
     // Measure the compact cap even while expanded: its own content or width may have changed.
     // Restore the attribute before paint, and discard only these synchronous observer records.
     const expanded = node.dataset.preview === "all";
+    const scrollTop = node.scrollTop;
     if (expanded) node.dataset.preview = "cut";
     const overflow = node.scrollHeight > node.clientHeight + 1;
-    if (expanded) node.dataset.preview = "all";
+    if (expanded) {
+      node.dataset.preview = "all";
+      node.scrollTop = scrollTop;
+    }
     observer?.takeRecords();
     onOverflow(overflow);
     edge();
