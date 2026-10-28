@@ -334,7 +334,7 @@ export function QuickModelMenu({
     return (
       <div className="acpmux-quick-model-effort" key={valueOf(model)} data-effort-look={menu.effortLook ?? "joined"}>
         {name}
-        <div className="acpmux-quick-efforts" role="group" aria-label={`${model.name} · ${t("effort.title")}`}>
+        <fieldset className="acpmux-quick-efforts" aria-label={`${model.name} · ${t("effort.title")}`}>
           <MenuRadioGroup value={running ? (effort?.current ?? "") : ""} onValueChange={pickEffort}>
             {choices.map((choice) => (
               <MenuRadioItem
@@ -349,7 +349,7 @@ export function QuickModelMenu({
               </MenuRadioItem>
             ))}
           </MenuRadioGroup>
-        </div>
+        </fieldset>
       </div>
     );
   };
@@ -594,40 +594,51 @@ export function QuickModelMenu({
           )}
         </>
       )}
-      {!query && onChatTab && effort && levels.length > 1 && !rows.some((row) => effortChoices(row).length > 0) && (
-        <>
-          <MenuSeparator />
-          <Submenu
-            className="acpmux-quick-item acpmux-quick-sub"
-            popupClassName="acpmux-quick-menu"
-            label={<QuickRowLabel label={t("effort.title")} value={level?.name} />}
-          >
-            {effort.slider ? (
-              <div className="acpmux-quick-effort-slider">
-                <EffortTrack
-                  efforts={levels}
-                  current={effort.current}
-                  fallback={levels.find((choice) => choice.recommended)?.id}
-                  sliderStyle={effort.sliderStyle}
-                  onPick={effort.onPick}
-                  onRangeKey={(event) => {
-                    if (EFFORT_SLIDER_KEYS.has(event.key)) event.stopPropagation();
-                  }}
-                  focusOnMount
-                />
-              </div>
-            ) : (
-              <MenuRadioGroup value={effort.current ?? ""} onValueChange={(value) => effort.onPick(value)}>
-                {levels.map((choice) => (
-                  <MenuRadioItem key={choice.id} value={choice.id} closeOnClick className="acpmux-quick-item">
-                    <span className="acpmux-menu-label">{choice.name}</span>
-                  </MenuRadioItem>
-                ))}
-              </MenuRadioGroup>
-            )}
-          </Submenu>
-        </>
-      )}
+      {!query &&
+        onChatTab &&
+        effort &&
+        levels.length > 1 &&
+        !rows.some(
+          (row) =>
+            row.id === current &&
+            effortChoices(row).length > 0 &&
+            // Provider submenus and expanded provider rows bypass withEffort; keep the
+            // standalone Effort row unless the current row visibly has segments.
+            (!row.offers || providerLook === "row"),
+        ) && (
+          <>
+            <MenuSeparator />
+            <Submenu
+              className="acpmux-quick-item acpmux-quick-sub"
+              popupClassName="acpmux-quick-menu"
+              label={<QuickRowLabel label={t("effort.title")} value={level?.name} />}
+            >
+              {effort.slider ? (
+                <div className="acpmux-quick-effort-slider">
+                  <EffortTrack
+                    efforts={levels}
+                    current={effort.current}
+                    fallback={levels.find((choice) => choice.recommended)?.id}
+                    sliderStyle={effort.sliderStyle}
+                    onPick={effort.onPick}
+                    onRangeKey={(event) => {
+                      if (EFFORT_SLIDER_KEYS.has(event.key)) event.stopPropagation();
+                    }}
+                    focusOnMount
+                  />
+                </div>
+              ) : (
+                <MenuRadioGroup value={effort.current ?? ""} onValueChange={(value) => effort.onPick(value)}>
+                  {levels.map((choice) => (
+                    <MenuRadioItem key={choice.id} value={choice.id} closeOnClick className="acpmux-quick-item">
+                      <span className="acpmux-menu-label">{choice.name}</span>
+                    </MenuRadioItem>
+                  ))}
+                </MenuRadioGroup>
+              )}
+            </Submenu>
+          </>
+        )}
       {!query && runningRow?.offers && providerLook === "row" && !(effort && levels.length > 1) && <MenuSeparator />}
       {!query && runningRow?.offers && providerLook === "row" && (
         <Submenu

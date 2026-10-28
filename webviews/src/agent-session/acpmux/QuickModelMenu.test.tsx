@@ -209,7 +209,13 @@ test("inline effort picks a different model and its level together; model names 
   const container = installDom();
   const picks: { id: string; effort?: string }[] = [];
   const effortPicks: string[] = [];
-  function InlineHarness({ combined = true }: { combined?: boolean }) {
+  function InlineHarness({
+    combined = true,
+    providerLook,
+  }: {
+    combined?: boolean;
+    providerLook?: "row" | "submenu" | "expanded";
+  }) {
     const trigger = useRef<HTMLButtonElement | null>(null);
     const [open, setOpen] = useState(false);
     return (
@@ -233,6 +239,7 @@ test("inline effort picks a different model and its level together; model names 
             current: "high",
             onPick: (value) => effortPicks.push(value),
           },
+          ...(providerLook ? { providers: providerLook } : {}),
           families: {
             current: "claude",
             onPick: (row) => picks.push(row),
@@ -242,7 +249,32 @@ test("inline effort picks a different model and its level together; model names 
                 name: "Claude",
                 more: [],
                 models: [
-                  { id: "a", name: "Model A", family: "claude", efforts: ["low", "high"] },
+                  {
+                    id: "a",
+                    name: "Model A",
+                    family: "claude",
+                    efforts: ["low", "high"],
+                    ...(providerLook
+                      ? {
+                          offers: [
+                            {
+                              id: "a",
+                              name: "Model A",
+                              family: "claude",
+                              efforts: ["low", "high"],
+                              provider: "Anthropic",
+                            },
+                            {
+                              id: "a",
+                              name: "Model A",
+                              family: "claude",
+                              efforts: ["low", "high"],
+                              provider: "OpenAI",
+                            },
+                          ],
+                        }
+                      : {}),
+                  },
                   { id: "b", name: "Model B", family: "claude", efforts: ["low"] },
                   { id: "c", name: "Model C", family: "claude", efforts: [] },
                 ],
@@ -290,6 +322,14 @@ test("inline effort picks a different model and its level together; model names 
   expect(effortPicks).toEqual(["ultracode", "low"]);
   expect(picks.at(-1)?.id).toBe("b");
   expect(picks.at(-1)?.effort).toBe("low");
+  for (const providerMode of ["submenu", "expanded"] as const) {
+    await settle();
+    await act(async () => root!.render(<InlineHarness providerLook={providerMode} />));
+    await open();
+    expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
+    expect(labels(list())).toContain("Effort");
+    await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  }
   await settle();
   await act(async () => root!.render(<InlineHarness combined={false} />));
   await open();
