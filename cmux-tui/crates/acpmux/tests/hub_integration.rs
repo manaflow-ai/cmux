@@ -17,6 +17,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[cfg(unix)]
+#[path = "hub_integration/idle_census.rs"]
+mod idle_census;
+
 #[path = "hub_integration/agent_digest.rs"]
 mod agent_digest;
 #[path = "hub_integration/agent_pairs.rs"]

@@ -123,6 +123,10 @@ mark {
   overscroll-behavior: contain;
   --content-fade-top: 18px;
   --content-fade-bottom: 28px;
+  /* A row or card scrolled into view at an edge (a deep link, a capture's scroll) lands clear of
+     the fade, not half-faded under it. */
+  scroll-padding-top: calc(var(--content-fade-top) + 6px);
+  scroll-padding-bottom: calc(var(--content-fade-bottom) + 6px);
   mask-image:
     linear-gradient(
       to bottom,

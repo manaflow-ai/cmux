@@ -88,13 +88,64 @@
   > .acpmux-composer
   > .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
   flex: 0 1 auto;
-  min-height: calc(var(--text-title--line-height, 22px) + 22px * var(--cmux-interface-scale, 1));
+  min-height: calc(var(--text-content--line-height) + 2 * var(--acpmux-prompt-inset));
   grid-template-rows: auto minmax(0, 1fr);
 }
 .acpmux-main[data-dock="float"]
   .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner)
   :is(.acpmux-md-field, .acpmux-shell-field) {
   align-self: stretch;
+}
+/* Codex keeps its own non-grid bar, but its draft still yields to the fixed footer and 24px
+   dots row in a short pane. Shrink only the scrolling field; the actions and footer stay reachable. */
+.acpmux-main[data-dock="float"]
+  > .acpmux-dock
+  > .acpmux-composer[data-composer-look="codex"]
+  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner)) {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: calc(var(--text-title--line-height) + (var(--ds-control-row) + var(--ds-space-5) + var(--ds-space-4)) * var(--cmux-interface-scale, 1));
+}
+.acpmux-main[data-dock="float"]
+  > .acpmux-dock
+  > .acpmux-composer[data-composer-look="codex"]
+  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
+  > .acpmux-composer-field-menu {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.acpmux-main[data-dock="float"]
+  > .acpmux-dock
+  > .acpmux-composer[data-composer-look="codex"]
+  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
+  > .acpmux-composer-field-menu
+  > .acpmux-md-field {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.acpmux-main[data-dock="float"]
+  > .acpmux-dock
+  > .acpmux-composer[data-composer-look="codex"]
+  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
+  > .acpmux-composer-field-menu
+  > .acpmux-shell-prompt {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.acpmux-main[data-dock="float"]
+  > .acpmux-dock
+  > .acpmux-composer[data-composer-look="codex"]
+  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
+  > .acpmux-composer-field-menu
+  > .acpmux-shell-prompt
+  > .acpmux-shell-field {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 /* A permission card's numbered options can outgrow a short pane: it scrolls inside the height it
    keeps, so the composer card stays in view. */
@@ -117,7 +168,12 @@
   overflow: clip;
 }
 @media (min-height: 360px) {
-  .acpmux-dock > .acpmux-running-tray:has(> .acpmux-running-tray__finished) {
+  /* Not while the fold plays (conversation/fold.ts clips it with an inline overflow then): the fold's
+   own height carries the tray, so open and close never jump by the reservation. */
+  .acpmux-dock
+    > .acpmux-running-tray:has(
+      > .acpmux-running-tray__fold:not([style*="overflow"]) > .acpmux-running-tray__finished
+    ) {
     min-height: calc(2 * var(--ds-control-row, 28px) + 2px + 2 * var(--cmux-hairline, 0.5px));
   }
 }

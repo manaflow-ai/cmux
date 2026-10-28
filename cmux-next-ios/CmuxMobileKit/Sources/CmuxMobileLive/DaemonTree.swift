@@ -179,6 +179,9 @@ public struct DaemonTree: Sendable {
                         guard var mapped = Self.tab(tab, id: id, agent: state, pending: agents.pending,
                                                     waitingFor: agents.waitingFor, bindings: &agentTabs) else { continue }
                         if let pinned = tab["pinned"] as? Bool { mapped.pinned = pinned }
+                        mapped.linkIDs = WorkspaceTab.LinkIDs(
+                            tab: tab["tab_resource_id"] as? String, pane: pane["resource_id"] as? String,
+                            isPaneSelected: pane["active_tab"] as? Int == index, harnessSession: state?.harnessSession)
                         if let group = tab["group"] as? String { mapped.group = groups[group] ?? WorkspaceTab.TabGroupRef(id: group) }
                         tabs.append(mapped)
                     }
@@ -331,18 +334,27 @@ public struct AgentState: Hashable, Sendable {
     public var agent: String?
     /// The Mac's last report for this agent (`updated_at_ms`), when it sends one.
     public var updatedAt: Date?
+    /// The harness's own session id (`agent_session_id`): what an
+    /// `agent/<harness>/<session>` link names (CmuxLink).
+    public var harnessSession: String?
 
-    public init(state: String, agent: String?, updatedAt: Date? = nil) {
+    public init(state: String, agent: String?, updatedAt: Date? = nil, harnessSession: String? = nil) {
         self.state = state
         self.agent = agent
         self.updatedAt = updatedAt
+        self.harnessSession = harnessSession
     }
 
     /// An agent row of `list-agents` or an `agent-changed` event.
     public init?(json: [String: Any]) {
         guard json["surface"] is Int else { return nil }
         self.init(state: json["state"] as? String ?? "unknown", agent: json["agent"] as? String,
-                  updatedAt: Self.date(json["updated_at_ms"]))
+                  updatedAt: Self.date(json["updated_at_ms"]), harnessSession: Self.session(json["agent_session_id"]))
+    }
+
+    /// A non-empty `agent_session_id`.
+    static func session(_ value: Any?) -> String? {
+        (value as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// Epoch milliseconds (`updated_at_ms`) as a date; nil when absent (older Macs).
@@ -407,7 +419,7 @@ public enum DaemonEvent: Equatable, Sendable {
     case treeChanged
     /// The subscription ended (`overflow`): subscribe again, then re-list.
     case resubscribe
-    case agentChanged(surface: Int, state: String, agent: String?, updatedAt: Date? = nil)
+    case agentChanged(surface: Int, state: String, agent: String?, updatedAt: Date? = nil, harnessSession: String? = nil)
     case titleChanged(surface: Int, title: String)
     /// A notification was posted (`notification`): the tree's markers and the
     /// notification ledger changed. It carries the agent's memory-only texts.
@@ -423,7 +435,8 @@ public enum DaemonEvent: Equatable, Sendable {
         case "agent-changed":
             guard let surface = object["surface"] as? Int else { return .other }
             return .agentChanged(surface: surface, state: object["state"] as? String ?? "unknown", agent: object["agent"] as? String,
-                                 updatedAt: AgentState.date(object["updated_at_ms"]))
+                                 updatedAt: AgentState.date(object["updated_at_ms"]),
+                                 harnessSession: AgentState.session(object["agent_session_id"]))
         case "title-changed":
             guard let surface = object["surface"] as? Int else { return .other }
             return .titleChanged(surface: surface, title: object["title"] as? String ?? "")
