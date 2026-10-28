@@ -169,7 +169,7 @@ fn a_guest_reaches_only_its_verbs_and_its_prompts_wait_for_the_owner() {
     let id = format!("g-{}", &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hash)[..22]);
     assert_eq!(sent["params"]["_meta"]["acpmux"]["promptId"], id);
     assert_eq!(sent["params"]["_meta"]["acpmux"]["author"], author);
-    let mut unnamed = prompt.clone();
+    let mut unnamed = prompt;
     unnamed.as_object_mut().unwrap().remove("client_id");
     assert_code(&client.request(unnamed), "agent_session.bad_request");
     for (cmd, field) in [("agent-session-typing", "on"), ("agent-session-view", "visible")] {
