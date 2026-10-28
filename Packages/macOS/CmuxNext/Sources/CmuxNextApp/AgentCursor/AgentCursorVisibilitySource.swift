@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentCursor
 import CmuxNextAgentCursorVisibility
 import CmuxNextCompat
+import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextWakeups
 import Observation
@@ -42,6 +43,8 @@ final class AgentCursorVisibilitySource {
     private struct WindowHook {
         weak var window: NSWindow?
         let subscriptions: [EventSubscription]
+        /// The window's visibility node's flips (``WindowVisibilitySource``: minimize, occlusion, app hide).
+        let visibility: VisibilitySubscription
     }
 
     init(services: AppServices) {
@@ -121,7 +124,10 @@ final class AgentCursorVisibilitySource {
         stateObservation = nil
         for hook in hookedRoots.values { hook.observation.cancel() }
         hookedRoots.removeAll()
-        for hook in hookedWindows.values { hook.subscriptions.forEach { $0.cancel() } }
+        for hook in hookedWindows.values {
+            hook.subscriptions.forEach { $0.cancel() }
+            hook.visibility.cancel()
+        }
         hookedWindows.removeAll()
     }
 
@@ -134,7 +140,11 @@ final class AgentCursorVisibilitySource {
         hookedWindows = hookedWindows.filter { $0.value.window != nil }
         for controller in services?.windows.controllers ?? [] {
             if let window = controller.window as? ShellWindow, hookedWindows[ObjectIdentifier(window)] == nil {
-                hookedWindows[ObjectIdentifier(window)] = WindowHook(window: window, subscriptions: subscribeNotices(of: window))
+                hookedWindows[ObjectIdentifier(window)] = WindowHook(
+                    window: window, subscriptions: subscribeNotices(of: window),
+                    visibility: WindowVisibilitySource.of(window).node.subscribe(owner: "agent-cursor.visibility") { [weak self] _ in
+                        self?.scheduleReresolve()
+                    })
             }
             guard let root = controller.content?.layoutView, hookedRoots[ObjectIdentifier(root)] == nil else { continue }
             let observation = root.observeOverlaySync { [weak self] in self?.reresolve() }
@@ -142,15 +152,12 @@ final class AgentCursorVisibilitySource {
         }
     }
 
-    /// A cmux window's notices that move or hide what it shows, through the window's one
-    /// observer per name (``WindowEvents``).
+    /// A cmux window's notices that move what it shows, through the window's one observer per name
+    /// (``WindowEvents``). Whether it shows at all comes from its visibility node (``WindowHook/visibility``).
     private func subscribeNotices(of window: NSWindow) -> [EventSubscription] {
         let events = WindowEvents.of(window), owner = "agent-cursor.visibility"
         let changed: @MainActor () -> Void = { [weak self] in self?.scheduleReresolve() }
         return [
-            events.subscribe(NSWindow.didMiniaturizeNotification, owner: owner, changed),
-            events.subscribe(NSWindow.didDeminiaturizeNotification, owner: owner, changed),
-            events.subscribe(NSWindow.didChangeOcclusionStateNotification, owner: owner, changed),
             events.subscribe(NSWindow.didChangeScreenNotification, owner: owner, changed),
             events.subscribe(NSWindow.didResizeNotification, owner: owner, changed),
         ]
