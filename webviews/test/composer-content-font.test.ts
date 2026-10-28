@@ -32,7 +32,7 @@ await requireBrowserLane("composer-content-font.test.ts", async () => {
     await vite?.close();
   });
 
-  for (const context of ["chat", "new-chat"]) {
+  for (const context of ["chat", "new-chat", "new-tab"]) {
     for (const theme of ["light", "dark"]) {
       test(`${context} ${theme}: content follows the chosen font size`, async () => {
         const page = await browser.newPage({ viewport: { width: 760, height: 640 } });
@@ -41,11 +41,14 @@ await requireBrowserLane("composer-content-font.test.ts", async () => {
           await page.goto(
             `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer", {
               variant: `font-size-${context}-21`,
-              theme,
+              theme: theme === "light" ? "Apple System Colors Light" : "Apple System Colors",
             })}`,
           );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-          await page.locator(".acpmux-md code").first().waitFor();
+          await page
+            .locator(context === "new-tab" ? ".nt-field" : ".acpmux-md code")
+            .first()
+            .waitFor();
           if (capture) await page.screenshot({ path: path.join(capture, `${context}-${theme}.png`) });
           for (const size of [21, 14, 28]) {
             await page.evaluate(async (size) => {
@@ -58,6 +61,10 @@ await requireBrowserLane("composer-content-font.test.ts", async () => {
                 .locator(selector)
                 .first()
                 .evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
+            if (context === "new-tab") {
+              expect(await font(".nt-field")).toBeCloseTo(size, 2);
+              continue;
+            }
             expect(await font(".acpmux-md")).toBeCloseTo(size, 2);
             expect(await font(".acpmux-md h3")).toBeCloseTo(size, 2);
             expect(await font(".acpmux-md code")).toBeCloseTo((size * 13) / 14, 2);

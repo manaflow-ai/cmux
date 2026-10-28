@@ -444,24 +444,28 @@ const CLAUDE_ULTRACODE_OFF = {
 // The chat font setting reaches the draft as well as the conversation, in either composer.
 const fontSizeVariants: Record<string, AgentPaneVariant> = Object.fromEntries(
   [14, 21, 28].flatMap((size) =>
-    [false, true].map((newSession) => [
-      `font-size-${newSession ? "new-chat" : "chat"}-${size}`,
+    ["chat", "new-chat", "new-tab"].map((context) => [
+      `font-size-${context}-${size}`,
       {
         note: `Chat text at ${size}px, including the draft's headings and code.`,
         display: { "agentPane.display.font.size": size },
         ready: {
-          newSession,
+          newSession: context !== "chat",
+          ...(context === "new-tab"
+            ? { newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude" } }
+            : {}),
           cwd: CWD,
           draft: "### Review the retry helper\nKeep `fetch` idempotent.\n\n```ts\nawait retry(request)\n```",
         },
-        snapshot: newSession
-          ? onBranch("main")
-          : chat([
-              assistant(
-                "# Retry plan\nThe body follows your font size.\n\n| Attempt | Wait |\n|---|---|\n| 1 | 1 second |",
-                1,
-              ),
-            ]),
+        snapshot:
+          context !== "chat"
+            ? onBranch("main")
+            : chat([
+                assistant(
+                  "# Retry plan\nThe body follows your font size.\n\n| Attempt | Wait |\n|---|---|\n| 1 | 1 second |",
+                  1,
+                ),
+              ]),
       },
     ]),
   ),
