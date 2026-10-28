@@ -13,7 +13,6 @@ test("the plus registry exposes the Add and Files sections in command order", ()
     commands: [{ name: "goal", description: "Set goal", source: "agent" }],
     planMode: { id: "plan", name: "Plan mode", description: "Think through the work before editing" },
   });
-
   expect(COMPOSER_PLUS_MOTION).toBe("none");
   expect(rows.map((row) => row.section)).toEqual(["add", "add", "add", "add", "add", "add", "add", "add", "files"]);
   expect(rows.slice(0, 6).map((row) => row.name)).toEqual([
