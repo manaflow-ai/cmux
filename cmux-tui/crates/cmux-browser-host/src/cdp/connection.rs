@@ -82,20 +82,35 @@ pub struct CdpConnection {
 
 impl CdpConnection {
     pub fn new(wire: Box<dyn CdpWire>) -> Arc<Self> {
-        Self::build(wire, None)
+        Self::build(wire, None, 1)
     }
 
     /// A connection to one page target (`Target.getTargetInfo` with no
     /// argument names it). Calls on `alias` go out without `sessionId`;
     /// inbound messages without `sessionId` arrive tagged with `alias`.
     pub fn page_rooted(wire: Box<dyn CdpWire>, alias: impl Into<String>) -> Arc<Self> {
-        Self::build(wire, Some(alias.into()))
+        Self::build(wire, Some(alias.into()), 1)
     }
 
-    fn build(wire: Box<dyn CdpWire>, root_alias: Option<String>) -> Arc<Self> {
+    /// [`CdpConnection::page_rooted`] whose message ids start at `first_id`
+    /// (a relay straight to the Chromium Host sends Chromium's raw ids).
+    pub fn page_rooted_from(
+        wire: Box<dyn CdpWire>,
+        alias: impl Into<String>,
+        first_id: u64,
+    ) -> Arc<Self> {
+        Self::build(wire, Some(alias.into()), first_id)
+    }
+
+    /// The id the next call will take.
+    pub fn next_id(&self) -> u64 {
+        self.next_id.load(Ordering::Relaxed)
+    }
+
+    fn build(wire: Box<dyn CdpWire>, root_alias: Option<String>, first_id: u64) -> Arc<Self> {
         Arc::new(CdpConnection {
             wire,
-            next_id: AtomicU64::new(1),
+            next_id: AtomicU64::new(first_id),
             pending: Mutex::new(HashMap::new()),
             handler: Mutex::new(None),
             on_close: Mutex::new(None),

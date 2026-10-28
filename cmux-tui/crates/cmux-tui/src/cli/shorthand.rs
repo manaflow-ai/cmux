@@ -109,7 +109,9 @@ pub(super) fn normalize(args: &[String], surface: Surface) -> Result<Vec<String>
     let Some(first) = args.first() else { return Ok(Vec::new()) };
     let Some(alias) = ALIASES.iter().find(|alias| alias.names.contains(&first.as_str())) else {
         let mut result = args.to_vec();
-        result[0] = scope(first).to_string();
+        if let Some(head) = result.first_mut() {
+            *head = scope(first).to_string();
+        }
         return Ok(result);
     };
     let alias_path = alias_path(alias, surface);
@@ -120,10 +122,9 @@ pub(super) fn normalize(args: &[String], surface: Surface) -> Result<Vec<String>
     let mut literal = false;
     let mut print = false;
     let mut index = 1;
-    while index < args.len() {
-        let arg = &args[index];
+    while let Some(arg) = args.get(index) {
         if arg == "--" {
-            positionals.extend_from_slice(&args[index + 1..]);
+            positionals.extend_from_slice(args.get(index + 1..).unwrap_or_default());
             break;
         }
         let (raw_flag, inline) =
@@ -134,7 +135,12 @@ pub(super) fn normalize(args: &[String], surface: Surface) -> Result<Vec<String>
             .find(|(short, _)| *short == raw_flag)
             .map_or(raw_flag, |(_, long)| *long);
         if flag == "--help" || (flag == "-h" && first != "split-window" && first != "splitw") {
-            return Ok(vec![alias_path[0].into(), "--help".into()]);
+            return Ok(alias_path
+                .iter()
+                .take(1)
+                .map(|scope| (*scope).to_owned())
+                .chain(["--help".to_owned()])
+                .collect());
         }
         if flag == "-t" || flag == "--target" {
             if alias.target_scope.is_none() || target.is_some() {
@@ -151,18 +157,18 @@ pub(super) fn normalize(args: &[String], surface: Surface) -> Result<Vec<String>
             }
             target = Some(value);
         } else if matches!(flag, "--left" | "--right" | "--up" | "--down")
-            && matches!(alias_path[2..], ["split"] | ["focus"])
+            && matches!(alias_path, [_, _, "split" | "focus"])
         {
             if inline.is_some() || direction.is_some() {
                 return Err(error(arg));
             }
             direction = Some(flag.trim_start_matches("--").to_string());
-        } else if flag == "--literal" && alias.names[0] == "send-keys" {
+        } else if flag == "--literal" && alias.names.first() == Some(&"send-keys") {
             if inline.is_some() || literal {
                 return Err(error(arg));
             }
             literal = true;
-        } else if flag == "--print" && alias.names[0] == "capture-pane" {
+        } else if flag == "--print" && alias.names.first() == Some(&"capture-pane") {
             if inline.is_some() || print {
                 return Err(error(arg));
             }
@@ -187,14 +193,15 @@ pub(super) fn normalize(args: &[String], surface: Surface) -> Result<Vec<String>
     }
     let mut path = Vec::new();
     if !alias_path.contains(&"@") {
-        if let Some(target) = target {
-            path.extend([alias.target_scope.expect("target validated").into(), target]);
+        // A target is taken only for an alias with a target scope.
+        if let (Some(target_scope), Some(target)) = (alias.target_scope, target) {
+            path.extend([target_scope.into(), target]);
         }
         path.extend(alias_path.iter().map(|s| (*s).to_string()));
     } else if alias.target_scope == Some("terminal")
-        && target.as_deref().is_some_and(|s| s.starts_with("pane_"))
+        && let Some(pane) = target.take_if(|target| target.starts_with("pane_"))
     {
-        path.extend(["pane".into(), target.expect("pane target"), "tab".into(), "current".into()]);
+        path.extend(["pane".into(), pane, "tab".into(), "current".into()]);
         path.extend(
             alias_path.iter().map(|s| if *s == "@" { "current".into() } else { (*s).to_string() }),
         );
@@ -204,7 +211,7 @@ pub(super) fn normalize(args: &[String], surface: Surface) -> Result<Vec<String>
             alias_path.iter().map(|s| if *s == "@" { target.clone() } else { (*s).to_string() }),
         );
     }
-    match alias.names[0] {
+    match alias.names.first().copied().unwrap_or_default() {
         "split-window" => options.push(format!("--{}", direction.as_deref().unwrap_or("down"))),
         "select-pane" => {
             if let Some(direction) = direction {
@@ -219,7 +226,8 @@ pub(super) fn normalize(args: &[String], surface: Surface) -> Result<Vec<String>
                 return Err(error(first));
             }
             if literal {
-                *path.last_mut().expect("keys action") = "write".into();
+                let Some(action) = path.last_mut() else { return Err(error(first)) };
+                *action = "write".into();
                 options.push(format!("--text={}", positionals.concat()));
             } else {
                 for key in &positionals {
@@ -241,16 +249,16 @@ fn key_chord(key: &str) -> Result<String, UsageError> {
     let mut remaining = key;
     let mut modifiers = String::new();
     loop {
-        let (prefix, modifier) = if remaining.starts_with("C-") {
-            ("C-", "ctrl+")
-        } else if remaining.starts_with("M-") {
-            ("M-", "alt+")
-        } else if remaining.starts_with("S-") {
-            ("S-", "shift+")
+        let (rest, modifier) = if let Some(rest) = remaining.strip_prefix("C-") {
+            (rest, "ctrl+")
+        } else if let Some(rest) = remaining.strip_prefix("M-") {
+            (rest, "alt+")
+        } else if let Some(rest) = remaining.strip_prefix("S-") {
+            (rest, "shift+")
         } else {
             break;
         };
-        remaining = &remaining[prefix.len()..];
+        remaining = rest;
         modifiers.push_str(modifier);
     }
     let name = match remaining {
@@ -349,36 +357,41 @@ fn child(parent: &str, candidate: &str) -> bool {
 /// Walk resource positions only. Selectors, key names, scripts, and option values
 /// are never globally substituted. Explicit selector paths take precedence.
 pub(super) fn normalize_words(words: &mut Vec<String>) {
+    fn set(words: &mut [String], at: usize, value: &str) {
+        if let Some(word) = words.get_mut(at) {
+            *word = value.to_owned();
+        }
+    }
     let mut at = 0;
-    while at < words.len() {
-        let resource = scope(&words[at]).to_string();
-        words[at] = resource.clone();
+    while let Some(word) = words.get_mut(at) {
+        let resource = scope(word).to_string();
+        word.clone_from(&resource);
         let Some(next) = words.get(at + 1).cloned() else { break };
         // `tab new terminal|browser` is `tab create …`; with more words,
         // `new` is a tab's name (`tab new terminal show`).
         if resource == "tab"
             && next == "new"
             && words.len() == at + 3
-            && matches!(words[at + 2].as_str(), "terminal" | "browser")
+            && words.get(at + 2).is_some_and(|kind| matches!(kind.as_str(), "terminal" | "browser"))
         {
-            words[at + 1] = "create".into();
+            set(words, at + 1, "create");
             break;
         }
         if let Some(action) = words.get(at + 2).cloned() {
             let nested = scope(&action);
             if child(&resource, nested) {
-                words[at + 2] = nested.to_string();
+                set(words, at + 2, nested);
                 at += 2;
                 continue;
             }
             let canonical = instance_action(&resource, &action);
             if instance_actions(&resource).contains(&canonical) {
-                words[at + 2] = canonical.to_string();
+                set(words, at + 2, canonical);
                 break;
             }
         }
         if let Some(action) = collection_action(&resource, &next) {
-            words[at + 1] = action.into();
+            set(words, at + 1, action);
             break;
         }
         // Terminal/browser tab creation has a resource word but no selector.
@@ -387,7 +400,7 @@ pub(super) fn normalize_words(words: &mut Vec<String>) {
         }
         let action = instance_action(&resource, &next);
         if instance_actions(&resource).contains(&action) {
-            words[at + 1] = action.to_string();
+            set(words, at + 1, action);
             words.insert(at + 1, "current".into());
         }
         break;

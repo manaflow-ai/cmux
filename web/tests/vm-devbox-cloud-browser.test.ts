@@ -7,15 +7,26 @@ import { runChild } from "./helpers/run-child";
 
 // The cloud browser role of the devbox image (plans/cmux-next/cloud-browser-DESIGN.md
 // CB-2, section 4a): the launcher runs `cmux-rd host --browser` on the desktop display
-// with CDP on loopback for an agent on the VM. Off by default. These tests run the
+// with CDP on an owner-only Unix socket for an agent on the VM, never a TCP debugging
+// port. Off by default. These tests run the
 // shipped launcher against a fake `cmux-rd` and check what it actually starts.
 
 const LAUNCHER = join(dirname(fileURLToPath(import.meta.url)), "../services/vms/images/devbox/desktop/cmux-cloud-browser");
 
-type Run = { code: number; stderr: string; argv: string[] | null; token: string | null; tokenFileMode: number | null };
+type Run = {
+  code: number;
+  stderr: string;
+  argv: string[] | null;
+  token: string | null;
+  tokenFileMode: number | null;
+  stateDir: string;
+  stateDirMode: number | null;
+};
 
 async function run(env: Record<string, string>): Promise<Run> {
   const dir = mkdtempSync(join(tmpdir(), "cmux-cloud-browser-"));
+  // A group-writable state dir: the launcher must make it private before the host binds there.
+  chmodSync(dir, 0o775);
   try {
     const fake = join(dir, "cmux-rd");
     // Records its argv and the token it reads from --token-fd, then exits.
@@ -48,7 +59,15 @@ exit 0
       mode = null;
     }
     const argv = read("argv");
-    return { code: r.status ?? -1, stderr: r.stderr, argv: argv ? argv.trimEnd().split("\n") : null, token: read("token"), tokenFileMode: mode };
+    return {
+      code: r.status ?? -1,
+      stderr: r.stderr,
+      argv: argv ? argv.trimEnd().split("\n") : null,
+      token: read("token"),
+      tokenFileMode: mode,
+      stateDir: dir,
+      stateDirMode: statSync(dir).mode & 0o777,
+    };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -63,13 +82,16 @@ describe("devbox cloud browser launcher", () => {
     expect(r.argv).toBeNull();
   });
 
-  test("when on, runs the cmux-rd host with the browser on the desktop display and CDP on loopback", async () => {
+  test("when on, runs the cmux-rd host with the browser on the desktop display and CDP on an owner-only socket", async () => {
     const r = await run({ CMUX_CLOUD_BROWSER: "1", CMUX_CLOUD_BROWSER_URL: "https://example.com/" });
     expect(r.code).toBe(0);
     const argv = r.argv!;
     expect(argv[0]).toBe("host");
     expect(after(argv, "--browser")).toBe("https://example.com/");
-    expect(after(argv, "--browser-cdp-port")).toBe("9222");
+    // CDP on a socket in the private state dir, never a TCP debugging port.
+    expect(after(argv, "--browser-cdp-socket")).toBe(join(r.stateDir, "cdp.sock"));
+    expect(argv).not.toContain("--browser-cdp-port");
+    expect(r.stateDirMode).toBe(0o700);
     expect(after(argv, "--display")).toBe(":1");
     expect(after(argv, "--port")).toBe("4103");
     // Loopback only: no single-tenant overlay opt-in, no non-loopback bind.
@@ -80,10 +102,18 @@ describe("devbox cloud browser launcher", () => {
     expect(r.tokenFileMode).toBe(0o600);
   });
 
-  test("refuses a CDP port that is not a number, instead of starting Chrome with it", async () => {
-    const r = await run({ CMUX_CLOUD_BROWSER: "1", CMUX_CLOUD_BROWSER_CDP_PORT: "9222; rm -rf /" });
-    expect(r.code).not.toBe(0);
-    expect(r.argv).toBeNull();
+  test("passes CMUX_CLOUD_BROWSER_CDP_SOCKET through as the socket path", async () => {
+    const r = await run({ CMUX_CLOUD_BROWSER: "1", CMUX_CLOUD_BROWSER_CDP_SOCKET: "/run/user/1000/cmux/cdp.sock" });
+    expect(r.code).toBe(0);
+    expect(after(r.argv!, "--browser-cdp-socket")).toBe("/run/user/1000/cmux/cdp.sock");
+  });
+
+  test("refuses the removed TCP port setting and a relative socket path, instead of starting Chrome", async () => {
+    for (const env of [{ CMUX_CLOUD_BROWSER_CDP_PORT: "9222" }, { CMUX_CLOUD_BROWSER_CDP_SOCKET: "cdp.sock" }]) {
+      const r = await run({ CMUX_CLOUD_BROWSER: "1", ...env });
+      expect(r.code).toBe(2);
+      expect(r.argv).toBeNull();
+    }
   });
 
   test("names the missing binary when cmux-rd is not installed", async () => {

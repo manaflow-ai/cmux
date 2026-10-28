@@ -450,8 +450,8 @@ fn select_workspace_target(
         return Ok(selected(candidate, "workspace"));
     }
 
-    if candidates.len() == 1 {
-        return Ok(selected(&candidates[0].1, "only-browser-tab"));
+    if let [(_, only)] = candidates.as_slice() {
+        return Ok(selected(only, "only-browser-tab"));
     }
     Err(anyhow!(
         "cannot infer a cmux workspace for agent-browser; run it inside a cmux terminal or set CMUX_TUI_BROWSER_TAB_ID"
@@ -499,11 +499,13 @@ impl MuxControl {
         let display = socket.display().to_string();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         // supervise-allow: one connect, joined on every answer; a panic drops `sender`, so the wait below fails as 'stopped without a result'.
-        let connector = std::thread::Builder::new()
-            .name("agent-browser-provider-connect".into())
-            .spawn(move || {
-            let _ = sender.send(UnixStream::connect(socket));
-        })?;
+        let connector = cmux_threads::spawn(
+            "agent-browser-provider-connect",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                let _ = sender.send(UnixStream::connect(socket));
+            },
+        )?;
         let stream = match crate::blocking::sync::recv_timeout(&receiver, remaining) {
             Ok(result) => {
                 let _ = crate::blocking::thread::join(connector);
@@ -561,12 +563,16 @@ fn write_control_request(
     encoded: &[u8],
     deadline: Instant,
 ) -> anyhow::Result<()> {
-    let mut offset = 0;
-    while offset < encoded.len() {
+    let mut unwritten = encoded;
+    while !unwritten.is_empty() {
         writer.set_write_timeout(Some(remaining_socket_timeout(deadline)?))?;
-        match writer.write(&encoded[offset..]) {
+        match writer.write(unwritten) {
             Ok(0) => return Err(std::io::Error::from(std::io::ErrorKind::WriteZero).into()),
-            Ok(written) => offset += written,
+            Ok(written) => {
+                unwritten = unwritten
+                    .get(written..)
+                    .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::InvalidData))?;
+            }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(error) => return Err(error.into()),
         }
@@ -604,16 +610,13 @@ fn read_control_line(
         remaining_resolution_time(deadline)?;
         let available = reader.fill_buf()?;
         anyhow::ensure!(!available.is_empty(), "cmux-tui closed its control socket");
-        let consumed = available
-            .iter()
-            .position(|byte| *byte == b'\n')
-            .map_or(available.len(), |newline| newline + 1);
+        let (chunk, complete) = crate::panic_free::first_line(available);
+        let consumed = chunk.len();
         anyhow::ensure!(
             line.len().saturating_add(consumed) <= limit,
             "cmux-tui response exceeds 16 MiB"
         );
-        let complete = available[consumed - 1] == b'\n';
-        line.extend_from_slice(&available[..consumed]);
+        line.extend_from_slice(chunk);
         reader.consume(consumed);
         if complete {
             return Ok(line);

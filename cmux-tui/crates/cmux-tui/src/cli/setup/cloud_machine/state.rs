@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use serde_json::{Value, json};
 
 use super::super::Refusal;
+use crate::cli::json_fields::JsonFields;
 
 /// The machine setup made, or what it asked for and has not seen become
 /// one: the create's idempotency key (kept before the create goes out),
@@ -77,10 +78,11 @@ impl Saved {
         let text = Self::path().ok().and_then(|path| cmux_blocking::fs::read_to_string(path).ok());
         let value = text.and_then(|text| serde_json::from_str::<Value>(&text).ok());
         let Some(value) = value else { return Self::default() };
-        let text =
-            |key: &str| value[key].as_str().filter(|text| !text.is_empty()).map(str::to_owned);
+        let text = |key: &str| {
+            value.field(key).as_str().filter(|text| !text.is_empty()).map(str::to_owned)
+        };
         let ids = |key: &str| {
-            value[key].as_array().map(|ids| {
+            value.field(key).as_array().map(|ids| {
                 ids.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>()
             })
         };

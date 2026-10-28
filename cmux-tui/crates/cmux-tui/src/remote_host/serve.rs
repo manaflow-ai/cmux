@@ -1,6 +1,7 @@
 //! `cmux host serve`: the listener on this machine's tailnet addresses
 //! (remote-hosts.md 6-8). Accept and splice block in threads; nothing polls.
 
+use crate::json_fields::JsonFields;
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
@@ -180,16 +181,23 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
         );
     }
     ready("ready");
-    let host = &host;
-    std::thread::scope(|scope| {
-        let threads: Vec<_> = listeners
-            .iter()
-            .map(|listener| scope.spawn(move || accept_loop(host, listener)))
-            .collect();
-        for thread in threads {
-            let _ = thread.join();
-        }
-    });
+    let mut threads = Vec::new();
+    for listener in listeners {
+        let host = Arc::clone(&host);
+        threads.push(
+            cmux_threads::spawn(
+                "remote-host-accept",
+                cmux_threads::ThreadQos::UserInitiated,
+                move || {
+                    accept_loop(&host, &listener);
+                },
+            )
+            .context("cannot start a listener thread")?,
+        );
+    }
+    for thread in threads {
+        let _ = thread.join();
+    }
     Err(anyhow!("every listener stopped"))
 }
 
@@ -204,11 +212,18 @@ fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
                 };
                 let host = Arc::clone(host);
                 // supervise-allow: one connection's server or reader; Pending bounds how many wait, and a panic ends that connection only.
-                std::thread::spawn(move || {
-                    if let Err(e) = serve_one(&host, stream, peer, pending) {
-                        eprintln!("cmux host: {peer}: {e:#}");
-                    }
-                });
+                let started = cmux_threads::spawn(
+                    "remote-host-conn",
+                    cmux_threads::ThreadQos::UserInitiated,
+                    move || {
+                        if let Err(e) = serve_one(&host, stream, peer, pending) {
+                            eprintln!("cmux host: {peer}: {e:#}");
+                        }
+                    },
+                );
+                if let Err(e) = started {
+                    eprintln!("cmux host: {peer}: cannot start its thread: {e}");
+                }
             }
             Err(e) => eprintln!("cmux host: accept failed: {e}"),
         }
@@ -281,11 +296,7 @@ fn serve_one(
     match op {
         Op::Probe => {
             record("probe", "ok", None);
-            let mut reply = probe_reply(host, &config, access);
-            if let Some(scopes) = &scopes {
-                reply["host"]["scopes"] =
-                    json!(scopes.iter().map(|s| s.name()).collect::<Vec<_>>());
-            }
+            let reply = probe_reply(host, &config, access, scopes.as_deref());
             preface::write_value(&mut stream, &reply)?;
             Ok(())
         }
@@ -326,18 +337,20 @@ fn serve_one(
     }
 }
 
-fn probe_reply(host: &Host, config: &Config, access: &str) -> Value {
-    json!({
-        "ok": true,
-        "host": {
-            "name": host.name,
-            "os": std::env::consts::OS,
-            "version": env!("CARGO_PKG_VERSION"),
-            "session": config.session.clone().unwrap_or_else(|| "main".to_owned()),
-            "owner": config.owner,
-            "access": access,
-        }
-    })
+/// The probe answer; a teammate grant's `scopes` are listed under `host`.
+fn probe_reply(host: &Host, config: &Config, access: &str, scopes: Option<&[Scope]>) -> Value {
+    let mut about = json!({
+        "name": host.name,
+        "os": std::env::consts::OS,
+        "version": env!("CARGO_PKG_VERSION"),
+        "session": config.session.clone().unwrap_or_else(|| "main".to_owned()),
+        "owner": config.owner,
+        "access": access,
+    });
+    if let Some(scopes) = scopes {
+        about.insert("scopes", json!(scopes.iter().map(|s| s.name()).collect::<Vec<_>>()));
+    }
+    json!({"ok": true, "host": about})
 }
 
 type DaemonStream = Box<dyn cmux_tui_core::platform::transport::Stream>;
@@ -382,11 +395,23 @@ pub(crate) fn ensure_session(exe: &Path, session: &str) -> anyhow::Result<PathBu
         bail!("`daemon ensure` started without its output pipe");
     };
     // supervise-allow: one connection's server or reader; Pending bounds how many wait, and a panic ends that connection only.
-    let reader = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = (&mut stdout).take(1024 * 1024).read_to_end(&mut buf);
-        buf
-    });
+    let reader = cmux_threads::spawn(
+        "remote-host-ensure-out",
+        cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+        move || {
+            let mut buf = Vec::new();
+            let _ = (&mut stdout).take(1024 * 1024).read_to_end(&mut buf);
+            buf
+        },
+    );
+    let reader = match reader {
+        Ok(reader) => reader,
+        Err(e) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e).context("cannot read `daemon ensure`");
+        }
+    };
     let status = match child.wait_timeout(ENSURE_BOUND)? {
         Some(status) => status,
         None => {
@@ -400,7 +425,8 @@ pub(crate) fn ensure_session(exe: &Path, session: &str) -> anyhow::Result<PathBu
         bail!("`daemon ensure` failed: {}", String::from_utf8_lossy(&out).trim());
     }
     let value: Value = serde_json::from_slice(&out).context("`daemon ensure` printed no JSON")?;
-    let socket = value["socket"].as_str().or_else(|| value["result"]["socket"].as_str());
+    let socket =
+        value.field("socket").as_str().or_else(|| value.field("result").field("socket").as_str());
     socket.map(PathBuf::from).ok_or_else(|| anyhow!("`daemon ensure` named no socket"))
 }
 
@@ -443,18 +469,20 @@ fn splice(tcp: TcpStream, daemon: DaemonStream) -> io::Result<()> {
     tcp.set_nodelay(true)?;
     let mut tcp_read = tcp.try_clone()?;
     let mut daemon_write = daemon.try_clone_box()?;
-    let mut daemon_read = daemon;
-    let mut tcp_write = tcp;
-    std::thread::scope(|scope| {
-        let up = scope.spawn(move || {
+    let up = cmux_threads::spawn(
+        "remote-host-splice-up",
+        cmux_threads::caller_qos(cmux_threads::ThreadQos::UserInitiated),
+        move || {
             let _ = io::copy(&mut tcp_read, &mut daemon_write);
             let _ = daemon_write.shutdown(Shutdown::Write);
-        });
-        let _ = copy_flush(&mut daemon_read, &mut tcp_write);
-        let _ = tcp_write.shutdown(Shutdown::Both);
-        let _ = daemon_read.shutdown(Shutdown::Both);
-        let _ = up.join();
-    });
+        },
+    )?;
+    let mut daemon_read = daemon;
+    let mut tcp_write = tcp;
+    let _ = copy_flush(&mut daemon_read, &mut tcp_write);
+    let _ = tcp_write.shutdown(Shutdown::Both);
+    let _ = daemon_read.shutdown(Shutdown::Both);
+    let _ = up.join();
     Ok(())
 }
 
@@ -468,7 +496,7 @@ fn copy_flush(from: &mut impl Read, to: &mut impl Write) -> io::Result<u64> {
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(e),
         };
-        to.write_all(&buf[..n])?;
+        to.write_all(crate::panic_free::reported_prefix(&buf, n)?)?;
         to.flush()?;
         total += n as u64;
     }

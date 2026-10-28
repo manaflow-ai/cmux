@@ -12,7 +12,6 @@ use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -72,6 +71,10 @@ pub(crate) struct HostShared {
     /// wrote (0: none since the last read took it): the reader's next PTY
     /// read carries it, once (p09-observability-018).
     pub(crate) last_input_flow: crate::input_flow::InputFlowSlot,
+    /// The host's PTY write and echo read of each key press with a flow
+    /// (p04-input-094): the reader's Output frame carries them
+    /// (`FLAG_INPUT_STAGES`).
+    pub(crate) input_stages: crate::input_stages::InputStageRing,
     pub(crate) dead: AtomicBool,
     pub(crate) launch_owner_claimed: AtomicBool,
     pub(crate) launch_owner_stream_ready: AtomicBool,
@@ -504,7 +507,11 @@ impl HostShared {
             } else {
                 // Armed before the write: the echo can be read before the write returns.
                 self.last_input_flow.arm(flow);
+                self.input_stages.received(flow, crate::input_stages::now_ns());
                 if writer.write_all(payload).and_then(|()| writer.flush()).is_ok() {
+                    if flow != 0 {
+                        self.input_stages.written(flow, crate::input_stages::now_ns());
+                    }
                     InputWrite::Written
                 } else {
                     // No echo comes: the next unrelated read must not take the flow.

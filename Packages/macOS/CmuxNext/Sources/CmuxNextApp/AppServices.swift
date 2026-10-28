@@ -590,8 +590,9 @@ final class AppServices {
     let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
     /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
     private(set) lazy var debugSettings = DebugSettingsService(services: self)
-    /// Debug menu > Toggle Action Latency HUD (DEV and NIGHTLY): the newest runs of `actionBudget`.
-    private(set) lazy var actionLatencyHUD = ActionLatencyHUD(monitor: actionBudget)
+    let inputLatencyFeed = InputLatencySlotFeed()  // each closed input slot: the latency tracker publishes (p04-input-005), the HUD reads
+    /// Debug menu > Toggle Action Latency HUD (DEV and NIGHTLY): the newest runs of `actionBudget` and inputs.
+    private(set) lazy var actionLatencyHUD = ActionLatencyHUD(monitor: actionBudget, inputs: inputLatencyFeed)
     /// Quit: origin, the keep-or-end sheet and the end of the local sessions.
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// Background mode (cx-ghagp): no window open means no Dock icon or Cmd-Tab entry, and a menu bar item instead.
@@ -840,6 +841,7 @@ final class AppServices {
         browserStores.loadRememberedSignIns(on: work)
         vncSignIns.loadRememberedVNCSignIns(on: work)
         machines = MachineRegistry(local: daemon)
+        if self.features.isEnabled(.frontendVisibilityScope) { daemon.reportFrontendVisibility(on: mainWork) }  // before the cache's first tab node
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
@@ -852,6 +854,10 @@ final class AppServices {
         pages.sharesChromiumWindows = self.features.isEnabled(.pageTabsShareChromiumWindow)
         DebugTimings.markLaunch("services.cache")
         let runtime = GhosttyRuntime.shared
+        // Terminal keys' echo and daemon stages go to the input latency slots, from the first terminal (p04-input-094).
+        let terminalKeys = TerminalKeyLatency(tracker: inputLatency.tracker)
+        runtime.echoStages.install(terminalKeys)
+        cache.terminalKeyStamps = terminalKeys
         let previousConfigChange = runtime.onConfigChange
         runtime.onConfigChange = { [weak self] in
             previousConfigChange?()

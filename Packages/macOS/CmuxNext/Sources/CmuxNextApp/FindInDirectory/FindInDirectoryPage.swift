@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextPalette
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextFilesUI
 
 /// The matches of one Find in Directory search as a palette page: one row

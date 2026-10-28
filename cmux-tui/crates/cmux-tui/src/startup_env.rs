@@ -139,7 +139,7 @@ unsafe fn take_owner_app_pid() {
 /// The systemd socket-activation variables (sd_listen_fds(3)) this process
 /// started with. They are taken out of the environment at once, as
 /// `sd_listen_fds(unset_environment = 1)` does, so no child inherits a
-/// `LISTEN_PID` naming this process; `take_provider_management_listener`
+/// `LISTEN_PID` naming this process; `provider_authority::take_management_listener`
 /// takes them later, after the server has started threads.
 #[cfg(target_os = "linux")]
 #[derive(Clone, Default)]

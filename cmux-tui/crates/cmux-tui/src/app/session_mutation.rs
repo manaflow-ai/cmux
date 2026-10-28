@@ -135,17 +135,24 @@ impl PendingSessionMutation {
     }
 
     pub(super) fn defer(&self, outcome: SessionMutationOutcome) {
-        let mut deferred = self.0.deferred_outcome.lock().unwrap();
+        let mut deferred =
+            self.0.deferred_outcome.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         debug_assert!(deferred.is_none(), "session mutation outcome deferred twice");
         *deferred = Some(outcome);
     }
 
     pub(super) fn cancel_with(&self, outcome: SessionMutationOutcome) {
-        *self.0.canceled_outcome.lock().unwrap() = Some(outcome);
+        *self.0.canceled_outcome.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(outcome);
     }
 
     pub(super) fn publish_deferred(self) {
-        let outcome = self.0.deferred_outcome.lock().unwrap().take();
+        let outcome = self
+            .0
+            .deferred_outcome
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
         if let Some(outcome) = outcome {
             self.settle(outcome);
         }
@@ -175,7 +182,7 @@ impl Drop for PendingSessionMutationState {
             let outcome = self
                 .canceled_outcome
                 .lock()
-                .unwrap()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .take()
                 .unwrap_or(SessionMutationOutcome::Canceled);
             let outcome = match self.semantic_intent {

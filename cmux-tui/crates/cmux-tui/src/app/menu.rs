@@ -173,7 +173,10 @@ impl MenuLevel {
         self.scroll_offset = offset;
         let end = offset.saturating_add(self.visible_rows).min(self.items.len());
         if (self.selected < offset || self.selected >= end)
-            && let Some(relative) = self.items[offset..end].iter().position(MenuItem::selectable)
+            && let Some(relative) = self
+                .items
+                .get(offset..end)
+                .and_then(|visible| visible.iter().position(MenuItem::selectable))
         {
             self.selected = offset + relative;
         }

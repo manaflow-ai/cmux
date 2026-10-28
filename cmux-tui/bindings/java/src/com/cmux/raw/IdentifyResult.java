@@ -35,6 +35,7 @@ public final class IdentifyResult implements WireValue {
     private final Field<String> sdkSchemaDigest;
     private final String session;
     private final Field<String> sessionId;
+    private final Field<DaemonStartupMarks> startupMarks;
     private final UInt64 terminalRevision;
     private final Field<String> updateCommand;
     private final String version;
@@ -70,6 +71,7 @@ public final class IdentifyResult implements WireValue {
         if (!builder.sessionSet) throw new IllegalArgumentException("session is required");
         this.session = Wire.nonNull(builder.session, "session");
         this.sessionId = builder.sessionId;
+        this.startupMarks = builder.startupMarks;
         if (!builder.terminalRevisionSet) throw new IllegalArgumentException("terminal_revision is required");
         this.terminalRevision = Wire.nonNull(builder.terminalRevision, "terminal_revision");
         this.updateCommand = builder.updateCommand;
@@ -107,6 +109,7 @@ public final class IdentifyResult implements WireValue {
     public Field<String> sdkSchemaDigest() { return sdkSchemaDigest; }
     public String session() { return session; }
     public Field<String> sessionId() { return sessionId; }
+    public Field<DaemonStartupMarks> startupMarks() { return startupMarks; }
     public UInt64 terminalRevision() { return terminalRevision; }
     public Field<String> updateCommand() { return updateCommand; }
     public String version() { return version; }
@@ -205,6 +208,10 @@ public final class IdentifyResult implements WireValue {
         if (!Wire.isMissing(rawSessionId)) {
             builder.sessionId(Wire.string(rawSessionId, "IdentifyResult.session_id"));
         }
+        Object rawStartupMarks = Wire.optional(object, "startup_marks");
+        if (!Wire.isMissing(rawStartupMarks)) {
+            builder.startupMarks(rawStartupMarks == null ? null : DaemonStartupMarks.fromWire(rawStartupMarks));
+        }
         Object rawTerminalRevision = Wire.required(object, "terminal_revision");
         builder.terminalRevision(Wire.uint64(rawTerminalRevision, "IdentifyResult.terminal_revision"));
         Object rawUpdateCommand = Wire.optional(object, "update_command");
@@ -247,6 +254,7 @@ public final class IdentifyResult implements WireValue {
         Wire.put(object, "sdk_schema_digest", sdkSchemaDigest);
         Wire.put(object, "session", session);
         Wire.put(object, "session_id", sessionId);
+        Wire.put(object, "startup_marks", startupMarks);
         Wire.put(object, "terminal_revision", terminalRevision);
         Wire.put(object, "update_command", updateCommand);
         Wire.put(object, "version", version);
@@ -257,11 +265,11 @@ public final class IdentifyResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof IdentifyResult that)) return false;
-        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(bulkFrameMax, that.bulkFrameMax) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(crateVersion, that.crateVersion) && Objects.equals(framedMethods, that.framedMethods) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(install, that.install) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineCapabilities, that.machineCapabilities) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(machinePlatform, that.machinePlatform) && Objects.equals(minApiRevision, that.minApiRevision) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(sdkSchemaDigest, that.sdkSchemaDigest) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(updateCommand, that.updateCommand) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(bulkFrameMax, that.bulkFrameMax) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(crateVersion, that.crateVersion) && Objects.equals(framedMethods, that.framedMethods) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(install, that.install) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineCapabilities, that.machineCapabilities) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(machinePlatform, that.machinePlatform) && Objects.equals(minApiRevision, that.minApiRevision) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(sdkSchemaDigest, that.sdkSchemaDigest) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(startupMarks, that.startupMarks) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(updateCommand, that.updateCommand) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(apiRevision, buildCommit, buildId, bulkFrameMax, capabilities, cliPath, crateVersion, framedMethods, generation, ghosttyCommit, install, launchSnapshotPath, lifecycleReady, machineCapabilities, machineId, machineName, machinePlatform, minApiRevision, pid, protocol, registryId, sdkSchemaDigest, session, sessionId, terminalRevision, updateCommand, version, workspaceRevision); }
+    public int hashCode() { return Objects.hash(apiRevision, buildCommit, buildId, bulkFrameMax, capabilities, cliPath, crateVersion, framedMethods, generation, ghosttyCommit, install, launchSnapshotPath, lifecycleReady, machineCapabilities, machineId, machineName, machinePlatform, minApiRevision, pid, protocol, registryId, sdkSchemaDigest, session, sessionId, startupMarks, terminalRevision, updateCommand, version, workspaceRevision); }
 
     @Override
     public String toString() { return "IdentifyResult" + toWire(); }
@@ -296,6 +304,7 @@ public final class IdentifyResult implements WireValue {
         private String session;
         private boolean sessionSet;
         private Field<String> sessionId = Field.omitted();
+        private Field<DaemonStartupMarks> startupMarks = Field.omitted();
         private UInt64 terminalRevision;
         private boolean terminalRevisionSet;
         private Field<String> updateCommand = Field.omitted();
@@ -403,6 +412,10 @@ public final class IdentifyResult implements WireValue {
         }
         public Builder sessionId(String value) {
             this.sessionId = Field.of(value);
+            return this;
+        }
+        public Builder startupMarks(DaemonStartupMarks value) {
+            this.startupMarks = Field.ofNullable(value);
             return this;
         }
         public Builder terminalRevision(UInt64 value) {

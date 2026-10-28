@@ -19,6 +19,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+use crate::cli::json_fields::JsonFields;
+
 /// One delivery, from starting the proxy to the daemon's answer.
 const DEADLINE: Duration = Duration::from_secs(8);
 
@@ -158,14 +160,23 @@ impl Client {
         let stdout = child.stdout.take().ok_or("codex app-server proxy has no stdout")?;
         let (sender, lines) = channel();
         // supervise-allow: the proxy's stdout reader for this CLI run; it ends at EOF, and a panic drops `sender`, so requests fail at their deadline.
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
-                if sender.send(line).is_err() {
-                    break;
+        let reader = cmux_threads::spawn(
+            "codex-app-server-lines",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                for line in BufReader::new(stdout).lines() {
+                    let Ok(line) = line else { break };
+                    if sender.send(line).is_err() {
+                        break;
+                    }
                 }
-            }
-        });
+            },
+        );
+        if let Err(error) = reader {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("cannot read codex: {error}"));
+        }
         let mut client =
             Self { child, stdin, lines, next_id: 1, deadline: Instant::now() + DEADLINE };
         client.request(
@@ -194,7 +205,7 @@ impl Client {
                 let read = self
                     .request("thread/read", json!({"threadId": thread_id, "includeTurns": true}))?;
                 // A turn that ended in between leaves an idle thread.
-                Ok(running_turn(&read["thread"])
+                Ok(running_turn(read.field("thread"))
                     .map_or(Target::Start, |turn| Target::Steer(turn.to_owned())))
             }
             ThreadState::Unavailable(reason) => Err(reason),
@@ -203,7 +214,7 @@ impl Client {
 
     fn read_state(&mut self, thread_id: &str) -> Result<ThreadState, String> {
         let read = self.request("thread/read", json!({"threadId": thread_id}))?;
-        Ok(thread_state(&read["thread"]))
+        Ok(thread_state(read.field("thread")))
     }
 
     fn start_turn(
@@ -227,10 +238,10 @@ impl Client {
         let mut cursor = Value::Null;
         loop {
             let page = self.request("thread/loaded/list", json!({"cursor": cursor}))?;
-            if page["data"].as_array().into_iter().flatten().any(|id| id == thread_id) {
+            if page.field("data").as_array().into_iter().flatten().any(|id| id == thread_id) {
                 return Ok(true);
             }
-            match &page["nextCursor"] {
+            match &page.field("nextCursor") {
                 Value::String(next) => cursor = Value::String(next.clone()),
                 _ => return Ok(false),
             }
@@ -261,7 +272,7 @@ impl Client {
             };
             let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
             // Notifications and requests from the daemon are not ours.
-            if message.get("method").is_some() || message["id"] != id {
+            if message.get("method").is_some() || message.field("id") != id {
                 continue;
             }
             if let Some(error) = message.get("error") {

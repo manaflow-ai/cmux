@@ -1,6 +1,7 @@
 //! Config file I/O: locating the config file, bounded reads, and atomic, durably synced writes of plugin entries.
 
 use super::*;
+use crate::json_fields::JsonFields;
 
 pub fn config_path() -> anyhow::Result<PathBuf> {
     platform::config_path().ok_or_else(|| anyhow::anyhow!("could not resolve mux config path"))
@@ -75,10 +76,12 @@ pub(crate) fn write_sidebar_plugin_at_path(
             if !sidebar.is_object() {
                 *sidebar = json!({});
             }
-            let sidebar_object = sidebar.as_object_mut().expect("sidebar was just made an object");
+            let Some(sidebar_object) = sidebar.as_object_mut() else {
+                anyhow::bail!("{} sidebar is not a JSON object", path.display());
+            };
             let mut plugin_value = json!({ "command": &plugin.command });
             if let Some(cwd) = &plugin.cwd {
-                plugin_value["cwd"] = json!(cwd);
+                plugin_value.insert("cwd", json!(cwd));
             }
             sidebar_object.insert("plugin".to_string(), plugin_value);
         }
@@ -115,16 +118,18 @@ pub(crate) fn write_agent_plugin_at_path(
             if !agents.is_object() {
                 *agents = json!({});
             }
-            let agents_object = agents.as_object_mut().expect("agents was just made an object");
+            let Some(agents_object) = agents.as_object_mut() else {
+                anyhow::bail!("{} agents is not a JSON object", path.display());
+            };
             let mut plugin_value = json!({
                 "id": &plugin.id,
                 "command": &plugin.command,
             });
             if let Some(cwd) = &plugin.cwd {
-                plugin_value["cwd"] = json!(cwd);
+                plugin_value.insert("cwd", json!(cwd));
             }
             if let Some(revision) = &plugin.revision {
-                plugin_value["revision"] = json!(revision);
+                plugin_value.insert("revision", json!(revision));
             }
             agents_object.insert("plugin".to_string(), plugin_value);
         }

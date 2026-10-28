@@ -7,6 +7,7 @@ use crate::cli::errors::{AppError, Code};
 use crate::cli::output::print_json;
 use crate::cli::run::resolve_id;
 use crate::client::Client;
+use crate::no_panic::JsonExt;
 use crate::rpc::method;
 use anyhow::{Context, Result};
 use clap::Args;
@@ -74,13 +75,13 @@ pub(crate) async fn run(client: Arc<Client>, a: ContinueArgs, json_out: bool) ->
     let mut h = client.request(method::MUX_HANDOFF_GET, json!({"handoffId": id})).await?;
     let text = match &a.text {
         Some(path) => read_text(path)?,
-        None => h["capsule"]["text"].as_str().unwrap_or("").to_owned(),
+        None => h.field("capsule").field("text").as_str().unwrap_or("").to_owned(),
     };
     if !a.start {
         if a.text.is_some() || checkpoint.is_some() {
-            let mut p = json!({"handoffId": id, "revision": h["revision"], "draftKey": uuid::Uuid::now_v7().to_string(), "capsule": {"text": text}});
+            let mut p = json!({"handoffId": id, "revision": h.field("revision"), "draftKey": uuid::Uuid::now_v7().to_string(), "capsule": {"text": text}});
             if let Some(c) = checkpoint {
-                p["checkpoint"] = c;
+                p.set("checkpoint", c);
             }
             h = client.request(method::MUX_HANDOFF_DRAFT, p).await?;
         }
@@ -92,9 +93,9 @@ pub(crate) async fn run(client: Arc<Client>, a: ContinueArgs, json_out: bool) ->
         return Ok(());
     }
     let prompt_id = a.prompt_id.clone().unwrap_or_else(|| id.clone());
-    let mut p = json!({"handoffId": id, "revision": h["revision"], "promptId": prompt_id, "capsule": {"text": text}});
+    let mut p = json!({"handoffId": id, "revision": h.field("revision"), "promptId": prompt_id, "capsule": {"text": text}});
     if let Some(c) = checkpoint {
-        p["checkpoint"] = c;
+        p.set("checkpoint", c);
     }
     // Start answers once the target records the prompt; no answer by then
     // is uncertain, and the same promptId retries safely.
@@ -113,9 +114,9 @@ pub(crate) async fn run(client: Arc<Client>, a: ContinueArgs, json_out: bool) ->
             } else {
                 println!(
                     "{} handoff {id} in session {} (promptId {prompt_id}, turn {})",
-                    if v["outcome"] == "started" { "started" } else { "already started" },
-                    v["targetSessionId"].as_str().unwrap_or("?"),
-                    v["turnId"].as_str().unwrap_or("unknown"),
+                    if *v.field("outcome") == "started" { "started" } else { "already started" },
+                    v.field("targetSessionId").as_str().unwrap_or("?"),
+                    v.field("turnId").as_str().unwrap_or("unknown"),
                 );
             }
             Ok(())
@@ -155,10 +156,10 @@ async fn prepare(
     let key = a.key.unwrap_or_else(|| format!("{id}:{to}"));
     let mut p = json!({"sessionId": id, "harness": to, "handoffKey": key, "memoryRefs": a.memory});
     if let Some(c) = checkpoint {
-        p["checkpoint"] = c;
+        p.set("checkpoint", c);
     }
     if let Some(policy) = a.policy {
-        p["policy"] = json!(policy);
+        p.set("policy", json!(policy));
     }
     let h = client.request(method::MUX_HANDOFF_PREPARE, p).await?;
     if json_out {
@@ -184,13 +185,13 @@ fn print_handoff(h: &Value) {
     println!("handoff {id}  {}  revision {}", s(&h["state"]), h["revision"]);
     println!(
         "  {} {} -> {} {}  (cwd {})",
-        s(&h["source"]["harness"]),
-        s(&h["source"]["sessionId"]),
-        s(&h["target"]["harness"]),
-        s(&h["target"]["sessionId"]),
-        s(&h["target"]["cwd"]),
+        s(h.field("source").field("harness")),
+        s(h.field("source").field("sessionId")),
+        s(h.field("target").field("harness")),
+        s(h.field("target").field("sessionId")),
+        s(h.field("target").field("cwd")),
     );
-    let ctx = &h["capsule"]["context"];
+    let ctx = h.field("capsule").field("context");
     println!(
         "  context: seq {}..{}, {} of {} bytes{}",
         ctx["fromSeq"],
@@ -199,14 +200,14 @@ fn print_handoff(h: &Value) {
         ctx["totalBytes"],
         if ctx["truncated"] == true { ", oldest cut" } else { "" },
     );
-    let cp = &h["capsule"]["checkpoint"];
+    let cp = h.field("capsule").field("checkpoint");
     if cp.is_null() {
         println!("  checkpoint: none (start requires one: --checkpoint REF --attest)");
     } else {
         println!("  checkpoint: {} (attested {})", s(&cp["ref"]), s(&cp["attestedAt"]));
     }
     println!("  coverage:");
-    for c in h["source"]["coverage"].as_array().into_iter().flatten() {
+    for c in h.field("source").field("coverage").as_array().into_iter().flatten() {
         println!(
             "    {:<12} {:<12} {}",
             s(&c["item"]),
@@ -215,14 +216,17 @@ fn print_handoff(h: &Value) {
         );
     }
     for side in ["source", "target"] {
-        let e = &h[side]["enforcement"];
+        let e = h.field(side).field("enforcement");
         println!(
             "  {side} enforcement: {} ({})",
             s(&e["policy"]),
             e["detail"].as_str().unwrap_or("")
         );
     }
-    println!("--- first message ---\n{}\n---", h["capsule"]["text"].as_str().unwrap_or(""));
+    println!(
+        "--- first message ---\n{}\n---",
+        h.field("capsule").field("text").as_str().unwrap_or("")
+    );
     if h["state"] == "discarded" {
         println!("this handoff was discarded; prepare again with a new --key");
     }

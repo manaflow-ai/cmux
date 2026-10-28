@@ -44,7 +44,7 @@ export function ToolRun({
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();
-  // Read once per run: the row draws again only when its version moves (App.tsx ToolActivityRow),
+  // Read once per run: the row draws again only when its version moves (rows/ToolActivityRow.tsx),
   // and then only a new list of calls counts again.
   const { summary, main, failures, running } = useMemo(
     () => ({

@@ -11,6 +11,9 @@
 //! backpressure to the provider instead of spawning an unbounded number of
 //! retrying children. The child waits for the receipt and retries.
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 use std::env;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -57,7 +60,9 @@ fn main() -> ExitCode {
 /// `exe_prefix` is the argv that re-enters this mode through `current_exe`:
 /// empty for the standalone helper, `["__agent-hook"]` inside cmux-tui.
 pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
-    if arguments.len() == 1 && arguments[0] == DETACHED_MODE_ARG {
+    if let [mode] = arguments.as_slice()
+        && mode == DETACHED_MODE_ARG
+    {
         return match detached_child_from_stdin() {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
@@ -258,6 +263,10 @@ impl DetachedChildGuard {
         Self(Some(child))
     }
 
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: only `release(self)` and `drop` empty the slot, and neither leaves a guard to call this on"
+    )]
     fn child_mut(&mut self) -> &mut cmux_process::Child {
         self.0.as_mut().expect("detached child guard is occupied")
     }
@@ -288,22 +297,23 @@ impl Drop for DetachedChildGuard {
 /// handed to a thread that would die with this one-shot process. The child has
 /// its own `SOCKET_TIMEOUT` deadline; the OS owns its eventual orphaned
 /// lifetime after this process exits.
-fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::JoinHandle<()>) {
+fn settle_detached_child(
+    mut child: DetachedChildGuard,
+    reader: Option<std::thread::JoinHandle<()>>,
+) {
     let status = child.child_mut().try_wait();
     match status {
         Ok(Some(_)) => {
             child.release();
             // `is_finished` keeps the provider-facing path non-blocking even
             // if a platform leaves the pipe reader briefly behind the child.
-            if reader.is_finished() {
+            if let Some(reader) = reader.filter(std::thread::JoinHandle::is_finished) {
                 #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
                 let _ = cmux_blocking::scoped_blocking_call(
                     "thread::join",
                     cmux_blocking::BlockingKind::Join,
                     || reader.join(),
                 );
-            } else {
-                drop(reader);
             }
         }
         Ok(None) => {
@@ -359,16 +369,15 @@ fn detached_child_from_stdin() -> anyhow::Result<()> {
 fn read_detached_request_id(reader: &mut impl BufRead) -> anyhow::Result<String> {
     // Allow an optional carriage return before the required newline. The
     // delimiter itself is not part of the request id byte limit.
-    let line_limit =
-        MAX_REQUEST_ID_BYTES.checked_add(2).expect("detached request id limit fits usize");
+    const LINE_LIMIT: usize = MAX_REQUEST_ID_BYTES + 2;
     let mut line = String::new();
     let bytes_read =
-        reader.take(line_limit as u64).read_line(&mut line).context("read detached request id")?;
+        reader.take(LINE_LIMIT as u64).read_line(&mut line).context("read detached request id")?;
     if bytes_read == 0 {
         bail!("detached request id is empty");
     }
     if !line.ends_with('\n') {
-        if bytes_read >= line_limit {
+        if bytes_read >= LINE_LIMIT {
             bail!("detached request id exceeds {MAX_REQUEST_ID_BYTES} bytes");
         }
         bail!("detached request id is missing newline delimiter");
@@ -601,9 +610,8 @@ fn connect_before(
     let display = socket.display().to_string();
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     // supervise-allow: one-shot helper of this short-lived hook process; a panic drops its sender, so the bounded wait below ends.
-    let connector = std::thread::Builder::new()
-        .name("journal-hook-connect".into())
-        .spawn(move || {
+    let connector =
+        cmux_threads::spawn("journal-hook-connect", cmux_threads::ThreadQos::Utility, move || {
             let _ = sender.send(transport::connect(&socket));
         })
         .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
@@ -663,18 +671,25 @@ fn write_before(
     encoded: &[u8],
     deadline: Instant,
 ) -> Result<(), AppendAttemptError> {
-    let mut offset = 0;
-    while offset < encoded.len() {
+    let mut unwritten = encoded;
+    while !unwritten.is_empty() {
         stream
             .set_write_timeout(Some(remaining_before(deadline)?))
             .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
-        match stream.write(&encoded[offset..]) {
+        match stream.write(unwritten) {
             Ok(0) => {
                 return Err(AppendAttemptError::Retryable(
                     io::Error::from(io::ErrorKind::WriteZero).into(),
                 ));
             }
-            Ok(written) => offset += written,
+            Ok(written) => {
+                unwritten = unwritten.get(written..).ok_or_else(|| {
+                    AppendAttemptError::Retryable(anyhow!(
+                        "the socket reported {written} bytes written of {}",
+                        unwritten.len()
+                    ))
+                })?;
+            }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => return Err(AppendAttemptError::Retryable(error.into())),
         }
@@ -710,17 +725,21 @@ fn read_before(
                 "journal append closed without a complete response"
             )));
         }
-        let consumed = available
+        let (chunk, complete) = match available
             .iter()
             .position(|byte| *byte == b'\n')
-            .map_or(available.len(), |newline| newline + 1);
+            .and_then(|newline| available.get(..=newline))
+        {
+            Some(line) => (line, true),
+            None => (available, false),
+        };
+        let consumed = chunk.len();
         if response.len().saturating_add(consumed) > MAX_RESPONSE_BYTES {
             return Err(AppendAttemptError::Fatal(anyhow!(
                 "journal append response exceeds 16 MiB"
             )));
         }
-        let complete = available[consumed - 1] == b'\n';
-        response.extend_from_slice(&available[..consumed]);
+        response.extend_from_slice(chunk);
         reader.consume(consumed);
         if complete {
             return Ok(response);
@@ -782,14 +801,18 @@ mod detach {
         // deadline on every platform (Windows pipe reads have no timeout).
         let (sender, receiver) = mpsc::channel();
         // supervise-allow: one-shot helper of this short-lived hook process; a panic drops its sender, so the bounded wait below ends.
-        let reader = std::thread::spawn(move || {
-            let mut byte = [0_u8; 1];
-            let outcome = match stdout.read(&mut byte) {
-                Ok(1) => Handoff::Sent,
-                _ => Handoff::ChildExited,
-            };
-            let _ = sender.send(outcome);
-        });
+        let reader = cmux_threads::spawn(
+            "journal-hook-handoff",
+            cmux_threads::ThreadQos::Utility,
+            move || {
+                let mut byte = [0_u8; 1];
+                let outcome = match stdout.read(&mut byte) {
+                    Ok(1) => Handoff::Sent,
+                    _ => Handoff::ChildExited,
+                };
+                let _ = sender.send(outcome);
+            },
+        );
         #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
         let outcome = cmux_blocking::scoped_blocking_call(
             "sync::recv_timeout",
@@ -797,7 +820,9 @@ mod detach {
             || receiver.recv_timeout(handoff_wait),
         )
         .unwrap_or(Handoff::TimedOut);
-        super::settle_detached_child(child, reader);
+        // A reader that did not start dropped its sender: the wait above
+        // ended at once as a timeout.
+        super::settle_detached_child(child, reader.ok());
         Ok(outcome)
     }
 }
@@ -806,10 +831,9 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes).map_err(|error| anyhow!("allocate hook identity: {error}"))?;
     let mut suffix = String::with_capacity(32);
-    const HEX: &[u8; 16] = b"0123456789abcdef";
     for byte in bytes {
-        suffix.push(char::from(HEX[usize::from(byte >> 4)]));
-        suffix.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        use std::fmt::Write as _;
+        write!(&mut suffix, "{byte:02x}")?;
     }
     Ok((format!("request_{suffix}"), format!("mutation_{suffix}")))
 }
