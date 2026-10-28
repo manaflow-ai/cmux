@@ -244,7 +244,8 @@ enum AgentHandlers {
         ComputerUseHandlers.bind(
             into: registry,
             sessions: CuaComputerUseSessions(configuration: { helper.configuration },
-                                             phase: { [weak services] in services?.onboarding.computerUseSetup.phase ?? .off }),
+                                             phase: { [weak services] in services?.onboarding.computerUseSetup.phase ?? .off },
+                                             confirmRunning: { helper.confirmRunning() }),
             focus: AppComputerUseFocus(services: services))
     }
 

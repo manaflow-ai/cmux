@@ -149,7 +149,7 @@ public actor CloudMachineLink {
         // must never publish a socket or replace a newer link.
         let endpoint = try await api.attachEndpoint(machineID, deviceFingerprint: deviceFingerprint)
         try checkGeneration(generation)
-        let hubSocket = try await hub.socketPath()
+        let hubEndpoint = try await hub.endpoint()
         try checkGeneration(generation)
         unlink(paths.linkSocket(machineID: machineID))
         let inviteFile = endpoint.invitation.map { _ in
@@ -175,11 +175,12 @@ public actor CloudMachineLink {
             arguments.append("--carrier")
         }
         arguments += Self.vmKindArguments(endpoint)
-        arguments += ["--wireguard-hub", hubSocket]
+        arguments += ["--wireguard-hub", hubEndpoint.socket, "--wireguard-hub-token-stdin"]
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.linkState.path
         guard FileManager.default.isExecutableFile(atPath: binary.path) else { throw ChildProcessError.missingBinary(binary.path) }
-        let child = ChildProcess(executable: binary, arguments: arguments, environment: environment)
+        let child = ChildProcess(executable: binary, arguments: arguments, environment: environment,
+                                 input: Data((hubEndpoint.clientToken + "\n").utf8))
         try child.start()
         self.child = child
         do {

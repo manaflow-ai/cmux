@@ -142,6 +142,8 @@ public final class PushReplies {
         /// False: the push may open the app but no button acts (an unsealed push
         /// from a Mac that seals, or a stale one; PR B security review H1).
         public var actionable: Bool
+        /// Photos and files the long look's "+" staged for Reply (outbox file names).
+        public var attachments: [String] = []
 
         public init(actionIdentifier: String, text: String?, payload: PushPayload?, retry: PushReply?, actionable: Bool = true) {
             self.actionIdentifier = actionIdentifier
@@ -191,10 +193,16 @@ public final class PushReplies {
         guard let button = PushAction(identifier: identifier) else { return .nothing }
         if button == .answer { return .open(payload) }
         let opensApp = PushActions(requireFaceID: requireFaceID).opensApp(button)
-        guard let reply = PushReply(payload: payload, button: button, text: response.text) else {
+        guard let reply = PushReply(payload: payload, button: button, text: response.text, attachments: response.attachments) else {
             return opensApp ? .open(payload) : .nothing
         }
         return opensApp ? .foreground(reply, open: payload) : .background(reply)
+    }
+
+    /// What the long look staged for the notification `requestID`'s Reply (off the main thread).
+    static func stagedAttachments(for requestID: String) async -> [String] {
+        guard let outbox = PushOutbox(group: await PushAppGroup.resolved()) else { return [] }
+        return await Task.detached(priority: .userInitiated) { outbox.takeStaged(for: requestID) }.value
     }
 
     /// One notification response (the app delegate). Returns once a
@@ -210,6 +218,9 @@ public final class PushReplies {
             if let payload { NotificationRouter.shared.open(payload) } else { NotificationRouter.shared.open(reply: reply) }
             enqueueForeground(reply)
         case .background(let reply):
+            if case .text(_, let names) = reply.action {
+                log.info("push reply: \(reply.kind.rawValue, privacy: .public) text reply with \(names.count, privacy: .public) attachment(s)")
+            }
             await deliverInBackground(reply)
         }
     }

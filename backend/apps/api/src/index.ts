@@ -29,15 +29,22 @@ import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
 import { GITHUB_TOKEN_PATH, handleGithubToken } from "./integrations/github-token-route.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
+// Named entrypoint for service bindings only (the platform Worker's environment setups); no HTTP route reaches it.
+export { PlatformMachines } from "./platform-machines.ts"
+export { HandoffDO } from "./handoffs/handoff-do.ts"
+export { HandoffIndexDO } from "./handoffs/index-do.ts"
+import { handleHandoffs, HANDOFFS_PATH } from "./handoffs/routes.ts"
 export { AddressDO } from "./address-do.ts"
 export { ConversationDO } from "./conversation-do.ts"
 export { MuxDO } from "./mux-do.ts"
 export { ChiefBrainDO } from "./chief-brain/brain-do.ts"
 export { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
+export { ChiefDurableDO } from "./chief-durable/durable-do.ts"
 import { CHIEF_BRAIN_PATH, handleChiefBrain } from "./chief-brain/routes.ts"
 import { GATEWAY_PATH, handleModelGateway } from "./model-gateway/http.ts"
 import { FAULT_PATH, handleFault } from "./chief-fault.ts"
 import { CC_NOTES_PATH, handleCcNotes } from "./chief-brain-cc/routes.ts"
+import { durableOn } from "./mux-wake-delivery.ts"
 import { handleBrainImpl, handleOpencodeHost, handleOpencodeRuns, OPENCODE_HOST_PATH, OPENCODE_IMPL_PATH, opencodeOn } from "./chief-brain-opencode/routes.ts"
 export { DomainDO } from "./domain-do.ts"
 export { PairingDO } from "./pairing-do.ts"
@@ -182,8 +189,10 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
   return Response.json({ ok: true, value: reply.value })
 }
 
-/** The projection compare's cron expression (wrangler.jsonc staging and development triggers). */
+/** The projection compare's cron expression (wrangler.jsonc triggers of every environment). */
 const PROJECTION_COMPARE_CRON = "*/15 * * * *"
+/** The hourly full verify of every projected row (projection-compare-full-cron.ts); staging only until the cutover runbook turns it on in production. */
+const PROJECTION_COMPARE_FULL_CRON = "7 * * * *"
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -217,7 +226,7 @@ export default {
     const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
     // A Chief that runs the opencode brain (chief-brain-opencode/) keeps its runs there.
     const chiefBrainPath = chiefBrain?.[2] === "brain" || chiefBrain?.[2] === "github" || chiefBrain?.[2] === "memory" || chiefBrain?.[2] === "peer" ? chiefBrain[2] : "runs"
-    if (chiefBrain && chiefBrainPath === "runs" && opencodeOn(env)) return handleOpencodeRuns(request, env, chiefBrain[1]!, chiefBrain[3], () => handleChiefBrain(request, env, chiefBrain[1]!, "runs", chiefBrain[3]))
+    if (chiefBrain && chiefBrainPath === "runs" && (opencodeOn(env) || durableOn(env))) return handleOpencodeRuns(request, env, chiefBrain[1]!, chiefBrain[3], () => handleChiefBrain(request, env, chiefBrain[1]!, "runs", chiefBrain[3]))
     if (chiefBrain) return handleChiefBrain(request, env, chiefBrain[1]!, chiefBrainPath, chiefBrain[3])
     const fault = url.pathname.match(FAULT_PATH)
     if (fault) return handleFault(request, env, fault[1]!)
@@ -237,6 +246,9 @@ export default {
     const card = url.pathname.match(/^\/v1\/invites\/card\/([dg][0-9A-HJKMNP-TV-Z]{26})$/)
     if (card && request.method === "GET") return handleInviteCard(env, card[1]!)
     if (url.pathname === "/v1/invites/preview") return handleInvitePreview(request, env)
+    // Cloud work mode's hand-offs (handoffs/routes.ts): the owner's sessions on cloud machines, and their machines' reports.
+    const handoff = url.pathname.match(HANDOFFS_PATH)
+    if (handoff) return handleHandoffs(request, env, handoff)
     if (url.pathname === "/v1/presence-key" && request.method === "POST") return handlePresenceKey(request, env)
     if (url.pathname.startsWith("/v1/inference/")) return inference(url.pathname, request, env, ctx)
     // Home attachments (home-attachments.ts): intent, commit and URL mint need a bearer; the slot and the signed URL are the credential.
@@ -263,6 +275,8 @@ export default {
     // A Chief's upsell link: a Stripe Checkout page for a plan (plan-checkout.ts, test mode only).
     const planCheckout = url.pathname.match(PLAN_PATH)
     if (planCheckout) return handlePlanCheckout(request, env, planCheckout[1]!)
+    // The console's billing page: plan, usage, credits, upgrades (billing-summary.ts, paid-plans-DESIGN.md §3).
+    if (url.pathname === "/v1/billing/summary") return (await import("./billing-summary.ts")).handleBillingSummary(request, env)
     if (url.pathname === CREDITS_WEBHOOK_PATH) return handleCreditsWebhook(request, env)
     if (url.pathname === CREDITS_ADMIN_PATH) return handleCreditsAdmin(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
@@ -291,7 +305,8 @@ export default {
     return apiHandler(request)
   },
   // Cron (wrangler triggers): every 5 minutes the Cloud Home health probe (home-health.ts), the feed text sweep (feed-sweep.ts), and every 15 minutes the
-  // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts).
+  // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts) and the shadow-read probe (shadow-read-probe.ts),
+  // and hourly where configured the full read-only verify of every projected row (projection-compare-full-cron.ts).
   // Awaited, not waitUntil: the run gets the cron limit, and a throw shows as a failed run.
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     // Cloud Home health (home-health.ts): a probe round trip and a Sentry Cron check-in; it never throws.
@@ -299,9 +314,23 @@ export default {
       await runHomeHealth(env, { fetcher: sentryFetch })
       return
     }
+    // The full Postgres/MySQL verify: its own hourly invocation (a 15-minute CPU limit), read only.
+    if (controller.cron === PROJECTION_COMPARE_FULL_CRON) {
+      await (await import("./projection-compare-full-cron.ts")).compareFullFromEnv(env, controller.scheduledTime)
+      return
+    }
     if (controller.cron === PROJECTION_COMPARE_CRON) {
       // The usage sync (cx-y79zh S4) runs beside the projection compare; a failure of one does not stop the other.
-      const [compare, usage] = await Promise.allSettled([(async () => (await import("./projection-compare-cron.ts")).compareFromEnv(env))(), env.STRIPE_USAGE_KEY ? (async () => (await import("./billing-usage-sync.ts")).syncUsage(env))() : Promise.resolve(null)])
+      // Never in production yet: production runs this cron for the Vitess dual write, and the usage sync's live switch is its
+      // own reviewed change with the live key (plans/cmux-next/usage-billing.md section 10), which removes this condition.
+      const usageSync = env.STRIPE_USAGE_KEY && env.ENVIRONMENT !== "production"
+      const [compare, usage, probe] = await Promise.allSettled([
+        (async () => (await import("./projection-compare-cron.ts")).compareFromEnv(env))(),
+        usageSync ? (async () => (await import("./billing-usage-sync.ts")).syncUsage(env))() : Promise.resolve(null),
+        // Shadow-read soak traffic (shadow-read-probe.ts): every user id through the feed.users shadow read.
+        (async () => (await import("./shadow-read-probe.ts")).shadowReadProbe(env, sweepDeps(env).listUsers))()
+      ])
+      if (probe.status === "rejected") console.error(JSON.stringify({ msg: "projection.read.probe_failed", error: String(probe.reason).slice(0, 200) }))
       if (usage.status === "rejected") console.error(JSON.stringify({ msg: "billing.usage_sync.run_failed", error: String(usage.reason).slice(0, 200) }))
       if (compare.status === "rejected") throw compare.reason
       return

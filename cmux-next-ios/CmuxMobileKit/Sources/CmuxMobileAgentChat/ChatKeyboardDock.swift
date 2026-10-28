@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxMobileSupport
 import QuartzCore
 import SwiftUI
 import UIKit
@@ -540,7 +541,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     fileprivate func draggedKeyboardFrame() {
-        guard scrollView.isTracking, let top = KeyboardProbe.drawnTop(in: view.window) else { return }
+        guard scrollView.isTracking, let top = MobileKeyboardProbe().drawnTop(in: view.window) else { return }
         let local = view.convert(CGPoint(x: 0, y: top), from: nil).y
         let constant = min(local, view.bounds.maxY) - view.bounds.maxY
         guard let constraint = notifiedKeyboardTop, abs(constraint.constant - constant) > 0.01 else { return }
@@ -717,43 +718,6 @@ private final class DragLinkTarget: NSObject {
     @objc func tick() { owner?.draggedKeyboardFrame() }
 }
 
-/// The keyboard as drawn this frame: the system's placeholder for the
-/// remote keyboard in the app's text effects window (presentation layers),
-/// window coordinates. Read-only; nil when it cannot be found.
-@MainActor
-enum KeyboardProbe {
-    static func drawnTop(in window: UIWindow?) -> CGFloat? {
-        guard let window, let scene = window.windowScene else { return nil }
-        for w in scene.windows where NSStringFromClass(type(of: w)).contains("TextEffects") {
-            guard let host = find(in: w, where: { NSStringFromClass(type(of: $0)).contains("RemoteKeyboardPlaceholder") }) else { continue }
-            let rect = window.convert(onScreen(host, in: w), from: w)
-            return rect.height > 1 ? min(rect.minY, window.bounds.maxY) : window.bounds.maxY
-        }
-        return nil
-    }
-
-    /// A view's frame in its window as drawn this frame: the presentation
-    /// layers' geometry all the way up.
-    static func onScreen(_ view: UIView, in window: UIView) -> CGRect {
-        var layer: CALayer? = view.layer
-        var rect = (view.layer.presentation() ?? view.layer).bounds
-        while let current = layer, current !== window.layer {
-            let p = current.presentation() ?? current
-            guard let superlayer = current.superlayer else { break }
-            let sp = superlayer.presentation() ?? superlayer
-            rect = p.convert(rect, to: sp)
-            layer = superlayer
-        }
-        return rect
-    }
-
-    static func find(in view: UIView, where match: (UIView) -> Bool) -> UIView? {
-        if match(view) { return view }
-        for sub in view.subviews { if let found = find(in: sub, where: match) { return found } }
-        return nil
-    }
-}
-
 /// Lets the composer's swipe-down recognizer run beside the text view's own.
 private final class DockPanDelegate: NSObject, UIGestureRecognizerDelegate {
     @MainActor static let shared = DockPanDelegate()
@@ -826,11 +790,11 @@ final class ChatKeyboardTrace {
     }
 
     static func keyboardTop(in window: UIWindow?) -> CGFloat? {
-        KeyboardProbe.drawnTop(in: window) ?? window?.bounds.maxY
+        MobileKeyboardProbe().drawnTop(in: window) ?? window?.bounds.maxY
     }
 
     static func onScreen(_ view: UIView, in window: UIView) -> CGRect {
-        KeyboardProbe.onScreen(view, in: window)
+        MobileKeyboardProbe().onScreen(view, in: window)
     }
 
     /// The composer's glass card: the widest glass view in the window.
@@ -852,7 +816,7 @@ final class ChatKeyboardTrace {
     }
 
     private static func find(in view: UIView, where match: (UIView) -> Bool) -> UIView? {
-        KeyboardProbe.find(in: view, where: match)
+        MobileKeyboardProbe().find(in: view, where: match)
     }
 }
 #endif
