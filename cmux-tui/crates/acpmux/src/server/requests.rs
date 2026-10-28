@@ -661,6 +661,16 @@ async fn dispatch_request(
     params: Value,
     resolved: Option<Arc<crate::hub::Session>>,
 ) -> Result<Value, RpcError> {
+    // Launch cleanup belongs to this daemon and must never resolve or forward a peer name.
+    if m == method::MUX_WARM_STOP {
+        if conn.origin != Origin::Local {
+            return Err(RpcError::invalid_params("warm_stop requires the local Unix socket"));
+        }
+        let id = str_param(&params, "sessionId")
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
+        return Ok(hub.warm_stop(id).await);
+    }
     // A session that lives on a peer (`peer_forward.rs`).
     if let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
         return reply;
@@ -716,7 +726,7 @@ async fn dispatch_request(
                 "personInstance": hub.person.instance(),
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
-                    method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
+                    method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_KILL, method::MUX_WARM_STOP, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
                     method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                     method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH,
@@ -1389,15 +1399,6 @@ async fn dispatch_request(
         method::MUX_WEB_MODES => hub.web_modes_view(&params),
         method::MUX_WEB_TOKEN_ROTATE => hub.rotate_web_token().await,
         method::MUX_WARM => {
-            // Stop counts belong to this process launch, never the persistent dashboard token.
-            let epoch = format!("{}:{}", std::process::id(), hub.started_at);
-            if params
-                .get("expectedDaemonEpoch")
-                .and_then(Value::as_str)
-                .is_some_and(|expected| expected != epoch)
-            {
-                return Ok(json!({"warmed": [], "failed": [], "daemonEpoch": epoch}));
-            }
             let requested: Vec<String> = params
                 .get("sessionIds")
                 .and_then(Value::as_array)
@@ -1414,15 +1415,8 @@ async fn dispatch_request(
                 super::remote_guard::control_of(conn.origin, conn.auth, &params),
                 &params,
             );
-            let expected_stops = params
-                .get("expectedStopCounts")
-                .and_then(Value::as_object)
-                .into_iter()
-                .flatten()
-                .filter_map(|(id, count)| count.as_u64().map(|count| (id.clone(), count)))
-                .collect();
-            let (warmed, failed) = hub.warm_sessions_guarded(&requested, limit, web, owner, &expected_stops).await;
-            Ok(json!({"warmed": warmed, "failed": failed, "daemonEpoch": epoch}))
+            let (warmed, failed) = hub.warm_sessions_report(&requested, limit, web, owner).await;
+            Ok(json!({"warmed": warmed, "failed": failed}))
         }
         method::MUX_PREWARM => {
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
@@ -1880,11 +1874,6 @@ async fn dispatch_request(
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             hub.kill(&s, purge).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
-        }
-        method::MUX_WARM_STOP => {
-            let s = hub.resolve(session_key(&params)?)?;
-            hub.detach_child(&s).await;
-            Ok(json!({"sessionId": s.id, "status": "idle"}))
         }
         method::MUX_WATCH_TAKE_OVER => super::chats::watch_take_over(hub, &params).await,
         method::MUX_QUEUE_EDIT => {

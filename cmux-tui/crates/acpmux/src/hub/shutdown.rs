@@ -84,7 +84,7 @@ impl Hub {
                 // its permission prompts alone for the next daemon.
                 if ends {
                     host_fallback.push(s.clone());
-                    self.settle_cancelled(s);
+                    self.settle_cancelled(s, "quit");
                 } else {
                     // It may run under a host: count it as kept.
                     unreached += 1;
@@ -107,7 +107,7 @@ impl Hub {
             self.cancel_pending_permissions(s);
             children.extend(taken);
             if ends {
-                self.settle_cancelled(s);
+                self.settle_cancelled(s, "quit");
             } else {
                 *s.turn.lock().unwrap() = None;
             }
@@ -130,13 +130,13 @@ impl Hub {
         hosted.len() + unreached
     }
 
-    /// Quit Everything: the turn in progress ends as cancelled (one
+    /// The turn in progress ends as cancelled (one
     /// `turn_result`, the record every reader treats as the turn's end), and
     /// its prompt future writes nothing more.
-    fn settle_cancelled(&self, s: &Arc<Session>) {
+    pub(super) fn settle_cancelled(&self, s: &Arc<Session>, detail: &str) {
         let Some(turn) = s.turn.lock().unwrap().take() else { return };
         self.settled_by_shutdown.lock().unwrap().insert(turn.turn_id.clone());
-        let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": "quit", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": turn.turn_seq});
+        let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": detail, "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": turn.turn_seq});
         // `lastTurn` too, as every other turn end: the chat lists date a chat by its last turn's end.
         self.record_last_turn(s, &result);
         self.append(s, "mux", "turn_result", result);

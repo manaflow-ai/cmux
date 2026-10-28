@@ -1396,25 +1396,7 @@ impl Hub {
                 self.remove_queued_because(session, &queued.prompt_id, Some("stopped"));
             }
         }
-        if let Some(child) = session.child.lock().await.take() {
-            if let Some(sid) = session.meta().agent_session_id {
-                let _ = tokio::time::timeout(
-                    std::time::Duration::from_millis(500),
-                    child.notify(method::SESSION_CANCEL, json!({"sessionId": sid})),
-                )
-                .await;
-            }
-            let link_lost = child.host_record().is_some() && !child.is_alive().await;
-            child.kill().await;
-            // A host whose link was lost cannot take a Terminate frame.
-            if link_lost {
-                self.end_unadopted_host(session).await;
-            }
-        } else {
-            // A host this daemon could not adopt keeps running until the user
-            // ends the session: end it without its protocol (frozen path).
-            self.end_unadopted_host(session).await;
-        }
+        self.stop_session_child(session, None).await;
         *session.turn.lock().unwrap() = None;
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
@@ -1468,11 +1450,37 @@ impl Hub {
         Ok(())
     }
 
+    /// End the linked child, or its surviving host when the link was lost.
+    pub(super) async fn stop_session_child(&self, session: &Arc<Session>, stops: Option<u64>) {
+        let mut slot = session.child.lock().await;
+        // A resumable stop may have waited behind a newer stop and restart. Their child is
+        // theirs; the ordinary close (None) still ends whichever child it finds.
+        if stops.is_some_and(|stops| session.stops.load(Ordering::SeqCst) != stops) {
+            return;
+        }
+        if let Some(child) = slot.take() {
+            if let Some(sid) = session.meta().agent_session_id {
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_millis(500),
+                    child.notify(method::SESSION_CANCEL, json!({"sessionId": sid})),
+                )
+                .await;
+            }
+            let link_lost = child.host_record().is_some() && !child.is_alive().await;
+            child.kill().await;
+            // A host whose link was lost cannot take a Terminate frame.
+            if link_lost {
+                self.end_unadopted_host(session).await;
+            }
+        } else {
+            // A host this daemon could not adopt keeps running until the user
+            // ends the session: end it without its protocol (frozen path).
+            self.end_unadopted_host(session).await;
+        }
+    }
+
     /// Stop the child but keep the session resumable.
     pub async fn detach_child(&self, session: &Arc<Session>) {
-        // A launch cleanup stop is resumable, but it still fences in-flight starts and retries.
-        session.stops.fetch_add(1, Ordering::SeqCst);
-        self.stop_auto_resume(session);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
         if let Some(child) = session.child.lock().await.take() {

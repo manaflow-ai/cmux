@@ -77,7 +77,7 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "codex-external-access-v1",
         wire: &[method::SESSION_NEW, method::SESSION_PROMPT],
     },
-    // Automatic launch warming preserves Closed sessions, daemon epochs and Stop generations.
+    // Launch warming reports failed starts; local cleanup preserves resumable sessions.
     Capability { id: "launch-warm-v1", wire: &[method::MUX_WARM, method::MUX_WARM_STOP] },
     // Metadata-only paths for a focused chat's config and state files. The
     // daemon serves this surface on its local Unix socket only.

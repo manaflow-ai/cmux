@@ -29,18 +29,6 @@ impl Hub {
         web: bool,
         owner: bool,
     ) -> (Vec<Value>, Vec<Value>) {
-        self.warm_sessions_guarded(requested, limit, web, owner, &std::collections::BTreeMap::new()).await
-    }
-
-    /// A retry keeps the original stop generation; a later explicit Stop wins over that retry.
-    pub async fn warm_sessions_guarded(
-        self: &Arc<Self>,
-        requested: &[String],
-        limit: usize,
-        web: bool,
-        owner: bool,
-        expected_stops: &std::collections::BTreeMap<String, u64>,
-    ) -> (Vec<Value>, Vec<Value>) {
         // `sessions()` is newest first already; filtering keeps that order.
         let candidates: Vec<_> = if requested.is_empty() {
             self.sessions()
@@ -66,9 +54,6 @@ impl Hub {
             }
             let stops =
                 *requested_stops.get(&session.id).unwrap_or(&session.stops.load(Ordering::SeqCst));
-            if expected_stops.get(&session.id).is_some_and(|expected| *expected != stops) {
-                continue;
-            }
             // Watched transcripts intentionally start no harness until Take Over.
             if session.meta().watching.is_some() {
                 continue;
@@ -94,22 +79,53 @@ impl Hub {
             }
             match self.child_for_since(&session, stops).await {
                 Ok(_) => warmed.push(json!({"sessionId": session.id, "cwd": cwd})),
-                // Invalid params includes an explicit stop during startup. It must not be
-                // retried with a new stop generation, which would reopen the stopped session.
-                Err(error) => {
-                    // Startup can outlive the socket and an explicit Stop can race it. Re-read
-                    // the generation after the await so a timeout cannot be retried past Stop.
-                    let current_stops = session.stops.load(Ordering::SeqCst);
-                    failed.push(json!({
-                        "sessionId": session.id,
-                        "retryable": error.code != -32602 && current_stops == stops,
-                        "stops": current_stops,
-                        "error": error
-                    }));
-                }
+                Err(error) => failed.push(json!({"sessionId": session.id, "error": error})),
             }
         }
         (warmed, failed)
+    }
+
+    /// Stop exactly one launch-restored session on this daemon. Missing IDs have already
+    /// stopped; names and prefixes deliberately select nothing. The server requires a local
+    /// Unix connection before calling this, so a peer cannot stop this host's agents.
+    pub async fn warm_stop(&self, id: &str) -> Value {
+        let session = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(id)
+            .cloned();
+        let Some(session) = session else {
+            return json!({"sessionId": id, "status": "idle"});
+        };
+        let closed = session.status() == SessionStatus::Closed;
+        let stops = session.stops.fetch_add(1, Ordering::SeqCst) + 1;
+        session.closing.store(true, Ordering::SeqCst);
+        self.stop_auto_resume(&session);
+        self.stop_subagent_retries(&session, closed);
+        self.revoke_permission_chat(&session);
+        self.cancel_pending_permissions(&session);
+        for queued in session.queue() {
+            self.remove_queued_because(&session, &queued.prompt_id, Some("stopped"));
+        }
+        self.settle_cancelled(&session, "stopped");
+        // End a published child first: initialize/load may be waiting for its reply while it
+        // holds spawn_lock. Then drain that start, whose stop count prevents it publishing a
+        // replacement, and end any host it left behind.
+        self.stop_session_child(&session, Some(stops)).await;
+        let _spawning = session.spawn_lock.lock().await;
+        self.stop_session_child(&session, Some(stops)).await;
+        if !closed && session.stops.load(Ordering::SeqCst) == stops {
+            self.set_status(&session, SessionStatus::Idle);
+            session.closing.store(false, Ordering::SeqCst);
+            // A close counts its stop before its status write. Do not clear that newer close.
+            if session.stops.load(Ordering::SeqCst) != stops
+                || session.status() == SessionStatus::Closed
+            {
+                session.closing.store(true, Ordering::SeqCst);
+            }
+        }
+        json!({"sessionId": id, "status": session.status().to_string()})
     }
 
     /// Whether the folder-trust gate lets `session`'s agent work: always when
