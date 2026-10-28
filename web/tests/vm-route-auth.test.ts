@@ -552,6 +552,29 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
+  test("publishes Starter's two-machine and 80-hour allowance in VM list limits", async () => {
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      selectedTeam: null,
+      clientReadOnlyMetadata: { cmuxPlan: "go" },
+      listTeams: async () => [],
+    });
+    runVmWorkflow.mockResolvedValue([]);
+
+    const response = await GET(new Request("https://cmux.test/api/vm"));
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).limits).toMatchObject({
+      planId: "go",
+      maxActiveVms: 2,
+      savedVmLimit: 2,
+      vmHoursIncluded: 80,
+      maxVcpus: 2,
+      maxMemoryMb: 4096,
+      maxDiskMb: 16384,
+    });
+  });
+
   test.each(["cookie", "native"])("hydrates an ID-only selected team for paid VM list limits (%s)", async (auth) => {
     const listTeams = mock(async () => [
       { id: "team-other", clientReadOnlyMetadata: { cmuxVmPlan: "free" } },
