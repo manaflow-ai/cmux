@@ -1,7 +1,6 @@
 import type { Env } from "../../env.ts"
-import { DriverError } from "../../team-vm-driver.ts"
 import { redactReason } from "../../cloud-redact.ts"
-import type { CloudProvider, CloudProviderCapabilities, CreateOptions, EdgeTlsRule, VmResources, VmTag } from "../contract.ts"
+import { DriverError, type CloudProvider, type CloudProviderCapabilities, type CreateOptions, type EdgeTlsRule, type VmResources, type VmTag } from "../contract.ts"
 import { createBody } from "./cloud-body.ts"
 import { freestyleExecStdin } from "./exec.ts"
 import type { CloudProviderWiring } from "../index.ts"
