@@ -1,6 +1,7 @@
 //! Owns the primary session and prompt command dispatch arms.
 
 use super::*;
+use std::io::IsTerminal;
 use std::sync::Arc;
 
 pub(super) fn handles(cmd: &Command) -> bool {
@@ -343,6 +344,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::New(args) if args.parent.is_some() => super::parent::run(*args, json_out).await,
         Command::New(args) => {
             let args = *args;
+            // A promptless `new` opens the full-screen TUI. In a pipe (the
+            // common agent/scripting case), refuse before connecting so the
+            // caller gets an immediate, stable usage error.
+            if new_without_prompt_requires_tty(
+                args.prompt.is_empty() && args.prompt_file.is_none(),
+                args.detach,
+                std::io::stdin().is_terminal(),
+                std::io::stdout().is_terminal(),
+            ) {
+                return Err(errors::AppError::usage(
+                    "acpmux new without a prompt needs a terminal; pass a prompt or -d",
+                )
+                .into());
+            }
             // Checked before connecting, so the error needs no daemon.
             let launch = launch::Launch::prepare(&args)?;
             let client = connect(true).await?;
@@ -1036,6 +1051,15 @@ fn steering(info: &Value) -> bool {
     info.get("steering").and_then(Value::as_bool) == Some(true)
 }
 
+fn new_without_prompt_requires_tty(
+    no_prompt: bool,
+    detach: bool,
+    stdin_terminal: bool,
+    stdout_terminal: bool,
+) -> bool {
+    no_prompt && !detach && (!stdin_terminal || !stdout_terminal)
+}
+
 /// Parse the compact durations accepted by `ls --since` (`30m`, `24h`, `7d`, or combinations).
 fn parse_duration_ms(text: &str) -> Result<u64> {
     let mut rest = text.trim();
@@ -1121,7 +1145,10 @@ fn text_field(value: Option<&Value>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_duration_ms, parse_fields, project_fields, send_steers, started_by};
+    use super::{
+        new_without_prompt_requires_tty, parse_duration_ms, parse_fields, project_fields,
+        send_steers, started_by,
+    };
     use serde_json::json;
 
     #[test]
@@ -1160,5 +1187,14 @@ mod tests {
             project_fields(&json!({"name": "one", "status": "idle", "cwd": "/tmp"}), &fields),
             json!({"name": "one", "status": "idle"})
         );
+    }
+
+    #[test]
+    fn a_promptless_new_requires_a_terminal_unless_detached() {
+        assert!(new_without_prompt_requires_tty(true, false, false, true));
+        assert!(new_without_prompt_requires_tty(true, false, true, false));
+        assert!(!new_without_prompt_requires_tty(true, true, false, false));
+        assert!(!new_without_prompt_requires_tty(false, false, false, false));
+        assert!(!new_without_prompt_requires_tty(true, false, true, true));
     }
 }
