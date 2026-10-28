@@ -86,13 +86,40 @@ extension UpdaterService {
         return (UpdaterStrings.testFeedTitle, URL(string: testFeedURL)?.host ?? testFeedURL, UpdaterStrings.testFeedUseReal)
     }
 
-    /// Restores a pinned test feed at launch (DEV and NIGHTLY only).
+    /// What a pin found at launch does: any process of this user can write
+    /// the app's defaults, so on NIGHTLY (which installs what the feed
+    /// offers) a pin applies only after the person's yes again; DEV applies
+    /// it (it never installs).
+    public nonisolated static func pinnedTestFeedAtLaunch(track: UpdateTrack) -> TestFeedRequest {
+        switch track {
+        case .nightly: .askFirst
+        case .development: .apply
+        case .stable, .rc: .refuse
+        }
+    }
+
+    /// Restores a pinned test feed at launch (DEV), or holds it for the
+    /// person's yes (NIGHTLY, ``pinnedTestFeedAwaitingConsent``).
     func restorePinnedTestFeed() {
         defaults.removeObject(forKey: Self.unconfirmedPinnedTestFeedKey)
-        guard identity.track == .nightly || identity.track == .development,
-              let pinned = defaults.string(forKey: Self.pinnedTestFeedKey), Self.acceptsTestFeed(pinned) else { return }
-        testFeedURL = pinned
-        controller?.feedOverride = pinned
+        guard let pinned = defaults.string(forKey: Self.pinnedTestFeedKey), Self.acceptsTestFeed(pinned) else { return }
+        switch Self.pinnedTestFeedAtLaunch(track: identity.track) {
+        case .apply:
+            testFeedURL = pinned
+            controller?.feedOverride = pinned
+        case .askFirst:
+            pinnedTestFeedAwaitingConsent = pinned
+        case .refuse:
+            defaults.removeObject(forKey: Self.pinnedTestFeedKey)
+        }
+    }
+
+    /// The person answered the launch question about a held pin: yes applies
+    /// it (kept pinned), no clears it.
+    public func answerPinnedTestFeed(_ yes: Bool) {
+        guard let pinned = pinnedTestFeedAwaitingConsent else { return }
+        pinnedTestFeedAwaitingConsent = nil
+        if yes { try? useTestFeed(pinned, pinned: true) } else { defaults.removeObject(forKey: Self.pinnedTestFeedKey) }
     }
 }
 

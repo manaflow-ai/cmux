@@ -146,6 +146,11 @@ public final class UpdaterService {
     @ObservationIgnored var activationObservation: EventSubscription?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
+    /// A NIGHTLY pin read at launch that waits for the person's yes before it
+    /// applies (``pinnedTestFeedAtLaunch(track:)``); the app asks about it.
+    public internal(set) var pinnedTestFeedAwaitingConsent: String?
+    /// A test-feed question shows now; the app shows one at a time.
+    @ObservationIgnored public var testFeedQuestionOpen = false
     /// The release ring followed in the cmux-next appcast (`updates.channel`, ``follow(ring:)``).
     public internal(set) var ring: UpdateRing = .nightly
     /// The App applied `updates.channel` once (launch); a later move is the person's pick and checks at once.

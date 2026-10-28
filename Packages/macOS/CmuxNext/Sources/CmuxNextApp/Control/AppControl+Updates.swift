@@ -21,16 +21,28 @@ import WebKit
 extension AppControl {
     /// The person's yes before a NIGHTLY build uses the test feed `url`:
     /// Cancel is the default and Escape; only "Use Test Feed" applies it.
-    static func askToUseTestFeed(_ url: String, pinned: Bool, updater: UpdaterService) {
+    static func askToUseTestFeed(_ url: String, pinned: Bool, updater: UpdaterService,
+                                 answer: ((Bool) -> Void)? = nil) {
+        // One question at a time: a client cannot stack them for a tired yes.
+        guard !updater.testFeedQuestionOpen else { return }
+        updater.testFeedQuestionOpen = true
         let text = UpdaterService.testFeedConfirmation(url: url, pinned: pinned)
         let spec = CmuxDialogSpec(title: text.title, lines: [text.body],
                                   buttons: [CmuxDialogButton(id: "cancel", title: text.cancel, role: .cancel),
                                             CmuxDialogButton(id: "use", title: text.use, role: .normal)],
                                   identifier: testFeedDialogIdentifier)
-        CmuxDialogCenter.shared.present(spec, in: .app) { answer in
-            guard answer.button == "use" else { return }
-            try? updater.useTestFeed(url, pinned: pinned)
+        CmuxDialogCenter.shared.present(spec, in: .app) { reply in
+            updater.testFeedQuestionOpen = false
+            let yes = reply.button == "use"
+            if let answer { return answer(yes) }
+            if yes { try? updater.useTestFeed(url, pinned: pinned) }
         }
+    }
+
+    /// A NIGHTLY pin held at launch: the same question, with the pin.
+    static func askAboutPinnedTestFeed(_ updater: UpdaterService) {
+        guard let pinned = updater.pinnedTestFeedAwaitingConsent else { return }
+        askToUseTestFeed(pinned, pinned: true, updater: updater) { updater.answerPinnedTestFeed($0) }
     }
 
     /// The dialog's accessibility identifier; automation may not press it.
@@ -95,6 +107,7 @@ extension AppControl {
         // first; the reply then says `pending` and the feed changes only on
         // their yes (`updates.status` shows it).
         if updater.identity.track == .nightly || updater.identity.track == .development {
+            Self.askAboutPinnedTestFeed(updater)
             service?.router.register([
                 .mainActor("updates.test_feed") { call in
                     let url = call.params["url"]?.stringValue
