@@ -77,6 +77,9 @@ public final class MainTurnMeter {
     // Open spans: bit i set when the span at depth i + 1 is input dispatch.
     private var spanDepth = 0
     private var inputSpans: UInt64 = 0
+    /// The number of the turn in progress (or of the last one), counted from 1 as each turn begins: work
+    /// that must not outlive its turn (a window's layout depth an exception left open) compares it.
+    public private(set) var turnNumber: UInt64 = 0
     // The turn in progress.
     private var inTurn = false
     private var turnNested = false
@@ -88,6 +91,12 @@ public final class MainTurnMeter {
     private var rendering = false
     private var renderStart: UInt64 = 0
     private var spansAtRenderStart: UInt64 = 0
+    /// Told when a nested run loop starts running (`true`: its entry, or a parked level's next entry)
+    /// and when it stops (`false`: its exit), at `now`. The budget (``MainFrameBudget``) takes that
+    /// time out of the task that ran the loop, as Chrome's `RunLevelTracker` suspends a task's work
+    /// item while a nested loop it started runs (base/task/sequence_manager/thread_controller.cc,
+    /// `OnRunLoopStarted` / `OnRunLoopEnded`). One budget's (it sets it).
+    var nestedLoopRunning: (@MainActor (_ running: Bool, _ now: UInt64) -> Void)?
 
     /// - Parameters:
     ///   - signposts: Whether a turn over ``stallNanos`` emits `stall.main_turn` (the app: true).
@@ -123,9 +132,17 @@ public final class MainTurnMeter {
     /// Runs one event's dispatch as a ``Span/input`` span.
     // perf-hot: 100ns main-turn (every event's dispatch)
     public func inputDispatch<T>(_ body: () throws -> T) rethrows -> T {
-        beginSpan(.input, at: uptimeNanos())
+        try stampedInputDispatch { _ in try body() }
+    }
+
+    /// Runs one event's dispatch as a ``Span/input`` span; `body` gets the span's begin stamp (ns of
+    /// uptime), the event's dispatch time.
+    // perf-hot: 100ns main-turn (every event's dispatch)
+    public func stampedInputDispatch<T>(_ body: (_ dispatchedNanos: UInt64) throws -> T) rethrows -> T {
+        let now = uptimeNanos()
+        beginSpan(.input, at: now)
         defer { endSpan(at: uptimeNanos()) }
-        return try body()
+        return try body(now)
     }
 
     /// Opens a span at `now` (the caller's own clock read).
@@ -172,10 +189,13 @@ public final class MainTurnMeter {
             parkedLoops &= ~(1 << UInt64(level))
             visibleBase = spanDepth
             if !inTurn { beginTurn(at: now) }
+            nestedLoopRunning?(true, now)
         } else if loopDepth > 0 || spanDepth > 0 {
             endTurn(at: now)
             enterLevel(nested: true)
             beginTurn(at: now)
+            // Only a tracked level parks at its exit (loopExited), so only a tracked one is told.
+            if loopDepth <= Self.maxDepth { nestedLoopRunning?(true, now) }
         } else {
             enterLevel(nested: false)
             if !inTurn { beginTurn(at: now) }
@@ -230,6 +250,7 @@ public final class MainTurnMeter {
         let level = loopDepth - 1
         if level < Self.maxDepth, nestedLoops & (1 << UInt64(level)) != 0 {
             parkedLoops |= 1 << UInt64(level)
+            nestedLoopRunning?(false, now)
         } else {
             loopDepth -= 1
         }
@@ -242,6 +263,7 @@ public final class MainTurnMeter {
     public func unwindToTopLevel() {
         let now = uptimeNanos()
         endTurn(at: now)
+        for _ in 0..<(nestedLoops & ~parkedLoops).nonzeroBitCount { nestedLoopRunning?(false, now) }
         loopDepth = 0
         nestedLoops = 0
         parkedLoops = 0
@@ -320,6 +342,7 @@ public final class MainTurnMeter {
 
     private func beginTurn(at now: UInt64) {
         inTurn = true
+        turnNumber &+= 1
         turnNested = nestedLoops != 0
         turnStart = now
         mark = now

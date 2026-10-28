@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryDiscardRemoteTabs",
+  "owner": "PL-memory",
+  "description": "A remote desktop or remote browser tab hidden past the Memory Saver timeout (sooner at critical pressure) closes its stream and decoder and keeps its last frame; showing it connects again. A stopped or ended session and a remote page with back or forward history stay.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false,
+  "replaces": ["memory.discard.remoteTabs"]
+}

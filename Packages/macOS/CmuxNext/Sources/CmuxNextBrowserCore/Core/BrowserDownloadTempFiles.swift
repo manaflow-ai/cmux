@@ -1,5 +1,5 @@
-public import Foundation
 import CmuxNextCompat
+public import Foundation
 
 /// The record of the temporary `.cmuxdownload` files cmux itself writes
 /// (`BrowserDownloadPlacement.temporaryURL`), so a run that ends while it
@@ -42,6 +42,7 @@ public final class BrowserDownloadTempFiles {
 
     private func enqueue(_ change: Change) {
         let previous = last, store = store
+        // priority-allow: only tests await last (idle()); no person waits for a record change
         last = Task.detached(priority: .utility) {
             await previous?.value
             await store.apply(change)
@@ -98,7 +99,7 @@ public final class BrowserDownloadTempFiles {
         private func read() -> Set<String> {
             // concurrency-allow: runs on this actor's executor, never the main actor.
             guard let data = try? Data(contentsOf: recordURL),
-                  let document = try? JSONDecoder().decode(Document.self, from: data) else { return [] }
+                  let document = try? JSONDecoder().blockingDecode(Document.self, from: data) else { return [] }
             return Set(document.paths)
         }
 

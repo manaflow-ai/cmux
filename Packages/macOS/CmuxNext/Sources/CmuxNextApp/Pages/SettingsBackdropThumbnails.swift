@@ -1,10 +1,10 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
-import CmuxNextCompat
 
 /// The Settings page's wallpaper thumbnails (R82 commit 4): `cmux-page://cmux.settings/backdrop/<id>`
 /// answers a small PNG of that choice. Only ids in the bounded catalog, and the person's own
@@ -19,10 +19,15 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
     private let userImages: BackdropUserImages?
     private let museum: MuseumArtSession?
     private let iconPNG: ((String) async -> Data?)?
-    private var cache: [String: Data] = [:]
+    /// The PNGs served, by id or icon key: a memory consumer of `memory` (critical pressure empties it).
+    let cache: PageResourceDataCache
 
+    /// - Parameter memory: The app-cache registry (`AppMemoryConsumers.appCacheRegistry`); nil, while
+    ///   `memoryAppCaches` is off or in tests, keeps every PNG for the page's life.
     init(choices: [BackdropSelection], currentChoices: (@MainActor () -> [BackdropSelection])? = nil,
-         userImages: BackdropUserImages?, museum: MuseumArtSession? = nil, iconPNG: ((String) async -> Data?)? = nil) {
+         userImages: BackdropUserImages?, museum: MuseumArtSession? = nil, iconPNG: ((String) async -> Data?)? = nil,
+         memory: (any MemoryConsumerRegistry)? = nil) {
+        cache = PageResourceDataCache(name: "settings-backdrop-thumbnails", memory: memory)
         allowed = Set(choices.map(\.id))
         self.currentChoices = currentChoices
         self.userImages = userImages
@@ -42,7 +47,7 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
             let key = SettingsIconAssets.prefix + "/" + icon
             if let data = cache[key] { return PageResource(data: data, mimeType: "image/png") }
             guard let data = await iconPNG?(icon) else { return nil }
-            cache[key] = data
+            cache.store(data, for: key)
             return PageResource(data: data, mimeType: "image/png")
         }
         guard request.prefix == Self.prefix, request.path.count == 1,
@@ -59,7 +64,7 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
             data = selection.image().flatMap(Self.thumbnail)
         }
         guard let data else { return nil }
-        cache[id] = data
+        cache.store(data, for: id)
         return PageResource(data: data, mimeType: "image/png")
     }
 
@@ -73,10 +78,10 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
     /// A PNG at most 240 pixels wide of the image file at `url`, decoded by ImageIO at that size;
     /// a video's first frame.
     nonisolated static func thumbnail(at url: URL) -> Data? {
-        let options = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
-                       kCGImageSourceThumbnailMaxPixelSize: 240] as CFDictionary
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
+                                        kCGImageSourceThumbnailMaxPixelSize: 240]
         guard let image = AppleWallpapers.isVideo(url.path) ? BackdropImageStore.poster(url, maxPixelSize: 240)
-            : blockingImageSource(url: url as CFURL).flatMap({ CGImageSourceCreateThumbnailAtIndex($0, 0, options) }) else { return nil }
+            : CheckedImageSource(blockingContentsOf: url)?.thumbnail(options: options) else { return nil }
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(destination, image, nil)
@@ -87,9 +92,7 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
     static func thumbnail(_ image: NSImage) -> Data? {
         let width: CGFloat = 240
         let size = image.size.width > 0 ? NSSize(width: width, height: (width * image.size.height / image.size.width).rounded()) : NSSize(width: width, height: 135)
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8,
-                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
-        else { return nil }
+        guard let rep = NSBitmapImageRep.ownedRGBA(width: Int(size.width), height: Int(size.height)) else { return nil }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
         image.draw(in: NSRect(origin: .zero, size: size))

@@ -14,6 +14,12 @@ workspace = true
 # Test seams (the process scope's final-scan gate), for dev-dependencies only.
 test-support = []
 
+[dev-dependencies]
+# Tests name the function a captured address is in (the test binary's debug
+# info) and read the test binary's build id on their own.
+backtrace = "0.3"
+object = { version = "0.37", default-features = false, features = ["read_core", "elf", "macho", "std"] }
+
 [dependencies]
 cmux-link.workspace = true
 cmux-process.workspace = true

@@ -28,8 +28,8 @@
 //! machine's user may tag a chat under another. Every id is still a session
 //! of this machine's own acpmux, which is what a `registry:` tab may show.
 
+use cmux_threads::sync::Mutex;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Mutex;
 
 use serde_json::{Value, json};
 

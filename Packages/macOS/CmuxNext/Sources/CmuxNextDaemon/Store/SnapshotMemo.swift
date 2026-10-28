@@ -8,6 +8,7 @@
 /// apply a full one: no snapshot of this connection yet, a new daemon generation or registry, a
 /// launch snapshot, or a confirmed write it could not attribute to a workspace (`untracked`).
 struct SnapshotMemo {
+    // memory: fixed not a cache: one snapshot per workspace of the last live snapshot; an apply drops the removed ones (`SnapshotDiff.removed`) and a full apply rebuilds it from the tree
     /// The last live snapshot's workspaces by identity (``WorkspaceModel/identity(_:)``).
     var applied: [String: WorkspaceSnapshot] = [:]
     /// The connection it belongs to (``DaemonStore/connectionEpoch``).
@@ -24,6 +25,12 @@ struct SnapshotMemo {
     /// Increases with every snapshot apply (an off-main diff computed against an older memo is
     /// recomputed).
     var revision: UInt64 = 0
+
+    /// The last live snapshot of the workspace `id` (``WorkspaceModel/identity(_:)``), or nil when
+    /// that snapshot had none.
+    func workspace(_ id: String) -> WorkspaceSnapshot? {
+        applied[id]
+    }
 
     /// Forgets everything: the next snapshot applies in full.
     mutating func reset() {

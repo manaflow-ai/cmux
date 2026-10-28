@@ -202,6 +202,12 @@ command_table! {
     TerminalClipboardReply => "terminal-clipboard-reply", TerminalIo;
     PasteImage => "paste-image", TerminalIo;
     ServerStats => "server-stats", Query;
+    DebugDaemonLocks => "debug-daemon-locks", Query;
+    ServerThreads => "server-threads", Query;
+    ServerBlocking => "server-blocking", Query;
+    TraceStart => "trace-start", Other;
+    TraceStop => "trace-stop", Other;
+    TraceStatus => "trace-status", Other;
     SetTerminalCommandHistory => "set-terminal-command-history", TerminalIo;
     ListTerminalCommands => "list-terminal-commands", Query;
     DeleteTerminalCommands => "delete-terminal-commands", TerminalIo;
@@ -471,6 +477,7 @@ command_table! {
     ClientFocus => "client-focus", Topology;
     Subscribe => "subscribe", Other;
     AttachSurface => "attach-surface", Other;
+    CancelStream => "cancel-stream", TerminalIo;
     SnapshotRequest => "snapshot-request", Other;
     TerminalHistory => "terminal-history", TerminalIo;
     TerminalReadRange => "terminal-read-range", TerminalIo;

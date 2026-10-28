@@ -1,0 +1,22 @@
+{
+  "id": "drag-lag",
+  "tier": "T1",
+  "description": "Drag lag at a fast hand pace (drag-lag-live.py): column edge, tab and sidebar row drags of debug.mouse moves every 1/120 s over 30 workspaces and a five-column window; each move's reply time (its main-thread work and backlog), the daemon round trip during and after each drag, failed drags and the app's timed out errors, light session.",
+  "command": ["scripts/cmux-next/drag-lag-live.py"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "drag_lag\\.(column|column_back|tab|sidebar)\\.move", "unit": "ms", "better": "lower"},
+    {"name": "drag_lag\\.daemon\\.(idle|column|tab|sidebar)\\.round_trip", "unit": "ms", "better": "lower"},
+    {"name": "drag_lag\\.(column|column_back|tab|sidebar|daemon\\.(idle|column|tab|sidebar))\\.failed", "unit": "count",
+     "better": "lower"},
+    {"name": "drag_lag\\.app\\.timed_out", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 150,
+  "needs": ["debug:debug.mouse", "debug:debug.layers", "debug:debug.tab_drag", "debug:debug.sidebar_rows"],
+  "hot_paths": ["drag-frame", "pointer-coalesce"],
+  "owner": "Performance Lead",
+  "component": "Input>Drag"
+}

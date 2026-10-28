@@ -130,6 +130,37 @@ struct InputEventTapTests {
         withExtendedLifetime((observer, first, later, after)) {}
     }
 
+    // MARK: dispatch end
+
+    /// The dispatch end hears its classes once per event with how the dispatch ended, outside the
+    /// dispatch scope: a subscription made in it is live at once for the next event.
+    @Test func theDispatchEndHearsItsClassesWithTheOutcome() throws {
+        let tap = InputEventTap()
+        let log = Log()
+        let subscription = tap.observeDispatchEnd([.key, .button]) { event, outcome in
+            log.calls.append("\(event.type == .keyDown ? "key" : "button").\(outcome == .delivered ? "delivered" : "consumed")")
+            if log.late == nil { log.late = tap.observeDispatchEnd(.key) { _, _ in log.count += 1 } }
+        }
+        #expect(tap.subscriberCount(.key, stage: .dispatchEnd) == 1)
+        #expect(tap.subscriberCount(.key, stage: .afterDispatch) == 0)
+
+        let key = try Self.key()
+        Self.dispatch(key, through: tap)
+        #expect(log.calls.isEmpty, "the three stages do not deliver it")
+        tap.deliverDispatchEnd(key, outcome: .consumed)
+        tap.deliverDispatchEnd(try Self.mouse(.leftMouseDown), outcome: .delivered)
+        tap.deliverDispatchEnd(try Self.mouse(.mouseMoved), outcome: .delivered)
+        #expect(log.calls == ["key.consumed", "button.delivered"])
+        #expect(log.count == 0, "a subscription made in a delivery never hears that event")
+        tap.deliverDispatchEnd(key, outcome: .delivered)
+        #expect(log.count == 1)
+        subscription.cancel()
+        tap.deliverDispatchEnd(key, outcome: .delivered)
+        #expect(log.calls.count == 3)
+        #expect(tap.subscriberCount(.button, stage: .dispatchEnd) == 0)
+        withExtendedLifetime(subscription) {}
+    }
+
     // MARK: lifetime
 
     @Test func aCancelledOrReleasedSubscriptionStopsAtOnce() throws {
@@ -268,12 +299,49 @@ struct InputEventTapTests {
         #expect(pointer.location == InputPoint(x: 5, y: 6))
     }
 
+    /// Tracking-area edges reach only a subscriber that names `.tracking` (no `.all` or `.pointer`
+    /// one), and, made by a move rather than input of their own, replace neither last event.
+    @Test func trackingAreaEdgesReachOnlyTheirSubscribersAndAreNoLastEvent() throws {
+        let tap = InputEventTap()
+        let log = Log()
+        let tracking = tap.subscribe(class: .tracking) { log.calls.append($0.type == .mouseEntered ? "enter" : "exit") }
+        let pointer = tap.subscribe(class: .pointer) { _ in log.calls.append("pointer") }
+        try Self.dispatch(Self.mouse(.mouseMoved, at: CGPoint(x: 1, y: 2)), through: tap)
+        _ = NSApplication.shared
+        for type in [NSEvent.EventType.mouseEntered, .mouseExited] {
+            let edge = try #require(NSEvent.enterExitEvent(with: type, location: CGPoint(x: 9, y: 9), modifierFlags: [], timestamp: 2,
+                                                           windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+            Self.dispatch(edge, through: tap)
+        }
+        #expect(log.calls == ["pointer", "enter", "exit"])
+        #expect(tap.lastDispatched?.type == .mouseMoved, "a tracking-area edge replaced the last dispatched event")
+        #expect(tap.lastPointer?.type == .mouseMoved, "a tracking-area edge replaced the last pointer event")
+        withExtendedLifetime((tracking, pointer)) {}
+    }
+
     @Test func ownersSetAndClearFlags() {
         let tap = InputEventTap()
         tap.setFlag(.hintsShowing, true)
         tap.setFlag(.findPillOpen, true)
         tap.setFlag(.hintsShowing, false)
         #expect(tap.flags == [.findPillOpen])
+    }
+
+    /// A flag several owners hold (a find pill per window) stays set until the last releases it; a
+    /// release with no hold changes nothing.
+    @Test func aHeldFlagClearsWhenTheLastHolderReleasesIt() {
+        let tap = InputEventTap()
+        tap.releaseFlag(.findPillOpen)
+        #expect(tap.flags.isEmpty)
+        tap.holdFlag(.findPillOpen)
+        tap.holdFlag(.findPillOpen)
+        tap.releaseFlag(.findPillOpen)
+        #expect(tap.flags == [.findPillOpen], "one holder is left")
+        tap.releaseFlag(.findPillOpen)
+        #expect(tap.flags.isEmpty)
+        tap.releaseFlag(.findPillOpen)
+        tap.holdFlag(.findPillOpen)
+        #expect(tap.flags == [.findPillOpen], "an extra release took a later hold")
     }
 
     @Test func aReleasedGlobalObserverIsRemoved() throws {

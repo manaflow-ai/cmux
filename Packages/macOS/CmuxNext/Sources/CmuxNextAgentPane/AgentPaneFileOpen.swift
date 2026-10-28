@@ -1,7 +1,6 @@
 public import AppKit
 public import Foundation
 import UniformTypeIdentifiers
-import CmuxNextCompat
 
 /// Where the page asks to open a file: a tab beside the agent, or the editor.
 public nonisolated enum AgentPaneFileTarget: String, Equatable, Sendable {
@@ -22,9 +21,7 @@ public nonisolated enum AgentPaneFileOpen {
     public static func resolve(_ path: String) -> URL? {
         guard path.hasPrefix("/"), !path.contains("\u{0}") else { return nil }
         let url = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
-        var isDirectory: ObjCBool = false
-        guard FileManager.checked.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue,
-              let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isPackageKey]),
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isPackageKey]),
               values.isRegularFile == true, values.isPackage != true else { return nil }
         return url
     }
@@ -58,8 +55,4 @@ public nonisolated enum AgentPaneFileOpen {
         return shown.contains { type.conforms(to: $0) }
     }
 
-    /// The app that edits text: the default for source code, else for plain text.
-    @MainActor public static func editorApplication(workspace: NSWorkspace = .shared) -> URL? {
-        workspace.urlForApplication(toOpen: .sourceCode) ?? workspace.urlForApplication(toOpen: .plainText)
-    }
 }

@@ -21,7 +21,19 @@ nonisolated extension RemoteRdJSON: Codable {
         init?(intValue: Int) { nil }
     }
 
+    /// The deepest coding path a value may sit at: serde_json's default
+    /// recursion limit, so every body the Rust host could parse still parses,
+    /// and a hostile nesting cannot run this recursive decode off the end of
+    /// a 512 KiB queue thread's stack (Chromium's base/json/json_common.h caps
+    /// depth the same way, `kAbsoluteMaxDepth`).
+    static let maxDepth = 128
+
     public init(from decoder: any Decoder) throws {
+        guard decoder.codingPath.count <= Self.maxDepth else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: decoder.codingPath, debugDescription: "JSON nested deeper than \(Self.maxDepth) levels"
+            ))
+        }
         if let object = try? decoder.container(keyedBy: Key.self) {
             var out: [String: RemoteRdJSON] = [:]
             for key in object.allKeys {

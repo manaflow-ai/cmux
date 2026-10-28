@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextPhone
@@ -5,7 +6,6 @@ import CryptoKit
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
-import CmuxNextCompat
 
 /// "Send to Chief": posts a phone recording into the Chief conversation as
 /// one message, the summary text plus the video (with its poster frame), on
@@ -56,8 +56,7 @@ final class PhoneChiefFeedback: PhoneFeedbackSink {
     }
 
     nonisolated private static func jpeg(from png: URL, next target: URL) -> URL? {
-        guard let source = blockingImageSource(url: png as CFURL),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+        guard let image = CheckedImageSource(blockingContentsOf: png)?.image(),
               let destination = blockingImageDestination(url: target as CFURL, type: UTType.jpeg.identifier as CFString, count: 1) else { return nil }
         CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary)
         return blockingImageDestinationFinalize(destination) ? target : nil

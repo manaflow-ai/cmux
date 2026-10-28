@@ -1,6 +1,9 @@
 import AppKit
 import CmuxNextBrowserImport
 import LocalAuthentication
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Device owner authentication (Touch ID, Apple Watch or the login password) right before a
 /// secret leaves the store (passwords.md 1.4: one success covers one row for one action).
@@ -13,8 +16,15 @@ protocol DeviceOwnerAuthenticating: AnyObject {
 @MainActor
 final class LocalDeviceOwnerAuthenticator: DeviceOwnerAuthenticating {
     func authenticate(reason: String) async -> Bool {
+        let context = LAContext()
         // No synchronous canEvaluatePolicy on main: evaluatePolicy fails at once when the Mac cannot evaluate it.
-        (try? await LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
+        // A reply that never comes (the context dropped it) is a failed authentication.
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
+            // The reply runs on a LocalAuthentication queue, never the main actor.
+            context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { @Sendable success, _ in
+                continuation.resume(returning: success)
+            }
+        }) ?? false
     }
 }
 

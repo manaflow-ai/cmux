@@ -1,4 +1,7 @@
 public import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// What the native "Enable harness" sheet shows for a folder harness profile
 /// (BRING-YOUR-OWN-HARNESS H4): acpmux's own prompt (`_acpmux/harness_enable {folder, id}` over
@@ -124,9 +127,9 @@ extension AgentPaneTransport {
             return (false, nil, Self.promptUnavailable)
         }
         guard prompt.id == id else { return (false, nil, Self.promptUnavailable) }
-        let confirmed = await withCheckedContinuation { continuation in
+        let confirmed = (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             requestHarnessEnable(prompt) { continuation.resume(returning: $0) }
-        }
+        }) ?? false // dropped unanswered (the pane closed): not a confirmation
         guard confirmed else { return (false, nil, nil) }
         box.setParam("sha256", prompt.sha256)
         return (true, nil, nil)

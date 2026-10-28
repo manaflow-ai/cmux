@@ -1,121 +1,36 @@
 public import Foundation
-import WebKit
-import CmuxNextPages
 
-/// Where an agent pane's page comes from.
-///
-/// Release builds only ever load ``bundled(_:)``, the self-contained page that
-/// `scripts/cmux-next/build-agent-pane-web.sh` builds into the module bundle.
-/// Debug and tagged builds may instead load the pane from a Vite dev server on
-/// loopback (``devServer(_:)``, `bun run dev:agent-pane` in `webviews/`), so
-/// TypeScript edits hot-reload in the running app. The handshake still comes
-/// from Swift, so the dev page talks to the real acpmux daemon.
+/// Where an agent pane's page comes from: ``bundled(_:)``, the self-contained page that
+/// `scripts/cmux-next/build-agent-pane-web.sh` builds into the module bundle. The page host
+/// (``AgentPanePageHost``) serves its directory at `cmux-page://cmux.agent/`; a web-dev.json
+/// overlay or an active web update swaps the files it serves (``WebDevOverride``), and a web-dev.json
+/// server serves it from the webviews dev server's `/agent-pane/` with hot reload.
 ///
 /// ```swift
-/// #if DEBUG
-/// let allowsDevServer = true
-/// #else
-/// let allowsDevServer = false
-/// #endif
-/// let source = AgentPaneSource.resolve(
-///     environment: ProcessInfo.processInfo.environment,
-///     bundledPage: AgentPaneView.bundledPage,
-///     allowsDevServer: allowsDevServer
-/// )
+/// let source = AgentPaneSource.resolve(environment: ProcessInfo.processInfo.environment,
+///                                      bundledPage: AgentPaneView.bundledPage, allowsRootOverride: false)
 /// ```
 public nonisolated enum AgentPaneSource: Equatable, Sendable {
-    /// The self-contained `index.html` in the module bundle.
+    /// The `index.html` the page host serves: the module bundle's, or a Debug build's override.
     case bundled(URL)
-    /// A Vite dev server on loopback, by its root URL
-    /// (`http://127.0.0.1:<port>/`).
-    case devServer(URL)
 
-    /// The scheme and host the bundled page loads from (`AgentPaneSchemeHandler`):
-    /// a real origin, `cmux-agent://pane`, where a `file://` page would send
-    /// `Origin: null` to acpmux.
-    public static let bundledScheme = "cmux-agent"
-    public static let bundledHost = "pane"
-    public static let bundledOrigin = "\(bundledScheme)://\(bundledHost)"
+    /// The Debug override of the page's directory, the page host's variable for every first-party
+    /// page (`CMUX_NEXT_PAGE_ROOT_<id>`, dots as underscores; agent-stream-e2e.py loads variants by it).
+    public static let rootVariable = "CMUX_NEXT_PAGE_ROOT_cmux_agent"
 
-    /// The URL the web view loads: the bundled page under the cmux-agent
-    /// origin, or the dev server's root.
-    public var pageURL: URL {
-        switch self {
-        case .bundled(let page):
-            // A file name under a literal origin; the escaped form covers names URL(string:) refuses.
-            URL(string: "\(Self.bundledOrigin)/\(page.lastPathComponent)")
-                ?? URL(string: "\(Self.bundledOrigin)/\(page.lastPathComponent.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? "")")
-                ?? URL(fileURLWithPath: "/dev/null")
-        case .devServer(let url):
-            url
-        }
-    }
-
-    /// Environment variable naming the dev server, for example
-    /// `http://127.0.0.1:4176/`.
-    public static let devURLVariable = "CMUX_NEXT_AGENT_PANE_DEV_URL"
-
-    /// The page to load.
-    ///
-    /// - Parameters:
-    ///   - environment: The process environment; ``devURLVariable`` names a
-    ///     dev server.
-    ///   - bundledPage: The bundled page, nil when the bundle lacks it.
-    ///   - allowsDevServer: False in Release builds, so only the bundled page
-    ///     loads there whatever the environment says.
-    /// - Returns: The dev server when it is allowed and the override is an
-    ///   `http` URL on 127.0.0.1 or localhost with an explicit port and no
-    ///   credentials; otherwise the bundled page, or nil when it is missing.
-    public static func resolve(environment: [String: String], bundledPage: URL?, allowsDevServer: Bool) -> AgentPaneSource? {
-        if allowsDevServer, let override = environment[devURLVariable], let url = devServerURL(override) {
-            return .devServer(url)
+    /// The page to load: the directory ``rootVariable`` names when `allowsRootOverride` (Debug
+    /// builds), else the bundled page; nil when neither exists.
+    public static func resolve(environment: [String: String], bundledPage: URL?, allowsRootOverride: Bool) -> AgentPaneSource? {
+        if allowsRootOverride, let root = environment[rootVariable], !root.isEmpty {
+            return .bundled(URL(fileURLWithPath: root, isDirectory: true).appending(path: "index.html"))
         }
         return bundledPage.map { .bundled($0) }
     }
 
-    /// The dev server's root URL, or nil unless `string` is a loopback `http`
-    /// origin (the pages' rule, ``PageDevServer/loopbackURL(_:)``): the page
-    /// receives the daemon token, so no other host may serve it.
-    static func devServerURL(_ string: String) -> URL? {
-        PageDevServer.loopbackURL(string)
-    }
-
-    /// True when `url` is this source's page: the bundled page under
-    /// `cmux-agent://pane` (a `#fragment` allowed), or any URL on the dev
-    /// server's exact origin (scheme, host and port).
-    func isTrusted(_ url: URL?) -> Bool {
-        guard let url else { return false }
+    /// The directory that holds the page's `index.html`, the root the page host serves.
+    public var directory: URL {
         switch self {
-        case .bundled(let page):
-            guard url.scheme?.lowercased() == Self.bundledScheme, url.host?.lowercased() == Self.bundledHost,
-                  url.port == nil, url.user == nil
-            else { return false }
-            return url.path == "/" + page.lastPathComponent
-        case .devServer(let root):
-            guard let candidate = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                  let origin = URLComponents(url: root, resolvingAgainstBaseURL: false),
-                  candidate.scheme?.lowercased() == "http",
-                  let host = candidate.host, host.lowercased() == origin.host?.lowercased(),
-                  let port = candidate.port, port == origin.port
-            else { return false }
-            return true
-        }
-    }
-
-    /// Serves the bundled page's directory on `configuration` (before the
-    /// web view is made from it); the dev server needs nothing.
-    @MainActor func register(on configuration: WKWebViewConfiguration) {
-        guard case .bundled(let page) = self else { return }
-        configuration.setURLSchemeHandler(AgentPaneSchemeHandler(root: page.deletingLastPathComponent()), forURLScheme: Self.bundledScheme)
-    }
-
-    /// Navigates `webView` to the page.
-    @MainActor func load(into webView: WKWebView) {
-        switch self {
-        case .bundled:
-            webView.load(URLRequest(url: pageURL))
-        case .devServer(let url):
-            webView.load(URLRequest(url: url))
+        case .bundled(let page): page.deletingLastPathComponent()
         }
     }
 }

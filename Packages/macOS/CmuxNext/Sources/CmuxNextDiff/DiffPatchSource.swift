@@ -1,7 +1,7 @@
+import CmuxNextCompat
 public import CmuxNextPages
 import Darwin
 import Foundation
-import CmuxNextCompat
 
 /// Which file `cmux-page://cmux.diff/__patch/<token>/<path>` names, by the rules
 /// the classic `cmux-diff-viewer://` handler and the sidecar's manifest use
@@ -18,10 +18,10 @@ nonisolated struct DiffPatchResolver: Sendable {
 
     static let prefix = "__patch"
     static let mimeType = "text/x-diff"
-    static let maximumManifestBytes = 4 * 1024 * 1024
+    static let maximumManifestBytes: Int64 = 4 * 1024 * 1024
     static let maximumFiles = 4096
     /// The sidecar's own patch limit (MAX_SESSION_PATCH_BYTES).
-    static let maximumPatchBytes = 512 * 1024 * 1024
+    static let maximumPatchBytes: Int64 = 512 * 1024 * 1024
 
     /// The sidecar's `valid_token`: 16 to 80 ASCII letters, digits and dashes.
     static func isValidToken(_ token: String) -> Bool {
@@ -61,10 +61,10 @@ nonisolated struct DiffPatchResolver: Sendable {
         guard Self.isValidToken(token) else { return nil }
         let url = root.appending(path: ".manifest-\(token).json")
         var info = stat()
-        guard blockingLstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= Int64(Self.maximumManifestBytes),
+        guard blockingLstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= Self.maximumManifestBytes,
               // concurrency-allow: nonisolated resolver; DiffPatchSource calls it from a @concurrent read
               let data = try? Data(contentsOf: url),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               object["token"] as? String == token,
               let files = object["files"] as? [[String: Any]], files.count <= Self.maximumFiles else { return nil }
         return files.compactMap { file in
@@ -83,7 +83,7 @@ nonisolated struct DiffPatchResolver: Sendable {
         guard fileComponents.count > rootComponents.count, Array(fileComponents.prefix(rootComponents.count)) == rootComponents
         else { return nil }
         var info = stat()
-        guard blockingStat(filePath, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= Int64(Self.maximumPatchBytes) else { return nil }
+        guard blockingStat(filePath, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= Self.maximumPatchBytes else { return nil }
         return URL(fileURLWithPath: filePath)
     }
 

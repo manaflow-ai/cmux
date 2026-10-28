@@ -31,7 +31,7 @@ final class PaletteSwatchView: NSView {
             layer?.addSublayer(stripe)
             return stripe
         }
-        needsLayout = true
+        needsLayout = true // invalidate: new colors (`colors`' change check), new stripes to frame
     }
 
     override func layout() {
@@ -47,6 +47,7 @@ final class PaletteSwatchView: NSView {
         CATransaction.commit()
     }
 
+    // visibility-walk-allow: its own layer's border color and width, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyBorder()

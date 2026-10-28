@@ -23,7 +23,7 @@ extension CEFEngine {
             }
         }
         guard cookies else { return }
-        try await CEFRuntime.shared.start(layout: layout, trigger: "clearBrowsingData")
+        try await startRuntime(trigger: "clearBrowsingData")
         try await clearCookies(profile, since: since)
     }
 

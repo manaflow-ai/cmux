@@ -1,6 +1,10 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextIcons
 
+// memory: fixed: one entry per installed extension listed in the bubble (its icon path; an update
+// replaces the extension's folder), each redrawn to 2 x `side` square, 40 x 40 x 4 = 6.4 KB at the
+// standard 20 pt; it lives in the pane's Extensions bubble controller, made only once the bubble opens.
 /// Extension icons for the Extensions bubble, decoded once per file and kept at the size the
 /// bubble draws them. Chromium writes an extension's icons under a folder named for its version,
 /// so a path names one image for as long as the extension stays installed; an update brings a
@@ -17,6 +21,9 @@ final class ExtensionIconCache {
         self.side = side
     }
 
+    /// Drops every decoded icon (the bubble's rows went); the next render decodes them again.
+    func removeAll() { images.removeAll() }
+
     /// The bundled icon of `info` (its largest up to 128 pixels), else the toolbar icon `png`,
     /// else Chrome's puzzle piece named for VoiceOver.
     func image(for info: BrowserExtensionInfo, png: Data?) -> NSImage {
@@ -24,9 +31,11 @@ final class ExtensionIconCache {
         let decoded: NSImage? = {
             if let path = info.iconPath {
                 loads += 1
-                if let image = NSImage(contentsOfFile: path) { return image }
+                if let data = try? Data(blockingContentsOf: URL(fileURLWithPath: path)), let image = blockingNSImage(data) {
+                    return image
+                }
             }
-            return png.flatMap(NSImage.init(data:))
+            return png.flatMap { blockingNSImage($0) }
         }()
         let image = decoded.map(downsampled) ?? fallback(name: info.name)
         if let path = info.iconPath, decoded != nil { images[path] = image }
@@ -37,7 +46,9 @@ final class ExtensionIconCache {
     /// nothing.
     private func downsampled(_ image: NSImage) -> NSImage {
         let pixels = Int(side * 2)
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
+        // SAFETY: `bitmapDataPlanes` is nil, so AppKit allocates the pixel buffer and frees it with
+        // the rep; the drawing below reaches it only through NSGraphicsContext.
+        guard let rep = unsafe NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
                                          samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
                                          bytesPerRow: 0, bitsPerPixel: 0),
               let context = NSGraphicsContext(bitmapImageRep: rep) else {

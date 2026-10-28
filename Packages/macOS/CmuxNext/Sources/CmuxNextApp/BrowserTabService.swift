@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextRemoteLocalhostService
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// The daemon's engine tag (the browser module has an engine protocol of the same name).
@@ -86,18 +87,24 @@ final class BrowserTabService {
     /// a new TabModel in its destination pane), nil when it closed.
     var tabModel: @MainActor (_ id: String) -> TabModel?
     var writeBackDelay: Duration = .milliseconds(500)
-    // wakeup-allow: one-shot debounce of browser record write-back (injected for tests)
-    var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
+    // wakeup-allow: deadline one write-back debounce per burst of record changes; BrowserRecordWriter's Sleep seam
+    // (CmuxNextBrowserHistory) owns the wait, so it stays a sleep with WakeLeeway's tolerance (injected for tests)
+    // timer-class-allow: the writers' debounce runs in their own off-main tasks (CmuxNextBrowserHistory); this is only its clock
+    var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0, tolerance: WakeLeeway.window(delay: $0).tolerance) }
     private(set) var writers: [String: BrowserRecordWriter] = [:]
     private(set) var historyWriters: [String: BrowserHistoryWriter] = [:]
     /// Stored-history reads in flight, by tab id (cancelled with the page).
     private var historyFetches: [String: Task<Void, Never>] = [:]
     /// Restored pages that start once their saved history is read.
-    let historyStarts = BrowserHistoryStarts()
+    let historyStarts: BrowserHistoryStarts
     /// The App's incognito profiles (the engines' ``BrowserSharedStores``).
     let offTheRecord: OffTheRecordProfiles
     /// Per tab: the page follows the tab record's `extra.emulation` (`trackEmulation`).
-    var emulationFollowers: [String: Task<Void, Never>] = [:]
+    var emulationFollowers: [String: ServiceObservation<CmuxNextDaemon.JSONValue?>] = [:]
+    /// The app's main-thread scheduler: each tab's emulation change applies as a task on it.
+    let mainWork: MainWorkScheduler
+    /// The app's one ``AppEvents``: each history writer saves when the app resigns active.
+    private let appEvents: AppEvents
     /// True for a pane of an incognito window (the App sets it).
     var isIncognitoPane: @MainActor (PaneModel) -> Bool = { _ in false }
     /// True for a tab of an incognito window, by tab id (the App sets it).
@@ -120,8 +127,17 @@ final class BrowserTabService {
         let surface: SurfaceID
     }
 
-    init(daemon local: DaemonService, cef: CEFEngine) {
-        offTheRecord = cef.stores.offTheRecord
+    /// - Parameters:
+    ///   - chromium: The App's Chromium engine slot: its stores now; the engine at the first Chromium question.
+    ///   - mainWork: The app's main-thread scheduler (`TabContentCache.mainWork`).
+    ///   - deadlines: The app's one deadline scheduler on `mainWork`, for each held page's history budget.
+    ///   - appEvents: The app's one ``AppEvents``, for the history writers' leave-the-app saves.
+    init(daemon local: DaemonService, chromium: ChromiumEngineSlot, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
+         appEvents: AppEvents) {
+        offTheRecord = chromium.stores.offTheRecord
+        self.mainWork = mainWork
+        self.appEvents = appEvents
+        historyStarts = BrowserHistoryStarts(deadlines: deadlines)
         // The service lives in the cache, which the App owns beside the local daemon (no cycle).
         daemonForPane = { [local] _ in local }
         daemonForTab = { [local] _ in local }
@@ -163,11 +179,7 @@ final class BrowserTabService {
             return try? await connection.request(GetFrontendBrowserHistoryRequest(surface: surface)).history
         }
         tabModel = { _ in nil }
-        cefUnavailable = { [weak cef] in
-            // `?? .notBundled` on the optional chain would turn "available" (nil) into notBundled.
-            guard let cef else { return .notBundled }
-            return cef.unavailableReason
-        }
+        cefUnavailable = { [chromium] in chromium.unavailableReason }  // builds no engine; the cache owns both: no cycle
         keepsState = { [weak self] tab in self?.daemonForTab(tab).store.servesStateResources ?? false }
         // Each store's tab index: called per tab and per sidebar row (favicons, profiles), so a scan of
         // every tab here made those passes quadratic in the tabs (space-switch-fast).
@@ -360,7 +372,7 @@ final class BrowserTabService {
             tab: page, recorded: BrowserRecord(tab: tab), tracksState: keeps,
             daemonRecord: { [weak self] in self?.tabModel(id).map(BrowserRecord.init(tab:)) },
             recordURL: machineRecordURL(page, tab: tab),
-            delay: writeBackDelay, sleep: sleep
+            delay: writeBackDelay, sleep: sleep, mainWork: mainWork
         ) { [weak self] fields in
             guard let tab = self?.tabModel(id) else { return false }
             let daemon = daemonForTab(tab)
@@ -382,6 +394,7 @@ final class BrowserTabService {
         let fetchHistory = fetchHistory, storeHistory = storeHistory, daemonForTab = daemonForTab
         let restored = restoredInMemory(id, page.engineKind)
         historyFetches[id]?.cancel()
+        // main-hop-allow: fetchHistory is the daemon's main-actor async read seam; the restore applies in its resume, a newer page cancels it
         historyFetches[id] = Task { [weak self, weak record] in
             let saved = await fetchHistory(daemon, surface)
             // A cancelled read's handle may already be a newer one's.
@@ -402,7 +415,8 @@ final class BrowserTabService {
             }
             self.historyWriters[id] = BrowserHistoryWriter(page: restoring, recorded: saved, keepsEngineState: daemon.isLocal
                                                            && !self.offTheRecord.isOffTheRecord(page.profileID),
-                                                           delay: self.writeBackDelay, sleep: self.sleep) { [weak self] history in
+                                                           delay: self.writeBackDelay, sleep: self.sleep, mainWork: self.mainWork,
+                                                           appEvents: self.appEvents) { [weak self] history in
                 guard let tab = self?.tabModel(id) else { return false }
                 // Engine state stays on this Mac, also for a tab that moved to another machine.
                 let daemon = daemonForTab(tab)
@@ -432,6 +446,7 @@ final class BrowserTabService {
         for writer in writers.values { await writer.flushNow() }
         // Each page is asked for its scroll position at once, not in turn.
         // task-owner: every flush is awaited before quit goes on.
+        // main-hop-allow: each writer's flush is main-actor async (it asks its page for the scroll position); quit awaits them all at once
         let flushes = historyWriters.values.map { writer in Task { await writer.flushNow() } }
         for flush in flushes { await flush.value }
     }

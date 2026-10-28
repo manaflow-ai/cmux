@@ -1,15 +1,19 @@
-package import CmuxNextWakeups
+import CmuxNextCompat
+public import CmuxNextWakeups
 package import CryptoKit
 public import Foundation
 package import os
-import CmuxNextCompat
 
 /// The recovery-draft backstop (R96 quit hook). Participants call `update`
-/// on every edit; after a short debounce on the injected clock the draft is
+/// on every edit; after a short debounce the draft is
 /// written crash-safe (temp file, fsync, rename) off the main actor, in a
 /// 0700 directory as a 0600 file. `remove` (a normal save, a quit save, or
 /// Don't Save) cancels a pending update first, so a stale draft never comes
 /// back. The next launch reads `drafts()` and shows the restore notice.
+///
+/// Each debounce is a `background` ``MainDeadline`` on the app's deadline scheduler (nobody sees the
+/// write; Chromium's `base::OneShotTimer` on a `BEST_EFFORT` runner): its action takes the pending
+/// draft and starts the write off main.
 @MainActor
 public final class RecoveryDraftStore {
     public static let defaultMaxDraftBytes = 8 * 1024 * 1024
@@ -18,18 +22,19 @@ public final class RecoveryDraftStore {
     public let directory: URL
     /// Opens a recovered draft in its editor (set by the editor side at launch).
     public var restoreHandler: ((RecoveryDraft) -> Void)?
-    private let clock: any Clock<Duration>
+    private let deadlines: MainDeadlineScheduler
     private let debounce: Duration
     private let maxDraftBytes: Int
     private let maxTotalBytes: Int
-    private var timers: [String: DemandTimer] = [:]
+    private var timers: [String: MainDeadline] = [:]
     private var pending: [String: RecoveryDraft] = [:]
 
-    public init(directory: URL, clock: any Clock<Duration> = ContinuousClock(), debounce: Duration = .seconds(1),
+    /// - Parameter deadlines: The app's deadline scheduler, where each draft's debounce waits.
+    public init(directory: URL, deadlines: MainDeadlineScheduler, debounce: Duration = .seconds(1),
                 maxDraftBytes: Int = RecoveryDraftStore.defaultMaxDraftBytes,
                 maxTotalBytes: Int = RecoveryDraftStore.defaultMaxTotalBytes) {
         self.directory = directory
-        self.clock = clock
+        self.deadlines = deadlines
         self.debounce = debounce
         self.maxDraftBytes = maxDraftBytes
         self.maxTotalBytes = maxTotalBytes
@@ -59,10 +64,19 @@ public final class RecoveryDraftStore {
         let base = base.flatMap { $0.isEmpty ? nil : $0 }
         pending[id] = RecoveryDraft(id: id, host: parts.host, title: title, savedAt: Date(), contents: contents, filePath: filePath,
                                     fileModified: base?.modified, fileSize: base?.size, base: base)
-        let timer = timers[id] ?? DemandTimer(owner: "recovery-draft", clock: clock)
+        let timer = timers[id] ?? MainDeadline(owner: "RecoveryDraftStore.debounce", workClass: .background, scheduler: deadlines)
         timers[id] = timer
-        timer.schedule(after: debounce) { @MainActor [weak self] in await self?.writeNow(id) }
+        timer.schedule(after: debounce) { [weak self] in self?.startWrite(id) }
         return .kept
+    }
+
+    /// The debounce ended: the pending draft of `id` is written off the main actor.
+    private func startWrite(_ id: String) {
+        guard let draft = pending.removeValue(forKey: id) else { return }
+        timers[id] = nil
+        let directory = directory, maxTotalBytes = maxTotalBytes
+        // task-owner: one crash-safe write, off main; it ends by itself
+        Task { @concurrent in await RecoveryDraftFiles.write(draft, in: directory, maxTotalBytes: maxTotalBytes) }
     }
 
     /// Drops the draft of `id` and any update still waiting for its debounce.
@@ -171,17 +185,27 @@ package nonisolated struct RecoveryDraftFiles {
     }
 
     @concurrent package static func readAll(in directory: URL) async -> [RecoveryDraft] {
+        blockingReadAll(in: directory)
+    }
+
+    /// Every draft in `directory`, oldest first. Blocks on the disk: a files lane or `readAll`, never main.
+    package static func blockingReadAll(in directory: URL) -> [RecoveryDraft] {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         return files.filter { $0.pathExtension == "draft" }
             .compactMap { file in
-                // concurrency-allow: @concurrent, off the main actor
+                // concurrency-allow: called from a files lane or @concurrent readAll, never on the main actor
                 guard let data = try? Data(contentsOf: file) else { return nil }
-                return try? JSONDecoder().decode(RecoveryDraft.self, from: data)
+                return try? JSONDecoder().blockingDecode(RecoveryDraft.self, from: data)
             }
             .sorted { $0.savedAt < $1.savedAt }
     }
 
     @concurrent package static func changedSince(_ draft: RecoveryDraft) async -> Bool {
+        blockingChangedSince(draft)
+    }
+
+    /// ``changedSince(_:)`` on the caller's thread. Blocks on the disk: a files lane or `changedSince`, never main.
+    package static func blockingChangedSince(_ draft: RecoveryDraft) -> Bool {
         guard draft.host == QuitParticipantID.localHost, let path = draft.filePath else { return false }
         if let base = draft.base, !base.isEmpty { return !matches(base, path: path) }
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else { return draft.fileSize != nil }
@@ -208,7 +232,7 @@ package nonisolated struct RecoveryDraftFiles {
         defer { try? handle.close() }
         var hasher = SHA256()
         do {
-            // concurrency-allow: called only from @concurrent changedSince, never on the main actor
+            // concurrency-allow: called only from blockingChangedSince (a files lane or @concurrent changedSince), never on the main actor
             while let chunk = try handle.blockingRead(upToCount: 1 << 20), !chunk.isEmpty {
                 hasher.update(data: chunk)
             }

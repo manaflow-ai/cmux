@@ -248,7 +248,7 @@ export function DebugSettingsPage({ store, strings }: { store: DebugSettingsStor
           </div>
           {state.notice || snap.error ? <output className="ds-notice">{snap.error ?? state.notice}</output> : null}
         </header>
-        <div className="ds-scroll">
+        <div className="ds-scroll" data-page-scroll="list">
           {state.groups.length === 0 ? (
             <p className="ds-none">
               {state.selection === "changed" && !searching

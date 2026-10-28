@@ -360,7 +360,7 @@ STRESS, on macOS 26 and 27 minis. VM timing is not perf evidence.
   input_latency[] {kind, target, entrypoint, presentation_source, count, buckets, max_ms}, scroll_jank, and
   interaction_latency {count, worst_ms, high_pct_ms, kind_of_worst}; buckets sum to count; PrivacyLeakScanner
   passes; KeyPressed/terminal p99 in the same bucket as DC1; VRR rows labelled.
-- DC13 Chromium helper input (browserHost.helperPrototype on): GUI(`python3 scripts/cmux-next/chromium-host-bench.py
+- DC13 Chromium helper input (browserHost.helper on): GUI(`python3 scripts/cmux-next/chromium-host-bench.py
   --app "$NX_APP" --input real --ime --stall 50ms/100ms`). Pass: key-to-page-paint p95 <= in-process + 1 ms; wheel
   momentum (rubber-band); Japanese and Korean IME commits; 0 connection ends under a 1000 Hz pointer flood; no wire
   frame waits for a cmux display tick.
@@ -392,6 +392,8 @@ STRESS, on macOS 26 and 27 minis. VM timing is not perf evidence.
 - MQ-global-input-state: `rg -n 'NSEvent\.(modifierFlags|mouseLocation|pressedMouseButtons)'
   Packages/macOS/CmuxNext/Sources`. 39 hits (checked). Task 095, then one task per package.
 - MQ-cursor-rects: `rg -n 'func resetCursorRects' Packages/macOS/CmuxNext/Sources`. 17 hits (checked). Task 090.
+  Allowed: a hit with `// cursor-rects-allow: <reason>` on the line above (`rg -n -B1 'func resetCursorRects'
+  Packages/macOS/CmuxNext/Sources | rg -c 'cursor-rects-allow'` equals the hit count). After 090: 5 hits, all allowed.
 - MQ-daemon-input-qos: `for n in mux-conn mux-control-dispatch terminal-host-client-input terminal-host-pty
   terminal-host-parser terminal-host-client holder-link mux-attach-out mux-render-attach-out
   mux-resource-terminal-attach mux-line-out mux-pty-input remote-input-writer relay-input; do rg -n "\"$n" cmux-tui/crates
@@ -429,7 +431,7 @@ STRESS, on macOS 26 and 27 minis. VM timing is not perf evidence.
    (`git submodule status` shows `-723c4ab93e7 ghostty-next`) (checked). It needs PL-ghostty review and may land
    after 72 h; DC1's terminal STRESS row may not pass without it.
 6. Chromium host items (063-066) depend on PL-cef-layer fork items; only cmux and shim sides can land in 72 h.
-   DC13 is conditional on browserHost.helperPrototype. CDP histograms (091) may not include renderer histograms
+   DC13 is conditional on browserHost.helper. CDP histograms (091) may not include renderer histograms
    in this CEF build; the reader says so and a fork item follows.
 7. Converting 45 observation hops and 153 non-Swift main hops delays some updates by up to one frame. A same-turn
    correctness need keeps its hop with an allow comment. Automation-class sites must not need a display link.
@@ -442,6 +444,15 @@ STRESS, on macOS 26 and 27 minis. VM timing is not perf evidence.
 11. Old benches (typing-frame-bench.py, home-perf.py, strip-scroll-check.py, sidebar-scroll-floor.swift) and new ones
     can drift. 070 and 072 reuse their HID posters and parsers through one shared module; 075 records that old and
     new rows agree within noise on the base sha.
+12. Notice to PL-typing from p05-ipc-032 (2026-10-26): the typing path's `send` line changes type. p05-ipc-032
+    replaces the hand-written `SendInputRequest` (CmuxNextDaemon/Requests/TerminalIO/Input.swift) with the type
+    CmuxNextWireGen's RequestEmitter generates. Its nullable members `surface`, `text`, `bytes` and `flow` become
+    `FieldUpdate`, so `TerminalAttachment.swift` (the `sendNoReply` of `SendInputRequest`, key-press path) passes
+    `.set(surface)`, `.set(data)` and `flow.map(FieldUpdate.set) ?? .unchanged`; a nil maps to `.unchanged`, which leaves the key
+    out as today. The bytes stay the same and two tests pin them: `TerminalIORequestWireGoldenTests`
+    (CmuxNextDaemonTests, over cmux-tui/spec/fixtures/terminal-io-requests/lines.json) and the daemon's echo test
+    `server::cmd_terminal_io::wire_tests::every_echo_line_writes_its_input_bytes_to_the_pty` (cmux-tui-core).
+    p05-ipc-032 waits on p05-ipc-025 (DaemonRequest in a leaf target) and on RequestEmitter output in the build.
 
 ## 8. Task table
 
@@ -490,8 +501,8 @@ STRESS, on macOS 26 and 27 minis. VM timing is not perf evidence.
 | 039 | InputResampler (exact Chrome constants) | p04 | S | 001 | - |
 | 040 | Resampled drag visuals | p04 | M | 039, 031, 032, 003 | - |
 | 041 | Strip pan resampled at frame time | PL-motion-core | S | 039, p03-026 | - |
-| 042 | Intent prewarm on pointer-down (release-commit targets) | p04 | L | 011, 077 | - |
-| 043 | Hover-dwell prewarm (200 ms, FIFO 2) | p04 | M | 042, 033 | - |
+| 042 | Intent prewarm on pointer-down (release-commit targets) | p04 | L | 011, 077, 043 | - |
+| 043 | Hover-dwell prewarm (200 ms, FIFO 2) | p04 | M | 033 | - |
 | 044 | Directional prewarm for next/previous keys | p04 | S | 042 | - |
 | 045 | Predictive echo engine | PL-ghostty | L | - | - |
 | 046 | Predictive echo overlay + setting | PL-ghostty | M | 045 | - |
@@ -690,7 +701,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
   - No sink is installed here: 094 installs it. The GUI bench comparison runs after 094.
 
 #### p04-input-007 debug.input
-- Files: `S/CmuxNextInput/Diagnostics/DebugInput.swift`, `S/CmuxNextApp/Control/AppControl.swift` (one
+- Files: `S/CmuxNextInputDiagnostics/DebugInput.swift`, `S/CmuxNextApp/Control/AppControl.swift` (one
   registration line), `T/CmuxNextInputTests/DebugInputTests.swift`.
 - Change: JSON sections latency, interactions, gate (held_by_origin{main,offMain}, exempt_by_rule,
   max_input_wait_behind_jobs_ms, jobs_deferred_over_one_frame, nonswift_blocks_while_input_pending), coalescer,
@@ -711,7 +722,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size S. Depends: 004.
 
 #### p04-input-009 Action Latency HUD input rows
-- Files: `S/CmuxNextFocusUI/ActionLatency/ActionLatencyHUD.swift`, `S/CmuxNextInput/Diagnostics/DebugInput.swift`.
+- Files: `S/CmuxNextFocusUI/ActionLatency/ActionLatencyHUD.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`.
 - Change: newest 16 input events: kind, target, total ms, dominant stage; rows over 8.3 ms in the danger color;
   no reader while the HUD is closed.
 - Acceptance: subscribe in show, unsubscribe in hide (diff); strings in the localization catalog.
@@ -854,7 +865,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size M. Depends: 007.
 
 #### p04-input-022 Input-turn hop recorder (Debug)
-- Files: `S/CmuxNextWakeups/MainJobGate+Diagnostics.swift`, `S/CmuxNextInput/Diagnostics/DebugInput.swift`,
+- Files: `S/CmuxNextWakeups/MainJobGate+Diagnostics.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`,
   `scripts/cmux-next/input-turn-hops.py`.
 - Change: records each main-actor job enqueued while input is pending or dispatching (8 return addresses, resolved
   off main with the existing image+offset resolver, first frame outside the Swift runtime and libdispatch), plus a
@@ -1085,22 +1096,27 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
   machine: FIFO of 2, oldest cancelled; kinds: hibernated page cover decode and hidden renderer start, target
   geometry precompute. No daemon write and no terminal attach. Targets: tab cells, palette rows, multi-view sidebar
   rows (the normal sidebar switches on press, checked). A prewarm is kept after a release elsewhere until evicted or
-  the hibernation grace ends.
+  the hibernation grace ends. 043 landed first and owns the surface: 042 extends `IntentPrewarmService` and the
+  InputCore `IntentPrewarmQueue` (FIFO 2) with the press call sites (`prewarm(_:trigger: .pointerDown)`) and its
+  kinds; it adds no second FIFO.
 - Acceptance: no visible state change, no daemon write (store unchanged, no focus change); FIFO 2 (test); counters
   in debug.input; the commit message cites the measured gap.
 - Test phase: UNIT(IntentPrewarmTests,IntentPrewarmServiceTests); GUI activation-perf.py input_to_commit p95
   before/after, prewarm hits reported apart.
-- Size L. Depends: 011, 077.
+- Size L. Depends: 011, 077, 043.
 
 #### p04-input-043 Hover-dwell prewarm
-- Files: `S/CmuxNextInput/IntentPrewarmService.swift`, `S/CmuxNextSidebar/Views/SidebarListView.swift`,
-  `S/CmuxNextTabs/TabStripView+Pointer.swift`.
-- Change: 200 ms dwell (Chrome moderate) on a row or tab whose content is hibernated starts the cheap kinds. Skipped
-  in Low Power Mode on battery and at memory pressure warn or worse (MemoryPressureEvents).
+- Files: `S/CmuxNextInputCore/IntentPrewarm.swift`, `S/CmuxNextInput/IntentPrewarmService.swift`,
+  `S/CmuxNextSidebar/Views/SidebarListView.swift`, `S/CmuxNextApp/Hibernation/BrowserHibernation.swift`. The strip
+  already reports its hovered tab (`TabStripView.onHoverTab`, `BrowserHibernation.noteHover`), so
+  `TabStripView+Pointer.swift` needs no change.
+- Change: 200 ms dwell (Chrome moderate) on a row or tab whose page is frozen or hibernated wakes it in the
+  background. Skipped in Low Power Mode on battery and at memory pressure warn or worse (MemoryPressureEvents).
+  Owns the prewarm surface (service, InputCore FIFO, the hibernation as warmer); 042 extends it.
 - Acceptance: no prewarm under memory pressure or Low Power on battery (tests); one DemandTimer only while the
   pointer rests, cancelled on move; FIFO 2.
-- Test phase: UNIT(IntentPrewarmServiceTests); GUI bench_hibernation.py wake after hover vs click.
-- Size M. Depends: 042, 033.
+- Test phase: UNIT(IntentPrewarmTests,IntentPrewarmServiceTests); GUI bench_hibernation.py wake after hover vs click.
+- Size M. Depends: 033.
 
 #### p04-input-044 Directional prewarm for next/previous keys
 - Files: `S/CmuxNextInput/IntentPrewarmService.swift`, `S/CmuxNextApp/Handlers/TabHandlers.swift` and the
@@ -1135,7 +1151,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size M. Depends: 045.
 
 #### p04-input-048 Responsive-scroll audit
-- Files: `S/CmuxNextInput/Diagnostics/ScrollViewAudit.swift`, `S/CmuxNextInput/Diagnostics/DebugInput.swift`.
+- Files: `S/CmuxNextInputDiagnostics/ScrollViewAudit.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`.
 - Change: `debug.input scroll_views` walks live windows on request and lists each NSScrollView: class, document
   view class, isCompatibleWithResponsiveScrolling for both, SwiftUI hosting, window, and whether a scrollWheel
   override exists. Rows go to p03-110's owner.
@@ -1301,6 +1317,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Change: the reader posts input frames with the fork's cmux_post_user_input_task (BrowserTaskTraits kUserInput),
   falling back to CefPostTask(TID_UI), chosen once at start with dlsym; t0 becomes the CEF event timestamp.
 - Acceptance: t0 used as the event time (diff); fallback chosen once, not per event.
+- Hand-off: InputTasks is the host's one input queue; HostInput's Post is `input_tasks.Post` once p01-process-042 starts the reader (042 drops its per-post PostInputTask). A refused task (UI thread shut down) is dropped: the BatchGate stays shut until HostInput::Stop, and nothing is posted to the other queue. Test: chromium_host_input_ring_test TestHostInputThroughInputTasks.
 - Test phase: GUI chromium-host-bench.py hop_us and key-to-paint before/after.
 - Size M. Depends: 063.
 
@@ -1622,7 +1639,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 
 #### p04-input-091 Chromium EventLatency and ScrollJank through CDP
 - Files: `S/CmuxNextBrowser/CEF/CEFHistogramReader.swift`, `Packages/macOS/CmuxNext/CEFShim/src/shim_devtools_protocol.mm`,
-  `S/CmuxNextInput/Diagnostics/DebugInput.swift`, `S/CmuxNextControl/InputBudget/InputLatencyReporter.swift`,
+  `S/CmuxNextInputDiagnostics/DebugInput.swift`, `S/CmuxNextControl/InputBudget/InputLatencyReporter.swift`,
   `T/CmuxNextBrowserTests/CEFHistogramReaderTests.swift`.
 - Change: on debug.input or report build, Browser.getHistograms query 'EventLatency.' plus
   Event.ScrollJank.DelayedFramesPercentage.FixedWindow and Event.Latency.ScrollUpdate.*; fold into ledger rows with
@@ -1632,6 +1649,12 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
   edges, ignores unknown histograms; no new timer.
 - Test phase: UNIT(CEFHistogramReaderTests); GUI DC1 chromium-page and agent-pane rows next to the cmux slots.
 - Size M. Depends: 002, 007.
+- Deviation (as built): Browser.getHistograms reads the browser process's StatisticsRecorder and takes no
+  target, so it cannot split browser pages from agent pane pages. The rows have target `chromiumProcess`
+  (both together), not `chromiumPage`/`agentPane`. GUI DC1 compares one surface at a time: a bench sends input
+  to that surface alone between `debug.input reset` and the read. A split needs a per-renderer read (a
+  PL-cef-layer fork item), not this reader. Row stages are Chromium's top-level breakdown in pipeline order;
+  `TotalLatency*` variants and dotted sub-stages are only in `histograms`.
 
 #### p04-input-092 cmux web pages: passive listeners, rAF-coalesced moves, key-to-paint probe
 - Files: `webviews/src/ui/frameInput.ts`, `webviews/src/ui/frameInput.test.ts`, `webviews/src/pages/markdown/tables.ts`,
@@ -1651,7 +1674,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size M.
 
 #### p04-input-093 Input-turn dirty-view recorder (Debug)
-- Files: `S/CmuxNextInput/Diagnostics/InputDirtyRecorder.swift`, `S/CmuxNextInput/Diagnostics/DebugInput.swift`,
+- Files: `S/CmuxNextInputDiagnostics/InputDirtyRecorder.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`,
   `scripts/cmux-next/input-dirty-views.py`.
 - Change: on request, swizzle setNeedsDisplay/setNeedsLayout/needsUpdateConstraints and CALayer
   setNeedsLayout/setNeedsDisplay during an input dispatch and its commit; record view class, backtrace (resolved off
@@ -1713,7 +1736,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size S. Depends: 002, 010.
 
 #### p04-input-098 Hit-test cost audit (Debug)
-- Files: `S/CmuxNextInput/Diagnostics/HitTestAudit.swift`, `S/CmuxNextInput/Diagnostics/DebugInput.swift`.
+- Files: `S/CmuxNextInputDiagnostics/HitTestAudit.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`.
 - Change: on request, count views visited and time per event in window hit testing; after STRESS scroll and click
   benches, list overrides with p99 > 20 us or > 32 views per event (75 overrides today, for example
   ScreenContentView+Dock.swift:185, SidebarListView+Blocks.swift:85). Each row is one task (region cache or early

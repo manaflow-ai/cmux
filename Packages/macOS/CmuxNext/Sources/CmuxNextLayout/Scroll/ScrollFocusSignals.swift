@@ -10,7 +10,8 @@ import CoreGraphics
 ///
 /// ```swift
 /// let root = LayoutRootView(model: model, contentProvider: panes,
-///                           scrollFocusSignals: ScrollFocusSignals(secondsSinceKeyDown: { 30 }, windowIsKey: { _ in true }))
+///                           scrollFocusSignals: ScrollFocusSignals(secondsSinceKeyDown: { 30 }, windowIsKey: { _ in true }),
+///                           mainWork: MainWorkScheduler(budget: MainFrameBudget()))
 /// ```
 public struct ScrollFocusSignals {
     /// Seconds since the last key-down event.

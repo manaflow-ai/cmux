@@ -1,6 +1,10 @@
 import CmuxNextCloud
 public import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
+public import CmuxNextWakeups
 
 /// The outcome of one finished ssh (or curl) run.
 public struct SSHProcessResult: Sendable {
@@ -10,10 +14,13 @@ public struct SSHProcessResult: Sendable {
 }
 
 /// Runs one short process to completion: an ssh with a script on stdin (the
-/// probe, the install, the restart) or the Mac-side curl. Output is read on
-/// Foundation's pipe threads (bounded: 1 MiB stdout, 16 KiB stderr tail),
-/// never the main actor. The deadline terminates the process; cancelling
-/// the calling task does too.
+/// probe, the install, the restart) or the Mac-side curl. The spawn runs on a
+/// ``ProcessLauncher`` queue, never the caller's actor (Chromium launches on its
+/// process launcher task runner, never the UI thread:
+/// content/browser/child_process_launcher_helper.cc). Output is read on
+/// Foundation's pipe threads (bounded: 1 MiB stdout, 16 KiB stderr tail), never
+/// the main actor. The deadline terminates the process; cancelling the calling
+/// task does too.
 public struct SSHProcessRunner {
     public init() {}
     public enum Input: Sendable {
@@ -26,11 +33,18 @@ public struct SSHProcessRunner {
     }
 
     /// `stop` ends the process on the deadline or a cancel (by default SIGTERM to it alone; a caller
-    /// whose process leads a group passes one that signals the group).
-    public static func run(_ argv: [String], input: Input = .none, environment: [String: String],
+    /// whose process leads a group passes one that signals the group). `launcher` spawns it; nil is one
+    /// on its own queue at the caller's priority, the child at ``WorkPriority/userVisible`` for its whole
+    /// life (an ssh link probe never runs at the priority of the click that started it).
+    ///
+    /// `@concurrent`: the setup, the stdin write and the waits never run on the caller's actor.
+    @concurrent public static func run(_ argv: [String], input: Input = .none, environment: [String: String],
                            deadline: Duration, label: String,
-                           stop: @escaping @Sendable (Process) -> Void = { $0.terminate() }) async throws -> SSHProcessResult {
+                           stop: @escaping @Sendable (Process) -> Void = { $0.terminate() },
+                           launcher: ProcessLauncher? = nil) async throws -> SSHProcessResult {
         guard let executable = argv.first else { throw CocoaError(.executableNotLoadable) }
+        let launcher = launcher ?? ProcessLauncher(label: "com.cmuxterm.next.ssh-run", priority: WorkPriority(Task.currentPriority),
+                                                   childPriority: .userVisible)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = Array(argv.dropFirst())
@@ -70,7 +84,8 @@ public struct SSHProcessRunner {
         }
         let exit = ExitLatch()
         process.terminationHandler = { exit.finish($0.terminationStatus) }
-        try process.run()
+        // The cancel and deadline handlers below are installed once the child runs.
+        try await launcher.launched(process)
         if case .data(let data) = input, let inputPipe {
             let writer = inputPipe.fileHandleForWriting
             // Scripts are a few KiB, well under the pipe buffer.
@@ -116,13 +131,13 @@ public struct SSHProcessRunner {
 final class ExitLatch: Sendable {
     private struct State {
         var status: Int32?
-        var waiters: [CheckedContinuation<Int32, Never>] = []
+        var waiters: [OnceContinuation<Int32, OnceContinuationError>] = []
     }
 
     private let state = Mutex(State())
 
     func finish(_ status: Int32) {
-        let waiters = state.withLock { state -> [CheckedContinuation<Int32, Never>] in
+        let waiters = state.withLock { state -> [OnceContinuation<Int32, OnceContinuationError>] in
             state.status = status
             defer { state.waiters.removeAll() }
             return state.waiters
@@ -130,14 +145,15 @@ final class ExitLatch: Sendable {
         for waiter in waiters { waiter.resume(returning: status) }
     }
 
+    /// The exit status; -1 ("status unknown") when the wait was dropped without one.
     func awaitValue() async -> Int32 {
-        await withCheckedContinuation { waiter in
+        (try? await withOnceContinuation { (waiter: OnceContinuation<Int32, OnceContinuationError>) in
             let done = state.withLock { state -> Int32? in
                 if let status = state.status { return status }
                 state.waiters.append(waiter)
                 return nil
             }
             if let done { waiter.resume(returning: done) }
-        }
+        }) ?? -1
     }
 }

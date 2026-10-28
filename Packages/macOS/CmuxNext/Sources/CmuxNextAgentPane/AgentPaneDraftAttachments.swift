@@ -1,7 +1,7 @@
+import CmuxNextCompat
 public import CmuxNextSettings
 import CryptoKit
 public import Foundation
-import CmuxNextCompat
 
 /// Each agent chat's unsent composer chips (pasted screenshots, PDFs, files and folders), by
 /// session, in ``directoryName`` beside the launch snapshot: one folder per chat with its chips'
@@ -11,12 +11,11 @@ import CmuxNextCompat
 /// again (reopen, archive and restore, delete and restore, a relaunch or a crash) gets them back.
 /// The page writes its chat's chips once they settle (`chat.draftAttachments`) and reads them when
 /// the chat shows (`chat.draftAttachments.get`); sending or removing the last chip forgets them.
+/// The App's one store reaches each page's provider by init (``AgentPaneChatStores``).
 @MainActor
 public final class AgentPaneDraftAttachments {
     public static let directoryName = "agent-draft-attachments"
     nonisolated static let listName = "draft.json"
-    /// The app's store; nil keeps no chips (a test host, the gallery).
-    public static var shared: AgentPaneDraftAttachments?
     /// The most recently written chats are kept.
     nonisolated static let limit = 100
     /// One chat's files: a composer full of images (10 of at most 5 MB, `attachments.ts`) fits.
@@ -70,13 +69,13 @@ public final class AgentPaneDraftAttachments {
         // A NaN or infinite number would raise, not throw.
         guard case .array = list, JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
-        return try? JSONDecoder().decode([AgentPaneWakeState.Attachment].self, from: data)
+        return try? JSONDecoder().blockingDecode([AgentPaneWakeState.Attachment].self, from: data)
     }
 
     /// The chips as the page's JSON.
     nonisolated static func json(_ attachments: [AgentPaneWakeState.Attachment]) -> JSONValue {
         guard let data = try? JSONEncoder().encode(attachments),
-              let object = try? JSONSerialization.jsonObject(with: data) else { return .array([]) }
+              let object = try? JSONSerialization.blockingJSONObject(with: data) else { return .array([]) }
         return JSONValue(foundation: object) ?? .array([])
     }
 
@@ -95,7 +94,7 @@ public final class AgentPaneDraftAttachments {
     private nonisolated static func saved(in folder: URL) -> Saved? {
         // concurrency-allow: one small list file, read off the main actor
         guard let data = try? Data(contentsOf: folder.appending(path: listName)) else { return nil }
-        return try? JSONDecoder().decode(Saved.self, from: data)
+        return try? JSONDecoder().blockingDecode(Saved.self, from: data)
     }
 
     private nonisolated static func read(_ folder: URL, limit: Int) -> [AgentPaneWakeState.Attachment] {

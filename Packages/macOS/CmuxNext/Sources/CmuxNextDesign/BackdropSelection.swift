@@ -1,8 +1,7 @@
 public import AppKit
-public import Foundation
-import os
-import ImageIO
 import CmuxNextCompat
+public import Foundation
+import ImageIO
 
 /// A selectable image source for the window backdrop. Each case is one source: the bundled art,
 /// a macOS wallpaper file, the person's own image, or their current desktop picture. Each has its
@@ -139,7 +138,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         let follows: Bool
         if let wallpaper = appleWallpaper(path), wallpaper.isDynamic {
             follows = true
-        } else if let url = imageURL(for: .light), let source = blockingImageSource(url: url as CFURL) {
+        } else if let url = imageURL(for: .light), let source = CheckedImageSource(blockingContentsOf: url)?.source {
             follows = BackdropAppearance.light.frame(in: source) != BackdropAppearance.dark.frame(in: source)
         } else {
             follows = false
@@ -148,7 +147,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         return follows
     }
 
-    private static let follows = OSAllocatedUnfairLock<[String: Bool]>(initialState: [:])
+    private static let follows = Mutex<[String: Bool]>([:])
 
     /// The selected image file, reading the desktop picture of the main screen for ``desktop``.
     /// Apple's moving wallpaper resolves to its cut, and a dynamic macOS wallpaper to its picture,

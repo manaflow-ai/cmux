@@ -215,7 +215,7 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
 
     /// Records the options of every permission request in `text` (a daemon frame, not a reply).
     public func observe(_ text: String) {
-        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return }
+        guard let object = (try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any] else { return }
         observe(object, replyTo: nil)
     }
 

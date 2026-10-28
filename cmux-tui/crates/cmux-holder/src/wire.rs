@@ -38,6 +38,30 @@ pub const VERSION: u16 = 5;
 pub const RING_VERSION: u16 = 5;
 /// Oldest wire version this build still serves.
 pub const MIN_VERSION: u16 = 1;
+
+/// Optional features a link negotiates beside its version (pty-holder.md
+/// section 2.1: "New features are optional capability bits"). A daemon of
+/// this build asks for them in its [`Kind::Hello`] (`wanted u32` after the
+/// token), the holder grants the ones it serves in its [`Kind::Welcome`]
+/// (`granted u32` after the count). A peer older than these bits reads
+/// neither field: an older holder grants nothing, so the daemon sends it
+/// none of their frames, and an older daemon asks for nothing. The version
+/// stays 5. Bits are never reused.
+pub mod capability {
+    /// [`super::Kind::TraceStart`] and [`super::Kind::TraceStop`]: the
+    /// daemon starts and stops this holder's trace recording. Granted only
+    /// by a holder whose tracer runs.
+    pub const TRACE_CONTROL: u32 = 1 << 0;
+    /// [`super::FLAG_FLOW`] on [`super::Kind::Write`]: the frame ends with
+    /// the `flow u64` of the key press that wrote it.
+    pub const WRITE_FLOW: u32 = 1 << 1;
+    /// [`super::Kind::Hang`]: the holder reports a pass of its loop that
+    /// ran past its hang deadline to the daemon's hang log.
+    pub const HANG_REPORT: u32 = 1 << 2;
+    /// Every bit this build knows (a holder serves TRACE_CONTROL only with
+    /// its tracer running).
+    pub const SUPPORTED: u32 = TRACE_CONTROL | WRITE_FLOW | HANG_REPORT;
+}
 /// Output a holder sends one terminal past the offset its daemon last
 /// acknowledged ([`Kind::Ack`], version 2): the daemon queues at most this
 /// much per terminal, and a terminal that prints faster than the daemon
@@ -52,10 +76,13 @@ pub const ACK_EVERY: u64 = CREDIT_WINDOW / 4;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u16)]
 pub enum Kind {
-    /// d->h: `version u16, token [u8; 32]`.
+    /// d->h: `version u16, token [u8; 32]`, then the optional `wanted
+    /// u32` ([`capability`] bits; absent from an older daemon: none).
     Hello = 1,
     /// h->d: `version u16` (the lower of the two peers' versions), `count
-    /// u32`, then one [`Kind::Listed`] per terminal.
+    /// u32`, then the optional `granted u32` ([`capability`] bits, a subset
+    /// of `wanted`; absent from an older holder: none), then one
+    /// [`Kind::Listed`] per terminal.
     Welcome = 2,
     /// d->h: spawn on a new PTY; payload [`crate::SpawnRequest`].
     Spawn = 3,
@@ -83,7 +110,11 @@ pub enum Kind {
     Data = 7,
     /// h->d: `requested u64, oldest u64`.
     Gap = 8,
-    /// d->h: bytes for the PTY.
+    /// d->h: bytes for the PTY. With [`FLAG_FLOW`] (granted
+    /// [`capability::WRITE_FLOW`] only) the last 8 bytes are not input but
+    /// the `flow u64` of the key press the bytes carry; the bytes before it
+    /// may be empty (a flow mark for input the daemon wrote on its custody
+    /// master).
     Write = 9,
     /// d->h: `cols u16, rows u16, px_w u16, px_h u16`.
     Resize = 10,
@@ -126,6 +157,23 @@ pub enum Kind {
     /// exactly this segment as its custody copy, so it never hands a later
     /// holder a segment nobody writes.
     Adopted = 21,
+    /// d->h on channel 0 (granted [`capability::TRACE_CONTROL`] only):
+    /// start this holder's trace recording: `categories u64` (the
+    /// `cmux_trace::category` bits to record), `budget_bytes u64` (the
+    /// most ring bytes the daemon's total cap leaves this holder, the unit
+    /// of `cmux_trace::Status::recording_bytes`; 0: no limit). No path: the
+    /// holder writes where its own trace directory is. No answer when it
+    /// started; an [`Kind::Error`] with `TRACE_FAILED` when it did not. The
+    /// recording ends with the link that started it.
+    TraceStart = 22,
+    /// d->h on channel 0 (granted [`capability::TRACE_CONTROL`] only):
+    /// stop the recording. Empty payload; an [`Kind::Error`] with
+    /// `TRACE_FAILED` when none ran.
+    TraceStop = 23,
+    /// h->d on channel 0 (granted [`capability::HANG_REPORT`] only): a pass
+    /// of the holder's loop was still busy past its hang deadline
+    /// ([`HangReport`]). No answer.
+    Hang = 24,
 }
 
 impl Kind {
@@ -154,6 +202,9 @@ impl Kind {
             19 => Snapshot,
             20 => Detach,
             21 => Adopted,
+            22 => TraceStart,
+            23 => TraceStop,
+            24 => Hang,
             _ => return None,
         })
     }
@@ -197,6 +248,78 @@ pub const FLAG_PROLOGUE: u16 = 1;
 /// it only on a link of at least [`RING_VERSION`], so an older peer never
 /// gets a descriptor it does not expect or a ring layout it cannot read.
 pub const FLAG_RING: u16 = 2;
+/// [`Kind::Write`] flag ([`capability::WRITE_FLOW`]): the payload ends
+/// with the `flow u64` trailer ([`write_flow_payload`]). Sent only to a
+/// holder that granted the capability: an older holder would write the
+/// trailer into the shell.
+pub const FLAG_FLOW: u16 = 4;
+
+/// The payload of a [`Kind::Write`] with [`FLAG_FLOW`]: `bytes`, then
+/// `flow`. `bytes` may be at most [`MAX_PAYLOAD`] - 8 long.
+pub fn write_flow_payload(bytes: &[u8], flow: u64) -> Vec<u8> {
+    Out(Vec::with_capacity(bytes.len() + 8)).bytes(bytes).u64(flow).0
+}
+
+/// A [`Kind::Write`] payload split into its input and its flow: the flow
+/// is `Some` only with [`FLAG_FLOW`]. A flagged payload shorter than the
+/// trailer is an error.
+pub fn split_write(flags: u16, payload: &[u8]) -> io::Result<(&[u8], Option<u64>)> {
+    if flags & FLAG_FLOW == 0 {
+        return Ok((payload, None));
+    }
+    let Some(at) = payload.len().checked_sub(8) else {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "short write flow trailer"));
+    };
+    let (bytes, trailer) = payload.split_at(at);
+    Ok((bytes, Some(In(trailer).u64()?)))
+}
+
+/// The payload of a [`Kind::TraceStart`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TraceStart {
+    /// `cmux_trace::category` bits to record.
+    pub categories: u64,
+    /// The most recording ring bytes the daemon's total cap leaves this
+    /// holder (`cmux_trace::Status::recording_bytes`; 0: no limit).
+    pub budget_bytes: u64,
+}
+
+impl TraceStart {
+    pub fn encode(self) -> Vec<u8> {
+        Out::default().u64(self.categories).u64(self.budget_bytes).0
+    }
+
+    pub fn decode(payload: &[u8]) -> io::Result<Self> {
+        let mut input = In(payload);
+        Ok(Self { categories: input.u64()?, budget_bytes: input.u64()? })
+    }
+}
+
+/// The payload of a [`Kind::Hang`]: `deadline_ms u64, busy_ms u64`, then
+/// the watched site's name in UTF-8.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HangReport {
+    /// The site's hang deadline.
+    pub deadline_ms: u64,
+    /// How long the pass had been busy when the holder's watcher saw it.
+    pub busy_ms: u64,
+    /// The watched site (`holder-loop`).
+    pub site: String,
+}
+
+impl HangReport {
+    pub fn encode(&self) -> Vec<u8> {
+        Out::default().u64(self.deadline_ms).u64(self.busy_ms).bytes(self.site.as_bytes()).0
+    }
+
+    pub fn decode(payload: &[u8]) -> io::Result<Self> {
+        let mut input = In(payload);
+        let deadline_ms = input.u64()?;
+        let busy_ms = input.u64()?;
+        let site = String::from_utf8_lossy(input.rest()).into_owned();
+        Ok(Self { deadline_ms, busy_ms, site })
+    }
+}
 
 /// Encode a frame header and payload.
 pub fn encode(kind: Kind, chan: u32, payload: &[u8]) -> Vec<u8> {

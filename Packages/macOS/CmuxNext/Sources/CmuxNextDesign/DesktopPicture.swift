@@ -1,8 +1,8 @@
 public import AppKit
+import CmuxNextCompat
 public import Foundation
 import ImageIO
 import UniformTypeIdentifiers
-import CmuxNextCompat
 
 /// The picture cmux shows for ``BackdropSelection/desktop``: the file macOS reports for the
 /// screen when it is a readable picture, else what the desktop shows without one.
@@ -66,7 +66,8 @@ public nonisolated struct DesktopPicture: Sendable {
     private static func picture(at url: URL, dark: Bool) -> URL? {
         guard url.isFileURL else { return nil }
         var isFolder: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else { return nil }
+        // SAFETY: fileExists writes one ObjCBool into the local `isFolder`, live for the call.
+        guard unsafe FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else { return nil }
         if isFolder.boolValue {
             let files = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
             return files.sorted { $0.lastPathComponent < $1.lastPathComponent }.lazy.compactMap { decodable($0) }.first
@@ -81,8 +82,7 @@ public nonisolated struct DesktopPicture: Sendable {
 
     private static func decodable(_ url: URL) -> URL? {
         if AppleWallpapers.isVideo(url.path) { return FileManager.default.isReadableFile(atPath: url.path) ? url : nil }
-        guard let source = blockingImageSource(url: url as CFURL), CGImageSourceGetCount(source) > 0,
-              CGImageSourceGetType(source) != nil else { return nil }
+        guard let source = CheckedImageSource(blockingContentsOf: url), source.count > 0, source.type != nil else { return nil }
         return url
     }
 
@@ -93,8 +93,9 @@ public nonisolated struct DesktopPicture: Sendable {
         let file = fallbackFolder.appendingPathComponent("fill-\(hex).png")
         if FileManager.default.fileExists(atPath: file.path) { return file }
         let width = 320, height = 200
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        guard let context = CGContext.pixelOwningBitmap(width: width, height: height,
+                                                        space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         context.setFillColor(CGColor(srgbRed: fill.red, green: fill.green, blue: fill.blue, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))

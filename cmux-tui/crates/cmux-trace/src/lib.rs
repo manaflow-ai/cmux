@@ -22,17 +22,31 @@
 //!   `TRACE_EVENT*` over [`write`](fn@write), one `static` [`TraceSite`] per call site, names from the shared
 //!   catalog ([`names::CATALOG`]); [`scope_stack`] is the calling thread's open scopes.
 //!
+//! - [`crash_keys`]: the process's crash-key page, a 4 KiB file beside the black box that the
+//!   same open thread makes (task 098).
+//! - [`export`](fn@export): decoded rings and Chromium's JSON trace to one native Perfetto
+//!   protobuf trace (task 022), for `cmux trace record`.
+//! - [`metrics`]: field histograms in a crash-safe `metrics-<role>-<pid>.bin` with the app's
+//!   CmuxNextMetrics layout (task 131).
+//!
 //! std and libc only: the holder links it.
 
 pub mod clock;
+mod control;
 mod copy;
+pub mod crash_keys;
 mod decode;
+mod export;
 mod identity;
+mod json;
 mod layout;
 mod macros;
 mod map;
+pub mod metrics;
 pub mod names;
+mod proto;
 mod ring;
+mod terminal;
 mod tracer;
 
 use std::cell::RefCell;
@@ -41,8 +55,13 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+pub use control::{ControlOp, apply as apply_control};
 pub use decode::{DecodeError, Decoded, DecodedRecord, Header, NameEntry, ThreadEntry, decode};
+pub use export::{
+    ChromiumInput, ExportError, ExportInput, ExportStats, Machine, RemoteMachine, RingInput, export,
+};
 pub use identity::{ProcessIdentity, ThreadIdentity, build_uuid, build_version};
+pub use json::JsonError;
 pub use layout::{
     CHUNK_BYTES, CatalogName, FLAG_ESTIMATE, FLAG_ID, HEADER_BYTES, NAME_TEXT_BYTES, NameKind,
     PAGE_BYTES, Phase, RECORDS_PER_CHUNK, RingKind, RingLayout, RingSizes, THREAD_NONE,
@@ -54,6 +73,7 @@ pub use macros::{
 };
 pub use map::{Reserve, reserve_blocks};
 pub use ring::Record;
+pub use terminal::terminal_hash;
 use tracer::RingId;
 pub use tracer::{InternedName, StartClocks, Tracer, TracerConfig, Writer};
 
@@ -263,7 +283,8 @@ impl BlackboxOpen {
 
 /// Starts this process's black box as `role`, with the shared catalog ([`names::CATALOG`]) in every
 /// ring's name table: the heap ring takes records from now on, and the one-shot `cmux-trace-open`
-/// thread moves it into `<dir>/<role>-<pid>.blackbox.cmxtrace`. Call it first in `main`; it opens
+/// thread moves it into `<dir>/<role>-<pid>.blackbox.cmxtrace` and makes the crash-key page
+/// ([`crash_keys`]) beside it. Call it first in `main`; it opens
 /// no file itself. None when the black box was already started.
 pub fn init_blackbox(dir: impl AsRef<Path>, role: Role) -> Option<BlackboxOpen> {
     init_process(TracerConfig::for_process(dir.as_ref(), role))
@@ -280,8 +301,14 @@ pub fn init_process(config: TracerConfig) -> Option<BlackboxOpen> {
     if !fresh {
         return None;
     }
-    let handle =
-        std::thread::Builder::new().name("cmux-trace-open".into()).spawn(|| tracer.adopt_file());
+    let handle = std::thread::Builder::new().name("cmux-trace-open".into()).spawn(|| {
+        let ring = tracer.adopt_file();
+        let config = tracer.config();
+        // A page that cannot be mapped keeps its keys in process memory, as the ring does.
+        let _ =
+            crash_keys::open_page(&config.dir, config.role, tracer.full_identity(), config.reserve);
+        ring
+    });
     Some(BlackboxOpen(handle.ok()))
 }
 
@@ -356,14 +383,40 @@ pub fn start_recording(categories: u64) -> Result<Status, TraceError> {
     PROCESS.get().ok_or(TraceError::NotInitialized)?.start_recording(categories)
 }
 
+/// Maps this process's recording ring ahead of its first `trace.start`
+/// ([`Tracer::prepare_recording`]): the ring's bytes. Blocking: call it off the main thread.
+pub fn prepare_recording() -> Result<u64, TraceError> {
+    Ok(PROCESS.get().ok_or(TraceError::NotInitialized)?.prepare_recording())
+}
+
 /// `trace.stop` in this process ([`Tracer::stop`]).
 pub fn stop() -> Result<Status, TraceError> {
     PROCESS.get().ok_or(TraceError::NotInitialized)?.stop()
 }
 
+/// Whether a recording runs in this process now ([`Tracer::recording`]): two loads, no
+/// allocation. False before [`init_blackbox`].
+#[inline]
+pub fn recording() -> bool {
+    PROCESS.get().is_some_and(Tracer::recording)
+}
+
 /// This process's trace state; None before [`init_blackbox`].
 pub fn status() -> Option<Status> {
     PROCESS.get().map(Tracer::status)
+}
+
+/// The role this process traces as; None before [`init_blackbox`]. The panic lines name it.
+pub fn process_role() -> Option<Role> {
+    PROCESS.get().map(|tracer| tracer.config().role)
+}
+
+/// How long ago [`init_blackbox`] ran (the first call in `main`), on the trace clock; None before
+/// it. The panic lines carry it as their uptime, as Chrome's crash reports carry `ptime` from the
+/// time the crash reporter started (`components/crash/core/app/breakpad_linux.cc`,
+/// `g_process_start_time`). No allocation or lock: a panic hook calls it.
+pub fn process_uptime_ns() -> Option<u64> {
+    PROCESS.get().map(Tracer::uptime_ns)
 }
 
 /// A consistent copy of the active ring: the crash and hang reports read the black-box tail from

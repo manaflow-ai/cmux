@@ -1,0 +1,8 @@
+ctrl+cmd+]	nextSidebarTab	
+// keybindings.json
+[
+  {
+    "key": "ctrl+cmd+]",
+    "command": "-nextSidebarTab"
+  }
+]

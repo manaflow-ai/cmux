@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// A page's right-click menu (webviews `ui/ContextMenu.tsx`) as a standard macOS menu: the page
 /// sends its rows and the pointer, the host pops an `NSMenu` up there and answers the chosen row's
@@ -65,16 +66,14 @@ public struct WebContextMenu {
         let picked = WebContextMenuPick()
         let shown = menu { picked.id = $0 }
         let local = CGPoint(x: point.x * zoom, y: point.y * zoom)
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak webView] in
-            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
-                // A view in no window cannot anchor a menu (AppKit raises): dismissed.
-                guard let webView, webView.window != nil else { return done(nil) }
-                let at = webView.isFlipped ? local : CGPoint(x: local.x, y: webView.bounds.height - local.y)
-                shown.popUp(positioning: nil, at: at, in: webView)
-                done(picked.id)
-            }
+        // A run-loop callout, not a main-queue job: main-actor work keeps running while the menu tracks (MainRunLoopBlock).
+        MainRunLoopBlock.perform { [weak webView] in
+            // A view in no window cannot anchor a menu (AppKit raises): dismissed.
+            guard let webView, webView.window != nil else { return done(nil) }
+            let at = webView.isFlipped ? local : CGPoint(x: local.x, y: webView.bounds.height - local.y)
+            shown.popUp(positioning: nil, at: at, in: webView)
+            done(picked.id)
         }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 }
 

@@ -88,8 +88,10 @@ public nonisolated struct AgentHome: Sendable, Equatable {
     static func mark(_ folder: String) {
         let path = folder + "/" + marker
         var info = stat()
-        if blockingLstat(path, &info) == 0 { return }
-        let file = blockingOpen(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        // SAFETY: lstat and open read the NUL-terminated copy of the path made for each call; lstat writes one struct
+        // stat into `info`, a local.
+        if unsafe blockingLstat(path, &info) == 0 { return }
+        let file = unsafe blockingOpen(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         if file >= 0 { close(file) }
     }
 
@@ -99,7 +101,8 @@ public nonisolated struct AgentHome: Sendable, Equatable {
     public func move(from old: String, to new: String) -> Bool {
         guard old != new, let source = path(for: old), let target = path(for: new),
               AcpmuxPathPolicy.canonical(base) == base, Self.isRealFolder(source) else { return false }
-        return renamex_np(source, target, UInt32(RENAME_EXCL)) == 0
+        // SAFETY: renamex_np reads the NUL-terminated copies of the two paths made for the call.
+        return unsafe renamex_np(source, target, UInt32(RENAME_EXCL)) == 0
     }
 
     /// Sends workspace `id`'s folder to the Trash with `trash` (`FileManager.trashItem`): never a
@@ -139,14 +142,16 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         guard let home = standard else { return }
         // task-owner: one sweep of the trash-pending folder; nothing waits for it
         Task.detached(priority: .utility) {
-            home.emptyTrashPending { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+            home.emptyTrashPending(using: AgentPaneGitDiscard.systemTrash)
         }
     }
 
     /// Whether `path` is a folder itself (lstat: a symlink is not), owned by this user.
     static func isRealFolder(_ path: String) -> Bool {
         var info = stat()
-        return blockingLstat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR && info.st_uid == getuid()
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        return unsafe blockingLstat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR && info.st_uid == getuid()
     }
 
     /// Walks `path` from `/`: an existing component must be a real folder (never a symlink); the
@@ -161,15 +166,19 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         for (index, part) in parts.enumerated() {
             current += "/" + part
             var info = stat()
-            if blockingLstat(current, &info) != 0 {
+            // SAFETY: lstat and mkdir read the NUL-terminated copy of the path made for each call; lstat writes one
+            // struct stat into `info`, a local.
+            if unsafe blockingLstat(current, &info) != 0 {
                 // Only the base's own folders and the workspace folder may be made here.
-                guard errno == ENOENT, index + 1 >= baseDepth - 1, blockingMkdir(current, 0o700) == 0 || errno == EEXIST,
-                      blockingLstat(current, &info) == 0 else { return false }
+                guard errno == ENOENT, index + 1 >= baseDepth - 1, unsafe blockingMkdir(current, 0o700) == 0 || errno == EEXIST,
+                      unsafe blockingLstat(current, &info) == 0 else { return false }
             }
             guard (info.st_mode & S_IFMT) == S_IFDIR else { return false }
         }
         var info = stat()
-        guard blockingLstat(path, &info) == 0, info.st_uid == getuid() else { return false }
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        guard unsafe blockingLstat(path, &info) == 0, info.st_uid == getuid() else { return false }
         if info.st_mode & 0o077 != 0, (try? FileManager.checked.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)) == nil {
             return false
         }

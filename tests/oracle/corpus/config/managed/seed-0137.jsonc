@@ -1,0 +1,14 @@
+{
+  "file": "{}\n",
+  "forced": {
+    "appearance.glassTransparency": 0
+  },
+  "recommended": {},
+  "team": {
+    "name": "Ünïcode Team",
+    "defaults": {},
+    "enforced": {
+      "layout.minimumPaneWidth": 800
+    }
+  }
+}

@@ -1,0 +1,10 @@
+// swift-tools-version: 6.2
+import PackageDescription
+
+let package = Package(
+  name: "Demo",
+  targets: [
+    .target(name: "Demo", swiftSettings: [.strictMemorySafety()]),
+    .testTarget(name: "DemoTests", dependencies: ["Demo"], swiftSettings: [.strictMemorySafety()]),
+  ]
+)

@@ -19,7 +19,7 @@ extension AppBrowserPage {
     nonisolated static let keptScreenshots = 32
     nonisolated static let screenshotLifetime: TimeInterval = 3600
 
-    static func screenshot(_ page: any BrowserTab, tabID: String, _ capture: BrowserPageCapture) async throws -> JSONValue {
+    static func screenshot(_ page: any BrowserTab, tabID: String, _ capture: CmuxNextControl.BrowserPageCapture) async throws -> JSONValue {
         let image: CGImage
         do {
             switch capture {
@@ -90,6 +90,7 @@ extension AppBrowserPage {
     static func save(_ png: Data, tabID: String) async throws -> String {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-browser-screenshots", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // wall-clock: a file name stamp; pruning reads the files' dates.
         let stamp = Int(Date().timeIntervalSince1970 * 1000)
         let file = directory.appendingPathComponent("\(tabID)-\(stamp)-\(UUID().uuidString.prefix(8)).png")
         try png.write(to: file, options: .atomic)
@@ -120,6 +121,11 @@ enum BrowserPageStrings {
     }
     static var wakeFailed: String {
         String(localized: "handlers.browserPage.wakeFailed", defaultValue: "The hibernated page did not wake in time; retry",
+               table: "MiscHandlers", bundle: .module)
+    }
+    static var wakeDeferred: String {
+        String(localized: "handlers.browserPage.wakeDeferred",
+               defaultValue: "Memory is low, so the hibernated page was not woken; retry later or show the tab",
                table: "MiscHandlers", bundle: .module)
     }
     static var encodeFailed: String {

@@ -42,6 +42,18 @@ public struct WakeLeeway: Sendable, Hashable {
     public let leeway: Duration
     /// The boundary a wake snaps to inside the window; `.zero` when the wake is exact.
     public let grid: Duration
+    /// The wake snaps to the energy policy's sub-second alignment at wake time instead of ``grid``: a
+    /// flexible window of the table below 1 s. A window with its caller's own tolerance
+    /// (``own(tolerance:delay:)``) and a whole-second window keep their own grid.
+    public let followsAlignment: Bool
+
+    init(delay: Duration, policy: DelayPolicy, leeway: Duration, grid: Duration, followsAlignment: Bool? = nil) {
+        self.delay = delay
+        self.policy = policy
+        self.leeway = leeway
+        self.grid = grid
+        self.followsAlignment = followsAlignment ?? (policy != .precise && grid < Self.wholeSecondDelay)
+    }
 
     /// The window for a wake `delay` from now. `alignment` is the sub-second grid: 8 ms
     /// (``defaultAlignment``), 32 ms in Energy Saver (``saverAlignment``); a value that is not
@@ -57,6 +69,19 @@ public struct WakeLeeway: Sendable, Hashable {
         }
         let step = alignment > .zero ? alignment : defaultAlignment
         return WakeLeeway(delay: delay, policy: effective, leeway: step, grid: step)
+    }
+
+    /// The window of a wake that keeps its caller's own tolerance instead of the table's: no sooner than
+    /// the deadline, at most `tolerance` after it, snapped to a `tolerance` grid inside that window. The
+    /// energy policy's alignment never replaces that grid, so Energy Saver does not move the wake. A
+    /// tolerance or delay of zero or less is exact (`.precise`). This is a run-loop timer's own
+    /// tolerance (`CFRunLoopTimerSetTolerance`) on the shared queue: the CEF pump's wakes, whose
+    /// Chromium tasks reach cmux without their precise or flexible policy.
+    public static func own(tolerance: Duration, delay: Duration) -> WakeLeeway {
+        guard tolerance > .zero, delay > .zero else {
+            return WakeLeeway(delay: delay, policy: .precise, leeway: .zero, grid: .zero)
+        }
+        return WakeLeeway(delay: delay, policy: .flexibleNoSooner, leeway: tolerance, grid: tolerance, followsAlignment: false)
     }
 
     /// The tolerance for `clock.sleep(for: sleepDelay, tolerance:)`: the leeway (zero when precise).

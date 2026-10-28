@@ -133,7 +133,8 @@ import Testing
         #expect(posts.count == 1, "at most one main post is pending")
 
         posts.drain()
-        #expect(mainTicks == [10 + 3.0 / 120], "main ticks once, with the newest vsync")
+        let newestVsync: CFTimeInterval = 10 + 3.0 / 120
+        #expect(mainTicks == [newestVsync], "main ticks once, with the newest vsync")
         #expect(hub.mainHop.count == 1)
 
         // The client went idle on its tick: the clock left the hub, the producer keeps the link.

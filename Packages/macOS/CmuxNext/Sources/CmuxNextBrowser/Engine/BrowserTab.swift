@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 public import Foundation
 public import Observation
 
@@ -17,6 +18,10 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// The view to place in the pane. For `.childWindow` engines this is the
     /// placeholder the child window tracks.
     var contentView: NSView { get }
+    /// What the page paints behind its document, for a gap the moving page leaves (Chrome's gutter,
+    /// `content/browser/renderer_host/delegated_frame_host.cc`); nil while the page is see-through
+    /// (blank, New Tab, loading), so what is behind the page shows there too. The default is nil.
+    var pageBackgroundColor: CGColor? { get }
 
     var state: BrowserTabState { get }
     var favicon: NSImage? { get }
@@ -91,7 +96,10 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     func fullPageSnapshot() async throws -> CGImage
 
     /// Every cookie of the tab's profile (automation). The default throws `unsupported`.
-    func cookies() async throws -> [BrowserCookie]
+    ///
+    /// - Parameter work: The app's lanes: an engine whose answer is a whole cookie jar to parse (Chromium's
+    ///   DevTools reply) parses it on their `.cpu` lane, never on the main thread.
+    func cookies(on work: BackgroundWork) async throws -> [BrowserCookie]
 
     /// Stores `cookie` in the tab's profile. The default throws `unsupported`.
     func setCookie(_ cookie: BrowserCookie) async throws
@@ -119,6 +127,7 @@ extension BrowserTab {
 
     public func markAgentDriven() {}
     public var isAgentDriven: Bool { false }
+    public var pageBackgroundColor: CGColor? { nil }
     public var siteZoomLevels: SiteZoomLevels? { nil }
     public func setPasswordFillAllowedByProfile(_ allowed: Bool) {}
 
@@ -136,7 +145,7 @@ extension BrowserTab {
         throw BrowserTabError.snapshotUnavailable
     }
 
-    public func cookies() async throws -> [BrowserCookie] {
+    public func cookies(on work: BackgroundWork) async throws -> [BrowserCookie] {
         throw BrowserTabError.unsupported("cookies")
     }
 

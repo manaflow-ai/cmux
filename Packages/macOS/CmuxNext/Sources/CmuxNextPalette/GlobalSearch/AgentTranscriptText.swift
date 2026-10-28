@@ -1,5 +1,5 @@
-package import Foundation
 import CmuxNextCompat
+package import Foundation
 
 /// The conversation text of a Claude Code or Codex session that runs in a
 /// terminal on this Mac, read from the agent's transcript file. A TUI agent
@@ -37,7 +37,7 @@ package nonisolated struct AgentTranscriptText {
         guard let url = transcript(of: session, environment: environment), let data = tail(of: url) else { return nil }
         var lines: [String] = []
         for line in data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: true) where line.count <= maxLineBytes {
-            guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] else { continue }
+            guard let object = try? JSONSerialization.blockingJSONObject(with: Data(line)) as? [String: Any] else { continue }
             for text in session.harness == "codex" ? codexTexts(object) : claudeTexts(object) {
                 for row in text.split(whereSeparator: \.isNewline) {
                     let trimmed = row.trimmingCharacters(in: .whitespaces)

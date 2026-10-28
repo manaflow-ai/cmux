@@ -21,39 +21,95 @@ Chrome reference (chromium/src):
 Subcommands owned here: run, diff, merge, check, gen, rebaseline. These delegate to the
 sibling script that owns them (`oracle.py <cmd> ARGS` runs `python3 -I <script> ARGS`):
 confirm, select, bisect, report, minimize, switches, route, coverage, selftest.
+`selftest --mutants` is the mutation smoke run (mutant_catch.py, p15-oracle-115): every seeded patch
+mutant against its base through the smallest selection that catches it; it fails below 19/20.
 
 Driver protocol (owned here; driver_<product>.py implements it):
     open_session(session_ctx: dict) -> session
     session.run_case(case: dict, case_ctx: dict) -> result dict
     session.close() -> None
+    session.reset_state() -> JSON value (optional; task 189)
 A session is one product process (one app launch); it runs up to --batch-limit cases.
+A session with `reset_state` shares its process between cases: reset_state brings the product back
+to its fixture and returns the reset snapshot (a JSON projection of the state a case may leave).
+This file reads it once right after the launch (the fixture) and again after every case. A reset
+snapshot that differs from the fixture, or a reset_state that raises (a refused reset action), is
+LeakedState of the case that just ran: the launch is closed and the next case gets a fresh one
+(base/test/test_suite.cc, CheckForLeakedGlobals: OnTestEnd fails the test that leaked global state,
+by name). Two errors are not leaks: one with a true `unreachable` attribute (the product is gone)
+makes the case a Crash at step "reset"; one with a `relaunch` reason (the reset has no action for
+what the case changed) closes the launch with no finding. The check runs after the last case of a
+launch too, so --batch-limit 1 and 10 find the same leaks. A launch whose fixture cannot be read is
+an infra error of that launch, not a result of the case it was opened for (the case is retried, or
+"not-run"). A session without reset_state isolates its cases itself (the daemon driver starts one
+cmux-tui per case).
 A result is {"status": "Pass"|"Failure"|"Crash"|"Timeout", "checkpoints": [{"step": str,
 "checkpoint": "before"|"turn"|"settled", "snapshot": <canonical snapshot (normalize.py)>,
 optional "uncertain": true, optional "notComparable": [facet, ...]}], "message": str,
-optional "step" (where a Crash or Timeout happened), optional "session_dirty": true (LeakedState
-or a lost process: the next case gets a fresh session), optional "switch_hits": {name: {arm:
-count}}}. This file hashes each snapshot (sha256 of its sorted-key compact JSON) and decides
-flakiness by hashes; diff.py compares the snapshot values.
+optional "step" (where a Crash or Timeout happened), optional "session_dirty": true (a lost or
+unusable process: the next case gets a fresh session, with no reset check), optional "switch_hits":
+{name: {arm: count}} (the per-site hit counters, by the arm each site ran), optional
+"switch_readback": {name: arm} (the arm the product reports: snapshot.switches for the app,
+identify for the daemon; task 049)}. Switch names are registry names
+(plans/cmux-next/refactor-switches/<name>.json). This file hashes each snapshot (sha256 of its
+sorted-key compact JSON) and decides flakiness by hashes; diff.py compares the snapshot values.
 
 Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra fields below):
     receipt.json       {"schema": "cmux-oracle-run-v1", "runId", "sha", "host": {"name", "os",
                         "osVersion", "arch"}, "platform", "product", "arm" (baseline arm or null),
-                        "shards": [i], "seeds": {"i": seed}, "selection", "cases": {"<suite>/<case>":
-                        {"suite", "result" (Flaky for a flaky case), "outcome", "flaky", "reasons",
-                        "expected", "attempts", "checkpoints": N}}, "counts", ...}
+                        "shards": [i], "seeds": {"i": seed}, "selection", "isolation" (the run's case
+                        isolation: "mode" asked, "kind" netns|none got, "reason", "uid"; merge refuses
+                        shards of different kinds), "cases": {"<suite>/<case>": {"suite", "result"
+                        (Flaky for a flaky case), "outcome", "flaky", "reasons", "expected", "attempts",
+                        "checkpoints": N, "leaked_state": [leak], "environment" (the first attempt's
+                        env and isolation, when the driver reports it)}},
+                        "leaked_state": [case ids], "order" (the plan's case order), "sessions":
+                        [{"session", "iteration", "attempt", "phase", "cases" (run order), "end"
+                        (batch-end, dirty, leaked, relaunch or fixture-unreadable), "reason"}],
+                        "counts", ...}
+                        A leak is {"case", "pointers" (first differing RFC 6901 pointers; "" is
+                        the whole snapshot), "count",
+                        "error", "launch_order" (the cases that ran in its launch, up to it),
+                        "session", "iteration", "attempt", "phase"}; any leak makes `ok` false.
     checkpoints.jsonl  one line per checkpoint of the case's first attempt (every attempt of a case
                         that is not flaky has the same hashes): {"case", "suite", "step", "index",
                         "checkpoint", "snapshot", "sha256", "attempt", "result"}
-    events.jsonl       one line per attempt: phase, status, ms, message, checkpoint hashes
+    events.jsonl       one line per attempt: phase, status, ms (the case alone), message,
+                        checkpoint hashes, the session (launch) it ran in and its position there,
+                        reset_ms (the reset check after it), its leak if any
 `oracle.py rebaseline --run DIR [baselines.py options]` writes the golden cases of DIR in the
 run format baselines.py (016) reads (a `cases` list, the case name without its suite) and runs
 `baselines.py rebaseline` on it.
 
+Engine parity (spec 3F.4, task 113): `run --engine webkit|chromium` is one engine arm (the app's
+browser.defaultEngine, also the engine of a case that pins one; recorded as config.engine), and
+`diff --product app --engine webkit,chromium --ref SHA` runs both arms of one build through fleet.py.
+An engine arm's driver canonicalizes without the tabs' `engine` (normalize Context.drop, so no set order
+or id label depends on it) and records each checkpoint's raw tab engines as `engines`. Any comparison of
+two different engine arms requires each arm to read its own engine back (else `engine-not-exercised`) and
+no tab to still show one (else `engine-not-neutral`), and applies tests/oracle/engine-parity.json, the
+engine differences with their reasons.
+
 `diff` exit codes: 0 no unexplained divergence, 1 divergences, 2 bad input, 3 refused (host
-mismatch, an incomplete or mismatched shard set, nothing compared), 4 diff.py internal error.
+mismatch, an incomplete or mismatched shard set, nothing compared, a queued side that did not
+build or run, and for --switch: arm-not-applied, arm-not-exercised, arms-read-back-same,
+arms-differ-beyond-switch), 4 diff.py internal error. Every diff writes comparison.json and
+divergences.jsonl (one line per divergent case; empty when the comparison is refused or clean)
+in --out.
+
+`diff --switch NAME` (spec 3F.2, task 111) is the virtual suite of one refactor switch, like
+`run_web_tests.py --flag-specific=NAME`: the same build runs the switch's `suites` on arm old and
+arm new, shard by shard with the two arms back to back on this host (`--shards N` runs every
+shard here, `--shard I/N` one shard for a worker; `--base-run`/`--head-run` compare the old and
+new arm runs a worker wrote; on the Linux VM each arm of a shard is a `linux_run.sh run` job of
+--ref in the runnerd queue; app runs go to fleet.py, which compares its arm runs here). The
+registry's expected_differences are its FlagExpectations. The comparison is evidence only when
+each arm read back its own arm, the arms read back differently in every snapshot (diff.py
+--arm-pointer), and the hit counters show each arm ran its own sites and none of the other's,
+with hits in every case that lists the switch.
 
 Sibling interfaces this file calls:
-    diff.py A_DIR B_DIR --out divergence.json [--expected FILE] [--case GLOB]       (014)
+    diff.py A_DIR B_DIR --out divergence.json [--expected FILE] [--arm-pointer P]   (014, 111)
     baselines.Store(root).read(suite, case, pdir, arm), platform_dir(platform, product),
         suite_class(suite), BaselineError; baselines.py rebaseline --run DIR         (016)
     expectations.Expectations.load_root(root), RunConfig, resolve, should_run, lint  (015)
@@ -66,6 +122,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import fnmatch
 import glob
 import hashlib
@@ -83,7 +140,7 @@ import time
 import urllib.parse
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -101,13 +158,20 @@ RUN_SCHEMA = "cmux-oracle-run-v1"
 COMPARISON_SCHEMA = "cmux-oracle-comparison-v2"
 RESULTS = ("Pass", "Failure", "Crash", "Timeout")
 SLOW_MULTIPLIER = 5
-CAPABILITIES = frozenset({"resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui"})
+CAPABILITIES = frozenset(
+    {"resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui", "git_repo", "state_root"}
+)
 # WPT runs one suite against several products; a case runs on a product only when the
-# product has every capability the case `requires`.
+# product has every capability the case `requires`. git_repo (a case with fixture.repo): the
+# driver builds the repository with make_repo.build_for_case first; no driver does yet
+# (p15-oracle-243), so no product has it. state_root (a case with fixture.stateRoot) runs a tag's
+# build and head's on one state root: gen_upgrades.py run is its runner (p15-oracle-208), so no
+# product has it either.
 PRODUCTS: Dict[str, frozenset] = {
     "daemon": frozenset({"resource_api", "restart"}),
     "cli": frozenset({"resource_api", "restart"}),
-    "mcp": frozenset({"resource_api", "actions", "mcp"}),
+    # The VM mcp session is the daemon driver's case: its own daemon, which a restart step restarts.
+    "mcp": frozenset({"resource_api", "actions", "mcp", "restart"}),
     "tui": frozenset({"resource_api", "keys", "tui"}),
     "headless": frozenset({"resource_api", "actions"}),
     "app": frozenset({"resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp"}),
@@ -129,6 +193,14 @@ CRASH_KINDS = frozenset({"renderer", "gpu", "browser", "utility", "daemon", "hol
 PLATFORMS = ("linux", "mac", "windows")
 BUILDS = ("debug", "bench", "asan", "tsan")
 ARMS = ("old", "new")
+# Engine parity (spec 3F.4, task 113): an engine arm is the app's `browser.defaultEngine` (BrowserDefaultEngine raw
+# values, which are also the case-v1 environment.engine names), and the tabs facet reads each tab's engine back as
+# BrowserEngineKind. An engine arm canonicalizes without ENGINE_FIELD (driver_app.ENGINE_DROP) and a comparison of
+# two engine arms explains the differences ENGINE_PARITY_FILE lists, the way run_web_tests.py --flag-specific reads FlagExpectations/<flag>
+# (third_party/blink/web_tests/FlagExpectations/README.txt).
+ENGINE_READBACK = {"webkit": "webkit", "chromium": "cef"}
+ENGINE_FIELD = "engine"
+ENGINE_PARITY_FILE = REPO / "tests" / "oracle" / "engine-parity.json"
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 DEFAULT_RETRY_LIMIT = 3
 # The VM default is 200 jobs (spec 3G); a fleet mini runs one GUI app at a time.
@@ -141,19 +213,19 @@ DEFAULT_BUILD = {"app": "bench"}
 # Products served by the cmux-tui binary that linux_run.sh builds per SHA.
 RUST_PRODUCTS = frozenset({"daemon", "cli", "mcp", "tui"})
 
-DIFF_OK, DIFF_DIVERGENT, DIFF_BAD_INPUT, DIFF_HOST_MISMATCH, DIFF_INTERNAL = 0, 1, 2, 3, 4
+DIFF_OK, DIFF_DIVERGENT, DIFF_BAD_INPUT, DIFF_HOST_MISMATCH, DIFF_INTERNAL, DIFF_ARMS_SAME = 0, 1, 2, 3, 4, 5
 EXIT_REFUSED = 3
 
 DELEGATES: Dict[str, Tuple[str, Tuple[str, ...], str]] = {
     "confirm": ("confirm.py", (), "p15-oracle-184"),
-    "select": ("select.py", (), "p15-oracle-009"),
-    "bisect": ("bisect.py", (), "p15-oracle-009"),
+    "select": ("select_suites.py", (), "p15-oracle-009"),
+    "bisect": ("bisect_case.py", (), "p15-oracle-009"),
     "report": ("report.py", (), "p15-oracle-116"),
     "minimize": ("minimize.py", (), "p15-oracle-098"),
     "switches": ("switches.py", (), "p15-oracle-018"),
     "route": ("route.py", (), "p15-oracle-118"),
     "coverage": ("coverage.py", (), "p15-oracle-190"),
-    "selftest": ("selftest.py", (), "p15-oracle-019"),
+    "selftest": ("selftest.py", (), "p15-oracle-019"),  # --mutants: mutant_catch.py (p15-oracle-115)
 }
 
 
@@ -427,11 +499,28 @@ class ExpectationStore:
         return rules
 
 
-def load_expectations(root: Path, *, platform: str, arm: Optional[str], product: str, build: str) -> Optional[ExpectationStore]:
+def expectation_arm(arm: Optional[str], registry: Mapping[str, Mapping[str, Any]]) -> Optional[str]:
+    """The run's value in the expectations' arm tag group. A --switch run is on its arm. A run that sets no arm
+    (None or default) runs every switch at its registry `default`: switches land at default old and flip to new
+    only before their old path is deleted (refactor-switches/README.md), so that run is [ old ] while no default
+    is new, [ new ] once every default is, and on no arm while they differ. launch-config mixes planned arms."""
+    if arm in ARMS:
+        return arm
+    if arm not in (None, "default"):
+        return None
+    defaults = {entry.get("default", "old") for entry in registry.values()}
+    if not defaults:
+        return "old"
+    return defaults.pop() if len(defaults) == 1 and defaults <= set(ARMS) else None
+
+
+def load_expectations(root: Path, *, platform: str, arm: Optional[str], product: str, build: str,
+                      registry: Optional[Mapping[str, Mapping[str, Any]]] = None) -> Optional[ExpectationStore]:
     module = load_sibling("expectations")
     if module is None:
         return None
-    return ExpectationStore.load(module, root, platform=platform, arm=arm, product=product, build=build)
+    run_arm = expectation_arm(arm, load_switch_registry() if registry is None else registry)
+    return ExpectationStore.load(module, root, platform=platform, arm=run_arm, product=product, build=build)
 
 
 # ---------------------------------------------------------------------------------------
@@ -456,6 +545,15 @@ class Attempt:
     switch_hits: Dict[str, Dict[str, int]] = field(hash=False, compare=False)
     # Snapshot rows are kept for the first attempt only: it is the one checkpoints.jsonl holds.
     rows: Tuple[Dict[str, Any], ...] = field(default=(), hash=False, compare=False)
+    # The launch the attempt ran in and its 0-based position there; the reset check's finding.
+    session: Optional[int] = field(default=None, hash=False, compare=False)
+    position: Optional[int] = field(default=None, hash=False, compare=False)
+    leaked_state: Optional[Dict[str, Any]] = field(default=None, hash=False, compare=False)
+    # The reset check's time after the case (ms holds the case alone); None with no check.
+    reset_ms: Optional[int] = field(default=None, hash=False, compare=False)
+    # The driver's `environment` (hermetic_env CaseEnv.receipt(): every variable and the isolation).
+    environment: Optional[Dict[str, Any]] = field(default=None, hash=False, compare=False)
+    switch_readback: Dict[str, str] = field(default_factory=dict, hash=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -490,8 +588,14 @@ def coerce_result(raw: Any) -> Dict[str, Any]:
         for extra in ("uncertain", "notComparable"):
             if cp.get(extra):
                 row[extra] = cp[extra]
+        if isinstance(cp.get("engines"), dict):  # an engine arm's raw tab engines (driver_app.tab_engines)
+            row["engines"] = cp["engines"]
         rows.append(row)
+    readback = raw.get("switch_readback") or {}
+    if not (isinstance(readback, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in readback.items())):
+        return crash(f"driver returned a malformed switch_readback {readback!r:.200}")
     step = raw.get("step")
+    environment = raw.get("environment")
     return {
         "status": status,
         "checkpoints": tuple(checkpoints),
@@ -500,56 +604,195 @@ def coerce_result(raw: Any) -> Dict[str, Any]:
         "step": step if isinstance(step, str) else None,
         "session_dirty": bool(raw.get("session_dirty")),
         "switch_hits": raw.get("switch_hits") or {},
+        "switch_readback": dict(readback),
+        "environment": environment if isinstance(environment, dict) else None,
     }
 
 
-def run_batch(works: Sequence[Work], open_session: SessionOpener, session_ctx: Dict[str, Any]) -> Tuple[list, list]:
-    """Runs one batch in as few sessions as possible; a dirty session is replaced before the next case."""
-    results = []
-    errors = []
-    session = None
+# The first differing pointers a leak lists; `count` has them all.
+LEAK_POINTERS = 20
+# A session without reset_state: its cases are not reset-checked.
+NO_RESET = object()
 
-    def close() -> None:
+
+def state_differences(fixture: Any, now: Any, pointer: str = "") -> List[str]:
+    """The JSON pointers (RFC 6901: "" is the whole document) where `now` differs from `fixture`, in
+    sorted-key order.
+
+    A key on one side only differs at that key; lists differ by index, and a length change at the
+    list itself. Equal values give [].
+    """
+    if isinstance(fixture, dict) and isinstance(now, dict):
+        out: List[str] = []
+        for key in sorted(set(fixture) | set(now), key=str):
+            child = f"{pointer}/{str(key).replace('~', '~0').replace('/', '~1')}"
+            if key not in fixture or key not in now:
+                out.append(child)
+            else:
+                out.extend(state_differences(fixture[key], now[key], child))
+        return out
+    if isinstance(fixture, list) and isinstance(now, list):
+        out = []
+        for index, (a, b) in enumerate(zip(fixture, now)):
+            out.extend(state_differences(a, b, f"{pointer}/{index}"))
+        if len(fixture) != len(now):
+            out.append(pointer)
+        return out
+    if type(fixture) is not type(now) or fixture != now:
+        return [pointer]
+    return []
+
+
+def read_fixture(session: Any) -> Any:
+    """The fixture of a fresh launch (its first reset snapshot), or NO_RESET for a session with no reset_state."""
+    reset_state = getattr(session, "reset_state", None)
+    return NO_RESET if reset_state is None else reset_state()
+
+
+@dataclass(frozen=True)
+class ResetOutcome:
+    """What the reset check after a case found.
+
+    `clean`: the reset snapshot is the fixture. `leaked`: it is not, or a reset action was refused
+    (`leak`). `relaunch`: the reset says it has no action for what the case changed (`reason`; the
+    driver's error has a `relaunch` attribute): a fresh launch, no leak. `unreachable`: the product
+    is gone (the error has `unreachable`): a Crash of the case at step "reset".
+    """
+
+    kind: str
+    leak: Optional[Dict[str, Any]] = None
+    reason: Optional[str] = None
+
+
+def reset_check(session: Any, fixture: Any) -> ResetOutcome:
+    try:
+        now = session.reset_state()
+    except Exception as error:  # noqa: BLE001 - every reset failure is classified below
+        if getattr(error, "unreachable", False):
+            return ResetOutcome("unreachable", reason=f"{error}"[:500])
+        relaunch = getattr(error, "relaunch", None)
+        if relaunch:
+            return ResetOutcome("relaunch", reason=str(relaunch)[:500])
+        return ResetOutcome("leaked", leak={"pointers": [], "count": 0, "error": f"reset_state raised {error!r}"[:500]})
+    pointers = state_differences(fixture, now)
+    if not pointers:
+        return ResetOutcome("clean")
+    return ResetOutcome("leaked", leak={"pointers": pointers[:LEAK_POINTERS], "count": len(pointers), "error": None})
+
+
+@dataclass(frozen=True)
+class BatchOutput:
+    """(work, result, ms, session number, position, reset ms) per case that ran, infra errors, one log per launch."""
+
+    results: Tuple[Tuple[Work, Dict[str, Any], int, int, int, Optional[int]], ...]
+    errors: Tuple[str, ...]
+    sessions: Tuple[Dict[str, Any], ...]
+
+
+def run_batch(works: Sequence[Work], open_session: SessionOpener, session_ctx: Dict[str, Any],
+              numbers: Iterator[int]) -> BatchOutput:
+    """Runs one batch in as few launches as possible, with the reset check after each case.
+
+    A dirty session (lost process), a leak or a reset that asks for one closes the launch; the next
+    case opens a fresh one. A launch whose fixture cannot be read is an infra error of that launch:
+    the case it was opened for did not run (no result; execute retries it). `ms` is the case alone;
+    the reset check's time is `reset ms`. `numbers` gives out session numbers (itertools.count: one
+    atomic step per launch).
+    """
+    results = []
+    errors: List[str] = []
+    logs: List[Dict[str, Any]] = []
+    session: Any = None
+    fixture: Any = NO_RESET
+    log: Dict[str, Any] = {}
+
+    def end(reason: str, detail: Optional[str] = None) -> None:
+        nonlocal session
+        log["end"] = reason
+        if detail:
+            log["reason"] = detail
+        logs.append(log)
+        if session is None:
+            return
         try:
             session.close()
         except Exception as error:  # noqa: BLE001 - a teardown failure is reported, not raised
-            errors.append(f"session close after {works[0].case.id}..: {error!r}")
+            last = log["cases"][-1] if log["cases"] else "its launch"
+            errors.append(f"session {log['session']} close after {last}: {error!r}")
+        session = None
 
     try:
         for work in works:
+            if not log or "end" in log:
+                ctx = work.ctx
+                log = {"session": next(numbers), "iteration": ctx.get("iteration"), "attempt": ctx.get("attempt"),
+                       "phase": ctx.get("phase"), "cases": []}
+            if session is None:
+                try:
+                    session = open_session(dict(session_ctx))
+                except Exception as error:  # noqa: BLE001 - a launch that fails fails the case it was for
+                    log["cases"].append(work.case.id)
+                    results.append((work, {**crash(f"driver error: {error!r}"), "session_dirty": True}, 0, log["session"], 0, None))
+                    end("dirty")
+                    continue
+                try:
+                    fixture = read_fixture(session)
+                except Exception as error:  # noqa: BLE001 - the launch is unusable; the case did not run
+                    errors.append(f"session {log['session']}: fixture unreadable before {work.case.id}: {error!r}"[:500])
+                    end("fixture-unreadable", f"{error!r}"[:500])
+                    continue
+            position = len(log["cases"])
+            log["cases"].append(work.case.id)
             start = time.monotonic()
             try:
-                if session is None:
-                    session = open_session(dict(session_ctx))
                 result = coerce_result(session.run_case(work.case.data, dict(work.ctx)))
             except Exception as error:  # noqa: BLE001 - a driver failure fails this case only
                 result = {**crash(f"driver error: {error!r}"), "session_dirty": True}
-            results.append((work, result, int((time.monotonic() - start) * 1000)))
-            if result.get("session_dirty") and session is not None:
-                close()
-                session = None
+            ms = int((time.monotonic() - start) * 1000)
+            reset_ms = None
+            ending: Optional[Tuple[str, Optional[str]]] = ("dirty", None) if result.get("session_dirty") else None
+            if ending is None and fixture is not NO_RESET:
+                start = time.monotonic()
+                outcome = reset_check(session, fixture)
+                reset_ms = int((time.monotonic() - start) * 1000)
+                if outcome.kind == "leaked":
+                    leak = {"case": work.case.id, **(outcome.leak or {}), "launch_order": list(log["cases"]),
+                            "session": log["session"]}
+                    result = {**result, "leaked_state": leak, "session_dirty": True}
+                    ending = ("leaked", None)
+                elif outcome.kind == "unreachable":
+                    result = {**result, "status": "Crash", "step": "reset", "session_dirty": True,
+                              "message": f"the product was lost in the reset after the case: {outcome.reason}"}
+                    ending = ("dirty", outcome.reason)
+                elif outcome.kind == "relaunch":
+                    ending = ("relaunch", outcome.reason)
+            results.append((work, result, ms, log["session"], position, reset_ms))
+            if ending is not None:
+                end(*ending)
     finally:
-        if session is not None:
-            close()
-    return results, errors
+        if log and "end" not in log:
+            end("batch-end")
+    return BatchOutput(tuple(results), tuple(errors), tuple(logs))
 
 
 def run_phase(
-    batches: Sequence[Sequence[Work]], open_session: SessionOpener, session_ctx: Dict[str, Any], jobs: int
-) -> Tuple[list, list]:
+    batches: Sequence[Sequence[Work]], open_session: SessionOpener, session_ctx: Dict[str, Any], jobs: int,
+    numbers: Iterator[int],
+) -> Tuple[list, list, list]:
+    outputs: Iterable[BatchOutput]
+    if jobs <= 1 or len(batches) <= 1:
+        outputs = [run_batch(b, open_session, session_ctx, numbers) for b in batches]
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(jobs, len(batches))) as pool:
+            outputs = list(pool.map(lambda b: run_batch(b, open_session, session_ctx, numbers), batches))
     results: list = []
     errors: list = []
-    if jobs <= 1 or len(batches) <= 1:
-        outputs: Iterable = (run_batch(b, open_session, session_ctx) for b in batches)
-        for batch_results, batch_errors in outputs:
-            results.extend(batch_results)
-            errors.extend(batch_errors)
-        return results, errors
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(jobs, len(batches))) as pool:
-        for batch_results, batch_errors in pool.map(lambda b: run_batch(b, open_session, session_ctx), batches):
-            results.extend(batch_results)
-            errors.extend(batch_errors)
-    return results, errors
+    sessions: list = []
+    for output in outputs:
+        results.extend(output.results)
+        errors.extend(output.errors)
+        sessions.extend(output.sessions)
+    return results, errors, sessions
 
 
 @dataclass(frozen=True)
@@ -578,6 +821,10 @@ class RunOptions:
     dry_run: bool = False
     flaky_out: Optional[Path] = None
     expectations_root: Path = DEFAULT_EXPECTATIONS_ROOT
+    # hermetic_env.ISOLATION_MODES: netns refuses a host without unprivileged user namespaces.
+    isolation: str = "netns"
+    # The engine arm (an ENGINE_READBACK key): every launch's browser.defaultEngine; None is the app's default.
+    engine: Optional[str] = None
 
     @property
     def filtered(self) -> bool:
@@ -613,6 +860,7 @@ class RunOptions:
             "switches": dict(sorted(self.switches.items())),
             "ref": self.ref,
             "tag": self.tag,
+            "engine": self.engine,
         }
 
 
@@ -622,12 +870,15 @@ def needs_retry(attempt: Tuple[str, Optional[str]], expected: Expected) -> bool:
     return not expected.accepts(status, step) and status != "Pass"
 
 
-def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expected: Dict[str, Expected]) -> Tuple[List[Attempt], List[str]]:
+def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expected: Dict[str, Expected],
+            isolation: Mapping[str, Any]) -> Tuple[List[Attempt], List[str], List[Dict[str, Any]]]:
     """Runs every iteration of the plan with the retry policy of spec 3G.
 
     Retry 1 reruns the whole shard with the same order and batches; retries 2..limit run each
     still-failing case alone in a fresh session, serially. Keys for state roots are given out
-    here, on one thread, before work is dispatched.
+    here, on one thread, before work is dispatched. `isolation` (resolve_isolation, probed once
+    for the run) reaches every session as `isolation`, so no session probes the host again. Returns
+    the attempts, the infra errors and one log per launch (the cases it ran, in order, and why it ended).
     """
     run_key = base36(int.from_bytes(hashlib.sha256(options.run_id.encode()).digest()[:4], "big"))[-6:]
     keys = itertools.count()
@@ -642,11 +893,21 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
         "tag": options.tag,
         "binary": options.binary,
         "out_dir": str(options.out),
+        "isolation": dict(isolation),
+        "engine": options.engine,
     }
     runnable = [tuple(c for c in batch if not expected[c.id].skip) for batch in plan.batches]
     runnable = [batch for batch in runnable if batch]
     attempts: List[Attempt] = []
     errors: List[str] = []
+    sessions: List[Dict[str, Any]] = []
+    numbers = itertools.count()
+
+    def phase_of(batches: Sequence[Sequence[Work]], jobs: int) -> list:
+        results, errs, logs = run_phase(batches, open_session, session_ctx, jobs, numbers)
+        errors.extend(errs)
+        sessions.extend(logs)
+        return results
 
     def works(batch: Sequence[Case], iteration: int, attempt: int, phase: str) -> Tuple[Work, ...]:
         out = []
@@ -670,41 +931,51 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
             )
         return tuple(out)
 
+    kept_rows: set = set()
+
     def record(results: list, iteration: int, attempt: int, phase: str) -> Dict[str, Tuple[str, Optional[str]]]:
+        """The attempts of one phase; a case missing from `results` did not run (its launch's fixture was
+        unreadable) and is retried like a failure."""
         statuses = {}
-        for work, result, ms in results:
-            first = iteration == 0 and attempt == 0
+        for work, result, ms, session, position, reset_ms in results:
+            # The first attempt that ran keeps its rows: attempt 0 unless its launch never read a fixture.
+            first = iteration == 0 and work.case.id not in kept_rows
+            if first:
+                kept_rows.add(work.case.id)
+            leak = result.get("leaked_state")
+            if leak is not None:
+                leak = {**leak, "iteration": iteration, "attempt": attempt, "phase": phase}
             attempts.append(
                 Attempt(
                     work.case.id, iteration, attempt, phase, result["status"], result.get("step"), result["checkpoints"],
                     result["message"], ms, result.get("switch_hits") or {}, result["rows"] if first else (),
+                    session, position, leak, reset_ms, result.get("environment"),
+                    result.get("switch_readback") or {},
                 )
             )
             statuses[work.case.id] = (result["status"], result.get("step"))
         return statuses
 
+    def not_settled(statuses: Dict[str, Tuple[str, Optional[str]]], case: Case) -> bool:
+        status = statuses.get(case.id)
+        return status is None or needs_retry(status, expected[case.id])
+
     for iteration in range(options.repeat):
-        results, errs = run_phase([works(b, iteration, 0, "run") for b in runnable], open_session, session_ctx, options.jobs)
-        errors.extend(errs)
+        results = phase_of([works(b, iteration, 0, "run") for b in runnable], options.jobs)
         statuses = record(results, iteration, 0, "run")
-        failing = [c for b in runnable for c in b if needs_retry(statuses[c.id], expected[c.id])]
+        failing = [c for b in runnable for c in b if not_settled(statuses, c)]
         if failing and options.retry_limit >= 1:
-            results, errs = run_phase(
-                [works(b, iteration, 1, "shard-retry") for b in runnable], open_session, session_ctx, options.jobs
-            )
-            errors.extend(errs)
+            results = phase_of([works(b, iteration, 1, "shard-retry") for b in runnable], options.jobs)
             statuses = record(results, iteration, 1, "shard-retry")
-            failing = [c for c in failing if needs_retry(statuses[c.id], expected[c.id])]
+            failing = [c for c in failing if not_settled(statuses, c)]
         for attempt in range(2, options.retry_limit + 1):
             if not failing:
                 break
-            results, errs = run_phase(
-                [works((c,), iteration, attempt, "alone-retry") for c in failing], open_session, session_ctx, 1
-            )
-            errors.extend(errs)
+            results = phase_of([works((c,), iteration, attempt, "alone-retry") for c in failing], 1)
             statuses = record(results, iteration, attempt, "alone-retry")
-            failing = [c for c in failing if needs_retry(statuses[c.id], expected[c.id])]
-    return attempts, errors
+            failing = [c for c in failing if not_settled(statuses, c)]
+    sessions.sort(key=lambda log: log["session"])
+    return attempts, errors, sessions
 
 
 def classify(attempts: Sequence[Attempt], expected: Expected) -> Dict[str, Any]:
@@ -716,6 +987,9 @@ def classify(attempts: Sequence[Attempt], expected: Expected) -> Dict[str, Any]:
     """
     if expected.skip:
         return {"outcome": "skipped", "result": "Skip", "status": "Skip", "flaky": False, "reasons": [], "attempts": 0}
+    if not attempts:
+        # No launch read its fixture for it (an infra error of each launch, which fails the run).
+        return {"outcome": "not-run", "result": None, "status": None, "flaky": False, "reasons": [], "attempts": 0}
     by_iteration: Dict[int, List[Attempt]] = {}
     for a in attempts:
         by_iteration.setdefault(a.iteration, []).append(a)
@@ -772,25 +1046,42 @@ def sum_switch_hits(hit_maps: Iterable[Mapping[str, Mapping[str, int]]]) -> Dict
     return total
 
 
-def run_summary(cases: Mapping[str, Mapping[str, Any]], *, hits: Dict[str, Dict[str, int]], config: Mapping[str, Any],
+def count_readback(readbacks: Iterable[Mapping[str, str]]) -> Dict[str, Dict[str, int]]:
+    """Attempts per (switch, arm read back): the same shape as the hit counters, so shards sum."""
+    return sum_switch_hits({name: {arm: 1} for name, arm in (readback or {}).items()} for readback in readbacks)
+
+
+def arms_seen(counts: Mapping[str, Mapping[str, int]], name: str) -> List[str]:
+    return sorted(arm for arm, n in (counts.get(name) or {}).items() if n)
+
+
+def run_summary(cases: Mapping[str, Mapping[str, Any]], *, hits: Dict[str, Dict[str, int]],
+                readback: Dict[str, Dict[str, int]], config: Mapping[str, Any],
                 dry_run: bool, infra_errors: Sequence[str]) -> Dict[str, Any]:
     """The receipt fields that follow from its cases; one function for a shard and a merge."""
     arm_exercised: Optional[bool] = None
+    arm_applied: Optional[bool] = None
     switch, arm = config.get("switch"), config.get("arm")
     if switch and arm and not dry_run and any(r["attempts"] for r in cases.values()):
         arm_exercised = hits.get(switch, {}).get(arm, 0) > 0
+        arm_applied = arms_seen(readback, switch) == [arm]
     counts: Dict[str, int] = {}
     for record in cases.values():
         counts[record["outcome"]] = counts.get(record["outcome"], 0) + 1
     unexpected = sorted(cid for cid, r in cases.items() if r["outcome"] == "unexpected")
+    leaked = sorted(cid for cid, r in cases.items() if r.get("leaked_state"))
     return {
         "counts": counts,
+        "leaked_state": leaked,
         "flaky": sorted(cid for cid, r in cases.items() if r["flaky"]),
         "unexpected": unexpected,
         "unexpected_passes": sorted(cid for cid, r in cases.items() if r["outcome"] == "unexpected-pass"),
         "switch_hits": hits,
+        "switch_readback": readback,
         "arm_exercised": arm_exercised,
-        "ok": not unexpected and not infra_errors and arm_exercised is not False,
+        "arm_applied": arm_applied,
+        "ok": not unexpected and not leaked and not infra_errors and arm_exercised is not False
+              and arm_applied is not False,
     }
 
 
@@ -822,16 +1113,35 @@ def checkpoint_rows(case_id: str, rows: Sequence[Mapping[str, Any]], *, attempt:
     return out
 
 
+def resolve_isolation(mode: str) -> Dict[str, Any]:
+    """The case isolation of a run (hermetic_env.py), probed once on this host for the whole run.
+
+    netns refuses a host without unprivileged user namespaces here, before any case runs, instead
+    of every session failing its cases; auto falls back to none and the receipt says why.
+    """
+    hermetic = require_sibling("hermetic_env", "p15-oracle-200")
+    try:
+        isolation = hermetic.isolation_for(mode, current_platform())
+    except hermetic.HermeticError as error:
+        raise UsageError(f"--isolation {mode}: {error}. Or run with --isolation auto or none; "
+                         "the receipt records the isolation every case got") from None
+    return {"mode": mode, **isolation.describe()}
+
+
 def perform_run(
     options: RunOptions,
     cases: Sequence[Case],
     open_session: Optional[SessionOpener],
     expectation: Optional[ExpectationFn],
     dependencies: Dict[str, str],
+    *,
+    isolate: Callable[[str], Dict[str, Any]] = resolve_isolation,
 ) -> Tuple[Dict[str, Any], int]:
     """Selects, shards, runs and writes receipt.json, checkpoints.jsonl, events.jsonl, index.md."""
     started = time.time()
     check_out_dir(options.out)
+    if options.engine:
+        cases = [engine_arm_case(case, options.engine) for case in cases]
     selected, not_applicable = select_cases(
         cases, suites=options.suites, filters=options.filters, product=options.product, platform=options.platform
     )
@@ -841,10 +1151,13 @@ def perform_run(
 
     attempts: List[Attempt] = []
     errors: List[str] = []
+    sessions: List[Dict[str, Any]] = []
+    isolation: Dict[str, Any] = {"mode": options.isolation, "kind": None, "reason": "dry run: nothing ran"}
     if not options.dry_run:
         if open_session is None:
             raise UsageError("no driver to run cases with")
-        attempts, errors = execute(plan, options, open_session, expected)
+        isolation = isolate(options.isolation)
+        attempts, errors, sessions = execute(plan, options, open_session, expected, isolation)
     by_case: Dict[str, List[Attempt]] = {c.id: [] for c in plan.order}
     for a in attempts:
         by_case[a.case].append(a)
@@ -858,11 +1171,19 @@ def perform_run(
                       "status": "Skip" if exp.skip else None, "flaky": False, "reasons": [], "attempts": 0}
         else:
             record = classify(by_case[case.id], exp)
-        first = next((a for a in by_case[case.id] if a.iteration == 0 and a.attempt == 0), None)
+        first = min((a for a in by_case[case.id] if a.iteration == 0), key=lambda a: a.attempt, default=None)
         record.update(suite=case.suite, expected=sorted(exp.results), checkpoints=len(first.checkpoints) if first else 0)
+        if case.data.get("switches"):
+            # The compared attempt's hits: a case that lists a switch must hit it on each arm.
+            record.update(switches=sorted(case.data["switches"]), switch_hits=sum_switch_hits([first.switch_hits] if first else []))
+        leaks = [a.leaked_state for a in by_case[case.id] if a.leaked_state]
+        if leaks:
+            record["leaked_state"] = leaks
+        if first is not None and first.environment is not None:
+            record["environment"] = first.environment
         records[case.id] = record
         if first is not None:
-            rows.extend(checkpoint_rows(case.id, first.rows, attempt=0, result=first.status))
+            rows.extend(checkpoint_rows(case.id, first.rows, attempt=first.attempt, result=first.status))
 
     config = {**options.fingerprint(), "seed": options.seed, "shard_index": options.shard[0], "jobs": options.jobs,
               "binary": options.binary}
@@ -879,6 +1200,7 @@ def perform_run(
         "config": config,
         "fingerprint": digest([json.dumps(options.fingerprint(), sort_keys=True)]),
         "host": host_info(),
+        "isolation": isolation,
         "dependencies": dependencies,
         "selection": {"count": len(plan.selection), "digest": digest(plan.selection)},
         "shards": [options.shard[0]],
@@ -886,9 +1208,11 @@ def perform_run(
         "not_applicable": len(not_applicable),
         "order": [c.id for c in plan.order],
         "batches": len(plan.batches),
+        "sessions": sessions,
         "cases": records,
         "infra_errors": errors,
-        **run_summary(records, hits=sum_switch_hits(a.switch_hits for a in attempts), config=config,
+        **run_summary(records, hits=sum_switch_hits(a.switch_hits for a in attempts),
+                      readback=count_readback(a.switch_readback for a in attempts), config=config,
                       dry_run=options.dry_run, infra_errors=errors),
     }
     write_json(options.out / "receipt.json", receipt)
@@ -897,7 +1221,8 @@ def perform_run(
         options.out / "events.jsonl",
         (
             {"case": a.case, "iteration": a.iteration, "attempt": a.attempt, "phase": a.phase, "status": a.status,
-             "step": a.step, "ms": a.ms, "message": a.message, "sha256": [h for _, _, h in a.checkpoints]}
+             "step": a.step, "ms": a.ms, "message": a.message, "sha256": [h for _, _, h in a.checkpoints],
+             "session": a.session, "position": a.position, "reset_ms": a.reset_ms, "leaked_state": a.leaked_state}
             for a in attempts
         ),
     )
@@ -912,6 +1237,14 @@ def perform_run(
     return receipt, 0 if receipt["ok"] else 1
 
 
+def leak_line(leak: Mapping[str, Any]) -> str:
+    """One leak for a person: the leaking case, what differs, and the launch order that reproduces it."""
+    where = ", ".join(pointer or '"" (the whole snapshot)' for pointer in leak["pointers"][:5])
+    what = leak.get("error") or f"{leak['count']} differences at {where}"
+    return (f"{leak['case']} left the product unlike its fixture ({what}); launch {leak['session']} ran "
+            f"{' -> '.join(leak['launch_order'])}")
+
+
 def write_index(options: RunOptions, receipt: Dict[str, Any]) -> None:
     lines = [
         f"# oracle run {receipt['runId']}",
@@ -920,10 +1253,15 @@ def write_index(options: RunOptions, receipt: Dict[str, Any]) -> None:
         f"- shard {options.shard[0]}/{options.shard[1]}: {len(receipt['order'])} of {receipt['selection']['count']} selected cases",
         f"- seed {options.seed}, batch limit {options.batch_limit}, jobs {options.jobs}, repeat {options.repeat}, "
         f"retry limit {options.retry_limit}",
+        f"- isolation {receipt['isolation'].get('kind')} (asked {options.isolation}): {receipt['isolation'].get('reason')}",
         "- outcomes: " + ", ".join(f"{k} {v}" for k, v in sorted(receipt["counts"].items())),
         f"- flaky (left out of comparisons): {len(receipt['flaky'])}",
+        f"- launches: {len(receipt['sessions'])} ({sum(1 for s in receipt['sessions'] if s.get('end') == 'relaunch')} "
+        f"relaunched for state the reset cannot put back); LeakedState: {len(receipt['leaked_state'])}",
         f"- ok: {receipt['ok']}",
     ]
+    for cid in receipt["leaked_state"][:50]:
+        lines.append(f"  - LeakedState: {leak_line(receipt['cases'][cid]['leaked_state'][0])}")
     for cid in receipt["unexpected"][:50]:
         lines.append(f"  - unexpected: {cid} ({receipt['cases'][cid]['status']})")
     (options.out / "index.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -966,6 +1304,10 @@ def merge_runs(directories: Sequence[Path], *, require_complete: bool) -> Tuple[
         errors.append("shard receipts have different configs: " + ", ".join(str(d) for d in directories))
     if len({r["selection"]["digest"] for r in loaded}) > 1:
         errors.append("shard receipts select different cases (corpus or filter changed between shards)")
+    kinds = {str(d): (r.get("isolation") or {}).get("kind") for d, r in zip(directories, loaded)}
+    if len(set(kinds.values())) > 1:
+        errors.append("shard receipts ran with different case isolation: "
+                      + ", ".join(f"{kind} in {d}" for d, kind in kinds.items()))
     total = first["config"]["shard_total"]
     owner: Dict[int, Path] = {}
     seen: Dict[str, Path] = {}
@@ -1014,9 +1356,11 @@ def merge_runs(directories: Sequence[Path], *, require_complete: bool) -> Tuple[
                        for d, r in zip(directories, loaded)],
         "order": [cid for r in loaded for cid in r["order"]],
         "batches": sum(r["batches"] for r in loaded),
+        "sessions": [{**log, "runId": r["runId"]} for r in loaded for log in r.get("sessions") or ()],
         "cases": cases,
         "infra_errors": infra,
-        **run_summary(cases, hits=sum_switch_hits(r.get("switch_hits") or {} for r in loaded), config=config,
+        **run_summary(cases, hits=sum_switch_hits(r.get("switch_hits") or {} for r in loaded),
+                      readback=sum_switch_hits(r.get("switch_readback") or {} for r in loaded), config=config,
                       dry_run=dry_run, infra_errors=infra),
     }
     merged["ok"] = merged["ok"] and complete and not errors
@@ -1042,20 +1386,141 @@ def write_merged(view: RunView, out: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------------------
+# Engine parity (spec 3F.4, task 113)
+
+
+def parse_engines(text: str) -> Tuple[str, str]:
+    """`diff --engine A,B`: two different engine arms, A the comparison's a side."""
+    engines = parse_list([text])
+    if len(engines) != 2 or engines[0] == engines[1] or not set(engines) <= set(ENGINE_READBACK):
+        raise UsageError(f"--engine {text}: two different engines of {', '.join(ENGINE_READBACK)}, comma separated "
+                         "(webkit,chromium)")
+    return engines[0], engines[1]
+
+
+def check_engine_product(product: str) -> None:
+    """Only a product that draws browser tabs has a default engine to set."""
+    if "chromium" not in PRODUCTS[product]:
+        raise UsageError(f"--engine: the {product} product has no browser engine to set (the daemon launches no "
+                         "browser); engine parity runs the app product")
+
+
+def engine_arm_case(case: Case, engine: str) -> Case:
+    """The case as an engine arm runs it. A case that pins a browser engine (environment.engine webkit or chromium)
+    runs on the arm's engine, so both arms run the same journey; `none` (no engine needed) stays as it is."""
+    environment = case.data.get("environment") or {}
+    if environment.get("engine") not in ENGINE_READBACK or environment["engine"] == engine:
+        return case
+    return replace(case, data={**case.data, "environment": {**environment, "engine": engine}})
+
+
+def browser_tabs(snapshot: Any) -> List[Any]:
+    """The tabs of every pane of a canonical snapshot's tabs facet; none when the facet is absent or not comparable."""
+    facets = snapshot.get("facets") if isinstance(snapshot, dict) else None
+    tabs = facets.get("tabs") if isinstance(facets, dict) else None
+    panes = tabs.get("panes") if isinstance(tabs, dict) else None
+    if not isinstance(panes, list):
+        return []
+    return [tab for pane in panes if isinstance(pane, dict) and isinstance(pane.get("tabs"), list) for tab in pane["tabs"]]
+
+
+def read_checkpoint_rows(run_dir: Path) -> Iterator[Dict[str, Any]]:
+    path = run_dir / "checkpoints.jsonl"
+    if not path.is_file():
+        return
+    with path.open(encoding="utf-8") as handle:
+        for number, line in enumerate(handle, 1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                raise UsageError(f"{path}:{number}: not a JSON line") from None
+            if not isinstance(row, dict):
+                raise UsageError(f"{path}:{number}: not a checkpoint object")
+            yield row
+
+
+def engine_readback(run_dir: Path) -> Tuple[Dict[str, int], Optional[str]]:
+    """How many browser tabs of the run's checkpoints showed each engine (BrowserEngineKind) before the driver
+    dropped it, and the first checkpoint whose canonical tabs still show an engine (None when none does)."""
+    counts: Dict[str, int] = {}
+    kept = None
+    for row in read_checkpoint_rows(run_dir):
+        for kind, count in (row.get("engines") or {}).items():
+            if isinstance(kind, str) and isinstance(count, int):
+                counts[kind] = counts.get(kind, 0) + count
+        if kept is None and any(isinstance(tab, dict) and ENGINE_FIELD in tab for tab in browser_tabs(row.get("snapshot"))):
+            kept = f"{row.get('case')} {row.get('step')}/{row.get('checkpoint')}"
+    return dict(sorted(counts.items())), kept
+
+
+def engine_sides(a: RunView, b: RunView, labels: Tuple[str, str]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """(engine parity record, refusal) of a comparison; (None, None) when both sides ran one engine setting."""
+    engines = (a.receipt["config"].get("engine"), b.receipt["config"].get("engine"))
+    if engines[0] == engines[1]:
+        return None, None
+    # `dropped`: the driver leaves it out before canonicalization (driver_app.ENGINE_DROP).
+    record = {"engines": dict(zip(labels, engines)), "dropped": f"/facets/tabs/panes/*/tabs/*/{ENGINE_FIELD}",
+              "expected": str(ENGINE_PARITY_FILE)}
+    if None in engines:
+        return record, ("engine parity compares two --engine arms; one side ran the app's default engine: "
+                        "run both with --engine, or neither")
+    return record, None
+
+
+def check_engine_exercised(record: Dict[str, Any], dirs: Tuple[Path, Path]) -> Optional[str]:
+    """Like arm-not-exercised for a switch: each arm must read its own engine back from at least one browser tab,
+    else the setting never reached the app or no case opened a browser tab, and equal sides prove nothing. And
+    no canonical tab may still show its engine: the set order and id labels would then depend on it."""
+    readback = {label: engine_readback(d) for label, d in zip(record["engines"], dirs)}
+    record["readback"] = {label: counts for label, (counts, _) in readback.items()}
+    for label, (_, kept) in readback.items():
+        if kept is not None:
+            return (f"engine-not-neutral: side {label} checkpoint {kept} still shows the tabs' {ENGINE_FIELD}; an "
+                    "engine arm is canonicalized without it (driver_app.ENGINE_DROP), else the pane order and "
+                    "labels depend on the engine")
+    for label, engine in record["engines"].items():
+        if not record["readback"][label].get(ENGINE_READBACK[engine]):
+            return (f"engine-not-exercised: side {label} (--engine {engine}) shows no {ENGINE_READBACK[engine]} "
+                    f"browser tab at any checkpoint (read back: {record['readback'][label] or 'no browser tab'})")
+    first, second = record["readback"].values()
+    if first == second:
+        # A tab that pins its engine (TabLifecycle.newBrowser engine webkit) reads back on both arms.
+        return f"engine-not-exercised: both arms read back the same tab engines ({first}); --engine changed no tab"
+    return None
+
+
+# ---------------------------------------------------------------------------------------
 # Comparing runs through diff.py
 
 
-def comparability(a: RunView, b: RunView, *, partial: bool) -> Optional[str]:
-    """Why two sides cannot be compared as a full (or, with --partial, a shard-subset) result."""
+# What an order-parity comparison lets differ: the order (seed), the launch sharing (batch limit)
+# and what never takes part in a merge fingerprint either.
+ORDER_KEYS = frozenset({"seed", "batch_limit", "shard_index", "jobs", "binary"})
+
+
+def comparability(a: RunView, b: RunView, *, partial: bool, order_parity: bool = False) -> Optional[str]:
+    """Why two sides cannot be compared as a full (or, with --partial, a shard-subset) result.
+
+    `order_parity` compares one config run in two orders or launch sharings (task 189: two shuffle
+    seeds and --batch-limit 1 give the batched verdicts): the seeds and batch limits may differ,
+    every other config key must not.
+    """
     if a.receipt.get("dry_run") or b.receipt.get("dry_run"):
         return "a dry run has no results"
+    if order_parity:
+        mine, theirs = ({k: v for k, v in side.receipt["config"].items() if k not in ORDER_KEYS} for side in (a, b))
+        if mine != theirs:
+            keys = sorted(k for k in set(mine) | set(theirs) if mine.get(k) != theirs.get(k))
+            return f"order parity compares one config in two orders; these differ: {', '.join(keys)}"
     if a.total != b.total:
         return f"shard totals differ: {a.total} vs {b.total}"
     if a.shards != b.shards:
         return f"shard sets differ: {list(a.shards)} vs {list(b.shards)}"
     if a.receipt["selection"]["digest"] != b.receipt["selection"]["digest"]:
         return "the two sides select different cases (corpus, suites, filters or product differ)"
-    if a.seeds != b.seeds and any(s is not None for s in (*a.seeds.values(), *b.seeds.values())):
+    if not order_parity and a.seeds != b.seeds and any(s is not None for s in (*a.seeds.values(), *b.seeds.values())):
         return f"shuffle seeds differ per shard: {a.seeds} vs {b.seeds}"
     if not partial and not (a.complete and b.complete):
         return (f"incomplete: shards {list(b.shards)} of {b.total}; merge every shard, "
@@ -1063,11 +1528,14 @@ def comparability(a: RunView, b: RunView, *, partial: bool) -> Optional[str]:
     return None
 
 
-def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path]) -> Tuple[int, Dict[str, Any]]:
+def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path],
+                arm_pointers: Sequence[str] = ()) -> Tuple[int, Dict[str, Any]]:
     script = require_sibling("diff", "p15-oracle-014")
     command = [sys.executable, "-I", str(Path(script.__file__)), str(a_dir), str(b_dir), "--out", str(out)]
     for path in expected:
         command += ["--expected", str(path)]
+    for pointer in arm_pointers:
+        command += ["--arm-pointer", pointer]
     proc = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         document = json.loads(out.read_text(encoding="utf-8"))
@@ -1075,24 +1543,47 @@ def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path]) -
         raise UsageError(f"diff.py exited {proc.returncode} without a readable {out}: {proc.stderr.strip()[-500:]}") from None
     if proc.returncode == DIFF_BAD_INPUT:
         raise UsageError(f"diff.py refused its input: {document.get('error')}")
-    if proc.returncode not in (DIFF_OK, DIFF_DIVERGENT, DIFF_HOST_MISMATCH, DIFF_INTERNAL):
+    if proc.returncode not in (DIFF_OK, DIFF_DIVERGENT, DIFF_HOST_MISMATCH, DIFF_INTERNAL, DIFF_ARMS_SAME):
         raise UsageError(f"diff.py exited {proc.returncode}: {proc.stderr.strip()[-500:]}")
     return proc.returncode, document
+
+
+def write_divergences(path: Path, document: Mapping[str, Any], comparison: Mapping[str, Any]) -> None:
+    """One line per divergent case (diff.py's finding) with the comparison it came from: confirm.py
+    and route.py read these (MQ-divergences). Replaced on every diff, so no old finding survives."""
+    switch = (comparison.get("switch") or {}).get("name")
+    rows = ({**finding, "a_label": comparison["a"], "b_label": comparison["b"], "switch": switch,
+             "comparison": str(path.parent / "comparison.json")} for finding in document.get("divergences", []))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.tmp")
+    write_jsonl(temp, rows)
+    temp.replace(path)
 
 
 def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path, labels: Tuple[str, str],
                   partial: bool, expected: Sequence[Path], rules: Sequence[Dict[str, str]],
                   not_comparable: Optional[Dict[str, str]] = None, refused: Optional[str] = None,
-                  as_json: bool = False) -> int:
+                  as_json: bool = False, order_parity: bool = False, arm_pointers: Sequence[str] = (),
+                  switch: Optional[Dict[str, Any]] = None) -> int:
     """Checks that the sides are comparable, then hands every comparison to diff.py.
 
-    diff.py owns the host check, the first divergence per case and expected differences, so an
-    all-match comparison from two hosts is refused like a divergent one. Flaky cases are
-    reported as flaky by diff.py and never count as compared.
+    diff.py owns the host check, the first divergence per case, expected differences and the
+    snapshot readback of a switch's arms, so an all-match comparison from two hosts, or of two
+    arms that read back the same, is refused like a divergent one. Flaky cases are reported as
+    flaky by diff.py and never count as compared. With `order_parity`, a case that leaked state
+    on one side only is a divergence too: its leak depends on the order. Two sides of
+    different `--engine` arms are an engine parity comparison: each arm must read its engine back
+    and show no tab engine (its driver dropped it), and ENGINE_PARITY_FILE explains the differences it lists.
     """
     target = out / "divergence.json"
     target.unlink(missing_ok=True)
-    refused = refused or comparability(a, b, partial=partial)
+    refused = refused or comparability(a, b, partial=partial, order_parity=order_parity)
+    engine, engine_refusal = engine_sides(a, b, labels)
+    refused = refused or engine_refusal
+    if engine is not None and refused is None:
+        refused = check_engine_exercised(engine, (a_dir, b_dir))
+    if engine is not None and refused is None:
+        expected = [*expected, ENGINE_PARITY_FILE]
     document: Dict[str, Any] = {}
     code = None
     if refused is None:
@@ -1100,9 +1591,14 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         if rules:
             write_json(out / "expectation-rules.json", list(rules))
             files.append(out / "expectation-rules.json")
-        code, document = run_diff_py(a_dir, b_dir, target, files)
+        code, document = run_diff_py(a_dir, b_dir, target, files, arm_pointers)
         if code == DIFF_HOST_MISMATCH:
             refused = "host-mismatch: " + "; ".join(f"{k}: {', '.join(v)}" for k, v in sorted(document["mismatched"].items()))
+        elif code == DIFF_ARMS_SAME:
+            same = document["readback"]["same"]
+            refused = (f"arms-read-back-same: {document['readback']['sameCount']} snapshots read back the same arm, first "
+                       f"{same[0]['case']} {same[0]['step']} {same[0]['checkpoint']} {same[0]['pointer']}="
+                       f"{json.dumps(same[0]['value'], sort_keys=True)}")
     summary = document.get("summary") or {}
     statuses = {row["case"]: row["status"] for row in document.get("cases", [])}
     compared = sum(summary.get(k, 0) for k in ("equal", "explained", "divergent"))
@@ -1110,6 +1606,8 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         # Every case flaky or skipped is no evidence; it must not read as a pass.
         refused = "nothing compared"
     divergent = sorted(cid for cid, s in statuses.items() if s == "divergent")
+    leaks = {"a": sorted(a.receipt.get("leaked_state") or ()), "b": sorted(b.receipt.get("leaked_state") or ())}
+    leaks_differ = sorted(set(leaks["a"]) ^ set(leaks["b"])) if order_parity else []
     comparison = {
         "schema": COMPARISON_SCHEMA,
         "a": labels[0],
@@ -1127,9 +1625,17 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         "flaky_excluded": sorted(cid for cid, s in statuses.items() if s == "flaky"),
         "not_comparable": dict(sorted((not_comparable or {}).items())),
         "divergence": str(target) if target.is_file() else None,
-        "ok": refused is None and code == DIFF_OK,
+        "divergences": str(out / "divergences.jsonl"),
+        "order_parity": order_parity,
+        "leaked_state": leaks,
+        "leaks_differ": leaks_differ,
+        "engine_parity": engine,
+        "ok": refused is None and code == DIFF_OK and not leaks_differ,
     }
+    if switch is not None:
+        comparison["switch"] = {**switch, "readback_snapshots": (document.get("readback") or {}).get("differs")}
     write_json(out / "comparison.json", comparison)
+    write_divergences(Path(comparison["divergences"]), document if refused is None else {}, comparison)
     if as_json:
         print(json.dumps(comparison, indent=1, sort_keys=True))
     else:
@@ -1140,6 +1646,14 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         for item in document.get("divergences", [])[:20]:
             print(f"  divergent: {item['journey']} step={item['step']} checkpoint={item['checkpoint']} "
                   f"pointer={item['pointer']} a={json.dumps(item['a'], sort_keys=True)} b={json.dumps(item['b'], sort_keys=True)}")
+        if engine is not None:
+            print("  engine parity: " + " vs ".join(f"{label} --engine {name}" for label, name in engine["engines"].items())
+                  + f"; tabs canonicalized without {ENGINE_FIELD}; explained by {ENGINE_PARITY_FILE.relative_to(REPO)}")
+            for label, counts in (engine.get("readback") or {}).items():
+                print(f"  engine read back on {label}: {counts or 'no browser tab'}")
+        for cid in leaks_differ:
+            side = "a" if cid in leaks["a"] else "b"
+            print(f"  LeakedState on side {side} only (order-dependent): {cid}")
         if refused:
             print(f"  refused: {refused}")
         if comparison["partial"]:
@@ -1149,7 +1663,7 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         return DIFF_INTERNAL
     if refused is not None:
         return EXIT_REFUSED
-    return 0 if code == DIFF_OK else 1
+    return 0 if comparison["ok"] else 1
 
 
 # ---------------------------------------------------------------------------------------
@@ -1279,6 +1793,91 @@ def switch_expected_files(registry: Dict[str, Dict[str, Any]], names: Iterable[s
     return [root / f"{name}.json" for name in sorted(set(names)) if registry.get(name, {}).get("expected_differences")]
 
 
+def pointer_token(token: str) -> str:
+    return token.replace("~", "~0").replace("/", "~1")
+
+
+def switch_key(name: str, entry: Mapping[str, Any]) -> str:
+    """The key the product reports the switch under: its app_key or daemon_key (task 018)."""
+    return str(entry.get("app_key") or entry.get("daemon_key") or name)
+
+
+def arm_pointers(name: str, entry: Mapping[str, Any]) -> List[str]:
+    """Snapshot values that read back the switch's arm: the app facet and the daemon oracle-state.
+
+    The app passes its switches to the daemon it launches (task 180), so both can carry either key.
+    """
+    key = pointer_token(switch_key(name, entry))
+    return [f"/facets/switches/arms/{key}", f"/facets/daemon/oracle/switches/{key}"]
+
+
+def arm_under_test_rules(name: str) -> List[Dict[str, str]]:
+    """The per-site hit list differs by arm by construction; the receipt hit counters are checked instead."""
+    return [{"pointer": "/facets/switches/hits",
+             "reason": f"the sites each arm of {name} ran; checked through the receipts' switch_hits"}]
+
+
+# A switch diff is one build run twice: only the arm and per-run values (the shuffle seed and
+# shard index, which comparability() checks, and the job count) may differ between the arm receipts.
+ARM_FIELDS = frozenset({"switch", "arm", "switches"})
+PER_RUN_FIELDS = frozenset({"seed", "shard_index", "jobs"})
+
+
+def other_arm(arm: str) -> str:
+    return ARMS[1 - ARMS.index(arm)]
+
+
+def switch_verdict(name: str, views: Mapping[str, RunView]) -> Tuple[Optional[str], Dict[str, Any]]:
+    """Why the arm runs of one switch are no evidence, or None; and the record of what each arm showed.
+
+    Chrome's FeatureList passes the state to every child (`--enable-features`), so a test can trust
+    it; here the product must prove it: each arm reads back its own arm, the two read back
+    differently, each ran its own sites and none of the other's, and every case that lists the
+    switch hit it.
+    """
+    build = {}
+    for arm in ARMS:
+        config = views[arm].receipt["config"]
+        if config.get("switch") != name or config.get("arm") != arm:
+            raise UsageError(f"the {arm} side is not a --switch {name} --arm {arm} run "
+                             f"(it is switch {config.get('switch')!r} arm {config.get('arm')!r})")
+        build[arm] = {k: v for k, v in config.items() if k not in ARM_FIELDS and k not in PER_RUN_FIELDS}
+    block: Dict[str, Any] = {"name": name, "arms": {}}
+    reasons: List[str] = []
+    readback = {}
+    for arm in ARMS:
+        receipt = views[arm].receipt
+        hits = (receipt.get("switch_hits") or {}).get(name, {})
+        seen = arms_seen(receipt.get("switch_readback") or {}, name)
+        unexercised = sorted(
+            cid for cid, record in receipt["cases"].items()
+            if name in (record.get("switches") or ()) and record.get("outcome") not in ("skipped", "flaky")
+            and not (record.get("switch_hits") or {}).get(name, {}).get(arm, 0)
+        )
+        readback[arm] = seen
+        block["arms"][arm] = {"readback": seen, "hits": dict(sorted(hits.items())), "unexercised_cases": unexercised,
+                              "sha": receipt.get("sha"), "host": receipt.get("host")}
+        if seen and seen != [arm]:
+            reasons.append(f"arm-not-applied: {name} read back {', '.join(seen)} on the {arm} arm")
+        elif not seen:
+            reasons.append(f"arm-not-applied: no readback of {name} on the {arm} arm")
+        if hits.get(other_arm(arm), 0):
+            reasons.append(f"arm-not-applied: the {arm} arm ran {hits[other_arm(arm)]} {other_arm(arm)}-arm site hits")
+        if not hits.get(arm, 0):
+            reasons.append(f"arm-not-exercised: 0 hits of {name} on the {arm} arm")
+        elif unexercised:
+            reasons.append(f"arm-not-exercised: {len(unexercised)} cases that list {name} had 0 hits on the {arm} arm: "
+                           + ", ".join(unexercised[:5]))
+    beyond = sorted(k for k in set(build["old"]) | set(build["new"]) if build["old"].get(k) != build["new"].get(k))
+    if beyond:
+        reasons.insert(0, "arms-differ-beyond-switch: "
+                       + ", ".join(f"{k} {build['old'].get(k)!r} vs {build['new'].get(k)!r}" for k in beyond))
+    if readback["old"] == readback["new"]:
+        reasons.insert(0, f"arms-read-back-same: {name} read back {', '.join(readback['old']) or 'nothing'} on both arms")
+    block["refusals"] = reasons
+    return (reasons[0] if reasons else None), block
+
+
 def resolve_switches(registry: Dict[str, Dict[str, Any]], switch: Optional[str], arm: Optional[str]) -> Dict[str, str]:
     if switch:
         if switch not in registry:
@@ -1319,10 +1918,24 @@ def add_selection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--expectations-root", type=Path, default=DEFAULT_EXPECTATIONS_ROOT,
                         help="dir with Expectations.d and NeverFix.d (default tests/oracle)")
     parser.add_argument("--state-base", type=Path, default=DEFAULT_STATE_BASE)
+    parser.add_argument("--isolation", choices=require_sibling("hermetic_env", "p15-oracle-200").ISOLATION_MODES,
+                        default="netns",
+                        help="case network isolation, probed once per run: netns (Linux, refuses a host without "
+                             "unprivileged user namespaces; default), auto (netns when the host allows it) or none")
     parser.add_argument("--flaky-out", type=Path, help="append flaky cases as JSON lines (MQ-flakes)")
     parser.add_argument("--dry-run", action="store_true", help="plan and write the receipt; run nothing")
     parser.add_argument("--run-id", help="default: UTC time plus 6 random characters")
+    parser.add_argument("--switch-registry", type=Path, default=SWITCH_REGISTRY,
+                        help="refactor switch registry dir (default plans/cmux-next/refactor-switches)")
     parser.add_argument("--json", action="store_true", help="print the receipt or comparison as JSON")
+
+
+def launch_kind(product: str, binary: Optional[str]) -> str:
+    """The product whose launch defaults (jobs, batch limit, build) a run takes: the mcp product against a tagged
+    app bundle (driver_mcp.py fleet mode) launches the app, so it runs as the app product does."""
+    if product == "mcp" and isinstance(binary, str) and binary.rstrip("/").endswith(".app"):
+        return "app"
+    return product
 
 
 def new_run_id() -> str:
@@ -1335,31 +1948,34 @@ def new_seed() -> int:
 
 def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int], out: Path, run_id: str,
                       switch: Optional[str], arm: Optional[str], switches: Dict[str, str],
-                      ref: Optional[str], binary: Optional[str]) -> RunOptions:
+                      ref: Optional[str], binary: Optional[str], engine: Optional[str] = None) -> RunOptions:
     suites = tuple(parse_list(args.suite)) or ("all",)
     filters = tuple(parse_list(args.filter))
     seed = args.seed
     if args.shuffle and seed is None:
         seed = new_seed()
     product = args.product
+    launch = launch_kind(product, binary)
     for name in ("jobs", "batch_limit", "repeat"):
         value = getattr(args, name)
         if value is not None and value < 1:
             raise UsageError(f"--{name.replace('_', '-')} must be >= 1")
     if args.retry_limit is not None and args.retry_limit < 0:
         raise UsageError("--retry-limit must be >= 0")
+    if engine is not None:
+        check_engine_product(product)
     options = RunOptions(
         product=product,
         suites=suites,
         filters=filters,
         shard=parse_shard(args.shard),
-        jobs=args.jobs or DEFAULT_JOBS.get(product, VM_JOBS),
-        batch_limit=args.batch_limit or DEFAULT_BATCH_LIMIT.get(product, 1),
+        jobs=args.jobs or DEFAULT_JOBS.get(launch, VM_JOBS),
+        batch_limit=args.batch_limit or DEFAULT_BATCH_LIMIT.get(launch, 1),
         repeat=args.repeat,
         retry_limit=0,
         seed=seed,
         platform=args.platform,
-        build=args.build or DEFAULT_BUILD.get(product, "debug"),
+        build=args.build or DEFAULT_BUILD.get(launch, "debug"),
         switch=switch,
         arm=arm,
         switches=switches,
@@ -1373,6 +1989,8 @@ def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int],
         dry_run=args.dry_run,
         flaky_out=args.flaky_out,
         expectations_root=args.expectations_root,
+        isolation=args.isolation,
+        engine=engine,
     )
     if args.retry_limit is not None:
         retry = args.retry_limit
@@ -1418,8 +2036,15 @@ def print_run(receipt: Dict[str, Any], options: RunOptions, as_json: bool) -> No
         print(f"  flaky, left out of comparisons: {len(receipt['flaky'])}")
     for cid in receipt["unexpected"][:20]:
         print(f"  unexpected: {cid} ({receipt['cases'][cid]['status']})")
+    for cid in receipt["leaked_state"][:20]:
+        print(f"  LeakedState: {leak_line(receipt['cases'][cid]['leaked_state'][0])}")
+    if receipt["arm_applied"] is False:
+        seen = arms_seen(receipt["switch_readback"], options.switch)
+        print(f"  arm-not-applied: {options.switch}={options.arm} read back {seen or 'nothing'}")
     if receipt["arm_exercised"] is False:
         print(f"  arm-not-exercised: {options.switch}={options.arm} had 0 hits")
+    if options.engine:
+        print(f"  engine arm: browser.defaultEngine {options.engine}")
     for error in receipt["infra_errors"][:10]:
         print(f"  infra: {error}")
     print(f"  receipt: {options.out / 'receipt.json'}")
@@ -1442,9 +2067,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         raise UsageError(f"{QUEUE_HINT}; `oracle.py run` itself runs only inside a runnerd job")
     run_id = args.run_id or new_run_id()
     out = args.out or DEFAULT_OUT_BASE / run_id
-    switches = resolve_switches(load_switch_registry(), args.switch, args.arm)
+    switches = resolve_switches(load_switch_registry(args.switch_registry), args.switch, args.arm)
     options = options_from_args(args, retry_default=None, out=out, run_id=run_id, switch=args.switch, arm=args.arm,
-                                switches=switches, ref=args.ref, binary=args.binary)
+                                switches=switches, ref=args.ref, binary=args.binary, engine=args.engine)
     receipt, code = run_one(options)
     print_run(receipt, options, args.json)
     return code
@@ -1470,16 +2095,145 @@ def diff_sides(args: argparse.Namespace, registry: Dict[str, Dict[str, Any]]) ->
         # On the VM, queued_diff builds the refs; elsewhere the caller brings the binaries.
         return (Side("base", None, None, {}, args.base, args.base_binary),
                 Side("head", None, None, {}, args.head, args.head_binary)), []
-    if args.switch:
-        sides = tuple(Side(arm, args.switch, arm, resolve_switches(registry, args.switch, arm), args.ref, args.binary) for arm in ARMS)
-        return sides, switch_expected_files(registry, [args.switch])  # type: ignore[return-value]
     if args.arm == "launch-config":
         planned = resolve_switches(registry, None, "launch-config")
         return (
             Side("default", None, "default", {}, args.ref, args.binary),
             Side("launch-config", None, "launch-config", planned, args.ref, args.binary),
-        ), switch_expected_files(registry, planned)
+        ), switch_expected_files(registry, planned, args.switch_registry)
     raise UsageError("diff needs --base/--head, --switch NAME, --arm launch-config, --base-run/--head-run or --baselines")
+
+
+def shard_list(args: argparse.Namespace) -> List[Tuple[int, int]]:
+    """`--shards N`: every shard here, in order; else the one `--shard I/N` (a worker's share)."""
+    if args.shards is None:
+        return [parse_shard(args.shard)]
+    if args.shards < 1:
+        raise UsageError("--shards must be >= 1")
+    if args.shard != "0/1":
+        raise UsageError("--shards N runs every shard; --shard I/N runs one: pass one of them")
+    return [(index, args.shards) for index in range(args.shards)]
+
+
+def run_switch_arms(args: argparse.Namespace, registry: Dict[str, Dict[str, Any]], out: Path,
+                    open_session: Optional[SessionOpener]) -> Optional[Dict[str, List[Path]]]:
+    """Runs each shard on arm old, then the same shard on arm new, so the two arms of a case run
+    back to back on this host with the same build (spec 3F.1): each arm's shard run directories.
+    On the Linux VM the arms are runnerd jobs (queued_switch_arms); None when one wrote no receipt."""
+    if open_session is None and outside_vm_queue(args.product) and not args.dry_run:
+        return queued_switch_arms(args)
+    name = args.switch
+    run_id = args.run_id or new_run_id()
+    runs: Dict[str, List[Path]] = {arm: [] for arm in ARMS}
+    # With --json, stdout holds only the comparison.
+    with contextlib.redirect_stdout(sys.stderr) if args.json else contextlib.nullcontext():
+        for index, total in shard_list(args):
+            for arm in ARMS:
+                options = options_from_args(args, retry_default=DEFAULT_RETRY_LIMIT, out=out / arm / f"shard-{index}",
+                                            run_id=f"{run_id}-{arm}-{index}", switch=name, arm=arm,
+                                            switches=resolve_switches(registry, name, arm), ref=args.ref, binary=args.binary)
+                options = replace(options, shard=(index, total))
+                receipt, _ = run_one(options, open_session=open_session)
+                print_run(receipt, options, False)
+                runs[arm].append(options.out)
+    return runs
+
+
+def queued_switch_arms(args: argparse.Namespace) -> Optional[Dict[str, List[Path]]]:
+    """`diff --switch` on the Linux VM: each shard's two arms are `linux_run.sh run` jobs of one
+    --ref build in the runnerd queue, side by side on this host like queued_diff's sides."""
+    if args.binary:
+        raise UsageError(f"{QUEUE_HINT}; a prebuilt --binary cannot run in it")
+    if not args.ref:
+        raise UsageError(f"{QUEUE_HINT}; --switch needs --ref to build")
+    sha = resolve_commit(args.ref)
+    suites = ",".join(parse_list(args.suite)) or "all"
+    runs: Dict[str, List[Path]] = {arm: [] for arm in ARMS}
+    for index, total in shard_list(args):
+        run_args = queued_run_args(argparse.Namespace(**{**vars(args), "shard": f"{index}/{total}"}))
+        if args.switch_registry.resolve() != SWITCH_REGISTRY.resolve():
+            run_args += ["--switch-registry", str(args.switch_registry.resolve())]
+        procs = []
+        for arm in ARMS:
+            command = ["bash", str(HERE / "linux_run.sh"), "run", sha, "--suite", suites, "--arm", f"{args.switch}={arm}"]
+            command += ["--fresh"] if args.fresh else []
+            command += ["--", *run_args]
+            command += ["--run-id", f"{args.run_id}-{arm}-{index}"] if args.run_id else []
+            procs.append(subprocess.Popen(command, stdout=subprocess.PIPE, text=True))
+        finished = [(proc.communicate()[0], proc.returncode) for proc in procs]
+        for arm, (stdout, code) in zip(ARMS, finished):
+            lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+            run_dir = Path(lines[-1]) if lines else None
+            if run_dir is None or not (run_dir / "receipt.json").is_file():
+                print(f"refused: the {arm} arm of {args.switch} at {args.ref} shard {index}/{total} wrote no receipt "
+                      f"(linux_run.sh exit {code})", file=sys.stderr)
+                return None
+            print(f"{args.switch}={arm}: {args.ref} shard {index}/{total} run {run_dir} (oracle.py run exit {code})",
+                  file=sys.stderr if args.json else sys.stdout)
+            runs[arm].append(run_dir)
+    return runs
+
+
+def merge_arm_runs(runs: Mapping[str, Sequence[Path]], out: Path) -> Tuple[Dict[str, Path], Dict[str, RunView]]:
+    views: Dict[str, RunView] = {}
+    dirs: Dict[str, Path] = {}
+    for arm in ARMS:
+        view, errors = merge_runs(list(runs[arm]), require_complete=False)
+        if errors:
+            raise UsageError(f"{arm} arm: " + "; ".join(errors))
+        views[arm] = view
+        dirs[arm] = write_merged(view, out / f"{arm}-merged")
+    return dirs, views
+
+
+def suites_not_run(listed: Sequence[str], view: RunView) -> List[str]:
+    ran = view.receipt["config"].get("suites") or ["all"]
+    return [] if "all" in ran else sorted(set(listed) - set(ran))
+
+
+def diff_switch(args: argparse.Namespace, out: Path, open_session: Optional[SessionOpener] = None) -> int:
+    """`diff --switch NAME`: the switch's suites on both arms of one build, compared through diff.py.
+
+    `open_session` is the product driver's (default: driver_<product>.py)."""
+    check_out_dir(out)
+    out.mkdir(parents=True, exist_ok=True)
+    registry = load_switch_registry(args.switch_registry)
+    name = args.switch
+    if name not in registry:
+        raise UsageError(f"--switch {name}: no plans/cmux-next/refactor-switches/{name}.json")
+    entry = registry[name]
+    listed = [str(suite) for suite in entry.get("suites") or ()]
+    if args.order_parity:
+        raise UsageError("--order-parity compares one config in two orders; --switch compares two arms")
+    if args.base_run or args.head_run:
+        if not (args.base_run and args.head_run):
+            raise UsageError("--switch with runs: --base-run is the old arm's run, --head-run the new arm's")
+        if args.shards is not None:
+            raise UsageError("--shards runs the arms; with --base-run/--head-run the runs are given")
+        dirs, views = merge_arm_runs({"old": args.base_run, "new": args.head_run}, out)
+    else:
+        if args.base or args.head or args.baselines:
+            raise UsageError("--switch compares two arms of one build: no --base/--head or --baselines")
+        if not args.suite:
+            args.suite = [",".join(listed)] if listed else None
+        if args.shuffle and args.seed is None:
+            args.seed = new_seed()  # one seed for both arms: they must run the same order
+        runs = run_switch_arms(args, registry, out, open_session)
+        if runs is None:
+            return EXIT_REFUSED  # an arm that did not build or run, like queued_diff's sides
+        dirs, views = merge_arm_runs(runs, out)
+    refused, block = switch_verdict(name, views)
+    block.update(suites=listed, suites_not_run=suites_not_run(listed, views["new"]))
+    if block["suites_not_run"]:
+        print(f"note: {name} lists suites this diff did not run: {', '.join(block['suites_not_run'])}", file=sys.stderr)
+    for reason in block["refusals"][1:]:
+        print(f"  also: {reason}", file=sys.stderr)
+    refused = comparability(views["old"], views["new"], partial=args.partial) or refused
+    return compare_views(views["old"], views["new"], a_dir=dirs["old"], b_dir=dirs["new"], out=out,
+                         labels=(f"{name}=old", f"{name}=new"), partial=args.partial,
+                         expected=switch_expected_files(registry, [name], args.switch_registry),
+                         rules=[*arm_under_test_rules(name), *comparison_rules(views["new"], args.expectations_root)],
+                         refused=refused, arm_pointers=arm_pointers(name, entry), switch=block, as_json=args.json)
 
 
 def comparison_rules(view: RunView, root: Path) -> List[Dict[str, str]]:
@@ -1492,9 +2246,22 @@ def comparison_rules(view: RunView, root: Path) -> List[Dict[str, str]]:
 
 
 def cmd_diff(args: argparse.Namespace) -> int:
+    if args.order_parity and not (args.base_run and args.head_run and not args.baselines):
+        raise UsageError("--order-parity compares two existing runs: give --base-run and --head-run")
+    if args.engine:
+        parse_engines(args.engine)
+        if args.base or args.head or args.switch or args.arm or args.base_run or args.head_run or args.baselines:
+            raise UsageError("--engine is its own diff (one build, one arm per engine); --base-run and --head-run "
+                             "read each side's engine from its receipt")
+        check_engine_product(args.product)
     out = args.out or DEFAULT_OUT_BASE / ("diff-" + new_run_id())
     check_out_dir(out)
     out.mkdir(parents=True, exist_ok=True)
+    if args.switch and (args.base_run or args.head_run or args.product != "app"):
+        # App arms run on the fleet (fleet.py, below), which compares its arm runs through here.
+        return diff_switch(args, out)
+    if args.shards is not None and (args.product != "app" or args.base_run or args.head_run):
+        raise UsageError("--shards is for --switch and fleet app diffs; a base/head diff runs one --shard I/N")
     if args.head_run:
         head, head_errors = merge_runs(args.head_run, require_complete=False)
         if args.baselines:
@@ -1513,18 +2280,15 @@ def cmd_diff(args: argparse.Namespace) -> int:
             raise UsageError("; ".join(base_errors + head_errors))
         return compare_views(base, head, a_dir=write_merged(base, out / "a-merged"), b_dir=write_merged(head, out / "b-merged"),
                              out=out, labels=("base", "head"), partial=args.partial, expected=[],
-                             rules=comparison_rules(head, args.expectations_root), as_json=args.json)
+                             rules=comparison_rules(head, args.expectations_root), as_json=args.json,
+                             order_parity=args.order_parity)
     if args.product == "app":
         fleet = HERE / "fleet.py"
         if not fleet.is_file():
             raise UsageError("app diffs run on the fleet through fleet.py, not on this branch yet (p15-oracle-050)")
         return subprocess.run([sys.executable, "-I", str(fleet), "diff", *args.raw_argv], check=False).returncode
-    registry = load_switch_registry()
+    registry = load_switch_registry(args.switch_registry)
     sides, expected = diff_sides(args, registry)
-    if args.switch and not args.suite:
-        minimum = registry[args.switch].get("minimum_suites")
-        if minimum:
-            args.suite = [",".join(minimum)]
     if args.shuffle and args.seed is None:
         args.seed = new_seed()  # one seed for both sides: they must run the same order
     if outside_vm_queue(args.product) and not args.dry_run:
@@ -1624,7 +2388,10 @@ def queued_diff(args: argparse.Namespace, sides: Tuple[Side, Side], expected: Li
         lines = [line.strip() for line in stdout.splitlines() if line.strip()]
         run_dir = Path(lines[-1]) if lines else None
         if run_dir is None or not (run_dir / "receipt.json").is_file():
-            raise UsageError(f"the {side.label} run of {side.ref} wrote no receipt (linux_run.sh exit {code})")
+            # A side that did not build or run is a refused diff, not bad input: bisect_case.py skips that commit.
+            print(f"refused: the {side.label} run of {side.ref} wrote no receipt (linux_run.sh exit {code})",
+                  file=sys.stderr)
+            return EXIT_REFUSED
         print(f"{side.label}: {side.ref} run {run_dir} (oracle.py run exit {code})")
         if read_receipt(run_dir)["arm_exercised"] is False:
             print(f"arm-not-exercised: {side.switch}={side.arm}")
@@ -1696,8 +2463,10 @@ def check_case(case: Case, mutations: frozenset) -> List[str]:
     for plat in data.get("platforms") or ():
         if plat not in PLATFORMS:
             errors.append(f"{case.id}: unknown platform {plat!r}")
-    for kind in data.get("allow_crashes") or ():
-        if kind not in CRASH_KINDS:
+    for entry in data.get("allow_crashes") or ():
+        # case-v1 $defs/allowCrash: {kind, reason, steps, max}.
+        kind = entry.get("kind") if isinstance(entry, dict) else entry
+        if not isinstance(kind, str) or kind not in CRASH_KINDS:
             errors.append(f"{case.id}: unknown crash kind {kind!r} in allow_crashes")
     steps = data.get("steps")
     if not isinstance(steps, list) or not steps:
@@ -1719,14 +2488,17 @@ def check_case(case: Case, mutations: frozenset) -> List[str]:
         op = step.get("op")
         if op not in STEP_OPS:
             errors.append(f"{case.id}: {label} has unknown op {op!r}")
-        operation = (step.get("args") or {}).get("operation") if isinstance(step.get("args"), dict) else None
+        args = step.get("args") if isinstance(step.get("args"), dict) else {}
+        operation = args.get("method") or args.get("operation")  # case-v1 argsResourceCall names it method
         mutating = op in TARGETED_OPS or (op == "resource.call" and operation in mutations)
         if mutating and not step.get("target"):
             what = f"{op} {operation}" if op == "resource.call" else op
             errors.append(f"{case.id}: {label} mutates ({what}) without a target")
-        checkpoint = step.get("checkpoint")
-        if checkpoint is not None and checkpoint not in CHECKPOINTS:
-            errors.append(f"{case.id}: {label} has unknown checkpoint {checkpoint!r}")
+        # case-v1: checkpoint is an array of checkpoint names.
+        checkpoints = step.get("checkpoint", [])
+        for checkpoint in checkpoints if isinstance(checkpoints, list) else [checkpoints]:
+            if not isinstance(checkpoint, str) or checkpoint not in CHECKPOINTS:
+                errors.append(f"{case.id}: {label} has unknown checkpoint {checkpoint!r}")
     for url in non_loopback_urls(data):
         errors.append(f"{case.id}: non-loopback URL {url!r} (offline fixtures use loopback or $WEB)")
     return errors
@@ -1855,6 +2627,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--switch", help="refactor switch name (plans/cmux-next/refactor-switches)")
     run.add_argument("--arm", help="old or new with --switch; launch-config or default without")
     run.add_argument("--ref", help="source ref recorded in the receipt")
+    run.add_argument("--engine", choices=sorted(ENGINE_READBACK),
+                     help="engine arm: every launch's browser.defaultEngine, and the engine of a case that pins one")
     run.add_argument("--out", type=Path, help=f"run directory (default {DEFAULT_OUT_BASE}/<run id>)")
     run.set_defaults(func=cmd_run)
 
@@ -1864,14 +2638,20 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("--head", help="head ref")
     diff.add_argument("--base-binary", help="prebuilt base binary instead of building --base")
     diff.add_argument("--head-binary", help="prebuilt head binary instead of building --head")
-    diff.add_argument("--switch", help="same build, arm old against arm new")
+    diff.add_argument("--switch", help="same build, arm old against arm new, on the switch's suites")
+    diff.add_argument("--shards", type=int, help="--switch: run every shard of N here, each on both arms back to back")
     diff.add_argument("--arm", choices=["launch-config"], help="every switch at its planned arm against all default")
-    diff.add_argument("--ref", help="source ref recorded for --switch and --arm runs")
+    diff.add_argument("--engine", help="engine parity: webkit,chromium runs the same build once per engine arm and "
+                                       f"compares without the tabs' engine ({ENGINE_PARITY_FILE.relative_to(REPO)})")
+    diff.add_argument("--ref", help="source ref recorded for --switch, --arm and --engine runs")
     diff.add_argument("--base-run", type=Path, action="append", help="existing run directory (repeat for shards)")
     diff.add_argument("--head-run", type=Path, action="append", help="existing run directory (repeat for shards)")
     diff.add_argument("--baselines", action="store_true", help="compare --head-run golden cases with reviewed baselines")
     diff.add_argument("--baselines-root", type=Path, default=DEFAULT_BASELINES_ROOT)
     diff.add_argument("--partial", action="store_true", help="compare a shard subset; the result says partial")
+    diff.add_argument("--order-parity", action="store_true",
+                      help="with --base-run/--head-run: one config run in two orders or batch limits (shuffle "
+                           "seeds, --batch-limit 1); every verdict and every LeakedState must match")
     diff.add_argument("--fresh", action="store_true",
                       help="on the VM, rerun both sides even when the queue has a receipt (confirm, flake checks)")
     diff.add_argument("--out", type=Path, help="comparison directory")
