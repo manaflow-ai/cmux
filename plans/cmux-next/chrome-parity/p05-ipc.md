@@ -1289,6 +1289,10 @@ line_connection tests pass; 0 reactor wakeups at idle. Test: RUST(io_reactor); R
 **p05-ipc-156 reactor writes.** Files: core:server/io_reactor.rs, core:server/bounded_outbound.rs,
 core:server/line_connection.rs. Change: outbound flush on writability in the reactor; mux-line-out deleted.
 Acceptance: 50 stream attaches + 20 CLI connections keep daemon threads within +-2; 072/088 tests pass. Test: RUST(io_reactor); BENCH(bench-daemon-latency.py --ops all --streams 50).
+Status: the writes landed ahead of 155. The thread acceptance is not met yet and is blocked on p05-ipc-155: its
+test (`cmux-tui-core/tests/connection_threads.rs`) is `#[ignore]`d until then and measures +22 today (each
+connection still holds its `mux-conn` reader). A socket the reactor cannot poll (Windows) keeps a `mux-line-out`
+writer thread.
 
 **p05-ipc-157 async input sink.** Files: core:pty_write.rs, core:surface/input.rs, core:pty_input_room.rs. Change: one
 nonblocking try; the rest goes to a bounded per-terminal buffer drained in order by the reactor; overflow or dead

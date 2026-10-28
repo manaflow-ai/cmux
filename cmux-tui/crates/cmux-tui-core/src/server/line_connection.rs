@@ -217,8 +217,8 @@ pub(super) fn serve_connection(
 ) -> ConnectionEnd {
     let Ok(write_half) = stream.try_clone_box() else { return ConnectionEnd::Dropped };
     let Ok(control) = write_half.try_clone_box() else { return ConnectionEnd::Dropped };
-    // The timeout a blocking write obeys; the reactor's own writes never
-    // block and end a peer that takes nothing for as long.
+    // The timeout a writer thread's blocking write obeys; the reactor's
+    // own writes never block and end a peer that takes nothing as long.
     if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
         return ConnectionEnd::Dropped;
     }
@@ -228,9 +228,10 @@ pub(super) fn serve_connection(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
         render_service,
     );
-    // The IO reactor writes the queue from here on (p05-ipc-156). It holds
-    // the connection's slot until it has written the last item, so the
-    // reader never waits for the writes to end.
+    // The IO reactor writes the queue from here on (p05-ipc-156), or a
+    // writer thread for a socket it cannot poll. The writer holds the
+    // connection's slot until it has written the last item, so the reader
+    // never waits for the writes to end.
     let output = io_reactor::LineOutput {
         outbound,
         socket: write_half,
@@ -238,7 +239,7 @@ pub(super) fn serve_connection(
         hangs: mux.echo_watch(),
         _end: Box::new(WriterEnd { writer: writer.clone(), _permit: connection_permit.clone() }),
     };
-    if mux.io_reactor.adopt(output).is_err() {
+    if mux.io_reactor.serve(output).is_err() {
         writer.close();
         return ConnectionEnd::Dropped;
     }
@@ -250,7 +251,7 @@ pub(super) fn serve_connection(
     origin_gate::set_peer_identity_at_accept(&mux, client, peer);
     if !admission.registered(&mux, client) {
         // Refused before its first frame (the remote entry's revocation
-        // limits): nothing is read or dispatched. The reactor ends the
+        // limits): nothing is read or dispatched. The writer ends the
         // output once the disconnect closes its queue.
         disconnect_client(&mux, client, false);
         return ConnectionEnd::Dropped;
@@ -365,7 +366,7 @@ pub(super) fn serve_connection(
     let (end, panic) = match served {
         Ok(end) => (end, None),
         Err(panic) => {
-            // Close the queue first: the reactor ends the output and shuts
+            // Close the queue first: the writer ends the output and shuts
             // the socket down even if the disconnect below finds a poisoned
             // lock.
             writer.close();
@@ -383,7 +384,7 @@ pub(super) fn serve_connection(
         let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
     }
     disconnect_client(&mux, client, false);
-    // The disconnect closed the queue: the reactor writes what is left,
+    // The disconnect closed the queue: the writer writes what is left,
     // shuts the socket down and releases its hold on the slot.
     drop(connection_permit);
     if let Some(panic) = panic {
@@ -393,8 +394,8 @@ pub(super) fn serve_connection(
 }
 
 /// The end of a connection's output, however it ends (its queue drained
-/// after the close, a failed write, a stalled peer, a panic in its turn):
-/// the reactor drops it after the socket shut down, which closes the
+/// after the close, a failed write, a stalled peer, a panic in its writer):
+/// its writer drops it after the socket shut down, which closes the
 /// connection's writer and then frees its slot.
 struct WriterEnd {
     writer: MessageWriter,

@@ -16,9 +16,10 @@
 //! longer than the connection's chunk size (BULK_FRAME_MAX) leaves in chunks,
 //! so a reply waits for at most one chunk of it.
 //!
-//! A line connection's writer, the IO reactor (server/io_reactor.rs), takes
-//! every ready item, in that order, up to [`WRITE_BATCH_BYTES`] and writes
-//! them with one `writev` of their buffers (headers and payloads
+//! A line connection's writer (the IO reactor, or a `mux-line-out` thread
+//! for a socket the reactor cannot poll; server/io_reactor.rs) takes every
+//! ready item, in that order, up to [`WRITE_BATCH_BYTES`] and writes them
+//! with one `writev` of their buffers (headers and payloads
 //! unconcatenated), as Mojo's
 //! `ChannelPosix::WriteOutgoingMessagesWithWritev` (mojo/core/channel_posix.cc)
 //! writes its queued messages. A chunk ends its batch, so the one-chunk bound
@@ -73,7 +74,9 @@ mod tests;
 mod batch;
 #[cfg(test)]
 pub(super) use batch::write_line_outbound_item;
-pub(super) use batch::{BatchTake, answer_flushes, count_batch_sent, write_gathered_from};
+pub(super) use batch::{
+    BatchTake, answer_flushes, count_batch_sent, write_counted_batch, write_gathered_from,
+};
 
 pub(super) struct BoundedOutbound {
     pub(super) state: Mutex<BoundedOutboundState>,

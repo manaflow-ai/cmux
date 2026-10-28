@@ -189,7 +189,7 @@ the app, not only CmuxNext: check it with
 | Ghostty renderer of the focused surface | app | Declared by library (ghostty-next `setQosClass`) | yes |
 | `cmux.screen.capture` (`ScreenCaptureBackend`, CmuxVNCWebRTC, Mac Screen sharing) | app | Known exception: no local frame waits on it; it captures this Mac's display for a viewer on another device | yes; target user-initiated, no task yet |
 | `mux-conn` of the app's UI connection | daemon | Reads the person's keys | no: default today; under `daemonRequestQos` the app's connections rest at user-interactive once classed (task 224, `ConnectionClass::Person` reader = `ECHO_PATH_QOS`) |
-| `mux-io-reactor`, `mux-pty-input`, `mux-attach-out`, `mux-render-attach-out` | daemon | Key in, echo out | yes |
+| `mux-io-reactor`, `mux-line-out`, `mux-pty-input`, `mux-attach-out`, `mux-render-attach-out` | daemon | Key in, echo out | yes |
 | `remote-input-writer`, `relay-input` | cmux-tui client, relay | The person's keys to a remote daemon or a session socket | yes (p04-input-084) |
 | `mux-terminal-io`, `mux-terminal-read`, `surface-<id>-reader`, `surface-<id>-host`, `surface-<id>-host-frames`, `surface-frames` | daemon | PTY output and frames | yes |
 | `terminal-host-pty`, `terminal-host-parser`, `terminal-host-client`, `terminal-host-client-input` | terminal host | PTY output, parse, frames out, keys in | yes |
@@ -264,7 +264,7 @@ part of the name.
 | attach-stream drains (no thread: a sequence per view on the pool's input workers; server/attach_pump.rs, stream_attach_out.rs, snapshot_attach_out.rs, p05-ipc-079) | The output, notifications and snapshot digest of a view attached with a client-minted `stream`; a legacy view keeps `mux-attach-out`, `mux-render-attach-out`, `mux-snapshot-attach-out` and `mux-attach-notifications` | Nothing: a turn takes what its sources hold and returns; sources, the writer's room and closes post the next turn, the idle digest is a delayed task on the wake grid. Its end does not wait either: with no room for its `stream-end`, the connection wakes it when an item leaves the queue or the connection closes | the pool's (`mux-seq-input`) | as today | yes: each item is an echo hang scope (`mux-attach-out`, `mux-render-attach-out`, `mux-snapshot-attach-out`) | One item past the stream's backpressure cap (2), 64 items per turn, and one bulk item (a READY, a history or images chunk) per turn; 50 byte, render and snapshot views each add at most 2 threads (`tests/attach_threads.rs`) |
 | `mux-session-mutation` (cmux-tui `pty_input/session_mutation.rs`) | The PTY input scheduler's session mutations (split, close, zoom, a divider drag's ratio), handed off by `mux-pty-input` in queue order; the scheduler dequeues nothing else while one runs | SQLite registry commits (local session), the daemon's reply (remote session) | user-initiated | as today | yes | One thread per dispatcher; one mutation at a time |
 | `mux-io-reactor` (one per daemon, p05-ipc-156) | Writing the queued bytes of every line connection: each turn takes ready items and sends them with one `sendmsg(MSG_DONTWAIT)`, at most 1 MiB per connection per turn | Nothing: a socket that would block registers for writability (mio: epoll or kqueue) and resumes on the event; its wait in the poll is an idle wait with no timeout while no write waits (0 idle wakeups) | user-interactive | user-interactive (closed list): it writes the app's `terminal_attach` connection, whose echo the app reads at user-interactive | yes | Outbound 256 per stream, 4096 per connection (over: the largest stream ends); a peer that takes no byte for 2 s (the queue's write timeout) is ended |
-| `mux-attach-out`, `mux-render-attach-out` | Writing queued bytes to one connection | Its socket (`write`); the producer queue (`Condvar`, producers user-interactive): the writer's wait for its next item is an idle wait (`Condvar::idle`, Chromium's `declare_only_used_while_idle`), never a violation (p02-threads 308) | user-interactive | user-interactive (closed list) | yes | Outbound 256 per stream, 4096 per connection (over: the largest stream ends); write timeout 2 s |
+| `mux-line-out` (only for a line connection the reactor cannot write: a socket with no descriptor to poll, a Windows socket today, or any connection after the reactor stopped), `mux-attach-out`, `mux-render-attach-out` | Writing queued bytes to one connection | Its socket (`write`); the producer queue (`Condvar`, producers user-interactive): the writer's wait for its next item is an idle wait (`Condvar::idle`, Chromium's `declare_only_used_while_idle`), never a violation (p02-threads 308) | user-interactive | user-interactive (closed list) | yes | Outbound 256 per stream, 4096 per connection (over: the largest stream ends); write timeout 2 s |
 | `mux-pty-input` | Writing keys to PTYs | The PTY (`write`); the shell runs at default | user-interactive | user-interactive (closed list) | yes | One bounded scheduler; per-surface order, byte writes batched, motion coalesced |
 | `remote-input-writer` (cmux-tui client, `session/remote.rs`, one per remote session) | Writing the person's keys and control requests to a remote daemon in order | The remote transport (`write`); its queue's `Condvar` | user-interactive (`ECHO_PATH_QOS`, `cmux_threads::spawn`, p04-input-084) | user-interactive (closed list) | yes | `INTERACTIVE_WRITE_QUEUE_CAPACITY` writes; over: backpressure error |
 | `relay-input` (cmux-tui relay, `main.rs`, one per relay) | Copying stdin (the person's keys) to the session socket | stdin (`read`), the socket (`write`) | user-interactive (`ECHO_PATH_QOS`, `cmux_threads::spawn`, p04-input-084) | user-interactive (closed list) | yes | `io::copy` buffer; ends at stdin EOF |
@@ -364,6 +364,10 @@ reactor (epoll or kqueue) thread:
 Writes are different: since p05-ipc-156 one `mux-io-reactor` thread writes every line connection, as Mojo's
 `ChannelPosix` writes on Chrome's IO thread (mojo/core/channel_posix.cc). A write runs no handler and never
 blocks (`MSG_DONTWAIT`; a full socket waits for writability in the poll), so one slow client delays no other.
+A socket the reactor cannot poll (a Windows socket: uds_windows has no nonblocking send) keeps a `mux-line-out`
+writer thread, since a blocking write on the shared reactor would hold up every connection. So does every
+connection that arrives after the reactor stopped (its poll failed): the daemon keeps serving, and the stop is
+logged. A panic in one connection's write or end ends only that connection.
 
 Per-terminal threads must not grow. Today a terminal costs at most these threads:
 
@@ -746,10 +750,11 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   timeout while nothing is registered.
 - Daemon IO reactor (Rust thread name, p05-ipc-156): `mux-io-reactor` (user-interactive), one per mux, started
   by its first line connection. It writes every line connection's queue with nonblocking `sendmsg` and waits only
-  in its poll (no timeout while no write waits); it replaced one `mux-line-out` thread per connection.
+  in its poll (no timeout while no write waits); it replaced one `mux-line-out` thread per connection, which
+  stays only for a socket it cannot poll (Windows) and for connections after the reactor stopped.
 - Daemon request watchdog (Rust thread name, p05-ipc-006): `mux-request-watchdog` (utility). The process's
   one hang watcher (p10-stability-032; no second watcher thread): it owns the scope slots of requests, journal
-  writer commits, holder-link frames and the echo threads' items (p02-threads-232: each `mux-io-reactor` turn,
+  writer commits, holder-link frames and the echo threads' items (p02-threads-232: each `mux-io-reactor` turn and `mux-line-out` write,
   local `mux-pty-input` write and attach frame encode at 100 ms, never the wait for the next item); a holder's
   `holder-loop` hang arrives on its link and the link's reader only queues it (16 at most, more are dropped and counted): this thread writes it as one hang-log line. It wakes only when a scope opens on a disarmed watchdog and then on
   250 ms grid ticks (at most 4/s plus one, 0 while idle: it parks with no timeout). It blocks only on a stack

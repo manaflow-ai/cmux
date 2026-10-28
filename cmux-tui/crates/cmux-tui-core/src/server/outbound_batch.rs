@@ -42,13 +42,13 @@ pub(in crate::server) enum BatchTake {
 }
 
 impl BoundedOutbound {
-    /// The batches a blocking writer takes (the tests' reference writer):
-    /// waits for the next item, then takes it and every item ready behind
-    /// it in write order into `batch`, until the batch holds
-    /// [`WRITE_BATCH_BYTES`] or [`WRITE_BATCH_ITEMS`]. A flush or a chunk
-    /// ends a batch. `false` once the queue is closed and empty. The wait is
-    /// an idle wait, so a writer that disallows blocking may take it.
-    #[cfg(test)]
+    /// The batches a writer thread takes (`mux-line-out`, for a stream the
+    /// IO reactor cannot poll, server/io_reactor.rs): waits for the next
+    /// item, then takes it and every item ready behind it in write order
+    /// into `batch`, until the batch holds [`WRITE_BATCH_BYTES`] or
+    /// [`WRITE_BATCH_ITEMS`]. A flush or a chunk ends a batch. `false` once
+    /// the queue is closed and empty. The wait is an idle wait, so a writer
+    /// that disallows blocking may take it.
     pub(in crate::server) fn recv_batch(&self, batch: &mut Vec<OutboundItem>) -> bool {
         batch.clear();
         let mut state = self.state.lock().recover_poison();
@@ -117,7 +117,6 @@ impl OutboundItem {
         }
     }
 
-    #[cfg(test)]
     fn is_flush(&self) -> bool {
         matches!(self, OutboundItem::Flush(_))
     }
@@ -140,7 +139,6 @@ pub(in crate::server) fn write_line_outbound_item<W: Write + ?Sized>(
 
 /// Writes one batch of [`BoundedOutbound::recv_batch`], counting each of its
 /// messages and each write call in `ipc` (`server-stats` `ipc`).
-#[cfg(test)]
 pub(in crate::server) fn write_counted_batch<W: Write + ?Sized>(
     writer: &mut W,
     ipc: &IpcStats,
@@ -165,7 +163,6 @@ pub(in crate::server) fn count_batch_sent(ipc: &IpcStats, items: &[OutboundItem]
 
 /// Writes `items` in order: the items between flushes as one gathered write
 /// each, and at a flush the writer's flush, then its answer.
-#[cfg(test)]
 pub(in crate::server) fn write_line_outbound_batch<W: Write + ?Sized>(
     writer: &mut W,
     items: &[OutboundItem],
@@ -185,7 +182,6 @@ pub(in crate::server) fn write_line_outbound_batch<W: Write + ?Sized>(
 
 /// One `write_vectored` of every buffer of `items`, called again only for
 /// what a short write left.
-#[cfg(test)]
 fn write_gathered<W: Write + ?Sized>(
     writer: &mut W,
     items: &[OutboundItem],

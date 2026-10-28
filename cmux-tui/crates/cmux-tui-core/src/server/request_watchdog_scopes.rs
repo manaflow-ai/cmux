@@ -36,6 +36,9 @@ pub(crate) enum WatchKind {
     /// One turn of the IO reactor (`mux-io-reactor`) writing a line
     /// connection's queue to its socket.
     LineOut,
+    /// One batch a connection's own `mux-line-out` writer thread writes to
+    /// its socket: a socket the IO reactor cannot poll (server/io_reactor.rs).
+    LineOutThread,
     /// One input write of `mux-pty-input` to a local terminal.
     PtyInput,
     /// One frame a `mux-attach-out` thread encodes for its viewer.
@@ -61,6 +64,7 @@ impl WatchKind {
             6 => Self::AttachOut,
             7 => Self::RenderAttachOut,
             8 => Self::SnapshotAttachOut,
+            9 => Self::LineOutThread,
             _ => Self::MuxConn,
         }
     }
@@ -78,6 +82,7 @@ impl WatchKind {
             Self::AttachOut => 6,
             Self::RenderAttachOut => 7,
             Self::SnapshotAttachOut => 8,
+            Self::LineOutThread => 9,
         }
     }
 
@@ -91,6 +96,7 @@ impl WatchKind {
             #[cfg(debug_assertions)]
             Self::OwnerTest => "owner-hang-test",
             Self::LineOut => "mux-io-reactor",
+            Self::LineOutThread => "mux-line-out",
             Self::PtyInput => "mux-pty-input",
             Self::AttachOut => "mux-attach-out",
             Self::RenderAttachOut => "mux-render-attach-out",
@@ -108,6 +114,7 @@ impl WatchKind {
             #[cfg(debug_assertions)]
             Self::OwnerTest => Duration::from_millis(500),
             Self::LineOut
+            | Self::LineOutThread
             | Self::PtyInput
             | Self::AttachOut
             | Self::RenderAttachOut
@@ -121,6 +128,7 @@ impl WatchKind {
         matches!(
             self,
             Self::LineOut
+                | Self::LineOutThread
                 | Self::PtyInput
                 | Self::AttachOut
                 | Self::RenderAttachOut
@@ -143,7 +151,7 @@ impl WatchKind {
             Self::HolderLink => crate::holder_runtime::holder_frame_name(method),
             #[cfg(debug_assertions)]
             Self::OwnerTest => "owner-hang-test",
-            Self::LineOut => "write-item",
+            Self::LineOut | Self::LineOutThread => "write-item",
             Self::PtyInput => "write-input",
             Self::AttachOut | Self::RenderAttachOut | Self::SnapshotAttachOut => "frame",
         }
