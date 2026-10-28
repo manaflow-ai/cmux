@@ -1130,7 +1130,9 @@ export function ModelPicker(props: ModelPickerProps) {
                       onPick: pickQuickToPrompt,
                       ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
                       ...(harnessFixed ? {} : onHarness ? { onLaunch: pickProfile } : {}),
-                      ...(harnessFixed && fork ? { onLaunch: pickProfile, onFork: pickProfile, forkReady: fork.ready } : {}),
+                      ...(harnessFixed && fork
+                        ? { onLaunch: pickProfile, onFork: pickProfile, forkReady: fork.ready }
+                        : {}),
                     },
                   }
                 : {}),

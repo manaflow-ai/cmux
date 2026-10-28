@@ -43,9 +43,19 @@ test("a folded release retains its harness menu position without promoting the r
   const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
   const result = buildPickerCatalog({
     catalog: BUNDLED_MODEL_CATALOG,
-    acpmux: [{ id: "claude", name: "Claude Code", family: "claude", topModels: ["opus", "sonnet"], models: [
-      { id: "opus", name: "Opus 5.5" }, { id: "sonnet", name: "Sonnet 5.5" }, { id: "haiku", name: "Haiku 5.5" },
-    ] }],
+    acpmux: [
+      {
+        id: "claude",
+        name: "Claude Code",
+        family: "claude",
+        topModels: ["opus", "sonnet"],
+        models: [
+          { id: "opus", name: "Opus 5.5" },
+          { id: "sonnet", name: "Sonnet 5.5" },
+          { id: "haiku", name: "Haiku 5.5" },
+        ],
+      },
+    ],
     session: { harness: "claude", model: "claude-haiku-5-5" },
   });
   const harness = result.harnesses.find((entry) => entry.id === "claude")!;

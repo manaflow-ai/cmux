@@ -274,16 +274,30 @@ for (const [id, name, family] of [
     const { forked, switched } = await mount(1, { ready: true }, "claude", catalog);
     await open();
     for (let remaining = railTabs().length; remaining > 0; remaining--) {
-      if (railTabs().find((tab) => tab.getAttribute("aria-pressed") === "true")?.getAttribute("aria-label") === name)
+      if (
+        railTabs()
+          .find((tab) => tab.getAttribute("aria-pressed") === "true")
+          ?.getAttribute("aria-label") === name
+      )
         break;
-      await act(async () => menu()!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+      await act(async () =>
+        menu()!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })),
+      );
       await settle();
     }
-    expect(railTabs().find((tab) => tab.getAttribute("aria-pressed") === "true")?.getAttribute("aria-label")).toBe(name);
+    expect(
+      railTabs()
+        .find((tab) => tab.getAttribute("aria-pressed") === "true")
+        ?.getAttribute("aria-label"),
+    ).toBe(name);
     expect(forked).toEqual([]);
     expect(menu()!.querySelectorAll('.acpmux-quick-item[role="menuitemradio"]')).toHaveLength(0);
     expect(itemsOf(menu()!).map(labelOf)).toContain(`Fork to ${name}`);
-    await act(async () => itemsOf(menu()!).find((item) => labelOf(item) === `Fork to ${name}`)!.click());
+    await act(async () =>
+      itemsOf(menu()!)
+        .find((item) => labelOf(item) === `Fork to ${name}`)!
+        .click(),
+    );
     await settle();
     expect(forked).toEqual([id!]);
     expect(switched).toEqual([]);
