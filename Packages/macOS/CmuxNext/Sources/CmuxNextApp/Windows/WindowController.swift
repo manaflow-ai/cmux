@@ -506,6 +506,10 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         if refusesOrderInKeyView(responder) { return false }
         // Only a modal of the overlay top layer takes the window's keyboard (`WindowOverlayHost.refusesFirstResponder`).
         if WindowOverlayHost.existingHost(for: self)?.refusesFirstResponder(responder) == true { return false }
+        // A cold New Tab page's stand-in field has its pane's keys until it hands them over: the page's own focus waits.
+        if let view = responder as? NSView, (NSApp as? CmuxApplication)?.isHandlingSendEvent() != true,
+           let controller = windowController as? WindowController, !(responder is NewTabFieldStandIn),
+           controller.services.keyRouter.newTabInputCoordinator.hasStandIn(over: view) { return false }
         if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
         let accepted = BenchSpans.measure("window.makeFirstResponder") { super.makeFirstResponder(responder) }
         if accepted { cursorRectHold?.firstResponderDidChange(in: self); BenchSpans.measure("focus.reportResponder") { reportResponder() } }

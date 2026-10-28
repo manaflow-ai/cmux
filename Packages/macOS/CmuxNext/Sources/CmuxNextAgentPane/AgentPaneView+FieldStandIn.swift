@@ -51,6 +51,9 @@ public final class NewTabFieldStandIn: NSTextView {
     override public func insertNewline(_ sender: Any?) { submitted = true }
     /// Escape and Option-Escape do what they do in the page's field before it exists: nothing (no completion popup).
     override public func cancelOperation(_ sender: Any?) {}
+    /// Tab and Shift-Tab stay in the field, as in the page's field (no key-view loop out of a delegate-less editor).
+    override public func insertTab(_ sender: Any?) {}
+    override public func insertBacktab(_ sender: Any?) {}
     override public func complete(_ sender: Any?) {}
 
     override public func viewDidChangeEffectiveAppearance() {
