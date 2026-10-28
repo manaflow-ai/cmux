@@ -32,7 +32,9 @@ enum SidebarPullRequestFixture {
                                        number: 100 + index, title: "\(workspace.name) (\(state.rawValue))", state: state,
                                        additions: 12 * (index + 1), deletions: 3 * (index + 1))
             }
-            badges[SidebarWorkspaceID(workspace.id)] = SidebarPullRequestBadge.combining(items: items)
+            if let badge = SidebarPullRequestBadge.combining(items: items) {
+                badges[SidebarWorkspaceID(workspace.id)] = badge
+            }
         }
         return badges
     }
