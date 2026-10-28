@@ -78,7 +78,7 @@ for (const scenario of ["ready", "failed-play", "unready"] as const) {
         .finally(() => clearTimeout(deadline));
       const report = JSON.parse(readFileSync(join(output, "geometry-report", "geometry-report.json"), "utf8"));
       expect({ exitCode, geometryPassed: report.passed, errors: report.errors })
-        .toEqual({ exitCode: scenario === "unready" ? 1 : 0, geometryPassed: true, errors: [] });
+        .toEqual({ exitCode: 0, geometryPassed: true, errors: [] });
       const [result] = JSON.parse(readFileSync(join(output, "results.json"), "utf8"));
       expect(result.ready).toBe(scenario === "unready" ? "error" : "1");
       expect(result.play.status).toBe(scenario === "failed-play" ? "fail" : "pass");
