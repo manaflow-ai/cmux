@@ -4,25 +4,18 @@ import {
   COMPOSER_PLUS_SECTIONS,
   composerPlusRegistry,
   composerPlusSections,
+  runComposerPlusAction,
 } from "./composerPlusRegistry";
 
 test("the plus registry exposes the Add and Files sections in command order", () => {
   const rows = composerPlusRegistry({
     canChooseProject: true,
-    canSetGoal: true,
+    commands: [{ name: "goal", description: "Set goal", source: "agent" }],
     planMode: { id: "plan", name: "Plan mode", description: "Think through the work before editing" },
   });
 
   expect(COMPOSER_PLUS_MOTION).toBe("none");
-  expect(rows.map((row) => row.section)).toEqual([
-    "add",
-    "add",
-    "add",
-    "add",
-    "add",
-    "add",
-    "files",
-  ]);
+  expect(rows.map((row) => row.section)).toEqual(["add", "add", "add", "add", "add", "add", "add", "add", "files"]);
   expect(rows.slice(0, 6).map((row) => row.name)).toEqual([
     "Files and folders",
     "Attach a screenshot",
@@ -36,8 +29,8 @@ test("the plus registry exposes the Add and Files sections in command order", ()
 });
 
 test("capture and optional goal rows are omitted when the host lacks those capabilities", () => {
-  const rows = composerPlusRegistry({ canCapture: false, canSetGoal: false });
-  expect(rows.map((row) => row.id)).toEqual(["add.files", "files.search"]);
+  const rows = composerPlusRegistry({ canCapture: false });
+  expect(rows.map((row) => row.id)).toEqual(["add.files", "add.mention", "add.commands", "files.search"]);
 });
 
 test("skills and prompts reuse their slash command while agent commands stay in the slash menu", () => {
@@ -104,7 +97,48 @@ test("host extensions keep their palette action and deduplicate stable ids", () 
     id: "palette.openBrowser",
   });
   expect([...composerPlusSections(rows).keys()]).toEqual([...COMPOSER_PLUS_SECTIONS]);
-  expect(composerPlusSections(rows).get("tools")?.map((row) => row.name)).toEqual(["Browser"]);
-  expect(composerPlusSections(rows).get("sessions")?.map((row) => row.name)).toEqual(["Recent chat"]);
-  expect(composerPlusSections(rows).get("tabs")?.map((row) => row.name)).toEqual(["Browser tab"]);
+  expect(
+    composerPlusSections(rows)
+      .get("tools")
+      ?.map((row) => row.name),
+  ).toEqual(["Browser"]);
+  expect(
+    composerPlusSections(rows)
+      .get("sessions")
+      ?.map((row) => row.name),
+  ).toEqual(["Recent chat"]);
+  expect(
+    composerPlusSections(rows)
+      .get("tabs")
+      ?.map((row) => row.name),
+  ).toEqual(["Browser tab"]);
+});
+
+test("the same registry action reaches the composer handler with its exact plan mode id", () => {
+  const calls: string[] = [];
+  const entries = composerPlusRegistry({
+    canCapture: false,
+    planMode: { id: "claude-plan", name: "Plan mode", description: "Plan without edits" },
+  });
+  const plan = entries.find((entry) => entry.id === "add.mode.claude-plan")!;
+  expect(plan.action).toEqual({ kind: "command", id: "composer.planMode", modeId: "claude-plan" });
+  expect(
+    runComposerPlusAction(plan.action, {
+      command: (id, modeId) => calls.push(`${id}:${modeId ?? ""}`),
+      slash: () => calls.push("slash"),
+    }),
+  ).toBe(true);
+  expect(calls).toEqual(["composer.planMode:claude-plan"]);
+});
+
+test("unknown actions cannot silently close the + menu", () => {
+  expect(
+    runComposerPlusAction(
+      { kind: "command", id: "missing" },
+      {
+        command: () => undefined,
+        slash: () => undefined,
+      },
+    ),
+  ).toBe(false);
 });

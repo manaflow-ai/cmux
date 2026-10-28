@@ -75,7 +75,7 @@ function Chips() {
   return null;
 }
 
-async function render(snapshot: AcpmuxSnapshot, headerCwd?: string) {
+async function render(snapshot: AcpmuxSnapshot, headerCwd?: string, onMode?: (id: string) => void) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   root ??= createRoot(host);
@@ -91,6 +91,7 @@ async function render(snapshot: AcpmuxSnapshot, headerCwd?: string) {
           return true;
         }}
         onStop={() => {}}
+        onMode={onMode}
         onProject={() => {}}
         onNewChat={() => {}}
         localName="studio"
@@ -297,4 +298,45 @@ test("the + button names what its menu adds in a tooltip", async () => {
   await render(fresh([]));
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
   expect([plus.getAttribute("aria-label"), plus.title]).toEqual(["Add", "Add files and more"]);
+});
+
+test("the + menu renders Add rows from the shared registry", async () => {
+  await render(fresh([]));
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  await act(async () => plus.click());
+  const ids = [...host.querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")].map(
+    (row) => row.dataset.value,
+  );
+  expect(ids).toContain("add.files");
+  expect(ids).toContain("add.project");
+  expect(ids).toContain("add.mention");
+  expect(host.querySelector('[data-value="add.files"] .acpmux-menu-description')?.textContent).toContain("Attach");
+});
+
+test("the + menu runs the advertised plan mode and opens the existing project chooser", async () => {
+  const modes: string[] = [];
+  const snapshot = noChat([], {
+    summary: {
+      sessionId: "",
+      cwd: APP,
+      modes: {
+        currentModeId: "acceptEdits",
+        availableModes: [
+          { id: "acceptEdits", name: "Accept edits" },
+          { id: "claude-plan", name: "Plan" },
+        ],
+      },
+    } as never,
+  });
+  await render(snapshot, undefined, (id) => modes.push(id));
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  await act(async () => plus.click());
+  const plan = host.querySelector<HTMLElement>('[data-value="add.mode.claude-plan"]')!;
+  expect(plan).toBeTruthy();
+  await act(async () => plan.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(modes).toEqual(["claude-plan"]);
+  await act(async () => plus.click());
+  const project = host.querySelector<HTMLElement>('[data-value="add.project"]')!;
+  await act(async () => project.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(host.querySelector(".acpmux-location-button[aria-expanded=true]")).toBeTruthy();
 });
