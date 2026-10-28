@@ -5,8 +5,9 @@
 /// Process stderr remains available in its raw form for logs and transcript entries. Callers
 /// use this only when they copy a line into an error or diagnostic shown to a person.
 pub(crate) fn clean_stderr_line(line: &str) -> String {
-    // The implementation lands in the follow-up fix commit; keeping the old behavior here
-    // gives the focused regression test a real red result before that fix.
+    let line = strip_ansi(line);
+    let line = line.trim();
+    let line = strip_tracing_prefix(line);
     line.trim().to_owned()
 }
 
