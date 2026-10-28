@@ -833,13 +833,15 @@ def main(argv):
               file=sys.stderr)
         return 2
     import importlib.util
-    from bench_launch import BenchApp, LaunchError, shipping_env  # noqa: E402
+    from bench_launch import BenchApp, LaunchError  # noqa: E402
     import bench_memory as bm  # noqa: E402
     spec = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(HERE, "perf-stress-session.py"))
     st = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(st)
     os.makedirs(opts.out, exist_ok=True)
-    bench = BenchApp(opts.app, out=opts.out, env=shipping_env(draw=False))
+    # An isolated launch that may activate (the churn sends Cmd-T/Cmd-W to the key window), with no Sentry or hang
+    # report opt-ins (shipping_env would send them).
+    bench = BenchApp(opts.app, out=opts.out, env={"CMUX_NEXT_NO_ACTIVATE": None, "CMUX_NEXT_ISOLATED_LAUNCH": "1"})
     report = {"argv": argv, "app": os.path.basename(opts.app)}
     code = 0
     try:
