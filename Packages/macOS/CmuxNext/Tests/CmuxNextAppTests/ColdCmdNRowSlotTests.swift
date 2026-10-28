@@ -96,6 +96,7 @@ struct ColdCmdNRowSlotTests {
             let settledFrame = PendingWorkspaceRows.adding([probe], to: settledSections, home: nil)
             #expect(settledFrame.flatMap(\.workspaces).map(\.id.rawValue) == [current.id, "cold-probe"])
 
+            // Regression: this stale projection must not expose a bottom frame.
             // An updater can leave the first cold layout one projection behind while AppKit has no
             // realized row geometry yet. Keep that state across the first Cmd-N so it cannot expose
             // the daemon's temporary tail placement as a visible bottom frame.
