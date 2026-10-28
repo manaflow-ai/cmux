@@ -1601,7 +1601,7 @@ export default agentPaneEntry({
     // cx-ncc.71 (Codex parity): + > Attach Screenshot… and Attach Window… take a capture through the
     // host (macOS screencapture's own region or window pick) and attach it as an image chip.
     "attach-screenshot": {
-      note: "Play: + > Attach Screenshot… asks the host for a region capture, attaches the image it returns and puts focus back in the prompt.",
+      note: "Play: + > Attach Screenshot… asks the host for a region capture, attaches the image it returns, saves the original for the agent and puts focus back in the prompt.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
@@ -1631,6 +1631,15 @@ export default agentPaneEntry({
         const asked = log.find(({ method }) => method === "composer.capture");
         if ((asked?.params as { mode?: string } | undefined)?.mode !== "screen")
           throw new Error(`capture asked ${JSON.stringify(asked)}`);
+        // The chip carries the page's preview; the capture itself is the person's original and is
+        // saved for the agent as a pasted screenshot's is, at any size.
+        await ctx.waitFor(() =>
+          log.some(
+            ({ method, params }) =>
+              method === "chat.upload.finish" &&
+              String((params as { token?: string } | undefined)?.token).endsWith("Screenshot.png"),
+          ),
+        );
       },
     },
     "attach-window-cancelled": {
