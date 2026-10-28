@@ -675,29 +675,38 @@ export function ModelPicker(props: ModelPickerProps) {
       window.removeEventListener("blur", blur);
     };
   }, [close, open]);
-  useEffect(() => registerPicker(modelText, () => showRef.current()), [modelText]);
+  useEffect(
+    () =>
+      registerPicker(modelText, () =>
+        quick !== undefined ? (open ? close() : setQuickOpen(true)) : showRef.current(),
+      ),
+    [modelText, quick, open, close],
+  );
   // The footer's harness item opens this menu: its rail is the composer's harness switcher.
   const opener = props.opener;
   const compact = quick !== undefined;
   useEffect(() => {
     if (!opener) return;
-    const openMenu = () => (compact ? setQuickOpen(true) : showRef.current());
+    const openMenu = () => (compact ? (open ? close() : setQuickOpen(true)) : showRef.current());
     opener.current = openMenu;
     return () => {
       if (opener.current === openMenu) opener.current = undefined;
     };
-  }, [opener, compact]);
+  }, [opener, compact, open, close]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
       if (event.metaKey && event.ctrlKey && !event.altKey && event.key.toLowerCase() === "m") {
         event.preventDefault();
-        showRef.current();
+        if (quick !== undefined) {
+          if (open) close();
+          else setQuickOpen(true);
+        } else showRef.current();
       }
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, []);
+  }, [quick, open, close]);
   useEffect(() => {
     if (!open) setSelectedHarness(harness);
   }, [harness, open]);
