@@ -40,6 +40,7 @@ export type ModelPickerProps = {
     offValue: string;
     onLabel: string;
     offLabel: string;
+    lastOnValue?: string;
     onPick(value: string): void;
   };
   /** Refreshes the host-backed model catalog; the host owns transport and live events. */

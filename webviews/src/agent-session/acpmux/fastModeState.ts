@@ -10,6 +10,7 @@ export function fastModeIsOn(state: FastModeState): boolean {
 }
 
 /** Toggle a Fast option while preserving the harness's configured on and off values. */
-export function nextFastModeValue(state: FastModeState): string {
-  return fastModeIsOn(state) ? state.offValue : state.onValue;
+export function nextFastModeValue(state: FastModeState, rememberedOnValue?: string): string {
+  if (fastModeIsOn(state)) return state.offValue;
+  return rememberedOnValue && rememberedOnValue !== state.offValue ? rememberedOnValue : state.onValue;
 }

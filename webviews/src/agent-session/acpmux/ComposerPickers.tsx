@@ -232,6 +232,7 @@ export function ComposerPickers({
   holdsModePick = false,
 }: Props) {
   const t = useT();
+  const lastFastValue = useRef<string | undefined>(undefined);
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).
   // The model button is the row's one model control (Leo 2026-10-20): it names the model and its
   // effort ("Opus 5.5  Medium") and opens the compact menu, which carries Effort, More models,
@@ -424,12 +425,20 @@ export function ComposerPickers({
           offValue: fastOff.value,
           onLabel: fastOn.name ?? fastOn.value,
           offLabel: fastOff.name ?? fastOff.value,
+          lastOnValue:
+            fastOption.currentValue && fastOption.currentValue !== fastOff.value ? fastOption.currentValue : undefined,
           onPick: (value: string) => onEffort(fastOption.id, value),
         }
       : undefined;
   // Fast mode is offered where the running model honors it, or while it is still on.
   const fastOffered =
     fastMode !== undefined && (catalogModel?.fast !== false || fastMode.currentValue !== fastMode.offValue);
+  const fastCurrentValue = fastMode?.currentValue;
+  const fastOffValue = fastMode?.offValue;
+  useEffect(() => {
+    if (fastCurrentValue === undefined || fastCurrentValue === fastOffValue) return;
+    lastFastValue.current = fastCurrentValue;
+  }, [fastCurrentValue, fastOffValue]);
   // Fast mode is a row in the model menu for every harness. The picker owns the toggle;
   // the composer never renders a separate lightning button.
   const model = models.find((choice) => choice.id === summary?.model);
@@ -891,7 +900,14 @@ export function ComposerPickers({
     fastMode && fastOffered
       ? {
           checked: fastModeIsOn(fastMode),
-          onChange: (on) => fastMode.onPick(on ? fastMode.onValue : fastMode.offValue),
+          onChange: (on) =>
+            fastMode.onPick(
+              on
+                ? fastMode.currentValue && fastMode.currentValue !== fastMode.offValue
+                  ? fastMode.currentValue
+                  : (lastFastValue.current ?? fastMode.onValue)
+                : fastMode.offValue,
+            ),
         }
       : undefined;
   const quick: QuickMenuExtras = {
@@ -938,7 +954,9 @@ export function ComposerPickers({
           onAddAgent={onAddAgent}
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
-          {...(fastMode ? { fastMode } : {})}
+          {...(fastMode
+            ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? lastFastValue.current } }
+            : {})}
           catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"
