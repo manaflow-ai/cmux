@@ -3,6 +3,8 @@
 ///
 /// Every row runs a registry action, so the palette, the Help menu and this menu share one path.
 /// A row whose action the build does not bind is left out, and so is a section left with no row.
+/// Icons follow Raycast's menu (user 2026-10-27): only help, the community links and Settings carry
+/// one; the account, opening cmux, About, updates, logs, Sign Out and Quit have none.
 /// The rows are values (``items(for:isBound:)``), so tests read them without AppKit;
 /// ``MenuBarMenuBuilder`` turns them into an `NSMenu`.
 public nonisolated struct MenuBarMenuSpec: Sendable {
@@ -11,8 +13,8 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         /// A line that is not a command (who is signed in, how many agents work), with an
         /// optional SF Symbol; `avatar` marks the line that shows the account's picture.
         case info(String, symbol: String?, avatar: Bool)
-        /// A registry row: `title` nil keeps the action's own title.
-        case action(ActionID, title: String?, symbol: String)
+        /// A registry row: `title` nil keeps the action's own title; `icon` nil shows none.
+        case action(ActionID, title: String?, icon: MenuBarMenuIcon?)
         /// A divider between two sections.
         case separator
     }
@@ -46,50 +48,50 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
             for (index, line) in signedIn.lines.enumerated() {
                 account.append(.info(line, symbol: nil, avatar: index == 0))
             }
-            if let team = signedIn.team { account.append(.action("openTeamPicker", title: team, symbol: "person.2")) }
+            if let team = signedIn.team { account.append(.action("openTeamPicker", title: team, icon: nil)) }
         } else {
             account.append(.action("palette.auth.signIn", title: Self.text("menu.menuBar.signIn", "Sign In to cmux…"),
-                                   symbol: "person.crop.circle"))
+                                   icon: nil))
         }
         var agents: [Item] = []
         if state.agentsWorking > 0 {
-            agents.append(.info(Self.agentsWorking(state.agentsWorking), symbol: "circle.dotted", avatar: false))
+            agents.append(.info(Self.agentsWorking(state.agentsWorking), symbol: nil, avatar: false))
         }
         if state.agentsNeedingInput > 0 {
-            agents.append(.action("jumpToUnread", title: Self.needsInput(state.agentsNeedingInput), symbol: "exclamationmark.bubble"))
+            agents.append(.action("jumpToUnread", title: Self.needsInput(state.agentsNeedingInput), icon: nil))
         }
         let open: [Item] = [
-            .action("showMainWindow", title: Self.text("menu.menuBar.openCmux", "Open cmux"), symbol: "macwindow"),
-            .action("newTab", title: nil, symbol: "plus.rectangle.on.rectangle"),
-            .action("home.show", title: nil, symbol: "house"),
-            .action("home.messageChiefPet", title: nil, symbol: "bubble.left"),
-            .action("palette.quickAgentChat", title: nil, symbol: "bubble.left.and.text.bubble.right"),
+            .action("showMainWindow", title: Self.text("menu.menuBar.openCmux", "Open cmux"), icon: nil),
+            .action("newTab", title: nil, icon: nil),
+            .action("home.show", title: nil, icon: nil),
+            .action("home.messageChiefPet", title: nil, icon: nil),
+            .action("palette.quickAgentChat", title: nil, icon: nil),
         ]
         let help: [Item] = [
-            .action("sendFeedback", title: nil, symbol: "envelope"),
-            .action("help.documentation", title: nil, symbol: "book"),
-            .action("help.troubleshooting", title: nil, symbol: "lifepreserver"),
+            .action("sendFeedback", title: nil, icon: .symbol("exclamationmark.bubble")),
+            .action("help.documentation", title: nil, icon: .symbol("info.circle")),
+            .action("help.troubleshooting", title: nil, icon: .symbol("exclamationmark.triangle")),
         ]
         let community: [Item] = [
-            .action("help.discord", title: nil, symbol: "bubble.left.and.bubble.right"),
-            .action("help.followOnX", title: nil, symbol: "at"),
-            .action("help.github", title: nil, symbol: "chevron.left.forwardslash.chevron.right"),
-            .action("updates.whatsNew", title: nil, symbol: "sparkles"),
+            .action("help.discord", title: nil, icon: .brand(.discord)),
+            .action("help.followOnX", title: nil, icon: .brand(.x)),
+            .action("help.github", title: nil, icon: .brand(.github)),
+            .action("updates.whatsNew", title: nil, icon: .symbol("sparkles")),
         ]
         // Restart to Update only on a click (the nightly restart policy): the row runs the same
         // install path as the Update Ready card's button.
         let update: Item = state.updateReady
             ? .action("palette.applyUpdateIfAvailable", title: Self.text("menu.menuBar.restartToUpdate", "Restart to Update"),
-                      symbol: "arrow.down.circle.fill")
-            : .action("palette.checkForUpdates", title: nil, symbol: "arrow.down.circle")
-        let app: [Item] = [.action("about", title: nil, symbol: "info.circle"), update, .action("openSettings", title: nil, symbol: "gear")]
+                      icon: nil)
+            : .action("palette.checkForUpdates", title: nil, icon: nil)
+        let app: [Item] = [.action("about", title: nil, icon: nil), update, .action("openSettings", title: nil, icon: .symbol("gearshape"))]
         let logs: [Item] = [
-            .action("help.revealLogs", title: nil, symbol: "folder"),
-            .action("help.copyLogs", title: nil, symbol: "doc.on.clipboard"),
+            .action("help.revealLogs", title: nil, icon: nil),
+            .action("help.copyLogs", title: nil, icon: nil),
         ]
         var end: [Item] = []
-        if state.account != nil { end.append(.action("palette.auth.signOut", title: nil, symbol: "rectangle.portrait.and.arrow.right")) }
-        end.append(.action("quit", title: nil, symbol: "power"))
+        if state.account != nil { end.append(.action("palette.auth.signOut", title: nil, icon: nil)) }
+        end.append(.action("quit", title: nil, icon: nil))
         return [account, agents, open, help, community, app, logs, end]
     }
 
