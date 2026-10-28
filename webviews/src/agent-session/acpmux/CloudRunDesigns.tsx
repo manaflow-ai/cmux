@@ -39,10 +39,13 @@ export function CloudRunDesigns({ design, start = "persistent", ...props }: Clou
   );
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <span role="group" aria-label="Where this chat runs" style={{ display: "inline-flex", gap: 2 }}>
+      <fieldset
+        aria-label="Where this chat runs"
+        style={{ display: "inline-flex", gap: 2, border: 0, margin: 0, padding: 0 }}
+      >
         {choice("persistent", t("composer.thisMac"))}
         {choice("cloud", t("composer.cloud"))}
-      </span>
+      </fieldset>
       <ComposerContext {...props} />
     </div>
   );
