@@ -120,9 +120,17 @@ grep -q '^ACPMUX-OVERHEAD-MISSING-TOOL cargo:' <<<"$out" || fail "the missing ca
 
 # 8. bench=hibernate on a worker without npm (cmux20-bench) names npm before any build.
 iso bench=hibernate harness=claude
+hib_out="$out"
 [[ "$code" -eq 2 ]] || fail "bench=hibernate without npm exited $code: $out"
 grep -qE '^ACPMUX-OVERHEAD-MISSING-TOOL ([a-z0-9]+ )*npm( |:)' <<<"$out" || fail "the missing npm is not named: $out"
 grep -q 'cargo' <<<"${out%%:*}" && fail "bench=hibernate refused a worker for cargo, which only a build needs: $out"
 [[ ! -e "$WORK" ]] || fail "bench=hibernate set up a run before it found the missing tool"
+
+# 9. Only bench=hibernate needs ps: bench=harness on the same worker names npm, never ps.
+iso bench=harness harness=claude
+[[ "$code" -eq 2 ]] || fail "bench=harness without npm exited $code: $out"
+grep -qE '^ACPMUX-OVERHEAD-MISSING-TOOL ([a-z0-9]+ )*npm( |:)' <<<"$out" || fail "bench=harness did not name npm: $out"
+grep -qw 'ps' <<<"${out%%:*}" && fail "bench=harness refused a worker for ps, which only hibernate calls: $out"
+grep -qw 'ps' <<<"${hib_out%%:*}" || fail "bench=hibernate did not name ps: $hib_out"
 
 echo "PASS acpmux-overhead-daemon"

@@ -84,8 +84,11 @@ need_tools() {  # need_tools WHAT TOOL...: exit 2 naming every TOOL not on PATH.
 }
 if [[ "$bench" == daemon ]]; then
   need_tools "bench=daemon" git sysctl sw_vers cargo
+elif [[ "$bench" == hibernate ]]; then
+  # Hibernation counts the agent's processes with ps (acpmux-overhead-bench.py).
+  need_tools "bench=hibernate" git sysctl sw_vers curl shasum awk python3 npm ps
 else
-  need_tools "bench=$bench" git sysctl sw_vers curl shasum awk python3 npm ps
+  need_tools "bench=$bench" git sysctl sw_vers curl shasum awk python3 npm
 fi
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
