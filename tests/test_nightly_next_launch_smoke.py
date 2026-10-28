@@ -53,20 +53,42 @@ def feed(*builds: int, channel: dict | None = None) -> str:
             f"<channel>{items}</channel></rss>")
 
 
+RAN = {"verdict": "fail", "pid": 4242, "failures": ["the app exited (signal 11) 2.8s after launch"]}
+PASSED = {"verdict": "pass", "pid": 4242}
+NO_LAUNCH = {"verdict": "cannot-run", "failures": ["this process is in a Background session, not Aqua (no GUI)"]}
+
+
 class VerdictTests(unittest.TestCase):
     def test_a_pass_on_either_attempt_passes(self) -> None:
-        self.assertEqual(smoke.verdict([0]), smoke.PASS)
-        self.assertEqual(smoke.verdict([1, 0]), smoke.PASS)
+        self.assertEqual(smoke.verdict([(0, PASSED)]), smoke.PASS)
+        self.assertEqual(smoke.verdict([(1, RAN), (0, PASSED)]), smoke.PASS)
 
-    def test_a_crash_needs_both_attempts_to_crash(self) -> None:
-        self.assertEqual(smoke.verdict([1, 1]), smoke.CRASH)
+    def test_a_crash_needs_both_attempts_to_crash_with_the_app_launched(self) -> None:
+        self.assertEqual(smoke.verdict([(1, RAN), (1, RAN)]), smoke.CRASH)
 
     def test_what_could_not_run_is_cannot_run(self) -> None:
         self.assertEqual(smoke.verdict([]), smoke.CANNOT_RUN)  # no Mac, the download failed
-        self.assertEqual(smoke.verdict([3]), smoke.CANNOT_RUN)  # no GUI session, a signing keychain
-        self.assertEqual(smoke.verdict([2]), smoke.CANNOT_RUN)  # a harness usage error
-        self.assertEqual(smoke.verdict([1, 3]), smoke.CANNOT_RUN)
-        self.assertEqual(smoke.verdict([1]), smoke.CANNOT_RUN)  # cut short after one crash
+        self.assertEqual(smoke.verdict([(3, NO_LAUNCH)]), smoke.CANNOT_RUN)  # no GUI session, a signing keychain
+        self.assertEqual(smoke.verdict([(2, {})]), smoke.CANNOT_RUN)  # a harness usage error
+        self.assertEqual(smoke.verdict([(1, RAN), (3, NO_LAUNCH)]), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, RAN)]), smoke.CANNOT_RUN)  # cut short after one crash
+
+    def test_exit_1_without_the_harness_evidence_of_a_launch_is_not_a_crash(self) -> None:
+        # The console-session hop failing, or an uncaught setup error: exit 1, no report or no pid.
+        self.assertEqual(smoke.verdict([(1, {}), (1, {})]), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, {"verdict": "fail"}), (1, {"verdict": "fail"})]), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(0, {})]), smoke.CANNOT_RUN)
+
+    def test_attempts_are_read_from_the_runs_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for n, (status, report) in enumerate([(1, RAN), (1, None)], start=1):
+                (root / f"status-{n}").write_text(f"{status}\n")
+                (root / f"attempt-{n}").mkdir()
+                if report is not None:
+                    (root / f"attempt-{n}" / "report.json").write_text(json.dumps(report))
+            self.assertEqual(smoke.read_attempts(root), [(1, RAN), (1, {})])
+            self.assertEqual(smoke.verdict(smoke.read_attempts(root)), smoke.CANNOT_RUN)
 
 
 class DecideTests(unittest.TestCase):
@@ -90,6 +112,16 @@ class DecideTests(unittest.TestCase):
         again = smoke.decide(pulled, 200, smoke.CRASH)
         self.assertEqual(again["action"], "none")
         self.assertIn("no longer on the feed", again["why"])
+
+    def test_the_rollback_never_pulls_a_build_published_after_the_crash_was_judged(self) -> None:
+        # The smoke judged 200 the newest; 250 landed before the rollback read the feed.
+        live = feed(250, 200, 150)
+        pulled, summary = rollback.plan(live, bad="200", if_newest="200")
+        self.assertFalse(summary["changed"])
+        self.assertEqual(pulled, live)
+        # Still the newest: the pull goes ahead.
+        _, summary = rollback.plan(feed(200, 150), bad="200", if_newest="200")
+        self.assertEqual((summary["changed"], summary["serving"]), (True, "150"))
 
     def test_a_rollback_never_goes_past_the_kept_good_build(self) -> None:
         # The kept build is never pulled: once 200 is gone, a crash report of 150's successor is
@@ -162,10 +194,21 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         self.assertIn("github.event_name != 'pull_request'", crashed["if"])
         run = "\n".join(step.get("run", "") for step in crashed["steps"])
         self.assertIn("gh workflow run nightly-next-rollback.yml", run)
-        self.assertIn('-f bad_build="$BUILD"', run)
+        self.assertIn('-f bad_build="$BUILD" -f if_newest="$BUILD"', run)
+        # The fallback without if_newest only for a nightly-next branch that predates the input.
+        self.assertIn('grep -qi "unexpected inputs" dispatch.err', run)
+        self.assertEqual(crashed["concurrency"]["cancel-in-progress"], False)
+        self.assertIn("needs.pick.outputs.build", crashed["concurrency"]["group"])
+        self.assertIn("--state all", run)
         self.assertIn("nightly_next_launch_smoke.py decide", run)
         # No second copy of the rollback's logic: nothing here writes the feed.
         self.assertNotRegex(self.text, r"upload-r2-object|R2_ENDPOINT|nightly_next_feed_rollback")
+
+    def test_a_crash_is_never_marked_smoked_so_a_failed_rollback_is_retried(self) -> None:
+        record = self.jobs["record"]
+        self.assertNotIn("crash'", record["if"].replace("'pass'", "").replace("'cannot-run'", ""))
+        self.assertIn("needs.smoke.outputs.verdict == 'pass'", record["if"])
+        self.assertIn("needs.smoke.outputs.verdict == 'cannot-run'", record["if"])
 
     def test_no_secrets_no_environment_and_only_the_rollbacks_permissions(self) -> None:
         self.assertNotRegex(self.text, r"secrets\.")
@@ -179,6 +222,8 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
 
     def test_it_never_cancels_and_its_mac_job_routes_owned_first(self) -> None:
         self.assertNotRegex(self.text, r"cancel-in-progress:\s*true")
+        # Only a pull request's run is replaced by a newer push; a schedule or dispatch never is.
+        self.assertEqual(self.workflow["concurrency"]["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}")
         runs_on = self.jobs["smoke"]["runs-on"]
         self.assertTrue(runs_on.rstrip(" }").endswith("'blacksmith-6vcpu-macos-26'"))
         self.assertLess(runs_on.index("CI_SIDE_LANE_RUNNER"), runs_on.rindex("blacksmith-6vcpu-macos-26"))

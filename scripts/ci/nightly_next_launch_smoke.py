@@ -4,12 +4,13 @@
 The feed publishes without waiting on anything here. After a build is on the feed, the workflow
 launches it from a fresh home (scripts/ci/fresh_home_launch_smoke.py) and this script decides:
 
-  verdict --attempt EXIT [--attempt EXIT]
-      The verdict of up to two harness runs, by exit code: 0 pass, 1 crash (the app exited, a crash
-      report, or Home never rendered), anything else cannot-run (no GUI session, no app, a harness
-      or infrastructure error before launch). A crash counts only when both attempts ran and
-      crashed: a check cut short after one crash (a step timeout) is cannot-run, and so is any
-      cannot-run attempt. Prints pass, crash or cannot-run.
+  verdict --dir DIR
+      The verdict of up to two harness runs (DIR/status-N and DIR/attempt-N/report.json). An attempt
+      crashed only on the harness's own evidence: exit 1, report verdict fail, and the launched app's
+      pid (the app exited, wrote a crash report, or never rendered Home). Anything else could not run
+      (no GUI session, no app, a hop or harness error before launch). A crash counts only when both
+      attempts crashed: a check cut short after one crash (a step timeout) is cannot-run, and so is
+      any cannot-run attempt. Prints pass, crash or cannot-run.
 
   decide --feed LIVE.xml --build BUILD --verdict VERDICT
       Whether to roll the feed back, as JSON {"action": "rollback"|"none", "why": ...}. Only a crash
@@ -38,14 +39,43 @@ NIGHTLY_CHANNELS = (None, "cmux-next")
 LOG_TAIL = 40
 
 
-def verdict(attempts: list[int], required: int = 2) -> str:
-    for status in attempts:
-        if status == 0:
-            return PASS
-        if status != 1:
-            return CANNOT_RUN
+def attempt_result(status: int, report: dict) -> str:
+    """One harness run's result. A crash needs the harness's own evidence that the app ran: exit 1,
+    a report whose verdict is fail, and the launched app's pid. Exit 1 without that (a console-session
+    hop that failed, an uncaught setup error) could not run."""
+    if status == 0 and report.get("verdict") == "pass":
+        return PASS
+    if status == 1 and report.get("verdict") == "fail" and report.get("pid"):
+        return CRASH
+    return CANNOT_RUN
+
+
+def verdict(attempts: list[tuple[int, dict]], required: int = 2) -> str:
+    for status, report in attempts:
+        result = attempt_result(status, report)
+        if result != CRASH:
+            return result
     # Every attempt crashed; fewer than REQUIRED means the check was cut short (a timeout).
-    return CRASH if len(attempts) >= required else CANNOT_RUN
+    return CRASH if attempts and len(attempts) >= required else CANNOT_RUN
+
+
+def read_attempts(directory: Path) -> list[tuple[int, dict]]:
+    """attempt-N/{status,report.json} under DIRECTORY, in order; a missing report reads as {}."""
+    found = []
+    for n in range(1, 10):
+        status_file = directory / f"status-{n}"
+        if not status_file.exists():
+            break
+        try:
+            status = int(status_file.read_text().strip())
+        except ValueError:
+            status = -1
+        try:
+            report = json.loads((directory / f"attempt-{n}" / "report.json").read_text())
+        except (OSError, ValueError):
+            report = {}
+        found.append((status, report if isinstance(report, dict) else {}))
+    return found
 
 
 def feed_builds(text: str) -> list[tuple[int, bool]]:
@@ -124,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
     v = sub.add_parser("verdict")
-    v.add_argument("--attempt", type=int, action="append", default=[])
+    v.add_argument("--dir", type=Path, required=True)
     d = sub.add_parser("decide")
     d.add_argument("--feed", type=Path, required=True)
     d.add_argument("--build", type=int, required=True)
@@ -136,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
     if args.command == "verdict":
-        print(verdict(args.attempt))
+        print(verdict(read_attempts(args.dir)))
     elif args.command == "decide":
         print(json.dumps(decide(args.feed.read_text(encoding="utf-8"), args.build, args.verdict)))
     else:
