@@ -29,8 +29,13 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     static let rowHeight: CGFloat = 44
     static let avatarSize: CGFloat = 28
     static let maxRows = 6
+    /// The avatar pictures this list has read; they go with the list, so the next list reads a
+    /// changed picture again.
+    private let pictures: HomeRecipientPictures
 
-    public override init(frame: NSRect) {
+    /// - Parameter pictures: the avatar pictures of this one list (its page makes them).
+    public init(pictures: HomeRecipientPictures, frame: NSRect = .zero) {
+        self.pictures = pictures
         super.init(frame: frame)
         wantsLayer = true
         layer?.cornerRadius = 10
@@ -62,7 +67,6 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         emptyLabel.isHidden = true
         addSubview(emptyLabel)
         isHidden = true
-        HomeRecipientAvatarView.forgetPictures()
         applyColors()
     }
 
@@ -122,6 +126,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         glass.applyTheme()
     }
 
+    // visibility-walk-allow: the list's glass tint in the theme scope (applyColors); the list only exists while New Message shows, no layout; cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -137,7 +142,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         let item = items[row]
         let shown = self.look(item)
         let cell = NSTableCellView()
-        let avatar = HomeRecipientAvatarView()
+        let avatar = HomeRecipientAvatarView(pictures: pictures)
         avatar.show(shown.avatar, name: item.label)
         let name = ThemedLabel(labelWithString: item.label)
         name.font = Typography.body

@@ -1,5 +1,6 @@
 /// One new blocking call site, as the detector hands it to a ``BlockingViolationSink``: a call on the main
-/// thread, on a shared pool thread (``BlockingContext/pool``) or in a `.cpu` lane item (``BlockingContext/cpuLane``).
+/// thread, on a shared pool thread (``BlockingContext/pool``), in a `.cpu` lane item (``BlockingContext/cpuLane``)
+/// or on a sync primitive in a lane item (``BlockingContext/laneSync``).
 ///
 /// It carries no path, file name, symbol, argument or user text: the kind, the context and the stack as image
 /// UUID + offset frames only (``BlockingFrame``).

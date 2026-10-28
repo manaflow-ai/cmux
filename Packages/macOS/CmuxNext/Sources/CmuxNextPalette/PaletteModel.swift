@@ -1,4 +1,5 @@
 public import CmuxNextActions
+import CmuxNextSignposts
 public import Foundation
 public import Observation
 
@@ -146,6 +147,8 @@ public final class PaletteModel {
     @ObservationIgnored let searcher = PaletteSearcher()
     @ObservationIgnored var searchGeneration = 0
     @ObservationIgnored var searchTask: Task<Void, Never>?
+    /// Times each search pass as one `key.palette_search` slice (tests set one on their own trace runtime).
+    @ObservationIgnored var keySignposter: Signposter = .key
     /// A query's rank is still running off the main actor, or an open's deferred providers have
     /// not loaded, so `rows` are stand-ins (automation reads this before trusting `rows`). Not
     /// observable: views must not bind to it.
@@ -168,6 +171,7 @@ public final class PaletteModel {
     /// default (a model without a panel: tests, scripted pages) runs it on the
     /// next main-actor turn.
     @ObservationIgnored public var afterFrame: (@escaping @MainActor () -> Void) -> Void = { work in
+        // main-hop-allow: only a model with no panel (tests, scripted pages) uses this default; PaletteController passes the main run loop's pass after the commit
         Task { @MainActor in work() }
     }
     /// The deferred providers' items a page's empty query last showed (its

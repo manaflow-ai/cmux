@@ -1,6 +1,8 @@
 import CmuxNextCompat
 import Dispatch
 public import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// Starts and stops long-lived child processes (a stream, a helper) off the caller's thread, in call order.
 ///
@@ -41,9 +43,17 @@ public final class ProcessLauncher: Sendable {
 
     /// Spawns `process` on the queue; `failed` runs there when it cannot start.
     public func launch(_ process: Process, failed: @escaping @Sendable (any Error) -> Void = { _ in }) {
+        launch(process, started: {}, failed: failed)
+    }
+
+    /// Spawns `process` on the queue; then `started` runs there once the child has its pid, or `failed` when
+    /// it cannot start.
+    public func launch(_ process: Process, started: @escaping @Sendable () -> Void,
+                       failed: @escaping @Sendable (any Error) -> Void) {
         prepare(process)
         queue.async { [spawn] in
-            do { try spawn(process) } catch { failed(error) }
+            do { try spawn(process) } catch { return failed(error) }
+            started()
         }
     }
 
@@ -58,11 +68,11 @@ public final class ProcessLauncher: Sendable {
     /// - Throws: the launch error.
     public func launched(_ process: Process) async throws {
         prepare(process)
-        try await withCheckedThrowingContinuation { [queue, spawn] (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { [queue, spawn] (continuation: OnceContinuation<Void, any Error>) in
             queue.async {
                 do {
                     try spawn(process)
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 } catch {
                     continuation.resume(throwing: error)
                 }

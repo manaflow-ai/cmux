@@ -17,6 +17,8 @@ struct PointerFrameCoalescerTests {
         var inputs: [PointerCoalescedInput] = []
         var events: [String] = []
         var latestX = -1.0
+        /// The frames a frame-timed consumer's deliveries were drawn in.
+        var frames: [PointerFrameTime] = []
         /// The consumer whose body posts to itself.
         var consumer: PointerFrameConsumer?
     }
@@ -90,6 +92,30 @@ struct PointerFrameCoalescerTests {
         #expect(trailing.samples.map(\.location.x) == (1..<8).map { Double($0) })
         #expect(trailing.latest.location.x == 7)
         #expect(consumer.maxDeliveriesPerFrame == 2)
+        rig.coalescer.invalidate()
+    }
+
+    /// A frame-timed consumer (p04-input-040) gets the frame each delivery is drawn in: the frame tick's
+    /// time and refresh interval for the trailing delivery (Chromium's `DispatchRafAlignedInput(frame_time)`),
+    /// the newest event's own time for a delivery that goes out at once (the leading edge, a flush).
+    @Test func aFrameTimedConsumerGetsTheTicksTimeAtTheFrameAndTheEventsTimeAtOnce() throws {
+        let rig = Rig()
+        let log = Log()
+        let consumer = rig.coalescer.frameTimedConsumer(owner: "divider") { _, frame in log.frames.append(frame) }
+        for index in 0..<4 { consumer.post(Self.drag(x: index, at: 100 + Double(index))) }
+        let leading = try #require(log.frames.first)
+        #expect(log.frames.count == 1)
+        #expect(leading.time == 100, "a leading edge has no frame yet: its own event's time")
+        rig.tick(1)
+        let trailing = try #require(log.frames.last)
+        #expect(log.frames.count == 2)
+        #expect(trailing.time == 1000 + 1.0 / 120, "the trailing delivery is drawn in the tick's frame")
+        #expect(trailing.interval == 1.0 / 120)
+        consumer.post(Self.drag(x: 9, at: 200))
+        consumer.post(Self.drag(x: 10, at: 201))
+        consumer.flush()
+        #expect(log.frames.last?.time == 201, "a flush is not a frame: the newest event's time")
+        #expect(log.frames.last?.interval == 1.0 / 120, "the interval is the last tick's")
         rig.coalescer.invalidate()
     }
 
@@ -203,6 +229,35 @@ struct PointerFrameCoalescerTests {
         #expect(log.events == Array(repeating: "5", count: 8))
         rig.coalescer.invalidate()
         withExtendedLifetime(springs) {}
+    }
+
+    /// The trailing delivery runs in the window's input stage, before the frame's springs and drivers,
+    /// and a client it wakes ticks in the same frame (p04-input-032; Blink dispatches rAF-aligned input
+    /// before the frame's rAF, `WidgetBase::BeginMainFrame`): a drag whose ghost settled shows the
+    /// frame's move at this vsync, not the next.
+    @Test func theTrailingDeliveryRunsBeforeTheFrameAndWakesItsClientsThisFrame() {
+        let rig = Rig()
+        let log = Log()
+        var springs: [FrameClient] = []
+        for index in 0..<4 {
+            let spring = FrameClient(owner: "spring \(index)", on: rig.scheduler) { _ in log.events.append("frame"); return false }
+            spring.activate()
+            springs.append(spring)
+        }
+        let ghost = FrameClient(owner: "ghost", on: rig.scheduler) { _ in log.events.append("ghost"); return false }
+        let consumer = rig.coalescer.consumer(owner: "drag") { input in
+            guard input.coalescedCount > 1 else { return log.events.append("leading") }
+            log.events.append("trailing")
+            ghost.activate()
+        }
+        for index in 0..<3 { consumer.post(Self.drag(x: index, at: 100 + Double(index))) }
+        #expect(log.events == ["leading"])
+        rig.tick(1)
+        #expect(log.events.dropFirst().first == "trailing", "a frame client ran before the frame's input: \(log.events)")
+        #expect(log.events.filter { $0 == "frame" }.count == 4)
+        #expect(log.events.last == "ghost", "the client the trailing delivery woke did not tick this frame: \(log.events)")
+        rig.coalescer.invalidate()
+        _ = springs
     }
 
     // MARK: Discrete input

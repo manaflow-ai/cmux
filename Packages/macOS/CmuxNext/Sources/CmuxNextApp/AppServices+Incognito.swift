@@ -41,7 +41,7 @@ extension AppServices {
     func normalWindowForPageRequest() -> WindowController? {
         if let active = windows.active, !windows.isIncognito(window: active.state.id) { return active }
         let value = windows.registry.value
-        return value.mostRecentOpen().flatMap { windows.controller(for: $0) }
+        return value.mostRecentOpen().flatMap { windows.controllerBuildingIfWaiting(for: $0) }
     }
 
     /// An incognito request from a page ("Open Link in Incognito Window",

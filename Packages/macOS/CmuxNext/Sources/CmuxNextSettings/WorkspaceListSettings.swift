@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// cmux.json `workspaces.newPlacement`: where a new workspace goes in the
 /// sidebar when its entry point names no place (Cmd-N, the palette, the

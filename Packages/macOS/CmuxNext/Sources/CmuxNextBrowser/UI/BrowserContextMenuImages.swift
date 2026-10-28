@@ -2,6 +2,10 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 
+// memory: fixed: one entry per menu icon: the SF Symbol names of the page menu (a fixed catalog;
+// symbols are vector templates) and one per enabled extension with menu rows, whose 1x and 2x files
+// are the manifest's smallest icons of at least 16 and 32 px (BrowserExtensionMenuSource), about
+// 5 KB of pixels each; the builder that owns it is one per process.
 /// The 16 pt images of page menu rows (``BrowserContextMenuIcon``), made
 /// once per icon. Main thread, like the menus that show them.
 final class BrowserContextMenuImages {

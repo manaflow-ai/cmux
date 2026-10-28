@@ -28,18 +28,34 @@ final class PaneHostView: NSView, RestingPlacement {
     private(set) var wholeCard = false
     private var reporter: PaneContentChrome? { content as? PaneContentChrome }
     private var lastWindowFrame: CGRect?
+    /// The window frame changed since the content last heard its place settle (``settlePlacement()``).
+    private var placementUnsettled = false
 
     /// Render-server spring calls on the host's layer that have not landed yet (`PaneHostView+RenderSpring.swift`).
     var renderSpringsInFlight = 0
 
-    /// Whether content keeps its size while the host is on a layout spring (`motion.pane.holdContent`, off by
-    /// default: live resize). Injected so tests pin it without the shared tunable store.
-    private let holdsContentInMotion: () -> Bool
+    /// `RestingPlacement`: Core Animation shows the host moving or resizing away from its frame, which is at rest
+    /// (`PaneHostView+RenderSpring.swift`). With page resizing (`pageResizing`, the `pageSpringResizeOnce`
+    /// feature) its changes reach the content's `PaneRenderMoveObserving` views, so a page in its own window
+    /// hides for the move; without it they reach nothing.
+    var showsRenderMove = false {
+        didSet {
+            guard showsRenderMove != oldValue, pageResizing != nil else { return }
+            content.notifyPaneRenderMoveChanged(showsRenderMove)
+        }
+    }
 
-    init(pane: PaneID, content: NSView, holdsContentInMotion: @escaping () -> Bool = { LayoutTunables.holdsContentInMotion.value }) {
+    /// Whether content keeps its size on a layout spring, asked at each spring's start: feature
+    /// `paneHoldsContentInMotion` (off: live resize) through ``LayoutRootView/holdsContentInMotion``; tests pin it.
+    private let holdsContentInMotion: () -> Bool
+    /// What pages in the content do while the host springs (`RestingPlacement`); nil: they resize with it.
+    let pageResizing: PageSpringResizing?
+
+    init(pane: PaneID, content: NSView, holdsContentInMotion: @escaping () -> Bool, pageResizing: PageSpringResizing? = nil) {
         self.pane = pane
         self.content = content
         self.holdsContentInMotion = holdsContentInMotion
+        self.pageResizing = pageResizing
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
@@ -96,7 +112,7 @@ final class PaneHostView: NSView, RestingPlacement {
     var restSize: CGSize?
 
     /// The content's size when the current layout spring started; nil at rest or with
-    /// `LayoutTunables.holdsContentInMotion` off.
+    /// the feature `paneHoldsContentInMotion` off.
     private var heldContentSize: CGSize?
 
     /// The content's frame in the clip: the clip's bounds at rest. On a layout spring it keeps the
@@ -126,6 +142,7 @@ final class PaneHostView: NSView, RestingPlacement {
         if superview == nil {
             // Its render-server springs end now; their landings still run (``springToRest(_:spring:inPlane:landed:)``).
             if let layer, isOnRenderSpring { for keyPath in Self.renderSpringKeyPaths { RenderSpring.stop(layer, keyPath) } }
+            showsRenderMove = false
             isOnLayoutSpring = false
         }
         // Another screen (or none) places it now: its clip, overlay and covers are computed afresh.
@@ -164,7 +181,7 @@ final class PaneHostView: NSView, RestingPlacement {
         didSet { if isDocked != oldValue { applyDockFill() } }
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: two layer background colors (dock fill, zoom backing), no layout or text measure; cheaper than a deferral
         super.viewDidChangeEffectiveAppearance()
         applyDockFill()
         if backsZoom { applyZoomBacking() }
@@ -192,14 +209,21 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     /// The part of this host the layout shows (own coordinates): its bounds cut by its own mask (a
-    /// scroll area's window or a held strip range, `setStripClip`) and by the strip container it sits
-    /// in (`StripClipContainerView`); `.zero` when none of it shows.
+    /// scroll area's window or a held strip range, `setStripClip`) and by the clipping pan containers it
+    /// sits in (the strip container, a scroll area's, `PanMotionContainer`); `.zero` when none of it shows.
     var stripShownRect: CGRect {
         var shown = bounds
         if let mask = layer?.mask { shown = shown.intersection(mask.frame) }
-        if let container = superview as? StripClipContainerView {
-            // The clip stays where it is while a strip pan moves this host by the container's translation.
-            shown = shown.intersection(convert(container.bounds.offsetBy(dx: -container.translation, dy: 0), from: container))
+        // A container's clip stays where it is while the pans at or below it move this host by their translations.
+        var moved = CGVector.zero
+        var current = superview
+        while let container = current as? any PanMotionContainer {
+            moved.dx += container.panTranslation.dx
+            moved.dy += container.panTranslation.dy
+            if container.clipsSubviews {
+                shown = shown.intersection(convert(container.bounds.offsetBy(dx: -moved.dx, dy: -moved.dy), from: container))
+            }
+            current = container.superview
         }
         return shown.isNull ? .zero : shown
     }
@@ -296,14 +320,30 @@ final class PaneHostView: NSView, RestingPlacement {
     /// The vertical edge held content rides, from the last ``announceRest()`` (nil: the near-edge rule).
     private var heldAnchor: PaneMotionAnchor?
 
-    /// Tells the content when the pane's frame in the window changed.
-    func noteWindowFrame() {
-        guard let reporter, window != nil else { return }
+    /// Tells the content when the pane's frame in the window changed, and, out of layout motion (`inMotion`
+    /// false) and the window's content-area motion, that its place is final (``settlePlacement()``). A content-area
+    /// motion's landing tells it (`NSView.notifyPaneMotionSettled`).
+    func noteWindowFrame(inMotion: Bool) {
+        guard window != nil else { return }
         let frame = convert(bounds, to: nil)
-        guard frame != lastWindowFrame else { return }
-        lastWindowFrame = frame
-        reporter.paneFrameInWindowDidChange()
+        if frame != lastWindowFrame {
+            lastWindowFrame = frame
+            placementUnsettled = true
+            reporter?.paneFrameInWindowDidChange()
+        }
+        if !inMotion, !isInPaneMotion { settlePlacement() }
     }
+
+    /// Tells the content (`PanePlacementFollowing`) once that the host's place in the window is final, when it
+    /// moved since the content last heard: the layout calls it when its motion ends (`LayoutRootView.setLayoutInMotion`).
+    func settlePlacement() {
+        guard placementUnsettled, window != nil else { return }
+        placementUnsettled = false
+        content.notifyPanePlacementSettled()
+    }
+
+    /// `RestingPlacement`: the render server shows this host's spring, its frame set at rest at the start.
+    var framePlacedAtRest: Bool { isOnRenderSpring || !isOnLayoutSpring }
 
     /// The part of this host (own coordinates) that takes clicks while it sits in a scroll area
     /// (scroll-areas-DESIGN.md): what scrolled out of the area's window is masked away and must
@@ -374,32 +414,5 @@ extension PaneHostView: PageCoverSource {
         let covers = screen.panes(inFrontOf: self).map { convert($0, from: screen) }
         pageCoverMemo = (ObjectIdentifier(screen), screen.coverVersion, covers)
         return covers
-    }
-}
-
-/// The rounded clip around a pane's content. `masksToBounds` with a corner
-/// radius clips every sublayer, Metal layers included. Corners are circular
-/// (not continuous) so the Chromium page mask, a circular-arc path built
-/// from this layer's radius, matches them exactly.
-final class PaneClipView: NSView {
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.masksToBounds = true
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    nonisolated override var isFlipped: Bool { true }
-
-    func setCornerRadius(_ radius: CGFloat) {
-        guard let layer, layer.cornerRadius != radius else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.cornerRadius = radius
-        CATransaction.commit()
     }
 }

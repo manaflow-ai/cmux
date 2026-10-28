@@ -49,11 +49,111 @@ R2 ships behind the Tunable `motion.renderServer`, default off. Task 022c turns 
 decision for Lawrence, with the measured reason and a capture of Cmd-D and Cmd-W with a Chromium pane (spec
 section 3, "Recorded decision"). Until then, the per-frame live resize of F4 is the default.
 
+#### Spike 016: the layer that carries a pane's springs
+
+**Status: incomplete. No run yet.** Task p03-rendering-016 compares two layers for the R2 springs. The harness is
+written, but nobody has run it, so this section records a hypothesis, not a decision. Task 022a must not depend
+on this choice until the results table below has numbers.
+
+The tests are `Packages/macOS/CmuxNext/Tests/CmuxNextLayoutTests/RenderMotionSpikeTests.swift` (the rig is in
+`RenderMotionSpikeRig.swift` in the same folder). The suite is opt-in: it runs only with `CMUX_RENDER_SPIKE=1`.
+It opens real windows, enters full screen and runs springs of several seconds, so a shared `swift test` (CI
+included) skips it.
+
+- **Backing layer:** the backing layer of `PaneHostView`. `ScreenContentView` writes it on each frame set, strip
+  clip and layout. It also carries the strip mask (`StripClipMaskLayer`) in rest coordinates.
+- **Motion container:** a layer-backed view around the host (`SpikeMotionContainerView`). Only motion code sizes
+  it. Its layer carries the springs and the rounded clip (`masksToBounds`, `cornerRadius`). The view keeps the
+  springs that it runs. If AppKit makes a new backing layer (`makeBackingLayer`), the view adds the springs to
+  the new layer with their begin times, so the drawn value continues.
+
+Each test springs a pane with the R2 shape: additive `CASpringAnimation`s of `position` and `bounds.size`, mass 1,
+critically damped, initial velocity 0, from (old model - new model) to 0. Then the test applies one disturbing
+event and reads `presentation()` at 25, 50 and 75 % of the way. It waits for each mark on a Core Animation
+completion, not a sleep. The error is the largest miss of the four components, after one frame of travel on
+each side of the read. The limit is 0.5 pt.
+
+The panes sit in a screen view whose `layout()` writes each pane's frame from its rest, as `ScreenContentView`
+does. Each event must first show that it did what it names, or the case fails: an event that changes geometry
+must write a new frame to the springing layer, and a layer replacement must give the view another layer. A case
+therefore cannot pass because its event did nothing.
+
+The tests assert the motion container's results: this is the hypothesis, and a red assertion is the result that
+changes the choice. They print the backing layer's results as `render-motion-spike` lines, for the table below.
+The events:
+
+| Event | What the test does mid-spring | Shown to have an effect by |
+|---|---|---|
+| control | Nothing. | (none) |
+| AppKit layout | The screen view lays the panes out 2 pt away, the content frame changes, the window lays out, and a zero-length animator group sets the frame of the springing view to its rest again. | a new frame on the springing layer |
+| ancestor setFrame | Moves and grows the screen view, then grows the window. The screen's layout writes the scaled frame. | a new frame |
+| `wantsLayer` | Sets `wantsLayer` of the springing view off, then on. | a new layer. Under a layer-backed ancestor, AppKit can keep the layer. The case then records "not a replacement" as a known issue and does not count. |
+| ancestor `wantsLayer` | Sets `wantsLayer` of the screen view off, then on. | as `wantsLayer` |
+| new backing layer | Sets the layer of the springing view to the result of its `makeBackingLayer()`. This is a real replacement, and it runs the re-add hook of the container. | a new layer |
+| window style change | Full-size content, transparent titlebar, the visible frame of the screen: the frame-view change of full screen, without the transition. | a new frame |
+| display move | Moves the window to another display. Runs only with two displays. Fleet minis have one virtual display, so this event is **not covered** until a run on a host with two displays. | the window's screen changed |
+| full screen | `toggleFullScreen` with a slow spring. The wait ends 0.5 s before the 25 % mark. A `swift test` process has no running `NSApplication`, and it may never enter full screen. Then the case is **not covered** (a known issue), not a pass. The OS probe below is a real app, and it covers full screen on every OS. | the window entered full screen |
+
+Clipping: a red leaf that is 40 pt larger than the pane on each side, as a `CALayerHost` of another
+`CAContext` (the Chromium page form) or as an IOSurface in `contents` (the producer form). The test reads window
+server pixels at rest and mid-spring (a near-frozen spring that holds the pane 120 x 80 pt smaller than its
+rest). The pixels must be red in the center and at the inside edge. They must not be red in the rounded corner
+or 6 pt past the presented right and top edges, where the rest frame and the leaf would show if the clip did
+not follow the spring.
+
+Cost: 12 masked panes (strip mask, rounded clip, an IOSurface leaf and a `CALayerHost` leaf in each) spring
+between two grids for `CMUX_RENDER_SPIKE_ROUNDS` rounds (`twelveMaskedPanesSpring`). Each round is a Points of
+Interest interval (`springs`, subsystem `com.cmuxterm.render-motion-spike`, message the layer) for an xctrace
+Animation Hitches recording. `scripts/cmux-next/render-motion-spike-hitches.py` reads the recording and prints
+hitches per interval for each layer. The test also prints how late each round's Core Animation completion
+lands after the spring's settling time (p50 and max). The test asserts no main-thread cost: the main thread
+does nothing while the springs run, so such a count would pass for both layers and prove nothing.
+
+**Hypothesis (not yet measured): the motion container.** The reasons:
+
+1. cmux owns the layer and the springs, not AppKit. If AppKit replaces the backing layer, the container adds
+   the springs again to the new layer. The "new backing layer" event tests this. Chrome keys an animation by
+   element id, not by the layer object, for the same reason (`cc/animation/animation_host.h`,
+   `cc/animation/element_animations.h`).
+2. The rounded clip is on the layer that moves, so the clip follows the presented bounds. On the backing layer,
+   the rounded clip is the `PaneClipView` at rest size, and only the square `masksToBounds` of the host moves.
+   The corners are then square mid-spring unless each dependent sublayer gets its own spring (task 029).
+3. The host keeps its rest frame. AppKit layout, the strip mask, tracking areas and cursor rects then read the
+   rest geometry. Hit testing mid-spring reads the presentation of the container (task 098).
+
+If a run shows that the container loses a spring in an event, change the hypothesis here. Then task 022a adds
+the same re-add hook to `PaneHostView` and uses its backing layer. Write the choice as a decision only after the
+table has numbers for macOS 26 and 27 and the hitch counts.
+
+Results (fill in from the `render-motion-spike` lines of the run; error in pt at 25 / 50 / 75 %):
+
+| Event | Motion container (26 / 27) | Backing layer (26 / 27) | Tart 14 / 15 (probe, behavior) |
+|---|---|---|---|
+| control, AppKit layout, ancestor setFrame | not run yet | not run yet | not run yet |
+| `wantsLayer`, ancestor `wantsLayer`, new backing layer | not run yet | not run yet | not run yet |
+| window style change, full screen | not run yet | not run yet | not run yet |
+| display move | not covered (one display) | not covered (one display) | not covered |
+| clip: `CALayerHost`, IOSurface, at rest and mid-spring | not run yet | not run yet | not in the probe |
+| 12 masked panes: render-server hitches per interval (xctrace), late landing p50 / max | not measured yet | not measured yet | not timing evidence |
+
+How to run (fleet only; VM timing is not perf evidence):
+
+- Behavior on macOS 26 and 27: `cmux-ci run --class isolated --ref SHA --script 'cd Packages/macOS/CmuxNext &&
+  CMUX_RENDER_SPIKE=1 swift test --filter RenderMotionSpikeTests'`.
+- Behavior on macOS 14 and 15 (and full screen in a real app on every OS): the OS probe
+  `scripts/fuzz/macos-matrix/probes/render-motion-survival.swift`,
+  `scripts/cmux-next/os-matrix.sh --build JOB --os 14,15,26 --suite exec:render-motion-survival`. The probe runs
+  the same events in a launched app. It exits 1 when the motion container loses a spring.
+- Hitches: on an aws-m4pro host at `--vdisplay=120`, start `xcrun xctrace record --template 'Animation Hitches'
+  --all-processes --time-limit 90s --output spike.trace`, and run `CMUX_RENDER_SPIKE=1 CMUX_RENDER_SPIKE_ROUNDS=40
+  swift test --filter twelveMaskedPanesSpring`. Then run `scripts/cmux-next/render-motion-spike-hitches.py
+  spike.trace --pid PID`, with PID from the test's `hitch-scenario` line.
+
 ### R3 Chromium pages are layers, with input in the same NSView
 
 | cmux | Chrome |
 |---|---|
-| Track A: a fork pin with API 27 or later and fence resize; page visibility from the embedder; layer hosting on by default (`CEFHostedPageView`, `CEFLayerHosting`) with the transparent input window of API 26 and 27; show and hide in the transaction of the switch. | `ui/accelerated_widget_mac/display_ca_layer_tree.h`: GPU output through a `CALayerHost` on the `CAContext` of the GPU process (`GotCALayerFrame`). |
+| Track A: a fork pin with API 27 or later and fence resize; page visibility from the embedder; layer hosting on by default (`CEFHostedPageView`, `CEFLayerHosting`) with the transparent input window of API 26 and 27; show and hide in the transaction of the switch. The default (feature `cefLayerHosting`, off) hosts a pane's page only where the app makes every Track A call (`CEFLayerHosting.TrackA`); DevTools and popup windows keep their own window (per-widget fallback, `CEFLayerHosting.Widget`) until task 056. | `ui/accelerated_widget_mac/display_ca_layer_tree.h`: GPU output through a `CALayerHost` on the `CAContext` of the GPU process (`GotCALayerFrame`). |
 | Track B: the fork attaches the `RenderWidgetHostViewCocoa` of the page as a child of `CEFHostView`. Pixels, input, IME, cursor, drag, popups and accessibility then come from the Cocoa view of Chromium. The page window never orders in. | `content/app_shim_remote_cocoa/render_widget_host_ns_view_bridge.h`: "the NSView used for input and display"; `render_widget_host_view_mac.h` `MigrateNSViewBridge`. |
 | Resize never blocks main: the fence port (`-[CAContext setFencePort:]`) makes the render server wait. No pin bump can add the post-commit wait again (task 041). | `ui/accelerated_widget_mac/ca_transaction_observer.h`: `CATransactionCoordinator` pumps the UI thread up to 500 ms before and 50 ms after the commit. cmux does not copy this wait. |
 | All child-window fallback code goes into one file, `CmuxNextBrowser/CEF/ChildWindowPageFallback.swift`. | Chrome has no child-window pages. |
@@ -73,12 +173,106 @@ Cleanup follows the measured damage owners (`render-idle-damage.py`, task 003), 
 
 | cmux | Chrome |
 |---|---|
-| Spike task 017 selects the form for Ghostty: a `CAMetalLayer` for each surface that presents on the renderer thread (`presentsWithTransaction = false`, the in-tree `CmuxNextRemoteView/Present/MetalFramePresenter.swift`), or a `CAContext` for each renderer shown through a `CALayerHost`. | `gpu/ipc/service/image_transport_surface_overlay_mac.h`: the GPU process commits its own context. |
+| Spike task 017 selects the form for Ghostty: a `CAMetalLayer` for each surface that presents on the renderer thread (`presentsWithTransaction = false`, the in-tree `CmuxNextRemoteView/Present/MetalFramePresenter.swift`), or a `CAContext` for each renderer shown through a `CALayerHost`. See "Spike 017" below. | `gpu/ipc/service/image_transport_surface_overlay_mac.h`: the GPU process commits its own context. |
 | The renderer is the only writer of the presented contents. Main hides, shows and purges through a Ghostty API. A path with two writers uses a monotonic frame sequence, so an old frame never replaces a newer one. | One producer for each surface (`components/viz/service/surfaces/surface.h`). |
 | External vsync from `VSyncHub` replaces the `CVDisplayLink` of each surface. Only dirty, visible surfaces arm. `wakeup_cb` ticks coalesce to one for each frame. | `components/viz/service/frame_sinks/external_begin_frame_source_mac.h`. |
 
 Rejected: a `CATransaction` on the renderer thread into a layer of the tree that main owns. It causes lock
 contention with the main commit, priority inversion and a teardown race (rule 5 in section 4).
+
+#### Spike 017: Ghostty present form
+
+Prototype: ghostty-next branch `cp/p03-rendering-017`. The Ghostty config key `macos-present-form` selects the
+form when the surface is made; the default `main-contents` is the shipped path. Files:
+`src/renderer/metal/OffMainPresenter.zig` (both off-main forms), `src/renderer/Metal.zig` and
+`src/renderer/metal/Frame.zig` (the hooks), `src/renderer/metal/IOSurfaceLayer.zig` (the overlay generation),
+`src/renderer/metal/PresentHistogram.zig` (the wait histogram).
+
+| Form | What the renderer does for each frame | Main thread |
+|---|---|---|
+| `main-contents` (shipped) | Sets the frame as the contents of `IOSurfaceLayer` through `dispatch_async` to main | One turn for each frame |
+| (a) `metal-layer` | Copies the frame into a drawable of a `CAMetalLayer` and calls `presentDrawable:` on the command buffer (`presentsWithTransaction = false`). No CA transaction. | No turn for each frame |
+| (b) `layer-host` | Sets the frame as the contents of the root layer of its own `CAContext`, in a transaction that it commits; a `CALayerHost` under a flipped layer shows that context (Chrome: `gpu/ipc/service/image_transport_surface_overlay_mac.h`, `ui/accelerated_widget_mac/display_ca_layer_tree.h`) | No turn for each frame |
+
+Both off-main forms use the same main-thread rule:
+- The off-main layer (the overlay) is a sublayer of `IOSurfaceLayer`. Main writes the overlay (`hidden`,
+  `drawableSize`, `contentsScale`); the renderer writes only drawables (a) or its own context (b).
+- A frame for a new size is still presented by main in its own transaction (the resize pre-commit of G1,
+  `presentHostSized`). That present hides the overlay and starts a new overlay generation.
+- The first frame that the renderer encodes after the hide posts one reveal of that generation. The reveal shows
+  the overlay and clears the root contents. A reveal of an older generation does nothing, so the overlay never
+  comes back with a frame older than the one that main presented. Cost: one main turn for each resize, not for
+  each frame.
+
+Measure: `scripts/cmux-next/ghostty-present-form-bench.py --app APP --out OUT --vdisplay 120` on a fleet GUI mini,
+with a cmux build that embeds the spike branch. It runs 10 terminals with `yes` in each form and records main time
+for each frame and missed frames (`debug.frames`), xctrace Animation Hitches and commit times, Ghostty frames, one
+resize, and the teardown of the 10 terminals while `yes` writes. Each renderer logs its counters when it is freed
+(os_log category `present_form`): frames sent to main, frames shown off main, refused frames, main presents,
+reveals, and the off-main wait (a: `nextDrawable`; b: the commit of the renderer's own transaction, the signal for
+lock contention with the main commit).
+
+| 10 `yes` terminals, 120 Hz | `main-contents` | (a) `metal-layer` | (b) `layer-host` |
+|---|---|---|---|
+| Main turns for each Ghostty frame (`main_hops_per_frame`) | not measured | not measured | not measured |
+| Main time for each display frame p95 (ms) | not measured | not measured | not measured |
+| Main CA commit p95 (ms, hitches-updates) | not measured | not measured | not measured |
+| Hitches in 3 x 10 s | not measured | not measured | not measured |
+| Off-main wait p50 / p95 / max (us) | - | not measured | not measured |
+| Teardown with `yes` running: app answers, renderers logged | not measured | not measured | not measured |
+
+Status: the numbers are not recorded. The spike branch was written on a Linux host, where Ghostty's macOS renderer
+does not compile and no app can run. The next fleet round must run `zig build test` on the spike branch and the bench
+above, and put the numbers in this table.
+
+Choice (provisional until the table has numbers): (a) `metal-layer`.
+- It is public API with no SPI (risk 11 in section 4), and it is the in-tree pattern
+  (`CmuxNextRemoteView/Present/MetalFramePresenter.swift`).
+- A drawable present has no CA transaction at all, so it cannot contend with the main commit. Form (b) still
+  commits a transaction on the renderer thread, in its own context.
+- It gives a true presented time (`addPresentedHandler:`), which difference 5 below needs for Ghostty.
+- The chosen form has no CATransaction off main into a layer that an `NSView` owns: the renderer calls only
+  `nextDrawable` and `presentDrawable:` and sets no layer property.
+- Teardown: `Metal` keeps its reference to the overlay until `Metal.deinit`, which runs after the renderer thread
+  stopped and its frames completed. A frame in flight holds its drawable, and the drawable holds the layer.
+- (b) replaces (a) if the bench shows a p99 `nextDrawable` wait over 2 ms, or more hitches than `main-contents`.
+
+Costs of (a) that task 080 must remove before it ships:
+- One copy for each frame and 3 drawables for each surface, next to the 3 IOSurfaces of the swap chain. Task 080
+  draws into the drawable and keeps an IOSurface only for the resize frame. Measure the bytes with `bench_memory.py`.
+- `nextDrawable` runs under the renderer's draw mutex, and a main-thread synchronous draw (the first frame) takes the
+  same mutex. Task 080 gets the drawable before it takes the mutex.
+- The reveal is a `dispatch_async` to main. Task 080 moves it into the display pass of the embedder, so that no
+  Ghostty code posts work to main.
+
+#### Ghostty integrator lane (task 079)
+
+Ghostty changes land first as manaflow-ai/ghostty-next PRs. PL-ghostty merges them in this order, and cmux takes
+them in at most 3 GhosttyNextKit pins in the 72 h:
+
+| Pin | ghostty-next PRs (task) | Why this order |
+|---|---|---|
+| 1 | 088 renderer QoS by visibility and focus; 089 no frame when nothing changed; 082 external vsync | No dependencies. They remove idle and hidden work before the present path changes. |
+| 2 | 080 present off main in the form that spike 017 selects; 084 pre-commit present never waits; 090 external cursor with a cell image | 080 needs the 017 result; 084 needs 080. App tasks 081, 083, 091 and 093 rebase onto this pin. |
+| 3 | 086 manual-IO surfaces run no IO thread; 087 shared glyph atlas and one command queue; 092 buffer-age partial redraw | 092 needs 089. These change memory and threads, not the present path. |
+
+Ghostty-next PRs from other programs (p07-memory-036, p09-observability-048, p14-energy-068, 069 and 114,
+p04-input-078) go into the next pin after they merge. They do not get their own pin. A PR that is not merged when
+its pin is cut goes into the next pin; the order of the pins does not change.
+
+Each pin is one cmux commit:
+
+- It moves the `ghostty-next` gitlink and the GhosttyNextKit `url` and `checksum` in
+  `Packages/Shared/CmuxGhosttyKit/Package.swift` to the same ghostty-next commit, the source of release
+  `xcframework-<sha>-apple-vN`. The pre-push guardrail `ghostty-pin` refuses a push that moves one without the other.
+- Its message names each PR it brings as `manaflow-ai/ghostty-next#N` and each PR's acceptance rg.
+- It regenerates the notice files with `scripts/cmux-next/notices/ghosttykit_repin.py`.
+- Test phase: `zig build test` for each PR on the fleet before merge; the GhosttyNextKit release build for the pin.
+
+`render-done-checks.py` shows the lane: `GHOSTTY` (the submodule is initialized at the gitlink), `GHOSTTY-kit` (the
+gitlink is the GhosttyNextKit source sha) and `LANE-ghostty-pins` (the gitlink moves in the 72 h before HEAD, at most
+3, each naming a ghostty-next PR). Chromium does the same with dependency rolls: one roll commit moves a dependency
+pin and lists the commits it brings (depot_tools `roll_dep.py`).
 
 ### R6 Hidden and occluded cost nothing
 
@@ -123,8 +317,11 @@ No CI gates (Lawrence 2026-10-23). Agents run these tools on the fleet.
    memory (its swap-chain IOSurfaces) and its own BeginFrame source.
    - GPU memory for each hosted page (IOSurface and GPU bytes, `bench_memory.py`): not measured.
    - BeginFrame cost for each visible page (wakeups, `bench_idle.py`): not measured.
-   - Task p03-rendering-050 owns both measurements. Its acceptance and test phase require it to record the numbers
-     here before layer hosting is on by default.
+   - Task p03-rendering-050 owns both measurements. Its code is in behind the feature `cefLayerHosting`, off on every
+     channel, and the feature hosts no page until the app makes the fence (task 043) and embedder visibility (task
+     058) calls. The measurements need a fleet GUI host: hosting off against `browserResize.layerHosting` on (API 26
+     or 27 fork, light and 10 visible pages). Not run yet; the feature's defaults stay off until these two rows hold
+     the numbers.
    - Limits: a hidden page stops BeginFrames through embedder visibility (task 058) and
      `WindowOcclusionFamily`; its frame goes into `HiddenFrameLRU` (task 099; pages use it from task 054). So the
      cost grows with visible pages, not with open pages.

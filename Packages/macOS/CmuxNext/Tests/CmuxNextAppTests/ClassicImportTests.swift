@@ -5,6 +5,7 @@ import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextOnboarding
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -262,6 +263,7 @@ struct ClassicImportTests {
         try session.write(to: file, atomically: true, encoding: .utf8)
 
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: "cn-classic-\(UUID().uuidString.prefix(8).lowercased())",
                                  stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })

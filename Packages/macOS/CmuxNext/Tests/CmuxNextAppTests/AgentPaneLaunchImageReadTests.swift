@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -67,5 +68,20 @@ struct AgentPaneLaunchImageReadTests {
         #expect(marks.names == ["agent_pane.launch_image_missed", "agent_pane.launch_images_read"])
         #expect(images.take("tab_b") != nil, "a pane shown after the read did not get its saved page")
         #expect(probe.reads == [false, false], "a saved page was read on the main thread")
+    }
+
+    /// p07-memory-083: the decoded pages no pane took went 30 s after launch; they go once the launch settled
+    /// (`LaunchSettle.dropLaunchReads`), and no read starts again.
+    @Test func theLaunchReadHoldsNoPageOnceTheLaunchSettled() async throws {
+        let directory = try await Self.saved(["tab_a", "tab_b"])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let images = AgentPaneLaunchImages(directory: directory)
+        await images.prefetch(on: Self.work)?.value
+        #expect(images.memoryUsage?.entries == 2)
+        #expect((images.memoryUsage?.footprintBytes ?? 0) > 0, "the read reports its decoded bytes")
+        images.dropLaunchRead()
+        #expect(images.memoryUsage == MemoryUsage(footprintBytes: 0, entries: 0), "a decoded page stayed after the settle")
+        #expect(images.take("tab_a") == nil)
+        #expect(images.prefetch(on: Self.work) == nil, "no read starts again")
     }
 }

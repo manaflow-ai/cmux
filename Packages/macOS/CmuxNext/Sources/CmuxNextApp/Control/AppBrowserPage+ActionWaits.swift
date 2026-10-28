@@ -1,8 +1,8 @@
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextWakeups
 import Foundation
-import Observation
 
 /// An agent's page action right after `cmux browser open` (cx-qncg): the
 /// tab's page may not exist yet (Chromium makes pages asynchronously), and
@@ -20,23 +20,35 @@ extension AppBrowserPage {
             // The cache's page table is not observable; `pageInstalls` is
             // bumped by every install, so a page installed after the first
             // look wakes this wait (it waited out its bound before).
-            for await present in ObservationStream({ _ = cache.pageInstalls.revision; return cache.existingBrowser(tabID) != nil }) where present {
-                return true
+            await ControlConditionWait(on: cache.mainWork, owner: "browser.page.await_page").until {
+                _ = cache.pageInstalls.revision
+                return cache.existingBrowser(tabID) != nil
             }
-            return false
         }
         guard found == true else { return nil }
         return services.cache.existingBrowser(tabID)?.tab
     }
 
     /// True once `page` has no pending navigation (at once when it has
-    /// none), false after `within` (the action then runs anyway).
-    static func awaitPendingNavigation(_ page: any BrowserTab, within: Duration) async -> Bool {
+    /// none), false after `within` (the action then runs anyway). A page
+    /// with keyed waits (``BrowserPageWaiting``) is read again only when its
+    /// load phase changes, never on a title or progress tick.
+    static func awaitPendingNavigation(_ page: any BrowserTab, within: Duration, work: MainWorkScheduler) async -> Bool {
         guard page.state.isLoading else { return true }
+        if let waiting = page as? any BrowserPageWaiting {
+            return await waiting.when(phase: { !isLoading($0) }, timeout: within) != nil
+        }
         let done = try? await ControlDeadline.shared.run(method: "browser.navigation", deadline: .now + within) { @MainActor in
-            for await loading in ObservationStream({ page.state.isLoading }) where !loading { return true }
-            return false
+            await ControlConditionWait(on: work, owner: "browser.page.await_navigation").until { !page.state.isLoading }
         }
         return done == true
+    }
+
+    /// Whether a page in `phase` still loads, as ``BrowserTabState/isLoading`` reads it.
+    private static func isLoading(_ phase: BrowserLoadPhase) -> Bool {
+        switch phase {
+        case .provisional, .committed: true
+        case .idle, .finished, .failed: false
+        }
     }
 }

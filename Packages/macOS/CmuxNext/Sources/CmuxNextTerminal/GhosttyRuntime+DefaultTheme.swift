@@ -20,10 +20,11 @@ extension GhosttyRuntime {
     /// Loads the default before the user's files.
     /// `themesFolder` names the themes by absolute path (tests: Ghostty
     /// reads its resources folder once, at `ghostty_init`).
-    static func loadThemeDefault(into config: ghostty_config_t, themesFolder: URL? = nil) {
+    nonisolated static func loadThemeDefault(into config: ghostty_config_t, themesFolder: URL? = nil) {
         let spec = themesFolder.map { "light:\($0.appending(path: defaultLightThemeName).path),dark:\($0.appending(path: defaultDarkThemeName).path)" }
         let line = "theme = \(spec ?? defaultThemeSpec)"
-        line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
+        // SAFETY: the caller passes a live config.
+        unsafe loadConfigLine(line, into: config, source: "cmux-next")
     }
 
     /// The colors a user config made of `text` (Ghostty config lines)
@@ -31,12 +32,17 @@ extension GhosttyRuntime {
     /// a light/dark spec's variant only through an app's color scheme; a
     /// bare config resolves the light variant.
     static func themeColors(configText text: String, themesFolder: URL? = nil) -> GhosttyThemeColors? {
-        guard let config = ghostty_config_new() else { return nil }
-        defer { ghostty_config_free(config) }
-        loadThemeDefault(into: config, themesFolder: themesFolder)
-        text.withCString { ghostty_config_load_string(config, $0, UInt(text.utf8.count), "test") }
-        ghostty_config_finalize(config)
-        return themeColors(of: config, backgroundOpacity: 1)
+        // SAFETY: withScratchConfig's handle is live for each closure's call and stays in it.
+        let colors = unsafe withScratchConfig(load: {
+            // SAFETY: as above.
+            unsafe loadThemeDefault(into: $0, themesFolder: themesFolder)
+            // SAFETY: as above.
+            unsafe loadConfigLine(text, into: $0, source: "test")
+        }, read: {
+            // SAFETY: as above.
+            unsafe themeColors(of: $0, backgroundOpacity: 1)
+        })
+        return colors ?? nil
     }
 }
 
@@ -61,7 +67,8 @@ extension TerminalSurfaceView {
         guard let surface else { return }
         colorSchemeIsDark = dark
         applyColorTransition(animated: animated)
-        ghostty_surface_set_color_scheme(surface, dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        unsafe ghostty_surface_set_color_scheme(surface, dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
     }
 
     /// Gives the live surface the color transition in effect now
@@ -72,7 +79,8 @@ extension TerminalSurfaceView {
     func applyColorTransition(animated: Bool = true) {
         guard let surface else { return }
         guard animated else {
-            ghostty_surface_set_color_transition(surface, nil)
+            // SAFETY: the view's live surface (TerminalSurfaceView.surface); nil clears the transition.
+            unsafe ghostty_surface_set_color_transition(surface, nil)
             return
         }
         let transition = ColorTransition.current
@@ -82,10 +90,16 @@ extension TerminalSurfaceView {
         let samples = transition.isInstant ? [] : transition.keyframeProgress
         let count = min(samples.count, Int(GHOSTTY_COLOR_TRANSITION_MAX_SAMPLES))
         spec.sample_count = UInt32(count)
-        withUnsafeMutableBytes(of: &spec.samples) { raw in
-            let floats = raw.bindMemory(to: Float.self)
-            for index in 0..<count { floats[index] = Float(samples[index]) }
+        // SAFETY: `samples` is a C array of GHOSTTY_COLOR_TRANSITION_MAX_SAMPLES floats, so its
+        // bytes bind to Float, and `count` is at most that many (clamped above).
+        unsafe withUnsafeMutableBytes(of: &spec.samples) { raw in
+            // SAFETY: as above.
+            let floats = unsafe raw.bindMemory(to: Float.self)
+            // SAFETY: as above.
+            for index in 0..<count { unsafe floats[index] = Float(samples[index]) }
         }
-        ghostty_surface_set_color_transition(surface, &spec)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface); Ghostty copies `spec`,
+        // which lives for the call.
+        unsafe ghostty_surface_set_color_transition(surface, &spec)
     }
 }

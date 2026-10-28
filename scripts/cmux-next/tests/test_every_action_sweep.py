@@ -1807,6 +1807,332 @@ class FailedSessionTests(unittest.TestCase):
             self.assertIn("the app exited (code -11)", f.read())
 
 
+class FakeProcess:
+    """A launched app's process as App.read_blocking reads it: a pid and, once it exited, its exit code."""
+
+    def __init__(self, pid, code=None):
+        self.pid, self.code = pid, code
+
+    def poll(self):
+        return self.code
+
+
+def blocking_reply(sites, mode="record", overflow=0, pool_mode=None, compiled_in=True):
+    """BlockingControl.report's shape (CmuxNextControl/Diagnostics/BlockingControl.swift)."""
+    return {"compiled_in": compiled_in, "mode": mode, "pool_mode": pool_mode or mode, "overflow": overflow,
+            "sites": [{"kind": kind, "location": location, "count": count} for kind, location, count in sites]}
+
+
+# swift_source_index's shape for a tree with nested files, a Shared package and one file name in two packages.
+SOURCE_INDEX = {
+    ("CmuxNextApp", "Foo.swift"): ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/Workspace/Foo.swift"],
+    ("CmuxNextTerminal", "Pty.swift"): ["Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/Pty/Pty.swift"],
+    ("CmuxNextCompat", "Mutex.swift"): ["Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Threading/Mutex.swift"],
+    ("CmuxTheme", "Palette.swift"): ["Packages/Shared/CmuxTheme/Sources/CmuxTheme/Colors/Palette.swift"],
+    ("CmuxNextApp", "Twice.swift"): ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A/Twice.swift",
+                                     "Packages/iOS/X/Sources/CmuxNextApp/Twice.swift"],
+}
+
+
+class BlockingReportTests(unittest.TestCase):
+    """--blocking-report (p02-threads 300, MQ-10, RUN-1): the detector's mode at launch, one debug.blocking read per
+    launch, the sites grouped by (fileID, kind, context) into one task per module, and a trap run's exit verdict."""
+
+    def launch_env(self, mode):
+        captured = {}
+
+        class Bench:
+            socket = sweep_mod.SOCKET
+
+            def __init__(self, path, env, **kwargs):
+                captured.update(env)
+
+            def launch(self, timeout, on_start):
+                on_start(FakeProcess(4242))
+
+        class Teardown:
+            def remember(self):
+                pass
+        with mock.patch.object(sweep_mod.time, "sleep", lambda s: None), \
+                mock.patch.object(sweep_mod.opts, "blocking_report", mode), mock.patch.object(sweep_mod.opts, "app_env", []):
+            sweep_mod.App(teardown=Teardown(), make_bench=Bench).launch()
+        return captured
+
+    def test_each_mode_sets_the_detectors_switches_at_launch(self):
+        self.assertEqual({k: v for k, v in self.launch_env("trap").items() if k.startswith("CMUX_BLOCKING")},
+                         {"CMUX_BLOCKING_TRAP": "1", "CMUX_BLOCKING_TRAP_POOL": "1"})
+        # Record says 0 outright: a Debug default flipped to trap (task 021) must still record in an MQ-10 run.
+        self.assertEqual({k: v for k, v in self.launch_env("record").items() if k.startswith("CMUX_BLOCKING")},
+                         {"CMUX_BLOCKING_TRAP": "0", "CMUX_BLOCKING_TRAP_POOL": "0"})
+        self.assertFalse([k for k in self.launch_env(None) if k.startswith("CMUX_BLOCKING")])
+
+    def test_each_launch_is_read_once_before_it_ends_and_saved(self):
+        out = tempfile.mkdtemp(prefix="every-action-blocking-", dir=OUT)
+        calls = []
+
+        def rpc(method, params=None, timeout=60):
+            calls.append((method, params))
+            return blocking_reply([("file-io", "CmuxNextApp/Foo.swift:12", 3)])
+        app = sweep_mod.App(teardown=object())
+        app.process, app.launches, app.launch_session = FakeProcess(7), 1, "light"
+        with mock.patch.object(sweep_mod, "rpc", rpc), mock.patch.object(sweep_mod, "BLOCKING_READS", []) as reads, \
+                mock.patch.object(sweep_mod, "OUT", out), mock.patch.object(sweep_mod.opts, "blocking_report", "record"):
+            app.read_blocking()
+            app.read_blocking()  # main()'s last read and stop() read the same launch once
+            app.process, app.launches, app.launch_session = FakeProcess(8, code=-5), 2, "stress"
+            app.read_blocking()  # it exited (a trap): no socket read, the exit is kept
+        self.assertEqual(calls, [("debug.blocking", {"reset": True})])
+        self.assertEqual([(r["session"], r["launch"], r["exit"]) for r in reads], [("light", 1, None), ("stress", 2, -5)])
+        self.assertIn("error", reads[1]["reply"])
+        with open(os.path.join(out, "blocking", "light-1.json")) as f:
+            self.assertEqual(json.load(f)["reply"]["sites"][0]["location"], "CmuxNextApp/Foo.swift:12")
+
+    def test_sites_group_by_file_kind_and_context_with_one_task_per_module(self):
+        reads = [{"session": "light", "launch": 1, "exit": None, "reply": blocking_reply([
+                     ("file-io", "CmuxNextApp/Foo.swift:12", 3), ("file-io", "CmuxNextApp/Foo.swift:40", 1),
+                     ("sync-wait", "CmuxNextApp/Foo.swift:12", 2), ("file-io", "CmuxNextTerminal/Pty.swift:9", 1)])},
+                 {"session": "stress", "launch": 2, "exit": None, "reply": {"compiled_in": True, "mode": "record", "overflow": 0, "sites": [
+                     {"kind": "file-io", "location": "CmuxNextApp/Foo.swift:12", "count": 5, "context": "main"},
+                     {"kind": "file-io", "location": "CmuxNextApp/Foo.swift:12", "count": 1, "context": "pool"}]}}]
+        section = sweep_mod.blocking_section("record", reads, [], index=SOURCE_INDEX)
+        groups = {(g["file_id"], g["kind"], g["context"]): g for g in section["groups"]}
+        self.assertEqual(set(groups), {("CmuxNextApp/Foo.swift", "file-io", "main"), ("CmuxNextApp/Foo.swift", "sync-wait", "main"),
+                                       ("CmuxNextApp/Foo.swift", "file-io", "pool"), ("CmuxNextTerminal/Pty.swift", "file-io", "main")})
+        main_io = groups[("CmuxNextApp/Foo.swift", "file-io", "main")]
+        self.assertEqual((main_io["lines"], main_io["count"], main_io["sessions"]), ([12, 40], 9, ["light", "stress"]))
+        self.assertEqual([(t["id"], len(t["sites"])) for t in section["tasks"]],
+                         [("p02-threads-R-every-action-CmuxNextApp", 3), ("p02-threads-R-every-action-CmuxNextTerminal", 1)])
+        self.assertEqual(section["tasks"][1]["files"], ["Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/Pty/Pty.swift"])
+        self.assertEqual(section["tasks"][0]["machine_queue"], "MQ-10")
+        self.assertEqual(section["contexts"], {"cpu-lane": 0, "main": 3, "pool": 1})
+        self.assertEqual(section["kinds"], {"file-io": 3, "sync-wait": 1})
+        self.assertEqual(section["unread"], [])
+        self.assertNotIn("run1", section)  # a record run's sites are its output, not a failure
+
+    def test_a_record_run_on_a_build_without_the_detector_reads_no_sites_and_says_so(self):
+        reads = [{"session": "light", "launch": 1, "exit": None,
+                  "reply": blocking_reply([("file-io", "CmuxNextApp/Foo.swift:12", 1)], compiled_in=False)}]
+        section = sweep_mod.blocking_section("record", reads, [])
+        self.assertEqual(section["groups"], [])
+        self.assertEqual(len(section["unread"]), 1)
+        self.assertIn("no blocking detector", section["unread"][0])
+        self.assertIn("Launches whose sites do not count:", "\n".join(sweep_mod.blocking_lines(section)))
+
+    def test_a_trap_run_is_clean_only_with_every_launch_read_in_trap_mode_and_nothing_found(self):
+        clean = [{"session": "light", "launch": 1, "exit": None, "reply": blocking_reply([], mode="trap")}]
+        self.assertTrue(sweep_mod.blocking_section("trap", clean, [])["run1"]["clean"])
+        cases = {
+            "no launch": ([], []),
+            "a site": ([{"session": "light", "launch": 1, "exit": None,
+                         "reply": blocking_reply([("lock-wait", "CmuxNextCompat/Mutex.swift:3", 1)], mode="trap")}], []),
+            "record mode": ([{"session": "light", "launch": 1, "exit": None, "reply": blocking_reply([])}], []),
+            # RUN-1 needs both switches: a main trap with the pool still recording never trips on a pool site.
+            "pool records": ([{"session": "light", "launch": 1, "exit": None,
+                               "reply": blocking_reply([], mode="trap", pool_mode="record")}], []),
+            # A bench build answers with no detector and no sites: that is no evidence, not a clean run.
+            "no detector": ([{"session": "light", "launch": 1, "exit": None,
+                              "reply": blocking_reply([], mode="trap", compiled_in=False)}], []),
+            "SIGTRAP": ([{"session": "light", "launch": 1, "exit": -sweep_mod.signal.SIGTRAP, "reply": {"error": "exited"}}], []),
+            "unread": ([{"session": "light", "launch": 1, "exit": None, "reply": {"error": "timed out", "unreachable": True}}], []),
+            "overflow": ([{"session": "light", "launch": 1, "exit": None, "reply": blocking_reply([], mode="trap", overflow=2)}], []),
+            "a trap": (clean, [{"kind": "file-io", "context": "main", "location": "CmuxNextApp/Foo.swift:12"}]),
+            "a trap on quit": ([dict(clean[0], quit_exit=-sweep_mod.signal.SIGTRAP)], []),
+        }
+        for name, (reads, traps) in cases.items():
+            with self.subTest(name):
+                run1 = sweep_mod.blocking_section("trap", reads, traps)["run1"]
+                self.assertFalse(run1["clean"])
+                self.assertTrue(run1["problems"])
+
+    def test_traps_are_read_from_this_runs_part_of_the_app_log(self):
+        log = os.path.join(tempfile.mkdtemp(prefix="every-action-log-", dir=OUT), "app.log")
+        old = "CmuxNext/BlockingViolationTable.swift:132: Fatal error: blocking file-io on the main thread at Old/A.swift:1: move it\n"
+        with open(log, "w") as f:
+            f.write(old)
+            # The record mode's log line has the same words without "Fatal error:": not a trap.
+            f.write("blocking sync-wait on the main thread at CmuxNextApp/B.swift:7: move it off the main thread\n")
+            f.write("CmuxNext/BlockingViolationTable.swift:132: Fatal error: blocking file-io on the main thread at "
+                    "CmuxNextApp/Foo.swift:12: move it off the main thread, or wrap it\n")
+        self.assertEqual(sweep_mod.blocking_traps(log, len(old)),
+                         [{"kind": "file-io", "context": "main", "location": "CmuxNextApp/Foo.swift:12"}])
+        self.assertEqual(sweep_mod.blocking_traps(log + ".missing"), [])
+
+    def test_a_pool_trap_line_is_a_pool_trap(self):
+        log = os.path.join(tempfile.mkdtemp(prefix="every-action-log-", dir=OUT), "app.log")
+        with open(log, "w") as f:
+            # BlockingViolationTable.recordedOffMainSite's fatalError, as Swift prints it to stderr.
+            f.write("CmuxNextCompat/BlockingViolationTable.swift:209: Fatal error: blocking sync-wait on the cooperative "
+                    "pool or a GCD root queue at CmuxNextApp/Foo.swift:33: run it on a BackgroundWork lane, "
+                    "work.run(_:mayBlock:) (plans/cmux-next/threading-model.md)\n")
+        self.assertEqual(sweep_mod.blocking_traps(log),
+                         [{"kind": "sync-wait", "context": "pool", "location": "CmuxNextApp/Foo.swift:33"}])
+
+    def test_a_fileid_resolves_to_its_nested_file_in_any_package(self):
+        # #fileID drops the folders inside a module: the task names the real file, nested or in a Shared package.
+        reads = [{"session": "light", "launch": 1, "exit": None, "reply": blocking_reply([
+            ("lock-wait", "CmuxNextCompat/Mutex.swift:3", 1), ("file-io", "CmuxTheme/Palette.swift:8", 1),
+            ("file-io", "CmuxNextApp/Gone.swift:1", 1), ("file-io", "CmuxNextApp/Twice.swift:2", 1)])}]
+        tasks = {t["id"]: t for t in sweep_mod.blocking_section("record", reads, [], index=SOURCE_INDEX)["tasks"]}
+        self.assertEqual(tasks["p02-threads-R-every-action-CmuxNextCompat"]["files"],
+                         ["Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Threading/Mutex.swift"])
+        self.assertEqual(tasks["p02-threads-R-every-action-CmuxTheme"]["files"],
+                         ["Packages/Shared/CmuxTheme/Sources/CmuxTheme/Colors/Palette.swift"])
+        app = tasks["p02-threads-R-every-action-CmuxNextApp"]
+        # No file or two files: never a made-up path; the fileID is unresolved with its candidates, and the change says so.
+        self.assertEqual(app["files"], ["Packages/iOS/X/Sources/CmuxNextApp/Twice.swift",
+                                        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/A/Twice.swift"])
+        self.assertEqual(app["unresolved"], {"CmuxNextApp/Gone.swift": [], "CmuxNextApp/Twice.swift": app["files"]})
+        self.assertIn("CmuxNextApp/Gone.swift (no file)", app["change"])
+
+    def test_the_repos_own_index_finds_the_detectors_nested_file(self):
+        self.assertEqual(sweep_mod.blocking_source_paths("CmuxNextCompat/BlockingViolationTable.swift",
+                                                         sweep_mod.swift_source_index()),
+                         ["Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Threading/BlockingViolationTable.swift"])
+
+    def test_a_rerun_after_the_first_module_is_fixed_keeps_the_other_modules_ids(self):
+        def ids(sites):
+            reads = [{"session": "light", "launch": 1, "exit": None, "reply": blocking_reply(sites)}]
+            return {t["id"]: t["sites"][0]["module"]
+                    for t in sweep_mod.blocking_section("record", reads, [], index=SOURCE_INDEX)["tasks"]}
+        first = ids([("file-io", "CmuxNextApp/Foo.swift:12", 1), ("file-io", "CmuxNextTerminal/Pty.swift:9", 1)])
+        rerun = ids([("file-io", "CmuxNextTerminal/Pty.swift:9", 1)])  # CmuxNextApp, the first module, was fixed
+        self.assertEqual(rerun, {"p02-threads-R-every-action-CmuxNextTerminal": "CmuxNextTerminal"})
+        self.assertEqual({i: m for i, m in first.items() if i in rerun}, rerun)
+
+    def test_stop_keeps_the_quit_exit_on_the_launchs_read(self):
+        out = tempfile.mkdtemp(prefix="every-action-blocking-", dir=OUT)
+
+        class Teardown:
+            def end(self):
+                pass
+        app = sweep_mod.App(teardown=Teardown())
+        app.process, app.launches, app.launch_session = FakeProcess(9), 1, "light"
+        with mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: blocking_reply([], mode="trap")), \
+                mock.patch.object(sweep_mod, "BLOCKING_READS", []) as reads, mock.patch.object(sweep_mod, "OUT", out), \
+                mock.patch.object(sweep_mod.opts, "blocking_report", "trap"), \
+                mock.patch.object(sweep_mod.App, "quit", lambda self: setattr(self.process, "code", -sweep_mod.signal.SIGTRAP)):
+            app.stop()
+        self.assertEqual(reads[0]["quit_exit"], -sweep_mod.signal.SIGTRAP)
+        with open(os.path.join(out, "blocking", "light-1.json")) as f:
+            self.assertEqual(json.load(f)["quit_exit"], -sweep_mod.signal.SIGTRAP)
+
+    def run_main(self, mode, reply, quit_trap=None, keep=False):
+        class Sweep(sweep_mod.Sweep):
+            def run(self, actions):
+                self.validity, self.idle, self.summary = {"chromium_ok": True}, {"frames": {}}, {}
+                return self
+
+        class App:
+            """App's launch bookkeeping: main() names the next session, a launch takes it, a read names the launch's."""
+            process = None
+
+            def launch(self):
+                self.launch_session = self.session
+
+            def relaunch(self):
+                self.read_blocking()
+                self.launch()
+
+            def stop(self):
+                """App.stop: the read, the quit (a `quit_trap` line is what the app's stderr says when it traps
+                while it quits) and its exit status on the read."""
+                self.read_blocking()
+                if quit_trap:
+                    with open(os.path.join(OUT, "app.log"), "a") as f:
+                        f.write(quit_trap + "\n")
+                sweep_mod.BLOCKING_READS[-1]["quit_exit"] = -sweep_mod.signal.SIGTRAP if quit_trap else 0
+
+            def read_blocking(self):
+                if not any(r["session"] == self.launch_session for r in sweep_mod.BLOCKING_READS):
+                    sweep_mod.BLOCKING_READS.append({"session": self.launch_session, "launch": 1, "pid": 1, "exit": None,
+                                                     "reply": reply})
+
+        signposts = sweep_mod.SIGNPOSTS
+        log = io.StringIO()
+        with mock.patch.object(sweep_mod, "App", App), mock.patch.object(sweep_mod, "Sweep", Sweep), \
+                mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: {"actions": []} if method == "action.list" else {}), \
+                mock.patch.object(signposts, "live", False), \
+                mock.patch.object(signposts, "start", lambda module: setattr(signposts, "live", True)), \
+                mock.patch.object(sweep_mod, "BLOCKING_READS", []), mock.patch.object(sweep_mod.opts, "blocking_report", mode), \
+                mock.patch.object(sweep_mod.opts, "sessions", "light,stress"), mock.patch.object(sweep_mod.opts, "keep", keep), \
+                mock.patch.object(sweep_mod, "coverage", lambda report, baseline_path=None: {"gaps": 0, "new": {}}), \
+                mock.patch.dict(os.environ, {"CMUX_CI_SHA": "b" * 40}), contextlib.redirect_stdout(log):
+            try:
+                sweep_mod.main()
+                code = 0
+            except SystemExit as raised:
+                code = raised.code
+        with open(os.path.join(OUT, "every-action.json")) as f:
+            report = json.load(f)
+        with open(os.path.join(OUT, "every-action.md")) as f:
+            md = f.read()
+        with open(os.path.join(OUT, "blocking-tasks.json")) as f:
+            tasks = json.load(f)
+        return code, report, md, tasks, log.getvalue()
+
+    def test_a_record_run_files_its_sites_and_passes(self):
+        code, report, md, tasks, _ = self.run_main("record", blocking_reply([("file-io", "CmuxNextApp/Foo.swift:12", 3)]))
+        self.assertEqual(code, 0)
+        self.assertEqual([r["session"] for r in report["blocking"]["reads"]], ["light", "stress"])
+        self.assertEqual([t["id"] for t in tasks["tasks"]], ["p02-threads-R-every-action-CmuxNextApp"])
+        self.assertIn("## Blocking sites (record)", md)
+        self.assertIn("| p02-threads-R-every-action-CmuxNextApp | CmuxNextApp | CmuxNextApp/Foo.swift | 12 | file-io | main "
+                      "| 6 | light,stress |", md)
+        self.assertIn("quit-path sites are lifecycle-sweep's", md)
+
+    def test_a_trap_on_the_last_quit_fails_run1_and_is_filed(self):
+        code, report, md, tasks, _ = self.run_main("trap", blocking_reply([], mode="trap"), quit_trap=(
+            "CmuxNextCompat/BlockingViolationTable.swift:209: Fatal error: blocking file-io on the cooperative pool or a "
+            "GCD root queue at CmuxNextApp/Quit.swift:5: run it on a BackgroundWork lane"))
+        self.assertEqual(code, sweep_mod.BLOCKING_EXIT)
+        problems = "; ".join(report["blocking"]["run1"]["problems"])
+        self.assertIn("stress launch 1 trapped while it quit", problems)
+        self.assertIn("CmuxNextApp/Quit.swift:5 file-io", problems)
+        self.assertEqual([(g["file_id"], g["context"], g["sessions"]) for g in tasks["tasks"][0]["sites"]],
+                         [("CmuxNextApp/Quit.swift", "pool", ["trap"])])
+
+    def test_a_trap_run_that_keeps_the_app_running_is_not_clean(self):
+        code, report, _, _, _ = self.run_main("trap", blocking_reply([], mode="trap"), keep=True)
+        self.assertEqual(code, sweep_mod.BLOCKING_EXIT)
+        self.assertIn("--keep", "; ".join(report["blocking"]["run1"]["problems"]))
+
+    def test_a_trap_run_with_a_site_exits_5_and_its_report_lands_in_the_step_log(self):
+        code, report, md, _, log = self.run_main("trap", blocking_reply([("file-io", "CmuxNextApp/Foo.swift:12", 1)], mode="trap"))
+        self.assertEqual(code, sweep_mod.BLOCKING_EXIT)
+        self.assertFalse(report["blocking"]["run1"]["clean"])
+        self.assertIn("RUN-1 (whole catalog): NOT clean", md)
+        self.assertIn(sweep_mod.REPORT_LINE + " 1/", log)
+
+    def test_a_clean_trap_run_passes(self):
+        code, report, md, tasks, _ = self.run_main("trap", blocking_reply([], mode="trap"))
+        self.assertEqual(code, 0)
+        self.assertTrue(report["blocking"]["run1"]["clean"])
+        self.assertIn("RUN-1 (whole catalog): clean", md)
+        self.assertEqual(tasks["tasks"], [])
+
+    def test_merge_joins_the_shards_sites_and_a_shard_without_a_read_is_not_clean(self):
+        folder = tempfile.mkdtemp(prefix="every-action-merge-", dir=OUT)
+        read = {"session": "light", "launch": 1, "pid": 1, "exit": None, "reply": blocking_reply([], mode="trap")}
+        shards = [{"env": dict(ENV, shard="1/2"), "sessions": [session("light", [{"id": "a"}])],
+                   "blocking": sweep_mod.blocking_section("trap", [read], [])},
+                  {"env": dict(ENV, shard="2/2"), "sessions": [session("light", [{"id": "b"}])]}]
+        paths = []
+        for index, shard in enumerate(shards):
+            paths.append(os.path.join(folder, f"shard{index}.json"))
+            with open(paths[-1], "w") as f:
+                json.dump(shard, f)
+        out = os.path.join(folder, "every-action.json")
+        with mock.patch.object(sweep_mod, "coverage", lambda report, baseline_path=None: {"gaps": 0, "new": {}}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                sweep_mod.merge(out, paths)
+        self.assertEqual(raised.exception.code, sweep_mod.BLOCKING_EXIT)
+        with open(out) as f:
+            merged = json.load(f)
+        self.assertIn("1 shard(s) without a blocking section", "; ".join(merged["blocking"]["run1"]["problems"]))
+        self.assertTrue(os.path.exists(os.path.join(folder, "blocking-tasks.json")))
+
+
 # What perf-stress-session's summary() gives for the STRESS shape (Stress.check accepts it).
 STRESS_OK = {"workspaces": 60, "shown_columns": 4, "window": [80, 40, 1600, 1000], "measured_panes": 14,
              "measured_tabs": {"terminal": 28, "browser": 42, "conversation": 14}, "refusals": [],

@@ -13,7 +13,7 @@ public import Foundation
 ///
 /// ```swift
 /// let probe = ClassicRunningProbe(stateRoot: ClassicRunningProbe.defaultStateRoot(home: home, environment: environment))
-/// probe.isRunning(source, now: Date().timeIntervalSince1970)
+/// probe.isRunning(source, now: Date().timeIntervalSince1970) // wall-clock: save dates are Unix seconds
 /// ```
 public nonisolated struct ClassicRunningProbe: Sendable {
     /// How long after its last save a classic that left its sentinel still counts as running.

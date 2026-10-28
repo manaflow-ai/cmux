@@ -10,6 +10,7 @@ import CmuxNextHibernation
 import CmuxNextHistory
 import CmuxNextScreenshots
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -219,7 +220,7 @@ import Testing
 
     @Test func agentActivityStopsItsPushesWhenItsPageGoes() {
         let source = FollowingSource()
-        let model = AgentActivityModel(source: source)
+        let model = AgentActivityModel(source: source, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         model.start()
         model.select(session: "s1")
         #expect(source.follows["s1"] == true)
@@ -274,7 +275,7 @@ import Testing
             events = stream.stream
             eventSink = stream.continuation
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry())
+            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines)
             services.cache.hibernation = hibernation
             hibernation.discardsAppPages = discardsAppPages
             let sink = eventSink
