@@ -334,6 +334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
                 settings?.managedPreferencesMayHaveChanged()
                 services?.windows.enterRestoredFullScreens()
+                await services?.paidPlanReturned() // an upgrade's payment page sends the person back here
             }
         }
         services.configActions.start(settings: settings)
@@ -504,6 +505,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.crashRecovery.applicationWillTerminate()
         // The release push's socket closes and nothing reconnects (ReleasePushListener).
         services?.updater.stopReleasePush()
+        services?.agentTabs.pageChats.runNotices?.stop()
         AppProcessRoot.shared.hangReports?.applicationWillTerminate()
         ComputerUseHelperDaemon.shared.applicationWillTerminate()
         services?.viewers.diffPages.terminate()

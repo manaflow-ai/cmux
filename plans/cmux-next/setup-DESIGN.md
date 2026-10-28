@@ -36,7 +36,14 @@ prints one JSON object, with or without `--json`.
   `check` and `apply` are the commands that do it today; `person` is what
   only the person can do. One read gives an agent the whole map, including
   tasks setup does not run yet.
-- `cmux setup status`: the read-only check of every task setup runs.
+- `cmux setup status`: the read-only check of every task setup runs. Each
+  check keeps its task-specific fields and also has `check_status` (`ok`,
+  `needs_action`, or `failed`) and `recovery`. `recovery` is the existing
+  structured `user_action` or exact `fix` command; when several nested peers
+  or clients need work it is an array of those exact actions. Nested machine,
+  harness, and MCP failures therefore remain visible to an agent instead of
+  collapsing into a task-level `ok`. A missing safe command stays `null` with
+  the original error, rather than guessing a credential, account, or repair.
 - `cmux setup <task> ... [--dry-run]`: check, then change only what is not
   already right. The result is
 

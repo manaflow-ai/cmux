@@ -13,6 +13,10 @@ nonisolated extension ActionSurfaceCatalog {
     /// terminal and headless appearance verbs were added here.
     static let cliNamed: Set<ActionID> = [
         "palette.computerUse.restart",
+        // Docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md).
+        "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",
+        "workspace.toggleDockFloating", "window.toggleDockLeft", "window.toggleDockRight", "window.toggleDockTop",
+        "window.toggleDockBottom", "window.toggleDockOrientation",
         "help.showCrashLogs", "palette.mobileConnect", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "pane.focus", "screen.focus", "quit", "quitKeepSessions", "quitEndSessions",
         "quitEndEverything", "keepMacAwake", "newBrowserWorkspace", "openFolder",
         "palette.openFolderInVSCodeInline", "reopenPreviousSession", "workspace.importClassic", "reopenClosedWorkspace", "moveWorkspaceUp",
@@ -43,8 +47,12 @@ nonisolated extension ActionSurfaceCatalog {
         "fileEditor.importEditorSettings",
         "space.newWindow", "space.newWorkspace", "space.newGroup", "space.rename", "space.setColor", "space.clearColor",
         "space.setIcon", "space.clearIcon", "space.setDefaults", "space.clearDefaults", "space.delete", "space.moveLeft",
-        "space.moveRight", "space.move", "space.switch", "workspace.moveToSpace", "workspace.duplicateToSpace",
+        "space.moveRight", "space.moveToStart", "space.moveToEnd", "space.move", "space.switch", "workspace.moveToSpace", "workspace.duplicateToSpace",
         "workspaceGroup.moveToSpace", "space.setTheme", "space.clearTheme",
+        // Every space action is a verb (Lawrence 14223: no exceptions): the space keys and the color family too.
+        "space.next", "space.previous", "space.selectByNumber", "space.openInNewWindow", "space.newIncognito", "space.color.grey", "space.color.blue",
+        "space.color.red", "space.color.yellow", "space.color.green", "space.color.pink", "space.color.purple",
+        "space.color.cyan", "space.color.orange",
         "space.newWindow", "space.newWorkspace", "space.rename", "space.setColor",
         "space.clearColor", "space.setIcon", "space.clearIcon", "space.setDefaults", "space.delete",
         "space.moveLeft", "space.moveRight", "space.move", "space.switch", "workspace.moveToSpace",
@@ -210,9 +218,7 @@ nonisolated extension ActionSurfaceCatalog {
             "cycleWorkspaceStatus", "toggleFocusedWorkspaceGroupCollapsed", "workspaceGroup.color.grey",
             "workspaceGroup.color.blue", "workspaceGroup.color.red", "workspaceGroup.color.yellow",
             "workspaceGroup.color.green", "workspaceGroup.color.pink", "workspaceGroup.color.purple",
-            "workspaceGroup.color.cyan", "workspaceGroup.color.orange", "space.color.grey", "space.color.blue",
-            "space.color.red", "space.color.yellow", "space.color.green", "space.color.pink", "space.color.purple",
-            "space.color.cyan", "space.color.orange", "tabGroup.toggleCollapsed", "tabGroup.color.grey",
+            "workspaceGroup.color.cyan", "workspaceGroup.color.orange", "tabGroup.toggleCollapsed", "tabGroup.color.grey",
             "tabGroup.color.blue", "tabGroup.color.red", "tabGroup.color.yellow", "tabGroup.color.green",
             "tabGroup.color.pink", "tabGroup.color.purple", "tabGroup.color.cyan", "tabGroup.color.orange",
             "screen.color.grey", "screen.color.blue", "screen.color.red", "screen.color.yellow", "screen.color.green",
@@ -230,7 +236,7 @@ nonisolated extension ActionSurfaceCatalog {
             // identifier ActionContractTests requires; the CLI verb is deliberately not offered (a focus move).
             "nextSidebarTabInGroup", "prevSidebarTabInGroup", "nextWorkspaceGroup", "prevWorkspaceGroup",
             "selectWorkspaceByNumber", "workspace.selectFirst",
-            "workspace.selectLast", "workspace.selectLastUsed", "space.next", "space.previous", "space.selectByNumber",
+            "workspace.selectLast", "workspace.selectLastUsed",
             "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
             "focusPaneByNumber", "focusSidebar",
             "canvasRevealFocusedPane", "navigate.next", "navigate.previous", "nextSurface", "prevSurface", "selectSurfaceByNumber",

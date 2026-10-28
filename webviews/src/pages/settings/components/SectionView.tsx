@@ -1,3 +1,4 @@
+import { CloudEnvironmentsCard } from "./CloudEnvironmentsCard";
 import type { ReactNode } from "react";
 import { categoryById, type CategoryCard } from "../categories";
 import { sections } from "../schema";
@@ -61,6 +62,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   credentialVault: () => <CredentialVaultCard />,
   notices: () => <NoticesCard />,
   server: () => <ServerCard />,
+  cloudEnvironments: () => <CloudEnvironmentsCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */

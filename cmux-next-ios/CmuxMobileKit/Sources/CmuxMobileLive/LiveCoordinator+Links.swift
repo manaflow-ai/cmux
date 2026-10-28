@@ -568,7 +568,14 @@ extension LiveCoordinator {
         guard chiefMacID != focusedMacID else { return }
         let owner = focused
         guard let link = owner.servedLink else {
-            if chiefMacID != nil { chiefOffline() } else { useChiefCloudCopy(macName: owner.name) }
+            if chiefMacID != nil {
+                chiefOffline()
+            } else {
+                // Name the Mac first: what is written to its cloud copy is for this Mac
+                // (the outbox's target), not for whichever Mac connects next.
+                ChiefSession.shared.macID = owner.macID
+                useChiefCloudCopy(macName: owner.name)
+            }
             return
         }
         Task { [weak self] in
