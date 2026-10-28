@@ -22,7 +22,9 @@ import Testing
 ///    registry run of the shortcut's action in the press's turn (none: the dispatcher dropped or held the key;
 ///    two: doubled), and the local effect (``SpamVerdict``).
 /// 2. Once the store has no pending intents, rows or provisional ids, the app equals the daemon: the same
-///    workspaces, panes and tab ids in the same order (selection is the window's own; printed, not asserted).
+///    workspaces, panes and tab ids in the same order, and once the system is quiet (no intent, no provisional id,
+///    the last reply applied) each shown pane selects the daemon's active tab (the lead, 2026-10-28: a selection that
+///    still differs when nothing is on its way is a real bug).
 /// 3. The final tab counts equal the press list replayed on a tiny reference model (``SpamReference``).
 ///
 /// It records what is red on a tip: run it on the fleet (`package-test-lane.sh suite Packages/macOS/CmuxNext
@@ -104,15 +106,19 @@ struct ShortcutSpamPropertyTests {
         let settled = await settle(services)
         #expect(settled, "\(label): still pending after 20 s: \(pending(services))")
         var mismatches: [String] = []
+        var selection: [String] = []
         var notes: [String] = []
         let deadline = ContinuousClock.now + .seconds(20)
         repeat {
             let tree = try await connection.snapshot().tree
-            (mismatches, notes) = compare(services, tree)
-            if mismatches.isEmpty { break }
+            (mismatches, selection, notes) = compare(services, tree)
+            if mismatches.isEmpty, selection.isEmpty { break }
             try await Task.sleep(for: .milliseconds(250))
         } while ContinuousClock.now < deadline
         #expect(mismatches.isEmpty, "\(label): app != daemon 20 s after settling: \(mismatches)")
+        // Quiet: nothing on its way (settled, re-checked now) and the snapshot read after the last reply.
+        let quiet = pending(services) == nil
+        #expect(!quiet || selection.isEmpty, "\(label): the selection differs from the daemon's once quiet: \(selection)")
 
         // 3. The final counts against the replayed presses.
         let final = SpamLocal.capture(services)
@@ -121,7 +127,8 @@ struct ShortcutSpamPropertyTests {
 
         for (index, items) in recorder.late.sorted(by: { $0.key < $1.key }) { trace.append("after #\(index): \(items)") }
         trace.append("\(label) end: \(final.brief); reference \(reference.brief)")
-        if !notes.isEmpty { trace.append("not asserted (the window's own selection): \(notes)") }
+        if !notes.isEmpty { trace.append("not asserted (strip-only local tabs): \(notes)") }
+        if !quiet { trace.append("selection not judged: still pending \(pending(services) ?? "")") }
         if !unclear.isEmpty { trace.append("reference could not tell: \(unclear)") }
         print(trace.joined(separator: "\n"))
     }
@@ -214,10 +221,11 @@ struct ShortcutSpamPropertyTests {
         return ids
     }
 
-    /// The app's store and shown strips against a fresh daemon snapshot: (mismatches, notes). Notes are
-    /// the selection, which the window keeps itself (the daemon's `activeTab` is a shared default).
-    static func compare(_ services: AppServices, _ tree: DaemonTree) -> ([String], [String]) {
+    /// The app's store and shown strips against a fresh daemon snapshot: (mismatches, selection differences, notes).
+    /// Notes are tabs only the strip has (app-local pages).
+    static func compare(_ services: AppServices, _ tree: DaemonTree) -> ([String], [String], [String]) {
         var out: [String] = []
+        var selection: [String] = []
         var notes: [String] = []
         var daemon: [String: WorkspaceSnapshot] = [:]
         for workspace in tree.workspaces { daemon[WorkspaceModel.identity(workspace)] = workspace }
@@ -247,12 +255,12 @@ struct ShortcutSpamPropertyTests {
                 if !local.isEmpty { notes.append("pane \(controller.paneKey) strip-only tabs \(local)") }
                 let daemonSelected = theirs.tabs.indices.contains(theirs.activeTab) ? TabModel.identity(theirs.tabs[theirs.activeTab]) : nil
                 if controller.stripModel.selectedID?.rawValue != daemonSelected {
-                    notes.append("pane \(controller.paneKey) selects \(controller.stripModel.selectedID?.rawValue ?? "nil"), daemon active tab \(daemonSelected ?? "nil")")
+                    selection.append("pane \(controller.paneKey) selects \(controller.stripModel.selectedID?.rawValue ?? "nil"), daemon active tab \(daemonSelected ?? "nil")")
                 }
             }
         }
         out += provisionalIDs(services).map { "provisional id remains: \($0)" }
-        return (out, notes)
+        return (out, selection, notes)
     }
 
     // MARK: Harness
