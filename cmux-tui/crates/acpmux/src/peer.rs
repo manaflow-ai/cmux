@@ -236,7 +236,6 @@ impl Peer {
             .or_else(|| self.peer_token.clone())
             .unwrap_or_default();
         crate::hub::person::owner_policy_proof_for_secret(&secret, session, policy, host, nonce)
-            .expect("peer owner link secret is always a valid nonce")
     }
 
     pub fn link(&self) -> Link {
