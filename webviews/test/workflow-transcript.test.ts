@@ -175,7 +175,7 @@ test("the hook refreshes only the selected agent, survives StrictMode, and drops
   const root = createRoot(dom.window.document.getElementById("root")!);
   const pending = deferred<unknown>();
   let calls = 0;
-  const read = async () => (++calls <= 2 ? page(0, 1, 1, [text(`read ${calls}`)]) : pending.promise);
+  const read = async () => (++calls <= 2 ? { ...page(0, 1, 1, [text(`read ${calls}`)]), truncated: calls === 1 } : pending.promise);
   // Keep the component type stable across renders: changing a parent snapshot does not remount it.
   let progress = 1;
   let id = workflowPaneId(request);
@@ -195,6 +195,8 @@ test("the hook refreshes only the selected agent, survives StrictMode, and drops
   try {
     await act(async () => show());
     expect(calls).toBe(1);
+    expect(dom.window.document.body.textContent).toContain("Only recent transcript history is available.");
+    expect(dom.window.document.body.textContent).not.toContain("{count}");
     await act(async () => show());
     expect(calls).toBe(1);
     progress = 2;
