@@ -309,13 +309,22 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     composerTop?: number;
     settled?: boolean;
   };
-  /// Samples every painted frame until `stop`.
+  /// Samples every painted frame until `stop`, as the frame paints it: in a ResizeObserver made after
+  /// the pane's, on a probe resized in each frame's callbacks, so the read runs after the frame's
+  /// layout and the pane's own observer (which places a row that grew before paint), right before
+  /// the paint. A read in a task after the frame (cmuxAfterPaint) can come after a task already
+  /// queued has grown the streaming reply: a state no frame painted, a line taller than the rows
+  /// under it were placed for (23 px, on the CI runner's busy main thread).
   const sample = (page: Page, marker: string) =>
     page.evaluate((marker) => {
       const w = window as unknown as { __frames: Frame[]; __stop: () => void };
       w.__frames = [];
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      w.__stop = window.cmuxAfterPaint((frame) => {
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:fixed;left:0;top:0;height:1px;width:1px;pointer-events:none;visibility:hidden";
+      document.body.append(probe);
+      let wide = false;
+      const read = (frame: number) => {
         const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find((each) =>
           each.textContent?.includes(marker),
         );
@@ -328,7 +337,21 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
           composerTop: composer?.getBoundingClientRect().top,
           settled: Boolean(document.querySelector(".acpmux-row--last-footer")),
         });
-      });
+      };
+      const observer = new ResizeObserver(() => read(performance.now()));
+      observer.observe(probe);
+      const stopFrames = window.cmuxAfterPaint(
+        () => {},
+        () => {
+          wide = !wide;
+          probe.style.width = wide ? "2px" : "1px";
+        },
+      );
+      w.__stop = () => {
+        stopFrames();
+        observer.disconnect();
+        probe.remove();
+      };
     }, marker);
   const stop = (page: Page) =>
     page.evaluate(() => {

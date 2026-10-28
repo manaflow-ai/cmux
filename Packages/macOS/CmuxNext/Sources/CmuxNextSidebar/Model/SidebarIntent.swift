@@ -64,13 +64,15 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case newProfile
     /// Move a profile to an insertion index (dot drag).
     case reorderProfile(ProfileKey, index: Int)
+    /// Open a space in a new window (a dot dragged out of the window; spaces-overhaul-DESIGN.md rule 4).
+    case openProfileInNewWindow(ProfileKey)
     /// Run an item of a pinned section (a built-in's action, a pinned
     /// workspace). plans/cmux-next/sidebar-sections.md
     case activateItem(LayoutItemID, opensWorkspace: Bool = false)
     /// The update card's button: install the staged update and relaunch
     /// (`SidebarModel.updateCard`).
     case installUpdate
-    /// The titlebar's Update Available button: download the found update (it then asks before
+    /// The sidebar footer's Update Available button: download the found update (it then asks before
     /// relaunching on the update card).
     case downloadUpdate
     /// The update card's Automatic Updates switch.
