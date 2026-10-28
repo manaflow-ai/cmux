@@ -756,7 +756,8 @@ def cond_pane_frame_text(j, want, cache):
     showed the text). So it reads, in order, until one shows TEXT: (1) the band of the pane's rows
     around the row whose viewport text holds TEXT (two rows above and below, as wide as the longest
     of those lines), scaled 2x; (2) the pane's whole terminal view, scaled 2x; (3) the whole window.
-    The row only says where to look: the pixels must still show the text."""
+    The row only says where to look: the pixels must still show the text. The crop is placed in the
+    window the pane is in now: a window id kept earlier (before a relaunch) may name no window."""
     want = want if isinstance(want, dict) else {"text": want}
     text = want["text"]
     rec = named(j, want.get("pane"))
@@ -764,7 +765,7 @@ def cond_pane_frame_text(j, want, cache):
     image = j.app.snapshot(j.out / f"check-{j.checks:02d}.png")
     row = pane_row(j, rec["pane"])
     rect, grid = frame_of(row), (row or {}).get("grid") or {}
-    win = window_rec(j, rec["window"])
+    win = window_rec(j, window_of_pane(j, rec["pane"]) or rec["window"])
     if not rect or not win.get("frame"):
         return False, {"image": image.name, "error": f"no frame for pane {rec['pane']}"}
     width, height = png_size(image)

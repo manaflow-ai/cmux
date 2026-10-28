@@ -16,7 +16,7 @@
     {"do": "key", "title": "Cmd-D", "key": "d", "modifiers": ["cmd"], "mark": "split-right"},
     {"do": "adopt_pane", "as": "right", "title": "the new pane on the right has the focus and a shell"},
     {"do": "neutral_prompt"},
-    {"do": "type", "text": "echo right-${nonce} $(stty size)", "enter": true, "mark": "typed-right"},
+    {"do": "type", "text": "echo right-${nonce}-$((6*7)) $(stty size)", "enter": true, "mark": "typed-right"},
     {"do": "expect", "title": "two panes side by side, each half the width, each fitted; the new shell answers", "since": "typed-right", "timeout": 10,
      "all": [
        {"pane_frame": {"pane": "right", "right_of": "left"}},
@@ -24,17 +24,17 @@
        {"pane_frame": {"pane": "right", "vs": "full", "w": 0.5, "h": 1.0, "tol": 0.06}},
        {"grid_fits": {"pane": "left", "vs": "full", "cols": "narrower", "rows": "same"}},
        {"grid_fits": {"pane": "right", "vs": "full", "cols": "narrower", "rows": "same"}},
-       {"pty_size": {"tag": "right-${nonce}", "pane": "right"}},
+       {"pty_size": {"tag": "right-${nonce}-42", "pane": "right"}},
        {"app_pane": {"focused": true}},
        {"app_prompt": true},
-       {"pane_frame_text": "right-${nonce}"}
+       {"pane_frame_text": "right-${nonce}-42"}
      ]},
     {"do": "remember", "as": "right-half", "pane": "right"},
 
     {"do": "key", "title": "Cmd-Shift-D in the right pane", "key": "d", "modifiers": ["cmd", "shift"], "mark": "split-down"},
     {"do": "adopt_pane", "as": "bottom", "title": "the new pane below has the focus and a shell"},
     {"do": "neutral_prompt"},
-    {"do": "type", "text": "echo bottom-${nonce} $(stty size)", "enter": true, "mark": "typed-bottom"},
+    {"do": "type", "text": "echo bottom-${nonce}-$((6*7)) $(stty size)", "enter": true, "mark": "typed-bottom"},
     {"do": "expect", "title": "the right pane split in two rows, each fitted; the new shell answers", "since": "typed-bottom", "timeout": 10,
      "all": [
        {"pane_frame": {"pane": "bottom", "below": "right"}},
@@ -43,19 +43,19 @@
        {"grid_fits": {"pane": "right", "vs": "right-half", "cols": "same", "rows": "shorter"}},
        {"grid_fits": {"pane": "bottom", "vs": "right-half", "cols": "same", "rows": "shorter"}},
        {"grid_fits": {"pane": "left", "vs": "full", "cols": "narrower", "rows": "same"}},
-       {"pty_size": {"tag": "bottom-${nonce}", "pane": "bottom"}},
+       {"pty_size": {"tag": "bottom-${nonce}-42", "pane": "bottom"}},
        {"app_prompt": true},
-       {"pane_frame_text": "bottom-${nonce}"}
+       {"pane_frame_text": "bottom-${nonce}-42"}
      ]},
 
     {"do": "use_pane", "pane": "left", "click": true, "title": "click into the left pane"},
-    {"do": "type", "text": "echo left-${nonce} $(stty size)", "enter": true, "mark": "typed-left"},
+    {"do": "type", "text": "echo left-${nonce}-$((6*7)) $(stty size)", "enter": true, "mark": "typed-left"},
     {"do": "expect", "title": "the old pane's PTY has its half-width grid", "since": "typed-left", "timeout": 10,
      "all": [
-       {"pty_size": {"tag": "left-${nonce}", "pane": "left"}},
+       {"pty_size": {"tag": "left-${nonce}-42", "pane": "left"}},
        {"daemon_prompt": true},
-       {"app_text_contains": "left-${nonce} "},
-       {"pane_frame_text": "left-${nonce}"}
+       {"app_text_contains": "left-${nonce}-42 "},
+       {"pane_frame_text": "left-${nonce}-42"}
      ]}
   ],
   "finally": [{"do": "restore_window", "from": "before-place"}]

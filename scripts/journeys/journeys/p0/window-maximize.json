@@ -12,9 +12,9 @@
     {"do": "window_place", "title": "set-up: the window at 55% x 50% of the screen", "fraction": [0.1, 0.1, 0.55, 0.5]},
     {"do": "expect", "title": "the terminal fits the placed window", "timeout": 10, "all": [{"grid_fits": {}}]},
     {"do": "remember", "as": "start"},
-    {"do": "type", "text": "seq 1 500; echo end-${nonce}", "enter": true, "mark": "filled"},
+    {"do": "type", "text": "seq 1 500; echo end-${nonce}-$((6*7))", "enter": true, "mark": "filled"},
     {"do": "expect", "title": "output, the prompt at the bottom", "since": "filled", "timeout": 15,
-     "all": [{"daemon_line": "end-${nonce}"}, {"app_prompt": true}]},
+     "all": [{"daemon_line": "end-${nonce}-42"}, {"app_prompt": true}]},
 
     {"do": "action", "title": "Window > Zoom", "action": "zoomWindow", "mark": "zoom"},
     {"do": "expect", "title": "the window fills the screen's visible frame; the grid fits it", "since": "zoom", "timeout": 10,
@@ -24,13 +24,13 @@
        {"app_prompt": true},
        {"at_bottom": {}}
      ]},
-    {"do": "type", "text": "echo max-${nonce} $(stty size)", "enter": true, "mark": "max"},
+    {"do": "type", "text": "echo max-${nonce}-$((6*7)) $(stty size)", "enter": true, "mark": "max"},
     {"do": "expect", "title": "the PTY has the zoomed grid", "since": "max", "timeout": 10,
      "all": [
-       {"pty_size": "max-${nonce}"},
+       {"pty_size": "max-${nonce}-42"},
        {"daemon_prompt": true},
-       {"app_text_contains": "max-${nonce} "},
-       {"pane_frame_text": "max-${nonce}"}
+       {"app_text_contains": "max-${nonce}-42 "},
+       {"pane_frame_text": "max-${nonce}-42"}
      ]},
 
     {"do": "action", "title": "Window > Zoom again", "action": "zoomWindow", "mark": "unzoom"},
@@ -41,13 +41,13 @@
        {"app_prompt": true},
        {"at_bottom": {}}
      ]},
-    {"do": "type", "text": "echo back-${nonce} $(stty size)", "enter": true, "mark": "back"},
+    {"do": "type", "text": "echo back-${nonce}-$((6*7)) $(stty size)", "enter": true, "mark": "back"},
     {"do": "expect", "title": "the PTY has the first grid again", "since": "back", "timeout": 10,
      "all": [
-       {"pty_size": "back-${nonce}"},
+       {"pty_size": "back-${nonce}-42"},
        {"daemon_prompt": true},
-       {"app_text_contains": "back-${nonce} "},
-       {"pane_frame_text": "back-${nonce}"}
+       {"app_text_contains": "back-${nonce}-42 "},
+       {"pane_frame_text": "back-${nonce}-42"}
      ]}
   ],
   "finally": [{"do": "restore_window", "from": "before-place"}]
