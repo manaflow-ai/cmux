@@ -386,14 +386,11 @@ impl<I: Io> Reporter<I> {
             Step::Closed => return self.close(session).await,
             _ => {}
         }
-        if self.closed.contains(session)
-            || self.handoff_closed.contains(session)
-            || !self.io.present()
-        {
+        if self.closed.contains(session) || self.handoff_closed.contains(session) {
             return;
         }
-        // While the agent is left alone (`silent`), steps still move the session's state;
-        // `report` sends nothing then, and a turn's end waits in `later`.
+        // While the agent is left alone (`silent`) or its socket is gone, steps still move the
+        // session's state; `report` sends nothing then, and a turn's end waits in `later`.
         if !self.tracks.contains_key(session) {
             self.make_room();
             if self.tracks.len() >= MAX_TRACKS {
@@ -431,7 +428,7 @@ impl<I: Io> Reporter<I> {
             {
                 self.follow(session, turn, "needs-you", what).await;
             }
-            (Step::Runs, Now::Reporting { turn, last: Some("needs-you") }) => {
+            (Step::Runs, Now::Reporting { turn, last: Some("needs-you") | None }) => {
                 self.follow(session, turn, "running", None).await;
             }
             (Step::Ended(end, named), now) => self.end(session, end, named, now, queued).await,
@@ -628,6 +625,12 @@ impl<I: Io> Reporter<I> {
         };
     }
 
+    /// Whether the session holds `turn`, failed, for a continuation.
+    pub(super) fn holds(&self, session: &str, turn: Option<u64>) -> bool {
+        matches!(self.tracks.get(session).map(|t| &t.now),
+            Some(Now::Retrying { turn: held, .. }) if Some(*held) == turn)
+    }
+
     /// Stops following every reported turn (the queue dropped steps, so one's end may be lost).
     /// A failed turn waiting for its continuation stays: its own records name it.
     pub(super) fn forget_turns(&mut self) {
@@ -650,7 +653,8 @@ impl<I: Io> Reporter<I> {
         let Some(track) = self.tracks.get_mut(session) else { return };
         match answer {
             Outcome::Accepted => track.now = Now::Reporting { turn, last: Some(status) },
-            Outcome::Unsent => {}
+            // It may have reached the store: its status is not known, so the next step reports.
+            Outcome::Unsent => track.now = Now::Reporting { turn, last: None },
             _ => track.now = Now::Quiet,
         }
     }
@@ -765,8 +769,11 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
             }
             // Queued before a loss: it may follow a lost turn's end, so it starts no turn and
             // reports no needs-you or running (ends, closes and reopens name their own).
+            // A begin of the failed turn a session holds for its continuation still counts: it
+            // names that turn, and without it the hold would report a running turn failed.
             if queued.losses != now
                 && matches!(queued.step, Step::Began(_) | Step::Asks(_) | Step::Runs)
+                && !matches!(queued.step, Step::Began(named) if reporter.holds(&queued.session, named))
             {
                 continue;
             }
@@ -786,6 +793,7 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
         }
     });
     let mut events = hub.subscribe();
+    let mut cloud = false;
     loop {
         let ev = match events.recv().await {
             Ok(ev) => ev,
@@ -803,7 +811,8 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
             continue;
         };
         // Off a Cloud machine only a session's close and reopen are kept (a few bytes each).
-        let cloud = path.exists();
+        // Once the socket was seen, steps are kept while it is gone (an agent restart).
+        cloud = cloud || path.exists();
         if !cloud && !matches!(step, Step::Closed | Step::Reopened) {
             continue;
         }

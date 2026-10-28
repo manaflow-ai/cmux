@@ -714,3 +714,61 @@ fn a_word_through_the_input_cut_is_dropped() {
     let text = format!("ok {}{}", " ".repeat(INPUT_CHARS - 7), "SECRETHEADTAIL");
     assert_eq!(cut(&text, NOTE_CHARS), "ok…");
 }
+
+/// While the agent's socket is gone (an agent restart), a turn's end and a continuation still
+/// move the session's state, and the end is sent once the socket is back.
+#[tokio::test(start_paused = true)]
+async fn a_turn_that_ends_while_the_socket_is_gone_is_reported_once_it_is_back() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running")]);
+    r.step(S, began(1)).await;
+    fake.0.lock().unwrap().absent = true;
+    r.step(S, done(1, "Done.")).await;
+    fake.0.lock().unwrap().absent = false;
+    tokio::time::advance(LATER[0]).await;
+    fake.answer([ok(1, "done")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(1, "running", None), s(1, "done", Some("Done."))]);
+    // A continuation that runs and finishes while the socket is gone is done, never failed.
+    fake.answer([ok(2, "running")]);
+    r.step(S, began(2)).await;
+    r.step(S, cut_off(2)).await;
+    fake.0.lock().unwrap().absent = true;
+    r.step(S, Step::RetryScheduled).await;
+    r.step(S, began(2)).await;
+    r.step(S, done(2, "Back.")).await;
+    fake.0.lock().unwrap().absent = false;
+    tokio::time::advance(LATER[0]).await;
+    fake.answer([ok(2, "done")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(2, "running", None), s(2, "done", Some("Back."))]);
+    assert_eq!(r.next_deadline(), None);
+}
+
+/// A needs-you whose answer never came may have reached the store, so the turn running again
+/// is reported.
+#[tokio::test(start_paused = true)]
+async fn running_again_is_reported_after_an_unanswered_needs_you() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running"), busy(), busy(), busy(), ok(1, "running")]);
+    r.step(S, began(1)).await;
+    r.step(S, Step::Asks(None)).await;
+    r.step(S, Step::Runs).await;
+    let sent = fake.take();
+    assert_eq!(sent.len(), 5, "{sent:?}");
+    assert_eq!(sent[4], s(1, "running", None));
+}
+
+/// A session holding a failed turn for its continuation says so for that turn only (the worker
+/// keeps that begin through a queue loss).
+#[tokio::test]
+async fn a_held_turn_is_held_for_its_own_continuation_only() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running")]);
+    r.step(S, began(1)).await;
+    assert!(!r.holds(S, Some(1)));
+    r.step(S, cut_off(1)).await;
+    assert!(r.holds(S, Some(1)));
+    assert!(!r.holds(S, Some(2)));
+    assert!(!r.holds(S, None));
+}
