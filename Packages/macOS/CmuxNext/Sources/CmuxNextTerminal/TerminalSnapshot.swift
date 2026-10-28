@@ -41,6 +41,11 @@ enum TerminalSnapshotRenderer {
     // crash-allow: an immutable constant; Apple documents CIContext objects as immutable and safe to share among threads
     static nonisolated(unsafe) let context = CIContext(options: [.cacheIntermediates: false, .name: "cmux-next.terminal.snapshot"])
 
+    /// ``render(_:maxPixelSize:)`` off the caller's actor, at the caller's priority: the render waits for the GPU.
+    @concurrent nonisolated static func renderOffMain(_ frame: SendableSurface, maxPixelSize: CGFloat) async -> CGImage? {
+        render(frame, maxPixelSize: maxPixelSize)
+    }
+
     /// CIContext is thread-safe.
     nonisolated static func render(_ frame: SendableSurface, maxPixelSize: CGFloat) -> CGImage? {
         let image = CIImage(ioSurface: frame.surface)
