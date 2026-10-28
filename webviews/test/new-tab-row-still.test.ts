@@ -71,9 +71,11 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
     "_acpmux/models": 800,
     "_acpmux/start_mode": 1_100,
     "_acpmux/route/list": 1_100,
+    "_acpmux/session/auth": 1_400,
   };
   /// Each page's start-mode answer having been sent, by daemon connection.
   const answered = new Map<string, () => void>();
+  const authAnswered = new Map<string, () => void>();
   /// A saved choice acpmux answers with (the person's setting or pick), by harness.
   const SAVED: Record<string, { modeId: string; name: string; level: string }> = {
     claude: { modeId: "default", name: "Manual", level: "standard" },
@@ -93,8 +95,10 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
       case "initialize":
         return {
           protocolVersion: 1,
-          _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
+          _meta: { acpmux: { origin: "local", extensions: [], operations: [], features: ["sessionAuth"] } },
         };
+      case "_acpmux/session/auth":
+        return { state: "signedIn", harness: (params.target as { harness: string }).harness };
       case "_acpmux/watch":
       case "_acpmux/sessions":
         return { sessions: [] };
@@ -184,6 +188,7 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
           const result = answer(message.method, message.params ?? {}, data.saved, data.start, data.codexStart);
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
           if (message.method === "_acpmux/start_mode") answered.get(data.page)?.();
+          if (message.method === "_acpmux/session/auth") authAnswered.get(data.page)?.();
         },
       },
     });
@@ -214,11 +219,12 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
     harness: string,
     saved = false,
     { kept = true, start = "high", codexStart = "" }: { kept?: boolean; start?: string; codexStart?: string } = {},
-  ): Promise<{ page: Page; ready: Promise<void> }> {
+  ): Promise<{ page: Page; ready: Promise<void>; authReady: Promise<void> }> {
     const page = await browsers.get(name)!.newPage({ viewport: { width: 1000, height: 760 } });
     await installPaintedFrames(page);
     const id = `p${(pages += 1)}`;
     const ready = new Promise<void>((resolve) => answered.set(id, resolve));
+    const authReady = new Promise<void>((resolve) => authAnswered.set(id, resolve));
     const endpoint = `ws://127.0.0.1:${daemon!.port}/?page=${id}${saved ? "&saved=1" : ""}&start=${start}&codexStart=${codexStart}`;
     const model = harness === "claude" ? "claude-opus-5-5" : "gpt-5.5";
     const context = {
@@ -304,7 +310,7 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
     );
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
-    return { page, ready };
+    return { page, ready, authReady };
   }
 
   /// Resolves once the page holds still: 10 painted frames with no DOM change (120 at most).
@@ -351,7 +357,7 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
     test.each(engines.map(([name]) => name))(
       `%s: the ${look} look's row on ${harness} holds still, its mode control there from the first frame`,
       async (name) => {
-        const { page, ready } = await load(name, look, harness);
+        const { page, ready, authReady } = await load(name, look, harness);
         try {
           await page.locator(".nt-field").waitFor({ timeout: 30_000 });
           const first = (await records(page))[0] ?? "";
@@ -360,7 +366,10 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
           expect(await modeName(page)).toBe(highest);
           // The harness list, its models and acpmux's start mode arrive.
           await ready;
+          // A real pending auth request settles without inserting a note or moving the DOM row.
+          await authReady;
           await settled(page);
+          expect(await page.locator(".nt-composer .acpmux-composer-remote-note").count()).toBe(0);
           expect(await modeName(page)).toBe(highest);
           const seen = await records(page);
           console.info(`${name} ${look} ${harness}: ${seen.length} record(s)\n  ${seen.join("\n  ")}`);
