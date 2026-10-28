@@ -89,6 +89,7 @@ import { editNewTabWidgets, shownPageWidgets, withWidgetEdit } from "./newtab/pa
 import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
+import { startNewTabTransition } from "./newtab/startTransition";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { animateScroll, stopScroll } from "./threadMinimap/scrollMotion";
@@ -8546,14 +8547,14 @@ function AcpmuxPane() {
     const inherited = newTab?.cwd;
     const start = (folder?: string) =>
       void (async () => {
-        // Keep the New Tab on screen while the host confirms a picked folder. Clearing it before
-        // that async handoff mounted the empty chat hero for a frame, then replaced it again when
-        // the first prompt landed.
-        setNewTab(undefined);
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
         if (folder && !text && directClient.current?.startsOnSend) {
           heldBack.current = holdNewTabAttachments(heldBack.current, attachments);
+          // Keep the New Tab on screen until the folder choice has been handed to the chat
+          // composer. Clearing it before this synchronous handoff mounted the empty chat hero for
+          // a frame, then replaced it again when the first prompt landed.
+          setNewTab(undefined);
           return setProjectDraft(folder);
         }
         const asks = text.length > 0 || attachments.length > 0;
@@ -8566,11 +8567,16 @@ function AcpmuxPane() {
           // As on the New Tab screen (screenActions.ts), the prompt goes in the same turn as the
           // switch, which queues it: sent after `chat.new` settled, a folder trust refusal left the
           // switch with nothing queued.
-          void callNative("chat.new", { ...chat, ...(folder ? { cwd: folder } : {}) })
-            .then((started) => {
-              if (started && remembers) rememberStartedProject(folder, callNative);
-            })
-            .catch(() => undefined);
+          try {
+            const started = await startNewTabTransition(
+              () => callNative("chat.new", { ...chat, ...(folder ? { cwd: folder } : {}) }),
+              () => setNewTab(undefined),
+            );
+            if (started && remembers) rememberStartedProject(folder, callNative);
+          } catch {
+            // A refused deferred start leaves the page in place until this point; the composer
+            // needs to take the prompt back after the host has answered.
+          }
           if (asks) await callNative("chat.send", message);
           return;
         }
@@ -8581,7 +8587,10 @@ function AcpmuxPane() {
         // a trust refusal asks the folder's question and Trust sends it, once (cx-nn3e P0b).
         let started: unknown;
         try {
-          started = folder ? await callNative("chat.new", { cwd: folder }) : undefined;
+          started = await startNewTabTransition(
+            () => (folder ? callNative("chat.new", { cwd: folder }) : Promise.resolve(undefined)),
+            () => setNewTab(undefined),
+          );
         } catch (error) {
           if (!asks) return;
           if (folder) setProjectDraft(folder);
