@@ -498,12 +498,24 @@ def submit_signal(rec, text, before, sent_ms):
     return check
 
 
+def bracketed_paste(text):
+    """`text` framed as one bracketed paste, with every end marker removed,
+    also one that removing another joins (cmux_tui_core::bracketed_paste)."""
+    end = b"\x1b[201~"
+    out = bytearray()
+    for byte in text.encode():
+        out.append(byte)
+        if out.endswith(end):
+            del out[-len(end):]
+    return b"\x1b[200~" + bytes(out) + end
+
+
 def verified_send(rec, text, submit=True, ready_timeout=30, render_timeout=10, submit_timeout=6):
     """Paste, see it rendered, Enter, see it submitted. Raises ActionFailed."""
     wait_ready(rec, ready_timeout)
     before_text = read_screen(rec) or ""
     before = {"busy": busy_on_screen(before_text), "user_records": user_records(rec, text)}
-    paste = b"\x1b[200~" + text.encode() + b"\x1b[201~"
+    paste = bracketed_paste(text)
     if in_composer(before_text, text):
         # The same text already sits unsent in the composer (an Enter that was
         # lost earlier): press Enter for it instead of pasting it twice.
