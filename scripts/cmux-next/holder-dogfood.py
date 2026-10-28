@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """GUI dogfood of the terminal holder model (perf lead, holder item 4), and its process and memory A/B.
 
-Launches a tagged Debug app with `CMUX_TUI_TERMINAL_HOST_MODEL=<model>` (bench_launch.py), then:
+Launches a tagged Debug app with `CMUX_NEXT_TUI_TERMINAL_HOST_MODEL=<model>` (bench_launch.py; the app strips
+inherited `CMUX_TUI_*` names and passes this knob to its daemon as `CMUX_TUI_TERMINAL_HOST_MODEL`,
+DaemonDiagnosticKnobs), then:
 
   light    the start session plus 3 new workspaces: terminal processes and RSS per terminal;
   stress   the STRESS session (perf-stress-session.py: 60 workspaces, 12-14 panes x 6 tabs, 10 busy
@@ -200,7 +202,7 @@ class Dogfood:
         # Each model's run gets its own daemon state (sessions, terminal hosts): the run before it
         # (or another step's run of this tag) must not restore its terminals into this one's count.
         # A relaunch within the run keeps it.
-        env = {"CMUX_TUI_TERMINAL_HOST_MODEL": self.opts.model, "CMUX_TUI_STATE_DIR": self.state_dir}
+        env = launch_env(self.opts.model, self.state_dir)
         self.app = BenchApp(self.opts.app, out=self.opts.out, env=env, teardown=False)
         self.app.launch()
         self.daemon = wait(lambda: Daemon(self.opts.app), 60)
@@ -243,6 +245,8 @@ class Dogfood:
 
     # -- steps ---------------------------------------------------------------------------------
     def light(self):
+        """The light shape; in the holder model also whether its terminals run on a holder at all (an app
+        whose daemon never got the model runs every terminal on a host: the run measures nothing new)."""
         shown = 0
         for index in range(3):
             surface, _ = self.new_terminal(f"light-{index}", ["/bin/sh", "-c", f"echo light-{index}; exec cat"])
@@ -250,6 +254,9 @@ class Dogfood:
         surfaces = self.daemon.surfaces()
         record = cost("light", self.opts.model, self.daemon, surfaces)
         self.step("light", shown == 3 and record["terminals"] >= 3, terminals=record["terminals"], shown=shown)
+        if self.opts.model == "holder":
+            self.step("holder-model", record["holder_processes"] >= 1,
+                      holder_processes=record["holder_processes"], host_processes=record["host_processes"])
 
     def stress(self):
         stress = load_stress()
@@ -366,6 +373,12 @@ class Dogfood:
                 pass
             teardown.end()
         return 1 if self.failed else 0
+
+
+def launch_env(model, state_dir):
+    """The app's launch environment for `model`: the app knob for the daemon's terminal host model (the app
+    unsets an inherited CMUX_TUI_TERMINAL_HOST_MODEL, LaunchIdentity.inheritedKeys) and the daemon state."""
+    return {"CMUX_NEXT_TUI_TERMINAL_HOST_MODEL": model, "CMUX_TUI_STATE_DIR": state_dir}
 
 
 def find_tab(snapshot, workspace_name):
