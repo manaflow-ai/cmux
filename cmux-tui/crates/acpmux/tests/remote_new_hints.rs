@@ -293,7 +293,7 @@ async fn retry_metadata_stays_local_when_new_is_forwarded() {
     let retry = tried(&r);
     assert!(retry.contains("'inline prompt'"), "{retry}");
     assert!(retry.contains("printf %s 'file prompt'"), "{retry}");
-    assert!(retry.contains("--prompt-file=/dev/stdin"), "{retry}");
+    assert!(retry.contains("--prompt-file=-"), "{retry}");
     server.abort();
     let _ = server.await;
     let _ = std::fs::remove_dir_all(&root);
