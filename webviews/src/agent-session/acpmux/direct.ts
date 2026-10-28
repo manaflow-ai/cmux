@@ -1159,6 +1159,8 @@ export class AcpmuxDirectClient {
     (child) => this.childChanged(child),
   );
   private sessions: Session[] = [];
+  /// Each machine's reconnect in flight (`reconnectPeer`), removed once it settles.
+  private peerReconnects = new Map<string, Promise<void>>();
   /// Senders of addressed prompts no listed chat named (`incomingContext`).
   private unknownSenders = new Set<string>();
   /// Each waiting prompt's author as its newest `queued` or `queue_updated` record named it (null:
@@ -5059,8 +5061,18 @@ export class AcpmuxDirectClient {
     const offlineCopy = this.peerCopy?.sessionId === sessionId && this.peerCopy.offline;
     if (peer && (this.peerDown(peer) || offlineCopy || row?.status === "unreachable"))
       await this.reconnectPeer(peer, true, !this.peerDown(peer));
+    // A machine that dropped since acpmux listed it (it sends no peer events) refuses the prompt
+    // as unreachable before it reached the agent: reconnected and waited for once, then the same
+    // prompt (its `promptId`) goes again; still down, the refusal is the send's.
+    const retryOnDrop = <T,>(send: () => Promise<T>): Promise<T> =>
+      send().catch(async (error: unknown) => {
+        if (!peer || !peerDown(error)) throw error;
+        await this.reconnectPeer(peer, true, true);
+        if (this.peerDown(peer)) throw error;
+        return send();
+      });
     try {
-      await this.request("session/prompt", {
+      await retryOnDrop(() => this.request("session/prompt", {
         sessionId,
         // A recording goes only to a harness that takes voice input; one moved to another
         // harness (a switch, a held prompt put back) goes as its transcript.
@@ -5075,7 +5087,7 @@ export class AcpmuxDirectClient {
           },
           ...(ticket ? { cmuxGesture: ticket } : {}),
         },
-      });
+      }));
       accept();
       // A steer's answer comes once the agent read it (Claude Code's `steered`) or its turn ended.
       if (
@@ -6547,6 +6559,22 @@ export class AcpmuxDirectClient {
   /// to 30 s), so a send can follow it. A refusal leaves the listing as it was.
   /// `dropped`: acpmux just refused it as unreachable, whatever its listing said.
   async reconnectPeer(name: string, wait = false, dropped = false): Promise<void> {
+    // One reconnect of a machine at a time: a send behind a pick's waits for it, and asks again,
+    // waiting, only when the machine is still not back.
+    const inFlight = this.peerReconnects.get(name);
+    if (inFlight) {
+      await inFlight;
+      if (!wait || !this.peerDown(name)) return;
+    }
+    const run = this.reconnectPeerNow(name, wait, dropped);
+    this.peerReconnects.set(name, run);
+    try {
+      await run;
+    } finally {
+      if (this.peerReconnects.get(name) === run) this.peerReconnects.delete(name);
+    }
+  }
+  private async reconnectPeerNow(name: string, wait: boolean, dropped: boolean): Promise<void> {
     if (dropped || this.peerDown(name)) {
       this.peerStates = { ...this.peerStates, [name]: "connecting" };
       if (!this.snapshotHold) this.emit();

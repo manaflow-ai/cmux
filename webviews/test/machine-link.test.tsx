@@ -37,8 +37,10 @@ test("this Mac draws no mark; a chat the App runs on another machine draws the A
 });
 
 test("a down machine acpmux lists is a pick that reconnects; one it no longer lists is not", () => {
-  expect(pickableDown({ id: "gpu-box", state: "offline", link: "offline" })).toBe(true);
-  expect(pickableDown({ id: "agent-vm-3", state: "reconnecting", link: "connecting" })).toBe(true);
+  expect(pickableDown({ id: "gpu-box", listed: true, link: "offline" })).toBe(true);
+  expect(pickableDown({ id: "agent-vm-3", listed: true, link: "connecting" })).toBe(true);
+  // An older daemon names no state, only its connected flag: still listed, still a pick.
+  expect(pickableDown({ id: "old-daemon-peer", listed: true, link: "offline" })).toBe(true);
   expect(pickableDown({ id: "gone", link: "offline" })).toBe(false);
   expect(pickableDown({ id: "local", link: "offline" })).toBe(true);
   expect(reconnectsOnUse("offline")).toBe(true);
@@ -181,4 +183,25 @@ test("a send in a chat whose machine is down reconnects it first, then the turn 
   expect(reconnect).toBeGreaterThan(-1);
   expect(asked[reconnect]!.params).toEqual({ name: "gpu-box", wait: true });
   expect(methods.indexOf("session/prompt")).toBeGreaterThan(reconnect);
+});
+
+test("a send in a chat whose machine dropped since it was listed is refused once, then reconnected and sent again", async () => {
+  const { client: pane, asked } = await client("connected", { chat: true, dropped: true });
+  await pane.select("on-gpu");
+  await pane.send("hello");
+  const methods = asked.map((message) => message.method);
+  const reconnect = methods.indexOf("_acpmux/peer_reconnect");
+  expect(reconnect).toBeGreaterThan(methods.indexOf("session/prompt"));
+  const prompts = asked.filter((message) => message.method === "session/prompt");
+  expect(prompts).toHaveLength(2);
+  // The same prompt, so acpmux runs it once.
+  expect((prompts[1]!.params._meta as any).acpmux.promptId).toBe((prompts[0]!.params._meta as any).acpmux.promptId);
+});
+
+test("a pick's reconnect and the send behind it reconnect the machine once at a time", async () => {
+  const { client: pane, asked } = await client("offline");
+  await Promise.all([pane.reconnectPeer("gpu-box"), pane.startSession("claude", "/home/dev/project", "gpu-box")]);
+  const reconnects = asked.filter((message) => message.method === "_acpmux/peer_reconnect");
+  expect(reconnects).toHaveLength(1);
+  expect(asked.map((message) => message.method)).toContain("session/new");
 });
