@@ -41,6 +41,10 @@ public nonisolated struct ProgramStatusSeen: Hashable, Sendable {
         (Set(keys), keys.reduce(into: [:]) { $0[$1.terminal, default: 0] += 1 })
     }
 
+    /// Seen keys ``markSeen(_:terminal:)`` read since this value was made: its cost, which tests count (a look
+    /// that changes nothing must read the tab's records, not every key). Not part of the value (`==`, `hash`).
+    private(set) var keysRead = 0
+
     public static func == (lhs: Self, rhs: Self) -> Bool { lhs.keys == rhs.keys }
     public func hash(into hasher: inout Hasher) { hasher.combine(keys) }
 
@@ -63,7 +67,9 @@ public nonisolated struct ProgramStatusSeen: Hashable, Sendable {
         let current = records.filter(Self.holdsUntilSeen).map { Self.key($0, terminal: terminal) }
         let currentSet = Set(current)
         // Already seen, and no key of a record the terminal no longer has: nothing changes.
+        keysRead += currentSet.count  // the lookups of the check below
         if currentSet.count == keysPerTerminal[terminal, default: 0], currentSet.isSubset(of: keySet) { return false }
+        keysRead += keys.count  // the rebuild reads every key
         var next = keys.filter { $0.terminal != terminal || currentSet.contains($0) }
         let present = Set(next)
         next.append(contentsOf: current.filter { !present.contains($0) })

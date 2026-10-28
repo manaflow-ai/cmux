@@ -95,6 +95,9 @@ import Testing
         #expect(candidate.id == "find")
     }
 
+    /// Stands for the Chromium tab the keys go to (its identity is what an offer records).
+    private static let tab = NSObject()
+
     /// The page did not handle Cmd-F (no `preventDefault`): cmux's Find runs, once.
     @Test func unhandledKeyRunsTheHeldActionOnce() throws {
         let ran = Ran()
@@ -106,16 +109,18 @@ import Testing
             Issue.record("Cmd-F was not offered to the page")
             return
         }
-        router.offerToPage(key, candidate: candidate, context: router.keyContext(for: Self.pageFocus, facts: Self.chromium), window: "win")
+        let tab = ObjectIdentifier(Self.tab)
+        router.offerToPage(key, candidate: candidate, context: router.keyContext(for: Self.pageFocus, facts: Self.chromium), window: "win", tab: tab)
         #expect(ran.ids.isEmpty, "Find ran before the page answered")
-        #expect(router.runUnhandledPageKey(key))
+        #expect(router.runUnhandledPageKey(key, from: tab))
         #expect(ran.ids == ["find"])
-        #expect(!router.runUnhandledPageKey(key), "a second report ran Find again")
+        #expect(!router.runUnhandledPageKey(key, from: tab), "a second report ran Find again")
         #expect(ran.ids == ["find"])
     }
 
-    /// The page handled Cmd-F (Google Sheets' own search): Chromium reports nothing, and a later
-    /// key's report never runs the held Find.
+    /// The page handled Cmd-F (Google Sheets' own search): Chromium reports nothing for it, and the
+    /// report of the next key (Cmd-G, unhandled) releases the held Find without running it, so a late
+    /// report of Cmd-F runs nothing.
     @Test func handledKeyRunsNothing() throws {
         let ran = Ran()
         let registry = Self.registry(recording: ran)
@@ -127,15 +132,16 @@ import Testing
             Issue.record("Cmd-F was not offered to the page")
             return
         }
-        router.offerToPage(handled, candidate: find, context: context, window: "win")
+        let tab = ObjectIdentifier(Self.tab)
+        router.offerToPage(handled, candidate: find, context: context, window: "win", tab: tab)
         let next = try Self.event(Self.pageOwnedKeys[1], timestamp: 2)
         guard case .offerToPage(let findNext) = router.decide(next, focus: Self.pageFocus, keyWindow: .content, facts: Self.chromium) else {
             Issue.record("Cmd-G was not offered to the page")
             return
         }
-        router.offerToPage(next, candidate: findNext, context: context, window: "win")
-        #expect(!router.runUnhandledPageKey(handled), "a stale report ran Find")
-        #expect(router.runUnhandledPageKey(next))
+        router.offerToPage(next, candidate: findNext, context: context, window: "win", tab: tab)
+        #expect(router.runUnhandledPageKey(next, from: tab))
+        #expect(!router.runUnhandledPageKey(handled, from: tab), "a stale report ran Find")
         #expect(ran.ids == ["findNext"])
     }
 }

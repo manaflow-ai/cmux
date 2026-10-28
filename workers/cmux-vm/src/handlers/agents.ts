@@ -13,7 +13,7 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Clock, Effect, Option } from "effect";
 import { CmuxVmApi } from "../api.ts";
-import { ClientSession, CreatedAgentKey } from "../api/agents.ts";
+import { ClientSession, ClientSessionList, ClientSessionSummary, CreatedAgentKey } from "../api/agents.ts";
 import { generateApiKey, hashApiKey } from "../auth/credentials.ts";
 import { TeamAdmin } from "../auth/team-admin.ts";
 import { AgentStore } from "../db/agents.ts";
@@ -177,6 +177,17 @@ export const agentsHandlers = HttpApiBuilder.group(CmuxVmApi, "agents", (handler
             });
           }),
         ),
+      ),
+    )
+    .handle("listClientSessions", ({ path }) =>
+      withOwnedVm(path.vmId, "vm:exec", "exec", (caller, vm) =>
+        Effect.gen(function* () {
+          const agents = yield* AgentStore;
+          const rows = yield* agents.liveClientSessions(TenantId.make(caller.value.tenantId), vm.value).pipe(Effect.mapError(() => unavailable()));
+          return new ClientSessionList({
+            sessions: rows.map((row) => new ClientSessionSummary({ id: row.id, vmId: vm.value, linuxUser: row.linuxUser, createdAt: row.createdAt.toISOString() })),
+          });
+        }),
       ),
     )
     .handle("revokeClientSession", ({ path }) =>

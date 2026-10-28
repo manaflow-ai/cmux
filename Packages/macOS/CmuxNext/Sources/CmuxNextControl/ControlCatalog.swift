@@ -65,6 +65,8 @@ public struct ControlArgumentInfo: Sendable, Hashable {
 public struct ControlActionInfo: Sendable, Hashable {
     public var id: String
     public var title: String
+    /// What the action does and returns (`ActionDescriptor.description`), or nil.
+    public var description: String?
     public var category: String
     public var categoryTitle: String
     public var cliName: String
@@ -172,6 +174,7 @@ public struct ControlActionInfo: Sendable, Hashable {
             "focuses": .bool(focuses),
         ]
         if let mainMenu { members["main_menu"] = .string(mainMenu) }
+        if let description { members["description"] = .string(description) }
         if let unavailableReason { members["unavailable_reason"] = .string(unavailableReason) }
         members.merge(contextGap(contextMask: contextMask)) { current, _ in current }
         if !surfaces.isEmpty {

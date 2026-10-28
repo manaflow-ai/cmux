@@ -138,8 +138,8 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
 }
 
 /// The opened call: its request, then its response (only its end while long), each as a tight
-/// block; a block with nothing in it is left out.
-function McpCallDetails({
+/// block; a block with nothing in it is left out. A sub-session card's Raw shows the same.
+export function McpCallDetails({
   id,
   call,
   raw,

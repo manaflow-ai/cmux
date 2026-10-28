@@ -124,7 +124,9 @@ extension SidebarViewComponents {
         model.applyListPreferences(state.preferences)
         model.groupByStatus(state.groupsByStatus)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
-        if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo {
+        // Controls on hover too (`sidebar.controlsOnHover`): its controls fade to the new rule.
+        if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo
+            || lastState?.preferences.controlsOnHover != state.preferences.controlsOnHover {
             setChromeRevealed(isChromeRevealed)
         }
         // A selected top item (a workspace's tile, a band item) repaints only itself and the one before it;
@@ -162,6 +164,7 @@ extension SidebarViewComponents {
             if !rows.isEmpty { list.patchRows(rows) }
         }
         if lastState?.onScreen != state.onScreen { list.syncRowStates() }
+        if listChanged || lastState?.tree != state.tree { refreshNeedsYou() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
         lastState = state

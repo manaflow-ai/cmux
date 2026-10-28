@@ -135,13 +135,12 @@ pub(super) fn prepare_in_background() {
             }
             // A new file's first exec checks its code signature; a host
             // started after this one does not wait for that check.
-            use std::os::unix::process::CommandExt;
-            let _ = std::process::Command::new(&path)
+            let _ = cmux_process::Command::new(&path)
                 .arg0(EXE_NAME)
                 .arg("--version")
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+                .stdin(cmux_process::Stdio::null())
+                .stdout(cmux_process::Stdio::null())
+                .stderr(cmux_process::Stdio::null())
                 .status();
         };
         let _ = std::thread::Builder::new().name("cmux-host-exe".into()).spawn(warm);
@@ -238,12 +237,11 @@ fn sibling_host(own: &Path) -> Option<(PathBuf, &'static str)> {
 /// daemon's build. That first exec also pays its code-signature check before
 /// a terminal waits on it.
 fn check_identity(copy: &Path, identity: &str) -> io::Result<()> {
-    use std::os::unix::process::CommandExt;
-    let output = std::process::Command::new(copy)
+    let output = cmux_process::Command::new(copy)
         .arg0(SIBLING_NAME)
         .arg("--version")
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
         .output()?;
     let answer = String::from_utf8_lossy(&output.stdout);
     let expected = format!("{SIBLING_NAME} {identity}");

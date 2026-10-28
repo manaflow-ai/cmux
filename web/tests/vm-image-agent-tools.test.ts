@@ -30,7 +30,7 @@ import {
   cuaWrapperScript,
   daemonEnvLines,
   DISPLAY_UNIT,
-  displayUnit,
+  A11Y_UNIT,
 } from "../scripts/cmux-vm-image/agent-tools";
 import { bakeOptionsFromArgv, daemonUnit } from "../scripts/cmux-vm-image/bake";
 import { CURRENT_BIN, readInputsLock, rolesManifest } from "../scripts/cmux-vm-image/lock";
@@ -125,15 +125,24 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     await bashSyntax(staticCheckCommand());
   });
 
-  test("the display listens only on its Unix socket with a cookie, and the driver runs on it as the work user", () => {
-    const display = displayUnit();
-    expect(display).toContain("-nolisten tcp");
-    expect(display).toContain("-auth ");
-    expect(display).toContain("User=cmux");
-    expect(display).not.toContain("[Install]");
+  test("the shared agent display is display :99 of the per-display template, and the driver runs on it with its AT-SPI bus as the work user", () => {
+    // One Xvfb unit for :99: the template instance, so the AT-SPI bus unit (BindsTo) can follow it.
+    expect(DISPLAY_UNIT).toBe("cmux-agent-display@99.service");
+    expect(A11Y_UNIT).toBe("cmux-agent-a11y@99.service");
+    expect(AGENT_XAUTHORITY).toBe(agentXauthority("99"));
+    const paths = agentToolsFiles().map((f) => f.path);
+    expect(paths).not.toContain("/etc/systemd/system/cmux-agent-display.service");
     const cua = cuaUnit();
     expect(cua).toContain(`Requires=${DISPLAY_UNIT}`);
+    // The tree needs the bus, input and screenshots do not: a failed bus never stops the driver.
+    expect(cua).toContain(`Wants=${A11Y_UNIT}`);
+    expect(cua).not.toContain(`Requires=${A11Y_UNIT}`);
+    expect(cua).toContain(`After=${DISPLAY_UNIT} ${A11Y_UNIT}`);
     expect(cua).toContain("Environment=DISPLAY=:99");
+    expect(cua).toContain(`Environment=XAUTHORITY=${agentXauthority("99")}`);
+    // Without a session bus cmux-cua reports "AT-SPI trees will be empty" and apps it launches expose no tree.
+    expect(cua).toContain(`Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=${a11yRuntimeDir("99")}/bus`);
+    expect(cua).toContain(`Environment=XDG_RUNTIME_DIR=${a11yRuntimeDir("99")}`);
     expect(cua).toContain(`ExecStart=${CURRENT_BIN}/cmux-cua serve`);
     expect(cua).toContain("User=cmux");
     expect(cua).not.toContain("[Install]");
@@ -218,9 +227,7 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     expect(display).toContain("[ -S /tmp/.X11-unix/X%i ]");
     expect(display).toContain("User=cmux");
     expect(display).not.toContain(":99");
-    expect(agentXauthority("%i")).not.toBe(AGENT_XAUTHORITY);
-    // :99 keeps its unit, without -noreset.
-    expect(displayUnit()).toContain(`ExecStart=/usr/bin/Xvfb :99 -screen 0 1280x800x24 -nolisten tcp -auth ${AGENT_XAUTHORITY} -s 0 -dpms\n`);
+    expect(display).toContain("-nolisten tcp");
     const a11y = a11yTemplateUnit();
     expect(a11y).toContain("BindsTo=cmux-agent-display@%i.service");
     expect(a11y).not.toContain("Requires=");

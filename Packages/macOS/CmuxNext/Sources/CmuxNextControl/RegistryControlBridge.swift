@@ -258,6 +258,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
             mainMenu: descriptor.mainMenu?.rawValue
         )
         let surfaces: [String: Any] = ActionSurfaceExport.object(descriptor)
+        info.description = descriptor.description
         info.surfaces = ["palette", "cli", "context_menu", "mcp"].reduce(into: [:]) { $0[$1] = surfaces[$1] as? String }
         info.contextMenus = surfaces["context_menus"] as? [String] ?? []
         info.disabledFeature = registry.disabledFeature(for: descriptor.id)?.rawValue

@@ -464,7 +464,11 @@ install_zig_with_sudo() {
   sudo rm -f "${bin_dir}/zig"
   sudo cp "$wrapper" "${bin_dir}/zig"
   sudo chmod 0755 "${bin_dir}/zig"
-  if ! zig_has_required_version "${bin_dir}/zig"; then
+  # Zig 0.16's `zig env` may report a stale lib_dir when installed behind a
+  # system wrapper. Verify the version and extracted root directly; the
+  # wrapper still exports ZIG_LIB_DIR for compiler invocations.
+  if [ "$("${bin_dir}/zig" version 2>/dev/null || true)" != "$ZIG_REQUIRED" ] ||
+     [ ! -f "${install_root}/lib/compiler/build_runner.zig" ]; then
     echo "Installed zig ${ZIG_REQUIRED} at ${bin_dir}/zig, but its lib_dir is incomplete" >&2
     exit 1
   fi

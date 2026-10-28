@@ -14,3 +14,9 @@ from this tree's `Native/OptChat/optchat-wasm`, which now exposes the core's che
 compaction texts of the reference client: LEAF/MERGE verbatim (no "aim for about 400 bytes") and the
 "small, mechanical job" paragraph. Only `optchat_wasm_bg.wasm` changed; the JS and type files are byte-identical.
 The experiment's copy is older (its JS differs) and was not touched.
+
+2026-10-28: rebuilt on cmux-rust-builder-1 (rustc 1.95.0, wasm-bindgen-cli 0.2.129, scratch
+~/scratch/chief-d-wasm-db88970252b with `Native/OptChat/{optchat-core,chief-kernel,optchat-wasm}` and
+`schemas/chief-profile`) from feat-cmux-next db88970252b: adds the chief-kernel exports `renderSystem`,
+`toolSpecs`, `ledgerApply` and `OptChat.callPure` (cloud-chief-durable-DESIGN.md section 13). No
+`wasm-opt` on that host: 629 KB (196 KB gzipped); the kernel lane measured 474 KB after `-Oz`.

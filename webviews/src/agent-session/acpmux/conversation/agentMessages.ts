@@ -1,8 +1,10 @@
 // Tool calls that send a message to another agent: `tell-coordinator`, `cmux send`, a write
-// into a coordinator mailbox (`coordinator-inbox/<name>.jsonl`), Claude Code's SendMessage and
-// cmux-sessions' send_to_session. The transcript draws
-// them as message cards (MessageCard.tsx) instead of raw shell or JSON.
+// into a coordinator mailbox (`coordinator-inbox/<name>.jsonl`), Claude Code's SendMessage,
+// cmux-sessions' send_to_session and the acpmux MCP server's send (`acpmux_send` behind the cmux
+// server, acpmux_mcp.rs). The transcript draws them as message cards (MessageCard.tsx) instead of
+// raw shell or JSON. A shell `acpmux send` is acpmuxSends.ts's.
 import type { AcpmuxActivity } from "../model";
+import { mcpCall } from "./mcpCalls";
 
 /// How the message went out, for the card's quiet label.
 export type AgentMessageChannel = "coordinator" | "terminal" | "mailbox" | "agent";
@@ -38,6 +40,16 @@ export function agentMessage(tool: Tool): AgentMessage | undefined {
     typeof input.session === "string"
   )
     return { channel: "agent", to: input.session, text: oneMessage(typeof input.text === "string" ? input.text : "") };
+  // The acpmux MCP server's send (acpmux_mcp.rs): `acpmux_send` behind the cmux server
+  // (`mcp__cmux__acpmux_send`, Codex's `{server: "cmux", tool: "acpmux_send"}`), `send` on the
+  // acpmux server itself, or the tool's bare or dotted name.
+  const acpmux = acpmuxSendArgs(tool);
+  if (acpmux && typeof acpmux.to === "string" && acpmux.to.trim())
+    return {
+      channel: "agent",
+      to: acpmux.to.trim(),
+      text: oneMessage(typeof acpmux.text === "string" ? acpmux.text : ""),
+    };
   // A file tool that creates or appends to a message in a mailbox. A rewrite of an existing
   // file is an edit, whatever folder it is in.
   const diffs = tool.diffs ?? [];
@@ -49,6 +61,18 @@ export function agentMessage(tool: Tool): AgentMessage | undefined {
       return { channel: "mailbox", to, text: oneMessage(diff.newText.slice(before.length)) };
   }
   return undefined;
+}
+
+function acpmuxSendArgs(tool: Tool): Record<string, unknown> | undefined {
+  const call = mcpCall(tool);
+  if (call) {
+    const named =
+      (call.server === "cmux" && call.tool === "acpmux_send") || (call.server === "acpmux" && call.tool === "send");
+    return named && call.args && typeof call.args === "object" && !Array.isArray(call.args)
+      ? (call.args as Record<string, unknown>)
+      : undefined;
+  }
+  return /^(?:cmux\.)?acpmux_send$/.test(tool.title.trim()) ? parseInput(tool.inputSummary) : undefined;
 }
 
 function parseInput(summary: string | undefined): Record<string, unknown> | undefined {

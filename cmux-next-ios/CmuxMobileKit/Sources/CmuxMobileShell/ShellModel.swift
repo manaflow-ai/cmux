@@ -2,12 +2,14 @@
 import CmuxMobileAgentChat
 import CmuxMobileAuth
 import CmuxMobileBrowserStream
+import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileSettings
 import CmuxMobileTerminal
+import CmuxMobileVoice
 import Observation
 import OSLog
 import SwiftUI
@@ -69,7 +71,7 @@ final class ShellModel {
     /// The Macs' terminal sizing policies (Settings and Connected Devices).
     var sizingService: (any TerminalSizingService)? { live }
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
-    private let mockMode: Bool
+    let mockMode: Bool
     /// The team an email invite is being written for (live mode).
     var invitingTeam: Team?
     var isFetchingInvite = false
@@ -258,6 +260,11 @@ final class ShellModel {
 
     /// Whether the route's chat is on screen now (its notification shows no banner).
     func isShowing(_ route: NotificationRoute) -> Bool {
+        // Chief lives on Home: its conversation on screen there shows the message itself.
+        if route.kind == "chief" {
+            guard UIApplication.shared.applicationState == .active, tab == .home, let id = route.conversationID else { return false }
+            return ChiefSession.conversationOnScreen == id
+        }
         guard UIApplication.shared.applicationState == .active, tab == .feed, let shown = feedPath.last,
               let destination = live?.destination(sessionID: route.sessionID, workspaceID: route.workspaceID, tabID: route.tabID) else { return false }
         return destination == shown
@@ -293,6 +300,12 @@ final class ShellModel {
         guard pendingRestore == nil, let saved = lastOpen.load() else { return }
         pendingRestore = saved
         continueRestore()
+    }
+
+    /// A link opened: the launch restore is dropped.
+    func cancelRestore() {
+        restoreAttempted = true
+        pendingRestore = nil
     }
 
     /// The workspaces (or a Mac's data phase) changed while a restore waits.
@@ -433,6 +446,18 @@ final class ShellModel {
                 theme.haptics.error()
             }
         }
+    }
+
+    /// Call Chief from anywhere: the live call, or Settings → Chief Calls
+    /// when this account has no OpenAI API key yet.
+    func callChief() {
+        guard !ChiefLiveCall.shared.start() else { return }
+        openChiefCallSettings()
+    }
+
+    func openChiefCallSettings() {
+        tab = .settings
+        settingsPath = [.chiefCalls]
     }
 
     func invite(to team: Team) {

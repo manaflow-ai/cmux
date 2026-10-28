@@ -73,8 +73,10 @@ const REPEATS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 /// ask of several questions says Next while another question is still open, and a Submit that
 /// cannot send yet names the questions it waits for ("Answer References to submit").
 /// Bare keys work while focus is inside the card, and it takes the keyboard on arrival only when
-/// nothing else has it or the composer is empty. ⌘↩ submits, and one click on the last
-/// single-choice question sends it. Escape never answers (plans/cmux-next/agent-questions.md §6):
+/// nothing else has it or the composer is empty. A click chooses an option and never sends it (Leo,
+/// 2026-10-24: "just clicking it directly just automatically sends the input. So it makes the skip
+/// and submit buttons redundant"): Submit or ⌘↩ sends, Enter sends the highlighted row, and a
+/// double-click on a single-choice option chooses and sends it. Escape never answers (plans/cmux-next/agent-questions.md §6):
 /// it hands the keyboard back to the composer and keeps every answer given so far, so the next Esc
 /// is the composer's (on an empty prompt, the press that stops a turn). The card leaves the key to
 /// the pane's own listeners, except in the floating chat, where an Esc nobody claimed hides the
@@ -316,7 +318,10 @@ function PendingQuestion({
       if (step.state.activeItem === next.activeItem) break;
       next = step.state;
     }
-    setStored(next);
+    flushSync(() => setStored(next));
+    // The keyboard goes to that question's rows, so its arrows and Return answer it (the card
+    // leaves both keys to a focused tab button).
+    group.current?.querySelector<HTMLElement>(`[data-row="${highlightedRow(next)}"]`)?.focus();
   };
 
   if (!item) return null;
@@ -399,6 +404,7 @@ function PendingQuestion({
                   // ui-allow: the roving tab stop follows the reducer's highlighted row (radio and checkbox rows alike).
                   tabIndex={row === highlighted ? 0 : -1}
                   onClick={() => dispatch({ type: "click", row })}
+                  onDoubleClick={() => dispatch({ type: "doubleClick", row })}
                   onMouseEnter={() => setHovered({ item: item.id, row })}
                 >
                   <ChoiceMark multi={multi} chosen={chosen} />

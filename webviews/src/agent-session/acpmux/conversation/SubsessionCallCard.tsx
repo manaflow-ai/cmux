@@ -1,127 +1,188 @@
-// A call to the cmux-subsessions tools (subsessionCalls.ts) as what it did to which sub-session,
-// drawn as tool rows are, in their font, height and rhythm, with nothing on hover:
-// "Started sub-session tests · Working · 2 queued" with what its turn does now under it, live
-// from the session list (subagents/subsessions.ts); "Sent to tests: <first line> · read at its next
-// step"; and for a wait, "Reply from tests" over the reply's first lines, or the sub-session's
-// state while it still runs. A sub-session waiting on the person says what for: a question (its
-// first prompt after) or a permission, which only the person answers, in its chat. Its name opens its chat beside this one without taking
-// focus (`chat.offer.open`). A call still running is one line with the working spinner.
+// A call to the cmux-subsessions tools (subsessionCalls.ts) as the sub-sessions it touched, never
+// its JSON: a start as the sub-session's card (subagents/AgentCard.tsx) over its prompt as Markdown
+// cut to three lines; a wait or a list as each one's card, a finished one's reply under it; a
+// message as "Sent message to tests" and its first line (SentMessageLine.tsx, the row a shell
+// `acpmux send` draws too), which opens to all of it. Each card reads its state live from
+// the session list (subagents/subsessions.ts). The call's JSON stays behind "Raw".
 import type { ReactNode } from "react";
-import { useContext } from "react";
+import { useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type Translate, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import {
-  SUBSESSION_STATE_LABEL,
-  SubsessionContext,
-  type SubsessionState,
-  useSubsessionInfo,
-  waitingLine,
-} from "../subagents/subsessions";
-import type { SessionWaiting } from "../sessionList";
-import { Envelope, Spinner } from "./icons";
+import type { AcpmuxActivity } from "../model";
+import { AgentCard } from "../subagents/AgentCard";
+import { SubsessionContext, useSenderChat, useSubsessionInfo, waitingLine } from "../subagents/subsessions";
+import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { Spinner } from "./icons";
+import { Markdown } from "./Markdown";
+import { McpCallDetails } from "./McpCallRows";
+import { mcpCall, mcpRawName } from "./mcpCalls";
+import { RawToggle, SentMessageLine } from "./SentMessageLine";
 import type { SubsessionCall, SubsessionDelivery, SubsessionReply } from "./subsessionCalls";
 import "./SubsessionCallCard.css";
 
-export function SubsessionCallCard({ call }: { call: SubsessionCall }) {
+type Tool = NonNullable<AcpmuxActivity["tool"]>;
+
+export function SubsessionCallCard({ call, tool }: { call: SubsessionCall; tool: Tool }) {
   switch (call.tool) {
     case "start":
-      return <StartedLine call={call} />;
+      return <StartedCard call={call} tool={tool} />;
     case "send":
-      return <SentLine call={call} />;
+      return <SentLine call={call} tool={tool} />;
     case "wait":
-      return <WaitLines call={call} />;
+    case "list":
+      return <SessionCards call={call} tool={tool} />;
   }
 }
 
-/// Stands in for the name in a translated line, so the name can be drawn as its link.
-const NAME = "\u2063name\u2063";
-
-/// `line` (translated with `{name}` as ``NAME``) with the name drawn as `node`.
-function withName(line: string, node: ReactNode): ReactNode {
-  const at = line.indexOf(NAME);
-  if (at < 0) return line;
+/// A call still running: one line with the working spinner.
+function RunningLine({ children }: { children: ReactNode }) {
   return (
-    <>
-      {line.slice(0, at)}
-      {node}
-      {line.slice(at + NAME.length)}
-    </>
+    <div className="cv-tool cv-subsession is-live">
+      <span className="cv-tool__icon">
+        <Spinner size={16} loading />
+      </span>
+      <span className="cv-tool__text">{children}</span>
+    </div>
   );
 }
 
-/// A sub-session's name: a link that opens its chat beside this one when the pane can open it.
-function SessionName({ sessionId, name }: { sessionId?: string; name: string }) {
+/// The live card of sub-session `sessionId`, with what the call knew of it until the list has it.
+function SessionCard({
+  sessionId,
+  name,
+  harness,
+  model,
+  fallback,
+  children,
+}: {
+  sessionId?: string;
+  name: string;
+  harness?: string;
+  model?: string;
+  /// Its state as the call read it, for a session the list does not have.
+  fallback?: Pick<SubsessionReply, "state" | "waiting" | "slot">;
+  children?: ReactNode;
+}) {
   const t = useT();
+  const live = useSubsessionInfo(sessionId);
+  const listed = useSenderChat("", sessionId).harness;
   const open = useContext(SubsessionContext)?.open;
-  if (!sessionId || !open) return <span className="cv-subsession__name">{name}</span>;
+  // The card's retry, as every surface reads it (retryState.ts ``sessionRetry``): while acpmux
+  // retries its failed turn, the card works, and its state says so. Its Retry is on its end line.
+  const phase = live ? sessionRetry(live) : undefined;
+  const retry = phase?.kind === "retrying" ? phase.retry : undefined;
+  const state = retry ? "working" : (live?.state ?? fallback?.state);
+  const waiting = live ? live.waiting : fallback?.waiting;
+  // A failed one says why (acpmux's lane error), a retry acpmux refused included.
+  const doing = waiting ? waitingLine(t, waiting) : (live?.doing ?? (state === "failed" ? live?.error : undefined));
   return (
-    <button
-      type="button"
-      className="cv-subsession__name is-link"
-      aria-label={t("subagents.open", { name })}
-      onClick={() => open(sessionId)}
+    <AgentCard
+      name={live?.name ?? name}
+      harness={listed ?? harness}
+      sessionId={sessionId}
+      model={live?.model ?? model}
+      state={state}
+      {...(retry && { stateLabel: retryLabel(t, retry) })}
+      slot={live ? live.slot === true : fallback?.slot === true}
+      doing={doing}
+      queued={live?.queued}
+      onOpen={sessionId && open ? () => open(sessionId) : undefined}
     >
-      {name}
-    </button>
+      {children}
+    </AgentCard>
   );
 }
 
-/// What a sub-session's state reads as after its name: its state, and how many messages wait.
-function StateDetail({ state, queued }: { state: SubsessionState; queued?: number }) {
+function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "start" }>; tool: Tool }) {
   const t = useT();
-  return (
-    <span className="cv-tool__detail cv-subsession__state" data-state={state}>
-      {" · "}
-      {t(SUBSESSION_STATE_LABEL[state])}
-      {queued ? ` · ${t("subsession.queued", { n: queued })}` : ""}
-    </span>
-  );
-}
-
-function StartedLine({ call }: { call: Extract<SubsessionCall, { tool: "start" }> }) {
-  const t = useT();
-  const live = useSubsessionInfo(call.sessionId);
-  const name = live?.name ?? call.name;
-  if (call.running)
+  if (call.running && !call.prompt)
     return (
-      <div className="cv-tool cv-subsession is-live">
-        <span className="cv-tool__icon">
-          <Spinner size={16} />
-        </span>
-        <span className="cv-tool__text">
-          {name ? t("subsession.starting", { name }) : t("subsession.startingBare")}
-        </span>
-      </div>
+      <RunningLine>
+        {call.name ? t("subsession.starting", { name: call.name }) : t("subsession.startingBare")}
+      </RunningLine>
     );
   return (
-    <>
-      <div className="cv-tool cv-subsession is-strong" data-state={live?.state}>
-        <span className="cv-tool__icon">
-          {live?.state === "working" ? <Spinner size={16} /> : <Icon name="agent.session" size={16} />}
-        </span>
-        <span className="cv-tool__text">
-          {withName(
-            t("subsession.started", { name: NAME }),
-            <SessionName sessionId={call.sessionId} name={name ?? call.sessionId!} />,
-          )}
-          {live && <StateDetail state={live.state} queued={live.queued} />}
-        </span>
-      </div>
-      <UnderLine doing={live?.doing} waiting={live?.waiting} />
-    </>
+    <SessionCard
+      sessionId={call.sessionId}
+      name={call.name ?? (call.sessionId ? shortId(call.sessionId) : t("subsession.startingBare"))}
+      harness={call.harness}
+      model={call.model}
+      // Until the call returns, the sub-session is starting: the working spinner.
+      fallback={call.running ? { state: "working" } : undefined}
+    >
+      {call.prompt && <Cut text={call.prompt} prompt />}
+      <Raw tool={tool} />
+    </SessionCard>
   );
 }
 
-/// The line under a sub-session's row: what its turn does now, or what it waits on the person for
-/// (a question or a permission, answered in its chat, which its name opens).
-function UnderLine({ doing, waiting }: { doing?: string; waiting?: SessionWaiting }) {
+/// Markdown cut to its first three lines, with a toggle to show the rest when there is more (a
+/// prompt's "Show prompt"). Whether there is more is measured: the pane's width decides the wrap,
+/// so a resize can bring the toggle in or take it away (one observer per cut, gone with it).
+export function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
   const t = useT();
-  const line = waiting ? waitingLine(t, waiting) : doing;
-  if (!line) return null;
+  const [open, setOpen] = useState(false);
+  const [long, setLong] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const id = useId();
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || open) return;
+    const measure = () => setLong(node.scrollHeight - node.clientHeight > 1);
+    measure();
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [text, open]);
   return (
-    <div className="cv-subsession__under cv-subsession__doing" data-waiting={waiting ? waiting.on : undefined}>
-      {line}
+    <div className="cv-subsession__cut">
+      <div
+        ref={ref}
+        id={id}
+        className="cv-subsession__markdown selectable"
+        data-cut={open ? undefined : true}
+        data-more={long && !open ? true : undefined}
+      >
+        <Markdown commits="quiet">{text}</Markdown>
+      </div>
+      {(long || open) && (
+        <button
+          type="button"
+          className="cv-subsession__toggle"
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {t(open ? "message.less" : prompt ? "subsession.showPrompt" : "message.more")}
+        </button>
+      )}
     </div>
+  );
+}
+
+/// The call's request and response as the generic MCP row shows them, behind "Raw".
+function Raw({ tool }: { tool: Tool }) {
+  return (
+    <RawToggle>
+      <McpDetails tool={tool} />
+    </RawToggle>
+  );
+}
+
+function McpDetails({ tool, reveal = 0 }: { tool: Tool; reveal?: number }) {
+  const id = useId();
+  const call = useMemo(() => mcpCall(tool), [tool]);
+  if (!call) return null;
+  return (
+    <McpCallDetails
+      id={id}
+      call={call}
+      raw={mcpRawName(tool, call)}
+      output={tool.output}
+      strip={false}
+      reveal={reveal}
+    />
   );
 }
 
@@ -136,94 +197,59 @@ function deliveryText(t: Translate, delivery: SubsessionDelivery): string {
         : t("subsession.delivery.queuedBare");
     case "started":
       return t("subsession.delivery.started");
+    case "slot":
+      return t("subsession.delivery.waitingForSlot");
   }
 }
 
-function SentLine({ call }: { call: Extract<SubsessionCall, { tool: "send" }> }) {
+/// "Sent message to tests" and the first line, the row a shell `acpmux send` draws too
+/// (SentMessageLine.tsx); it opens to the whole message and the call's Raw.
+function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send" }>; tool: Tool }) {
   const t = useT();
   const live = useSubsessionInfo(call.sessionId);
-  const name = live?.name ?? shortId(call.sessionId);
-  const first = firstLine(call.text);
   return (
-    <div className={`cv-tool cv-subsession${call.running ? " is-live" : " is-strong"}`}>
-      <span className="cv-tool__icon">{call.running ? <Spinner size={16} /> : <Envelope />}</span>
-      <span className="cv-tool__text">
-        {withName(
-          t(call.running ? "subsession.sending" : "subsession.sent", { name: NAME, text: first }),
-          <SessionName sessionId={call.sessionId} name={name} />,
-        )}
-        {call.delivery && <span className="cv-tool__detail">{` · ${deliveryText(t, call.delivery)}`}</span>}
-      </span>
-    </div>
+    <SentMessageLine
+      tool={tool}
+      state={call.running ? "sending" : "sent"}
+      target={live?.name ?? shortId(call.sessionId)}
+      text={call.text}
+      detail={call.delivery && deliveryText(t, call.delivery)}
+      disclosureKey={`send:${tool.id}`}
+      targetSession={call.sessionId}
+      raw={(reveal) => <McpDetails tool={tool} reveal={reveal} />}
+    />
   );
 }
 
-function WaitLines({ call }: { call: Extract<SubsessionCall, { tool: "wait" }> }) {
+/// A wait's or a list's sub-sessions, a card each, a finished one's last reply under its card.
+function SessionCards({ call, tool }: { call: Extract<SubsessionCall, { tool: "wait" | "list" }>; tool: Tool }) {
   const t = useT();
   if (call.running)
-    return (
-      <div className="cv-tool cv-subsession is-live">
-        <span className="cv-tool__icon">
-          <Spinner size={16} />
-        </span>
-        <span className="cv-tool__text">{t("subsession.waiting")}</span>
-      </div>
-    );
+    return <RunningLine>{t(call.tool === "wait" ? "subsession.waiting" : "subsession.listing")}</RunningLine>;
   if (call.sessions.length === 0)
     return (
       <div className="cv-tool cv-subsession">
         <span className="cv-tool__icon">
           <Icon name="agent.session" size={16} />
         </span>
-        <span className="cv-tool__text">{t("subsession.waitNone")}</span>
+        <span className="cv-tool__text">{t(call.tool === "wait" ? "subsession.waitNone" : "subsession.listNone")}</span>
       </div>
     );
   return (
-    <>
+    <div className="cv-subsession__cards">
       {call.sessions.map((session) => (
-        <ReplyLine key={session.sessionId} session={session} />
+        <SessionCard
+          key={session.sessionId}
+          sessionId={session.sessionId}
+          name={session.name ?? shortId(session.sessionId)}
+          harness={session.harness}
+          fallback={session}
+        >
+          {session.reply && session.state !== "working" && <Cut text={session.reply} />}
+        </SessionCard>
       ))}
-    </>
-  );
-}
-
-/// One sub-session a wait read: its reply once it finished, else its state then ("Still running").
-function ReplyLine({ session }: { session: SubsessionReply }) {
-  const t = useT();
-  const live = useSubsessionInfo(session.sessionId);
-  const name = live?.name ?? session.name ?? shortId(session.sessionId);
-  const link = <SessionName sessionId={session.sessionId} name={name} />;
-  const replied = session.state === "done" || (session.state === "failed" && session.reply);
-  return (
-    <>
-      <div className={`cv-tool cv-subsession${replied ? " is-strong" : ""}`} data-state={session.state}>
-        <span className="cv-tool__icon">
-          <Icon name="agent.session" size={16} />
-        </span>
-        <span className="cv-tool__text">
-          {replied ? withName(t("subsession.reply", { name: NAME }), link) : link}
-          {session.state === "working" ? (
-            <span className="cv-tool__detail">{` · ${t("subsession.stillRunning")}`}</span>
-          ) : (
-            session.state !== "done" && <StateDetail state={session.state} />
-          )}
-        </span>
-      </div>
-      {replied && session.reply && (
-        <div className="cv-subsession__under cv-subsession__reply selectable">{session.reply}</div>
-      )}
-      {session.state === "input" && <UnderLine waiting={session.waiting} />}
-    </>
-  );
-}
-
-/// A message's first line that says something.
-function firstLine(text: string): string {
-  return (
-    text
-      .split("\n")
-      .map((line) => line.trim())
-      .find(Boolean) ?? ""
+      <Raw tool={tool} />
+    </div>
   );
 }
 

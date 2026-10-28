@@ -218,6 +218,10 @@ export default componentEntry({
       folderTrust,
       "An agent's sub-session waits in an untrusted folder: Trust folder or Not now. Trust lets the start go on by itself.",
     ),
+    "folder-trust-picked": {
+      ...variant(folderTrust, "Trust folder clicked: the row is chosen and nothing is sent until Submit (or ⌘↩)."),
+      play: (ctx) => ctx.click({ selector: '.acpmux-question-row[data-row="0"]' }),
+    },
     "pending-multi": variant(pendingMulti, "A multi-select ask: checkbox rows."),
     "pending-other-typing": variant(pendingOther, "Other turned into an inline text field."),
     "pending-with-preview": variant(
@@ -250,6 +254,7 @@ export default componentEntry({
       },
       play: async (ctx) => {
         await ctx.click({ selector: '.acpmux-question-row[data-row="0"]' });
+        await ctx.click({ selector: ".acpmux-question-submit" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-question-error"));
       },
     },

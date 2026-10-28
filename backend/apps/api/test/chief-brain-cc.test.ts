@@ -87,6 +87,16 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     for (const secret of [...cloud.keys, ...cloud.started.map((s) => s.input.token)]) expect(all).not.toContain(secret)
   })
 
+  it("starts the tailnet key request with the VM create, not after it (the setup calls that do not depend on each other overlap)", async () => {
+    const cloud = fakeCloud(() => "ok", undefined, undefined, { create: 250, key: 250 })
+    const { token, chief } = await enabledChief("chief-cc-setup-overlap", "cc")
+    expect((await send(token, chief.main_conversation, "o1", "hello")).ok).toBe(true)
+    await replies(token, chief.main_conversation, chief.id, 1)
+    const at = (n: string) => cloud.events.find((e) => e.name === n)!.at
+    // Serial setup would start the key request only after the create ended (250 ms later).
+    expect(at("key:start")).toBeLessThan(at("create:end"))
+  })
+
   it("opens the public Internet (IPv4 and IPv6, DNS) to the agent by default: applied after the VM joins, before the turn starts", async () => {
     const cloud = fakeCloud(() => "online")
     const { token, chief } = await enabledChief("chief-cc-net-default", "cc")

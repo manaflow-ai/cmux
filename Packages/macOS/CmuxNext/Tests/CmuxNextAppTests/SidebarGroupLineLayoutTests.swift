@@ -103,7 +103,7 @@ import Testing
             #expect(view.railShape.frame.width == 2 && view.railShape.frame.height >= 4096,
                     "\(layout): the cut shape covers a rail during its bounds spring")
 
-            #expect(line.minX == loose.frame.minX - SidebarStyle.groupRailReach, "\(layout): the line left the rail, at \(line.minX)")
+            #expect(line.minX == max(loose.frame.minX - SidebarStyle.groupRailReach, SidebarStyle.groupEdgePadding), "\(layout): the line left the rail, at \(line.minX)")
             #expect(header.pill.frame.minX == 0 && header.pill.frame.width == head.width, "\(layout): the bar spans \(header.pill.frame)")
             switch layout {
             case .edge, .joined:
@@ -200,7 +200,9 @@ import Testing
                     return false
                 }
                 if let member { // a group of subgroups only has no own member to measure the rail from
-                    #expect(line.frame.minX == list.frame(for: member).minX - SidebarStyle.groupRailReach, "\(layout): \(line.group.rawValue) left its rail")
+                    // A top-level rail keeps `groupEdgePadding` from the list's edge (b5400e7e342f4).
+                    let rail = max(list.frame(for: member).minX - SidebarStyle.groupRailReach, SidebarStyle.groupEdgePadding)
+                    #expect(line.frame.minX == rail, "\(layout): \(line.group.rawValue) left its rail")
                 }
                 for row in list.displayed.rows {
                     let frame = list.frame(for: row)

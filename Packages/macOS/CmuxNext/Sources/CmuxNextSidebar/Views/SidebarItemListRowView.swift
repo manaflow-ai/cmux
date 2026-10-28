@@ -10,6 +10,8 @@ final class SidebarItemListRowView: SidebarRowView {
     private let icon = SidebarIconView()
     private let title = SidebarRowView.label(font: SidebarStyle.titleFont)
     private var hasIcon = false
+    /// Archived in the sidebar document: the row draws dimmed (`SidebarStyle.archivedAlpha`).
+    private var archived = false
     /// Runs the item from an accessibility AXPress.
     var onSelect: (() -> Void)?
 
@@ -25,6 +27,7 @@ final class SidebarItemListRowView: SidebarRowView {
     }
 
     override var debugIcon: String? { hasIcon ? "favicon" : nil }
+    override var debugArchived: Bool { archived }
     override var debugIconAddress: String? { hasIcon ? iconAddress : nil }
     private var iconAddress: String?
     override var titleFrame: NSRect { title.frame }
@@ -43,6 +46,8 @@ final class SidebarItemListRowView: SidebarRowView {
         iconAddress = item.iconAddress
         icon.configure(icon: favicon.map(WorkspaceIcon.favicon))
         icon.isHidden = !hasIcon
+        archived = item.isArchived
+        icon.alphaValue = archived ? SidebarStyle.archivedAlpha : 1
         setAccessibilityElement(true)
         setAccessibilityRole(.row)
         setAccessibilityIdentifier("cmux.sidebar.item.\(item.id)")
@@ -59,7 +64,7 @@ final class SidebarItemListRowView: SidebarRowView {
 
     override func updateLayer() {
         performWithTheme {
-            title.textColor = Palette.textPrimary
+            title.textColor = archived ? Palette.textPrimary.withAlphaComponent(SidebarStyle.archivedAlpha) : Palette.textPrimary
             paintFill(isSelected ? Palette.selectionFill : isHovered ? Palette.hoverFill : nil)
         }
     }

@@ -266,7 +266,7 @@ impl Hub {
         if pick("peer").is_some_and(|p| !p.is_empty()) {
             return Ok(());
         }
-        let (family, start) = {
+        let (family, bridge, start) = {
             let cfg = self.config.read().await;
             let Some(start) = StartMode::of(params, &cfg) else { return Ok(()) };
             let adopted =
@@ -281,26 +281,42 @@ impl Hub {
                 false,
                 cwd,
             ) {
-                Ok(r) => (crate::config::derive_family(&r.agent, &r.profile), start),
+                Ok(r) => (
+                    crate::config::derive_family(&r.agent, &r.profile),
+                    crate::codex_app_server::is_profile_launch(&r.profile.argv),
+                    start,
+                ),
                 // Not startable: the handler answers why.
                 Err(_) => return Ok(()),
             }
         };
-        self.start_mode_check(caller, &family, &start).map(|_| ())
+        self.start_mode_check(caller, &family, bridge, &start).await.map(|_| ())
     }
 
     /// Whether a client that is not the person may start a session of
     /// `family` in `start` (module docs, (a), (b)), and why; the refusal
     /// names where to approve it (d). An adopt never takes a mode that does
     /// not ask: it may find a session already running, which only the
-    /// person widens (`session/set_mode`).
-    pub(crate) fn start_mode_check(
+    /// person widens (`session/set_mode`). A mode that asks needs nothing:
+    /// one the asking table lists for `family`, or on the Codex bridge
+    /// (`bridge`) its `ask` or `read-only` (`start_mode.rs` `NARROW_MODES`),
+    /// which the table leaves out because it refuses Codex for the Web. An
+    /// adopt never takes the bridge's: the session it finds may run another
+    /// harness than the one it was created on. A caller in the bridge lends
+    /// its mode only to the bridge: the same id on another Codex harness (the
+    /// codex-acp adapter's `read-only`) may be wider.
+    pub(crate) async fn start_mode_check(
         &self,
         caller: Option<&str>,
         family: &str,
+        bridge: bool,
         start: &StartMode,
     ) -> Result<StartGrant, RpcError> {
-        if self.web_modes().config_value_asks(family, None, Some(start.mode.as_str())) {
+        if self.web_modes().config_value_asks(family, None, Some(start.mode.as_str()))
+            || (bridge
+                && !start.adopts
+                && super::start_mode::NARROW_MODES.contains(&start.mode.as_str()))
+        {
             return Ok(StartGrant::Asks);
         }
         if start.adopts {
@@ -310,12 +326,15 @@ impl Hub {
             return Ok(StartGrant::Preset);
         }
         // The caller's mode now, on the session the daemon bound it to.
-        let inherits =
-            caller.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id)).is_some_and(|s| {
+        let inherits = match caller.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id)) {
+            Some(s) => {
                 let m = s.meta();
                 crate::web_modes::family_of(&m) == family
                     && crate::web_modes::mode_of(&m).as_deref() == Some(start.mode.as_str())
-            });
+                    && (bridge || !self.may_run_bridge(&m).await)
+            }
+            None => false,
+        };
         if inherits {
             Ok(StartGrant::Inherit)
         } else {
@@ -323,21 +342,46 @@ impl Hub {
         }
     }
 
+    /// Whether session `s` runs the Codex bridge both as it was created (its
+    /// recorded argv) and as its harness is configured now, which a respawn
+    /// (`lifecycle.rs` `child_for`) starts (`web_modes::any_mode_for_web`).
+    async fn runs_bridge(&self, s: &Session) -> bool {
+        let meta = s.meta();
+        crate::web_modes::any_mode_for_web(&meta, self.profile_now(&meta).await.as_ref())
+    }
+
+    /// The profile session `m` would start from now, as a respawn resolves it
+    /// (`lifecycle.rs` `child_for`): its catalog harness or its folder profile.
+    async fn profile_now(&self, m: &crate::store::SessionMeta) -> Option<HarnessProfile> {
+        let cfg = self.config.read().await;
+        super::resolve::session_profile(&cfg, &m.harness, &m.cwd, m.remote_origin).ok()
+    }
+
+    /// Whether session `m` may run the Codex bridge: as it was created (its
+    /// recorded argv) or as its harness is configured now.
+    async fn may_run_bridge(&self, m: &crate::store::SessionMeta) -> bool {
+        crate::codex_app_server::is_profile_launch(&m.harness_argv)
+            || self
+                .profile_now(m)
+                .await
+                .is_some_and(|p| crate::codex_app_server::is_profile_launch(&p.argv))
+    }
+
     /// Whether a `session/new` keeps the harness's own start mode rather
     /// than the default one (`hub/start_mode.rs`): it names its own
-    /// (`StartMode`, set after the start), or a caller session that is not
-    /// the person runs in a mode that asks, so a chat it starts is never
-    /// wider than it ((a)).
-    pub(crate) async fn keeps_harness_mode(
-        &self,
-        person: bool,
-        caller: Option<&str>,
-        params: &Value,
-    ) -> bool {
+    /// (`StartMode`, set after the start), or a caller session (`caller`,
+    /// never the person) runs in a mode that asks, so a chat it starts is
+    /// never wider than it ((a)). A caller that is the chat's starter
+    /// ([`Hub::starter_of`]) instead gives it its own level (`start_mode.rs`,
+    /// "Inherit").
+    pub(crate) async fn keeps_harness_mode(&self, caller: Option<&str>, params: &Value) -> bool {
         if StartMode::of(params, &*self.config.read().await).is_some() {
             return true;
         }
-        let caller = caller.filter(|_| !person).and_then(|id| self.resolve(id).ok());
+        if self.starter_of(false, caller).is_some() {
+            return false;
+        }
+        let caller = caller.and_then(|id| self.resolve(id).ok());
         caller.is_some_and(|s| {
             let m = s.meta();
             let family = crate::web_modes::family_of(&m);
@@ -347,6 +391,15 @@ impl Hub {
                 crate::web_modes::mode_of(&m).as_deref(),
             )
         })
+    }
+
+    /// The caller session a `session/new` inherits from (`start_mode.rs`, "Inherit"): the one
+    /// `caller` proved (an agent's call, never the person), unless the connection is `web` (a
+    /// remote one, which has none), or the session is one a remote connection started.
+    pub(crate) fn starter_of(&self, web: bool, caller: Option<&str>) -> Option<String> {
+        let id = caller.filter(|_| !web)?;
+        let s = self.resolve(id).ok().filter(|s| s.id == id)?;
+        (!s.meta().remote_origin).then(|| s.id.clone())
     }
 
     /// A `_acpmux/presets` write without the person (module docs, (b)): no
@@ -408,14 +461,32 @@ impl Hub {
             );
             return Ok(());
         }
+        let bridge = !person && self.runs_bridge(s).await;
         let checked = if person {
             Ok(StartGrant::Person)
         } else {
-            self.start_mode_check(caller, &crate::web_modes::family_of(&s.meta()), &start)
+            self.start_mode_check(caller, &crate::web_modes::family_of(&s.meta()), bridge, &start)
+                .await
         };
         let applied = match checked {
             Ok(grant) => match self.set_mode(s, &start.mode).await {
+                // The bridge's mode set on what runs now: `set_mode` may have respawned the
+                // harness from a profile changed since the check.
+                Ok(_)
+                    if bridge
+                        && matches!(grant, StartGrant::Asks)
+                        && !self.runs_bridge(s).await =>
+                {
+                    Err(mode_person_required(&start.mode, start.preset.as_deref(), true, true))
+                }
                 Ok(_) => {
+                    // A mode granted because the caller runs in it is cmux's own only when the
+                    // caller's is: a mode the caller's harness reported by itself passes on no
+                    // `mode_set_by_cmux` (`trust_wait.rs` `full_access_by_cmux`).
+                    if matches!(grant, StartGrant::Inherit) && !self.mode_is_cmux_set(caller) {
+                        s.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux = None;
+                        self.save_meta(s);
+                    }
                     self.note_start_grant(s, grant, bound);
                     Ok(())
                 }
@@ -430,6 +501,14 @@ impl Hub {
             return Err(e);
         }
         Ok(())
+    }
+
+    /// Whether session `caller` runs in the mode cmux last set on it (`SessionMeta::mode_set_by_cmux`).
+    fn mode_is_cmux_set(&self, caller: Option<&str>) -> bool {
+        caller.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id)).is_some_and(|s| {
+            let m = s.meta();
+            m.mode_set_by_cmux.is_some() && crate::web_modes::mode_of(&m) == m.mode_set_by_cmux
+        })
     }
 
     /// A bare "agent process closed" from a process that died while it

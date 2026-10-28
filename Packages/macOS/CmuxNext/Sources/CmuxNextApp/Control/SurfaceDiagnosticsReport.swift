@@ -38,7 +38,7 @@ enum SurfaceDiagnosticsReport {
                    let page = view.content as? PageWebView {
                     object["phase"] = .string(page.hasPainted ? "painted" : "loading")
                 }
-                #if DEBUG
+                #if DEBUG || CMUX_BENCH_HOOKS
                 // A web page tab's current address (the live engine's, else the tab record's), so a script can tell
                 // which page a pane shows.
                 if case .browser(let entry)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
@@ -58,7 +58,7 @@ enum SurfaceDiagnosticsReport {
                     object["last_frame_holds"] = JSONValue(diagnostics.lastFrameHolds)
                     object["frame_held"] = .bool(diagnostics.holdingFrame)
                     if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
-                    #if DEBUG
+                    #if DEBUG || CMUX_BENCH_HOOKS
                     if let grid = Self.grid(entry.session.surfaceView, window: row.window) { object["grid"] = grid }
                     // The font zoom the terminal draws at, as a scale of the configured
                     // `font-size` (1 at that size); its tab record saves it (cx-mzuqi).
@@ -87,11 +87,13 @@ enum SurfaceDiagnosticsReport {
             "warm_terminal_capacity": JSONValue(services.cache.warmBudget.terminalCapacity),
             "last_frames": .object(services.cache.lastFrames.report.mapValues { JSONValue($0) }),
             "parked_workspaces": JSONValue(services.windows.controllers.reduce(0) { $0 + $1.parked.count }),
+            "hibernated_workspaces": JSONValue(services.workspaceHibernation.hibernated.count),
+            "workspaces_hibernated_total": JSONValue(services.workspaceHibernation.hibernatedCount),
             "hibernation": hibernation(services),
         ]
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The terminal's grid in window points from the top-left (`debug.mouse`'s coordinates):
     /// cell size, the first cell's corner and the view's frame, and the window for `debug.mouse`.
     private static func grid(_ view: TerminalSurfaceView, window controller: WindowController) -> JSONValue? {
@@ -131,6 +133,7 @@ enum SurfaceDiagnosticsReport {
             "awake_neighbors": .array(hibernation.awakeNeighbors.sorted().map(JSONValue.string)),
             "prewarmed_total": JSONValue(hibernation.prewarmedCount),
             "cold_shows_total": JSONValue(hibernation.coldShows),
+            "uncovered_wakes_total": JSONValue(hibernation.uncoveredWakes),
             "exemptions": .object(hibernation.exemptions.mapValues { .string($0.rawValue) }),
             "snapshots": JSONValue(hibernation.snapshots.count),
             "snapshot_bytes": JSONValue(hibernation.snapshots.totalBytes),

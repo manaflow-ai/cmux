@@ -267,3 +267,42 @@ test("a minimal ACP tool subject uses the request title in the grouped row", asy
   );
   await act(async () => root.unmount());
 });
+
+// Leo, 2026-10-21 ("this literally doesn't work"): a chat on another machine drew Allow, Always and
+// Deny, and every answer came back refused. That machine's acpmux allows only from its own app, and
+// the read says so (`allowRefused`): the row offers Deny, which counts, and says where to approve.
+test("an ask whose allows the daemon refuses offers only Deny and says where to approve", async () => {
+  const { PermissionPanel } = await import("../src/agent-session/acpmux/permissions/Panel");
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const responses: string[] = [];
+  const state = { ...permissions("pending"), allowRefused: "permission.person_required" };
+  await act(async () =>
+    root.render(
+      <PermissionPanel
+        state={state}
+        working
+        onRespond={(_group, _revision, decision) => responses.push(decision)}
+        onRetry={() => {}}
+        onRevoke={() => {}}
+        onRefresh={() => {}}
+      />,
+    ),
+  );
+  const panel = dom.window.document.querySelector<HTMLElement>(".acpmux-permission-panel")!;
+  const buttons = [...panel.querySelectorAll<HTMLButtonElement>("button")].filter(
+    (button) => !button.hasAttribute("aria-expanded"),
+  );
+  expect(buttons.map((button) => button.textContent?.trim())).toEqual(["Deny"]);
+  const seen = visibleText(panel).replace(/\s+/g, " ");
+  expect(seen).toContain("Only the cmux app can approve this. Approve it in cmux on the Mac that runs this chat.");
+  expect(seen).not.toContain("Always also allows");
+  // The allow shortcuts do nothing; Deny's still answers.
+  await act(async () => {
+    dom.window.dispatchEvent(new dom.window.Event("cmux-acpmux-permissionAllowOnce"));
+    dom.window.dispatchEvent(new dom.window.Event("cmux-acpmux-permissionAllowChat"));
+  });
+  expect(responses).toEqual([]);
+  await act(async () => buttons[0]!.click());
+  expect(responses).toEqual(["deny"]);
+  await act(async () => root.unmount());
+});

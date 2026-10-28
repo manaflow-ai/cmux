@@ -13,6 +13,14 @@
 /// ```
 ///
 /// "off" disables it completely, including under memory pressure.
+///
+/// A discard reloads the page when it wakes: it loses its scroll, form state and script state,
+/// and a page behind a login or a sudo prompt can come back signed out ("why does cmux-next's
+/// browser keep refreshing and reloading?", Leo 2026-10-26). So hidden pages only freeze by
+/// default; they are discarded on their own (after the timeout or under memory pressure) only
+/// once cmux.json sets `browser.hibernation` (`discardsAutomatically`). The person's Hibernate
+/// Tab discards whatever the setting.
+///
 /// `freezeHiddenTabs` is separate: a hidden Chromium page freezes (its timers,
 /// tasks and rendering stop; it keeps its memory and state) after that many
 /// seconds, and thaws when shown. It saves power, not memory.
@@ -48,13 +56,19 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     public var neighborRadius: Int
     /// One tab on each side by default: Ctrl-Tab, Cmd-Shift-[ ] and the next click are warm.
     public static let defaultNeighborRadius = 1
+    /// Hidden pages are discarded on their own (the timeout, memory pressure). False unless
+    /// cmux.json sets `browser.hibernation`: a discarded page reloads when it wakes, so by
+    /// default hidden pages only freeze, which keeps their state.
+    public var discardsAutomatically: Bool
     /// The values `browser.keepNeighborTabsAwake` accepts.
     public static let neighborRadiusRange = 0...3
 
     public init(mode: Mode, exclusions: [String] = [], includesPinnedTabs: Bool = false,
                 freezeSeconds: Double? = BrowserHibernationSetting.defaultFreezeSeconds,
-                neighborRadius: Int = BrowserHibernationSetting.defaultNeighborRadius) {
+                neighborRadius: Int = BrowserHibernationSetting.defaultNeighborRadius,
+                discardsAutomatically: Bool = true) {
         self.mode = mode
+        self.discardsAutomatically = discardsAutomatically
         self.exclusions = exclusions
         self.includesPinnedTabs = includesPinnedTabs
         self.freezeSeconds = freezeSeconds
@@ -62,7 +76,8 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     }
 
     public static let configPath = ["browser", "hibernation"]
-    public static let fallback = BrowserHibernationSetting(mode: .moderate)
+    /// No `browser.hibernation` in cmux.json: hidden pages freeze and are never discarded on their own.
+    public static let fallback = BrowserHibernationSetting(mode: .moderate, discardsAutomatically: false)
     public static let neighborRadiusPath = ["browser", "keepNeighborTabsAwake"]
     public static let exclusionsPath = ["browser", "hibernationExclusions"]
 
@@ -116,9 +131,11 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
         if let value = browser["hibernation"] {
             if let number = value.doubleValue, number > 0 {
                 setting.mode = .minutes(number)
+                setting.discardsAutomatically = true
             } else if let text = value.stringValue, let mode = [("off", Mode.off), ("moderate", .moderate), ("aggressive", .aggressive)]
                 .first(where: { $0.0 == text })?.1 {
                 setting.mode = mode
+                setting.discardsAutomatically = true
             } else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "browser.hibernation",
                                                       message: "expected \"off\", \"moderate\", \"aggressive\" or a number of minutes > 0"))

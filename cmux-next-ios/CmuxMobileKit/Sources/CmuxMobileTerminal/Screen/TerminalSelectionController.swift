@@ -194,6 +194,7 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         guard autoscrollLink == nil else { return }
         autoscrollBegan()
         let link = CADisplayLink(target: self, selector: #selector(autoscrollTick(_:)))
+        link.preferredFrameRateRange = .terminal
         link.add(to: .main, forMode: .common)
         autoscrollLink = link
         autoscrollLastTime = 0

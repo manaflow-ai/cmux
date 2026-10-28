@@ -194,7 +194,7 @@ extension TabStripView {
         groups.holdTask?.cancel()
         let sleep = groups.sleep
         groups.holdTask = Task { [weak self] in
-            do { try await sleep(.milliseconds(450)) } catch { return }
+            do { try await sleep(.milliseconds(450)) } catch { return } // wakeup-allow: the one 450 ms click-and-hold delay; mouse-up, a drag or the next hold cancels it
             guard let self, !Task.isCancelled, self.groups.press?.groupID == group, self.groups.drag == nil else { return }
             self.groups.press?.openedEditor = true
             self.groups.chips[group]?.isPressed = false

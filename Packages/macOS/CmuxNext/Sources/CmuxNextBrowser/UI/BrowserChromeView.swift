@@ -77,6 +77,10 @@ public final class BrowserChromeView: NSView {
     /// square; the pane's one rounded content area clips this whole view.
     let contentContainer = NSView()
     public var onPaneHeaderHeightChange: (() -> Void)?
+    /// The page entered (true) or left (false) element fullscreen: the host may give it the whole
+    /// screen, as Chrome does (`WindowController+FullScreen`).
+    public var onContentFullscreenChange: ((Bool) -> Void)?
+    private var reportedContentFullscreen = false
     /// The band under the toolbar rows for the pane's tab strip (R109).
     let headerBand = BrowserHeaderBand()
     let findBar = FindBarView()
@@ -91,6 +95,9 @@ public final class BrowserChromeView: NSView {
         return isToolbarHidden ? 0 : currentToolbarHeight
     }
     private var observation: ObservationLoop?
+    /// Prompts have their own loop: a state change (a title, progress) does not re-render the prompt
+    /// bar, and a new prompt does not re-run the rest of the chrome.
+    private var promptObservation: ObservationLoop?
     /// The address a page woken from hibernation slept on, shown until the
     /// woken page reports a real one (`holdAddress(whileWaking:)`).
     var wakingAddress: BrowserTabState?
@@ -353,6 +360,7 @@ public final class BrowserChromeView: NSView {
 
     private func attach(_ tab: any BrowserTab, replacing old: (any BrowserTab)?) {
         observation?.cancel()
+        promptObservation?.cancel()
         // Another page in this toolbar: the held address was the old page's.
         if let old, old !== tab { wakingAddress = nil }
         siteZoom.follow(tab)
@@ -379,6 +387,10 @@ public final class BrowserChromeView: NSView {
             findBar.isHidden = true
         }
         observation = ObservationLoop { [weak self] in self?.render() }
+        promptObservation = ObservationLoop { [weak self] in
+            self?.renderPrompt()
+            self?.updateOcclusion()
+        }
     }
 
     /// Permission prompts in the bar; JavaScript dialogs as cmux dialogs on this tab.
@@ -406,10 +418,13 @@ public final class BrowserChromeView: NSView {
 
         pageStatus.render(state)
 
-        renderPrompt()
-
         setToolbarHidden(state.isContentFullscreen || isOmnibarHidden)
         updateOcclusion()
+        if state.isContentFullscreen != reportedContentFullscreen {
+            reportedContentFullscreen = state.isContentFullscreen
+            // task-owner: the host's window work runs after this render, outside its observation.
+            Task { @MainActor [weak self, on = reportedContentFullscreen] in self?.onContentFullscreenChange?(on) }
+        }
     }
 
     /// A move to a screen with another scale snaps the toolbar gap again.

@@ -2,9 +2,23 @@ import AppKit
 
 /// The palette's query field. An AX client reads a text field through its cell.
 final class PaletteSearchField: NSTextField {
+    private weak var responderWindow: NSWindow?
+
     override class var cellClass: AnyClass? {
         get { PaletteSearchFieldCell.self }
         set {}
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if responderWindow !== window {
+            if responderWindow?.initialFirstResponder === self {
+                responderWindow?.initialFirstResponder = nil
+            }
+        }
+        responderWindow = window
+        guard let window else { return }
+        window.initialFirstResponder = self
     }
 }
 

@@ -10,8 +10,9 @@ pub(crate) struct Briefs {
 }
 
 impl Briefs {
-    pub(crate) fn open() -> Self {
-        let path = crate::config::home().join("briefs.json");
+    /// The ledger saved at `path` (`Store::briefs_path`), or one in memory only.
+    pub(crate) fn open(path: Option<std::path::PathBuf>) -> Self {
+        let Some(path) = path else { return Self::default() };
         let (rows, load_failed) = match std::fs::read(&path) {
             Ok(bytes) => match serde_json::from_slice(&bytes) {
                 Ok(rows) => (rows, false),
@@ -87,15 +88,6 @@ impl Briefs {
         self.rows.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
     }
 
-    pub(crate) fn by_idempotency(&self, key: &str) -> Option<Value> {
-        self.rows
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .find(|row| row.get("idempotencyKey").and_then(Value::as_str) == Some(key))
-            .cloned()
-    }
-
     pub(crate) fn update(&self, id: &str, patch: impl FnOnce(&mut Value)) -> Option<Value> {
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
         let row = rows.get_mut(id)?;
@@ -115,6 +107,12 @@ impl Briefs {
         }
     }
 
+    /// Every row `keep` keeps, unpaged: for the daemon's own sweeps, not for a client.
+    pub(crate) fn matching(&self, keep: impl Fn(&Value) -> bool) -> Vec<Value> {
+        let rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        rows.values().filter(|row| keep(row)).cloned().collect()
+    }
+
     pub(crate) fn list(&self, status: Option<&str>, limit: usize) -> Vec<Value> {
         let rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
         rows.values()
@@ -122,7 +120,7 @@ impl Briefs {
                 status.is_none_or(|want| v.get("status").and_then(Value::as_str) == Some(want))
             })
             .rev()
-            .take(limit.max(1).min(500))
+            .take(limit.clamp(1, 500))
             .cloned()
             .collect()
     }

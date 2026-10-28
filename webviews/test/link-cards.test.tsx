@@ -297,3 +297,49 @@ test("a web card's head names the site; its address shows only when it says more
   expect(deepCard.querySelector(".cv-link-preview__head .cv-link-preview__target")).not.toBeNull();
   await deep.done();
 });
+
+test("path locality is hover text, with no persistent lock; open and text-only policies stay intact", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { PathChip, ElsewhereChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  const { seedLinkStore, resetLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const strings = (await import("../src/agent-session/acpmux/generated/strings.json")).default;
+  const savedStrings = globalThis.__cmuxPaneStrings;
+  globalThis.__cmuxPaneStrings = strings;
+  const outside = "/tmp/example/cmux.json";
+  const rootElement = dom.window.document.getElementById("root")!;
+  const root = createRoot(rootElement);
+  const calls: unknown[] = [];
+  resetLinkStore();
+  seedLinkStore({ paths: { [outside]: { place: "outside", folder: false } } });
+  setChipHost(async (method, params) => {
+    calls.push({ method, params });
+  });
+  try {
+    await act(async () =>
+      root.render(
+        <>
+          <PathChip path={outside} label="cmux.json" />
+          <ElsewhereChip path={outside} host="example-host" />
+        </>,
+      ),
+    );
+    const chip = rootElement.querySelector<HTMLButtonElement>("button.is-path")!;
+    expect(chip.textContent).toBe("cmux.json");
+    expect(chip.getAttribute("title")).toBe(`Outside this project\n${outside}`);
+    expect(rootElement.querySelector(".cv-chip__lock")).toBeNull();
+    expect(rootElement.querySelector(".is-elsewhere")?.getAttribute("title")).toBe(`On example-host: ${outside}`);
+    expect(rootElement.querySelector(".is-elsewhere")?.tagName).toBe("SPAN");
+    await act(async () => chip.click());
+    expect(calls).toEqual([{ method: "link.openPath", params: { path: outside } }]);
+    await act(async () => seedLinkStore({ policy: { outsideRoots: "text" } }));
+    expect(rootElement.querySelector("button")).toBeNull();
+    expect(rootElement.querySelector(".cv-chip-plain")?.textContent).toBe("cmux.json");
+  } finally {
+    await act(async () => root.unmount());
+    setChipHost(undefined);
+    resetLinkStore();
+    globalThis.__cmuxPaneStrings = savedStrings;
+  }
+});

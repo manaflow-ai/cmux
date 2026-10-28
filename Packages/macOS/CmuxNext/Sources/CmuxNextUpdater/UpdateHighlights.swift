@@ -53,6 +53,14 @@ nonisolated public struct UpdateHighlights: Codable, Equatable, Sendable {
     public var fromBuild: String
     /// Build date, "YYYY-MM-DD".
     public var date: String?
+    /// When the build was made, an ISO 8601 instant: the notes' `builtAt`, else the appcast item's
+    /// date when it has a time of day (Leo 2026-10-26: "it just says updated to nightly, but that
+    /// doesn't mean anything"). The card shows it in the person's time zone. Nil when only the day is known.
+    public var builtAt: String?
+    /// The commit the build was cut from (the notes' `head`); the card names the build by it.
+    public var head: String?
+    /// Builds taken off the feed (its `pulled.json`): the card does not count them as newer.
+    public var pulled: [String]?
     public var source: Source
     /// The language the strings resolved to (Apple code).
     public var language: String
@@ -74,6 +82,8 @@ nonisolated public struct UpdateHighlights: Codable, Equatable, Sendable {
         self.fromVersion = fromVersion
         self.fromBuild = fromBuild
         date = notes?.date ?? appcast?.date.map { Self.day($0) }
+        builtAt = notes?.builtAt ?? appcast?.date.flatMap(Self.instant)
+        head = notes?.head
         changelog = Changelog(from: fromVersion, to: version)
         let (source, language, all) = Self.pick(notes: notes, appcast: appcast, languages: languages)
         self.source = source
@@ -136,6 +146,16 @@ nonisolated public struct UpdateHighlights: Codable, Equatable, Sendable {
             }
         }
         return "en"
+    }
+
+    /// "2026-10-26T19:38:52Z"; nil for midnight UTC, which is a day the notes gave
+    /// (``UpdateChangelog/init(notes:version:)``), not a time. A saved record does not say which
+    /// it was, and a day shown as a time would read as the evening before west of UTC; an
+    /// appcast time of exactly 00:00:00 only falls back to its day.
+    static func instant(_ date: Date) -> String? {
+        let formatter = ISO8601DateFormatter()
+        let text = formatter.string(from: date)
+        return text.hasSuffix("T00:00:00Z") ? nil : text
     }
 
     static func day(_ date: Date) -> String {

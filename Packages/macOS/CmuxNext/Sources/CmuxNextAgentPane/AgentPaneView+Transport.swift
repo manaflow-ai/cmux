@@ -27,6 +27,7 @@ extension AgentPaneView {
         model.transport.pacer = pacer
         model.transport.onOtherInstall = { [weak self] other in self?.showOtherInstallNotice(other) }
         model.transport.onRemoteApprovalsOff = { [weak self] approvals in self?.showRemoteApprovalsOff(approvals) }
+        model.transport.onPeerApprovalsOff = { [weak self] reason in self?.showPeerApprovalsOff(reason) }
         model.transport.deliver = { [weak self] event, done in
             guard let self else { return done() }
             if let pageEvents = self.pageEvents {
@@ -96,7 +97,11 @@ extension AgentPaneView {
         guard page?.showsChromium == true, let eventWindow, AgentPanePersonInput.isPerson(event) else { return }
         switch event.type {
         case .keyDown:
-            guard !event.isARepeat, eventWindow.isKeyWindow,
+            // CEF can leave its child window non-key while a native file picker or attachment
+            // handoff finishes. The event is still the person's physical key (checked above),
+            // and the child is still this pane's page, so do not turn that brief focus transition
+            // into a rejected send.
+            guard !event.isARepeat,
                   chromiumPageContains(CGPoint(x: eventWindow.frame.midX, y: eventWindow.frame.midY), eventWindow: eventWindow) else { return }
         default:
             guard chromiumPageContains(eventWindow.convertPoint(toScreen: event.locationInWindow), eventWindow: eventWindow) else { return }

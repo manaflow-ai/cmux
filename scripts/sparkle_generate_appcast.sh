@@ -96,7 +96,7 @@ if [[ -n "${SPARKLE_PREVIOUS_ARCHIVES_DIR:-}" ]]; then
   previous_count=0
   for previous in "$SPARKLE_PREVIOUS_ARCHIVES_DIR"/*.dmg; do
     [[ -f "$previous" ]] || continue
-    cp "$previous" "$archives_dir/$(basename "$previous")"
+    cp -p "$previous" "$archives_dir/$(basename "$previous")"
     previous_count=$((previous_count + 1))
   done
   echo "Previous archives available for deltas: $previous_count"

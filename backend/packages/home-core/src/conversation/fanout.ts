@@ -161,8 +161,10 @@ export const searchIntent = (head: ConversationHead, message: Message): SearchIn
 /**
  * Wake rules (home.md section 5): with one human and one agent, the chief
  * wakes on every human message (`dm`); otherwise only on a mention or a reply
- * to its own message. `wake_policy` "mentions" drops the one-to-one rule, "all"
- * wakes every chief on every human message.
+ * to its own message. A Chief's own conversation keeps the one-to-one rule when
+ * its owner shares it with teammates (cmux#25569): the Chief answers each of
+ * them. `wake_policy` "mentions" drops the one-to-one rule, "all" wakes every
+ * chief on every human message.
  */
 export const wakesFor = (head: ConversationHead, message: Message, replyTarget: Message | null | undefined): ReadonlyArray<ChiefWake> => {
   const current = currentParticipants(head)
@@ -170,7 +172,7 @@ export const wakesFor = (head: ConversationHead, message: Message, replyTarget: 
   const agents = current.filter((participant) => participant.kind === "agent")
   const fromHuman = findParticipant(head, message.author)?.kind === "human"
   const policy = head.settings?.wake_policy ?? "auto"
-  const oneToOne = humans.length === 1 && agents.length === 1
+  const oneToOne = (humans.length === 1 || head.kind === "chief") && agents.length === 1
   const mentioned = mentionsOf(message)
   const repliedTo = message.reply_to && replyTarget?.id === message.reply_to.message_id ? replyTarget.author : undefined
   const wakes: Array<ChiefWake> = []
@@ -185,6 +187,17 @@ export const wakesFor = (head: ConversationHead, message: Message, replyTarget: 
     }
   }
   return wakes
+}
+
+/**
+ * The kind a person's inbox row shows. A Chief's conversation is `chief` only for the Chief's owner;
+ * a teammate it was shared with (cmux#25569) sees a group, so their apps never take someone else's
+ * Chief for their own (the Chiefs section, "send to my Chief").
+ */
+export const rowKind = (head: ConversationHead, user: string): ConversationKind => {
+  const kind = head.kind ?? "group"
+  if (kind !== "chief") return kind
+  return currentParticipants(head).some((participant) => participant.kind === "agent" && participant.owner_user === user) ? "chief" : "group"
 }
 
 const dmPeer = (head: ConversationHead, user: string): string | undefined =>
@@ -255,18 +268,20 @@ export const fanOut = ({ before, request, commit, counts, everyone }: FanOutInpu
   const row = (user: string, isRemoved: boolean): InboxBump => {
     const count = isRemoved ? undefined : countFor(user)
     const peer = dmPeer(head, user)
-    const author = lastMessage && lastMessage.retracted_at === undefined ? findParticipant(head, lastMessage.author) : undefined
     const joined = findParticipant(head, user)?.joined_seq
+    // Under since_join a person never sees a message from before they joined, in the preview either.
+    const hidden = lastMessage !== undefined && head.settings?.history_visible === "since_join" && lastMessage.seq <= (joined ?? 0)
+    const author = lastMessage && !hidden && lastMessage.retracted_at === undefined ? findParticipant(head, lastMessage.author) : undefined
     return {
       user,
       conversation: head.id,
       rev: head.rev,
-      kind: head.kind ?? "group",
+      kind: rowKind(head, user),
       title: head.title,
       last_seq: head.last_seq,
       last_at: lastAt,
-      preview,
-      ...(previewAttachments ? { preview_attachments: previewAttachments } : {}),
+      preview: hidden ? "" : preview,
+      ...(previewAttachments && !hidden ? { preview_attachments: previewAttachments } : {}),
       ...(count ? { unread: count.unread, mentions: count.mentions } : {}),
       ...(peer ? { dm_peer: peer } : {}),
       ...(isRemoved ? { removed: true } : {}),

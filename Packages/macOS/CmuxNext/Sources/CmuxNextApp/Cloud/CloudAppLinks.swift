@@ -98,16 +98,24 @@ enum CloudAppLinks {
         return CloudLinkChange.parse(appServerEvent: line)
     }
 
-    /// The text a session shows after its link ended: "disconnected, click
-    /// to connect" (v1 does not reconnect by itself).
+    /// The text a session shows after its link ended: what failed, then the
+    /// next step ("click Connect"; v1 does not reconnect by itself). A
+    /// failed check's own words stay in the log (``logEnded(_:)``).
     static func endedMessage(_ error: any Error) -> String {
         switch error as? CloudLinkError {
         case .revoked?: CloudStrings.linkRevoked
         case .disconnected?, nil: CloudStrings.linkDisconnected
         case .helperNotRunning?: CloudStrings.linkHelperNotRunning
-        case .unsafeSocket(let detail)?, .invalidAnswer(let detail)?: CloudStrings.linkFailed(detail)
-        case .failed(_, let message)?: CloudStrings.linkFailed(message)
-        case .unsupported?: CloudStrings.linkFailed(String(describing: CloudLinkError.unsupported))
+        case .openDirectory(let path, let parent)?: CloudStrings.linkOpenDirectory(path, fix: CloudLinkError.chmodFix(path: path, parent: parent))
+        case .unsafeSocket?, .invalidAnswer?: CloudStrings.linkCheckFailed
+        case .notUp(let state)?: CloudStrings.linkNotReady(state)
+        case .failed(let code, let message)?: CloudStrings.linkFailed(message.isEmpty ? code : message)
+        case .unsupported?: CloudStrings.linkUnsupported
         }
+    }
+
+    /// Logs why a link ended, with the details ``endedMessage(_:)`` leaves out.
+    static func logEnded(_ error: any Error) {
+        logger.info("cloud link ended: \(String(describing: error), privacy: .public)")
     }
 }

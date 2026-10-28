@@ -1,0 +1,57 @@
+{
+  "id": "assistant-short-status",
+  "group": "assistant",
+  "owner": "a676",
+  "about": "A status question gets a short, specific answer from the view, one line per agent.",
+  "history": [
+    {
+      "kind": "user",
+      "text": "fix the scroll pills"
+    },
+    {
+      "kind": "talk",
+      "text": "a13 is on it: [Hint pills follow scroll](cmux://workspace/ws_5b2e9c1d)."
+    },
+    {
+      "kind": "user",
+      "text": "and file the GitHub runner-limit ticket"
+    },
+    {
+      "kind": "talk",
+      "text": "a14 is filing it."
+    },
+    {
+      "kind": "work",
+      "text": "[a14] Filed GitHub Support ticket 4906279 (runner registration limit 1,500 -> 5,000 per 5 min). Nothing committed."
+    }
+  ],
+  "turns": [
+    {
+      "text": "status?",
+      "checks": [
+        {
+          "type": "max_words",
+          "n": 70
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "judge",
+          "rubric": "Passes when the reply is a short list with one line per agent (a13 working on hint pills, a14 done: ticket 4906279 filed), with no intro paragraph and no closing offer. Fails when it is long, misses either agent, or asks a question."
+        },
+        {
+          "type": "not_called",
+          "cmd": "spawn"
+        }
+      ]
+    }
+  ],
+  "stubs": [
+    {
+      "cmd": "control",
+      "match": "status",
+      "stdout": "outcome: done.\n- a13 Hint pills follow scroll: at work 22 min, running-tool (cargo test -p cmux-tui sidebar), last line \"Re-placing chips on scroll events.\" [Hint pills follow scroll](cmux://workspace/ws_5b2e9c1d)\n- a14 GitHub runner limit ticket: done, reported."
+    }
+  ]
+}

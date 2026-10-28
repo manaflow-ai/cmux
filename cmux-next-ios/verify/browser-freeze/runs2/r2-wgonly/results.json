@@ -1,0 +1,257 @@
+{
+  "args": {
+    "app": "/Users/cmux/brfreeze/app-ee3bedc8151e/CmuxMobileApp.app",
+    "sim": "cmux-brfz",
+    "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+    "rig": "mini-cmux11s-mac-mini:~/brfreeze-rig:brfz-term",
+    "prepare_phone": false,
+    "out": "/Users/cmux/brfreeze/runs/r2-wgonly",
+    "bundle": "dev.cmux.app.internal",
+    "reuse": true,
+    "install": false,
+    "config": "wgonly",
+    "drop_permille": 0,
+    "bg": 0,
+    "url": [
+      "https://en.wikipedia.org/wiki/Cat",
+      "https://news.ycombinator.com",
+      "https://duckduckgo.com"
+    ],
+    "env": [],
+    "minutes": 10.0,
+    "phone_log": "info,cmux_mobile_link=debug,cmux_mobile_link_ffi=debug",
+    "page_y0": 130,
+    "page_y1": 740,
+    "change_threshold": 1.5
+  },
+  "t0": "04:36:19",
+  "minutes": 10.3,
+  "tabs": {
+    "A": "new-c10834ed-t1"
+  },
+  "freezes": [
+    {
+      "t": 1792817036.536282,
+      "utc": "04:43:56",
+      "kind": "phone-unresponsive",
+      "detail": "2 inputs in a row with no screen change in 8 s (last: tap on None)",
+      "tab": null,
+      "since_start_s": 457.1
+    },
+    {
+      "t": 1792817079.8230588,
+      "utc": "04:44:39",
+      "kind": "phone-unresponsive",
+      "detail": "3 inputs in a row with no screen change in 8 s (last: tap on None)",
+      "tab": null,
+      "since_start_s": 500.4
+    },
+    {
+      "t": 1792817091.25667,
+      "utc": "04:44:51",
+      "kind": "phone-unresponsive",
+      "detail": "4 inputs in a row with no screen change in 8 s (last: tap on None)",
+      "tab": null,
+      "since_start_s": 511.8
+    },
+    {
+      "t": 1792817101.4473631,
+      "utc": "04:45:01",
+      "kind": "phone-unresponsive",
+      "detail": "5 inputs in a row with no screen change in 8 s (last: scroll-down on None)",
+      "tab": null,
+      "since_start_s": 522.0
+    },
+    {
+      "t": 1792817112.25568,
+      "utc": "04:45:12",
+      "kind": "phone-unresponsive",
+      "detail": "6 inputs in a row with no screen change in 8 s (last: scroll-up on None)",
+      "tab": null,
+      "since_start_s": 532.8
+    },
+    {
+      "t": 1792817122.553185,
+      "utc": "04:45:22",
+      "kind": "phone-unresponsive",
+      "detail": "7 inputs in a row with no screen change in 8 s (last: scroll-up on None)",
+      "tab": null,
+      "since_start_s": 543.1
+    },
+    {
+      "t": 1792817169.054307,
+      "utc": "04:46:09",
+      "kind": "phone-unresponsive",
+      "detail": "8 inputs in a row with no screen change in 8 s (last: search on C)",
+      "tab": "C",
+      "since_start_s": 589.6
+    },
+    {
+      "t": 1792817179.310434,
+      "utc": "04:46:19",
+      "kind": "phone-unresponsive",
+      "detail": "9 inputs in a row with no screen change in 8 s (last: scroll-down on C)",
+      "tab": "C",
+      "since_start_s": 599.9
+    },
+    {
+      "t": 1792817189.500467,
+      "utc": "04:46:29",
+      "kind": "phone-unresponsive",
+      "detail": "10 inputs in a row with no screen change in 8 s (last: scroll-down on C)",
+      "tab": "C",
+      "since_start_s": 610.1
+    }
+  ],
+  "per_minute": [
+    {
+      "minute": 0,
+      "decoded_frames": 150,
+      "fps_max": 33,
+      "carriers": [
+        "wg-rtp"
+      ],
+      "kf_requests": 5,
+      "inputs": 8,
+      "no_response": 5,
+      "rtt_median_s": 3.33
+    },
+    {
+      "minute": 1,
+      "decoded_frames": 720,
+      "fps_max": 54,
+      "carriers": [
+        "wg-rtp"
+      ],
+      "kf_requests": 5,
+      "inputs": 12,
+      "no_response": 6,
+      "rtt_median_s": 3.54
+    },
+    {
+      "minute": 2,
+      "decoded_frames": 660,
+      "fps_max": 55,
+      "carriers": [
+        "wg-rtp"
+      ],
+      "kf_requests": 0,
+      "inputs": 15,
+      "no_response": 8,
+      "rtt_median_s": 3.19
+    },
+    {
+      "minute": 3,
+      "decoded_frames": 570,
+      "fps_max": 55,
+      "carriers": [
+        "wg-rtp"
+      ],
+      "kf_requests": 6,
+      "inputs": 8,
+      "no_response": 4,
+      "rtt_median_s": 3.85
+    },
+    {
+      "minute": 4,
+      "decoded_frames": 150,
+      "fps_max": 55,
+      "carriers": [
+        "wg-rtp"
+      ],
+      "kf_requests": 3,
+      "inputs": 3,
+      "no_response": 2,
+      "rtt_median_s": 3.74
+    },
+    {
+      "minute": 5,
+      "decoded_frames": 0,
+      "fps_max": 0,
+      "carriers": [],
+      "kf_requests": 0,
+      "inputs": 0,
+      "no_response": 0,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 6,
+      "decoded_frames": 0,
+      "fps_max": 0,
+      "carriers": [],
+      "kf_requests": 0,
+      "inputs": 4,
+      "no_response": 3,
+      "rtt_median_s": 2.69
+    },
+    {
+      "minute": 7,
+      "decoded_frames": 0,
+      "fps_max": 0,
+      "carriers": [],
+      "kf_requests": 0,
+      "inputs": 3,
+      "no_response": 3,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 8,
+      "decoded_frames": 0,
+      "fps_max": 0,
+      "carriers": [],
+      "kf_requests": 0,
+      "inputs": 4,
+      "no_response": 4,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 9,
+      "decoded_frames": 0,
+      "fps_max": 0,
+      "carriers": [],
+      "kf_requests": 0,
+      "inputs": 4,
+      "no_response": 4,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 10,
+      "decoded_frames": 0,
+      "fps_max": 0,
+      "carriers": [],
+      "kf_requests": 0,
+      "inputs": 1,
+      "no_response": 1,
+      "rtt_median_s": null
+    }
+  ],
+  "host_events": [
+    {
+      "t": 1792816580.534547,
+      "utc": "04:36:20",
+      "line": "link up session_id=\"df75b5a6-2ab6-4b57-a0c5-68675439a044\" kind=WireGuard path=Turn phone=\"07d3d268-ebfe-4601-af11-a32bd5d268cd\" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_lane=108.3ms link_ready=108.3ms"
+    },
+    {
+      "t": 1792816580.534623,
+      "utc": "04:36:20",
+      "line": "link path changed session_id=\"df75b5a6-2ab6-4b57-a0c5-68675439a044\" path=Turn"
+    },
+    {
+      "t": 1792816590.103852,
+      "utc": "04:36:30",
+      "line": "media session down session_id=\"9c08d3cc-3897-4adb-ae6e-0d18f425026e\" link_session=\"4bdd6ae3-a83e-4b17-b383-3904bd5f87a1\" reason=\"failed\""
+    },
+    {
+      "t": 1792816606.45349,
+      "utc": "04:36:46",
+      "line": "link down session_id=\"4bdd6ae3-a83e-4b17-b383-3904bd5f87a1\" reason=\"keepalive timed out\""
+    }
+  ],
+  "decode_failed": [],
+  "phone_media_lines": [
+    "2026-10-24T04:36:20.542452Z DEBUG cmux_mobile_link::link: input lane attached role=Phone",
+    "2026-10-24T04:36:20.604335Z DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Turn, addr: 104.184.154.177:57610 })",
+    "objc[84428]: Class UIAccessibilityLoaderWebShared is implemented in both /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebKit.axbundle/WebKit (0x1178ac398) an",
+    "2026-10-24T04:36:58.999779Z DEBUG cmux_mobile_link::media::receiver: media receiver: gave a gap up; asking for a keyframe next=4294986778 highest=4294986789 hole=false"
+  ]
+}

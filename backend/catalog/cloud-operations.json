@@ -323,6 +323,44 @@
               "type": {
                 "kind": "enum",
                 "values": [
+                  "chief"
+                ]
+              }
+            },
+            "chief": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+              }
+            },
+            "conversation": {
+              "required": true,
+              "type": {
+                "kind": "ref",
+                "name": "ConversationId"
+              }
+            },
+            "prompt": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 8000
+              }
+            }
+          }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "type": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
                   "code"
                 ]
               }
@@ -605,6 +643,280 @@
           "ssh"
         ]
       }
+    },
+    "CloudEnvironment": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "EnvironmentId"
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 80
+          }
+        },
+        "repo": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 300
+            }
+          }
+        },
+        "setup_script": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 65536
+          }
+        },
+        "env": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "CloudEnvironmentVariable"
+            }
+          }
+        },
+        "creator": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "status": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "unbuilt",
+              "building",
+              "ready",
+              "stale",
+              "failed"
+            ]
+          }
+        },
+        "snapshot": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "SnapshotId"
+            }
+          }
+        },
+        "last_build": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "CloudEnvironmentBuildRecord"
+            }
+          }
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "Revision"
+          }
+        }
+      }
+    },
+    "CloudEnvironmentBuildRecord": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "building",
+              "ready",
+              "failed"
+            ]
+          }
+        },
+        "started_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "finished_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "error": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "object",
+              "fields": {
+                "code": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "message": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "log_tail": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "timings": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "object",
+              "fields": {
+                "boot_ms": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "ready_ms": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "setup_ms": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "snapshot_ms": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "warm_ms": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "total_ms": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "CloudEnvironmentVariable": {
+      "kind": "union",
+      "variants": [
+        {
+          "kind": "object",
+          "fields": {
+            "name": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+              }
+            },
+            "value": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 32768
+              }
+            }
+          }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "name": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+              }
+            },
+            "secret": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^[A-Za-z0-9._-]{1,128}$"
+              }
+            }
+          }
+        }
+      ],
+      "description": "A plain variable (baked into the snapshot) or a secret (a vault item name; the value never enters the snapshot)."
     },
     "CloudGroup": {
       "kind": "object",
@@ -1585,6 +1897,12 @@
       "kind": "primitive",
       "name": "string",
       "pattern": "^enr_[a-z0-9]{20}$"
+    },
+    "EnvironmentId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^env_[a-z0-9]{20}$",
+      "description": "A Cloud environment."
     },
     "FeedAction": {
       "kind": "object",
@@ -4538,6 +4856,7 @@
         "github.repoScope",
         "github.requireOrgAdmin",
         "github.repoAllowList",
+        "github.allowWorkflows",
         "integrations.allowedProviders",
         "mcp.server",
         "mcp.remoteTransport",
@@ -6025,6 +6344,13 @@
                     }
                   }
                 }
+              },
+              "allow_workflows": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
               }
             }
           }
@@ -6219,6 +6545,28 @@
                       }
                     }
                   ]
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "github.allowWorkflows": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
                 }
               },
               "mode": {
@@ -8445,6 +8793,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -8568,6 +8921,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -9142,6 +9525,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -9265,6 +9653,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -10158,6 +10576,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -10281,6 +10704,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -11015,6 +11468,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -11138,6 +11596,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -11986,6 +12474,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -12109,6 +12602,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -13689,6 +14212,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -13812,6 +14340,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -14386,6 +14944,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -14509,6 +15072,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -17168,6 +17761,1760 @@
         ],
         "additionalProperties": true,
         "$defs": {}
+      }
+    },
+    "cloud.environment.boot": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "environment": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "EnvironmentId"
+            }
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 80
+            }
+          },
+          "size": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudMachineSize"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "machine": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "CloudMachine"
+                }
+              },
+              "boot": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "snapshot",
+                    "cold"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "approval.denied",
+        "approval.expired",
+        "approval.pending",
+        "approval.too_many_pending",
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "cloud.environment.not_found",
+        "cloud.environment.secrets_unavailable",
+        "cloud.no_snapshot_configured",
+        "cloud.plan.required",
+        "cloud.provider.unavailable",
+        "cloud.quota.exceeded",
+        "cloud.rate_limited",
+        "cloud.size.locked",
+        "cloud.snapshot.not_found",
+        "idempotency.conflict",
+        "mutation.indeterminate",
+        "owner.unreachable",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "money",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud environment boot",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Create a machine in the environment (the plan checks of cloud.machine.create). boot snapshot: it boots the environment's ready snapshot and runs nothing. boot cold (no build yet, or a stale one): it boots the deployment's image and starts the setup on the machine in the background (~/.cmux/environment-build.log; ~/.cmux/environment.json when it finished). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "$ref": "#/$defs/EnvironmentId"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "size": {
+            "$ref": "#/$defs/CloudMachineSize"
+          }
+        },
+        "required": [
+          "environment",
+          "size"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "EnvironmentId": {
+            "type": "string",
+            "pattern": "^env_[a-z0-9]{20}$",
+            "description": "A Cloud environment."
+          },
+          "CloudMachineSize": {
+            "type": "object",
+            "properties": {
+              "cpu": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "memory_mb": {
+                "type": "integer",
+                "minimum": 512,
+                "maximum": 262144
+              },
+              "disk_mb": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 1048576
+              }
+            },
+            "additionalProperties": true,
+            "description": "A machine size. The plan decides which sizes are allowed (cloud.size.locked)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/CloudMachine"
+          },
+          "boot": {
+            "type": "string",
+            "enum": [
+              "snapshot",
+              "cold"
+            ]
+          }
+        },
+        "required": [
+          "machine",
+          "boot"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudMachineSize": {
+            "type": "object",
+            "properties": {
+              "cpu": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "memory_mb": {
+                "type": "integer",
+                "minimum": 512,
+                "maximum": 262144
+              },
+              "disk_mb": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 1048576
+              }
+            },
+            "additionalProperties": true,
+            "description": "A machine size. The plan decides which sizes are allowed (cloud.size.locked)."
+          },
+          "CloudMachineStatus": {
+            "type": "string",
+            "enum": [
+              "provisioning",
+              "starting",
+              "running",
+              "pausing",
+              "paused",
+              "deleting",
+              "failed"
+            ]
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "Revision": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Decimal per-object revision (the owner's event sequence)."
+          },
+          "CloudMachine": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/MachineId"
+              },
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "creator": {
+                "$ref": "#/$defs/UserId"
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "size": {
+                "$ref": "#/$defs/CloudMachineSize"
+              },
+              "status": {
+                "$ref": "#/$defs/CloudMachineStatus"
+              },
+              "image": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "daemon_version": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "daemon_version"
+                ],
+                "additionalProperties": true
+              },
+              "host": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HostId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "classic": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "last_active_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "idle_policy": {
+                "type": "object",
+                "properties": {
+                  "idle_seconds": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "idle_seconds"
+                ],
+                "additionalProperties": true
+              },
+              "error": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "at": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "message",
+                      "at"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revision": {
+                "$ref": "#/$defs/Revision"
+              }
+            },
+            "required": [
+              "id",
+              "team",
+              "creator",
+              "name",
+              "size",
+              "status",
+              "image",
+              "host",
+              "classic",
+              "created_at",
+              "last_active_at",
+              "idle_policy",
+              "error",
+              "revision"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.environment.build": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "environment": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "EnvironmentId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "environment": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "CloudEnvironment"
+                }
+              },
+              "built": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "approval.denied",
+        "approval.expired",
+        "approval.pending",
+        "approval.too_many_pending",
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "cloud.environment.busy",
+        "cloud.environment.not_found",
+        "cloud.environment.secrets_unavailable",
+        "cloud.plan.required",
+        "cloud.provider.unavailable",
+        "cloud.quota.exceeded",
+        "cloud.rate_limited",
+        "idempotency.conflict",
+        "mutation.indeterminate",
+        "owner.unreachable",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "money",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud environment build",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Build the environment's snapshot: a builder machine from the deployment's image clones the repo, runs the setup script, and is snapshotted and deleted. Answers at once with status building (built: true); the build takes minutes, and cloud.environment.list shows ready or failed with the log tail. A snapshot that still matches answers built: false and changes nothing. The new snapshot counts against max_saved (cloud.quota.exceeded {resource: saved}); it replaces the previous one when it is ready. One build per environment at a time (cloud.environment.busy). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "$ref": "#/$defs/EnvironmentId"
+          }
+        },
+        "required": [
+          "environment"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "EnvironmentId": {
+            "type": "string",
+            "pattern": "^env_[a-z0-9]{20}$",
+            "description": "A Cloud environment."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "$ref": "#/$defs/CloudEnvironment"
+          },
+          "built": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "environment",
+          "built"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "EnvironmentId": {
+            "type": "string",
+            "pattern": "^env_[a-z0-9]{20}$",
+            "description": "A Cloud environment."
+          },
+          "CloudEnvironmentVariable": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                  },
+                  "value": {
+                    "type": "string",
+                    "maxLength": 32768
+                  }
+                },
+                "required": [
+                  "name",
+                  "value"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                  },
+                  "secret": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._-]{1,128}$"
+                  }
+                },
+                "required": [
+                  "name",
+                  "secret"
+                ],
+                "additionalProperties": true
+              }
+            ],
+            "description": "A plain variable (baked into the snapshot) or a secret (a vault item name; the value never enters the snapshot)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "SnapshotId": {
+            "type": "string",
+            "pattern": "^snap_[a-z0-9]{20}$",
+            "description": "A Cloud machine snapshot."
+          },
+          "CloudEnvironmentBuildRecord": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "building",
+                  "ready",
+                  "failed"
+                ]
+              },
+              "started_at": {
+                "type": "integer"
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "message"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "log_tail": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "timings": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "boot_ms": {
+                        "type": "integer"
+                      },
+                      "ready_ms": {
+                        "type": "integer"
+                      },
+                      "setup_ms": {
+                        "type": "integer"
+                      },
+                      "snapshot_ms": {
+                        "type": "integer"
+                      },
+                      "warm_ms": {
+                        "type": "integer"
+                      },
+                      "total_ms": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "boot_ms",
+                      "ready_ms",
+                      "setup_ms",
+                      "snapshot_ms",
+                      "warm_ms",
+                      "total_ms"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "state",
+              "started_at",
+              "finished_at",
+              "error",
+              "log_tail",
+              "timings"
+            ],
+            "additionalProperties": true
+          },
+          "Revision": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Decimal per-object revision (the owner's event sequence)."
+          },
+          "CloudEnvironment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/EnvironmentId"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "repo": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "setup_script": {
+                "type": "string",
+                "maxLength": 65536
+              },
+              "env": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/CloudEnvironmentVariable"
+                },
+                "maxItems": 100
+              },
+              "creator": {
+                "$ref": "#/$defs/UserId"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "unbuilt",
+                  "building",
+                  "ready",
+                  "stale",
+                  "failed"
+                ]
+              },
+              "snapshot": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SnapshotId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "last_build": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudEnvironmentBuildRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "revision": {
+                "$ref": "#/$defs/Revision"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "repo",
+              "setup_script",
+              "env",
+              "creator",
+              "status",
+              "snapshot",
+              "last_build",
+              "created_at",
+              "revision"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.environment.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "environment": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "EnvironmentId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "deleted": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    true
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "approval.denied",
+        "approval.expired",
+        "approval.pending",
+        "approval.too_many_pending",
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "cloud.environment.busy",
+        "cloud.environment.not_found",
+        "cloud.rate_limited",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "destructive",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud environment delete",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Delete an environment and its snapshot (cloud.snapshot.removed follows). Machines booted from it keep running. A build still running answers cloud.environment.busy. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "$ref": "#/$defs/EnvironmentId"
+          }
+        },
+        "required": [
+          "environment"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "EnvironmentId": {
+            "type": "string",
+            "pattern": "^env_[a-z0-9]{20}$",
+            "description": "A Cloud environment."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "cloud.environment.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "environments": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "CloudEnvironment"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "owner.unreachable",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "cloud environment list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "The team's Cloud environments, oldest first, with each one's build status.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "environments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CloudEnvironment"
+            }
+          }
+        },
+        "required": [
+          "environments"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "EnvironmentId": {
+            "type": "string",
+            "pattern": "^env_[a-z0-9]{20}$",
+            "description": "A Cloud environment."
+          },
+          "CloudEnvironmentVariable": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                  },
+                  "value": {
+                    "type": "string",
+                    "maxLength": 32768
+                  }
+                },
+                "required": [
+                  "name",
+                  "value"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                  },
+                  "secret": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._-]{1,128}$"
+                  }
+                },
+                "required": [
+                  "name",
+                  "secret"
+                ],
+                "additionalProperties": true
+              }
+            ],
+            "description": "A plain variable (baked into the snapshot) or a secret (a vault item name; the value never enters the snapshot)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "SnapshotId": {
+            "type": "string",
+            "pattern": "^snap_[a-z0-9]{20}$",
+            "description": "A Cloud machine snapshot."
+          },
+          "CloudEnvironmentBuildRecord": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "building",
+                  "ready",
+                  "failed"
+                ]
+              },
+              "started_at": {
+                "type": "integer"
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "message"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "log_tail": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "timings": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "boot_ms": {
+                        "type": "integer"
+                      },
+                      "ready_ms": {
+                        "type": "integer"
+                      },
+                      "setup_ms": {
+                        "type": "integer"
+                      },
+                      "snapshot_ms": {
+                        "type": "integer"
+                      },
+                      "warm_ms": {
+                        "type": "integer"
+                      },
+                      "total_ms": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "boot_ms",
+                      "ready_ms",
+                      "setup_ms",
+                      "snapshot_ms",
+                      "warm_ms",
+                      "total_ms"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "state",
+              "started_at",
+              "finished_at",
+              "error",
+              "log_tail",
+              "timings"
+            ],
+            "additionalProperties": true
+          },
+          "Revision": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Decimal per-object revision (the owner's event sequence)."
+          },
+          "CloudEnvironment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/EnvironmentId"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "repo": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "setup_script": {
+                "type": "string",
+                "maxLength": 65536
+              },
+              "env": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/CloudEnvironmentVariable"
+                },
+                "maxItems": 100
+              },
+              "creator": {
+                "$ref": "#/$defs/UserId"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "unbuilt",
+                  "building",
+                  "ready",
+                  "stale",
+                  "failed"
+                ]
+              },
+              "snapshot": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SnapshotId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "last_build": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudEnvironmentBuildRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "revision": {
+                "$ref": "#/$defs/Revision"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "repo",
+              "setup_script",
+              "env",
+              "creator",
+              "status",
+              "snapshot",
+              "last_build",
+              "created_at",
+              "revision"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.environment.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "environment": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "EnvironmentId"
+            }
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 80
+            }
+          },
+          "repo": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 300
+              }
+            }
+          },
+          "setup_script": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 65536
+            }
+          },
+          "env": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "CloudEnvironmentVariable"
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "environment": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "CloudEnvironment"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "cloud.environment.invalid",
+        "cloud.environment.not_found",
+        "cloud.quota.exceeded",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud environment set",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Create an environment (name required) or edit one. The inputs are checked as a whole: cloud.environment.invalid {field, message} (a GitHub repo as owner/name[@ref] or a github.com URL without credentials, a setup script up to 64 KB, at most 100 variables with names the machine does not own). An edit to the repo, the script or the variables makes a built snapshot stale; a rename does not. At most 20 environments per team (cloud.quota.exceeded {limit, used, resource: environments}). Agent principals are refused; the client asks a person first.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "$ref": "#/$defs/EnvironmentId"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "repo": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "setup_script": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "env": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CloudEnvironmentVariable"
+            },
+            "maxItems": 100
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "EnvironmentId": {
+            "type": "string",
+            "pattern": "^env_[a-z0-9]{20}$",
+            "description": "A Cloud environment."
+          },
+          "CloudEnvironmentVariable": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                  },
+                  "value": {
+                    "type": "string",
+                    "maxLength": 32768
+                  }
+                },
+                "required": [
+                  "name",
+                  "value"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                  },
+                  "secret": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._-]{1,128}$"
+                  }
+                },
+                "required": [
+                  "name",
+                  "secret"
+                ],
+                "additionalProperties": true
+              }
+            ],
+            "description": "A plain variable (baked into the snapshot) or a secret (a vault item name; the value never enters the snapshot)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "$ref": "#/$defs/CloudEnvironment"
+          }
+        },
+        "required": [
+          "environment"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "EnvironmentId": {
+            "type": "string",
+            "pattern": "^env_[a-z0-9]{20}$",
+            "description": "A Cloud environment."
+          },
+          "CloudEnvironmentVariable": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                  },
+                  "value": {
+                    "type": "string",
+                    "maxLength": 32768
+                  }
+                },
+                "required": [
+                  "name",
+                  "value"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                  },
+                  "secret": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._-]{1,128}$"
+                  }
+                },
+                "required": [
+                  "name",
+                  "secret"
+                ],
+                "additionalProperties": true
+              }
+            ],
+            "description": "A plain variable (baked into the snapshot) or a secret (a vault item name; the value never enters the snapshot)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "SnapshotId": {
+            "type": "string",
+            "pattern": "^snap_[a-z0-9]{20}$",
+            "description": "A Cloud machine snapshot."
+          },
+          "CloudEnvironmentBuildRecord": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "building",
+                  "ready",
+                  "failed"
+                ]
+              },
+              "started_at": {
+                "type": "integer"
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "message"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "log_tail": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "timings": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "boot_ms": {
+                        "type": "integer"
+                      },
+                      "ready_ms": {
+                        "type": "integer"
+                      },
+                      "setup_ms": {
+                        "type": "integer"
+                      },
+                      "snapshot_ms": {
+                        "type": "integer"
+                      },
+                      "warm_ms": {
+                        "type": "integer"
+                      },
+                      "total_ms": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "boot_ms",
+                      "ready_ms",
+                      "setup_ms",
+                      "snapshot_ms",
+                      "warm_ms",
+                      "total_ms"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "state",
+              "started_at",
+              "finished_at",
+              "error",
+              "log_tail",
+              "timings"
+            ],
+            "additionalProperties": true
+          },
+          "Revision": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Decimal per-object revision (the owner's event sequence)."
+          },
+          "CloudEnvironment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/EnvironmentId"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "repo": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "setup_script": {
+                "type": "string",
+                "maxLength": 65536
+              },
+              "env": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/CloudEnvironmentVariable"
+                },
+                "maxItems": 100
+              },
+              "creator": {
+                "$ref": "#/$defs/UserId"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "unbuilt",
+                  "building",
+                  "ready",
+                  "stale",
+                  "failed"
+                ]
+              },
+              "snapshot": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/SnapshotId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "last_build": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CloudEnvironmentBuildRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "revision": {
+                "$ref": "#/$defs/Revision"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "repo",
+              "setup_script",
+              "env",
+              "creator",
+              "status",
+              "snapshot",
+              "last_build",
+              "created_at",
+              "revision"
+            ],
+            "additionalProperties": true
+          }
+        }
       }
     },
     "cloud.machine.connect_info": {
@@ -45138,6 +47485,9 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "allow_workflows": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -45251,6 +47601,13 @@
                       }
                     }
                   }
+                },
+                "allow_workflows": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
                 }
               }
             }
@@ -45350,6 +47707,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "allow_workflows": {
+                "type": "boolean"
               }
             },
             "additionalProperties": true
@@ -45432,6 +47792,9 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "allow_workflows": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -51659,6 +54022,11 @@
               }
             ]
           },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
           "CommitSha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
@@ -51782,6 +54150,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -61459,6 +63857,22 @@
                 ],
                 "additionalProperties": true
               },
+              "github.allowWorkflows": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
               "integrations.allowedProviders": {
                 "type": "object",
                 "properties": {
@@ -62214,6 +64628,22 @@
                 ],
                 "additionalProperties": true
               },
+              "github.allowWorkflows": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
               "integrations.allowedProviders": {
                 "type": "object",
                 "properties": {
@@ -62715,6 +65145,7 @@
               "github.repoScope",
               "github.requireOrgAdmin",
               "github.repoAllowList",
+              "github.allowWorkflows",
               "integrations.allowedProviders",
               "mcp.server",
               "mcp.remoteTransport",
@@ -63010,6 +65441,22 @@
                         "maxItems": 500
                       }
                     ]
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "github.allowWorkflows": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -63678,6 +66125,7 @@
               "github.repoScope",
               "github.requireOrgAdmin",
               "github.repoAllowList",
+              "github.allowWorkflows",
               "integrations.allowedProviders",
               "mcp.server",
               "mcp.remoteTransport",
@@ -63843,6 +66291,22 @@
                         "maxItems": 500
                       }
                     ]
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "github.allowWorkflows": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"

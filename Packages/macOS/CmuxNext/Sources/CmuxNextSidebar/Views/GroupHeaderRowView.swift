@@ -30,7 +30,8 @@ final class GroupHeaderRowView: SidebarRowView {
     /// A collapsed group's member count, after the name.
     private let count = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let chevron = DecorativeImageView()
-    private let activity = StatusIndicatorView()
+    /// The members' roll-up, in the sidebar's status colors (Lawrence msg 11983).
+    private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.usesStatusColors = true; return view }()
     /// The spinner's slot: it fades and collapses its width as loading starts and stops (u-group-header-detail).
     private lazy var activitySlot = SidebarRevealSlotView(activity) { [weak activity] in activity?.showsGlyph ?? false }
     /// Loading stopped: the spinner keeps drawing while its slot fades and collapses, then goes idle.
@@ -55,6 +56,8 @@ final class GroupHeaderRowView: SidebarRowView {
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                       label: GroupEditorStrings.newWorkspace)
     private var pinned = false
+    /// Archived in the sidebar document: the bar and its ink draw dimmed (`SidebarStyle.archivedAlpha`).
+    private var archived = false
     private var hasIcon = false
     /// No members: the + is not offered (the editor's New Workspace in Group
     /// is), so a click on it can never race the editor closing on a new,
@@ -127,18 +130,24 @@ final class GroupHeaderRowView: SidebarRowView {
         var collapsed: Bool
         var fontSize: CGFloat
         var details: GroupHeaderDetails
+        var status: StatusIndicatorState?
     }
 
     /// Shows `group`. A collapsed header shows its loading spinner on the right; `details` turns
     /// on its member count, unread total and other states (all off by default).
-    func configure(_ group: SidebarGroup, row: SidebarRow, details: GroupHeaderDetails = GroupHeaderDetails(), animated: Bool) {
+    ///
+    /// `status` is the header's roll-up over its whole subtree (``SidebarGroup/statusRollUp(collapsed:)``
+    /// of the group and its subgroups); nil rolls up `group`'s own members.
+    func configure(_ group: SidebarGroup, row: SidebarRow, details: GroupHeaderDetails = GroupHeaderDetails(),
+                   status rollUp: StatusIndicatorState? = nil, animated: Bool) {
         let content = Content(group: group, childCount: row.childCount, collapsed: row.isCollapsed,
-                              fontSize: SidebarStyle.headerFont.pointSize, details: details)
+                              fontSize: SidebarStyle.headerFont.pointSize, details: details, status: rollUp)
         guard needsConfigure(content) else { return }
         tint = group.tint
         isEmpty = group.workspaces.isEmpty && group.items.isEmpty
         name.stringValue = group.name
         pinned = group.isPinned
+        archived = group.isArchived
         hasIcon = group.icon != nil
         glyph.configure(icon: group.icon)
         pin.image = pinned ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
@@ -146,8 +155,8 @@ final class GroupHeaderRowView: SidebarRowView {
         count.stringValue = details.memberCount && collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
         chevronIcon = Self.disclosureIcon(collapsed: collapsed)
         chevron.image = NSImage.icon(chevronIcon, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2))
-        // Lawrence 2026-10-20: "All we care about is the loading."
-        let status = collapsed ? (details.otherStates ? group.aggregateActivity : group.loadingActivity) : .idle
+        // Lawrence 2026-10-20: "All we care about is the loading"; msg 11983: and blue, orange and red.
+        let status = collapsed && details.otherStates ? group.aggregateActivity : rollUp ?? group.statusRollUp(collapsed: collapsed)
         if status.isVisible {
             activityEnding = false
             activity.configure(status)
@@ -176,6 +185,7 @@ final class GroupHeaderRowView: SidebarRowView {
     }
 
     /// A state fill on the bar (hover, open editor, drop); the bar itself always shows.
+    override var debugArchived: Bool { archived }
     override var debugFill: Bool { super.debugFill || isHovered || isEditing || isDropTarget }
     override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { (chevronIcon.rawValue, chevron.frame, !chevron.isHidden) }
 
@@ -250,7 +260,7 @@ final class GroupHeaderRowView: SidebarRowView {
             // One ink for every glyph on the bar (cx-qno.22): name, icon, pin,
             // chevron, + and more, chosen once on the bar's color; it holds
             // text contrast on every state above and the buttons' fills.
-            let ink = chip.ink.nsColor
+            let ink = chip.ink.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
             name.textColor = ink
             count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
             glyph.symbolInk = ink
@@ -265,6 +275,7 @@ final class GroupHeaderRowView: SidebarRowView {
             paintFill(nil)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
+            pill.opacity = archived ? Float(SidebarStyle.archivedAlpha) : 1 // dimmed with no fade (archiving-DESIGN.md)
             layer?.borderColor = Palette.focusRing.cgColor
             layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
             layer?.cornerRadius = SidebarStyle.rowCornerRadius
@@ -277,9 +288,9 @@ final class GroupHeaderRowView: SidebarRowView {
     /// Hover, the open editor and a drop take the row's own fill.
     private func paintQuiet(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, themed: Bool)) {
         let line = tint.lineRGB(themed: look.themed)
-        let ink = look.style == .tinted
+        let ink = (look.style == .tinted
             ? ThemeTokens.readable(line, over: tokens.sidebarBackground, minimum: ThemeTokens.minimumTextContrast).nsColor
-            : tokens.textPrimary.nsColor
+            : tokens.textPrimary.nsColor).withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
         name.textColor = ink
         count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
         glyph.symbolInk = ink
@@ -292,6 +303,8 @@ final class GroupHeaderRowView: SidebarRowView {
         CATransaction.setDisableActions(true)
         dot.isHidden = false
         dot.backgroundColor = line.nsColor.cgColor
+        pill.opacity = archived ? Float(SidebarStyle.archivedAlpha) : 1
+        dot.opacity = pill.opacity
         pill.borderWidth = 0
         layer?.borderColor = tokens.focusRing.nsColor.cgColor
         layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0

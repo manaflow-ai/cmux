@@ -17,6 +17,9 @@ pub(crate) struct Sources {
     pub pairing: Value,
     /// Remote hosting (`~/.cmux/host/remote.json`): the owner, `allow` and `grants`.
     pub remote: Value,
+    /// The concrete `Host` names of the person's `~/.ssh/config` (and its
+    /// includes), each with the `HostName` its blocks give it.
+    pub ssh_hosts: Vec<crate::machine_runtime::SshConfigHost>,
 }
 
 /// What a device is to a person.
@@ -94,18 +97,55 @@ pub(crate) struct Device {
     /// A sentence a person can act on (an error, what a pending device waits for).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// A paired client machine's or phone's Full-access setting (acpmux `pair_set`): whether it
+    /// may run chats here in Full access. None for every other row, which has no such setting.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_access: Option<bool>,
 }
 
-/// A computer the network knows that is not a device yet (Add Device, way 1).
+/// Where an available computer was found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum Found {
+    /// The overlay network (Tailscale, Weft).
+    Network,
+    /// A `Host` of the person's `~/.ssh/config`.
+    SshConfig,
+}
+
+/// A computer the network or the person's ssh config knows that is not a
+/// device yet (Add Device, way 1).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Available {
     pub name: String,
-    /// What enroll dials: the MagicDNS name, else the address.
+    /// What enroll dials: the MagicDNS name, else the address; an ssh
+    /// config host's own name.
     pub address: String,
+    /// Empty for an ssh config host: nothing says what it runs until enroll reaches it.
     pub os: String,
-    /// Same login as this machine, not tagged and not shared in.
+    /// Same login as this machine, not tagged and not shared in; true for
+    /// a host the person's own ssh config names.
     pub mine: bool,
+    pub found: Found,
 }
+
+/// Hosts a person reaches with ssh that are never a computer to add: git
+/// forges, whose ssh only serves git.
+const NOT_COMPUTERS: &[&str] = &[
+    "github.com",
+    "gist.github.com",
+    "ssh.github.com",
+    "gitlab.com",
+    "altssh.gitlab.com",
+    "bitbucket.org",
+    "altssh.bitbucket.org",
+    "ssh.dev.azure.com",
+    "vs-ssh.visualstudio.com",
+    "codeberg.org",
+    "git.sr.ht",
+    "hf.co",
+    "huggingface.co",
+];
 
 /// An open invite (an acpmux ticket not yet used).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -135,7 +175,9 @@ pub(crate) struct Listing {
 /// - remote hosting's `allow` logins and live grants are rows while remote
 ///   hosting is on (off, they let no one in);
 /// - revoked records and spent tickets are not rows; open tickets are invites;
-/// - network computers that are online and not a device are `available`.
+/// - network computers that are online and not a device are `available`,
+///   then the ssh config's hosts that are neither a device nor one of
+///   those computers (git forges left out).
 pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkNode]) -> Listing {
     let net_name = network.kind.name();
     let mut devices: Vec<Device> = Vec::new();
@@ -168,6 +210,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             via: vec![Via::Peer { name: name.clone() }],
             added_at: None,
             detail: if state == State::Error { error } else { None },
+            full_access: None,
         });
     }
     for paired in array(&sources.pairing, "devices") {
@@ -189,7 +232,9 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         devices.push(Device {
             id: format!("paired:{id}"),
             name,
-            kind: Kind::Computer,
+            // A phone's own record (acpmux role `phone`): the Mac app lists the phone and joins
+            // this row to it for its Full-access setting.
+            kind: if role == "phone" { Kind::Phone } else { Kind::Computer },
             roles: vec![match role.as_str() {
                 "read-only" => Role::WatchOnly,
                 "daemon" => Role::RunsAgents,
@@ -201,6 +246,8 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             via: vec![Via::Paired { id }],
             added_at,
             detail: None,
+            full_access: matches!(role.as_str(), "client" | "phone")
+                .then(|| paired["full_access"] == true),
         });
     }
     if sources.remote["enabled"].as_bool() == Some(true) {
@@ -265,11 +312,44 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
                     address: n.address(),
                     os: n.os.clone(),
                     mine: n.mine,
+                    found: Found::Network,
                 },
             )
         })
         .collect();
     available.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
+    let known = |host: &str| {
+        let host = host.trim_end_matches('.').to_ascii_lowercase();
+        let by_peer = array(&sources.peers, "peers").iter().any(|p| {
+            let url = text(p, "url").unwrap_or_default();
+            text(p, "name").is_some_and(|n| n.eq_ignore_ascii_case(&host))
+                || url_host(&url).is_some_and(|h| h == host)
+        });
+        let by_device = devices.iter().any(|d| {
+            d.name.eq_ignore_ascii_case(&host)
+                || d.reach
+                    .as_ref()
+                    .is_some_and(|r| r.address.eq_ignore_ascii_case(&host) || r.ips.contains(&host))
+        });
+        by_peer
+            || by_device
+            || nodes.iter().any(|n| n.answers_to(&host))
+            || NOT_COMPUTERS.contains(&host.as_str())
+    };
+    // An alias whose HostName is a device, a peer, a tailnet node or a forge is that machine.
+    let mut ssh: Vec<Available> = sources
+        .ssh_hosts
+        .iter()
+        .filter(|h| !known(&h.alias) && !h.host_name.as_deref().is_some_and(known))
+        .map(|h| Available {
+            name: h.alias.clone(),
+            address: h.alias.clone(),
+            os: String::new(),
+            mine: true,
+            found: Found::SshConfig,
+        })
+        .collect();
+    ssh.sort_by_key(|a| a.name.to_ascii_lowercase());
 
     let invites = array(&sources.pairing, "tickets")
         .iter()
@@ -286,7 +366,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
     Listing {
         network,
         devices,
-        available: available.into_iter().map(|(_, a)| a).collect(),
+        available: available.into_iter().map(|(_, a)| a).chain(ssh).collect(),
         invites,
     }
 }
@@ -311,6 +391,7 @@ fn login_row(
         via: vec![via],
         added_at,
         detail,
+        full_access: None,
     }
 }
 

@@ -18,6 +18,12 @@
  * sshd trusts only the bound CA on loopback (empty CA refuses, throwaway CA
  * cert login + scp pass, KRL refuses); display and first-use roles are off and
  * CJK fonts are present (cloud-automation.md 2 and 5).
+ * Machine health (machine-health.ts): cmux-machine-health.timer is active, one pass exits 0 and
+ * writes valid JSON with no problems, and the guard drop-ins apply (a session-*.scope stand-in gets
+ * TasksMax 8192 and MemoryHigh/MemoryMax of about 70%/80% of RAM; the user manager -900).
+ * DNS (dns.ts): cmux-dns-check --restart restarts systemd-resolved (and tailscaled when
+ * installed), then needs the resolv.conf stub link and a public name resolving (a tailnet name too
+ * when logged in to one).
  * The daemon handshake (identify.ts) must serve REQUIRED_IMAGE_CAPABILITIES and, with
  * --expect-capabilities, every listed capability; --team-vm also checks /srv/team.
  * Checks that need the bind agent are reported as PENDING.
@@ -31,6 +37,8 @@ import { DEVBOX_INSTANCE_ID_COMMAND, devboxIdleWakeupCheckCommand, devboxWaitFor
 import { GUEST_DIR, TEAM_FILES_ROOT, teamVmDirsCommand, TMP_LEFTOVERS } from "./bake";
 import { CREDENTIAL_FILES_CHECK, devTreeCredentialCheckCommand, devTreeUserPaths } from "./dev-tree";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
+import { DNS_SMOKE_COMMAND, dnsCheckProblems } from "./dns";
+import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./machine-health";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
 import { browserRoleProbe } from "./browser-probe";
@@ -281,6 +289,22 @@ async function automationChecks(vm: Vm, report: Report): Promise<void> {
   check(report, "roles-off-fonts-on", roles.code === 0, roles.stdout.trim() || roles.stderr.slice(-300));
 }
 
+/** The health loop runs clean and the guard drop-ins apply (machine-health.ts). */
+async function machineHealthChecks(vm: Vm, report: Report): Promise<void> {
+  const out = await run(vm, machineHealthSmokeCommand(DEVBOX_WORK_USER), 120_000);
+  const problems = machineHealthSmokeProblems(out.stdout);
+  report.machineHealth = out.stdout.trim().split("\n");
+  check(report, "machine-health", problems.length === 0, problems.join("\n") || out.stdout.trim());
+}
+
+/** The resolver survives a restart of systemd-resolved (and tailscaled) and resolves (dns.ts); after the checks above, since it restarts services. */
+async function resolverChecks(vm: Vm, report: Report): Promise<void> {
+  const dns = await run(vm, DNS_SMOKE_COMMAND, 120_000);
+  const problems = dnsCheckProblems(dns.code, dns.stdout);
+  report.dns = dns.stdout.trim().split("\n");
+  check(report, "dns-resolved-restart", problems.length === 0, problems.join("\n") || dns.stdout.trim());
+}
+
 function summarize(rows: Array<Record<string, number | string>>): Record<string, unknown> {
   const pick = (key: string) => rows.map((r) => Number(r[key])).filter((v) => v >= 0 && Number.isFinite(v));
   const stat = (key: string) => {
@@ -326,6 +350,8 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
     }
     await functionalChecks(kept[1].vm, lock, report);
     await automationChecks(kept[1].vm, report);
+    await machineHealthChecks(kept[1].vm, report);
+    await resolverChecks(kept[1].vm, report);
     if (options.agentProbe) {
       const probe = await agentBindProbe(kept[1].vm);
       check(report, "vm-agent-bind-probe", probe.ok, probe.detail);

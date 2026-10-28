@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextFeed
 import CmuxNextIcons
 import Foundation
@@ -15,9 +16,12 @@ extension InternalPageID {
 @MainActor
 final class FeedPageService: InternalPageProvider {
     private unowned let services: AppServices
+    /// Sends report replies off the main thread.
+    private let replies: AcpmuxReplySender
 
-    init(services: AppServices) {
+    init(services: AppServices, replies: AcpmuxReplySender = AcpmuxReplySender()) {
         self.services = services
+        self.replies = replies
     }
 
     /// Opens the Inbox in the active window without activating it for agent
@@ -39,22 +43,16 @@ final class FeedPageService: InternalPageProvider {
         let feed = services.feed
         FeedGitHubActions.install(on: feed.model, services: services)
         let layout: FeedLayout = FeedTunables.reportsBasket.value ? .reportsBasket : .inbox
-        return FeedHostView(model: feed.model, layoutOverride: layout) { reportID, reply in
+        let replies = replies
+        // Resolved once at startup: a reply runs no executable lookup or signature check.
+        let environment = feed.acpmuxEnvironment
+        return FeedHostView(model: feed.model, layoutOverride: layout) { reply in
             // A report poster's authenticated identity is its ACP session. A
             // human reply intentionally wakes that session, unlike delivery
             // into the reports basket. The feed owner remains the source of
             // report rows; the command is a bounded local adapter for Labs.
-            guard !reportID.isEmpty, let environment = QuitAgents.environment(self.services) else { return false }
-            let process = Process()
-            process.executableURL = environment.executable
-            process.arguments = ["send", reportID, reply, "--no-wait", "--no-steer"]
-            process.environment = ProcessInfo.processInfo.environment.merging(environment.childEnvironment) { _, value in value }
-            do {
-                try process.run()
-                return true
-            } catch {
-                return false
-            }
+            // The process runs off the main thread, to its exit or deadline (AcpmuxReplySender).
+            await replies.send(session: reply.session, text: reply.text, promptID: reply.promptID, environment: environment)
         }
     }
 }

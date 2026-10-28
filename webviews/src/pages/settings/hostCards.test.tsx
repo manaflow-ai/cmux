@@ -312,6 +312,44 @@ test("Advanced names the loaded settings file and shows one Reload Configuration
   page.unmount();
 });
 
+test("an aerial macOS has not downloaded shows as a cloud tile that opens the Wallpaper pane", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const moving = { collection: "video", collection_title: "Moving wallpapers", video: true };
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      backdrops: [
+        ...(page.provider.host.backdrops ?? []),
+        { id: "system:/aerials/4KSDR240FPS/A1.mov", title: "Tahoe Morning", attribution: "", ...moving },
+        {
+          id: "system:/aerials/4KSDR240FPS/B2.mov",
+          title: "Iceland Dusk",
+          attribution: "",
+          ...moving,
+          downloaded: false,
+        },
+      ],
+    }),
+  );
+  await settle();
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const ready = picker.querySelector<HTMLButtonElement>('[aria-label="Tahoe Morning"]')!;
+  const pending = picker.querySelector<HTMLButtonElement>('[aria-label="Iceland Dusk"]')!;
+  expect(ready.classList.contains("backdrop-pending")).toBe(false);
+  expect(ready.querySelector("img")).not.toBeNull();
+  // No thumbnail to fetch for a movie that is not on disk: an empty tile with a cloud.
+  expect(pending.classList.contains("backdrop-pending")).toBe(true);
+  expect(pending.querySelector("img")).toBeNull();
+  expect(pending.querySelector("svg.backdrop-download")).not.toBeNull();
+  await act(async () => pending.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.wallpaper_settings").length).toBe(1);
+  expect(
+    runs(page, "cmux.settings.set").filter((p) => (p as { key: string }).key === "appearance.background").length,
+  ).toBe(0);
+  page.unmount();
+});
+
 test("Add from a Link downloads an image and sets it; a refused link says why; your images can be removed", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
   const picker = () => page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;

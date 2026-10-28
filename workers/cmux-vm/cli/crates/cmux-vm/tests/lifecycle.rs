@@ -2271,3 +2271,71 @@ async fn creation_cancel_requires_confirmation_and_preserves_cancelling_receipts
     assert_eq!(scripted.code, exit::OK, "{}", scripted.stderr);
     assert_eq!(json_stdout(&scripted), receipt);
 }
+
+#[tokio::test]
+async fn exec_posts_the_command_and_prints_the_guest_output() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/exec")))
+        .and(authorized())
+        .and(body_json(
+            json!({ "command": "acpmux run -m claude hi", "timeoutMs": 5000 }),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "exitCode": 0, "stdout": "tenant ok\n", "stderr": "" })),
+        )
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    let out = cli(
+        &server,
+        &[
+            "exec",
+            VM_ID,
+            "--timeout-ms",
+            "5000",
+            "--",
+            "acpmux",
+            "run",
+            "-m",
+            "claude",
+            "hi",
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+    assert_eq!(out.stdout, "tenant ok\n");
+
+    let out = cli(
+        &server,
+        &[
+            "--json",
+            "exec",
+            VM_ID,
+            "--timeout-ms",
+            "5000",
+            "--",
+            "acpmux run -m claude hi",
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+    assert_eq!(json_stdout(&out)["stdout"], "tenant ok\n");
+}
+
+#[tokio::test]
+async fn exec_fails_when_the_command_fails() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/exec")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            json!({ "exitCode": 127, "stdout": "", "stderr": "acpmux: not found\n" }),
+        ))
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["exec", VM_ID, "--", "acpmux", "--version"]).await;
+    assert_eq!(out.code, exit::UNEXPECTED);
+    assert!(out.stderr.contains("acpmux: not found"), "{}", out.stderr);
+}

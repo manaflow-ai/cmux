@@ -79,5 +79,8 @@ public protocol BrowserHangAnswering: AnyObject {
 public protocol BrowserFreezing: AnyObject {
     /// Freezes or thaws the page. The request leaves before this returns, so a
     /// call made after a thaw runs on a live page. A closed page ignores it.
-    func setFrozen(_ frozen: Bool)
+    /// - Returns: False when nothing changed: the page is closed, or (freezing) the engine still
+    ///   counts it visible (`WebContents::SetPageFrozen` freezes hidden pages only).
+    @discardableResult
+    func setFrozen(_ frozen: Bool) -> Bool
 }

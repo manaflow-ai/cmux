@@ -22,9 +22,10 @@ go through the app's debug socket (`action.run`). Prints `DOGFOOD-STEP {json}` p
   nx-remote --host mac26 --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
     python3 scripts/cmux-next/holder-dogfood.py --app "$NX_APP" --model holder --out "$NX_ARTIFACTS"
 
-Signals only processes the tag started (the holder by its exact pid, found as the daemon's child).
+Signals only processes the tag started (the holder by its exact pid, found as the parent of the tag
+daemon's shells).
 """
-import argparse, importlib.util, json, os, signal, socket, subprocess, sys, time
+import argparse, importlib.util, json, os, shutil, signal, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -136,23 +137,30 @@ def processes():
     return table
 
 
-def terminal_processes(daemon_pid):
-    """The daemon's terminal processes: hosts (`__terminal-host`) and holders (cmux-holder / __holder)."""
+def terminal_processes(daemon, surfaces=None):
+    """The daemon's terminal processes, found as the parents of its terminals' shells (the pids
+    terminal-resources reports): hosts (`__terminal-host`) and holders (cmux-holder, or the holder
+    built into cmux-tui-host). Not by parent pid: a holder detaches from the daemon (it outlives a
+    daemon crash), so its parent is launchd. A shell whose parent is the daemon has no such process."""
     table = processes()
+    if surfaces is None:
+        surfaces = daemon.surfaces()
+    parents = {table[pid][0] for pid in daemon.shells(surfaces).values() if pid in table}
     hosts, holders = [], []
-    for pid, (ppid, rss, command) in table.items():
-        if ppid != daemon_pid:
+    for pid in sorted(parents):
+        if pid == daemon.pid or pid not in table:
             continue
+        _, rss, command = table[pid]
         if "__terminal-host" in command:
             hosts.append((pid, rss))
-        elif "cmux-holder" in command or "__holder" in command:
+        elif "cmux-holder" in command or "__holder" in command or "cmux-tui-host" in command:
             holders.append((pid, rss, command.split()[0]))
-    daemon_rss = table.get(daemon_pid, (0, 0, ""))[1]
+    daemon_rss = table.get(daemon.pid, (0, 0, ""))[1]
     return hosts, holders, daemon_rss
 
 
 def cost(shape, model, daemon, surfaces):
-    hosts, holders, daemon_rss = terminal_processes(daemon.pid)
+    hosts, holders, daemon_rss = terminal_processes(daemon, surfaces)
     n = max(1, len(surfaces))
     terminal_rss = sum(rss for _, rss in hosts) + sum(rss for _, rss, _ in holders)
     record = {
@@ -176,6 +184,9 @@ class Dogfood:
         self.app = None
         self.daemon = None
         self.actions = []
+        self.state_dir = os.path.join(opts.out or tempfile.mkdtemp(prefix="holder-dogfood-"), "tui-state")
+        shutil.rmtree(self.state_dir, ignore_errors=True)
+        os.makedirs(self.state_dir)
 
     # -- plumbing ------------------------------------------------------------------------------
     def step(self, name, ok, **detail):
@@ -186,7 +197,10 @@ class Dogfood:
         return ok
 
     def launch(self):
-        env = {"CMUX_TUI_TERMINAL_HOST_MODEL": self.opts.model}
+        # Each model's run gets its own daemon state (sessions, terminal hosts): the run before it
+        # (or another step's run of this tag) must not restore its terminals into this one's count.
+        # A relaunch within the run keeps it.
+        env = {"CMUX_TUI_TERMINAL_HOST_MODEL": self.opts.model, "CMUX_TUI_STATE_DIR": self.state_dir}
         self.app = BenchApp(self.opts.app, out=self.opts.out, env=env, teardown=False)
         self.app.launch()
         self.daemon = wait(lambda: Daemon(self.opts.app), 60)
@@ -229,16 +243,24 @@ class Dogfood:
 
     # -- steps ---------------------------------------------------------------------------------
     def light(self):
+        shown = 0
         for index in range(3):
             surface, _ = self.new_terminal(f"light-{index}", ["/bin/sh", "-c", f"echo light-{index}; exec cat"])
-            self.screen_has(surface, f"light-{index}")
+            shown += bool(self.screen_has(surface, f"light-{index}"))
         surfaces = self.daemon.surfaces()
         record = cost("light", self.opts.model, self.daemon, surfaces)
-        self.step("light", record["terminals"] >= 4, terminals=record["terminals"])
+        self.step("light", shown == 3 and record["terminals"] >= 3, terminals=record["terminals"], shown=shown)
 
     def stress(self):
         stress = load_stress()
-        summary = stress.Stress(self.app.rpc).build()
+        try:
+            summary = stress.Stress(self.app.rpc).build()
+            self.step("stress-shape", True)
+        except stress.StressShapeError as error:
+            # The session the builder made is measured anyway (both models get the same builder);
+            # the step reports the shape it missed.
+            summary = {"shape_error": str(error)[:2000]}
+            self.step("stress-shape", False, error=str(error)[:2000])
         emit("STRESS-SESSION", summary)
         time.sleep(2)  # test script: the busy terminals start printing
         surfaces = self.daemon.surfaces()
@@ -287,7 +309,7 @@ class Dogfood:
                   screen_tail=self.daemon.screen(surface)[-200:])
 
     def kill_holder(self, printing):
-        hosts, holders, _ = terminal_processes(self.daemon.pid)
+        hosts, holders, _ = terminal_processes(self.daemon)
         if self.opts.model != "holder":
             return self.step("holder-kill", True, skipped="hosts model")
         if not holders:
@@ -301,7 +323,7 @@ class Dogfood:
         echo, _ = self.new_terminal("dogfood-after-kill", ["/bin/cat"])
         self.daemon.call("send", surface=echo, text="typed-after-holder-kill\n")
         typed = self.screen_has(echo, "typed-after-holder-kill")
-        _, holders_after, _ = terminal_processes(self.daemon.pid)
+        _, holders_after, _ = terminal_processes(self.daemon)
         new = [pid for pid, _, _ in holders_after if pid != old]
         self.step("holder-kill", lived and len(still) >= len(printing) - 1 and bool(typed) and bool(new),
                   shells=len(shells), all_shells_alive=lived, printing_before=len(printing),
@@ -327,7 +349,7 @@ class Dogfood:
             emit("DOGFOOD-ACTIONS", {"close": self.action("tab.close") or self.action("close", "tab"),
                                      "reopen": self.action("reopen"), "paste": self.action("paste"),
                                      "count": len(self.actions)})
-            self.step("launch", True, holder_executable=(terminal_processes(self.daemon.pid)[1] or [(0, 0, None)])[0][2])
+            self.step("launch", True, state_dir=self.state_dir)
             self.light()
             _, printing = self.stress()
             self.close_and_reopen()

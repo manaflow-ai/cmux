@@ -9,8 +9,9 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 /// Deadlines of one link. `ACPMUX_PEER_TIMEOUT_SECS` sets the connect
-/// deadline (the handshake gets three times it) and `ACPMUX_PEER_PING_SECS`
-/// the keepalive interval, for a host that is slow even when well.
+/// deadline (the handshake gets three times it), `ACPMUX_PEER_PING_SECS`
+/// the keepalive interval, for a host that is slow even when well, and
+/// `ACPMUX_PEER_REQUEST_SECS` how long one request waits for its answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkTimings {
     /// ssh, the tunnel and the WebSocket upgrade; also the remote config read.
@@ -24,6 +25,8 @@ pub struct LinkTimings {
     pub ping_misses: u32,
     /// A link that stayed ready this long starts its next backoff over.
     pub stable_after: Duration,
+    /// How long one request waits for the peer's answer.
+    pub request: Duration,
 }
 
 impl Default for LinkTimings {
@@ -34,6 +37,7 @@ impl Default for LinkTimings {
             ping_every: Duration::from_secs(20),
             ping_misses: 4,
             stable_after: Duration::from_secs(60),
+            request: Duration::from_secs(600),
         }
     }
 }
@@ -50,6 +54,9 @@ impl LinkTimings {
         }
         if let Some(n) = secs("ACPMUX_PEER_PING_SECS") {
             t.ping_every = Duration::from_secs(n);
+        }
+        if let Some(n) = secs("ACPMUX_PEER_REQUEST_SECS") {
+            t.request = Duration::from_secs(n);
         }
         t
     }
@@ -232,10 +239,15 @@ pub fn describe(name: &str, link: &Link, error: Option<&str>, now: u64) -> Strin
 /// reason is `peer_unreachable` (the CLI's error detail), retryable. The
 /// request was not sent, so retrying it never runs it twice.
 pub fn unreachable_error(name: &str, link: &Link, error: Option<&str>, now: u64) -> RpcError {
-    RpcError::internal(format!("peer_unreachable: {}", describe(name, link, error, now))).with_data(
+    RpcError::internal(format!(
+        "peer_unreachable: {}; the request was not sent; run `acpmux host ls` and retry after the peer reconnects",
+        describe(name, link, error, now)
+    )).with_data(
         json!({
             "reason": "peer_unreachable",
             "retryable": true,
+            "try": "acpmux host ls",
+            "detail": "the request was not sent",
             "peer": name,
             "peerState": link.state().as_str(),
             "lastSeen": link.last_seen,
@@ -334,13 +346,14 @@ mod tests {
         link.ready(0);
         link.down(1_000, STABLE);
         let e = unreachable_error("huge-blue", &link, Some("connect timed out"), 40_000);
-        assert_eq!(
-            e.message,
-            "peer_unreachable: huge-blue (reconnecting, last seen 40s ago: connect timed out)"
+        assert!(
+            e.message.contains("huge-blue (reconnecting, last seen 40s ago: connect timed out)")
         );
+        assert!(e.message.contains("acpmux host ls"));
         let data = e.data.unwrap();
         assert_eq!(data["reason"], "peer_unreachable");
         assert_eq!(data["retryable"], true);
+        assert_eq!(data["try"], "acpmux host ls");
         assert_eq!(data["peerState"], "reconnecting");
         assert_eq!(data["lastSeen"], 0);
         let never = describe("gone", &Link::default(), None, 5);

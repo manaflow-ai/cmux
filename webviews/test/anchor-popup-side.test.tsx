@@ -1,7 +1,7 @@
-// An anchored menu travels out of its trigger on the side it opened (Leo 2026-10-20, directional
-// motion): one that fits above its chip rises (`--ui-popup-y: 4px`), and one that flips below for
-// want of room drops (`-4px`), whatever side it asked for. useUiAnchor (src/ui/anchor.ts) resolves
-// the side, so it sets the travel with the position.
+// An anchored menu opens on the side it fits (useUiAnchor, src/ui/anchor.ts): above its chip when
+// there is room, flipped below for want of room, whatever side it asked for. It opens in one frame,
+// with no travel out of its trigger (Leo 2026-10-24: "When you open it up, no animation"), so the
+// placement sets no `--ui-popup-y` for an open animation to read.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useRef } from "react";
@@ -45,8 +45,9 @@ afterAll(() => {
 const rect = (left: number, top: number, width: number, height: number) =>
   ({ left, top, right: left + width, bottom: top + height, width, height, x: left, y: top, toJSON() {} }) as DOMRect;
 
-/// A 200px menu anchored to a chip whose top is at `chipTop` in a 600px window.
-async function travel(chipTop: number, side: "above" | "below"): Promise<string> {
+/// A 200px menu anchored to a chip whose top is at `chipTop` in a 600px window: the side it opened
+/// on, and any travel its placement set.
+async function placed(chipTop: number, side: "above" | "below"): Promise<{ side: string; travel: string }> {
   const { createRoot } = await import("react-dom/client");
   const { useUiAnchor } = await import("../src/ui/anchor");
   function Menu() {
@@ -71,21 +72,25 @@ async function travel(chipTop: number, side: "above" | "below"): Promise<string>
     act(() => root?.unmount());
     root = createRoot(window.document.getElementById("root")!);
     act(() => root!.render(<Menu />));
-    return window.document.querySelector<HTMLElement>(".ui-popup")!.style.getPropertyValue("--ui-popup-y");
+    const popup = window.document.querySelector<HTMLElement>(".ui-popup")!;
+    return {
+      side: Number.parseFloat(popup.style.top) > chipTop ? "below" : "above",
+      travel: popup.style.getPropertyValue("--ui-popup-y"),
+    };
   } finally {
     proto.getBoundingClientRect = original;
   }
 }
 
-test("a menu with room above its chip rises out of it", async () => {
-  expect(await travel(500, "above")).toBe("4px");
+test("a menu with room above its chip opens above it, with no travel", async () => {
+  expect(await placed(500, "above")).toEqual({ side: "above", travel: "" });
 });
 
-test("a menu that asked for above but flipped below for want of room drops out of its chip", async () => {
-  expect(await travel(40, "above")).toBe("-4px");
+test("a menu that asked for above but has no room there flips below its chip", async () => {
+  expect(await placed(40, "above")).toEqual({ side: "below", travel: "" });
 });
 
-test("a menu that opens below its chip drops, and one that flips above rises", async () => {
-  expect(await travel(40, "below")).toBe("-4px");
-  expect(await travel(540, "below")).toBe("4px");
+test("a menu that opens below its chip stays below, and one with no room below flips above", async () => {
+  expect(await placed(40, "below")).toEqual({ side: "below", travel: "" });
+  expect(await placed(540, "below")).toEqual({ side: "above", travel: "" });
 });

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSidebar
 
 /// Rooms (plans/cmux-next/data-model.md 8; the daemon calls them profiles):
 /// create, edit, delete, reorder, switch, and the workspace and group moves.
@@ -11,7 +12,7 @@ enum RoomHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let local: @MainActor () -> DaemonService? = { context.services.machines.local }
         func bind(_ id: ActionID, _ run: @escaping @MainActor (ActionInvocation) throws -> Void) {
-            registry.bind(id, requires: DaemonCapabilities.profiles, daemon: local(), run: { invocation in
+            registry.bind(id, requires: DaemonCapability.profiles.rawValue, daemon: local(), run: { invocation in
                 try context.requireRooms()
                 try run(invocation)
             })
@@ -84,16 +85,22 @@ enum RoomHandlers {
             let room = try context.room(invocation)
             // Neither argument named (the palette or the space menu with nothing collected): ask
             // for the directory, never clear. Clearing takes both named empty (`cwd=` `env=`).
+            // The answer names `cwd` alone, which keeps the space's environment.
             guard RoomDefaultsArguments.names(invocation) else {
                 guard invocation.origin == .user,
-                      context.services.registry.ask("space.setDefaults", RoomDefaultsArguments.keepingEnv(of: room.defaults, invocation),
+                      context.services.registry.ask("space.setDefaults", invocation,
                                                     ActionArgumentAsk(argument: "cwd", initialText: room.defaults?.cwd)) else {
                     throw ActionFailure.invalidTarget(RoomStrings.defaultsArgumentRequired)
                 }
                 return
             }
-            let defaults = try RoomDefaultsArguments.parse(invocation)
-            update(room.id, context) { try await $0.updateProfile($1, defaults: defaults.isEmpty ? .clear : .set(defaults)) }
+            let patch = try RoomDefaultsArguments.patch(invocation)
+            RoomDefaultsUpdates.apply(patch, to: room.id, context)
+        }
+        // Destructive: the palette asks first (RoomConfirmation.clearDefaultsPrompt); automation passes `confirm`.
+        bind("space.clearDefaults") { invocation in
+            let room = try context.room(invocation)
+            RoomDefaultsUpdates.apply(.clear, to: room.id, context)
         }
         bind("space.delete") { invocation in
             let room = try context.room(invocation)
@@ -114,18 +121,13 @@ enum RoomHandlers {
                 await RoomConfirmation.showDeleted(name, closedID: closedID, services: services)
             }
         }
-        bind("space.moveLeft") { try move(invocation: $0, by: -1, context) }
-        bind("space.moveRight") { try move(invocation: $0, by: 1, context) }
+        bind("space.moveLeft") { try move($0, context) { from, _ in from - 1 } }
+        bind("space.moveRight") { try move($0, context) { from, _ in from + 1 } }
+        bind("space.moveToStart") { try move($0, context) { _, _ in 0 } }
+        bind("space.moveToEnd") { try move($0, context) { _, count in count - 1 } }
         bind("space.move") { invocation in
-            let room = try context.room(invocation)
             guard let position = invocation["index"]?.intValue else { throw ActionFailure.invalidTarget(RoomStrings.roomArgumentRequired) }
-            let order = context.services.machines.local.store.profileIDs
-            let from = order.firstIndex(of: room.id) ?? 0
-            let target = min(max(position - 1, 0), order.count - 1)
-            // Insertion index: past the removed slot when moving right.
-            let insertion = target > from ? target + 1 : target
-            let id = room.id
-            context.services.machines.local.send("move-profile") { try await $0.moveProfile(id, to: insertion) }
+            try move(invocation, context, allowsStay: true) { _, count in min(max(position - 1, 0), count - 1) }
         }
         bind("space.next") { _ in try step(1, context) }
         bind("space.previous") { _ in try step(-1, context) }
@@ -205,13 +207,13 @@ enum RoomHandlers {
         _ = try await windows.createWorkspace(WorkspaceSpawn(profile: profile), into: newWindow)
     }
 
-    private static func move(invocation: ActionInvocation, by delta: Int, _ context: AppActionContext) throws {
-        let room = try context.room(invocation)
-        let order = context.services.machines.local.store.profileIDs
-        guard let from = order.firstIndex(of: room.id), order.indices.contains(from + delta) else {
-            throw ActionFailure.invalidTarget(RoomStrings.roomAtEdge)
-        }
-        let insertion = delta > 0 ? from + 2 : from - 1
+    /// Move Left/Right, to Start/End and to Position: `target` maps (position, count) to the new position.
+    private static func move(_ invocation: ActionInvocation, _ context: AppActionContext, allowsStay: Bool = false,
+                             to target: (Int, Int) -> Int) throws {
+        let room = try context.room(invocation), order = context.services.machines.local.store.profileIDs
+        guard let from = order.firstIndex(of: room.id),
+              let insertion = ProfileBarLogic.moveInsertion(from: from, to: target(from, order.count), count: order.count, allowsStay: allowsStay)
+        else { throw ActionFailure.invalidTarget(RoomStrings.roomAtEdge) }
         let id = room.id
         context.services.machines.local.send("move-profile") { try await $0.moveProfile(id, to: insertion) }
     }
@@ -225,5 +227,46 @@ enum RoomHandlers {
     static func update(_ id: ProfileID, _ context: AppActionContext,
                        _ body: @escaping @Sendable (DaemonConnection, ProfileID) async throws -> Void) {
         context.services.machines.local.send("update-profile") { try await body($0, id) }
+    }
+}
+
+/// Set and Clear Space Terminal Defaults… for one space, one at a time, each merging its named fields
+/// into the defaults the daemon holds when it runs (`list-personal`), never into the app's mirror,
+/// which lags a reply: two quick partial runs (`--cwd /a`, then `--env '{"X":"1"}'`) would both read
+/// the old mirror, and the second's whole-object write would drop the first's field.
+@MainActor
+enum RoomDefaultsUpdates {
+    /// The newest run per space; the next run waits for it. Each entry ends with its run and is then
+    /// removed, unless a newer run replaced it.
+    private static var tails: [ProfileID: (token: UUID, done: Task<Void, Never>)] = [:]
+
+    /// Ends its stream when the command's body has run, or when the body is dropped unrun (no daemon
+    /// connection): the body holds the only reference, so the next run never waits forever.
+    private final class Finish: Sendable {
+        let signal: AsyncStream<Void>.Continuation
+        init(_ signal: AsyncStream<Void>.Continuation) { self.signal = signal }
+        nonisolated deinit { signal.finish() }
+    }
+
+    /// Whether a run for `id` has not finished yet (its write may not have reached the mirror).
+    static func inFlight(_ id: ProfileID) -> Bool { tails[id] != nil }
+
+    static func apply(_ patch: RoomDefaultsArguments.Patch, to id: ProfileID, _ context: AppActionContext) {
+        let previous = tails[id]?.done
+        // Nothing is ever yielded; the stream only ends, so one slot is plenty.
+        let (finished, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let finish = Finish(signal)
+        let token = UUID()
+        tails[id] = (token, Task { @MainActor in
+            for await _ in finished {}
+            if tails[id]?.token == token { tails[id] = nil }
+        })
+        context.services.machines.local.send("update-profile") { connection in
+            defer { finish.signal.finish() }
+            await previous?.value
+            let current = try await connection.listPersonal().profiles.first(where: { $0.id == id })?.defaults
+            let defaults = patch.applied(to: current)
+            try await connection.updateProfile(id, defaults: defaults.isEmpty ? .clear : .set(defaults))
+        }
     }
 }

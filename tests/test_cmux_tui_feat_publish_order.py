@@ -170,13 +170,9 @@ def main():
     # Every other ref that runs the daemon tests publishes as soon as it is
     # built, whatever they do (cx-y0nf2), and no publisher writes the marker.
     tested_refs = [
-        ("push", "refs/heads/cmux-tui-pin-0123456789ab"),
         ("push", "refs/heads/next-batch/abc"),
         ("push", "refs/heads/main"),
         ("push", "refs/heads/codex/opted-in-lane"),
-        ("workflow_dispatch", "refs/heads/cmux-tui-pin-0123456789ab"),
-        # No pull_request_target case: 17bb49cc0b9 removed the dead
-        # publish-pr-tree job; PR trees publish from cmux-tui-pin-* pushes.
     ]
     for event, ref in tested_refs:
         for result in (None, "failure", "cancelled", "skipped", "success"):
@@ -184,6 +180,11 @@ def main():
             starting = [name for name in tree_publishers if runs(all_jobs, name, values)]
             _check(len(starting) == 1,
                    f"{event} {ref} publishes once with its daemon tests {result or 'queued'} ({starting})")
+    for event in ("push", "workflow_dispatch"):
+        for result in (None, "failure", "cancelled", "skipped", "success"):
+            values = context("refs/heads/cmux-tui-pin-0123456789ab", event=event, daemon_result=result)
+            starting = [name for name in tree_publishers if runs(all_jobs, name, values)]
+            _check(not starting, f"{event} on a pin ref never publishes ({starting})")
     for name in tree_publishers:
         _check(DAEMON not in all_needs(all_jobs, name), f"{name} does not need the daemon tests")
         _check("cmux-tui-mark-daemon-tested.sh" not in str(all_jobs[name]["steps"]),

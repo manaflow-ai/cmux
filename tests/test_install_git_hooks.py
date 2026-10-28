@@ -5,6 +5,7 @@ setup.sh runs the installer last under `set -e`, so a non-zero exit reports the
 whole setup as failed. Existing hooks (a global core.hooksPath, or Git LFS's
 hooks in .git/hooks) are left alone with a warning; real errors still fail.
 """
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,17 @@ import shlex
 import subprocess
 import tempfile
 import unittest
-import git_fixture_env  # disables git auto maintenance
+
+
+def _load_git_fixture_env():
+    """tests/git_fixture_env.py by path, so `python3 -I` (no script folder on sys.path) runs this file too."""
+    spec = importlib.util.spec_from_file_location("git_fixture_env", Path(__file__).resolve().parent / "git_fixture_env.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # importing it disables git auto maintenance
+    return module
+
+
+git_fixture_env = _load_git_fixture_env()
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -60,6 +71,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/swift_source_mask.py",
             "scripts/web_lint_prepush.py",
             "scripts/cmux-next/prepush-gate.py",
+            "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
         ):
             source, target = SOURCE / relative, root / relative

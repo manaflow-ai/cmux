@@ -1,7 +1,7 @@
 // The diff viewer's auto layout (Codex's diff view does the same): split while the viewer is wide
 // enough for two readable sides, unified below that (cx-7tsus: split in a narrow pane wrapped or
 // clipped every line), and it changes as the pane is resized. An explicit split stays split in a
-// narrow pane. The layout button goes unified, split, auto and shows the chosen layout.
+// narrow pane. The layout button goes auto, split, unified (Settings' order) and shows the chosen layout.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -103,22 +103,22 @@ test("an explicit layout is drawn at every width", async () => {
   expect(await drawnStyle((await renderPill(1200, "unified")).state)).toBe("unified");
 });
 
-test("the layout button goes unified, split, auto and names the next layout", async () => {
-  const unified = await renderPill(520, "unified");
-  expect(unified.button.getAttribute("aria-label")).toBe("Switch to split diff");
-  await act(async () => unified.button.click());
-  expect(unified.layouts).toEqual(["split"]);
+test("the layout button goes auto, split, unified and names the next layout", async () => {
+  const auto = await renderPill(1200, "auto");
+  expect(auto.button.getAttribute("aria-label")).toBe("Switch to split diff");
+  await act(async () => auto.button.click());
+  expect(auto.layouts).toEqual(["split"]);
 
   const split = await renderPill(520, "split");
-  expect(split.button.getAttribute("aria-label")).toBe("Switch to auto layout");
+  expect(split.button.getAttribute("aria-label")).toBe("Switch to unified diff");
   expect(split.button.getAttribute("aria-disabled")).toBeNull();
   await act(async () => split.button.click());
-  expect(split.layouts).toEqual(["auto"]);
+  expect(split.layouts).toEqual(["unified"]);
 
-  const auto = await renderPill(1200, "auto");
-  expect(auto.button.getAttribute("aria-label")).toBe("Switch to unified diff");
-  await act(async () => auto.button.click());
-  expect(auto.layouts).toEqual(["unified"]);
+  const unified = await renderPill(520, "unified");
+  expect(unified.button.getAttribute("aria-label")).toBe("Switch to auto layout");
+  await act(async () => unified.button.click());
+  expect(unified.layouts).toEqual(["auto"]);
 });
 
 test("a stored auto layout survives the prefs sanitizer", async () => {

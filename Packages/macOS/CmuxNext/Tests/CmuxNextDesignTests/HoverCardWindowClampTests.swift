@@ -38,6 +38,17 @@ import CmuxNextDesignTokens
         #expect(card.maxY == row.maxY)
     }
 
+    /// The window clamp is only up and down: in a window no wider than its sidebar (the sidebar
+    /// fills it), the card still goes beside the sidebar, past the window's right edge, and never
+    /// over the rows it describes (SidebarHoverCardEscapeTests on a host with a screen).
+    @Test func aSidebarThatFillsItsWindowKeepsItsCardBesideIt() {
+        let narrow = CGRect(x: 200, y: 100, width: 240, height: 400)
+        let row = CGRect(x: narrow.minX, y: narrow.maxY - 120, width: narrow.width, height: 28)
+        let card = rest(row, window: narrow)
+        #expect(card.minX - row.maxX == 0.5, "the card's near edge is one device pixel off the sidebar's edge, not over the rows")
+        #expect(card.maxY == row.maxY, "still top-aligned with its row")
+    }
+
     @Test func theTrackedGeometryMatchesTheRest() {
         // The panel keeps the card's geometry for its hover zones; it must be the card on screen.
         let row = CGRect(x: window.minX, y: window.minY + 10, width: 6, height: 6)

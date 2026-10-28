@@ -36,3 +36,4 @@ pub mod seal;
 pub mod sealed_notify;
 pub mod services;
 pub mod size_release;
+pub mod surface;

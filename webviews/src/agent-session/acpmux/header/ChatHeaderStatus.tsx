@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { Icon } from "../icons/Icon";
 
-/** The slot stays in place; the problem label cannot resize it or move the header tools. Without
- * a problem, it holds `children` (the Environment line, EnvironmentLine.tsx). */
+/** The slot stays in place; the problem label cannot resize it or move the header tools. Right's
+ * Environment line uses this slot; Left uses the dedicated row below tabs. */
 export function ChatHeaderStatus({
   status,
   detail,
@@ -21,7 +21,7 @@ export function ChatHeaderStatus({
 
 /** The same label at the start of the tools, for a header in the pane's tab row: the slot's part of
  * that row is under the App's tabs, so a disconnected chat would show no warning at all. Without a
- * problem, `children` (the compact Environment line) leads the tools instead. */
+ * problem, Right's `children` (the compact Environment line) leads the tools instead. */
 export function ChatHeaderInlineStatus({
   status,
   detail,

@@ -69,7 +69,7 @@ public final class ShareCmuxView: NSView {
     public var messageText: String {
         get { messageView.string }
         set {
-            messageView.string = newValue
+            messageView.replaceText(newValue)
             copyButton.retitle(ShareCmuxStrings.copyLink)
         }
     }
@@ -149,7 +149,7 @@ public final class ShareCmuxView: NSView {
         messageView.frame = NSRect(x: 0, y: 0, width: contentWidth, height: 96 * Typography.userScale)
         messageView.autoresizingMask = [.width]
         messageView.textContainer?.widthTracksTextView = true
-        messageView.string = Self.defaultMessage
+        messageView.replaceText(Self.defaultMessage)
         messageView.setAccessibilityLabel(ShareCmuxStrings.messageLabel)
         messageView.identifier = NSUserInterfaceItemIdentifier("cmux.shareCmux.message")
         messageView.onEdit = { [weak self] in self?.copyButton.retitle(ShareCmuxStrings.copyLink) }
@@ -224,6 +224,13 @@ final class ShareCmuxMessageTextView: NSTextView {
     var onCancel: (() -> Void)?
     /// Tab (false) or Shift-Tab (true).
     var onTab: ((Bool) -> Void)?
+
+    /// Replaces the whole text from code as one undo step (`replaceAllTextUndoably`): Undo brings
+    /// the previous text back, and no typing action keeps a range into the old text
+    /// (NSRangeException, issue 24912).
+    func replaceText(_ text: String) {
+        replaceAllTextUndoably(text)
+    }
 
     override func insertTab(_ sender: Any?) { onTab?(false) }
     override func insertBacktab(_ sender: Any?) { onTab?(true) }

@@ -108,13 +108,16 @@ test("Send now on a waiting steer asks queue_edit send_now for its promptId, and
     expect(asked.map((request) => request.params)).toEqual([{ sessionId: CHAT, promptId: "p-steer", op: "send_now" }]);
     expect(daemon.requests.some((request) => request.method === "session/cancel")).toBe(false);
 
-    // The agent read it: no Send now any more.
+    // This daemon does not accept Send now, so the control stays until the agent reads it.
+    expect(sendNowButtons()).toHaveLength(1);
+    // A later prompt marks this steer read. Its queue controls disappear without a closing timer.
     await act(async () => {
       daemon.push(record([["mux", "user_message", { promptId: "p-next", text: "Then open a PR" }]], 3));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await render();
-    expect(sendNowButtons()).toEqual([]);
+    expect(sendNowButtons()).toHaveLength(0);
+    expect(message.querySelector(".cv-user__pending")).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }

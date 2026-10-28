@@ -1,7 +1,7 @@
 // The New Tab composer box's focus is quiet (Lawrence 10-14, "don't like this focus thing"), and now
-// draws nothing (Leo 2026-10-19: the focus ring flashed): a focused box keeps its resting
-// one-device-pixel rim (--cmux-hairline) in its resting tone, and still clears with
-// appearance.borders none. The composer's
+// is a hairline (Leo 2026-10-21: "a subtle hairline border that brightens slightly on focus"): a
+// focused box keeps its one-device-pixel rim (--cmux-hairline), a step brighter, and still clears
+// with appearance.borders none. The composer's
 // fill, the New Tab box's and the chat composer's alike, is no longer a gray slab darker than the
 // page ("same bg kinda weird"; Leo 10-14): in a light theme it is the page lifted toward white,
 // lighter than the page; in a dark theme a small step lighter than the page. Both are solid. Their
@@ -136,7 +136,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
   for (const [box, field] of boxes)
     for (const theme of ["dark", "light"] as const) {
       for (const scale of [1, 2]) {
-        test(`${box}, ${theme} at ${scale}x: focus keeps the resting one-device-pixel rim, no step in tone`, async () => {
+        test(`${box}, ${theme} at ${scale}x: focus keeps the one-device-pixel rim, a step brighter`, async () => {
           const page = await open(scale, theme);
           const rest = await rims(page, box);
           expect(rest.length, "the box draws a rim").toBe(1);
@@ -144,8 +144,11 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
           expect(rest[0].rgba[3], "the rim's color parsed and shows").toBeGreaterThan(0);
           await page.focus(`#${field}`);
           const focused = await rims(page, box);
-          // No focus ring: the same one rim, width and tone, as at rest.
-          expect(focused, "focus draws the resting rim").toEqual(rest);
+          // No focus ring: the same one rim at the same width, its tone a step brighter.
+          expect(focused.length, "focus draws one rim").toBe(1);
+          expect(focused[0].spread, "focus keeps the rim's width").toBe(rest[0].spread);
+          expect(focused[0].rgba[3], "focus brightens the rim").toBeGreaterThan(rest[0].rgba[3]);
+          expect(focused[0].rgba[3] - rest[0].rgba[3], "only a step").toBeLessThan(0.2);
           await page.close();
         });
       }
@@ -181,10 +184,10 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
 
   // The card's one rim goes round the location strip on its top edge (composerLocation.css): the
   // card's rim layer reaches up over the strip, which draws no rim of its own, so card and strip stay
-  // one outline, in the resting tone whether focused or not.
+  // one outline, in one tone: the resting one, or the focused one when the card has focus.
   const tone = (shadow: string) => shadow.match(/(?:rgba?|color)\([^)]*\)/)![0];
   for (const theme of ["dark", "light"] as const)
-    test(`${theme}: the location strip's edge stays at rest when the card is focused`, async () => {
+    test(`${theme}: the card's rim round the location strip takes the focused tone`, async () => {
       const page = await open(2, theme);
       const edge = () =>
         page.evaluate(() => {
@@ -203,14 +206,14 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
       const focused = await edge();
       expect(Math.abs(focused.top), "the card's rim goes round the strip").toBeLessThan(0.5);
       expect(focused.stripRim, "the strip draws no second rim").toBe("none");
-      expect(tone(focused.shadow), "the strip's edge keeps its resting tone").toBe(tone(rest.shadow));
+      expect(tone(focused.shadow), "the strip's edge takes the focused tone").not.toBe(tone(rest.shadow));
       await page.close();
     });
 
   // Queued prompts sit on the card's top edge as part of its outline: their sides and the card's rim
-  // (its rim layer) draw one tone, the resting one, focused or not.
+  // (its rim layer) draw one tone, the focused one while the card has focus.
   for (const theme of ["dark", "light"] as const)
-    test(`${theme}: queued prompts' edge stays at rest when the card is focused`, async () => {
+    test(`${theme}: queued prompts' edge takes the card's focused tone`, async () => {
       const page = await open(2, theme);
       const edges = () =>
         page.evaluate(() => ({
@@ -220,15 +223,15 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
       const rest = await edges();
       await page.focus("#queue-composer-field");
       const focused = await edges();
-      expect(tone(focused.queue), "the queue's edge keeps its resting tone").toBe(tone(rest.queue));
+      expect(tone(focused.queue), "the queue's edge takes the focused tone").not.toBe(tone(rest.queue));
       expect(tone(focused.queue), "the queue and the card draw one tone").toBe(tone(focused.card));
       await page.close();
     });
 
-  // A footer chip has no bezel: keyboard focus lays the hover wash and puts the shared ring on the
-  // wash's edge (offset 0), never an empty box 2 px off bare text. A pointer click draws nothing, and
+  // A footer chip has no bezel: keyboard focus lays the hover wash and draws no ring (Leo
+  // 2026-10-21: no focus ring; agent-pane-hairline-focus.test.ts). A pointer click draws nothing, and
   // Increase Contrast keeps the shared ring at its offset.
-  test("a footer chip under keyboard focus: hover wash, ring on its edge", async () => {
+  test("a footer chip under keyboard focus: hover wash, no ring", async () => {
     const page = await open(2, "light");
     await installPaintedFrames(page);
     await page.focus("#composer-field");
@@ -270,11 +273,12 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     expect(keyboard.wash, "the row's hover wash resolves").not.toBe("rgba(0, 0, 0, 0)");
     // The hover's soft pill, no stronger step (Leo 2026-10-19: the Claude app's chips).
     expect(keyboard.background, "the focused chip takes the hover's wash").toBe(keyboard.wash);
-    expect(keyboard.outline, "the shared ring still draws").toBe("solid");
-    expect(keyboard.offset, "the ring sits on the wash's edge").toBe("0px");
+    expect(keyboard.outline, "no ring, the wash alone").toBe("none");
     expect(keyboard.color, "the chip's ink steps up as on hover").toBe(keyboard.text);
     await page.emulateMedia({ contrast: "more" });
-    expect((await chip()).offset, "Increase Contrast keeps the shared offset").toBe("2px");
+    const contrast = await chip();
+    expect(contrast.outline, "Increase Contrast keeps the shared ring").toBe("solid");
+    expect(contrast.offset, "Increase Contrast keeps the shared offset").toBe("2px");
     await page.emulateMedia({ contrast: "no-preference" });
     await page.mouse.click(5, 5);
     await page.click("#composer-chip");

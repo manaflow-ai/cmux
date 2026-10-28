@@ -18,10 +18,11 @@ import sys
 from pathlib import Path
 
 from test_ci_nightly_push_throttle import NEXT_ENV, run_decide
+from nightly_workflow_text import nightly_text
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
-TEXT = WORKFLOW.read_text()
+TEXT = nightly_text()
 FOUR = ["appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml"]
 
 
@@ -116,7 +117,7 @@ def build_env(body, outputs):
 
 
 def compile_commands(outputs):
-    """Run the actual four build steps with recorder executables, never compilers."""
+    """Run the actual helper and app build steps with recorder executables, never compilers."""
     with tempfile.TemporaryDirectory(prefix="nightly-compile-archs-") as directory:
         root = Path(directory)
         stubs = {
@@ -127,10 +128,12 @@ def compile_commands(outputs):
             "bin/python3": 'case "${1:-}" in scripts/ci/nightly_build_state.py) exit 0;; scripts/ci/run-with-helper-prebuild.py) script="$1"; shift; exec "$script" "$@";; --) shift; exec "$@";; *) exec /usr/bin/python3 "$@";; esac',
             "bin/xcodebuild": 'printf "%s\\n" "$@" > "$CAPTURE/app"',
             "bin/lipo": 'exit 0',
+            "bin/rustup": 'exit 0',
             "scripts/ci/run-xcodebuild-with-diagnostics.sh": 'shift; exec "$@"',
             "scripts/ci/run-with-helper-prebuild.py": 'while [ "${1:-}" != -- ]; do shift; done; shift; exec "$@"',
             "scripts/cmux-next/build-acpmux.sh": 'printf "%s" "$CMUX_NEXT_ACPMUX_ARCHS" > "$CAPTURE/acpmux"',
             "scripts/cmux-next/build-optchat-chief.sh": 'printf "%s" "$CMUX_NEXT_OPTCHAT_CHIEF_ARCHS" > "$CAPTURE/chief"',
+            "scripts/cmux-next/build-mobile-host.sh": 'printf "%s" "$CMUX_NEXT_MOBILE_HOST_ARCHS" > "$CAPTURE/mobile"',
             "scripts/build-ghostty-cli-helper.sh": 'printf "%s\\n" "$@" > "$CAPTURE/ghostty"',
         }
         for path, body in stubs.items():
@@ -138,12 +141,19 @@ def compile_commands(outputs):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("#!/bin/bash\nset -eu\n" + body + "\n")
             target.chmod(0o755)
+        # The Chief step installs its toolchain, then builds in the background
+        # (background_build.py); the recorder joins it before reading.
+        (root / "cmux-tui").mkdir()
+        (root / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
+        (root / "cmux-next-ios/rust").mkdir(parents=True)
+        (root / "scripts/ci/background_build.py").write_text((ROOT / "scripts/ci/background_build.py").read_text())
         capture = root / "capture"
         capture.mkdir()
         steps = (
             ("build-nightly-ghostty-cli-helper", "Build Ghostty CLI helper"),
             ("build-nightly-app", "Build in-tree acpmux for the compilation cache"),
             ("build-nightly-app", "Build the OptChat Chief (cmux-next)"),
+            ("build-nightly-app", "Build the cmux-next iPhone host (cmux-mobile-host)"),
             ("build-nightly-app", "Build nightly app (Release)"),
         )
         for owner, name in steps:
@@ -160,6 +170,11 @@ def compile_commands(outputs):
                    "IMPORT_VARIANT": "full", "SWIFT_IMPORT_FLAGS": "", "EMPTY_BROWSER_SOURCES": "false"}
             subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env,
                            capture_output=True, text=True, check=True)
+            if "background_build.py start" in script:
+                subprocess.run(["/usr/bin/python3", "scripts/ci/background_build.py", "join", "--state",
+                                str(root / "nightly-helper-builds"),
+                                "mobile-host" if "build-mobile-host.sh" in script else "optchat-chief"],
+                               cwd=root, env=env, capture_output=True, text=True, check=True)
         return {path.name: path.read_text() for path in capture.iterdir()}
 
 
@@ -175,7 +190,7 @@ for ref, fast in (("nightly-next", False), ("main", False), ("rc/v1.2.3", False)
     expected = "arm64" if arm64_only else "arm64 x86_64"
     if f"ARCHS={expected}" not in commands["app"].splitlines():
         failures.append(f"{ref} fast={fast}: Xcode compiled an architecture the publish matrix does not need")
-    for helper in ("acpmux", "chief"):
+    for helper in ("acpmux", "chief", "mobile"):
         if commands[helper].replace(",", " ").split() != expected.split():
             failures.append(f"{ref} fast={fast}: {helper} built {commands[helper]!r}, expected {expected!r}")
     helper_args = commands["ghostty"].splitlines()

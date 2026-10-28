@@ -132,7 +132,8 @@ mod agent_session_attach;
 #[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY, AcpmuxStarter,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
     AgentStartHost, AgentStartHostSource,
 };
 #[cfg(unix)]
@@ -580,6 +581,11 @@ pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
 /// (server/api_revision_wire.rs, cmux-tui/spec/api-compat.json).
 pub fn api_revision_range() -> (u32, u32) {
     api_revision_wire::identify_fields()
+}
+
+/// The compiled API revision history for clients connecting to an older daemon.
+pub fn api_revision_compat() -> &'static cmux_api_compat::Compat {
+    api_revision_wire::compat()
 }
 mod protocol_key;
 #[cfg(test)]
@@ -1819,6 +1825,7 @@ enum Command {
     CloudConversationUnsubscribe(cloud_conversations::TargetParams),
     CloudConversationLive(cloud_conversations::TargetParams),
     CloudConversationTyping(cloud_conversations::TypingParams),
+    CloudConversationPresence(cloud_conversations::PresenceParams),
     /// The leased chief's MuxDO wake queue (`mux:<agent>`) and the ack of handled wakes.
     CloudMuxSubscribe(cloud_conversations::NoParams),
     CloudMuxUnsubscribe(cloud_conversations::NoParams),

@@ -214,9 +214,6 @@ export function useUiAnchor(
         bottom: "auto",
         maxHeight: position.maxHeight / scale.y,
         visibility: "visible",
-        // It travels out of its trigger on the side it opened (ui/popupSurface.css): rising from
-        // above it, dropping from below, whichever side it asked for.
-        "--ui-popup-y": position.side === "below" ? "-4px" : "4px",
         ...(bound ? { "--available-width": `${room}px` } : {}),
       } as CSSProperties);
     };

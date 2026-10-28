@@ -208,6 +208,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudConversationPresence(CloudConversationPresenceRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_CONVERSATION_PRESENCE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudConversationRun(CloudConversationRunRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_CONVERSATION_RUN, request.toWire());
         return Wire.immutableJson(result);

@@ -8,25 +8,25 @@ public import Foundation
 /// window, about 80-160 ms each on a fast Mac; architecture.md 5a, the one allowed
 /// exception) do not land in the middle of user input.
 ///
-/// - A few seconds after launch, for a user who opened a Chromium tab in the
+/// - A few seconds after launch, while Chromium is the default engine
+///   (`browser.defaultEngine`), Chromium starts at the next idle moment
+///   (`Reason.launch`); otherwise, for a user who opened a Chromium tab in the
 ///   last 7 days (`ChromiumUseRecord`), the framework is mapped on a
 ///   background thread (`CEFEngine.preload`, no Chromium code runs).
 /// - When a Chromium tab is likely, `CefInitialize` runs at the next idle
 ///   moment: no key or mouse input to this app for `Policy.idleInput` and no
 ///   menu tracking, waited for with one-shot deadlines (a deadline re-arms
 ///   for the rest of the quiet period after input, and the end of menu
-///   tracking re-arms it; nothing polls). Likely means a Chromium tab in any window (restored or
-///   not), the "+" menu, the palette's Chromium entries, and while Chromium
-///   is the default engine (`browser.defaultEngine`) also any browser tab in
-///   any window, the palette's default browser entries (New Browser Tab,
-///   Split Browser, New Browser Workspace), or switching the default to
-///   Chromium. While new browser tabs default to Chromium, the pointer on
-///   the "+" button, a New Tab key (Cmd-T) and the palette opening are
-///   signals too (`tabSignal`), and so is launch itself for a user who opened
-///   a Chromium tab in the last 7 days (`Reason.launch`). Otherwise CEF stays
-///   lazy: a user who never browses never pays for it (AppServices+Chromium).
+///   tracking re-arms it; nothing polls). Likely means launch itself while
+///   Chromium is the default engine (`browser.defaultEngine`, `Reason.launch`),
+///   and otherwise a Chromium tab in any window (restored or not), the "+"
+///   menu, the palette's Chromium entries, or switching the default to Chromium.
+///   With WebKit as the default engine CEF stays lazy: a user who never opens
+///   a Chromium tab never pays for it (AppServices+Chromium).
 /// - Once Chromium runs, the next idle moment builds a spare Chromium window
-///   (`CEFEngine.prepareSpareWindow`), so the first tab joins a live window.
+///   (`CEFEngine.prepareSpareWindow`), so the first tab joins a live window,
+///   and so does every later take of it: each pane's first Chromium tab
+///   joins a live window instead of building one on the key's turn.
 ///   In a macOS 26 VM `CefInitialize` and the first window each held the main
 ///   thread for about 0.8 s (os-smoke, 2026-10-18): two idle steps, none at
 ///   the first tab.
@@ -36,20 +36,11 @@ public final class ChromiumWarmup {
         case restoredTab
         case newTabMenu
         case palette
-        /// A browser tab exists and new ones default to Chromium.
-        case browserTab
         /// The default engine was just switched to Chromium.
         case defaultEngine
-        /// New browser tabs default to Chromium and this app opened a
-        /// Chromium tab within `Policy.recentUse`: start it after launch,
+        /// New browser tabs default to Chromium: start it after launch,
         /// before any tab asks.
         case launch
-        /// First-tab signals while new browser tabs default to Chromium
-        /// (`tabSignal`): the pointer on the "+" button, a New Tab key
-        /// (Cmd-T) before its tab opens, the palette opening.
-        case newTabButton
-        case newTabKey
-        case paletteOpen
     }
 
     public struct Policy: Sendable {
@@ -83,6 +74,9 @@ public final class ChromiumWarmup {
     /// Whether a Chromium page is being created: it builds its own window,
     /// and a spare built meanwhile would race it (os-smoke 2026-10-18).
     private var pagesPending: @MainActor () -> Bool = { false }
+    /// The spare's idle moment came while a page was being made: it is made once the pages
+    /// settle (`pagesSettled`), not at a later idle check.
+    private var spareWaitsForPages = false
     private var stopped = false
 
     public init(
@@ -107,27 +101,32 @@ public final class ChromiumWarmup {
     /// tab within `Policy.recentUse`: maps the framework, and while new tabs
     /// open in Chromium (`defaultIsChromium`) starts it (CefInitialize, then
     /// the spare window, at idle moments). Anyone else pays nothing until a
-    /// signal (`chromiumLikely`, `tabSignal`).
+    /// signal (`chromiumLikely`).
     public func start(defaultIsChromium: @escaping @MainActor () -> Bool, pagesPending: @escaping @MainActor () -> Bool = { false }) {
         guard !launchTimer.isScheduled, isAvailable else { return }
         self.defaultIsChromium = defaultIsChromium
         self.pagesPending = pagesPending
+        // Whenever no spare window is ready (taken, or a tab started Chromium itself), the next
+        // idle moment makes one, so a new Chromium tab joins a live window (CEFSpareWindow, PL-cef-tab).
+        engine.onSpareWindowNeeded = { [weak self] in self?.spareNeeded() }
         launchTimer.schedule(after: policy.launchPreloadDelay) { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, !stopped else { return }
+            // While new browser tabs open in Chromium, any browser tab is a Chromium tab: start it
+            // at the first idle moment after launch, so no Cmd-Shift-L pays CefInitialize.
+            if self.defaultIsChromium() { return chromiumLikely(.launch) }
             // task-owner: one launch check per process; reads one small file off the main thread
             Task { [weak self] in
                 guard let self, await engine.usedRecently(within: policy.recentUse), !stopped else { return }
                 engine.preload()
-                if self.defaultIsChromium() { chromiumLikely(.launch) }
             }
         }
     }
 
-    /// A first-tab signal (`Reason.newTabButton`, `.newTabKey`,
-    /// `.paletteOpen`): warm up while new tabs open in Chromium.
-    public func tabSignal(_ reason: Reason) {
-        guard defaultIsChromium() else { return }
-        chromiumLikely(reason)
+    /// No spare Chromium window is ready: the next idle moment makes one, unless a warm start
+    /// already waits for one (it ends with the spare).
+    private func spareNeeded() {
+        guard !stopped, engine.isRunning, !waiting else { return }
+        warmStarted()
     }
 
     /// A Chromium tab is likely soon: map the framework now and run
@@ -158,9 +157,23 @@ public final class ChromiumWarmup {
     private func warmStarted() {
         guard !stopped, engine.isRunning else { return }
         waitForIdle { [weak self] in
-            guard let self, !pagesPending() else { return }
+            guard let self else { return }
+            // A page being made builds its own window: the spare waits until the pages settle
+            // (`pagesSettled`) instead of racing that window (os-smoke 2026-10-18).
+            if pagesPending() {
+                spareWaitsForPages = true
+                return
+            }
             engine.prepareSpareWindow()
         }
+    }
+
+    /// No Chromium page is being made any more (the cache's pending set emptied): a spare that
+    /// waited for that is made at the next idle moment.
+    public func pagesSettled() {
+        guard spareWaitsForPages else { return }
+        spareWaitsForPages = false
+        warmStarted()
     }
 
     /// Runs `action` at the next idle moment (no input for `idleInput`, no

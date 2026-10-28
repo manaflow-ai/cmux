@@ -10,6 +10,7 @@ type Props = {
   used?: number;
   size?: number;
   setup?: number;
+  breakdown?: unknown;
   details?: boolean;
   wheel?: "compact" | "standard" | "minimal";
 };
@@ -26,6 +27,7 @@ function GalleryContextRing(props: Props) {
         used={props.used}
         size={props.size}
         setup={props.setup}
+        breakdown={props.breakdown}
         // The chat's Inspector reveal (App.tsx); the gallery has no Inspector to open.
         onOpenDetails={props.details ? () => {} : undefined}
       />
@@ -100,13 +102,42 @@ export default componentEntry<Props>({
       play: openKnownByAutomation,
     },
     "card-claude": {
-      note: "Hover on a Claude chat: the glass card reads 23% used · 111K / 475K, the bar splits the agent's setup from the conversation, and Details › opens the Inspector's Context section. Plan limits are not reported to the pane yet, so the card shows none.",
+      note: "Hover on a Claude chat: the compact glass card reads 111K / 475K · 23%, shows a thin usage bar and short category summary, and keeps Details › available.",
       props: { used: 111_000, size: 475_000, setup: 21_000, details: true },
       play: hoverCard,
     },
     "card-codex": {
-      note: "Hover on a Codex chat that reports only the window: the compact three-line tooltip keeps the ring quiet.",
+      note: "Hover on a Codex chat that reports only the window: the left-aligned card stays compact with one summary line and a thin usage bar.",
       props: { used: 111_000, size: 475_000, details: true },
+      play: hoverCard,
+    },
+    "popover-summary": {
+      note: "A one-line context summary keeps the token count and percentage together over the shared glass material.",
+      props: { used: 131_400, size: 1_000_000, details: true },
+      play: hoverCard,
+    },
+    "popover-breakdown": {
+      note: "When the harness reports categories, the card adds only the short Messages, Tools and System headline rows.",
+      props: {
+        used: 131_400,
+        size: 1_000_000,
+        details: true,
+        breakdown: {
+          maxTokens: 1_000_000,
+          categories: [
+            { name: "Messages", kind: "used", tokens: 92_000 },
+            { name: "MCP tools", kind: "used", tokens: 21_400 },
+            { name: "System tools", kind: "used", tokens: 8_000 },
+            { name: "System prompt", kind: "used", tokens: 10_000 },
+            { name: "Free space", kind: "free", tokens: 868_600 },
+          ],
+        },
+      },
+      play: hoverCard,
+    },
+    "popover-near-limit": {
+      note: "A near-full context window keeps the usage track legible without expanding the popover or changing the composer row.",
+      props: { used: 810_000, size: 1_000_000, details: true },
       play: hoverCard,
     },
     "wheel-compact": {

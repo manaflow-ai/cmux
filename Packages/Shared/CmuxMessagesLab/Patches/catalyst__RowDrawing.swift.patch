@@ -35,6 +35,15 @@
          return CGRect(x: x, y: margin, width: p.size.width, height: p.bodySize.height)
      }
  
+@@ -174,7 +176,7 @@
+         guard case let .part(p) = spec.kind, p.outgoing else { return false }
+         switch p.part {
+         case .text: return true
+-        case let .attachment(a): return !["image", "video"].contains(a.kind)
++        case let .attachment(a): return !["image", "video"].contains(a.kind) && !HomeFileCard.isCard(a) // cmux: file cards are neutral (#26395)
+         case let .custom(c): return CustomRows.needsFill(c, outgoing: true)
+         default: return false
+         }
 @@ -196,9 +198,9 @@
              }
          case let .notice(s):
@@ -138,16 +147,19 @@
              fg.setFill()
              UIBezierPath(ovalIn: CGRect(x: body.minX + 8, y: body.midY - 11, width: 22, height: 22)).fill()
              let tri = UIBezierPath()
-@@ -456,7 +469,7 @@
+@@ -455,8 +468,10 @@
+             TextDraw.line(d, font: HomeFonts.monospacedDigit(ofSize: 11, weight: .regular), color: fg, x: body.maxX - 36, // HomeFonts (cx-qpqs)
                            baseline: body.midY + 4, in: ctx)
          default:
++            // cmux: a file is a neutral card with its type's icon and kind (HomeFileCard, #26395).
++            if HomeFileCard.isCard(a) { HomeFileCard.draw(ctx, a, shape: shape, body: body); return }
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
 -            let fg: UIColor = p.outgoing ? .white : Fixture.incomingText
 +            let fg: UIColor = p.outgoing ? Fixture.outgoingText : Fixture.incomingText  // cmux: themed (white by default)
              let icon = CGRect(x: body.minX + 10, y: body.minY + 10, width: 28, height: 36)
              if a.kind == "contact" {
                  UIColor(white: 0.55, alpha: 1).setFill()
-@@ -563,103 +576,72 @@
+@@ -563,103 +578,74 @@
          }
      }
  
@@ -242,7 +254,9 @@
 +    /// `ThreadPreview.quoteOpacity` so the text does not show the fill through it. Replaces the 1 pt outline with
 +    /// blue or gray text and a full-size tail on a 24 pt body, which did not match the quoted message.
 +    static func drawQuoteBubble(_ ctx: CGContext, _ pv: ThreadPreview, box: CGRect) {
-+        let out = pv.outgoing
++        var out = pv.outgoing
++        // cmux: a quoted file card keeps the card's neutral fill on either side (HomeFileCard, #26395).
++        if case let .attachment(a) = pv.part, HomeFileCard.isCard(a) { out = false }
 +        let fill = out ? Fixture.outgoing : Fixture.incoming
 +        let ink = out ? Fixture.outgoingText : Fixture.incomingText
 +        let shape = BubblePath.balloon(frame: box, row: pv.shapeRow)
@@ -291,7 +305,7 @@
              ctx.fill(thumb)
              if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
                  let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
-@@ -668,16 +650,11 @@
+@@ -668,16 +654,11 @@
              }
              ctx.restoreGState()
              let (title, sub) = pv.lines
@@ -312,7 +326,7 @@
      }
  
      private static func fillBubble(_ ctx: CGContext, _ shape: UIBezierPath, outgoing: Bool, windowY: CGFloat) {
-@@ -1146,7 +1123,11 @@
+@@ -1146,7 +1127,11 @@
  enum BubbleView {
      static func drawBubble(_ ctx: CGContext, body: CGRect, lines: [String], outgoing: Bool, tail: Bool, windowY: CGFloat = 0,
                             cornersOf frame: CGSize? = nil, circularEnds: Bool = false) {
@@ -325,7 +339,7 @@
          if outgoing {
              if windowY.isNaN { return }     // filled by the row's gradient layer
              ctx.saveGState()
-@@ -1161,18 +1142,9 @@
+@@ -1161,18 +1146,9 @@
      }
  }
  

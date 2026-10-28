@@ -50,6 +50,8 @@ export type AgentSessionTheme = {
   /// pane's own edges and rings (the composer, menus, code and tool cards). `border` and
   /// `borderStrong` are already transparent then. Absent means default.
   borders?: "default" | "none";
+  /// Whether keyboard focus outlines, including transcript response rows, are shown.
+  focusRingEnabled?: boolean;
   /// The chat column's width on a wide pane (Debug Settings `agent.chatWidth`, acpmux chatWidth.ts):
   /// `standard`, `wide` or `wideBlocks`. Absent means standard.
   chatWidth?: string;
@@ -75,12 +77,15 @@ export type AgentSessionTheme = {
   /// marks draw a shape each. Absent means the stylesheet defaults (animated).
   statusIndicators?: "animated" | "static";
   /// How agent work shows (Debug Settings `status.working`, CmuxNextDesign StatusWorkingLook): sets
-  /// `data-working-look` on the root. Absent means the stylesheet default, the breathing dot.
+  /// `data-working-look` on the root. Absent means the stylesheet default, the spinner.
   workingLook?: "breathe" | "shimmer" | "spinner";
   /// Running subagents in one tray above the composer, a line where each ended (Debug Settings
   /// `agentPane.debug.subagentTray`, acpmux subagents/runningTray.ts). Absent or true is the tray;
   /// false keeps the transcript's group cards and the agents pill.
   subagentTray?: boolean;
+  /// Running tray placement; absent keeps the tray above the composer. The alternate is
+  /// fixture/Labs-driven until a native setting owns it.
+  subagentTrayPlacement?: "tray" | "after-latest-message";
   /// The transcript's scrollbar fades out at rest (Debug Settings `agentPane.debug.scrollerFade`):
   /// sets `data-cmux-scroller-fade` on the root (scrollers.ts). Absent or false keeps it shown while
   /// the chat overflows.

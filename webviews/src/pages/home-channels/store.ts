@@ -42,6 +42,10 @@ import {
 export const PAGE = 100;
 /** Most pages a link loads to reach its message (older history, or later thread replies). */
 const LINK_PAGES = 20;
+/** Timeline messages (not thread replies) an opened conversation pages back to, about a screen:
+ * a Chief answers in threads, so its newest page can be all replies the timeline does not draw,
+ * and older history loads only on a scroll the short timeline never has (#25570). */
+const FILL_TOP_LEVEL = 30;
 export const WINDOW = 1500;
 
 export type Connection = "connecting" | "online" | "offline";
@@ -96,6 +100,8 @@ export interface HomeSnapshot {
   threadStats: ReadonlyMap<string, HomeThreadStats>;
   /** Participant ids typing in the open conversation. */
   typing: readonly string[];
+  /** Participant ids viewing the open conversation (ephemeral). */
+  viewing: readonly string[];
   /** What showed as new when the conversation opened: messages after my read cursor (`after`) up
    * to the newest one then (`through`). Messages that arrive while it is open are read live. */
   unseen?: { after: number; through: number };
@@ -124,6 +130,10 @@ export class HomeChannelsStore {
   private readonly listeners = new Set<() => void>();
   private stops: Array<() => void> = [];
   private starting?: Promise<void>;
+  /** Bumped by `stop`: a `begin` that a teardown overtook undoes what it set up and ends. */
+  private life = 0;
+  /** Between `begin` and `stop`: only a running page says that the person views something. */
+  private running = false;
   private generation = 0;
   private nextKey = 0;
   /** The read cursor this page last sent per conversation (one read per new seq). */
@@ -140,6 +150,7 @@ export class HomeChannelsStore {
   private readonly failedRuns = new Map<string, number>();
   /** Who types in each conversation (typing events); activity adds the running drafts. */
   private readonly typingBy = new Map<string, Set<string>>();
+  private readonly viewingBy = new Map<string, Set<string>>();
 
   /** Participants' pictures through this store's client (none without a client: initials). */
   readonly avatars: AvatarService | undefined;
@@ -175,6 +186,7 @@ export class HomeChannelsStore {
       hasOlder: false,
       loadingOlder: false,
       typing: [],
+      viewing: [],
       threadsSeen: new Set(),
       threadStats: new Map(),
       // A send still in flight on the old connection did not reach the owner as far as this
@@ -204,27 +216,56 @@ export class HomeChannelsStore {
   }
 
   private async begin(client: PageClient): Promise<void> {
+    const life = this.life;
+    const live = () => life === this.life;
+    // A teardown while a subscribe was pending: its stop runs now and the start goes no further.
+    const keep = (stop: () => void): boolean => {
+      if (live()) this.stops.push(stop);
+      else stop();
+      return live();
+    };
+    this.running = true;
     void this.attachments?.support().then((fileSupport) => this.set({ fileSupport }));
     try {
-      this.stops.push(
-        await subscribePageStreams(client, {
-          onConnection: (connected) => {
-            if (!connected) this.set({ connection: "offline" });
-            else if (this.snapshot.connection === "offline") void this.reloadInbox();
-          },
-        }),
-      );
-      this.stops.push(await client.subscribe<HomeEventBatch>(HomeOps.events, (batch) => this.apply(batch)));
+      const streams = await subscribePageStreams(client, {
+        onConnection: (connected) => {
+          if (!connected) {
+            // The daemon ends a lost connection's viewing; a new one says it again.
+            this.viewingSent = undefined;
+            this.set({ connection: "offline" });
+          } else if (this.snapshot.connection === "offline") void this.reloadInbox();
+        },
+      });
+      if (!keep(streams)) return;
+      const events = await client.subscribe<HomeEventBatch>(HomeOps.events, (batch) => this.apply(batch));
+      if (!keep(events)) return;
+      // The New and Edit Chief pages cover the conversation: not viewed while one is open.
+      let covered = this.chiefPageOpen();
+      const sheetChanged = () => {
+        if (covered === this.chiefPageOpen()) return;
+        covered = !covered;
+        this.syncViewing();
+      };
+      this.stops.push(this.sheets.subscribe(sheetChanged));
       // Replies that came while the page was hidden are read once the person sees them.
       const shown = () => {
         if (document.visibilityState === "visible") this.readOpen();
+        this.syncViewing();
       };
       document.addEventListener("visibilitychange", shown);
       this.stops.push(() => document.removeEventListener("visibilitychange", shown));
+      // A closing page stops viewing (the daemon also ends it when the connection closes).
+      if (typeof window !== "undefined") {
+        const hidden = () => this.syncViewing(false);
+        window.addEventListener("pagehide", hidden);
+        this.stops.push(() => window.removeEventListener("pagehide", hidden));
+      }
     } catch (error) {
+      if (!live()) return;
       this.set({ error: describe(error), loading: false });
     }
     await this.reloadInbox();
+    if (!live()) return;
     void this.sheets.start();
     this.followHash();
   }
@@ -345,6 +386,9 @@ export class HomeChannelsStore {
   }
 
   private stop(): void {
+    this.life++;
+    this.running = false;
+    this.syncViewing();
     for (const stop of this.stops) stop();
     this.stops = [];
     this.starting = undefined;
@@ -367,6 +411,9 @@ export class HomeChannelsStore {
         error: undefined,
         inboxState: inbox.inboxState === true,
       });
+      // The open conversation's owner is known now (a reconnect says the viewing again), and an
+      // open row the list dropped is no longer viewed (even with nothing to open instead).
+      this.syncViewing();
       if (selected && selected !== this.snapshot.selected) await this.select(selected, false);
       else if (selected) await this.reloadPage(selected);
     } catch (error) {
@@ -388,11 +435,13 @@ export class HomeChannelsStore {
       threadView: undefined,
       threadStats: new Map(),
       typing: [],
+      viewing: [...(this.viewingBy.get(id) ?? [])],
       unseen: undefined,
       threadsSeen: new Set(),
       draft: this.drafts.draft(id),
       highlight: undefined,
     });
+    this.syncViewing();
     await this.reloadPage(id);
   }
 
@@ -404,8 +453,13 @@ export class HomeChannelsStore {
       if (generation !== this.generation || this.snapshot.selected !== id) return;
       const conversations = new Map(this.snapshot.conversations).set(id, page.conversation);
       // Keep what events merged while the page was in flight (and older pages already read);
-      // the snapshot wins for a message both have unless the event copy was edited later.
-      const kept = this.snapshot.messages.filter((m) => m.conversation === id);
+      // the snapshot wins for a message both have unless the event copy was edited later. Kept
+      // messages that end before the page starts (more than a page came in since, a reconnect)
+      // would leave a hole no older page fills: the window starts at the page then (#25570).
+      const kept = joining(
+        this.snapshot.messages.filter((m) => m.conversation === id),
+        page.messages[0]?.seq,
+      );
       const fresh = page.messages.map((m) => {
         const event = kept.find((k) => k.seq === m.seq);
         return event && (event.editedAt ?? 0) > (m.editedAt ?? 0) ? event : m;
@@ -435,6 +489,21 @@ export class HomeChannelsStore {
       if (this.shown) this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
       if (generation === this.generation) this.set({ error: describe(error) });
+      return;
+    }
+    await this.fillTimeline(id, generation);
+  }
+
+  /** Pages older history (at most LINK_PAGES) until the timeline has FILL_TOP_LEVEL messages
+   * to show or the conversation's start is in. */
+  private async fillTimeline(id: string, generation: number): Promise<void> {
+    for (let page = 0; page < LINK_PAGES; page += 1) {
+      const { selected, messages, hasOlder } = this.snapshot;
+      if (generation !== this.generation || selected !== id || !hasOlder) return;
+      if (messages.filter((m) => !threadOf(m)).length >= FILL_TOP_LEVEL) return;
+      const before = messages[0]?.seq;
+      await this.loadOlder();
+      if (this.snapshot.messages[0]?.seq === before) return;
     }
   }
 
@@ -443,6 +512,7 @@ export class HomeChannelsStore {
     const { selected, messages, hasOlder, loadingOlder } = this.snapshot;
     if (!this.client || !selected || !hasOlder || loadingOlder) return;
     const before = messages[0]?.seq ?? 1;
+    const generation = this.generation;
     this.set({ loadingOlder: true });
     try {
       const older = await this.client.call<HomeHistory>(HomeOps.history, {
@@ -450,7 +520,9 @@ export class HomeChannelsStore {
         beforeSeq: before,
         limit: PAGE,
       });
-      if (this.snapshot.selected !== selected) return;
+      // A reload since (a reconnect) may have moved the window: this page goes before the old one.
+      if (this.snapshot.selected !== selected || this.generation !== generation) return;
+      if ((this.snapshot.messages[0]?.seq ?? 1) !== before) return;
       const merged = mergeMessages(this.snapshot.messages, older.messages, this.snapshot.messages.length + PAGE);
       this.set({
         messages: merged,
@@ -734,6 +806,43 @@ export class HomeChannelsStore {
     if (shown === this.shown) return;
     this.shown = shown;
     if (shown) this.readOpen();
+    this.syncViewing();
+  }
+
+  /** Whether the New or Edit Chief page covers the conversation. */
+  private chiefPageOpen(): boolean {
+    const route = this.sheets.getSnapshot().route?.kind;
+    return route === "newChief" || route === "editChief";
+  }
+
+  /** The Cloud conversation this page last said the person views (cmux.home.view). */
+  private viewingSent?: string;
+  /** Bumped by each change `syncViewing` sends: a late answer applies only to its own attempt. */
+  private viewAttempt = 0;
+
+  /** Tells the owner which Cloud conversation the person views: the open one while the page and
+   * its pane show it, none otherwise (a row that left the list, a page torn down). Only a change
+   * goes out; a local conversation sends nothing (its owner has no viewing presence). `active`
+   * false: the page stops viewing (it closes). */
+  private syncViewing(active = true): void {
+    const { selected } = this.snapshot;
+    const visible = typeof document === "undefined" || document.visibilityState !== "hidden";
+    const cloud = selected !== undefined && this.snapshot.conversations.get(selected)?.owner === "cloud";
+    const covered = this.chiefPageOpen();
+    const want = active && this.running && this.shown && visible && cloud && !covered ? selected : undefined;
+    const before = this.viewingSent;
+    if (want === before || !this.client) return;
+    this.viewingSent = want;
+    const attempt = ++this.viewAttempt;
+    const view = (conversation: string, viewing: boolean) =>
+      this.client?.call<{ sent?: boolean }>(HomeOps.view, { conversation, viewing }).catch(() => undefined);
+    if (before) void view(before, false);
+    if (want)
+      void view(want, true)?.then((answer) => {
+        // Not sent (the subscribe was refused): the owner never heard it, so the next show,
+        // switch or reconnect says it again.
+        if (answer?.sent === false && attempt === this.viewAttempt) this.viewingSent = undefined;
+      });
   }
 
   /** Reads the open conversation through its newest loaded message. */
@@ -761,6 +870,13 @@ export class HomeChannelsStore {
     if (batch.connection) patch.connection = batch.connection;
     // Typing is ephemeral: a reconnect or an inbox refetch ends every indicator.
     if (batch.connection || batch.inboxStale) patch.typing = [];
+    // Each presence frame is the whole set, so only lost frames make it stale: a lost connection
+    // or a stream overflow (an inbox refetch keeps it: the conversation sockets stay subscribed).
+    // Unknown shows as nobody, never as someone who left; the owner's next set brings them back.
+    if (batch.connection || batch.presenceLost) {
+      this.viewingBy.clear();
+      patch.viewing = [];
+    }
     if (batch.connection === "offline") {
       this.drafts.clear();
       this.live.clear();
@@ -812,6 +928,13 @@ export class HomeChannelsStore {
         : threadIncoming;
       patch.threadView = { ...view, messages: mergeMessages(view.messages, tail, Number.MAX_SAFE_INTEGER) };
     }
+    if (batch.presence)
+      for (const entry of batch.presence) {
+        const people = new Set(entry.participants.filter((p) => p.viewing).map((p) => p.participant));
+        if (people.size) this.viewingBy.set(entry.conversation, people);
+        else this.viewingBy.delete(entry.conversation);
+        if (entry.conversation === selected) patch.viewing = [...people];
+      }
     if (batch.typing && selected) {
       const typing = new Set(this.snapshot.typing);
       for (const entry of batch.typing) {
@@ -826,6 +949,8 @@ export class HomeChannelsStore {
       if (draft?.text !== this.snapshot.draft?.text || draft?.turn !== this.snapshot.draft?.turn) patch.draft = draft;
     }
     this.set(patch);
+    // The open row left the list (removed, archived): the person no longer views it.
+    if (conversations) this.syncViewing();
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
     if (open && incoming.length > 0 && document.visibilityState === "visible") {
       if (this.shown) this.markRead(open, Math.max(...incoming.map((m) => m.seq)));
@@ -1007,4 +1132,21 @@ function defaultSelection(conversations: readonly HomeConversation[]): string | 
   const chief = conversations.find((c) => c.kind === "chief");
   if (chief) return chief.id;
   return [...conversations].sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id;
+}
+
+/** The window's messages a page starting at `first` keeps: those from `first` on (events merged
+ * while the page was read), and older ones only while they run without a gap up to the page. A
+ * window that ends before the page starts (more than a page came in, a reconnect) would leave a
+ * hole no older page fills, so the window then starts at the page (#25570). */
+function joining(window: readonly HomeMessage[], first: number | undefined): HomeMessage[] {
+  if (first === undefined) return [...window];
+  const older = window.filter((m) => m.seq < first).sort((a, b) => b.seq - a.seq);
+  const kept: HomeMessage[] = [];
+  let next = first - 1;
+  for (const message of older) {
+    if (message.seq !== next) break;
+    kept.push(message);
+    next -= 1;
+  }
+  return [...kept.reverse(), ...window.filter((m) => m.seq >= first)];
 }
