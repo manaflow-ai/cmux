@@ -779,18 +779,6 @@ pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -
     )))
 }
 
-pub(crate) fn owner_policy_proof_for_key(
-    key: &str,
-    session: &str,
-    policy: &str,
-    host: &str,
-    nonce: &str,
-) -> Option<String> {
-    use cmux_local_auth::frontend_proof::unhex;
-    let key = unhex::<32>(key)?;
-    Some(owner_policy_proof_for_secret_bytes(&key, session, policy, host, nonce))
-}
-
 /// Computes the daemon-to-daemon owner-policy proof for a shared peer
 /// credential. Callers must keep the credential private.
 pub fn owner_policy_proof_for_secret(
