@@ -2216,7 +2216,7 @@ actor MobileHostConnection {
         let clock = firstFrameClock
         firstFrameTimeoutTask = Task { [weak self] in
             do {
-                try await clock.sleep(for: .nanoseconds(timeoutNanoseconds))
+                try await clock.sleep(for: .nanoseconds(Int64(clamping: timeoutNanoseconds)))
                 await self?.closeIfWaitingForFirstFrame()
             } catch {}
         }
