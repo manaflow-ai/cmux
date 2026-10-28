@@ -191,6 +191,19 @@ struct SidebarNewLocalWorkspaceTests {
     }
 
     @Test func commandNWithoutAWindowKeepsTheInitialWorkspace() throws {
+        let defaults = UserDefaults.standard
+        let chiefEnabledKey = ChiefCatalogSection().enabled.userDefaultsKey
+        let originalChiefEnabled = defaults.object(forKey: chiefEnabledKey)
+        // This fixture asserts the one terminal workspace created by Cmd+N;
+        // Chief Home is a separate optional persistent workspace.
+        ChiefSettings.setEnabled(false, in: defaults)
+        defer {
+            if let originalChiefEnabled {
+                defaults.set(originalChiefEnabled, forKey: chiefEnabledKey)
+            } else {
+                defaults.removeObject(forKey: chiefEnabledKey)
+            }
+        }
         let app = AppDelegate()
         #expect(app.mainWindowContexts.isEmpty)
         #expect(app.performNewLocalWorkspaceAction(debugSource: "test.local.noWindow"))
