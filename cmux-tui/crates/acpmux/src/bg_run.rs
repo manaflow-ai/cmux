@@ -7,7 +7,8 @@
 //!
 //! The runner reads its [`Spec`] as one JSON line on stdin. Before the task starts it holds
 //! `<id>.lock` (the lock, not a pid, says it runs), opens its stop FIFO `<id>.ctl` and creates the
-//! task's first output segment. Then it starts `/bin/sh -c COMMAND` as the leader of a new session
+//! task's first output segment. Then it starts `bash -c COMMAND` (`/bin/sh` where there is no
+//! `/bin/bash`), the shell the agent's Bash tool means, as the leader of a new session
 //! (setsid), writes `<id>.json` and answers one line on stdout; if either fails it stops the task.
 //!
 //! Output: segment files `<id>.out.<start>`, named by where they start in the task's whole output,
@@ -19,9 +20,12 @@
 //! the FIFO open, so a stop never reaches anything but this runner; nothing signals its pid. Before
 //! the task starts, SIGTERM or SIGINT ends the runner; after, it stops the task like a stop byte
 //! does: SIGTERM to the task's own group, then SIGKILL after [`GRACE`] if its leader still runs.
-//! Only the runner signals that group, and only before it reaps the leader (it learns the exit
-//! with `waitid(WNOWAIT)`), so the group id is still the task's. SIGHUP is ignored. After the
-//! leader exits the runner reads the pipe until EOF or [`DRAIN`] more, writes the exit and exits.
+//! Only the runner signals that group, and only before it reaps the leader, so the group id is
+//! still the task's. SIGHUP is ignored. The runner learns the leader's exit with
+//! `waitid(WNOWAIT)` and reaps it only once the pipe ends, so output a child it left writes later
+//! is kept and a stop still reaches that child; a stop whose SIGKILL leaves the pipe open (a
+//! process that left the group holds it) ends the wait after its grace. Then the runner writes
+//! the exit and exits.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -32,8 +36,6 @@ pub const RUN_ARG: &str = "__bg-run";
 pub const SEGMENT: u64 = 4 << 20;
 /// From SIGTERM to SIGKILL on a stop.
 pub const GRACE: std::time::Duration = std::time::Duration::from_secs(5);
-/// How long output is still read after the task's leader exited (a child it left holds the pipe).
-const DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// What the daemon hands the runner.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,6 +68,9 @@ pub struct Record {
     /// A stop asked for its end.
     #[serde(default)]
     pub stopped: bool,
+    /// Why its output stopped being kept (a full disk); the task ran on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_error: Option<String>,
 }
 
 fn file(dir: &Path, id: &str, ext: &str) -> PathBuf {
@@ -235,6 +240,9 @@ pub fn main() -> anyhow::Result<()> {
         }
         libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
     }
+    // A closed pipe is an error to see, never a death (the task gets SIGPIPE back, `setup`).
+    // SAFETY: setting a signal disposition before any thread starts.
+    unsafe { libc::signal(libc::SIGPIPE, libc::SIG_IGN) };
     let (dir, id) = (spec.dir.clone(), spec.id.clone());
     /// The task's pid once it runs, whether it was reaped (from then on its group id may be
     /// another's), and its record: one lock, so a stop never interleaves with the start, the
@@ -251,8 +259,10 @@ pub fn main() -> anyhow::Result<()> {
         stopping: false,
         record: Record::default(),
     }));
+    // What a stop that SIGKILLed the group sends when the pipe still has not ended.
+    let give_up: Arc<Mutex<Option<std::sync::mpsc::Sender<()>>>> = Arc::new(Mutex::new(None));
     let stop = {
-        let (task, dir) = (task.clone(), dir.clone());
+        let (task, dir, give_up) = (task.clone(), dir.clone(), give_up.clone());
         move || {
             let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
             let Some(pid) = held.pid else { std::process::exit(1) };
@@ -262,7 +272,7 @@ pub fn main() -> anyhow::Result<()> {
             held.record.stopped = true;
             let _ = write_record(&dir, &held.record);
             drop(held);
-            let task = task.clone();
+            let (task, give_up) = (task.clone(), give_up.clone());
             std::thread::spawn(move || {
                 for signal in [libc::SIGTERM, libc::SIGKILL] {
                     let held = task.lock().unwrap_or_else(|e| e.into_inner());
@@ -274,6 +284,10 @@ pub fn main() -> anyhow::Result<()> {
                     unsafe { libc::killpg(pid as i32, signal) };
                     drop(held);
                     std::thread::sleep(GRACE);
+                }
+                // Killed and still not done: a process outside the group holds the pipe.
+                if let Some(done) = give_up.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+                    let _ = done.send(());
                 }
             });
         }
@@ -296,32 +310,39 @@ pub fn main() -> anyhow::Result<()> {
         anyhow::bail!("task {id} already runs");
     }
     let ctl = ctl_path(&dir, &id);
-    let _ = std::fs::remove_file(&ctl);
-    let c = std::ffi::CString::new(ctl.as_os_str().as_encoded_bytes())?;
-    // SAFETY: mkfifo on a path this function owns.
-    if unsafe { libc::mkfifo(c.as_ptr(), 0o600) } != 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    // Read and write: the FIFO never reads as closed, and a stop's open finds a reader.
-    let mut control = std::fs::OpenOptions::new().read(true).write(true).open(&ctl)?;
-    let mut spool = Spool::create(&dir, &id, spec.segment)?;
-    let (mut reader, writer) = std::io::pipe()?;
-    let mut cmd = std::process::Command::new("/bin/sh");
-    cmd.arg("-c").arg(&spec.command).current_dir(&spec.cwd).envs(&spec.env);
-    cmd.stdin(std::process::Stdio::null()).stdout(writer.try_clone()?).stderr(writer);
-    // SAFETY: setsid and sigprocmask are async-signal-safe. The task leads its own session and
-    // group, and starts with no signal blocked.
-    unsafe {
-        cmd.pre_exec(|| {
-            if libc::setsid() < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            let empty: libc::sigset_t = std::mem::zeroed();
-            libc::sigprocmask(libc::SIG_SETMASK, &empty, std::ptr::null_mut());
-            Ok(())
-        });
-    }
-    let (mut child, answered) = {
+    // A start that fails leaves nothing behind but the lock it held.
+    let undo = || {
+        let _ = std::fs::remove_file(&ctl);
+        let _ = std::fs::remove_file(segment_path(&dir, &id, 0));
+    };
+    let setup = || -> anyhow::Result<_> {
+        let _ = std::fs::remove_file(&ctl);
+        let c = std::ffi::CString::new(ctl.as_os_str().as_encoded_bytes())?;
+        // SAFETY: mkfifo on a path this function owns.
+        if unsafe { libc::mkfifo(c.as_ptr(), 0o600) } != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        // Read and write: the FIFO never reads as closed, and a stop's open finds a reader.
+        let control = std::fs::OpenOptions::new().read(true).write(true).open(&ctl)?;
+        let spool = Spool::create(&dir, &id, spec.segment)?;
+        let (reader, writer) = std::io::pipe()?;
+        let shell = ["/bin/bash", "/bin/sh"].into_iter().find(|s| Path::new(s).exists());
+        let mut cmd = std::process::Command::new(shell.unwrap_or("/bin/sh"));
+        cmd.arg("-c").arg(&spec.command).current_dir(&spec.cwd).envs(&spec.env);
+        cmd.stdin(std::process::Stdio::null()).stdout(writer.try_clone()?).stderr(writer);
+        // SAFETY: setsid, signal and sigprocmask are async-signal-safe. The task leads its own
+        // session and group, with SIGPIPE back to its default and no signal blocked.
+        unsafe {
+            cmd.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+                let empty: libc::sigset_t = std::mem::zeroed();
+                libc::sigprocmask(libc::SIG_SETMASK, &empty, std::ptr::null_mut());
+                Ok(())
+            });
+        }
         let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
         let child = cmd.spawn()?;
         let pid = child.id();
@@ -335,14 +356,21 @@ pub fn main() -> anyhow::Result<()> {
             started_at: crate::store::now_ms(),
             ..Record::default()
         };
+        // A closed answer pipe is an error here, never a SIGPIPE (ignored since the start).
         let answered = write_record(&dir, &held.record).and_then(|()| {
             let mut out = std::io::stdout().lock();
             writeln!(out, "{}", serde_json::json!({"pid": pid}))?;
             out.flush()
         });
-        (child, answered)
+        Ok((control, spool, reader, child, answered))
     };
-    drop(cmd); // closes this process's copies of the pipe's write end
+    let (mut control, mut spool, mut reader, mut child, answered) = match setup() {
+        Ok(started) => started,
+        Err(e) => {
+            undo();
+            return Err(e);
+        }
+    };
     // Unrecorded or unanswered, the task is stopped: nothing could find it.
     if answered.is_err() {
         stop();
@@ -353,30 +381,44 @@ pub fn main() -> anyhow::Result<()> {
             stop();
         }
     });
-    let (eof_tx, eof_rx) = std::sync::mpsc::channel::<()>();
-    std::thread::spawn(move || {
-        let mut buf = vec![0u8; 64 << 10];
-        while let Ok(n) = reader.read(&mut buf) {
-            if n == 0 || spool.write(&buf[..n]).is_err() {
-                break;
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    *give_up.lock().unwrap_or_else(|e| e.into_inner()) = Some(done_tx.clone());
+    {
+        let (task, dir) = (task.clone(), dir.clone());
+        std::thread::spawn(move || {
+            let mut buf = vec![0u8; 64 << 10];
+            let mut failed = false;
+            while let Ok(n) = reader.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                // A spool that fails is said in the record; the pipe is still read, so the
+                // task never blocks on it.
+                if !failed && let Err(e) = spool.write(&buf[..n]) {
+                    failed = true;
+                    let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
+                    held.record.output_error = Some(e.to_string());
+                    let _ = write_record(&dir, &held.record);
+                }
             }
-        }
-        let _ = eof_tx.send(());
-    });
+            let _ = done_tx.send(());
+        });
+    }
     let pid = child.id();
+    // The leader's exit, learned without reaping it: until the reap its pid keeps the group id
+    // the task's, so a stop still reaches what it left behind.
     // SAFETY: waitid into a zeroed siginfo this function owns; WNOWAIT leaves the leader unreaped.
     let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
     while unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) } != 0
         && std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR)
     {}
-    let status = {
-        let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
-        held.reaped = true;
-        child.wait().ok()
-    };
-    let _ = eof_rx.recv_timeout(DRAIN);
+    // Then every byte: the pipe's EOF, when the last process holding it (a child the leader left)
+    // is gone, or a stop's end (its SIGKILL and grace) when one left the group and holds it.
+    let _ = done_rx.recv();
     {
         let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
+        held.reaped = true;
+        let status = child.wait().ok();
         held.record.ended_at = Some(crate::store::now_ms());
         held.record.exit_code = status.and_then(|s| s.code());
         held.record.signal = status.and_then(|s| s.signal());
