@@ -128,6 +128,7 @@ public final class ManualClock: Clock, Sendable {
     public func waitForSleeper(within limit: Duration = .milliseconds(2_500)) async throws {
         let id = state.withLock { state in state.nextID += 1; return state.nextID }
         // A private ledger: the test's failure deadline is not an app wakeup.
+        // timer-class-allow: test support: a test's failure bound on the wall clock, off main; never in the app
         let deadline = DemandTimer(owner: "ManualClock.waitForSleeper", ledger: WakeupLedger())
         let arrived = await withTaskCancellationHandler {
             // A dropped watcher reads as no sleeper, as the deadline answers.
