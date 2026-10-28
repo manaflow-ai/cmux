@@ -171,9 +171,15 @@ pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
 mod pending_streams;
 mod renderer_grant;
+#[cfg(test)]
+use line_connection::serve_connection;
 use line_connection::{
     handle_connection_with_permit, serve_line_connection, spawn_connection_reader,
 };
+#[cfg(unix)]
+mod mux_io;
+#[cfg(unix)]
+pub(crate) use mux_io::MuxIo;
 mod attachment_http;
 mod bookmarks;
 mod browser_host_command;
@@ -2403,9 +2409,13 @@ use connection_scheduler::{
 
 mod bounded_outbound;
 pub(crate) use bounded_outbound::bulk_frame_max_from_env;
+#[cfg(not(unix))]
+use bounded_outbound::write_counted_turn;
+#[cfg(unix)]
+use bounded_outbound::{BatchPoll, count_sent, write_batch_nonblocking};
 use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, InlineSocket, OutboundItem, QueuedSink, SinkControl,
-    SynchronizedTcpStream, claim_connection, write_counted_turn,
+    SynchronizedTcpStream, claim_connection,
 };
 #[cfg(test)]
 use bounded_outbound::{ControlOutbound, websocket_server_frame_header, write_line_outbound_item};

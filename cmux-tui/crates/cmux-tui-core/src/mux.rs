@@ -841,6 +841,10 @@ pub struct Mux {
     /// The daemon-wide sequenced pool: every connection's control sequence
     /// and stream sequences run on its fixed workers (p05-ipc-073).
     pub(crate) sequenced_pool: crate::server::SequencedPool,
+    /// The one `mux-io` loop that reads and writes every local connection
+    /// (server/mux_io.rs, p01-process-203).
+    #[cfg(unix)]
+    pub(crate) mux_io: crate::server::MuxIo,
     /// Records requests that run past 250 ms (server-stats `slow_requests`).
     pub(crate) request_watchdog: crate::server::RequestWatchdog,
     /// The blocking, inversion and slow-request sites of this daemon life

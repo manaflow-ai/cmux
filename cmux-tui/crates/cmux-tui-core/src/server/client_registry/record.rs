@@ -64,6 +64,9 @@ pub(in crate::server) struct ConnectionFacts {
     /// The socket peer's PID at accept, from its kernel peer key.
     pub(in crate::server) peer_pid: Option<u32>,
     pub(in crate::server) class: &'static str,
+    /// The class its lines run at under `daemonRequestQos`
+    /// (`ConnectionClass::qos` of a reader).
+    pub(in crate::server) reader_qos: cmux_threads::ThreadQos,
 }
 
 impl super::ClientRegistry {
@@ -89,6 +92,9 @@ impl super::ClientRegistry {
                         .as_deref()
                         .and_then(crate::server::origin_gate::peer_pid),
                     class: record.connection_class.get().as_str(),
+                    reader_qos: record.connection_class.get().qos(
+                        crate::server::connection_scheduler::connection_qos::ConnectionThread::Reader,
+                    ),
                 };
                 Some((client, facts))
             })

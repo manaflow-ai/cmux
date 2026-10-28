@@ -95,16 +95,14 @@ impl Client {
         let served_mux = mux.clone();
         let served = std::thread::spawn(move || {
             let stream: Box<dyn transport::Stream> = Box::new(server);
-            let peer = origin_gate::AcceptedPeer::resolve(&served_mux, &*stream);
             serve_connection(
                 served_mux,
                 stream,
-                peer,
                 Arc::new(RenderService::new()),
                 None,
                 ClientTransport::Unix,
-                &admission::LocalAdmission,
-                &mut frames(),
+                Box::new(admission::LocalAdmission),
+                Box::new(frames()),
             )
         });
         let read_half = socket.try_clone().unwrap();

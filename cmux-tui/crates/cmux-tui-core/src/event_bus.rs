@@ -893,6 +893,19 @@ impl MuxEventReceiver {
         }
     }
 
+    /// [`Self::try_recv_caused`] without a copy: the event every subscriber
+    /// shares, for a drain that only renders it.
+    pub(crate) fn try_recv_shared(&self) -> Result<(Arc<MuxEvent>, EventCause), TryRecvError> {
+        let mut state = self.mailbox.state.lock().recover_poison();
+        if let Some(event) = state.pop_shared() {
+            Ok(event)
+        } else if state.closed {
+            Err(TryRecvError::Disconnected)
+        } else {
+            Err(TryRecvError::Empty)
+        }
+    }
+
     pub fn try_iter(&self) -> impl Iterator<Item = MuxEvent> + '_ {
         std::iter::from_fn(|| self.try_recv().ok())
     }
