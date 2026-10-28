@@ -33,10 +33,19 @@ function passesThrough(target: Element): boolean {
 export function forwardWheel(scroller: HTMLElement, event: WheelEvent): void {
   if (event.defaultPrevented || event.ctrlKey) return;
   if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
-  scroller.dispatchEvent(
-    new WheelEvent("wheel", { deltaX: 0, deltaY: event.deltaY, deltaMode: event.deltaMode, bubbles: false }),
-  );
-  scroller.scrollTop += wheelPixels(event, scroller.clientHeight);
+  const copy = new WheelEvent("wheel", {
+    deltaX: event.deltaX,
+    deltaY: event.deltaY,
+    deltaMode: event.deltaMode,
+    ctrlKey: event.ctrlKey,
+    metaKey: event.metaKey,
+    shiftKey: event.shiftKey,
+    altKey: event.altKey,
+    cancelable: true,
+  });
+  Object.defineProperty(copy, "wheelDeltaY", { value: (event as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY });
+  scroller.dispatchEvent(copy);
+  if (!copy.defaultPrevented) scroller.scrollTop += wheelPixels(event, scroller.clientHeight);
 }
 
 /// Sends the wheel over Jump to latest, or over a floating stack part's empty room, in `main` to

@@ -165,6 +165,7 @@ enum MacConversationRowBuilder {
                 message.text = translation.text
                 message.mentions = []
                 message.textRuns = []
+                message.links = []
             }
             if entry.showsTimestamp {
                 rows.append(.timestamp(id: "ts:\(message.rowID)", date: message.sentAt))
@@ -326,7 +327,7 @@ struct MacMessageLayout {
 @MainActor
 final class MacMessageLayoutCache {
     private var layouts: [String: (MacMessageRowModel, CGFloat, MacMessageLayout)] = [:]
-    private var texts: [String: (String, Bool, [ConversationMention], [ConversationTextRun], NSAttributedString)] = [:]
+    private var texts: [String: (ConversationBubbleInputs, NSAttributedString)] = [:]
 
     func layout(_ model: MacMessageRowModel, width: CGFloat) -> MacMessageLayout {
         if let (cachedModel, cachedWidth, layout) = layouts[model.rowID], cachedModel == model, cachedWidth == width {
@@ -339,18 +340,16 @@ final class MacMessageLayoutCache {
 
     func text(_ model: MacMessageRowModel) -> NSAttributedString {
         // Audio bubbles show the transcript; a link card takes its URL out of
-        // the text bubble, so mentions and formatting (ranges over the whole
-        // `text`) are re-based onto what the bubble shows.
-        let isAudio = model.message.audioAttachment != nil
-        let body = isAudio ? model.message.macBodyText : model.bodyText
-        let mentions = isAudio ? [] : model.linkSplit.map { $0.bodyMentions(model.message.mentions) } ?? model.message.mentions
-        let runs = isAudio ? [] : model.linkSplit.map { $0.bodyRuns(model.message.textRuns) } ?? model.message.textRuns
-        if let (text, outgoing, cachedMentions, cachedRuns, value) = texts[model.rowID], text == body, outgoing == model.isOutgoing,
-           cachedMentions == mentions, cachedRuns == runs {
+        // the text bubble, so mentions, formatting and links (ranges over the
+        // whole `text`) are re-based onto what the bubble shows.
+        let inputs = model.message.audioAttachment != nil
+            ? ConversationBubbleInputs(text: model.message.macBodyText, outgoing: model.isOutgoing, meID: model.meID)
+            : ConversationBubbleInputs(message: model.message, outgoing: model.isOutgoing, meID: model.meID, linkSplit: model.linkSplit)
+        if let (cachedInputs, value) = texts[model.rowID], cachedInputs == inputs {
             return value
         }
-        let value = MacMessageLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs)
-        texts[model.rowID] = (body, model.isOutgoing, mentions, runs, value)
+        let value = MacMessageLayout.attributedBody(inputs.text, outgoing: inputs.outgoing, mentions: inputs.mentions, meID: inputs.meID, runs: inputs.runs, links: inputs.links)
+        texts[model.rowID] = (inputs, value)
         return value
     }
 
@@ -379,7 +378,8 @@ extension MacMessageLayout {
         outgoing: Bool,
         mentions: [ConversationMention] = [],
         meID: String? = nil,
-        runs: [ConversationTextRun] = []
+        runs: [ConversationTextRun] = [],
+        links: [ConversationTextLink] = []
     ) -> NSAttributedString {
         let t = MacConversationTheme.self
         let result = NSMutableAttributedString(string: text, attributes: [
@@ -394,6 +394,11 @@ extension MacMessageLayout {
         for item in ConversationDataDetection.items(in: text) {
             result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: item.range)
             if let url = item.url { result.addAttribute(.macConversationLink, value: url, range: item.range) }
+        }
+        // Markdown links (an agent's `[label](url)`): the label, underlined, opens the URL.
+        for link in links where NSMaxRange(link.range) <= result.length {
+            result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: link.range)
+            result.addAttribute(.macConversationLink, value: link.url, range: link.range)
         }
         MacMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: t.bodyFont)
         return result

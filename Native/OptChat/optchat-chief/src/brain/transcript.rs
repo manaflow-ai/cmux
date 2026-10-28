@@ -25,7 +25,7 @@ use cmux_conversation::{Message, Part, ReactionKind, Summary};
 use super::Brain;
 
 /// The most messages one `transcript` call returns.
-pub const TRANSCRIPT_MAX: u32 = 100;
+pub use chief_kernel::tools::TRANSCRIPT_MAX;
 /// The messages a `transcript` call returns when it names no count.
 pub const TRANSCRIPT_DEFAULT: u32 = 20;
 /// The answer's size cap: a longer one keeps its newest messages.
@@ -105,7 +105,7 @@ pub fn visible(message: &Message) -> bool {
 }
 
 /// The name `id` shows in Home, with its kind for anyone but the Chief.
-fn who(summary: Option<&Summary>, id: &str, me: &str) -> String {
+pub(super) fn who(summary: Option<&Summary>, id: &str, me: &str) -> String {
     if id == me {
         return "Chief".to_owned();
     }

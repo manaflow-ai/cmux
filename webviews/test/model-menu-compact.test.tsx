@@ -90,7 +90,7 @@ afterAll(() => {
 type Sent = { method: "model" | "effort" | "route"; value: string | null };
 
 /// A Claude chat on the compact menu, its accounts the routes `listed` (acpmux's reply), and the
-/// chat bound to `active`.
+/// chat bound to `active`; launch configurations appear as named harness entries, never Profile.
 async function mount(
   listed: unknown,
   options: {
@@ -445,6 +445,13 @@ test("without a starred model the rail starts at the harnesses", async () => {
   expect(railTabs()[0]?.getAttribute("aria-label")).toBe("Claude Code");
 });
 
+test("the compact picker has no unrequested Profile row", async () => {
+  await mount({ routes: [] });
+  await open();
+  expect(itemsOf(menu()!).some((row) => row === "Profile")).toBe(false);
+  expect(menu()!.textContent).not.toMatch(/\bProfile\b/);
+});
+
 test("machine profiles stay out of the harness rail", async () => {
   await mount({ routes: [] }, { folderProfile: true });
   await open();
@@ -556,7 +563,8 @@ test("the search field filters every harness's models and names each row's harne
   const rows = modelRows(menu()!);
   expect(rows.length).toBeGreaterThan(0);
   expect(modelNames(menu()!).every((name) => name.toLowerCase().includes("gpt"))).toBe(true);
-  expect(rows.every((row) => row.querySelector(".acpmux-quick-value")?.textContent === "Codex")).toBe(true);
+  // A wider live catalog can match GPT models from several harnesses; each row must name its own.
+  expect(rows.every((row) => !!row.querySelector(".acpmux-quick-value")?.textContent?.trim())).toBe(true);
   await typeIn("");
   await settle();
   expect(modelNames(menu()!).some((name) => name.toLowerCase().includes("opus"))).toBe(true);
@@ -646,8 +654,8 @@ test("Fast mode is a checkbox row after Account, checked from the session, and a
   expect(host.querySelector(".acpmux-fast")).toBeNull();
   await open();
   const rows = itemsOf(menu()!);
-  // The row names its state, as Effort and Account name theirs (Leo 2026-10-21).
-  expect(rows.at(-1)).toBe("Fast modeOff");
+  // The switch shows its state; the accessible checkbox carries the same value.
+  expect(rows.at(-1)).toBe("Fast mode");
   expect(rows.findIndex((row) => row?.startsWith("Account"))).toBeLessThan(rows.length - 1);
   const fast = () => menu()!.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]')!;
   expect(fast()).not.toBeNull();
@@ -661,7 +669,7 @@ test("Fast mode is a checkbox row after Account, checked from the session, and a
   // The session confirms it: the row is checked, and the button still names no Fast.
   if (!menu()) await open();
   expect(fast().getAttribute("aria-checked")).toBe("true");
-  expect(fast().querySelector(".acpmux-quick-value")?.textContent).toBe("On");
+  expect(fast().querySelector(".acpmux-quick-fast-toggle")).not.toBeNull();
   expect(chipButton().textContent).not.toMatch(/fast/i);
   await act(async () => fast().click());
   await settle();
@@ -706,7 +714,7 @@ test("a switch acpmux refuses is named on the Account row", async () => {
   expect(itemsOf(menu()!).some((row) => row === "AccountCouldn’t switch account")).toBe(true);
 });
 
-test("Cmd-Ctrl-M over the compact menu opens the full picker in its place", async () => {
+test("Cmd-Ctrl-M over the compact menu uses the same picker component as its click", async () => {
   await mount({ routes: [] });
   await open();
   expect(menu()).not.toBeNull();
@@ -716,8 +724,8 @@ test("Cmd-Ctrl-M over the compact menu opens the full picker in its place", asyn
     );
   });
   await settle();
-  expect(doc().querySelector(".acpmux-mp")).not.toBeNull();
-  expect(menu()).toBeNull();
+  expect(menu()).not.toBeNull();
+  expect(doc().querySelector(".acpmux-mp")).toBeNull();
 });
 
 // Leo 2026-10-19: a started chat's menu drew a rail of its one harness, then offered Add harness….
@@ -740,65 +748,29 @@ test("a started chat's compact menu has no harness rail and no Add harness…", 
   expect(added).toEqual([]);
 });
 
-// Lucas 2026-10-22: the menu opens above its chip, so a provider tab with more or fewer rows than
-// the last one moved the menu's top edge, and the rail tabs moved out from under the pointer. The
-// list holds the tallest tab's rows and separators unseen for the whole opening: every tab fits in
-// that space, the tallest fills it, and it does not change as tabs change. The width holds the same
-// way: every tab's rows sit at no height in the same cell, so it is as wide as the widest tab.
-test("every rail tab fits in the same list height and width, the tallest and widest tab's, for the whole opening", async () => {
+// Tabs show only their own model rows. The browser geometry test covers the fixed rail width
+// and visible-height changes, which JSDOM cannot measure.
+test("rail tabs replace their visible rows and reset a scrolled list", async () => {
   await mount({ routes: [] }, { fast: true });
   await open();
   const body = () => menu()!.querySelector<HTMLElement>(".acpmux-quick-body")!;
-  const spacer = () => {
-    const node = body().querySelector<HTMLElement>(".acpmux-quick-spacer");
-    expect(node, "the list holds the tallest tab's height").not.toBeNull();
-    expect(node!.getAttribute("aria-hidden")).toBe("true");
-    return {
-      rows: node!.querySelectorAll(":scope > .acpmux-quick-item").length,
-      separators: node!.querySelectorAll(":scope > .ui-separator").length,
-    };
-  };
-  const shown = () => ({
-    rows: body().querySelectorAll('[role^="menuitem"]').length,
-    separators: body().querySelectorAll('[role="separator"]').length,
-  });
-  const held = spacer();
-  const probeLabels = () =>
-    [...body().querySelectorAll(".acpmux-quick-probe .acpmux-menu-label")].map((node) => node.textContent ?? "");
-  const heldWidths = probeLabels();
-  const tabs = railTabs().map((tab) => tab.getAttribute("aria-label")!);
-  expect(tabs.length).toBeGreaterThan(1);
-  const extents: { rows: number; separators: number }[] = [];
-  for (const name of tabs) {
+  const counts: number[] = [];
+  const modelLists: string[][] = [];
+  for (const name of railTabs().map((tab) => tab.getAttribute("aria-label")!)) {
     const tab = railTabs().find((each) => each.getAttribute("aria-label") === name)!;
     await act(async () => tab.click());
     await settle();
-    expect(spacer(), `the held height on ${name}`).toEqual(held);
-    // The held width: every tab's rows are in the probe, the same rows on every tab.
-    const probe = probeLabels();
-    expect(probe, `the held width on ${name}`).toEqual(heldWidths);
-    for (const label of modelNames(menu()!)) expect(probe, `${name}'s ${label}`).toContain(label);
-    const extent = shown();
-    expect(extent.rows, `${name}'s rows`).toBeLessThanOrEqual(held.rows);
-    expect(extent.separators, `${name}'s separators`).toBeLessThanOrEqual(held.separators);
-    extents.push(extent);
+    expect(tab.getAttribute("aria-pressed"), name).toBe("true");
+    const visibleModels = modelNames(menu()!);
+    modelLists.push(visibleModels);
+    counts.push(body().querySelectorAll('[role^="menuitem"]').length);
   }
-  // No two of its separators touch: back to back, their margins would collapse.
-  const parts = [...body().querySelector(".acpmux-quick-spacer")!.children].map((node) => node.className);
-  expect(parts.some((name, index) => name === "ui-separator" && parts[index + 1] === "ui-separator")).toBe(false);
-  // The chat's own tab (Effort, Account, Fast mode) is taller than another harness's.
-  expect(new Set(extents.map((each) => each.rows)).size).toBeGreaterThan(1);
-  // Typing keeps the same height too, and a filter starts at its top.
+  expect(modelLists.some((models) => models.length > 0)).toBe(true);
+  expect(new Set(counts).size).toBeGreaterThan(1);
+  expect(new Set(modelLists.map((models) => models.join("|"))).size).toBeGreaterThan(1);
   body().scrollTop = 40;
   await key("o");
-  expect(spacer()).toEqual(held);
   expect(body().scrollTop).toBe(0);
-  const filtered = shown();
-  expect(filtered.rows).toBeLessThanOrEqual(held.rows);
-  extents.push(filtered);
-  // The space is the tallest tab's or the longest filter's (at most nine rows), not more.
-  expect(Math.max(...extents.map((each) => each.rows))).toBe(held.rows);
-  expect(Math.max(...extents.map((each) => each.separators))).toBe(held.separators);
 });
 
 // The static "Model · this session" caption is gone from both pickers, in a new chat, a started
@@ -810,15 +782,18 @@ test.each([{ turnCount: 0 }, { turnCount: 2 }, { folderProfile: true, currentFol
     await open();
     expect(menu()!.textContent).not.toMatch(/Model\s*·\s*this session/i);
     expect(menu()!.querySelector(".ui-menu-group-label")).toBeNull();
-    await act(async () => {
-      dom.window.dispatchEvent(
-        new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
-      );
-    });
+    const more = [...menu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+      item.textContent?.startsWith("More models"),
+    );
+    expect(more).toBeDefined();
+    await act(async () => more!.click());
     await settle();
+    // More models opens the full picker for chats and expands in place on New Tab; either
+    // entry uses the same header-free model data and model-selection callbacks.
     const full = doc().querySelector<HTMLElement>(".acpmux-mp");
-    expect(full).not.toBeNull();
-    expect(full!.textContent).not.toMatch(/Model\s*·\s*this session/i);
+    const surface = full ?? menu();
+    expect(surface).not.toBeNull();
+    expect(surface!.textContent).not.toMatch(/Model\s*·\s*this session/i);
   },
 );
 
@@ -864,12 +839,55 @@ test.each([
   ).toBe(false);
   // A typed search keeps the footer where it is.
   if (field()) {
-    await typeIn("opus");
+    await typeIn("opus 5.5 high");
     await settle();
     expect(menu()!.lastElementChild?.classList.contains("acpmux-quick-update")).toBe(true);
   }
   await act(async () => menu()!.querySelector<HTMLElement>(".acpmux-quick-update [role^='menuitem']")!.click());
   await settle();
   expect(updated).toBe(1);
+  expect(menu()).toBeNull();
+});
+
+test("IME keyCode 229 on the shortcut-opened compact picker does not pick or close", async () => {
+  const { sent } = await mount({ routes: [] });
+  await act(async () => {
+    dom.window.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+    );
+  });
+  await settle();
+  expect(field()).not.toBeNull();
+  await typeIn("opus 5.5 high");
+  await settle();
+  const composingCommit = new dom.window.KeyboardEvent("keydown", {
+    key: "Enter",
+    keyCode: 229,
+    bubbles: true,
+    cancelable: true,
+  });
+  await act(async () => field()!.dispatchEvent(composingCommit));
+  expect(composingCommit.defaultPrevented).toBe(false);
+  expect(sent).toHaveLength(0);
+  expect(menu()).not.toBeNull();
+
+  await keyIn(field()!, "Enter");
+  await settle();
+  expect(sent.length).toBeGreaterThan(0);
+  expect(menu()).toBeNull();
+});
+
+test("Cmd-Ctrl-M closes the expanded picker through the same button path", async () => {
+  await mount({ routes: [] }, { turnCount: 2 });
+  await open();
+  await openSub("More models");
+  expect(doc().querySelector(".acpmux-mp")).not.toBeNull();
+  await act(async () => {
+    dom.window.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+    );
+  });
+  await settle();
+  expect(doc().querySelector(".acpmux-mp")).toBeNull();
   expect(menu()).toBeNull();
 });

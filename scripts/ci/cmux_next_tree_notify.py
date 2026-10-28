@@ -8,13 +8,11 @@ test, the commit to report on, the tree tiers, the origin event) and skips the
 tree jobs. No runner waits.
 
 The cmux-tui artifacts workflow runs this when it publishes <key> (--state
-ready) or ends without publishing it (--state failed). For each marker whose
-run is still current (a push still at its branch head, an open pull request
-still at its head), it dispatches cmux-next.yml in same-tree mode, which runs
-only the daemon tests and the scheme compile on that commit, or only reports
-the failure. A ready dispatch removes the marker; a failed one keeps it, so a
-later publication of the same key (a takeover run, a cmux-tui-pin-* push)
-still starts the jobs.
+ready) or ends without publishing it (--state failed). For each current marker
+it dispatches cmux-next.yml in same-tree mode, which runs only the daemon tests
+and scheme compile on that commit, or reports the failure. An unpublished PR
+tree is skipped: its failed marker is retained for a later trusted publication,
+without dispatching a red check or creating a cmux-tui-pin-* ref.
 
 --state failed is checked against the tree's completion.json on R2 first.
 publish-cmux-tui-tree.py writes it last and only once, so it is the record
@@ -209,6 +207,10 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         if not current:
             log(f"run {run_id} ({marker['origin']} {marker['status_sha'][:12]}) was superseded; nothing to start")
             api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
+            continue
+        if marker["origin"] == "pull_request" and state == "failed":
+            log(f"::notice title=same-tree cmux-tui skipped::run {run_id} ({marker['status_sha'][:12]}): "
+                f"tree {key} is unavailable; no pin ref is created. Re-run after a trusted publication.")
             continue
         inputs = {
             "same_tree_sha": marker["sha"],

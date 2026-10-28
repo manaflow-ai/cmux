@@ -36,6 +36,7 @@ extension AgentTabStore {
         }, openSide: { [weak self] chat, fork in // the tracker (AgentSidePanes) picks the side pane's tab or a new split; the app opens there
             guard let self else { return }; AgentSidePanes.chat(chat).open(fork, chat: resolve(provisional), pane: { [weak self] in self?.locate(self?.resolve($0) ?? $0).map { "\(ObjectIdentifier($0.daemon).hashValue):\($0.pane.rawValue)" } }) { [weak self] anchor, created, finished in
                 self?.openBeside(anchor ?? provisional, split: anchor == nil, main: provisional, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: fork) }, created: created, finished: { _ in finished() }) ?? false }
+        }, openRight: { [weak self] session in guard let self else { return false }; return openRight?(resolve(provisional), session) ?? false
         }, openTab: { [weak self] session, destination in self?.openFork(session, at: destination, beside: provisional) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional) ?? false }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
             guard let self else { return nil }
             let chat = resolve(provisional)

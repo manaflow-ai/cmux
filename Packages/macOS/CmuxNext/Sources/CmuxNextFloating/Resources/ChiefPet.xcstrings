@@ -2113,6 +2113,138 @@
         }
       }
     },
+    "chiefPet.upload.dropHint": {
+      "comment": "Chief pet: hint under the character grid saying a picture file can be dragged onto it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop a picture or GIF here to use your own."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أفلت صورة أو GIF هنا لاستخدام صورتك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ispustite sliku ili GIF ovdje da koristite svoju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slip et billede eller en GIF her for at bruge din egen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lege ein Bild oder GIF hier ab, um dein eigenes zu verwenden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suelta una imagen o un GIF aquí para usar la tuya."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déposez une image ou un GIF ici pour utiliser la vôtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trascina qui un’immagine o una GIF per usare la tua."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "画像やGIFをここにドロップすると自分のものを使えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទម្លាក់រូបភាព ឬ GIF នៅទីនេះ ដើម្បីប្រើរបស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이미지나 GIF를 여기에 놓으면 직접 고른 것을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slipp et bilde eller en GIF her for å bruke din egen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upuść tutaj obraz lub GIF, aby użyć własnego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solte uma imagem ou GIF aqui para usar o seu."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перетащите сюда изображение или GIF, чтобы использовать своё."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "วางรูปหรือ GIF ที่นี่เพื่อใช้ของคุณเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kendi resmini kullanmak için buraya bir resim veya GIF bırak."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перетягніть сюди зображення або GIF, щоб використати своє."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thả ảnh hoặc GIF vào đây để dùng của riêng bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将图片或 GIF 拖到这里即可使用你自己的。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將圖片或 GIF 拖到這裡即可使用你自己的。"
+          }
+        }
+      }
+    },
     "chiefPet.upload.limits": {
       "comment": "Chief pet: why an uploaded picture was refused, naming the accepted types and size limits.",
       "extractionState": "manual",

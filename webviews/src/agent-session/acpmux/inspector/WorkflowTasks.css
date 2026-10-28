@@ -11,6 +11,7 @@
   color: var(--agent-muted);
   font-size: var(--text-detail);
   font-weight: inherit;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-workflow-task {
   display: flex;
@@ -46,6 +47,7 @@
   color: var(--agent-muted);
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-workflow-task__next {
   padding-top: 4px;
@@ -67,7 +69,6 @@
   color: inherit;
   font: inherit;
   text-align: start;
-  cursor: default;
 }
 .acpmux-workflow-phase__head > svg {
   flex: none;
@@ -98,6 +99,7 @@
   padding: 0 8px;
   color: var(--agent-muted);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-workflow-agent {
   min-height: 24px;

@@ -10,8 +10,8 @@ import Observation
 /// the page or dismisses it; the palette, the Help menu and
 /// `updates.whatsNew` open the page at any time. There is no What's New
 /// item at the top of the sidebar (Lawrence 2026-10-18).
-/// `updates.showWhatsNew` (default on, managed config can force it off)
-/// hides the card.
+/// `updates.showWhatsNew` and the Labs preview setting (both must be on)
+/// hide the card.
 @MainActor
 @Observable
 public final class WhatsNewCenter {
@@ -19,7 +19,7 @@ public final class WhatsNewCenter {
     public private(set) var unseen: [WhatsNewDocument] = []
     /// What the page shows: the documents taken when it was last opened.
     public private(set) var presented: [WhatsNewDocument] = []
-    /// `updates.showWhatsNew` (set by the App): whether the card may show.
+    /// Set by the App from `updates.showWhatsNew` and `labs.previewFeatures`: whether the card may show.
     public var isItemEnabled = true
     /// Whether ``load()`` has finished once.
     public private(set) var isLoaded = false

@@ -19,6 +19,10 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 #[path = "peer_health.rs"]
 mod health;
 
+#[cfg(test)]
+#[path = "peer_state_tests.rs"]
+mod state_tests;
+
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
@@ -57,6 +61,8 @@ pub enum PeerNotice {
     Notification {
         method: String,
         params: Value,
+        /// The link it came on (`Peer::link_epoch` when it was read).
+        link: u64,
     },
 }
 
@@ -72,12 +78,21 @@ pub struct Peer {
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
     /// Outbound frames, each tagged with the link epoch it was admitted on:
-    /// `serve` drops one whose link is gone, so it never goes out on the next.
-    out: mpsc::Sender<(u64, String)>,
-    out_rx: Mutex<Option<mpsc::Receiver<(u64, String)>>>,
+    /// `serve` drops one whose link is gone, so it never goes out on the next,
+    /// and `fail_link_requests` fails the request it carries as not sent.
+    out: mpsc::Sender<Outbound>,
+    out_rx: Mutex<Option<mpsc::Receiver<Outbound>>>,
     next_id: AtomicI64,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>,
+    /// The pending keys whose frame `serve` wrote to the live link: when the link drops, only
+    /// these may have run on the peer; every other request waiting fails as not sent.
+    on_wire: OnWire,
+    /// The handshake finished on the live link (`initialize` and `_acpmux/watch` answered, the
+    /// sessions listed): what `connected` reports. False from the moment the link drops.
     pub connected: AtomicBool,
+    /// The WebSocket is open, handshake or not: only the handshake's own requests go out
+    /// while it is open and not `connected`.
+    open: AtomicBool,
     pub last_error: StdMutex<Option<String>>,
     /// Version and build the peer reported at handshake.
     pub remote_version: StdMutex<Option<(String, String)>>,
@@ -90,8 +105,14 @@ pub struct Peer {
     person_instance: StdMutex<Option<String>>,
     /// Whether the peer advertised the folder-trust gate in initialize.
     trust_gate: AtomicBool,
+    /// This caller's own opt-out for its remote chains there (`PeerConfig`
+    /// `vmBoundary`, `hub/vm_boundary.rs`): each `session/new` it forwards
+    /// says `vmBoundary: true`.
+    vm_boundary: AtomicBool,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
+    /// It lists `filePutChunks` (`hub/file_uploads.rs`).
+    file_put_chunks: AtomicBool,
     /// Whether the peer serves `_acpmux/media_open` and `_acpmux/media_range` (`hub/media_read.rs`).
     media_read: AtomicBool,
     /// Bumped each time a connection to the peer ends (and at `stop`): what the peer kept for
@@ -101,6 +122,12 @@ pub struct Peer {
     subagent_transcript: AtomicBool,
     /// Whether the peer saves a message's attachments (`attach.rs`).
     send_attach: AtomicBool,
+    /// The peer lists `promptUploads` (`prompt_uploads.rs`).
+    prompt_uploads: AtomicBool,
+    /// The peer lists `uploadResume` (`hub/file_uploads.rs`).
+    upload_resume: AtomicBool,
+    /// The peer lists `sessionAuth` (`hub/session_auth.rs`).
+    session_auth: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -120,13 +147,21 @@ pub struct Peer {
     settled: tokio::sync::watch::Sender<u64>,
     /// Connected, degraded or reconnecting, and since when (`peer_link.rs`).
     link: StdMutex<Link>,
+    /// Where each change of `state()` goes once the hub runs the peer (`report_states`).
+    states: StdMutex<Option<Arc<crate::peer_states::PeerStates>>>,
     timings: LinkTimings,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
+    /// The sessions this instance's link purged before its list (`hub/purge_tombstones.rs`).
+    pub(crate) purge_tombstones: crate::hub::purge_tombstones::PurgeTombstones,
     /// The peer's last `_acpmux/host_health` and when it came (`peer_health.rs`).
     health: StdMutex<Option<(u64, Value)>>,
     /// An ask for it is out.
     health_asking: AtomicBool,
+    /// The pending key of the handshake's `_acpmux/watch`. The reader publishes that reply's
+    /// list itself, before it reads the next frame, so a `session_changed` the peer sent after
+    /// the reply reaches the hub after the list, never before it.
+    watch_key: StdMutex<Option<String>>,
 }
 
 impl Peer {
@@ -149,17 +184,24 @@ impl Peer {
             out_rx: Mutex::new(Some(out_rx)),
             next_id: AtomicI64::new(1),
             pending: Arc::new(Mutex::new(HashMap::new())),
+            on_wire: Default::default(),
             connected: AtomicBool::new(false),
+            open: AtomicBool::new(false),
             last_error: StdMutex::new(None),
             remote_version: StdMutex::new(None),
             served_as: StdMutex::new(None),
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
+            vm_boundary: AtomicBool::new(false),
             file_put: AtomicBool::new(false),
+            file_put_chunks: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
             link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
             send_attach: AtomicBool::new(false),
+            prompt_uploads: AtomicBool::new(false),
+            upload_resume: AtomicBool::new(false),
+            session_auth: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
@@ -169,10 +211,13 @@ impl Peer {
             stop_signal: Notify::new(),
             settled: tokio::sync::watch::channel(0).0,
             link: StdMutex::new(Link::default()),
+            states: StdMutex::new(None),
             timings: LinkTimings::from_env(),
             cache_saved_at: AtomicU64::new(0),
+            purge_tombstones: Default::default(),
             health: StdMutex::new(None),
             health_asking: AtomicBool::new(false),
+            watch_key: StdMutex::new(None),
         })
     }
 
@@ -180,8 +225,41 @@ impl Peer {
         self.link.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// Every change of the link's state goes through here, so each one sends its note
+    /// (`report_states`) from the code that made it: no timer, no polling, no repeats.
     fn with_link<T>(&self, f: impl FnOnce(&mut Link) -> T) -> T {
-        f(&mut self.link.lock().unwrap_or_else(|e| e.into_inner()))
+        let mut link = self.link.lock().unwrap_or_else(|e| e.into_inner());
+        let out = f(&mut link);
+        self.note_state(&link);
+        out
+    }
+
+    /// This instance speaks for its name in `states` (the hub's, `Hub::spawn_peer`) from now
+    /// on: its state now, then each change (`_acpmux/peer_state_changed`). Once it is replaced
+    /// or removed, `states` drops what it says.
+    pub fn report_states(&self, states: Arc<crate::peer_states::PeerStates>) {
+        let link = self.link.lock().unwrap_or_else(|e| e.into_inner());
+        states.register(&self.name, self.generation, self.observed(&link));
+        *self.states.lock_or_recover() = Some(states);
+    }
+
+    /// Called with `link` locked, so the notes go out in the order of the changes.
+    fn note_state(&self, link: &Link) {
+        // A stopped instance's link going down is not news: its replacement or its removal
+        // speaks for the name next.
+        if self.stop.load(Ordering::SeqCst) {
+            return;
+        }
+        let Some(states) = self.states.lock_or_recover().clone() else { return };
+        states.changed(&self.name, self.generation, self.observed(link));
+    }
+
+    fn observed(&self, link: &Link) -> crate::peer_states::Observed {
+        crate::peer_states::Observed {
+            state: link.state().wire(),
+            last_seen: link.last_seen,
+            error: self.last_error.lock_or_recover().clone(),
+        }
     }
 
     pub fn state(&self) -> PeerState {
@@ -394,6 +472,16 @@ impl Peer {
         self.person_instance.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// Set before the peer runs (`Hub::spawn_peer`), from its config or lease.
+    pub fn set_vm_boundary(&self, on: bool) {
+        self.vm_boundary.store(on, Ordering::SeqCst);
+    }
+
+    /// Whether this caller opts its remote chains on the peer out of the sandbox.
+    pub fn vm_boundary(&self) -> bool {
+        self.vm_boundary.load(Ordering::SeqCst)
+    }
+
     pub fn supports_trust_gate(&self) -> bool {
         self.trust_gate.load(Ordering::SeqCst)
     }
@@ -401,6 +489,11 @@ impl Peer {
     /// Whether the peer said at its last handshake that it takes `_acpmux/file_put`.
     pub fn supports_file_put(&self) -> bool {
         self.file_put.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer takes uploads in chunks (`file_put_begin`/`_chunk`/`_finish`/`_cancel`).
+    pub fn supports_file_put_chunks(&self) -> bool {
+        self.file_put_chunks.load(Ordering::SeqCst)
     }
 
     /// Whether the peer said at its last handshake that it serves the media reader.
@@ -428,6 +521,27 @@ impl Peer {
         self.send_attach.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer said at its last handshake that it reads uploaded files a message names.
+    pub fn supports_prompt_uploads(&self) -> bool {
+        self.prompt_uploads.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that it answers upload status and checks a
+    /// finish's `sha256` (`hub/file_uploads.rs`).
+    pub fn supports_upload_resume(&self) -> bool {
+        self.upload_resume.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that it answers `_acpmux/session/auth`.
+    pub fn supports_session_auth(&self) -> bool {
+        self.session_auth.load(Ordering::SeqCst)
+    }
+
+    /// The WebSocket is open and the handshake has not finished.
+    pub fn handshaking(&self) -> bool {
+        self.open.load(Ordering::SeqCst) && !self.connected.load(Ordering::SeqCst)
+    }
+
     pub fn summary(&self) -> Value {
         let link = self.link();
         let (health, health_at) = self.health_summary();
@@ -435,6 +549,7 @@ impl Peer {
             "name": self.name,
             "url": self.url,
             "connected": self.connected.load(Ordering::SeqCst),
+            "handshaking": self.handshaking(),
             "error": self.last_error.lock_or_recover().clone(),
             "remoteVersion": self.remote_version.lock_or_recover().as_ref().map(|(v, _)| v.clone()),
             "remoteBuild": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b.clone()),
@@ -464,45 +579,69 @@ impl Peer {
     }
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
+        self.request_on(m, params, None).await
+    }
+
+    /// `request` on the link of epoch `epoch` only, when the caller read it before (it labels
+    /// what the answer holds with it, `hub/peer_snapshot.rs`): unreachable once that link ended.
+    pub async fn request_on(
+        &self,
+        m: &str,
+        params: Value,
+        epoch: Option<u64>,
+    ) -> Result<Value, RpcError> {
         // Read before the check: `run` moves the epoch on before it fails what
         // waits, so a request that is registered after that sees the change.
-        let epoch = self.link_epoch();
+        let epoch = epoch.unwrap_or_else(|| self.link_epoch());
         if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
             return Err(self.unreachable_error());
         }
         self.link_request_on(m, params, Some(epoch)).await
     }
 
-    /// `request` with no admission check: the handshake's `initialize`.
-    async fn link_request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
-        self.link_request_on(m, params, None).await
-    }
-
-    /// Sends `m` on the link of epoch `epoch` (any link when None).
+    /// Sends `m` on the link of epoch `epoch` (any link when None), with no check that the
+    /// handshake finished: the handshake's own requests go out through here.
     async fn link_request_on(
         &self,
         m: &str,
         params: Value,
         epoch: Option<u64>,
     ) -> Result<Value, RpcError> {
+        // One deadline from here: a request that waits for room in the queue (a stalled link,
+        // or a full queue ahead of it) times out on the schedule of one the peer is slow to
+        // answer, never later.
+        let started = tokio::time::Instant::now();
+        let deadline = started + self.timings.request;
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         let key = Value::from(id).to_string();
         self.pending.lock().await.insert(key.clone(), tx);
+        if m == method::MUX_WATCH {
+            *self.watch_key.lock_or_recover() = Some(key.clone());
+        }
         // A request that times out, or whose caller stops waiting, takes its
         // entry with it rather than leaving it until the connection drops.
-        let _forget = ForgetPending { pending: self.pending.clone(), key: Some(key) };
+        let _forget = ForgetPending {
+            pending: self.pending.clone(),
+            on_wire: self.on_wire.clone(),
+            key: Some(key.clone()),
+        };
         // The link it was admitted on went down before it was registered: `run`
         // already failed what waited, and the next link drops its frame, so a
         // prompt (which has no deadline) would wait for good.
-        if epoch.is_some_and(|e| e != self.link_epoch() || !self.connected.load(Ordering::SeqCst)) {
+        if epoch.is_some_and(|e| e != self.link_epoch() || !self.open.load(Ordering::SeqCst)) {
             return Err(self.unreachable_error());
         }
         // One frame larger than the peer reads with would drop the link and every chat on it.
         let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
         let tag = epoch.unwrap_or_else(|| self.link_epoch());
-        if self.out.send((tag, line)).await.is_err() {
-            return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
+        let frame = Outbound { epoch: tag, key: Some(key), line };
+        match tokio::time::timeout_at(deadline, self.out.send(frame)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) => {
+                return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
+            }
+            Err(_) => return Err(queue_timed_out(&self.name, started.elapsed())),
         }
         // A prompt or a wait answers when the peer's turn ends, however long that is; the
         // keepalive drops a link that stops answering, which fails it as `peer disconnected`,
@@ -510,18 +649,32 @@ impl Peer {
         let answer = if waits_on_turn(m) {
             Ok(rx.await)
         } else {
-            tokio::time::timeout(self.timings.request, rx).await
+            tokio::time::timeout_at(deadline, rx).await
         };
         match answer {
             // A full disk the peer reports is the peer's, not this machine's (`recovery.rs`).
-            Ok(Ok(r)) => r.map_err(|mut e| {
-                crate::recovery::annotate_peer(&mut e, &self.name);
-                e
-            }),
+            // No display line of the peer's own reaches this daemon's clients, on any route that
+            // returns a peer's reply or its error's data (`hub::drop_display_lines`).
+            Ok(Ok(r)) => r
+                .map(|mut result| {
+                    crate::hub::drop_display_lines(&mut result);
+                    result
+                })
+                .map_err(|mut e| {
+                    crate::recovery::annotate_peer(&mut e, &self.name);
+                    if let Some(data) = e.data.as_mut() {
+                        crate::hub::drop_display_lines(data);
+                    }
+                    e
+                }),
             Ok(Err(_)) => {
                 Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
             }
-            Err(_) => Err(RpcError::internal(format!("peer {} timed out", self.name))),
+            Err(_) => Err(RpcError::internal(format!(
+                "peer {} timed out after {}s",
+                self.name,
+                started.elapsed().as_secs()
+            ))),
         }
     }
 
@@ -533,10 +686,13 @@ impl Peer {
             return Err(self.unreachable_error());
         }
         let line = Message::notification(m, params).bounded_line().map_err(RpcError::too_large)?;
-        self.out
-            .send((epoch, line))
-            .await
-            .map_err(|_| RpcError::internal(format!("peer {} connection closed", self.name)))
+        let started = tokio::time::Instant::now();
+        let frame = Outbound { epoch, key: None, line };
+        match tokio::time::timeout(self.timings.request, self.out.send(frame)).await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(_)) => Err(RpcError::internal(format!("peer {} connection closed", self.name))),
+            Err(_) => Err(queue_timed_out(&self.name, started.elapsed())),
+        }
     }
 
     /// Run the connect loop until `stop`.
@@ -549,8 +705,15 @@ impl Peer {
         };
         while !self.stop.load(Ordering::SeqCst) {
             let outcome = self.connect_once(&mut out_rx).await;
-            self.connected.store(false, Ordering::SeqCst);
+            // Before the link goes down, so the state note of the drop names why.
+            if let Err(e) = &outcome {
+                *self.last_error.lock_or_recover() = Some(e.clone());
+            }
+            // The epoch moves first: a handshake that marks the link ready checks it after,
+            // so `connected` never stays true for a link that is gone.
             self.link_ended();
+            self.open.store(false, Ordering::SeqCst);
+            self.connected.store(false, Ordering::SeqCst);
             // A link that held a while starts over; one that flaps (up, then
             // reset seconds later) keeps backing off, so a loaded host is
             // not hit with a reconnect every second.
@@ -558,15 +721,10 @@ impl Peer {
                 backoff.reset();
             }
             if let Err(e) = outcome {
-                *self.last_error.lock_or_recover() = Some(e.clone());
                 let notice = PeerNotice::Disconnected(e);
                 let _ = self.notices.send((self.name.clone(), self.generation, notice)).await;
             }
-            let mut p = self.pending.lock().await;
-            for (_, tx) in p.drain() {
-                let _ = tx.send(Err(RpcError::internal("peer disconnected")));
-            }
-            drop(p);
+            self.fail_link_requests(&mut out_rx).await;
             if self.stop.load(Ordering::SeqCst) {
                 break;
             }
@@ -578,9 +736,30 @@ impl Peer {
         }
     }
 
+    /// The link ended. A request that never went out on it (still queued, or waiting for room
+    /// in the queue) fails as not sent (`peer_unreachable`, retryable), and its frame is dropped,
+    /// never sent on the next link. One that went out fails as `peer_disconnected`: the peer
+    /// may have run it.
+    async fn fail_link_requests(&self, out_rx: &mut mpsc::Receiver<Outbound>) {
+        let mut pending = self.pending.lock().await;
+        while out_rx.try_recv().is_ok() {}
+        let on_wire = std::mem::take(&mut *self.on_wire.lock_or_recover());
+        for (key, tx) in pending.drain() {
+            let _ = tx.send(Err(if on_wire.contains(&key) {
+                RpcError::internal("peer disconnected").with_data(json!({
+                    "reason": "peer_disconnected",
+                    "detail": "the request went out before the link dropped; the peer may have run it",
+                    "peer": self.name,
+                }))
+            } else {
+                self.unreachable_error()
+            }));
+        }
+    }
+
     async fn connect_once(
         self: &Arc<Self>,
-        out_rx: &mut mpsc::Receiver<(u64, String)>,
+        out_rx: &mut mpsc::Receiver<Outbound>,
     ) -> Result<(), String> {
         if self.ssh_parts().is_some() {
             let (token, peer_token) = self.remote_tokens_settled().await?;
@@ -656,27 +835,31 @@ impl Peer {
     async fn serve<S>(
         self: &Arc<Self>,
         ws: tokio_tungstenite::WebSocketStream<S>,
-        out_rx: &mut mpsc::Receiver<(u64, String)>,
+        out_rx: &mut mpsc::Receiver<Outbound>,
     ) -> Result<(), String>
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
         use tokio_tungstenite::tungstenite::Message as Frame;
         let (mut sink, mut source) = ws.split();
+        // Open, not connected: callers' requests are refused until the handshake finished
+        // (`connected`), and only the handshake's own go out on this link (`link`).
+        let link = self.link_epoch();
         self.admitting.store(true, Ordering::SeqCst);
-        self.connected.store(true, Ordering::SeqCst);
+        self.open.store(true, Ordering::SeqCst);
         *self.last_error.lock_or_recover() = None;
         self.with_link(|l| l.opened(crate::store::now_ms()));
-        tracing::info!(peer = %self.name, "connected to {}", self.url);
+        tracing::info!(peer = %self.name, "link open to {}; handshaking", self.url);
 
         // Handshake in a task so the read loop below can serve the responses.
         let me = self.clone();
         let (stale_tx, mut stale_rx) = oneshot::channel::<String>();
         let handshake = tokio::spawn(async move {
             let init = me
-                .link_request(
+                .link_request_on(
                     method::INITIALIZE,
                     json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}}),
+                    Some(link),
                 )
                 .await?;
             let v = init
@@ -713,24 +896,36 @@ impl Peer {
                     .is_some_and(|features| features.iter().any(|f| f.as_str() == Some(feature)))
             };
             me.file_put.store(lists(crate::hub::FILE_PUT_FEATURE), Ordering::SeqCst);
+            let chunks = lists(crate::hub::file_uploads::CHUNKS_FEATURE);
+            me.file_put_chunks.store(chunks, Ordering::SeqCst);
             me.media_read.store(lists(crate::hub::MEDIA_READ_FEATURE), Ordering::SeqCst);
             me.subagent_transcript
                 .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
             me.send_attach.store(lists(crate::attach::FEATURE), Ordering::SeqCst);
-            let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
-            let sessions = watch
-                .get("sessions")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter(|session| !is_mirrored_session(session))
-                .cloned()
-                .collect();
-            let _ = me
-                .notices
-                .send((me.name.clone(), me.generation, PeerNotice::Sessions(sessions)))
-                .await;
-            me.with_link(|l| l.ready(crate::store::now_ms()));
+            me.prompt_uploads.store(lists(crate::prompt_uploads::FEATURE), Ordering::SeqCst);
+            let resume = lists(crate::hub::file_uploads::RESUME_FEATURE);
+            me.upload_resume.store(resume, Ordering::SeqCst);
+            let auth = lists(crate::hub::session_auth::FEATURE);
+            me.session_auth.store(auth, Ordering::SeqCst);
+            // The reader published the reply's list (`watch_key`), so Connected follows it.
+            me.link_request_on(method::MUX_WATCH, json!({"enabled": true}), Some(link)).await?;
+            // Connected only now, and ready with it, so its state note follows `connected`.
+            // `run` moves the epoch on before it clears `connected` and takes the link down, so
+            // a link that dropped meanwhile is seen here: it is not made ready again, and never
+            // left reading connected.
+            let live = me.with_link(|l| {
+                let live = me.link_epoch() == link;
+                if live {
+                    me.connected.store(true, Ordering::SeqCst);
+                    l.ready(crate::store::now_ms());
+                }
+                live
+            });
+            if !live || me.link_epoch() != link {
+                me.connected.store(false, Ordering::SeqCst);
+                return Ok(());
+            }
+            tracing::info!(peer = %me.name, "connected to {}", me.url);
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             let attached: Vec<String> = me.attached.lock_or_recover().iter().cloned().collect();
             for sid in attached {
@@ -803,9 +998,20 @@ impl Peer {
                     let Ok(msg) = Message::parse(&text) else { continue };
                     match msg {
                         Message::Response { id, result, error } => {
-                            if let Some(tx) = self.pending.lock().await.remove(&id.to_string()) {
-                                let _ = tx.send(match error { Some(e) => Err(e), None => Ok(result.unwrap_or(Value::Null)) });
+                            let key = id.to_string();
+                            // Not held while a notice waits for room: a caller registers under it.
+                            let tx = self.pending.lock().await.remove(&key);
+                            self.on_wire.lock_or_recover().remove(&key);
+                            let Some(tx) = tx else { continue };
+                            let reply = match error { Some(e) => Err(e), None => Ok(result.unwrap_or(Value::Null)) };
+                            let watch = self.watch_key.lock_or_recover().take_if(|k| *k == key).is_some();
+                            if let (true, Ok(list)) = (watch, &reply) {
+                                let notice = PeerNotice::Sessions(watch_sessions(list));
+                                if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
+                                    break Ok(());
+                                }
                             }
+                            let _ = tx.send(reply);
                         }
                         Message::Notification { method: m, params } => {
                             let p = params.unwrap_or(Value::Null);
@@ -825,7 +1031,7 @@ impl Peer {
                                     seq: p.get("seq").and_then(Value::as_u64).unwrap_or(0),
                                 }
                             } else {
-                                PeerNotice::Notification { method: m, params: p }
+                                PeerNotice::Notification { method: m, params: p, link: self.link_epoch() }
                             };
                             if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
                                 break Ok(());
@@ -840,11 +1046,15 @@ impl Peer {
                     }
                 }
                 line = out_rx.recv() => {
-                    let Some((epoch, line)) = line else { break Ok(()) };
+                    let Some(Outbound { epoch, key, line }) = line else { break Ok(()) };
                     // Admitted on a link that went down: its caller was failed
                     // with that link, so it never goes out on this one.
                     if epoch != self.link_epoch() {
                         continue;
+                    }
+                    // Marked before the write: a frame that is partly written may still run.
+                    if let Some(key) = key {
+                        self.on_wire.lock_or_recover().insert(key);
                     }
                     let text = line.trim_end_matches('\n').to_owned();
                     match tokio::time::timeout(budget, sink.send(Frame::Text(text.into()))).await {
@@ -860,10 +1070,47 @@ impl Peer {
     }
 }
 
+/// The sessions an `_acpmux/watch` reply lists, without the rows the peer itself mirrors.
+fn watch_sessions(reply: &Value) -> Vec<Value> {
+    reply
+        .get("sessions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|session| !is_mirrored_session(session))
+        .cloned()
+        .collect()
+}
+
 /// The waits before each reread of a remote that has no peer token yet
 /// (`Peer::remote_tokens_settled`, `Peer::stale_token`).
 const TOKEN_REREADS: [Duration; 3] =
     [Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(4)];
+
+/// One frame queued for the link: the link epoch it was admitted on, and the pending key of
+/// the request it carries (None for a notification).
+struct Outbound {
+    epoch: u64,
+    key: Option<String>,
+    line: String,
+}
+
+/// A request or notification that found no room in the queue before its deadline: the link
+/// is stalled. It was not sent, so retrying it never runs it twice.
+fn queue_timed_out(name: &str, waited: Duration) -> RpcError {
+    RpcError::internal(format!(
+        "peer_unreachable: the link to {name} took no new request for {}s; the request was not sent; run `acpmux host ls` and retry",
+        waited.as_secs()
+    ))
+    .with_data(json!({
+        "reason": "peer_unreachable",
+        "retryable": true,
+        "try": "acpmux host ls",
+        "detail": "the request was not sent",
+        "peer": name,
+        "queuedMs": u64::try_from(waited.as_millis()).unwrap_or(u64::MAX),
+    }))
+}
 
 /// The requests whose answer waits on the agent's turn, never on the link alone.
 pub(crate) fn waits_on_turn(m: &str) -> bool {
@@ -1077,16 +1324,21 @@ pub fn remote_daemon_config(config: &[u8]) -> Result<RemoteDaemonConfig, RemoteC
 
 type PendingReplies = Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>;
 
+/// `Peer::on_wire`.
+type OnWire = Arc<StdMutex<HashSet<String>>>;
+
 /// Removes a request's pending entry when `Peer::request` returns or is
 /// dropped; the reader has already removed it when the reply came.
 struct ForgetPending {
     pending: PendingReplies,
+    on_wire: OnWire,
     key: Option<String>,
 }
 
 impl Drop for ForgetPending {
     fn drop(&mut self) {
         let Some(key) = self.key.take() else { return };
+        self.on_wire.lock_or_recover().remove(&key);
         if let Ok(mut map) = self.pending.try_lock() {
             map.remove(&key);
         } else if let Ok(rt) = tokio::runtime::Handle::try_current() {
@@ -1185,9 +1437,10 @@ mod frame_epoch_tests {
         let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
         let stale = peer.link_epoch();
         peer.link_ended();
-        peer.out.send((stale, r#"{"jsonrpc":"2.0","method":"stale"}"#.to_owned())).await.unwrap();
+        let frame = |epoch, line: &str| Outbound { epoch, key: None, line: line.to_owned() };
+        peer.out.send(frame(stale, r#"{"jsonrpc":"2.0","method":"stale"}"#)).await.unwrap();
         let live = peer.link_epoch();
-        peer.out.send((live, r#"{"jsonrpc":"2.0","method":"live"}"#.to_owned())).await.unwrap();
+        peer.out.send(frame(live, r#"{"jsonrpc":"2.0","method":"live"}"#)).await.unwrap();
 
         let (ours, theirs) = tokio::io::duplex(1 << 16);
         let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
@@ -1209,5 +1462,89 @@ mod frame_epoch_tests {
         }
         assert!(!seen.iter().any(|t| t.contains("\"stale\"")), "a stale frame went out: {seen:?}");
         serving.abort();
+    }
+}
+
+#[cfg(test)]
+mod watch_order_tests {
+    use super::*;
+    use tokio_tungstenite::WebSocketStream;
+    use tokio_tungstenite::tungstenite::{Message as Frame, protocol::Role};
+
+    /// A `session_changed` the peer sends right after its `_acpmux/watch` reply is newer than
+    /// the reply's list, so it reaches the hub after the list: a purge of a listed session
+    /// leaves no row behind, where a list that came second put the purged row back.
+    #[tokio::test]
+    async fn a_purge_sent_right_after_the_watch_reply_lands_after_its_list() {
+        let dir = cmux_unix_socket::short_test_dir("acpmux-po");
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Local;
+        let store = crate::store::open(&cfg.store, dir.path()).unwrap();
+        let hub = crate::hub::Hub::new(cfg, store);
+        let (tx, mut rx) = mpsc::channel(64);
+        let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("box".to_owned(), peer.clone());
+
+        let (ours, theirs) = tokio::io::duplex(1 << 16);
+        let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+        let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+        let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+        let link = peer.clone();
+        let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+        // The peer answers every request; its watch reply lists m1, and the purge of m1
+        // follows it in the same write.
+        let fake = tokio::spawn(async move {
+            let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
+            while let Some(Ok(frame)) = server.next().await {
+                let Frame::Text(text) = frame else { continue };
+                let msg: Value = serde_json::from_str(&text).unwrap();
+                let Some(id) = msg.get("id").cloned() else { continue };
+                let watch = msg["method"] == method::MUX_WATCH;
+                let result = if watch { json!({"sessions": [row]}) } else { json!({}) };
+                let reply = json!({"jsonrpc": "2.0", "id": id, "result": result});
+                if !watch {
+                    server.send(Frame::Text(reply.to_string().into())).await.unwrap();
+                    continue;
+                }
+                let purge = json!({"jsonrpc": "2.0", "method": method::MUX_SESSION_CHANGED,
+                    "params": {"kind": "purged", "seq": 2, "session": {"sessionId": "m1"}}});
+                server.feed(Frame::Text(reply.to_string().into())).await.unwrap();
+                server.send(Frame::Text(purge.to_string().into())).await.unwrap();
+            }
+        });
+
+        let mut seen = Vec::new();
+        let (mut connected, mut purged) = (false, false);
+        while !(connected && purged) {
+            let (_, _, notice) = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+                .await
+                .expect("the handshake settles and the purge comes")
+                .expect("the link stays open");
+            connected |= matches!(notice, PeerNotice::Connected);
+            purged |=
+                matches!(&notice, PeerNotice::SessionChanged { kind, .. } if kind == "purged");
+            seen.push(notice);
+        }
+        let at = |want: fn(&PeerNotice) -> bool| seen.iter().position(want).unwrap();
+        let list = at(|n| matches!(n, PeerNotice::Sessions(_)));
+        let purge = at(|n| matches!(n, PeerNotice::SessionChanged { .. }));
+        let ready = at(|n| matches!(n, PeerNotice::Connected));
+        assert!(list < purge, "the list came after a newer purge: {seen:?}");
+        assert!(list < ready, "connected before the list: {seen:?}");
+
+        // The hub applies them in the order the link gave them; a second Connected is a
+        // barrier: once it settled, every notice before it was applied.
+        let mut settled = peer.settled();
+        for notice in seen.into_iter().chain([PeerNotice::Connected]) {
+            hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
+        }
+        tokio::time::timeout(Duration::from_secs(5), settled.wait_for(|n| *n >= 2))
+            .await
+            .expect("the hub applies the notices")
+            .unwrap();
+        let rows = hub.remote_sessions();
+        assert!(rows.is_empty(), "the purged row came back: {rows:?}");
+        serving.abort();
+        fake.abort();
     }
 }

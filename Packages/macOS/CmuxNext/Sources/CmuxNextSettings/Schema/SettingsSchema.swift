@@ -14,9 +14,9 @@ public nonisolated enum SettingsSchema {
         let next = general + ShortcutHintsSettingsSchema.descriptors + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
             + ComputerUseSettingsSchema.descriptors + FreeModelSettingsSchema.descriptors + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + [MachineColorsSetting.descriptor, SSHLinkHostsSetting.descriptor] + SubsessionSettingsSchema.descriptors + TrustSettingsSchema.descriptors + MobileSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
             + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
-            + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
+            + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + WorkspaceHibernationSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
             + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + NewTabWidgetSettings.editDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors
-            + NotificationSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
+            + NotificationSettingsSchema.descriptors + NotificationSoundSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
             + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors
             + MacScreenSettingsSchema.descriptors + MacScreenDebugSettingsSchema.descriptors
@@ -64,7 +64,7 @@ public nonisolated enum SettingsSchema {
         case .home: ["diagnostics.viewHangReport"]
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
         case .notifications: []
-        case .accounts: ["accounts.refresh"]
+        case .accounts: ["accounts.refresh", "palette.mobileConnect"]
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
         case .machines: ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]
         // The page draws Open <settings file> itself, named from the loaded path.
@@ -196,6 +196,15 @@ public nonisolated enum SettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback),
                 keywords: ["dock", "icon", "menu bar", "background", "app switcher", "command tab", "accessory", "windows"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.showMenuBarIconPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.app.showMenuBarIcon", "Show Menu Bar Icon"),
+                help: SettingsText.keyed("settings.app.showMenuBarIcon.help",
+                                        "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.showMenuBarIconFallback),
+                keywords: ["menu bar", "status item", "menubar", "tray", "icon", "raycast", "extra", "discord", "logs"]
             ),
             TabSettingsSchema.newTabTemplate(group: tabs),
             TabSettingsSchema.terminalFirst(group: tabs),

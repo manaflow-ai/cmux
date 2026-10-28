@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// webviews/src/agent-session/acpmux/composerSettings.ts):
 ///
 /// ```jsonc
-/// "agentPane": { "showContextUsage": true, "showDictation": true, "spellChecking": false, "attachmentView": "inline" }
+/// "agentPane": { "showContextUsage": true, "showDictation": true, "spellChecking": false, "attachmentView": "inline", "scrollToBottomOnSend": true }
 /// ```
 ///
 /// `showContextUsage`: the context usage ring beside the model. The ring's right-click hides it,
@@ -15,6 +15,9 @@ import CmuxNextDesign
 /// `attachmentView`: how pictures and files show in every composer and in sent messages, `inline`
 /// (each in the text where it was added, as Messages does; the default) or `strip` (in a row). Only
 /// the look: a draft's text, its attachments and their order are the same in both.
+/// `scrollToBottomOnSend`: when enabled, sending while reading up jumps to the newest row (the
+/// current behavior); when disabled, sending preserves the visible row and offset while new rows
+/// arrive below it. A reader at the bottom still follows streaming output.
 ///
 /// `reasoningSlider` is not a cmux.json key: the Debug Settings toggle `agent.reasoningSlider`
 /// (CmuxNextAgentPane AgentPaneTunables, DEV and NIGHTLY, off by default) sets it, and it rides the
@@ -26,11 +29,13 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public static let showDictationPath = ["agentPane", "showDictation"]
     public static let spellCheckingPath = ["agentPane", "spellChecking"]
     public static let attachmentViewPath = ["agentPane", "attachmentView"]
+    public static let scrollToBottomOnSendPath = ["agentPane", "scrollToBottomOnSend"]
 
     public var showContextUsage = true
     public var showDictation = true
     public var spellChecking = false
     public var attachmentView = AgentPaneAttachmentView.inline
+    public var scrollToBottomOnSend = true
     /// The Debug Settings opt-in (`agent.reasoningSlider`); never parsed from cmux.json.
     public var reasoningSlider = false
     /// The Debug Settings visual choice (`agent.reasoningSliderStyle`); never parsed from cmux.json.
@@ -40,13 +45,14 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, showDictation, spellChecking, attachmentView, reasoningSlider, reasoningSliderStyle}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, showDictation, spellChecking, attachmentView, scrollToBottomOnSend, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
             "showDictation": .bool(showDictation),
             "spellChecking": .bool(spellChecking),
             "attachmentView": .string(attachmentView.rawValue),
+            "scrollToBottomOnSend": .bool(scrollToBottomOnSend),
             "reasoningSlider": .bool(reasoningSlider),
             "reasoningSliderStyle": .string(reasoningSliderStyle)
         ]
@@ -72,6 +78,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             if descriptor.path == showContextUsagePath { setting.showContextUsage = flag }
             if descriptor.path == showDictationPath { setting.showDictation = flag }
             if descriptor.path == spellCheckingPath { setting.spellChecking = flag }
+            if descriptor.path == scrollToBottomOnSendPath { setting.scrollToBottomOnSend = flag }
         }
         return setting
     }
@@ -128,9 +135,22 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 default: .string(AgentPaneComposerSetting.fallback.attachmentView.rawValue),
                 keywords: ["attachment", "attachments", "image", "picture", "file", "inline", "strip", "composer", "messages"]
             ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.scrollToBottomOnSendPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.agentPane.scrollToBottomOnSend", "Scroll to Bottom When I Send"),
+                help: SettingsText.keyed("settings.agentPane.scrollToBottomOnSend.help",
+                                         "When off, sending while you are reading up keeps your place and shows new messages below."),
+                kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.scrollToBottomOnSend),
+                keywords: ["scroll", "bottom", "send", "message", "chat", "latest", "follow"]
+            ),
         ]
     }
 
-    /// Looks only: agents may change it.
-    static var agentSettableKeys: Set<String> { Set(descriptors.map(\.id)) }
+    /// The visual composer choices agents may change; send behavior remains a user-only choice.
+    static var agentSettableKeys: Set<String> {
+        Set([AgentPaneComposerSetting.showContextUsagePath,
+             AgentPaneComposerSetting.showDictationPath,
+             AgentPaneComposerSetting.spellCheckingPath,
+             AgentPaneComposerSetting.attachmentViewPath].map { $0.joined(separator: ".") })
+    }
 }

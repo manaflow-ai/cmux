@@ -102,6 +102,25 @@ def render(sections: Mapping[str, str]) -> str:
 RETRY_WAITS = (5, 10, 20, 40, 60)
 
 
+def note_call(headers, method: str, path: str) -> None:
+    """One `gh-call` line for a response already received (scripts/ci/gh_call_log.py reads them).
+
+    Inline rather than imported: this script is often checked out alone (sparse). Reads only headers this
+    call already has; no request of its own, nothing outside Actions, and it never raises."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return
+    try:
+        import datetime as _dt
+        get = (lambda name: str((headers.get(name) if headers is not None else "") or "-").strip() or "-")
+        fields = (_dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                  os.environ.get("GITHUB_WORKFLOW", ""), os.environ.get("GITHUB_JOB", ""),
+                  get("X-RateLimit-Resource"), get("X-RateLimit-Used"), get("X-RateLimit-Remaining"),
+                  get("X-RateLimit-Reset"), f"{method.upper()} {path.split('?', 1)[0]}")
+        print("\t".join(["gh-call", *(" ".join(str(f).split()) or "-" for f in fields)]), file=sys.stderr, flush=True)
+    except Exception:  # noqa: BLE001 - logging only
+        pass
+
+
 def http_api(method: str, path: str, payload: dict | None = None, *,
              sleep: Callable[[float], None] = time.sleep, opener=urllib.request.urlopen):
     """GitHub REST at GITHUB_API_URL with GH_TOKEN (or GITHUB_TOKEN). A refusal that may pass later is retried; the
@@ -116,8 +135,10 @@ def http_api(method: str, path: str, payload: dict | None = None, *,
                                                   "X-GitHub-Api-Version": "2022-11-28"})
         try:
             with opener(request, timeout=30) as response:
+                note_call(getattr(response, "headers", None), method, path)
                 return json.loads(response.read() or b"null")
         except urllib.error.HTTPError as error:
+            note_call(error.headers, method, path)
             said = (error.read() or b"").decode(errors="replace")[:300]
             after = (error.headers or {}).get("Retry-After") or ""
             limited = error.code == 429 or (error.code == 403 and (after or "rate limit" in said.lower()))

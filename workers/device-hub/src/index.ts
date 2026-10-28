@@ -1,5 +1,5 @@
-import { signEs256, verifyEs256Jws } from "./crypto";
-import { ORIGIN_HEADER, USER_HEADER, type Env } from "./env";
+import { openString, sealString, signEs256, verifyEs256Jws } from "./crypto";
+import { ORIGIN_HEADER, STACK_TOKEN_HEADER, STACK_TOKEN_SEAL_INFO, USER_HEADER, type Env } from "./env";
 import { ApiError, badRequest, errorResponse, json, notFound, unauthorized } from "./errors";
 import { STACK_API, allowedStackProjects, verifyStackAccessToken } from "./stack";
 
@@ -33,24 +33,37 @@ async function authStack(request: Request, env: Env): Promise<Response> {
   const body = await readJson(request);
   if (typeof body.token !== "string" || !body.token) throw badRequest("token is required");
   const now = Date.now();
-  const { projectId, sub } = await verifyStackAccessToken(body.token, allowedStackProjects(env), env.STACK_API_URL || STACK_API, now);
+  const { projectId, sub, exp: stackExp } = await verifyStackAccessToken(body.token, allowedStackProjects(env), env.STACK_API_URL || STACK_API, now);
   // Namespaced so users of different Stack projects (prod, dev) never share a User DO.
   const userId = `${projectId}:${sub}`;
   const iat = Math.floor(now / 1000);
-  const exp = iat + SESSION_TTL_S;
-  const session = await signEs256(env.SESSION_KEY, { iss: SESSION_ISSUER, sub: userId, iat, exp });
+  // The session ends with the Stack token it carries, so the relay check always
+  // has a live token; the app exchanges a fresh one when the session ends.
+  const exp = Math.min(iat + SESSION_TTL_S, Math.floor(stackExp));
+  if (exp <= iat) throw unauthorized("access token expired");
+  // The Stack token rides in the session only sealed (AES-GCM under a key
+  // derived from SESSION_KEY): the cmux relay check asks cmux billing with it.
+  const stk = await sealString(env.SESSION_KEY, STACK_TOKEN_SEAL_INFO, body.token);
+  const session = await signEs256(env.SESSION_KEY, { iss: SESSION_ISSUER, sub: userId, iat, exp, stk });
   return json({ session, userId, stackUserId: sub, projectId, expiresAt: exp * 1000 });
 }
 
-/** Verifies `Authorization: Bearer <session>` and returns the user id. */
-async function requireSession(request: Request, env: Env): Promise<string> {
+/** Verifies `Authorization: Bearer <session>`; returns the user id and the opened Stack token. */
+async function requireSession(request: Request, env: Env): Promise<{ userId: string; stackToken: string | null }> {
   const auth = request.headers.get("authorization") ?? "";
   const m = /^Bearer\s+(\S+)$/i.exec(auth);
   if (!m) throw unauthorized("missing session");
   const payload = await verifyEs256Jws(env.SESSION_KEY, m[1]!);
   if (!payload || payload.iss !== SESSION_ISSUER || typeof payload.sub !== "string" || !payload.sub) throw unauthorized("bad session");
   if (typeof payload.exp !== "number" || payload.exp * 1000 <= Date.now()) throw unauthorized("session expired");
-  return payload.sub;
+  // Sessions from before the relay check carry no Stack token. They still work
+  // (the app's socket would otherwise stay refused until the session ends),
+  // but get no cmux relay: the billing check fails closed without a token.
+  // They are gone within the 1 h session lifetime.
+  if (payload.stk === undefined) return { userId: payload.sub, stackToken: null };
+  const stackToken = typeof payload.stk === "string" ? await openString(env.SESSION_KEY, STACK_TOKEN_SEAL_INFO, payload.stk) : null;
+  if (!stackToken) throw unauthorized("bad session");
+  return { userId: payload.sub, stackToken };
 }
 
 async function route(request: Request, env: Env): Promise<Response> {
@@ -69,14 +82,17 @@ async function route(request: Request, env: Env): Promise<Response> {
     const headers = new Headers(request.headers);
     headers.delete(USER_HEADER);
     headers.delete(ORIGIN_HEADER);
+    headers.delete(STACK_TOKEN_HEADER);
     const stub = env.SESSION_DO.get(env.SESSION_DO.idFromName(ws[1]!));
     return stub.fetch(new Request(request.url, { method: request.method, headers }));
   }
   if (!path.startsWith("/v1/")) throw notFound();
-  const userId = await requireSession(request, env);
+  const { userId, stackToken } = await requireSession(request, env);
   const headers = new Headers(request.headers);
   headers.set(USER_HEADER, userId);
   headers.set(ORIGIN_HEADER, publicOrigin(env, url));
+  if (stackToken) headers.set(STACK_TOKEN_HEADER, stackToken);
+  else headers.delete(STACK_TOKEN_HEADER);
   const stub = env.USER_DO.get(env.USER_DO.idFromName(userId));
   return stub.fetch(new Request(request.url, { method: request.method, headers, body: request.body }));
 }

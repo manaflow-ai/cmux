@@ -30,7 +30,7 @@ drift cmux-tui/bindings/go/.cmux-resource-api.json && fail "an SDK manifest with
 # Package.swift change already routes every tier, so no pull request carries it.
 drift "$graph" Packages/macOS/CmuxNext/Package.swift && fail "the graph is bot-only, even with Package.swift"
 grep -q "only the base autofix writes it" "$tmp/out" || fail "a bot-only file says so"
-drift "$schema" schemas/settings-export/settings-schema.sources.sha256 \
+drift "$schema" docs/mdm/managed-preferences.md \
   Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Tabs.swift || fail "a settings source causes its exports"
 # A setting declared outside CmuxNextSettings (CmuxNextDesign's AttentionSettings) changes the exports too.
 drift "$schema" docs/mdm/com.manaflow.cmux.plist Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/AttentionSettings.swift \

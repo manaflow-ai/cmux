@@ -16,6 +16,10 @@ pub const SPAWNED_BY_TAG: &str = "spawnedBy";
 /// - `lost`: the agent process is gone (`disconnected`, or a peer's
 ///   `unreachable`) and the chat's last turn did not answer. A chat with
 ///   no turn yet has nothing to lose.
+/// - `working` again: work the session started runs on past its last turn
+///   (`subagentsWorkingSince`: a background subagent or a working
+///   sub-session, `work_below.rs`), except on a peer gone unreachable. A
+///   task is not done until its subagents are (manaflow-ai/cmux#25230).
 /// - `done`: the last turn answered. Whether the person saw it is each
 ///   client's own record.
 /// - null: nothing to show (no turn yet, a cancelled turn, closed).
@@ -41,6 +45,10 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         "running" => Some("working"),
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
+        // A peer gone unreachable takes its work with it; a local chat whose harness stopped
+        // (`disconnected`) still works while a sub-session it started runs.
+        "unreachable" => answered.then_some("done"),
+        _ if summary["subagentsWorkingSince"].is_u64() => Some("working"),
         _ if answered => Some("done"),
         _ => None,
     }
@@ -74,7 +82,8 @@ impl Hub {
 /// The session's lane (cx-v9k2f): what a coordinator watching many agents
 /// needs at a glance, decided here once from the summary's own fields.
 ///
-/// - `working` since its turn started.
+/// - `working` since its turn started, or since its subagents work on past
+///   its last turn.
 /// - `input`: a permission or question waits for the person.
 /// - `failed` since its last turn ended, with that turn's error text (an
 ///   agent dead on "Credit balance too low" must not read as idle).
@@ -110,7 +119,11 @@ pub fn lane(summary: &Value) -> Value {
     };
     let ended = summary["lastTurn"]["endedAt"].as_u64().or(made);
     let (state, since) = match status_indicator(summary) {
-        Some("working") => ("working", summary["turn"]["startedAt"].as_u64()),
+        // Its own turn's start, else since its subagents work on past the last one.
+        Some("working") => (
+            "working",
+            summary["turn"]["startedAt"].as_u64().or(summary["subagentsWorkingSince"].as_u64()),
+        ),
         Some("input") => ("input", summary["inputSince"].as_u64().or(updated)),
         Some("failed") => ("failed", ended),
         Some("lost") if in_turn => ("lost", updated),
@@ -253,15 +266,15 @@ impl Hub {
         enforcement(m, self.config.try_read().ok().map(|c| c.permission_policy))
     }
 
-    /// The session whose agent started this one: its `spawnedBy` tag, which the acpmux client
-    /// sets after a `session/new` sent from inside a session (the caller's `ACPMUX_SESSION_ID`).
-    /// A child lists under it, never on its own in a chat list. Kept only while that session is
-    /// here, listed (not archived) and not a child itself: one level, so a loop of tags or a
-    /// parent nobody sees never hides a chat.
-    /// A sub-session (`subsessions.rs`) names its parent the same way, by its proven link.
+    /// The session whose agent started this one, as the chat lists fold it (`spawnedBy`): its
+    /// lineage parent (`lineage.rs`), else the `spawnedBy` tag an older acpmux client set after a
+    /// `session/new` sent from inside a session it could not prove (the caller's
+    /// `ACPMUX_SESSION_ID`). A child lists under it, never on its own in a chat list. Kept only
+    /// while that session is here, listed (not archived) and a root itself: one level, so a loop
+    /// of tags or a parent nobody sees never hides a chat. `parent` gives the whole tree.
     pub fn spawned_by(&self, m: &SessionMeta) -> Option<String> {
-        let parent = match &m.subsession {
-            Some(link) => link.started_by.clone(),
+        let parent = match self.lineage_of(m) {
+            Some(lineage) => lineage.parent,
             None => live_tags(m).get(SPAWNED_BY_TAG)?.as_str()?.to_owned(),
         };
         let session =
@@ -269,7 +282,7 @@ impl Hub {
         let pm = session.meta();
         let tags = live_tags(&pm);
         let listed = tags.get(SPAWNED_BY_TAG).is_none()
-            && pm.subsession.is_none()
+            && self.lineage_of(&pm).is_none()
             && tags.get("archived").is_none();
         (parent != m.id && listed).then_some(parent)
     }
@@ -281,6 +294,7 @@ impl Hub {
         let m = session.meta();
         let waiting = super::subsession_send::waiting_on(session);
         let turn = session.turn();
+        let lineage = self.lineage_of(&m);
         let stall_after = self.config.try_read().ok().and_then(|c| c.stalled_turn());
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
@@ -302,10 +316,13 @@ impl Hub {
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
             fork_seq: m.fork_seq,
             spawned_by: self.spawned_by(&m),
+            parent: lineage.as_ref().map(|l| l.parent.clone()),
+            root: lineage.as_ref().map_or_else(|| m.id.clone(), |l| l.root.clone()),
+            spawn_tool_call_id: lineage.as_ref().and_then(|l| l.tool_call_id.clone()),
             pull_requests: m.pull_requests.clone(),
             started_by: m.subsession.as_ref().map(|l| l.started_by.clone()),
             short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),
-            depth: m.subsession.as_ref().map_or(0, |l| l.depth),
+            depth: lineage.as_ref().map_or(0, |l| l.depth),
             children: self.subsessions.open_count(&m.id),
             title: m.title.clone(),
             title_source: m.title_source.clone(),
@@ -417,6 +434,8 @@ impl Hub {
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
         summary["gitBranch"] = json!(self.git_branch_now(&m));
+        // Since when work it started runs on past its own turn (`work_below.rs`).
+        summary["subagentsWorkingSince"] = json!(self.work_below_since(session));
         decide(&mut summary);
         summary
     }
@@ -473,6 +492,7 @@ impl Hub {
                 live += 1;
             }
         }
+        let exe_unstable = crate::daemon::exe_path::current_unstable();
         json!({
             "version": VERSION,
             "build": BUILD,
@@ -484,6 +504,11 @@ impl Hub {
             // processes. Never its command line: `--token` is on it.
             "exe": std::env::current_exe().ok().map(|e| e.to_string_lossy().into_owned()),
             "runsAsCmuxTuiAcp": runs_as_cmux_tui_acp(std::env::args_os()),
+            // Whether that executable is a stable install, and why not (`runner-work`, `temp`,
+            // `build-tree`): reach, lane-place and `host ls` flag a daemon that a runner's
+            // cleanup can delete (`daemon/exe_path.rs`).
+            "exeStable": exe_unstable.is_none(),
+            "exeUnstable": exe_unstable,
             "startedAt": self.started_at,
             // Whether this run holds a person key, and its id (`hub/person.rs`):
             // the app checks that a daemon it started with a key still runs.

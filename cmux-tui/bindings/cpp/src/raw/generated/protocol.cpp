@@ -4291,6 +4291,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("build_id", std::move(encoded).value());
     }
+    if (!value.build_time.is_absent()) {
+        auto encoded = encode_value(value.build_time);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("build_time", std::move(encoded).value());
+    }
     if (value.capabilities) {
         auto encoded = encode_value(*value.capabilities);
         if (!encoded) return std::move(encoded).error();
@@ -4430,6 +4435,16 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_build_id);
             if (!decoded) return std::move(decoded).error();
             result.build_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_build_time = value.find("build_time");
+    if (field_build_time) {
+        if (field_build_time->is_null()) {
+            result.build_time = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_build_time);
+            if (!decoded) return std::move(decoded).error();
+            result.build_time = Field<std::uint64_t>(std::move(decoded).value());
         }
     }
     const Json* field_capabilities = value.find("capabilities");
