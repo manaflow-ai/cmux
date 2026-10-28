@@ -69,8 +69,9 @@ nonisolated enum AcpmuxStatusClient {
     }
 
     /// Pages `_acpmux/sessions` with the daemon's keyset cursor. The page size
-    /// is deliberately small enough that a summary with tools stays below the
-    /// transport reply limit; callers receive no all-sessions size failure.
+    /// is deliberately small so each reply stays bounded; callers receive no
+    /// single all-sessions size failure. The daemon's cursor defines the page
+    /// scope while rows may still change between requests.
     @concurrent static func sessionPages(socketPath: String, params: [String: any Sendable] = [:],
                                          pageSize: Int = 64, deadline: Duration = .seconds(2)) async throws -> sending [[String: Any]] {
         var pageParams = params
@@ -113,7 +114,7 @@ nonisolated enum AcpmuxStatusClient {
         let result: [String: Any]
         do {
             result = try await call(socketPath: socketPath, method: "_acpmux/resolve",
-                                    params: ["exactSessionId": true, "sessionId": sessionId],
+                                    params: ["exactSessionId": true, "sessionId": sessionId, "query": sessionId],
                                     deadline: deadline, detailed: true)
         } catch let error as AcpmuxRPCError where error.code == -32002 {
             return nil

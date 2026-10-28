@@ -80,9 +80,11 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
 public nonisolated struct AcpmuxQuit {
     public nonisolated init() {}
     @concurrent private static func activeSessions(socketPath: String, deadline: Duration) async throws -> sending [[String: Any]] {
-        // Read one cursor-consistent snapshot, then discard peer and closed
+        // Page the daemon's session list once, then discard peer and closed
         // rows. Querying each live status separately can miss a session that
-        // changes status between requests and drops idle Chief hosts.
+        // changes status between requests and drops idle Chief hosts. The
+        // daemon-side local/non-closed filter is owned by the session-list
+        // lane; pass it here when that protocol is available.
         let rows = try await AcpmuxStatusClient.sessionPages(socketPath: socketPath, deadline: deadline)
         return rows.filter {
             ($0["peer"] as? String)?.isEmpty != false && ($0["status"] as? String) != "closed"
