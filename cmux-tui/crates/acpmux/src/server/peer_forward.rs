@@ -161,6 +161,15 @@ async fn forward_inner(
         if m == method::SESSION_PROMPT {
             crate::author::of_prompt(params)?;
         }
+        // A prompt that waits for the owner, and the owner's answer to one, go only to a peer
+        // that holds it (`hub/queue_approve.rs`): an older one would run it unapproved.
+        let held = m == method::SESSION_PROMPT
+            && crate::author::author(params)?.is_some_and(|a| a.awaits_owner);
+        if (held || matches!(m, method::MUX_QUEUE_APPROVE | method::MUX_QUEUE_DECLINE))
+            && !peer.lists(crate::author::QUEUE_APPROVAL_FEATURE)
+        {
+            return Err(crate::author::approval_unsupported(&peer));
+        }
         // So do a message's attachments, under their caps (`attach.rs`).
         if m == method::SESSION_PROMPT
             && let Some(blocks) = params.get("prompt").and_then(Value::as_array)

@@ -120,14 +120,10 @@ pub struct Peer {
     link_epoch: AtomicU64,
     /// Whether the peer serves `_acpmux/subagent_transcript` (`hub/subagent_transcript.rs`).
     subagent_transcript: AtomicBool,
-    /// Whether the peer saves a message's attachments (`attach.rs`).
-    send_attach: AtomicBool,
-    /// The peer lists `promptUploads` (`prompt_uploads.rs`).
-    prompt_uploads: AtomicBool,
-    /// The peer lists `uploadResume` (`hub/file_uploads.rs`).
-    upload_resume: AtomicBool,
     /// The peer lists `sessionAuth` (`hub/session_auth.rs`).
     session_auth: AtomicBool,
+    /// The features the peer listed at its last handshake (`lists`).
+    features: StdMutex<Vec<String>>,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -198,10 +194,8 @@ impl Peer {
             media_read: AtomicBool::new(false),
             link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
-            send_attach: AtomicBool::new(false),
-            prompt_uploads: AtomicBool::new(false),
-            upload_resume: AtomicBool::new(false),
             session_auth: AtomicBool::new(false),
+            features: StdMutex::new(Vec::new()),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
@@ -516,20 +510,24 @@ impl Peer {
         self.subagent_transcript.load(Ordering::SeqCst)
     }
 
-    /// Whether the peer said at its last handshake that it saves a message's attachments.
+    /// Whether the peer listed `feature` at its last handshake (none before it answered).
+    pub fn lists(&self, feature: &str) -> bool {
+        self.features.lock_or_recover().iter().any(|f| f == feature)
+    }
+
+    /// Whether it saves a message's attachments (`attach.rs`).
     pub fn supports_send_attach(&self) -> bool {
-        self.send_attach.load(Ordering::SeqCst)
+        self.lists(crate::attach::FEATURE)
     }
 
-    /// Whether the peer said at its last handshake that it reads uploaded files a message names.
+    /// Whether it reads uploaded files a message names (`prompt_uploads.rs`).
     pub fn supports_prompt_uploads(&self) -> bool {
-        self.prompt_uploads.load(Ordering::SeqCst)
+        self.lists(crate::prompt_uploads::FEATURE)
     }
 
-    /// Whether the peer said at its last handshake that it answers upload status and checks a
-    /// finish's `sha256` (`hub/file_uploads.rs`).
+    /// Whether it answers upload status and checks a finish's `sha256` (`hub/file_uploads.rs`).
     pub fn supports_upload_resume(&self) -> bool {
-        self.upload_resume.load(Ordering::SeqCst)
+        self.lists(crate::hub::file_uploads::RESUME_FEATURE)
     }
 
     /// Whether the peer said at its last handshake that it answers `_acpmux/session/auth`.
@@ -901,12 +899,11 @@ impl Peer {
             me.media_read.store(lists(crate::hub::MEDIA_READ_FEATURE), Ordering::SeqCst);
             me.subagent_transcript
                 .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
-            me.send_attach.store(lists(crate::attach::FEATURE), Ordering::SeqCst);
-            me.prompt_uploads.store(lists(crate::prompt_uploads::FEATURE), Ordering::SeqCst);
-            let resume = lists(crate::hub::file_uploads::RESUME_FEATURE);
-            me.upload_resume.store(resume, Ordering::SeqCst);
             let auth = lists(crate::hub::session_auth::FEATURE);
             me.session_auth.store(auth, Ordering::SeqCst);
+            let listed = init.pointer("/_meta/acpmux/features").and_then(Value::as_array);
+            let listed = listed.into_iter().flatten().filter_map(Value::as_str);
+            *me.features.lock_or_recover() = listed.map(str::to_owned).collect();
             // The reader published the reply's list (`watch_key`), so Connected follows it.
             me.link_request_on(method::MUX_WATCH, json!({"enabled": true}), Some(link)).await?;
             // Connected only now, and ready with it, so its state note follows `connected`.

@@ -77,6 +77,21 @@ pub fn awaits_owner(provenance: Option<&Value>) -> bool {
             == Some(APPROVAL_OWNER)
 }
 
+/// The `initialize` feature of a daemon that holds a prompt for the owner: a peer forwards one,
+/// and the owner's answer to one, only to a peer that lists it (`server/peer_forward.rs`).
+pub const QUEUE_APPROVAL_FEATURE: &str = "queueApproval";
+
+/// `queue.approval_unsupported`: a prompt that waits for the owner, or an answer to one, for a
+/// peer on an older build, which would run the prompt unapproved. Nothing is forwarded.
+pub fn approval_unsupported(peer: &crate::peer::Peer) -> RpcError {
+    let build = peer.remote_build().unwrap_or_else(|| "unknown".into());
+    let (name, msg) = (&peer.name, "which does not hold a prompt for the owner");
+    let message = format!(
+        "queue.approval_unsupported: peer {name} runs acpmux build {build}, {msg}; run `acpmux host update {name}`"
+    );
+    refusal("queue.approval_unsupported", message)
+}
+
 fn refusal(reason: &str, message: String) -> RpcError {
     RpcError::invalid_params(message).with_data(json!({"reason": reason}))
 }
