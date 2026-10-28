@@ -147,8 +147,9 @@ extension SidebarListViewComponents {
     }
     /// How far past each clip edge the list realizes rows: none while the launch holds the offscreen rows (p08-startup-064).
     var realizedOverscan: CGFloat { launchRows.holdsOffscreenRows ? 0 : SidebarStyle.overscan }
-    /// `newRowsInPlace`: the change's new rows show in their slots, whole, in this frame, with no open (a reveal jumps
-    /// to them: their gap is open at once, so a row growing from nothing there would show an empty slot).
+    /// `newRowsInPlace`: a reveal jumps after this apply. A new row this apply gives no view (outside the rows drawn
+    /// now) is not opening: the jump draws it whole in its slot (`RowMotion.place`), since its gap is open by then and
+    /// a row growing from nothing there would show an empty slot. A new row this apply draws opens with its gap.
     func apply(_ layout: SidebarLayout, animated: Bool, newRowsInPlace: Bool = false) {
         let previousHoverSuppression = suppressHoverEffects
         suppressHoverEffects = true
@@ -179,10 +180,10 @@ extension SidebarListViewComponents {
         let now = CACurrentMediaTime()
         openingRows = openingRows.filter { now - $0.value < Motion.sidebar.spring(.move).settlingTime() }
         let reopened = animate ? Self.movedByThemselves(openingRows.keys, from: old, to: layout) : []
-        // A new row in place does not open (``apply(_:animated:newRowsInPlace:)``).
-        let opensNew = animate && !newRowsInPlace
-        for row in layout.rows where animate && ((opensNew && old.row(for: row.key) == nil) || reopened.contains(row.key)) { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
-        let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: opensNew ? old : layout, reopened: reopened)
+        // A new row outside the rows drawn now before a reveal jump does not open (``apply(_:animated:newRowsInPlace:)``).
+        for row in layout.rows where animate && ((old.row(for: row.key) == nil && (!newRowsInPlace || frame(for: row).intersects(realize)))
+            || reopened.contains(row.key)) { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
+        let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
         // Without motion the rows that leave park first (as they would after the loop), so the rows that
         // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
         if !animate, !adopting {
@@ -207,7 +208,7 @@ extension SidebarListViewComponents {
             // (it opens in place, as `RowMotion.place` opens one on a scroll).
             let isNew = old.row(for: row.key) == nil
             let opens = animate && existing == nil
-                && ((isNew && opensNew) || reopened.contains(row.key) || (!isNew && openingRows[row.key] != nil))
+                && (isNew || reopened.contains(row.key) || openingRows[row.key] != nil)
             if existing == nil || opens {
                 // The start state never animates: a recycled view shows no
                 // frame of its previous row (cx-bqm6).
@@ -221,8 +222,6 @@ extension SidebarListViewComponents {
                         view.opens += 1
                     } else {
                         view.frame = animate ? old.row(for: row.key).map { frame(for: $0) } ?? target : target
-                        // A new row in place shows whole now; a recycled view may hold a leaving row's opacity.
-                        if isNew, newRowsInPlace { view.alphaValue = 1 }
                     }
                 }
             }
