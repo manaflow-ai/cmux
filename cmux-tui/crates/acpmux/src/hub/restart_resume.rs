@@ -32,9 +32,86 @@ use std::sync::Arc;
 
 /// Longest quote of one cut prompt or steer, in characters.
 const MAX_QUOTE_CHARS: usize = 4_000;
+/// Longest prefix of one unfinished tool's input shown in a restart prompt.
+const MAX_TOOL_INPUT_CHARS: usize = 300;
+/// Maximum unfinished calls listed in a restart prompt.
+const MAX_UNFINISHED_TOOLS: usize = 32;
+
+/// One tool call that started before the daemon restart and has no terminal update.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UnfinishedTool {
+    name: String,
+    id: String,
+    input: Option<String>,
+}
+
+/// The fields useful to a person resuming a cut turn. Tool updates are JSON-RPC notifications,
+/// so the session update is nested under `params.update` in the journal record.
+fn tool_update(record: &EventRecord) -> Option<&Value> {
+    record.msg.pointer("/params/update").filter(|update| {
+        matches!(
+            update.get("sessionUpdate").and_then(Value::as_str),
+            Some("tool_call" | "tool_call_update")
+        )
+    })
+}
+
+/// Collects tool calls in the cut turn. The journal has no `turnId` on model updates; the caller
+/// bounds the scan to records after this turn's `turn_started`, which is the same boundary used
+/// by `mark_unknown_outcome`.
+fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, usize) {
+    let mut open = Vec::<UnfinishedTool>::new();
+    for record in records {
+        let Some(update) = tool_update(record) else { continue };
+        let Some(id) = update.get("toolCallId").and_then(Value::as_str).filter(|id| !id.is_empty())
+        else {
+            continue;
+        };
+        match update.get("status").and_then(Value::as_str) {
+            Some("completed" | "failed") => {
+                open.retain(|tool| tool.id != id);
+            }
+            None if update.get("sessionUpdate").and_then(Value::as_str)
+                == Some("tool_call_update") => {}
+            _ => {
+                if let Some(existing) = open.iter_mut().find(|tool| tool.id == id) {
+                    if existing.name == "tool" {
+                        if let Some(name) =
+                            update.get("title").and_then(Value::as_str).filter(|n| !n.is_empty())
+                        {
+                            existing.name = name.to_owned();
+                        }
+                    }
+                } else {
+                    let name = update
+                        .get("title")
+                        .and_then(Value::as_str)
+                        .filter(|name| !name.is_empty())
+                        .or_else(|| {
+                            update
+                                .get("kind")
+                                .and_then(Value::as_str)
+                                .filter(|name| !name.is_empty())
+                        })
+                        .unwrap_or("tool")
+                        .to_owned();
+                    let input = update.get("rawInput").and_then(|raw| {
+                        (!raw.is_null()).then(|| {
+                            let encoded = serde_json::to_string(raw).unwrap_or_default();
+                            encoded.chars().take(MAX_TOOL_INPUT_CHARS).collect()
+                        })
+                    });
+                    open.push(UnfinishedTool { name, id: id.to_owned(), input });
+                }
+            }
+        }
+    }
+    let omitted = open.len().saturating_sub(MAX_UNFINISHED_TOOLS);
+    (open.into_iter().take(MAX_UNFINISHED_TOOLS).collect(), omitted)
+}
 
 /// The text the agent gets: the cut turn's prompt, then what was steered into it.
-fn continue_text(prompts: &[String]) -> String {
+fn continue_text(prompts: &[String], tools: &[UnfinishedTool], omitted_tools: usize) -> String {
     let mut text = String::from(
         "acpmux restarted (an update or a crash) while your previous turn was running, and the \
          turn was cut off.",
@@ -43,6 +120,18 @@ fn continue_text(prompts: &[String]) -> String {
         let quoted: String = p.chars().take(MAX_QUOTE_CHARS).collect();
         let what = if i == 0 { "Its prompt" } else { "A message sent into it" };
         text.push_str(&format!("\n\n{what}:\n<message>\n{quoted}\n</message>"));
+    }
+    if !tools.is_empty() {
+        text.push_str("\n\nTool calls started but not finished:");
+        for tool in tools {
+            text.push_str(&format!("\n- {} (id: {})", tool.name, tool.id));
+            if let Some(input) = &tool.input {
+                text.push_str(&format!(" input: {input}"));
+            }
+        }
+        if omitted_tools > 0 {
+            text.push_str(&format!("\n- …and {omitted_tools} more"));
+        }
     }
     text.push_str(
         "\n\nCheck what already finished (files, commands, messages), then continue from where it \
@@ -79,6 +168,7 @@ impl Hub {
         let mut started = false;
         let mut control_ended = false;
         let mut floor_cancelled = false;
+        let mut tool_records = Vec::new();
         let kinds = [
             "turn_started",
             "user_message",
@@ -86,6 +176,8 @@ impl Hub {
             "remote_control_ended",
             "remote_control_restored",
             "remote_floor_cancel",
+            "tool_call",
+            "tool_call_update",
         ];
         let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
             let is_turn = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id);
@@ -112,6 +204,7 @@ impl Hub {
                         (shown > 0).then(|| format!("({shown} image(s), attached again below)"))
                     }));
                 }
+                "tool_call" | "tool_call_update" if started => tool_records.push(e.clone()),
                 _ => {}
             }
             true
@@ -148,7 +241,8 @@ impl Hub {
         }
         let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": "daemon_restart"});
         self.append(session, "mux", "auto_resume_scheduled", msg);
-        let text = continue_text(&prompts);
+        let (tools, omitted_tools) = unfinished_tools(&tool_records);
+        let text = continue_text(&prompts, &tools, omitted_tools);
         let provenance = json!({"kind": "auto_resume", "reason": "daemon_restart", "promptId": root, "attempt": attempt, "turnId": turn_id});
         let control = if raised_to_web { "web" } else { control.as_deref().unwrap_or("web") };
         let mut blocks = vec![json!({"type": "text", "text": text})];
@@ -181,11 +275,69 @@ mod tests {
 
     #[test]
     fn the_continuation_quotes_the_cut_prompt_and_its_steers() {
-        let text = continue_text(&["do the thing".into(), "also this".into()]);
+        let text = continue_text(&["do the thing".into(), "also this".into()], &[], 0);
         assert!(text.contains("Its prompt:\n<message>\ndo the thing\n</message>"), "{text}");
         assert!(text.contains("A message sent into it:\n<message>\nalso this\n</message>"));
         assert!(text.ends_with("Do not redo work that completed."));
-        let long = continue_text(&["x".repeat(MAX_QUOTE_CHARS + 10)]);
+        let long = continue_text(&["x".repeat(MAX_QUOTE_CHARS + 10)], &[], 0);
         assert!(!long.contains(&"x".repeat(MAX_QUOTE_CHARS + 1)));
+    }
+
+    #[test]
+    fn a_restart_prompt_lists_tool_calls_that_have_not_finished() {
+        let update = |fields| {
+            json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {"update": fields}
+            })
+        };
+        let records = vec![
+            EventRecord {
+                seq: 1,
+                at: 1,
+                dir: "in".into(),
+                kind: "tool_call".into(),
+                msg: update(json!({
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "call-1",
+                    "title": "Run tests",
+                    "status": "in_progress",
+                    "rawInput": {"command": "cargo test -p acpmux"}
+                })),
+                host_seq: None,
+            },
+            EventRecord {
+                seq: 2,
+                at: 2,
+                dir: "in".into(),
+                kind: "tool_call".into(),
+                msg: update(json!({
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "call-2",
+                    "title": "Finished",
+                    "status": "in_progress"
+                })),
+                host_seq: None,
+            },
+            EventRecord {
+                seq: 3,
+                at: 3,
+                dir: "in".into(),
+                kind: "tool_call_update".into(),
+                msg: update(json!({
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "call-2",
+                    "status": "completed"
+                })),
+                host_seq: None,
+            },
+        ];
+        let (tools, omitted) = unfinished_tools(&records);
+        let text = continue_text(&[], &tools, omitted);
+        assert!(text.contains("Tool calls started but not finished:"), "{text}");
+        assert!(text.contains("Run tests (id: call-1)"), "{text}");
+        assert!(text.contains("input: {\"command\":\"cargo test -p acpmux\"}"), "{text}");
+        assert!(!text.contains("Finished (id: call-2)"), "{text}");
     }
 }
