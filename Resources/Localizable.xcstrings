@@ -348170,55 +348170,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night"
+            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night amphetamine prevent sleep agents busy"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night おやすみモード スクリーンセーバー カフェイン スリープ防止 ロック touch id バッテリー wifi 時計 マスコット テーマ グロー ピクセル 夜"
+            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night おやすみモード スクリーンセーバー カフェイン スリープ防止 ロック touch id バッテリー wifi 時計 マスコット テーマ グロー ピクセル 夜 amphetamine prevent sleep agents busy アンフェタミン エージェント 実行中"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night schlafmodus bildschirmschoner caffeinate wach halten nicht schlafen sperren touch id batterie wlan uhr maskottchen thema leuchten pixel nacht"
+            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night schlafmodus bildschirmschoner caffeinate wach halten nicht schlafen sperren touch id batterie wlan uhr maskottchen thema leuchten pixel nacht amphetamine prevent sleep agents busy Agenten"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night mode sommeil économiseur d’écran caféine maintenir éveillé ne pas dormir verrouillage touch id batterie wifi horloge mascotte thème lueur pixel nuit"
+            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night mode sommeil économiseur d’écran caféine maintenir éveillé ne pas dormir verrouillage touch id batterie wifi horloge mascotte thème lueur pixel nuit amphetamine prevent sleep agents busy"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night وضع النوم حافظة الشاشة تنشيط إبقاء مستيقظًا لا تنم قفل معرف اللمس بطارية واي فاي ساعة تميمة سمة توهج بكسل ليل"
+            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night وضع النوم حافظة الشاشة تنشيط إبقاء مستيقظًا لا تنم قفل معرف اللمس بطارية واي فاي ساعة تميمة سمة توهج بكسل ليل amphetamine prevent sleep agents busy الوكلاء"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night modo de suspension protector de pantalla caffeinate mantener despierto no dormir bloquear touch id bateria wifi reloj mascota tema brillo pixel noche"
+            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night modo de suspension protector de pantalla caffeinate mantener despierto no dormir bloquear touch id bateria wifi reloj mascota tema brillo pixel noche amphetamine prevent sleep agents busy agentes"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night 睡眠模式 螢幕保護程式 咖啡因 保持喚醒 勿睡眠 鎖定 touch id 電池 wifi 時鐘 吉祥物 主題 霓虹 畫素 夜間"
+            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night 睡眠模式 螢幕保護程式 咖啡因 保持喚醒 勿睡眠 鎖定 touch id 電池 wifi 時鐘 吉祥物 主題 霓虹 畫素 夜間 amphetamine prevent sleep agents busy Agent"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night 睡眠模式 屏保 caffeinate 保持唤醒 lock touch id 电池 wifi 时钟 吉祥物 主题 glow 像素 夜间"
+            "value": "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night 睡眠模式 屏保 caffeinate 保持唤醒 lock touch id 电池 wifi 时钟 吉祥物 主题 glow 像素 夜间 amphetamine prevent sleep agents busy 代理"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "슬리피 모드 화면 보호기 카페인 깨움 유지 잠자기 금지 잠금 터치 아이디 배터리 와이파이 시계 마스코트 테마 글로우 픽셀 야간 sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night"
+            "value": "슬리피 모드 화면 보호기 카페인 깨움 유지 잠자기 금지 잠금 터치 아이디 배터리 와이파이 시계 마스코트 테마 글로우 픽셀 야간 sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night amphetamine prevent sleep agents busy 에이전트"
           }
         }
       }
@@ -431353,6 +431353,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "마스코트"
+          }
+        }
+      }
+    },
+    "sleepyMode.settings.keepAwake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prevent Mac from sleeping while agents are active"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの実行中は Mac をスリープさせない"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "منع جهاز Mac من السكون أثناء نشاط الوكلاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac nicht in den Ruhezustand wechseln lassen, solange Agenten aktiv sind"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evitar que el Mac entre en reposo mientras haya agentes activos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empêcher le Mac de se mettre en veille pendant que des agents sont actifs"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 활성 상태인 동안 Mac 잠자기 방지"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理活动期间阻止 Mac 进入睡眠"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent 活動期間防止 Mac 進入睡眠"
+          }
+        }
+      }
+    },
+    "sleepyMode.settings.keepAwake.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps the Mac and display awake while any agent is actively running a command, so long tasks don’t stall when the Mac would otherwise sleep. Releases automatically when every agent is idle."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "いずれかのエージェントがコマンドを実行している間は Mac とディスプレイをスリープさせず、長いタスクが Mac のスリープで中断しないようにします。すべてのエージェントがアイドルになると自動的に解除されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُبقي جهاز Mac والشاشة قيد التشغيل أثناء تنفيذ أي وكيل لأمر ما، حتى لا تتوقف المهام الطويلة عندما يدخل جهاز Mac في وضع السكون. يُلغى تلقائيًا عندما تصبح جميع الوكلاء في وضع الخمول."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hält Mac und Display wach, solange ein Agent einen Befehl ausführt, damit lange Aufgaben nicht stocken, wenn der Mac sonst in den Ruhezustand wechseln würde. Wird automatisch freigegeben, sobald alle Agenten untätig sind."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantiene el Mac y la pantalla activos mientras algún agente esté ejecutando un comando, para que las tareas largas no se detengan cuando el Mac entraría en reposo. Se libera automáticamente cuando todos los agentes están inactivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garde le Mac et l’écran éveillés tant qu’un agent exécute une commande, pour que les tâches longues ne s’interrompent pas quand le Mac se mettrait en veille. Se libère automatiquement quand tous les agents sont inactifs."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 명령을 실행하는 동안 Mac과 디스플레이를 깨어 있게 하여, Mac이 잠자기 상태로 전환되면서 긴 작업이 멈추지 않도록 합니다. 모든 에이전트가 유휴 상태가 되면 자동으로 해제됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当任一代理正在运行命令时，让 Mac 和显示器保持唤醒，避免长时间任务因 Mac 睡眠而停滞。所有代理空闲后自动解除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當任一 Agent 正在執行命令時，讓 Mac 和顯示器保持喚醒，避免長時間任務因 Mac 睡眠而停滯。所有 Agent 閒置後自動解除。"
           }
         }
       }

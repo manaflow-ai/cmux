@@ -6452,6 +6452,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             "awaitsInput=\(restoredAgentLifecycle.awaitsStartupInput(panelId: panelId) ? 1 : 0)"
         )
 #endif
+        // Amphetamine Mode: an agent going busy/idle is exactly when the Mac's
+        // keep-awake state may need to flip, so reconcile here (issue #7537).
+        // Cheap: skips the workspace scan when the feature is off.
+        SleepyModeController.shared.reconcilePowerAssertions()
     }
 
     func restorableAgentForHibernation(
