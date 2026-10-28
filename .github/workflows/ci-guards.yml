@@ -187,7 +187,7 @@ jobs:
         run: python3 tests/test_base_red_excuse.py
 
       - name: Validate the per-test base-red classifier (a crash is never a base red)
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_test_reds.py
 
       - name: Validate the pinned gh-merge-green install
