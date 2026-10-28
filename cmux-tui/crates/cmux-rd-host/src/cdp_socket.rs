@@ -34,6 +34,10 @@ use std::thread::JoinHandle;
 /// The largest message a client may send; a longer one closes the client.
 pub const MAX_CLIENT_MESSAGE: usize = 64 << 20;
 
+/// The largest message the browser may send a client (a big screenshot or
+/// DOM result fits); a longer one is dropped and closes the client.
+pub const MAX_BROWSER_MESSAGE: usize = 256 << 20;
+
 /// How long a write to a client may wait before the client is closed.
 const CLIENT_WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -251,10 +255,9 @@ fn read_message(r: &mut impl BufRead, buf: &mut Vec<u8>, cap: usize) -> io::Resu
         buf.extend_from_slice(&chunk[..take]);
         r.consume(if done { take + 1 } else { take });
         if buf.len() > cap {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("a CDP message passed {cap} bytes"),
-            ));
+            // InvalidInput: the message ended here (its NUL is read); InvalidData: it goes on.
+            let kind = if done { io::ErrorKind::InvalidInput } else { io::ErrorKind::InvalidData };
+            return Err(io::Error::new(kind, format!("a CDP message passed {cap} bytes")));
         }
         if done {
             return Ok(true);
@@ -483,7 +486,7 @@ fn client_loop(inner: &Inner, id: u64, stream: &UnixStream) {
             Ok(true) => {}
             Ok(false) => break,
             Err(e) => {
-                if e.kind() == io::ErrorKind::InvalidData {
+                if matches!(e.kind(), io::ErrorKind::InvalidData | io::ErrorKind::InvalidInput) {
                     eprintln!("cmux-rd host: CDP client closed: {e}");
                 }
                 break;
@@ -504,13 +507,68 @@ fn client_loop(inner: &Inner, id: u64, stream: &UnixStream) {
     }
 }
 
+/// What [`next_browser_message`] read.
+#[derive(Debug, PartialEq, Eq)]
+enum BrowserMessage {
+    /// One whole message is in the buffer.
+    Whole,
+    /// A message passed the limit: it was skipped to its NUL, never buffered whole.
+    TooLarge,
+    /// The pipe ended.
+    End,
+}
+
+/// The browser's next message into `buf`; one over `cap` bytes is read past
+/// and dropped, so the host never holds more than `cap` bytes of it.
+fn next_browser_message(
+    r: &mut impl BufRead,
+    buf: &mut Vec<u8>,
+    cap: usize,
+) -> io::Result<BrowserMessage> {
+    match read_message(r, buf, cap) {
+        Ok(true) => Ok(BrowserMessage::Whole),
+        Ok(false) => Ok(BrowserMessage::End),
+        Err(e) if e.kind() == io::ErrorKind::InvalidInput => {
+            buf.clear();
+            Ok(BrowserMessage::TooLarge)
+        }
+        Err(e) if e.kind() == io::ErrorKind::InvalidData => {
+            buf.clear();
+            loop {
+                let chunk = match r.fill_buf() {
+                    Ok(chunk) => chunk,
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(e) => return Err(e),
+                };
+                if chunk.is_empty() {
+                    return Ok(BrowserMessage::End);
+                }
+                if let Some(i) = chunk.iter().position(|&b| b == 0) {
+                    r.consume(i + 1);
+                    return Ok(BrowserMessage::TooLarge);
+                }
+                let n = chunk.len();
+                r.consume(n);
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Browser to client: each whole message goes to the current client of this browser, or
-/// nowhere when none is connected.
+/// nowhere when none is connected. A message over [`MAX_BROWSER_MESSAGE`] is dropped and
+/// closes the client (it lost a reply).
 fn browser_loop(inner: &Inner, generation: u64, from_browser: File) {
     let _end = OnEnd(|| detach(inner, generation));
     let mut reader = BufReader::with_capacity(1 << 16, from_browser);
     let mut buf = Vec::new();
-    while let Ok(true) = read_message(&mut reader, &mut buf, usize::MAX) {
+    loop {
+        let read = next_browser_message(&mut reader, &mut buf, MAX_BROWSER_MESSAGE);
+        let too_large = match read {
+            Ok(BrowserMessage::Whole) => false,
+            Ok(BrowserMessage::TooLarge) => true,
+            Ok(BrowserMessage::End) | Err(_) => break,
+        };
         let client = {
             let st = inner.state();
             if st.generation != generation {
@@ -519,6 +577,10 @@ fn browser_loop(inner: &Inner, generation: u64, from_browser: File) {
             st.client.as_ref().map(|c| (c.id, Arc::clone(&c.stream)))
         };
         let Some((id, stream)) = client else { continue };
+        if too_large {
+            end_client(inner, id);
+            continue;
+        }
         buf.push(0);
         if (&*stream).write_all(&buf).is_err() {
             end_client(inner, id);
