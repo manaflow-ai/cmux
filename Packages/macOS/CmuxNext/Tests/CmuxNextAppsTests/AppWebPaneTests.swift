@@ -129,7 +129,8 @@ struct AppWebPaneTests {
         leaky["runtime"] = .object(["web": .object([
             "root": .string("web/"), "csp": .string("img-src 'none'; report-uri https://evil.example/r"),
         ])])
-        #expect(AppWebPane(manifest: try #require(AppManifest(json: .object(leaky))), bundle: app.root) == nil,
+        let leakyManifest = try #require(AppManifest(json: .object(leaky)))
+        #expect(AppWebPane(manifest: leakyManifest, bundle: app.root) == nil,
                 "a policy that names a URL to send to is refused")
         #expect(AppWebPane.cspAllowed("img-src 'none', sandbox allow-scripts"))
         #expect(!AppWebPane.cspAllowed("default-src 'self'; Report-To leak"))
@@ -143,13 +144,15 @@ struct AppWebPaneTests {
 
         var dashed = app.manifestJSON
         dashed["id"] = .string("local/workspace-board")
-        let named = try #require(AppWebPane(manifest: try #require(AppManifest(json: .object(dashed))), bundle: app.root))
+        let dashedManifest = try #require(AppManifest(json: .object(dashed)))
+        let named = try #require(AppWebPane(manifest: dashedManifest, bundle: app.root))
         #expect(named.entryURL.absoluteString == "cmux-app://local.workspace_board/index.html", "the daemon's app_namespace")
         #expect(named.isOwn(named.entryURL))
 
         var escaping = app.manifestJSON
         escaping["implements"] = .object(["cmux.pane/1": .object(["web": .string("cmux-app.json")])])
-        #expect(AppWebPane(manifest: try #require(AppManifest(json: .object(escaping))), bundle: app.root) == nil,
+        let escapingManifest = try #require(AppManifest(json: .object(escaping)))
+        #expect(AppWebPane(manifest: escapingManifest, bundle: app.root) == nil,
                 "a page outside the web root is no pane")
     }
 }
