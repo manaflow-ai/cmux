@@ -23,6 +23,7 @@ struct UserDefaultsSettingsClientTests {
         #expect(client.value(for: catalog.sidebar.hideAllDetails) == false)
         #expect(client.value(for: catalog.sidebar.showWorkspaceDescription) == true)
         #expect(client.value(for: catalog.sidebar.showNotificationMessage) == true)
+        #expect(client.value(for: catalog.sidebar.clearReadNotificationMessage) == true)
         #expect(client.value(for: catalog.sidebar.notificationMessageLineLimit) == 12)
         #expect(client.value(for: catalog.sidebar.branchVerticalLayout) == true)
         #expect(client.value(for: catalog.sidebar.stackBranchDirectory) == false)

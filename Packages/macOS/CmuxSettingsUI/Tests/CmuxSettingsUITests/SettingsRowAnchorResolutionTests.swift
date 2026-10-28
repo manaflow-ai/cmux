@@ -139,6 +139,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.compactAgentStatus",
         "sidebar.showLog",
         "sidebar.showNotificationMessage",
+        "sidebar.clearReadNotificationMessage",
         "sidebar.notificationMessageLineLimit",
         "sidebar.showAgentActivity",
         "sidebar.showAgentUsage",

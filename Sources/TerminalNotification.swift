@@ -102,3 +102,12 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         return retargetsToLiveSurfaceOwner || tabId == targetTabId
     }
 }
+
+extension TerminalNotification {
+    /// The trimmed body, or the title when the body is empty, for a sidebar row.
+    var sidebarPreviewText: String? {
+        let text = body.isEmpty ? title : body
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}

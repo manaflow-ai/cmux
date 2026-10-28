@@ -133,6 +133,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.stackBranchDirectory` | boolean | `false` | Render the git branch and working directory on separate lines instead of sharing one line. |
 | `sidebar.pathLastSegmentOnly` | boolean | `false` | Truncate sidebar paths from the start, showing as much of the trailing path as fits with a leading …/. When false, full paths are abbreviated with ~/. |
 | `sidebar.showNotificationMessage` | boolean | `true` | Show the latest notification text in the sidebar. |
+| `sidebar.clearReadNotificationMessage` | boolean | `true` | Clear the sidebar notification text once the workspace is read. When false, the latest notification text stays until it is cleared. |
 | `sidebar.showBranchDirectory` | boolean | `true` | Show the workspace working directory. |
 | `sidebar.showCloudDeviceIcons` | boolean | `true` | Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details. |
 | `sidebar.showPullRequests` | boolean | `true` | Show pull request metadata in the sidebar. |
