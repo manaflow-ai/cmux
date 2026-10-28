@@ -2,6 +2,7 @@ import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextChiefViews
@@ -30,7 +31,7 @@ struct ChiefViewsPageHostTests {
 
     @Test func thePageOpensThroughTheGivenHost() throws {
         try #require(Self.registeredRoot)
-        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry())
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: .testing())
         let view = try #require(ChiefViewsPage(host: Self.noApp, webUI: host).makeView())
         #expect(host.openPages.map(ObjectIdentifier.init) == [ObjectIdentifier(view)])
         #expect(host.registry.pages(id: PageDescriptor.chiefViews.id).contains { $0 === view })

@@ -2,6 +2,8 @@
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -142,7 +144,7 @@ import Testing
     }
 
     private func tab(_ store: MarkdownTableWidthRepository) -> FilePageProvider {
-        FilePageProvider(kind: .markdown, file: file, host: Host(), libraries: nil, images: NoImages(), tableWidths: store)
+        FilePageProvider(kind: .markdown, file: file, host: Host(), libraries: nil, images: NoImages(), tableWidths: store, deadlines: .testing())
     }
 
     private let context = PageCallContext(page: FilePageKind.markdown.namespace)

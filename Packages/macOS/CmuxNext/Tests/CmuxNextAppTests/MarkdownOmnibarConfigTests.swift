@@ -2,6 +2,8 @@
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -40,7 +42,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: folder) }
         let url = folder.appending(path: kind == .markdown ? "a.md" : "a.txt")
         try Data("# A\n".utf8).write(to: url)
-        let provider = FilePageProvider(kind: kind, file: url, host: Host(showsOmnibar: showsOmnibar), libraries: nil, images: NoImages())
+        let provider = FilePageProvider(kind: kind, file: url, host: Host(showsOmnibar: showsOmnibar), libraries: nil, images: NoImages(), deadlines: .testing())
         defer { provider.close() }
         return try await provider.call(kind.op("config"), params: .object([:]), context: PageCallContext(page: kind.namespace))
     }

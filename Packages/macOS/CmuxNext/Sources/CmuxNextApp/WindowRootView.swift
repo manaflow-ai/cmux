@@ -130,7 +130,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     init(sidebar: SidebarContainerView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
-         revealDeadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+         revealDeadlines: MainDeadlineScheduler,
          signals: AppearanceSignals = DesignSettings.shared.signals, slideHoldsContent: @escaping @MainActor () -> Bool = { true },
          rendersMotionOnServer: @escaping () -> Bool = { false },
          bandRendersOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value }) {

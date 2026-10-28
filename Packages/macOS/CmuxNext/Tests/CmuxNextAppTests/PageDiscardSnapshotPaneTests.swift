@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextPages
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -14,7 +16,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let descriptor = PageDescriptor(id: "test.discard-pane", resource: "discard-pane", processGroup: .solo, namespaces: [])
-        let page = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil))
+        let page = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil, deadlines: .testing()))
         defer { page.close() }
         let tab = InternalPageView(key: "k", page: InternalPageID(rawValue: "cmux.markdown"), content: page)
         let pane = TabSwitchNoBlankFrameTests.Pane()

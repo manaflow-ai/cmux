@@ -41,4 +41,40 @@ public protocol IdleNextDeadlineSource: AnyObject {
     /// timer, and this call (not a re-check on a timer) lets the next period start, as Chrome's
     /// `IdleHelper` hears of the delayed task it waits for.
     var onNextFireChange: (@MainActor () -> Void)? { get set }
+    /// The next fire is due, so the ``IdleScheduler`` waits: call ``onNextFireChange`` once after that fire, or after
+    /// the change that took its entry away. The default does nothing, for a source that calls it on every change.
+    func watchDueFire()
+}
+
+extension IdleNextDeadlineSource {
+    public func watchDueFire() {}
+}
+
+/// The next fire of a ``MainWorkScheduler``'s wake-up queue, the deadline every long idle period of its
+/// ``IdleScheduler`` ends before (sequence-manager-DESIGN.md F1): the scheduler wires it at its init, so the app's
+/// idle periods end before the next ``MainDeadline`` (``MainDeadlineScheduler/nextFire`` reads the same queue), the
+/// pump's delayed work and every other entry, with no wiring in the composition root.
+@MainActor
+final class WakeUpQueueNextFire: IdleNextDeadlineSource {
+    private let wakeups: AlignedWakeups
+    private var watching = false
+    var onNextFireChange: (@MainActor () -> Void)?
+
+    init(queue: MainWakeUpQueue) {
+        wakeups = AlignedWakeups(queue: queue)
+    }
+
+    var nextFireNanos: UInt64? { wakeups.nextFireDate }
+
+    /// One precise entry at the due fire, which runs in that fire (or alone, if the due entry was cancelled) and
+    /// then reports the change: no timer of its own and no re-poll. It records a wake only when it was alone.
+    func watchDueFire() {
+        guard !watching, let date = wakeups.nextFireDate else { return }
+        watching = true
+        wakeups.schedule(owner: "IdleScheduler.dueFire", at: date, placement: .precise,
+                         ledgerReason: .deadlineWhenAlone) { [weak self] in
+            self?.watching = false
+            self?.onNextFireChange?()
+        }
+    }
 }

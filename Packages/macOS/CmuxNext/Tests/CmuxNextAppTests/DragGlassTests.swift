@@ -6,6 +6,7 @@ import CmuxNextBridge
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// Leo, 2026-10-19: "the dragged workspaces and dragged tabs turning from glassy to solid themed is
@@ -165,7 +166,7 @@ import Testing
         try translucent {
             @MainActor func open() -> (NSWindow, WindowRootView, ThemeScope) {
                 let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())),
-                                          reduceTransparency: { false }, applyWindowBlur: { _, _ in })
+                                          reduceTransparency: { false }, applyWindowBlur: { _, _ in }, revealDeadlines: .testing())
                 let window = NSWindow(contentRect: root.frame,
                                       styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                       backing: .buffered, defer: false)

@@ -2,6 +2,8 @@
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -21,7 +23,7 @@ struct PageWebViewDebugHoverTests {
 
     private func chromiumPage(center: String?, hoveredAfter: Bool = true) async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = FakeChromiumHosting()
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting, deadlines: .testing()))
         view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)

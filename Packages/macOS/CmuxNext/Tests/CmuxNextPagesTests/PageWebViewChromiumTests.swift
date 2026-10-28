@@ -3,6 +3,7 @@ import CmuxNextDesign
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -20,7 +21,7 @@ struct PageWebViewChromiumTests {
     }
 
     private func makeView(_ hosting: FakeChromiumHosting) throws -> PageWebView {
-        try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/start", chromium: hosting))
+        try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/start", chromium: hosting, deadlines: .testing()))
     }
 
     @Test func thePageShowsInChromiumAfterItsSetup() async throws {
@@ -151,7 +152,7 @@ struct PageWebViewChromiumTests {
         let dynamic = PageDescriptor(id: "test.chromium-dynamic", resource: "chromium-page", processGroup: .solo, namespaces: [], dynamicPrefixes: ["asset"])
         let hosting = FakeChromiumHosting()
         let source = OneResource()
-        let view = try #require(PageWebView(descriptor: dynamic, root: root, routes: [], dynamicResources: source, chromium: hosting))
+        let view = try #require(PageWebView(descriptor: dynamic, root: root, routes: [], dynamicResources: source, chromium: hosting, deadlines: .testing()))
         view.chromiumDeadlines = LifecycleDeadlineRig.never
         #expect(view.engineDecision == .chromium)
         await view.chromiumStart?.value

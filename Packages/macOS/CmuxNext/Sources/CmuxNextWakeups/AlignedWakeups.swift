@@ -102,10 +102,11 @@ public struct AlignedWakeups: Sendable {
     /// thread.
     @discardableResult
     func schedule(owner: String, at deadline: UInt64, placement: Placement,
+                  ledgerReason: MainWakeUpQueue.LedgerReason = .deadline,
                   _ action: @escaping MainWakeUpQueue.Action) -> Ticket {
         if placement == .hidden { return Ticket(token: queue.insertHidden(owner: owner, at: deadline, action)) }
         let window = self.window(placement, deadline: deadline)
-        return Ticket(token: queue.insert(owner: owner, at: deadline, window: window, action))
+        return Ticket(token: queue.insert(owner: owner, at: deadline, window: window, ledgerReason: ledgerReason, action))
     }
 
     /// The window `placement` gives a deadline at `deadline` (uptime ns), from the time left now: the one
@@ -126,6 +127,10 @@ public struct AlignedWakeups: Sendable {
 
     /// The uptime the queue's timer is armed for (ns), for every user of the queue; nil while it is parked.
     var nextFireDate: UInt64? { queue.armedDate }
+
+    /// The queue itself, for an owner that takes its waits' timeouts from the same deadline placer
+    /// (``MainDeadlineScheduler/wakeUpQueue``).
+    var mainQueue: MainWakeUpQueue { queue }
 
     /// The queue's ledger, for owners that run in a fire under another owner's entry.
     var ledger: WakeupLedger { queue.ledger }

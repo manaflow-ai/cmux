@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextPages
 @testable import CmuxNextTerminal
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 import WebKit
 
@@ -22,7 +23,7 @@ import WebKit
         return PageWebView(descriptor: PageDescriptor(id: id, resource: "appearance", processGroup: .solo, namespaces: []),
                            configuration: configuration, inputReadiness: PageInputReadiness(configuration: configuration),
                            routes: [], route: nil, options: .standard, surface: nil, dynamicResources: nil, pooled: false,
-                           load: false, chromium: nil)
+                           load: false, chromium: nil, deadlines: .testing())
     }
 
     /// The tab nodes of `count` workspaces under one visible window: only the first is shown.

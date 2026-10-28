@@ -207,7 +207,8 @@ import Testing
     @Test func clientsDefaultToMotion() {
         let displays = DisplayClock(makeLink: RateLinks().make, displayOf: { _ in 1 }, clock: ManualClock())
         let scheduler = FrameScheduler(name: "w", host: .screen, displays: displays, budget: nil)
-        let work = MainWorkScheduler(budget: MainFrameBudget(uptimeNanos: { 1_000_000_000 }), displays: displays)
+        let work = MainWorkScheduler(budget: MainFrameBudget(uptimeNanos: { 1_000_000_000 }), displays: displays,
+                                 wakeUps: MainWakeUpQueue(energy: EnergyPolicySource()))
         let plain = FrameClient(owner: "plain", on: scheduler) { _ in false }
         let batch = FrameClient(owner: "batch", isAnimation: false, on: scheduler) { _ in false }
         let budgeted = FrameClient(owner: "budgeted", budgeted: .automation, on: work) { _, _ in false }

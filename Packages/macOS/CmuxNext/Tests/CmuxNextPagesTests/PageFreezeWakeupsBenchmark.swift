@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextPages
 import CmuxNextTestSupport
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 import WebKit
@@ -41,7 +42,7 @@ struct PageFreezeWakeupsBenchmark {
         window.contentView?.addSubview(tab)
         window.orderFrontRegardless()
         let descriptor = PageDescriptor(id: "test.page-freeze-wakeups", resource: "page-freeze-wakeups", processGroup: .viewer, namespaces: [])
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil, deadlines: .testing()))
         defer { view.close() }
         view.frame = tab.bounds
         tab.addSubview(view)

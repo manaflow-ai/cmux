@@ -241,11 +241,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// (``PageID/registerBundledRoot(_:for:)``).
     public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
-                             surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
+                             surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
+                             deadlines: MainDeadlineScheduler) {
         self.init(request: PageOpenRequest(descriptor: descriptor, routes: routes, route: route,
                                            documentAttributes: documentAttributes, options: options,
                                            surface: surface, dynamicResources: dynamicResources),
-                  chromium: Self.chromiumHosting, openPanel: Self.openPanel, registry: .processWide)
+                  chromium: Self.chromiumHosting, openPanel: Self.openPanel, registry: .processWide, deadlines: deadlines)
     }
 
     /// The root a page is served from without an explicit one: the DEBUG override, else this
@@ -292,11 +293,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public convenience init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
-                             chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
+                             chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting, deadlines: MainDeadlineScheduler) {
         self.init(request: PageOpenRequest(descriptor: descriptor, root: root, routes: routes, route: route,
                                            documentAttributes: documentAttributes, options: options,
                                            surface: surface, dynamicResources: dynamicResources),
-                  chromium: chromium, openPanel: Self.openPanel, registry: .processWide)
+                  chromium: chromium, openPanel: Self.openPanel, registry: .processWide, deadlines: deadlines)
     }
 
     init(descriptor: PageDescriptor, configuration: WKWebViewConfiguration,
@@ -305,7 +306,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
          openRequested: TimeInterval? = nil, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
          openPanel: MadeAheadOpenPanel? = PageWebView.openPanel, registry: PageRegistry = .processWide,
          processGroup: PageWebKitProcessGroup? = nil, startsAtFirstShow: Bool = false,
-         deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+         deadlines: MainDeadlineScheduler,
          trace: any PageTraceSink = TraceRuntime.shared, chatOpen: ChatOpenStages? = nil, origin: PageOpenOrigin = .user) {
         let constructionStart = openRequested ?? ProcessInfo.processInfo.systemUptime
         self.deadlines = deadlines

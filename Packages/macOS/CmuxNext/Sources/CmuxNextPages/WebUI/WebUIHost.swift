@@ -106,21 +106,21 @@ public final class WebUIHost {
     ///   - memory: The app's memory coordinator: the preload slot registers with it at once.
     ///   - registry: Where opened views are listed (the app passes ``PageRegistry/processWide``
     ///     until p13-webui-010; a test leaves the default, its own registry).
-    ///   - deadlines: The app's deadline scheduler (`AppServices.mainDeadlines`); a test leaves the default, its own, or
-    ///     passes one whose wakes it fires by hand.
+    ///   - deadlines: The app's deadline scheduler (`AppServices.mainDeadlines`); a test passes its own
+    ///     (`.testing()`) or one whose wakes it fires by hand.
     ///   - processGroups: The shared WebKit processes, sized by the composition root
     ///     (`SubsystemBudget.webProcessPagesPerGroup`); nil: none (``processGroups``).
     ///   - startsPagesAtFirstShow: Pages start their document at their first show (``startsPagesAtFirstShow``).
     ///   - hoverFrameInput: The frame-aligned pointer input of the pages' popups; nil: each move.
-    ///   - retirer: Ends closed pages after the close's turn (the app's is on `AppServices.mainDeadlines`).
+    ///   - retirer: Ends closed pages after the close's turn; nil: one on `deadlines`.
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
                 memory: any MemoryConsumerRegistry, registry: PageRegistry = PageRegistry(),
-                deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+                deadlines: MainDeadlineScheduler,
                 processGroups: WebProcessGroups? = nil,
                 startsPagesAtFirstShow: Bool = false, hoverFrameInput: FrameInputCoalescers? = nil,
-                retirer: PageRetirer = PageRetirer()) {
+                retirer: PageRetirer? = nil) {
         self.chromium = chromium
-        self.retirer = retirer
+        self.retirer = retirer ?? PageRetirer(deadlines: deadlines)
         self.startsPagesAtFirstShow = startsPagesAtFirstShow
         self.hoverFrameInput = hoverFrameInput
         self.openPanel = openPanel

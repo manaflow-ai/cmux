@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextSidebar
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// A window ordered in keeps the keyboard where the focus model puts it (QA chrome-parity-v2-1, bug 1):
@@ -19,7 +20,7 @@ struct ShellWindowInitialResponderTests {
     /// The app's window and root with its sidebar shown, not on screen yet, as a restore makes it.
     func hiddenWindow() -> (ShellWindow, WindowRootView) {
         _ = NSApplication.shared
-        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())))
+        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())), revealDeadlines: .testing())
         let window = ShellWindow(contentRect: NSRect(x: 40, y: 40, width: 900, height: 600),
                                  styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                  backing: .buffered, defer: false)

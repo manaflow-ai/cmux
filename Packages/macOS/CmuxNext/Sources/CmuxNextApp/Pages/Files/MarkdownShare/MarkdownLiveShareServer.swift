@@ -42,8 +42,8 @@ final class MarkdownLiveShareServer {
 
     /// - Parameters:
     ///   - work: the process's one set of blocking-work lanes (`AppServices.work`); a test passes its own.
-    ///   - deadlines: the app's deadline scheduler (`AppServices.mainDeadlines`); a test's own by default.
-    init(work: BackgroundWork, deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))) {
+    ///   - deadlines: the app's deadline scheduler (`AppServices.mainDeadlines`); a test passes its own.
+    init(work: BackgroundWork, deadlines: MainDeadlineScheduler) {
         self.work = work
         self.deadlines = deadlines
     }

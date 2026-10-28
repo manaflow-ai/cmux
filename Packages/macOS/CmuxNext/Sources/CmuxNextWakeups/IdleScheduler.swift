@@ -324,6 +324,7 @@ public final class IdleScheduler {
             guard next > now, next - now >= Self.minimumPeriodNanos else {
                 // Due first: the registry's change call lets the next period start.
                 deadlineDue = true
+                deadlines?.watchDueFire()
                 return
             }
             length = min(length, next - now)

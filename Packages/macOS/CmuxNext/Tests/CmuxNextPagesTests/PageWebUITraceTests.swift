@@ -1,6 +1,8 @@
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSignposts
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 import WebKit
@@ -20,7 +22,7 @@ struct PageWebUITraceTests {
         return PageWebView(descriptor: descriptor, configuration: configuration,
                            inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
                            options: .standard, surface: nil, dynamicResources: nil, pooled: pooled, load: load,
-                           chromium: chromium, trace: recorder)
+                           chromium: chromium, deadlines: .testing(), trace: recorder)
     }
 
     @Test func aNewViewPaintedInChromiumIsOneOpenEndingInChromium() async throws {
@@ -177,7 +179,7 @@ private struct SchemeRig {
         view = PageWebView(descriptor: descriptor, configuration: configuration,
                            inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
                            options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: false,
-                           chromium: nil, trace: PageTraceRecorder())
+                           chromium: nil, deadlines: .testing(), trace: PageTraceRecorder())
     }
 
     func task(_ path: String, method: String = "GET") throws -> FakeSchemeTask {

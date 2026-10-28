@@ -350,7 +350,8 @@ import Testing
         let media = TestMediaTime()
         let displays = DisplayClock(makeLink: { id, clock in linkless ? nil : links.make(id, clock) },
                                     displayOf: { _ in 1 }, clock: ManualClock(), mediaTime: media.read)
-        let work = MainWorkScheduler(budget: MainFrameBudget(uptimeNanos: { 1_000_000_000 }), displays: displays)
+        let work = MainWorkScheduler(budget: MainFrameBudget(uptimeNanos: { 1_000_000_000 }), displays: displays,
+                                 wakeUps: MainWakeUpQueue(energy: EnergyPolicySource()))
         let drain = FrameClient(owner: "drain", on: work.frames) { _ in true }
         drain.activate()
         #expect(work.budget.tickOwnsWindow)
@@ -432,7 +433,8 @@ private struct Fixture {
         windowA = FrameScheduler(name: "window a", host: .window(windows[0]), displays: displays, budget: nil)
         windowB = FrameScheduler(name: "window b", host: .window(windows[1]), displays: displays, budget: nil)
         app = FrameScheduler(name: "app", host: .screen, displays: displays, budget: nil)
-        work = MainWorkScheduler(budget: MainFrameBudget(uptimeNanos: { 1_000_000_000 }), displays: displays)
+        work = MainWorkScheduler(budget: MainFrameBudget(uptimeNanos: { 1_000_000_000 }), displays: displays,
+                                 wakeUps: MainWakeUpQueue(energy: EnergyPolicySource()))
     }
 
     var schedulers: [FrameScheduler] { [windowA, windowB, app, work.frames] }

@@ -368,7 +368,7 @@ import Testing
 
         func makePage() -> NSView {
             guard let page = PageWebView(descriptor: PageDescriptor(id: "test.discard", resource: "discard", processGroup: .solo, namespaces: []),
-                                         root: folder, routes: [], chromium: hosting) else { return NSView() }
+                                         root: folder, routes: [], chromium: hosting, deadlines: .testing()) else { return NSView() }
             // The engine's no-message deadline never runs out here.
             page.chromiumDeadlines = pageDeadlines.deadlines
             return page

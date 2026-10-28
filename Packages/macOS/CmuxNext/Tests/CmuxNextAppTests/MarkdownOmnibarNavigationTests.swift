@@ -4,6 +4,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 import CmuxNextWakeups
@@ -45,7 +46,7 @@ import CmuxNextWakeups
         let url = folder.appending(path: "a.md")
         try Data("# A\n".utf8).write(to: url)
         let host = Host()
-        let provider = FilePageProvider(kind: .markdown, file: url, host: host, libraries: nil, images: NoImages())
+        let provider = FilePageProvider(kind: .markdown, file: url, host: host, libraries: nil, images: NoImages(), deadlines: .testing())
         defer { provider.close() }
         let context = PageCallContext(page: FilePageKind.markdown.namespace)
         _ = try await provider.call("cmux.markdown.history", params: ["canBack": true, "canForward": false], context: context)
