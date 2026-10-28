@@ -55,6 +55,12 @@ struct MovedTabWorkspaceNameTests {
         #expect(NewWorkspaceName.forLastTab(workspaceName: "Research", workspaceTitle: nil, tab: Self.tab(title: "about:blank")) == "Research")
     }
 
+    @Test func aCreatedDefaultNameRecordedAsTheUsersTakesTheMovedTabsName() {
+        #expect(NewWorkspaceName.forLastTab(workspaceName: "workspace-151", workspaceTitle: nil, tabName: "api",
+                                             workspaceNameSource: .user, workspaceNameRevision: 0,
+                                             allowsLegacyDefaults: false) == "api")
+    }
+
     @Test func aModernUserHomeMarkerSurvivesMovingItsLastTab() {
         #expect(NewWorkspaceName.forLastTab(workspaceName: "~", workspaceTitle: nil, tabName: "api",
                                              workspaceNameSource: .user, workspaceNameRevision: 0,
