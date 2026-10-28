@@ -1,0 +1,18 @@
+{
+  "id": "leak-cleanup",
+  "tier": "T2",
+  "description": "Closing returns the app to its baseline (cleanup.md): N of each kind (terminal with a background job and a listening server, tab, pane, screen, workspace, window, Chromium, WebKit, New Tab page, agent chat, browser profile, Chief) created, used, closed and settled, then Cmd-T/Cmd-W churn at key-repeat speed; per kind, N and resource the growth of AFTER over BASELINE: orphan and zombie processes, processes, fds, threads and footprint of the app, daemon, helpers and terminals, IOSurfaces, terminal surfaces, armed observations, model rows, state-folder bytes (leak-harness.py).",
+  "command": ["scripts/cmux-next/leak-harness.py", "--story", "leak-cleanup", "--counts", "1,50"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "leak\\.[a-z]+\\.[0-9]+\\.(orphans|zombies|processes\\.[a-z]+|fds\\.[a-z]+|threads\\.[a-z]+|model\\.[a-z]+|iosurfaces\\.app|terminal-surfaces|observations-armed|disk-files\\.tmp)", "unit": "count", "better": "lower"},
+    {"name": "leak\\.[a-z]+\\.[0-9]+\\.(footprint-mb\\.[a-z]+|disk-mb\\.state)", "unit": "bytes", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 2400,
+  "needs": ["debug:debug.memory", "debug:debug.observations", "debug:debug.key"],
+  "owner": "Performance Lead",
+  "component": "Memory>Cleanup"
+}

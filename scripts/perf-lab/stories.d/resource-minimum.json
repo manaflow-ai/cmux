@@ -1,0 +1,20 @@
+{
+  "id": "resource-minimum",
+  "tier": "T2",
+  "description": "Resource cost per terminal against its floor (resource-minimum.md): 1, 10 and 100 terminals idle hidden, idle visible (12 panes per window) and busy (50 lines/s each); footprint, threads, processes, CPU and wakeups over 10 s of the app, daemon, helpers and terminal processes, and the tag's state-folder bytes (leak-harness.py --resource-bench).",
+  "command": ["scripts/cmux-next/leak-harness.py", "--resource-bench", "--story", "resource-minimum"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "resource\\.(hidden|visible|busy)\\.[0-9]+\\.(footprint|disk)", "unit": "bytes", "better": "lower"},
+    {"name": "resource\\.(hidden|visible|busy)\\.[0-9]+\\.(threads|processes)", "unit": "count", "better": "lower"},
+    {"name": "resource\\.(hidden|visible|busy)\\.[0-9]+\\.cpu", "unit": "percent", "better": "lower"},
+    {"name": "resource\\.(hidden|visible|busy)\\.[0-9]+\\.wakeups", "unit": "per_s", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1500,
+  "needs": ["debug:debug.memory"],
+  "owner": "Performance Lead",
+  "component": "Memory>Terminals"
+}

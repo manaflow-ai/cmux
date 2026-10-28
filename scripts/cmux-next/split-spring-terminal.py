@@ -251,6 +251,14 @@ if "--suite=gui-tests" in sys.argv:
                             cwd=root, env=dict(os.environ, CMUX_PANE_BENCH="1")).returncode)
 # `--suite=every-action`: every catalog action through its real entrypoint plus the non-catalog interactions,
 # light and STRESS, scripts/cmux-next/every-action-sweep.py (also artifacts/split-spring/every-action.md).
+# `--suite=leak`: create, use and close N of each kind and compare to the baseline (cleanup.md), and `--suite=resource`:
+# the per-terminal resource bench (resource-minimum.md), both scripts/cmux-next/leak-harness.py. The harness's own args
+# follow a `--` (`split-spring.sh --suite=leak -- --counts 1,50,500`); the separator is dropped.
+if "--suite=leak" in sys.argv or "--suite=resource" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "leak-harness.py")
+    extra = ["--resource-bench"] if "--suite=resource" in sys.argv else []
+    os.execv(sys.executable, [sys.executable, suite] + extra
+             + [a for a in sys.argv[1:] if a not in ("--suite=leak", "--suite=resource", "--")])
 if "--suite=every-action" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "every-action-sweep.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=every-action"])
