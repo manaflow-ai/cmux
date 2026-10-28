@@ -9,9 +9,6 @@
 //! and never resizes it, a hidden dock is not placed, and every extent is
 //! clamped to the client's maximum share (W6).
 
-// The app glue lands with the placement; until then only the tests read this.
-#![allow(dead_code)]
-
 use cmux_tui_core::Rect;
 use serde::{Deserialize, Serialize};
 
