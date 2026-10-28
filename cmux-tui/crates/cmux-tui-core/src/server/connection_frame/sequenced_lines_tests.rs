@@ -17,13 +17,13 @@ use crate::server::tests::{captured_writer, test_mux};
 use crate::server::*;
 
 /// How long a held handler runs.
-const HOLD: Duration = Duration::from_millis(300);
+pub(in crate::server) const HOLD: Duration = Duration::from_millis(300);
 
 /// The reader's budget to hand one line to its sequence.
-const HANDOFF_P50: Duration = Duration::from_millis(2);
+pub(in crate::server) const HANDOFF_P50: Duration = Duration::from_millis(2);
 
 /// The v2 operation whose handler runs [`HOLD`] and answers `{}`.
-const HELD_OPERATION: &str = "test.held";
+pub(in crate::server) const HELD_OPERATION: &str = "test.held";
 
 /// The test operation routes (server/routes.rs `OPERATION_ROUTES`): a v2
 /// handler that is really slow without a blocking call the detector
@@ -142,8 +142,10 @@ fn median(mut values: Vec<Duration>) -> Duration {
 /// the operation itself and read nothing for 300 ms.) The `send` replies
 /// wait their turn on the same control sequence. The other half of the
 /// acceptance, a `send` on a stream of its own written within 2 ms while
-/// the held operation runs, is not covered here: it is blocked on the
-/// stream sequences of p05-ipc-073 (now in this task's `depends_on`).
+/// the held operation runs, is
+/// `input_frames_a_stream_send_behind_a_held_v2_op_is_written_within_2_ms`
+/// (input_frames_tests.rs): a stream opened by `attach-surface` runs its
+/// INPUT and `send` on its own sequence (pending_streams.rs).
 #[test]
 fn resource_connection_a_held_v2_op_does_not_delay_reading_the_next_line() {
     let mux = test_mux();

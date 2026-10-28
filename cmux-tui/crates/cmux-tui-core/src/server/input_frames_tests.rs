@@ -12,6 +12,7 @@
 use std::io::Write;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::time::{Duration, Instant};
 
 use cmux_ipc::{Aux, CallAux, CallFlags, FrameHeader, FrameKind, Message};
 use serde_json::{Value, json};
@@ -24,6 +25,7 @@ use crate::event_cause::EventCause;
 use crate::mux::DaemonHandoffRequest;
 use crate::remote_relay_state::LinkPeer;
 use crate::server::VIEW_ATTACHMENT_LEASE_CAPABILITY;
+use crate::server::connection_frame::sequenced_lines_tests::{HANDOFF_P50, HELD_OPERATION, HOLD};
 use crate::server::line_connection::{ConnectionBadMessage, ConnectionEnd};
 
 /// What the daemon sent: an event line, or the answer to a request.
@@ -423,4 +425,85 @@ fn input_frames_from_a_remote_relay_client_close_with_bad_message() {
         }))
     );
     assert_eq!(typed.try_iter().count(), 0, "no remote input reached the terminal");
+}
+
+/// The bytes the terminal took until they make up `expected`, waiting at
+/// most 5 s; returns when the last of them was written.
+fn written_at(typed: &Receiver<Vec<u8>>, expected: &[u8]) -> Instant {
+    let mut written = Vec::new();
+    while written.len() < expected.len() {
+        let bytes = typed.recv_timeout(Duration::from_secs(5)).expect("the stream wrote the bytes");
+        written.extend_from_slice(&bytes);
+    }
+    let at = Instant::now();
+    assert_eq!(written, expected, "the stream wrote other bytes");
+    at
+}
+
+/// Red first (p05-ipc-086, the stream half of its acceptance): while a v2
+/// operation holds the connection's control sequence for 300 ms, INPUT
+/// frames and framed `send` requests on a stream of their own (stream 7,
+/// opened by `attach-surface`) reach the terminal within the 2 ms budget
+/// (median of 21 each), long before the held operation answers, and every
+/// `send` reply leaves before the held operation's. A stream item that
+/// waited its turn behind the control sequence would wait the whole hold.
+#[test]
+fn input_frames_a_stream_send_behind_a_held_v2_op_is_written_within_2_ms() {
+    const SAMPLES: u32 = 21;
+    let (mut client, surface, typed) = terminal_client("held-v2-op");
+    open(&mut client, 7, 10, surface.id);
+    // The stream's sequence ran once before the hold starts.
+    assert_eq!(fence(&mut client, 7, 11, surface.id), Vec::<Value>::new());
+    assert_eq!(typed.try_iter().count(), 0, "the empty fence wrote nothing");
+
+    let held_sent = Instant::now();
+    client.line(&json!({"protocol": "cmux.protocol/2", "type": "request", "id": "r-held",
+        "operation": HELD_OPERATION, "params": {}}));
+    let (mut input_waits, mut send_waits) = (Vec::new(), Vec::new());
+    for key in 0..SAMPLES {
+        let keys = format!("i{key:02}");
+        let sent = Instant::now();
+        client.send(&input(7, u64::from(key) + 1, keys.as_bytes()));
+        input_waits.push(written_at(&typed, keys.as_bytes()).saturating_duration_since(sent));
+
+        let text = format!("s{key:02}");
+        let sent = Instant::now();
+        client.send(&stream_request(
+            7,
+            100 + key,
+            &json!({"cmd": "send", "surface": surface.id, "text": text}),
+        ));
+        send_waits.push(written_at(&typed, text.as_bytes()).saturating_duration_since(sent));
+    }
+    let measured = held_sent.elapsed();
+    assert!(
+        measured < HOLD / 3,
+        "the stream waited on the held operation: {measured:?}, INPUT {input_waits:?}, \
+         send {send_waits:?}"
+    );
+
+    // Every `send` answers before the held operation does, and that one
+    // was really held.
+    let mut answered = Vec::new();
+    let held_reply = loop {
+        match next_seen(&mut client).expect("the held operation answers") {
+            Seen::Answer { kind, request_id, body } => {
+                assert_eq!(kind, FrameKind::Reply, "{body}");
+                answered.push(request_id);
+            }
+            Seen::Line(reply) if reply["id"] == json!("r-held") => break reply,
+            Seen::Line(_) | Seen::Event(_) => {}
+        }
+    };
+    assert!(held_sent.elapsed() >= HOLD, "the v2 operation was not held");
+    assert_eq!(held_reply["ok"], json!(true), "{held_reply}");
+    assert_eq!(answered, (100..100 + SAMPLES).collect::<Vec<_>>());
+
+    input_waits.sort();
+    send_waits.sort();
+    let middle = input_waits.len() / 2;
+    let (input_p50, send_p50) = (input_waits[middle], send_waits[middle]);
+    assert!(input_p50 < HANDOFF_P50, "INPUT waited {input_p50:?}: {input_waits:?}");
+    assert!(send_p50 < HANDOFF_P50, "send waited {send_p50:?}: {send_waits:?}");
+    assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
 }
