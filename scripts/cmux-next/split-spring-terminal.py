@@ -58,14 +58,25 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
     require_gui_session("split-spring")
 # `--suite=first5s`: the first 5 s of typing after a new terminal tab, split, New Tab page and browser tab, one key per
 # 50 ms from a sender that reports its own lateness (first-5s-typing.py; `--apps-sha256=A,B` measures fleet builds).
+def _with_load(name, suite_args):
+    """SCRATCH MEASUREMENT REF ONLY: the host's load average at the start and end of the suite (a run over 4 does not
+    count, coordinator 2026-10-28)."""
+    def load():
+        return subprocess.run(["sysctl", "-n", "vm.loadavg"], capture_output=True, text=True).stdout.strip()
+    print(f"SEQMGR-LOAD start {name} {load()} host {os.uname().nodename}", flush=True)
+    code = subprocess.run([sys.executable] + suite_args).returncode
+    print(f"SEQMGR-LOAD end {name} {load()} host {os.uname().nodename}", flush=True)
+    sys.exit(code)
+
+
 if "--suite=first5s" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "first-5s-typing.py")
-    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=first5s"])
+    _with_load("first5s", [suite] + [a for a in sys.argv[1:] if a != "--suite=first5s"])
 # `--suite=bench-idle`: wakeups and CPU of an idle app and hidden workspaces (bench_idle.py; its own options after the
 # suite, for example `--scenarios=terminals,mixed-hidden`).
 if "--suite=bench-idle" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench_idle.py")
-    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=bench-idle"])
+    _with_load("bench-idle", [suite] + [a for a in sys.argv[1:] if a != "--suite=bench-idle"])
 # `--suite=first-keys`: the first keys typed into new terminals from Home's dock all reach them, and how fast
 # (new-terminal-first-keys.py; dogfood v2.1 lost them).
 if "--suite=first-keys" in sys.argv:
