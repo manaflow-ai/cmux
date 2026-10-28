@@ -8,6 +8,24 @@ import Testing
 #endif
 
 extension CrashDiagnosticSessionPolicyTests {
+    @Test("Crash merging never moves preserved workspaces past the live restore limit")
+    func crashMergeRespectsLiveWorkspaceLimit() throws {
+        let count = SessionPersistencePolicy.maxWorkspacesPerWindow
+        let original = crashTestWindow((0..<count).map {
+            var workspace = crashTestWorkspace("workspace-\($0)", agents: ["agent-\($0)"])
+            workspace.workspaceId = UUID()
+            return workspace
+        })
+        var replay = original
+        replay.tabManager.workspaces[0].customDescription = "Distinct saved work"
+        let result = try #require(SessionPersistencePolicy.snapshotForLiveRestore(AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion, createdAt: 10, windows: [original, replay]
+        )))
+        #expect(result.windows.count == 2)
+        #expect(result.windows.allSatisfy { $0.tabManager.workspaces.count <= count })
+        #expect(result.windows.last?.tabManager.workspaces.first?.customDescription == "Distinct saved work")
+    }
+
     @Test("Distinct panes sharing an agent checkpoint survive richer directory metadata")
     func crashMergeKeepsRepeatedAgentPanes() throws {
         let original = crashTestWindow([crashTestWorkspace("api", agents: ["a"])])
