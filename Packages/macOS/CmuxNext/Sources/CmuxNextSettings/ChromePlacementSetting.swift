@@ -15,10 +15,10 @@ public nonisolated struct ChromePlacementSetting {
     public static let browserToolbarPositionPath = ["browser", "toolbarPosition"]
 
     /// The title bar the window uses: `window.titlebar`, except standard
-    /// while tab bars sit at the bottom (the traffic lights then need a row
-    /// that is not content).
+    /// while tab bars are off the top edge (bottom, or the vertical left and
+    /// right columns): the traffic lights then need a row that is not content.
     public static func effectiveTitlebar(_ snapshot: CmuxConfigSnapshot) -> TitlebarStyle {
-        snapshot.tabBarPosition == .bottom ? .standard : snapshot.titlebar
+        snapshot.tabBarPosition == .top ? snapshot.titlebar : .standard
     }
 
     static func parse(_ root: JSONValue, into snapshot: inout CmuxConfigSnapshot) {
@@ -61,13 +61,15 @@ public nonisolated struct ChromePlacementSetting {
         SettingDescriptor(tabBarPositionPath, section: .general, group: group,
                           title: SettingsText.keyed("settings.tabs.barPosition", "Tab Bar Position"),
                           help: SettingsText.keyed("settings.tabs.barPosition.help",
-                                                   "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane."),
+                                                   "Where each pane's tabs sit. Left and Right show them as a vertical list (a prototype). Off the top, the standard title bar shows, so the window buttons never cover a pane."),
                           kind: .choice([
                               SettingChoice(TabBarPosition.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
                               SettingChoice(TabBarPosition.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
+                              SettingChoice(TabBarPosition.left.rawValue, SettingsText.keyed("settings.choice.verticalLeft", "Left (Vertical)")),
+                              SettingChoice(TabBarPosition.right.rawValue, SettingsText.keyed("settings.choice.verticalRight", "Right (Vertical)")),
                           ]),
                           default: .string(TabBarPosition.top.rawValue),
-                          keywords: ["tab bar", "tabs", "strip", "top", "bottom", "position", "layout", "pane"])
+                          keywords: ["tab bar", "tabs", "strip", "top", "bottom", "left", "right", "vertical", "vertical tabs", "side", "position", "layout", "pane"])
     }
 
     static func browserToolbarPositionDescriptor(group: SettingText) -> SettingDescriptor {

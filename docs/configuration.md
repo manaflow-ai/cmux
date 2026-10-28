@@ -218,6 +218,7 @@ Where Cmd-T and the + button put a new tab.
 ```
 
 - `"afterCurrent"` (default): right after the selected tab. A selected tab in a tab group puts the new tab after the group; it doesn't join the group.
+- `"beforeCurrent"`: right before (to the left of) the selected tab, or before its tab group. Never among the pinned tabs.
 - `"end"`: after the pane's last tab, as in Chrome and Edge.
 - `"start"`: first, right after the pinned tabs.
 
@@ -228,10 +229,41 @@ To put one new tab in a specific place, whatever the setting, use these commands
 | Command | CLI |
 |---|---|
 | **New Tab After Current Tab** | `cmux tab new-after-current` |
+| **New Tab Before Current Tab** | `cmux tab new-before-current` |
 | **New Tab at Start** | `cmux tab new-at-start` |
 | **New Tab at End** | `cmux tab new-at-end` |
 
-**New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition end`.
+**New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs**, with `cmux settings set tabs.newTabPosition end`, or with one command per choice (Cmd-Shift-P, the CLI, or MCP):
+
+| Command | CLI |
+|---|---|
+| **New Tabs Open: After the Current Tab** | `cmux settings new-tabs-after-current` |
+| **New Tabs Open: Before the Current Tab** | `cmux settings new-tabs-before-current` |
+| **New Tabs Open: At the Start** | `cmux settings new-tabs-at-start` |
+| **New Tabs Open: At the End** | `cmux settings new-tabs-at-end` |
+
+## `tabs.barPosition`
+
+Where each pane's tabs sit.
+
+```json
+{
+  "tabs": { "barPosition": "top" }
+}
+```
+
+- `"top"` (default): a tab bar above the pane's content.
+- `"bottom"`: a tab bar below the content.
+- `"left"` and `"right"`: a prototype of vertical tabs. The pane shows its tabs as a list on that edge, with the pane's buttons at the top of the list and a + at the bottom. Click a row to select its tab; hover it for its close button, or middle-click it to close. Drag to reorder, tab groups, hover cards and the tab's right-click menu are not in the vertical list yet.
+
+When the tabs are not at the top, the window shows the standard title bar, so the window buttons never cover a pane. Change the setting in **Settings > General > Tabs**, with `cmux settings set tabs.barPosition left`, or with one command per choice (Cmd-Shift-P, the CLI, or MCP):
+
+| Command | CLI |
+|---|---|
+| **Tab Bar Position: Top** | `cmux settings tab-bar-top` |
+| **Tab Bar Position: Bottom** | `cmux settings tab-bar-bottom` |
+| **Tab Bar Position: Left (Vertical)** | `cmux settings tab-bar-left` |
+| **Tab Bar Position: Right (Vertical)** | `cmux settings tab-bar-right` |
 
 ## `tabs.newTabTemplate`
 

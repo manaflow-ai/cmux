@@ -22,4 +22,12 @@ public nonisolated enum TabBarPosition: String, Sendable, CaseIterable, Codable 
     /// Below the pane's content; the window then uses the standard title
     /// bar, so the traffic lights never sit over content.
     case bottom
+    /// A vertical column of tabs on the pane's left edge (prototype, user
+    /// 2026-10-27); the window uses the standard title bar, as for bottom.
+    case left
+    /// A vertical column of tabs on the pane's right edge (prototype).
+    case right
+
+    /// Left or right: the pane shows its tabs as a vertical column.
+    public var isVertical: Bool { self == .left || self == .right }
 }

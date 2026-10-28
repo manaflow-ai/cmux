@@ -12,11 +12,12 @@ nonisolated enum TabSettingsSchema {
                                     "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab."),
             kind: .choice([
                 SettingChoice(NewTabPosition.afterCurrent.rawValue, SettingsText.keyed("settings.choice.newTabPositionAfterCurrent", "After the Current Tab")),
+                SettingChoice(NewTabPosition.beforeCurrent.rawValue, SettingsText.keyed("settings.choice.newTabPositionBeforeCurrent", "Before the Current Tab")),
                 SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
                 SettingChoice(NewTabPosition.start.rawValue, SettingsText.keyed("settings.choice.newTabPositionStart", "At the Start")),
             ]),
             default: .string(NewTabPosition.fallback.rawValue),
-            keywords: ["new tab", "cmd-t", "position", "order", "right", "end", "after", "start", "first", "beginning", "insert"]
+            keywords: ["new tab", "cmd-t", "position", "order", "right", "left", "before", "end", "after", "start", "first", "beginning", "insert"]
         )
     }
 

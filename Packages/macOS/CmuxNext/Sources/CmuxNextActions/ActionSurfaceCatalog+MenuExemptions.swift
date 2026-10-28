@@ -13,6 +13,8 @@ nonisolated extension ActionSurfaceCatalog {
             "newTab.default",
             // The tab's menu has New Tab to the Right (this, Chrome's name) and, in New, at Start and at End.
             "newTab.afterCurrent",
+            // Its mirror; the tab's New submenu keeps at Start and at End.
+            "newTab.beforeCurrent",
             // The pane's menu offers Show Tab Bar (Hide Tab Bar while shown), and the bar's + adds a tab once it shows.
             "newTab.horizontal",
         ],

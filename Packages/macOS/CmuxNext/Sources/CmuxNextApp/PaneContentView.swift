@@ -36,8 +36,11 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The edge the strip sits on (`tabs.barPosition`, R109); follows
     /// `DesignSettings` (`observePlacement`).
     var barPosition: TabBarPosition = .top {
-        didSet { if barPosition != oldValue { updateBand() } }
+        didSet { if barPosition != oldValue { updateVerticalTabs(); updateBand() } }
     }
+    /// The tabs as a column on the left or right edge (`PaneContentView+VerticalTabs`); made the
+    /// first time the bar goes vertical, nil before.
+    var verticalTabs: VerticalTabListView?
     private var placementObservation: Task<Void, Never>?
     /// The pane's buttons at the strip's trailing end (`PaneContentView+Toolbar`).
     var toolbar: PaneToolbar? { didSet { installToolbar(replacing: oldValue) } }
@@ -101,6 +104,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         stripView = TabStripView(model: stripModel)
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         barPosition = DesignSettings.shared.tabBarPosition
+        updateVerticalTabs() // observers do not run for this init's own writes
         barOrder = DesignSettings.shared.tabBarOrder
         toolbarPosition = DesignSettings.shared.browserToolbarPosition
         wantsLayer = true
@@ -152,21 +156,22 @@ final class PaneContentView: NSView, PaneContentChrome {
     nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
+        let vertical = layoutVerticalTabs() // the content's frame beside a vertical tab column, else nil
         let stripHeight = self.stripHeight
         let contentHeight = max(0, bounds.height - stripHeight)
         let onTop = barPosition == .top
         // Pinned to a browser's band, the strip follows its constraints and
         // the browser fills the pane (its band holds the strip's place).
         let shown = shownStripHeight
-        stripView.isHidden = shown <= 0
-        toolbar?.view.isHidden = shown <= 0
+        stripView.isHidden = shown <= 0 || vertical != nil
+        if vertical == nil { toolbar?.view.isHidden = shown <= 0 }
         let tools = toolbarWidth(shown: shown), room = bounds.width - tools, row = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
         let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0 // a chat's tools in the row when they fit (PaneTabRowSharing)
-        if !isBandActive {
+        if !isBandActive, vertical == nil {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
         }
-        let hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
+        let hostFrame = vertical ?? (isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight))
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
@@ -200,6 +205,34 @@ final class PaneContentView: NSView, PaneContentChrome {
         layoutAgentTag()
         if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, in: self) }
         if hostChanged { onResize?() }
+    }
+
+    /// Makes the vertical tab column the first time the bar goes left or right; hides it otherwise.
+    func updateVerticalTabs() {
+        if barPosition.isVertical, verticalTabs == nil {
+            let column = VerticalTabListView(model: stripView.model)
+            addSubview(column, positioned: .below, relativeTo: toolbar?.view)
+            verticalTabs = column
+        }
+        verticalTabs?.isHidden = !barPosition.isVertical || hidesStrip
+        needsLayout = true
+    }
+
+    /// Lays out the vertical column (`VerticalTabsLayout`) and returns the content's frame; nil, with
+    /// the column hidden, while the bar is horizontal or the person hid this pane's tabs.
+    private func layoutVerticalTabs() -> NSRect? {
+        guard barPosition.isVertical, !hidesStrip, let column = verticalTabs else {
+            verticalTabs?.isHidden = true
+            return nil
+        }
+        let frames = VerticalTabsLayout(bounds: bounds, onLeft: barPosition == .left,
+                                        toolsWidth: toolbar?.view.intrinsicContentSize.width ?? 0, rowHeight: stripHeight)
+        column.isHidden = false
+        column.frame = frames.column
+        column.topInset = frames.tools.height
+        toolbar?.view.isHidden = frames.tools.isEmpty
+        toolbar?.view.frame = frames.tools
+        return frames.content
     }
 
     // MARK: PaneContentChrome

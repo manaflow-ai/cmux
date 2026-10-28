@@ -148,7 +148,7 @@ extension ActionDescriptor {
                       ]),
         PaletteFamily("tab.new", title: familyTitle("palette.family.tab.new", "Tab: New in Position…"),
                       symbol: "plus.rectangle.on.rectangle", members: [
-                          "newTab.afterCurrent", "newTab.atEnd", "newTab.atStart", "newTab.toRight", "newTab.horizontal",
+                          "newTab.afterCurrent", "newTab.beforeCurrent", "newTab.atEnd", "newTab.atStart", "newTab.toRight", "newTab.horizontal",
                           "newTab.ofKind",
                       ]),
         PaletteFamily("tab.close", title: familyTitle("palette.family.tab.close", "Tab: Close Several…"),

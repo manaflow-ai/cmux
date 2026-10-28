@@ -41,6 +41,7 @@ enum AppearanceHandlers {
                                   path: CenterFocusedColumnSetting.configPath, fileValue: { .string($0.rawValue) }, save: save) { context.design.centerFocusedColumn = $0 }
         ChromeStyleSetting.bindActions(into: registry, design: context.design, save: save)
         TabOverflowSetting.bindActions(into: registry, design: context.design, save: save)
+        TabPlacementSetting.bindActions(into: registry, design: context.design, save: save)
         LinkRouting.bindActions(into: registry, save: save)
         registry.bind("appearance.interfaceSize.increase", run: { _ in try stepInterfaceSize(by: 1, context) })
         registry.bind("appearance.interfaceSize.decrease", run: { _ in try stepInterfaceSize(by: -1, context) })
@@ -129,9 +130,9 @@ enum AppearanceHandlers {
     /// `window.titlebar`: applied at once, then written to cmux.json.
     private static func setTitlebar(_ style: TitlebarStyle, _ context: AppActionContext) throws {
         try requireUnmanaged(WindowTitlebarSetting.configPath, context)
-        // Tab bars at the bottom keep the standard title bar (R109,
+        // Tab bars off the top keep the standard title bar (R109,
         // `ChromePlacementSetting.effectiveTitlebar`); the choice is saved.
-        context.design.titlebar = context.design.tabBarPosition == .bottom ? .standard : style
+        context.design.titlebar = context.design.tabBarPosition == .top ? style : .standard
         // The default removes the key (and an emptied `window` object).
         let value: JSONValue? = style == WindowTitlebarSetting.fallback ? nil : .string(style.rawValue)
         context.writeSetting("set titlebar", WindowTitlebarSetting.configPath, value, reloadOnFailure: true)

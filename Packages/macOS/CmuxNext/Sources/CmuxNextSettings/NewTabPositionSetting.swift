@@ -4,13 +4,16 @@
 public nonisolated enum NewTabPosition: String, Sendable, Hashable, CaseIterable {
     /// Right after the selected tab (after its tab group), the default.
     case afterCurrent
+    /// Right before the selected tab (before its tab group), never among the
+    /// pinned tabs: new tabs open on the left (user 2026-10-27).
+    case beforeCurrent
     /// At the end of the pane's tabs.
     case end
     /// First, right after the pinned tabs.
     case start
 }
 
-/// `tabs.newTabPosition` in cmux.json: "afterCurrent" (default), "end" or "start".
+/// `tabs.newTabPosition` in cmux.json: "afterCurrent" (default), "beforeCurrent", "end" or "start".
 nonisolated extension NewTabPosition {
     public static let configPath = ["tabs", "newTabPosition"]
     public static let fallback: NewTabPosition = .afterCurrent

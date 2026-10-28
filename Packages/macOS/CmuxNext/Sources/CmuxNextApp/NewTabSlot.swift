@@ -5,8 +5,8 @@ import CmuxNextWakeups
 
 /// Where a new tab the user opens goes (cx-d0d.58). Cmd-T and the strip's
 /// + follow `tabs.newTabPosition`: right after the selected tab by default
-/// (Lawrence 2026-10-20), else at the end or the start (after the pinned
-/// tabs). New Tab After Current Tab, at Start, at End and the tab menu's
+/// (Lawrence 2026-10-20), else right before it (user 2026-10-27), at the end
+/// or at the start (after the pinned tabs). New Tab After Current Tab, at Start, at End and the tab menu's
 /// New Tab to the Right name their place whatever the setting says. The
 /// tab is made where it always is (the end), then moves into its slot
 /// (`TabMoves.move`, optimistic) as soon as its pane lists it. A tab made in
@@ -21,17 +21,19 @@ enum NewTabSlot {
     enum Target: Equatable {
         /// Right after this tab, after its tab group.
         case after(TabModel)
+        /// Right before this tab, before its tab group, never among the pinned tabs.
+        case before(TabModel)
         /// First after the pinned tabs of the pane this tab is in.
         case start(TabModel)
 
         /// The tab that names the pane.
         var anchor: TabModel {
-            switch self { case .after(let tab), .start(let tab): tab }
+            switch self { case .after(let tab), .before(let tab), .start(let tab): tab }
         }
 
         static func == (lhs: Target, rhs: Target) -> Bool {
             switch (lhs, rhs) {
-            case (.after(let a), .after(let b)), (.start(let a), .start(let b)): a === b
+            case (.after(let a), .after(let b)), (.before(let a), .before(let b)), (.start(let a), .start(let b)): a === b
             default: false
             }
         }
@@ -46,6 +48,7 @@ enum NewTabSlot {
         switch explicit ?? (user ? setting ?? NewTabPosition.fallback : .end) {
         case .end: nil
         case .afterCurrent: current.map(Target.after)
+        case .beforeCurrent: current.map(Target.before)
         case .start: (current ?? pane.first).map(Target.start)
         }
     }
@@ -91,8 +94,15 @@ enum NewTabSlot {
     @discardableResult
     private static func begin(_ target: Target, in pane: PaneModel, services: AppServices) -> DemandTimer? {
         switch target {
-        case .after(let anchor): NewTabSuccession.begin(after: anchor.id, in: pane, services: services)
-        case .start: NewTabSuccession.begin(atStartOf: pane, services: services)
+        case .after(let anchor):
+            return NewTabSuccession.begin(after: anchor.id, in: pane, services: services)
+        case .before(let anchor):
+            // Shown right after the tab the new one follows; first (after the pinned tabs) when that is the start.
+            let pinned = pane.tabs.prefix { $0.pinned }.count
+            guard let index = slot(before: anchor, in: pane.tabs), index > pinned else { return NewTabSuccession.begin(atStartOf: pane, services: services) }
+            return NewTabSuccession.begin(after: pane.tabs[index - 1].id, in: pane, services: services)
+        case .start:
+            return NewTabSuccession.begin(atStartOf: pane, services: services)
         }
     }
 
@@ -153,8 +163,19 @@ enum NewTabSlot {
     static func slot(for target: Target, in others: [TabModel]) -> Int? {
         switch target {
         case .after(let anchor): slot(after: anchor, in: others)
+        case .before(let anchor): slot(before: anchor, in: others)
         case .start: others.prefix { $0.pinned }.count
         }
+    }
+
+    /// The final index right before `anchor` among `others`: before the anchor's tab group,
+    /// never among the pinned tabs. Nil when the anchor left.
+    static func slot(before anchor: TabModel, in others: [TabModel]) -> Int? {
+        guard var index = others.firstIndex(where: { $0 === anchor }) else { return nil }
+        if let group = others[index].tabGroup {
+            while index > 0, others[index - 1].tabGroup == group { index -= 1 }
+        }
+        return max(index, others.prefix { $0.pinned }.count)
     }
 
     /// The final index right after `anchor` among `others` (the pane's tabs

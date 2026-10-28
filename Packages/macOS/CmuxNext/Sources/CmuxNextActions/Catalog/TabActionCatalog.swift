@@ -41,6 +41,14 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
                 targets: [.tab], cliName: "tab new-after-current"
             ),
+            // New tabs on the left of the current one (user 2026-10-27), whatever the setting says.
+            ActionDescriptor(
+                id: "newTab.beforeCurrent",
+                title: String(localized: "action.newTab.beforeCurrent", defaultValue: "New Tab Before Current Tab", bundle: .module),
+                keywords: ["tab", "new", "before", "current", "left", "next to", "beside", "insert", "create"],
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
+                targets: [.tab], cliName: "tab new-before-current"
+            ),
             ActionDescriptor(
                 id: "newTab.atStart",
                 title: String(localized: "action.newTab.atStart", defaultValue: "New Tab at Start", bundle: .module),

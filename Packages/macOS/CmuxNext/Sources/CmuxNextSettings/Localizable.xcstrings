@@ -58399,127 +58399,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "各ペインのタブバーの位置。下にすると標準のタイトルバーも表示され、ウインドウのボタンがペインを覆うことはありません。"
+            "value": "Where each pane's tabs sit. Left and Right show them as a vertical list (a prototype). Off the top, the standard title bar shows, so the window buttons never cover a pane."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "مكان شريط علامات التبويب في كل جزء. عند وضعه في الأسفل يظهر شريط العنوان القياسي أيضًا، فلا تغطي أزرار النافذة أي جزء."
+            "state": "translated",
+            "value": "مكان علامات التبويب في كل جزء. اليسار واليمين يعرضانها كقائمة عمودية (نموذج أولي). عند نقلها من الأعلى يظهر شريط العنوان القياسي، فلا تغطي أزرار النافذة أي جزء."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gdje je traka kartica svakog okna. Dolje se prikazuje i standardna naslovna traka, pa dugmad prozora nikad ne prekrivaju okno."
+            "state": "translated",
+            "value": "Gdje su kartice svakog okna. Lijevo i Desno ih prikazuju kao vertikalnu listu (prototip). Kada nisu gore, prikazuje se standardna naslovna traka, pa dugmad prozora nikad ne prekrivaju okno."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hvor hver rudes fanebjælke sidder. Nederst vises også den almindelige titellinje, så vinduesknapperne aldrig dækker en rude."
+            "state": "translated",
+            "value": "Hvor hver rudes faner sidder. Venstre og Højre viser dem som en lodret liste (en prototype). Når de ikke er øverst, vises den almindelige titellinje, så vinduesknapperne aldrig dækker en rude."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Wo die Tableiste jedes Bereichs sitzt. Unten wird auch die Standard-Titelleiste gezeigt, damit die Fenstertasten nie einen Bereich verdecken."
+            "state": "translated",
+            "value": "Wo die Tabs jedes Bereichs sitzen. Links und Rechts zeigen sie als senkrechte Liste (ein Prototyp). Nicht oben erscheint die normale Titelleiste, damit die Fensterknöpfe nie einen Bereich verdecken."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Dónde está la barra de pestañas de cada panel. Abajo también muestra la barra de título estándar, para que los botones de la ventana nunca tapen un panel."
+            "state": "translated",
+            "value": "Dónde están las pestañas de cada panel. Izquierda y Derecha las muestran como una lista vertical (un prototipo). Fuera de la parte superior se muestra la barra de título estándar, así los botones de la ventana nunca tapan un panel."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Emplacement de la barre d’onglets de chaque sous-fenêtre. En bas, la barre de titre standard s’affiche aussi, pour que les boutons de la fenêtre ne masquent jamais une sous-fenêtre."
+            "state": "translated",
+            "value": "L’emplacement des onglets de chaque volet. À gauche et À droite les affichent en liste verticale (un prototype). Hors du haut, la barre de titre standard s’affiche, pour que les boutons de la fenêtre ne couvrent jamais un volet."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Dove si trova la barra delle schede di ogni riquadro. In basso mostra anche la barra del titolo standard, così i pulsanti della finestra non coprono mai un riquadro."
+            "state": "translated",
+            "value": "Dove si trovano le schede di ogni riquadro. A sinistra e A destra le mostrano come elenco verticale (un prototipo). Se non sono in alto, compare la barra del titolo standard, così i pulsanti della finestra non coprono mai un riquadro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各ペインのタブの位置。左と右では縦のリストで表示します(試作)。上以外では標準のタイトルバーが表示され、ウインドウのボタンがペインを覆うことはありません。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "កន្លែងដែលរបារផ្ទាំងនៃផ្ទាំងនីមួយៗស្ថិតនៅ។ នៅខាងក្រោម របារចំណងជើងស្តង់ដារក៏បង្ហាញដែរ ដូច្នេះប៊ូតុងបង្អួចមិនគ្របផ្ទាំងទេ។"
+            "state": "translated",
+            "value": "កន្លែងដែលផ្ទាំងរបស់ផ្នែកនីមួយៗស្ថិតនៅ។ ឆ្វេង និងស្ដាំ បង្ហាញវាជាបញ្ជីបញ្ឈរ (គំរូសាកល្បង)។ នៅពេលមិននៅខាងលើ របារចំណងជើងស្តង់ដារបង្ហាញ ដូច្នេះប៊ូតុងបង្អួចមិនដែលគ្របផ្នែកណាមួយឡើយ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "각 패널의 탭 막대 위치입니다. 아래쪽에 두면 표준 제목 막대도 표시되어 윈도우 버튼이 패널을 가리지 않습니다."
+            "state": "translated",
+            "value": "각 패널의 탭 위치입니다. 왼쪽과 오른쪽은 탭을 세로 목록으로 표시합니다(프로토타입). 위가 아니면 표준 제목 막대가 표시되어 윈도우 버튼이 패널을 가리지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hvor hver rutes fanelinje ligger. Nederst vises også standard tittellinje, slik at vindusknappene aldri dekker en rute."
+            "state": "translated",
+            "value": "Hvor fanene i hver rute sitter. Venstre og Høyre viser dem som en loddrett liste (en prototype). Når de ikke er øverst, vises den vanlige tittellinjen, så vindusknappene aldri dekker en rute."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Miejsce paska kart każdego panelu. Na dole widoczny jest też standardowy pasek tytułu, więc przyciski okna nigdy nie zasłaniają panelu."
+            "state": "translated",
+            "value": "Gdzie są karty każdego panelu. Po lewej i Po prawej pokazują je jako pionową listę (prototyp). Poza górą widać standardowy pasek tytułu, więc przyciski okna nigdy nie zasłaniają panelu."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Onde fica a barra de abas de cada painel. Embaixo, a barra de título padrão também aparece, para que os botões da janela nunca cubram um painel."
+            "state": "translated",
+            "value": "Onde ficam as abas de cada painel. À esquerda e À direita as mostram como uma lista vertical (um protótipo). Fora do topo, a barra de título padrão aparece, então os botões da janela nunca cobrem um painel."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Где находится панель вкладок каждой панели. Внизу также показывается стандартная строка заголовка, и кнопки окна не закрывают панель."
+            "state": "translated",
+            "value": "Где находятся вкладки каждой панели. Слева и Справа показывают их вертикальным списком (прототип). Если вкладки не сверху, показывается стандартная строка заголовка, и кнопки окна не закрывают панель."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ตำแหน่งแถบแท็บของแต่ละบานหน้าต่าง หากอยู่ด้านล่าง จะแสดงแถบชื่อเรื่องมาตรฐานด้วย ปุ่มหน้าต่างจึงไม่บังบานหน้าต่าง"
+            "state": "translated",
+            "value": "ตำแหน่งของแท็บในแต่ละบานหน้าต่าง ซ้ายและขวาแสดงแท็บเป็นรายการแนวตั้ง (ต้นแบบ) เมื่อไม่ได้อยู่ด้านบน จะแสดงแถบชื่อเรื่องมาตรฐาน ปุ่มหน้าต่างจึงไม่บังบานหน้าต่างใดเลย"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Her bölmenin sekme çubuğunun yeri. Altta standart başlık çubuğu da gösterilir, böylece pencere düğmeleri hiçbir bölmeyi örtmez."
+            "state": "translated",
+            "value": "Her bölmenin sekmelerinin yeri. Sol ve Sağ onları dikey bir liste olarak gösterir (bir prototip). Üstte değilken standart başlık çubuğu görünür, böylece pencere düğmeleri hiçbir bölmeyi kapatmaz."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Де розташована панель вкладок кожної панелі. Унизу також показується стандартний рядок заголовка, тож кнопки вікна не закривають панель."
+            "state": "translated",
+            "value": "Де розташовані вкладки кожної панелі. Ліворуч і Праворуч показують їх вертикальним списком (прототип). Якщо вкладки не згори, показується стандартний рядок заголовка, тож кнопки вікна ніколи не закривають панель."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Vị trí thanh tab của mỗi ngăn. Khi ở dưới, thanh tiêu đề chuẩn cũng hiện ra, nên các nút cửa sổ không bao giờ che một ngăn."
+            "state": "translated",
+            "value": "Vị trí các tab của mỗi ngăn. Trái và Phải hiển thị chúng thành danh sách dọc (bản thử nghiệm). Khi không ở trên cùng, thanh tiêu đề chuẩn sẽ hiện, nên các nút cửa sổ không bao giờ che một ngăn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "每个窗格的标签栏位置。放在底部时还会显示标准标题栏，窗口按钮不会遮住窗格。"
+            "state": "translated",
+            "value": "每个窗格的标签页所在位置。左侧和右侧将标签页显示为竖排列表(原型)。不在顶部时会显示标准标题栏，窗口按钮不会遮住任何窗格。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "每個窗格的標籤列位置。放在底部時也會顯示標準標題列，視窗按鈕不會遮住窗格。"
+            "state": "translated",
+            "value": "每個窗格的分頁所在位置。左側和右側會將分頁顯示為直式列表(原型)。不在頂部時會顯示標準標題列，視窗按鈕不會遮住任何窗格。"
           }
         }
       }
@@ -180330,6 +180330,399 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Mép thanh bên không còn mờ dần và toàn bộ danh sách hiển thị. Thanh hồ sơ và tìm kiếm ở dưới cũng bị ẩn. Tắt: mép mờ dần và thanh hiển thị."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "侧边栏边缘不再渐隐，整个列表全部显示。同时隐藏底部的个人资料和搜索栏。关闭时边缘渐隐，并显示该栏。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄邊緣不再漸隱，整個列表全部顯示。同時隱藏底部的個人資料和搜尋列。關閉時邊緣漸隱，並顯示該列。"}}
+      }
+    },
+    "settings.choice.verticalLeft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left (Vertical)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يسار (عمودي)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lijevo (vertikalno)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venstre (lodret)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links (vertikal)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izquierda (vertical)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À gauche (vertical)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sinistra (verticale)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左(縦)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឆ្វេង (បញ្ឈរ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "왼쪽(세로)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venstre (loddrett)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po lewej (pionowo)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À esquerda (vertical)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Слева (вертикально)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ้าย (แนวตั้ง)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sol (Dikey)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ліворуч (вертикально)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trái (dọc)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左侧(竖排)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左側(直式)"
+          }
+        }
+      }
+    },
+    "settings.choice.verticalRight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right (Vertical)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمين (عمودي)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desno (vertikalno)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Højre (lodret)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechts (vertikal)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Derecha (vertical)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À droite (vertical)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A destra (verticale)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右(縦)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ដាំ (បញ្ឈរ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽(세로)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Høyre (loddrett)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po prawej (pionowo)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À direita (vertical)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Справа (вертикально)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขวา (แนวตั้ง)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sağ (Dikey)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Праворуч (вертикально)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phải (dọc)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右侧(竖排)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右側(直式)"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabPositionBeforeCurrent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before the Current Tab"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قبل علامة التبويب الحالية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prije trenutne kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Før den aktuelle fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem aktuellen Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antes de la pestaña actual"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avant l’onglet actuel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prima della scheda corrente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のタブの前"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មុនផ្ទាំងបច្ចុប្បន្ន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 탭 앞"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Før gjeldende fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przed bieżącą kartą"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antes da aba atual"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перед текущей вкладкой"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ก่อนแท็บปัจจุบัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçerli Sekmeden Önce"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перед поточною вкладкою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trước tab hiện tại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前标签页之前"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前分頁之前"
+          }
+        }
       }
     }
   },

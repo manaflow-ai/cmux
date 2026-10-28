@@ -376,6 +376,64 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "arrow.right.and.line.vertical.and.arrow.left", surfaces: [.palette], cliName: "settings use-shrinking-tabs",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // Tab Bar Position and New Tab Position (`tabs.barPosition`, `tabs.newTabPosition`; user
+            // 2026-10-27): one action per choice. Settings changes with no object; no default shortcut.
+            ActionDescriptor(
+                id: "tabs.barPosition.top",
+                title: String(localized: "action.tabs.barPosition.top", defaultValue: "Tab Bar Position: Top", bundle: .module),
+                keywords: ["tab", "tabs", "tab bar", "strip", "position", "top", "vertical", "side", "layout", "pane"], category: .settings,
+                symbol: "rectangle.tophalf.inset.filled", surfaces: [.palette], cliName: "settings tab-bar-top",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "tabs.barPosition.bottom",
+                title: String(localized: "action.tabs.barPosition.bottom", defaultValue: "Tab Bar Position: Bottom", bundle: .module),
+                keywords: ["tab", "tabs", "tab bar", "strip", "position", "bottom", "vertical", "side", "layout", "pane"], category: .settings,
+                symbol: "rectangle.bottomhalf.inset.filled", surfaces: [.palette], cliName: "settings tab-bar-bottom",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "tabs.barPosition.left",
+                title: String(localized: "action.tabs.barPosition.left", defaultValue: "Tab Bar Position: Left (Vertical)", bundle: .module),
+                keywords: ["tab", "tabs", "tab bar", "strip", "position", "left", "vertical", "side", "layout", "pane"], category: .settings,
+                symbol: "sidebar.left", surfaces: [.palette], cliName: "settings tab-bar-left",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "tabs.barPosition.right",
+                title: String(localized: "action.tabs.barPosition.right", defaultValue: "Tab Bar Position: Right (Vertical)", bundle: .module),
+                keywords: ["tab", "tabs", "tab bar", "strip", "position", "right", "vertical", "side", "layout", "pane"], category: .settings,
+                symbol: "sidebar.right", surfaces: [.palette], cliName: "settings tab-bar-right",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "tabs.newTabPosition.afterCurrent",
+                title: String(localized: "action.tabs.newTabPosition.afterCurrent", defaultValue: "New Tabs Open: After the Current Tab", bundle: .module),
+                keywords: ["new tab", "tab", "tabs", "position", "cmd-t", "insert", "after", "right", "current"], category: .settings,
+                symbol: "arrow.right.to.line", surfaces: [.palette], cliName: "settings new-tabs-after-current",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "tabs.newTabPosition.beforeCurrent",
+                title: String(localized: "action.tabs.newTabPosition.beforeCurrent", defaultValue: "New Tabs Open: Before the Current Tab", bundle: .module),
+                keywords: ["new tab", "tab", "tabs", "position", "cmd-t", "insert", "before", "left", "current"], category: .settings,
+                symbol: "arrow.left.to.line", surfaces: [.palette], cliName: "settings new-tabs-before-current",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "tabs.newTabPosition.start",
+                title: String(localized: "action.tabs.newTabPosition.start", defaultValue: "New Tabs Open: At the Start", bundle: .module),
+                keywords: ["new tab", "tab", "tabs", "position", "cmd-t", "insert", "start", "first", "beginning", "left"], category: .settings,
+                symbol: "backward.end", surfaces: [.palette], cliName: "settings new-tabs-at-start",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "tabs.newTabPosition.end",
+                title: String(localized: "action.tabs.newTabPosition.end", defaultValue: "New Tabs Open: At the End", bundle: .module),
+                keywords: ["new tab", "tab", "tabs", "position", "cmd-t", "insert", "end", "last", "append", "right"], category: .settings,
+                symbol: "forward.end", surfaces: [.palette], cliName: "settings new-tabs-at-end",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             // Links (`browser.openLinksInCmuxBrowser`, cx-ir3z4): where a clicked link opens, from every
             // surface. Settings changes with no object; no default shortcut.
             ActionDescriptor(
