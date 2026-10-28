@@ -14,11 +14,7 @@ export default agentPaneEntry({
   title: "Hoverable transcript times",
   area: "Agent pane",
   height: 420,
-  covers: [
-    "agent-session/acpmux/conversation/Markdown.tsx",
-    "agent-session/acpmux/conversation/timeHover.tsx",
-    "agent-session/acpmux/conversation/conversation.css",
-  ],
+  covers: ["agent-session/acpmux/conversation/Markdown.tsx", "agent-session/acpmux/conversation/timeHover.tsx"],
   variants: {
     transcript: {
       note: "Assistant Markdown timestamps become keyboard-focusable local-time tooltips; hover or focus the dotted-underlined times. The same state is readable in the gallery's light and dark themes.",

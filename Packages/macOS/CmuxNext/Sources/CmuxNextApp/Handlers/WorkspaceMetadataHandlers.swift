@@ -84,7 +84,12 @@ enum WorkspaceMetadataHandlers {
         } else {
             let update: FieldUpdate<String> = color.map { .set($0.rawValue) } ?? .clear
             let daemon = context.services.activeDaemon, resource = daemon.store.stateResourceID(workspace: key)
-            daemon.send("set-workspace-metadata") { try await $0.state.setWorkspaceIdentity(key, resource: resource, color: update) }
+            // The same store intent as the sidebar's path (#25657): shown now, rolled back on a refusal.
+            let send = daemon.intendNow("set-workspace-metadata", .setWorkspaceColor(key: key, color: color?.rawValue), transaction: .generate()) {
+                try await $0.state.setWorkspaceIdentity(key, resource: resource, color: update)
+            }
+            // task-owner: one metadata command; the store intent settles or rolls back on its reply
+            Task { _ = await send() }
         }
     }
 

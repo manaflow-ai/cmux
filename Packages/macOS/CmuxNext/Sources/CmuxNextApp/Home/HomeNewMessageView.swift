@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
@@ -54,6 +55,9 @@ final class HomeNewMessageView: NSView {
         // Before anyone is chosen the list under To: offers the Chiefs (plans/cmux-next/chief-group-chats-DESIGN.md).
         field.idleSuggestions = { [weak home, weak field] in field.flatMap { home?.newMessageChiefs($0.draft) } ?? [] }
         field.suggestions.look = { [weak home] in home?.recipientLook($0) ?? HomeRecipientLook() }
+        // The list's New Chief and Invite rows run the same actions as the Home menu and the palette.
+        field.onNewChief = { [weak services] in _ = services?.registry.perform("home.newChief", invocation: ActionInvocation(origin: .user)) }
+        field.onInvite = { [weak services] in _ = services?.registry.perform("home.invite", invocation: ActionInvocation(origin: .user)) }
         field.onChange = { [weak self] _ in self?.recipientsChanged() }
         field.onDone = { [weak self] in self?.focusMessageBox() }
         field.onEscape = { [weak self] in

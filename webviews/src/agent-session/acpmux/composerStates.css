@@ -147,7 +147,7 @@
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
     :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]):not([data-top-strip="plain"])
-      .acpmux-composer
+      .acpmux-composer:is([data-composer-look="codex"], :root[data-top-strip] *)
       > .acpmux-composer-strip {
       background:
         linear-gradient(var(--glass-tint), var(--glass-tint)),
@@ -158,7 +158,7 @@
 /* The lens draws the stack as one glass: a seam between the queue, its fold, the strip and the card
    bends nothing (--glass-join, ui/glass/lens.ts). By default the queue stands on the strip or the
    card; under the tray it tucks under the card, which draws its whole rim over it. */
-:root:not([data-top-strip]) .acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box {
+:root:not([data-top-strip]) .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box {
   /* glass-opaque-allow: a keyword (top, bottom, both) the lens reads, not a color */
   --glass-join: top;
 }
@@ -227,11 +227,11 @@
   :root[data-cmux-see-through]:not([data-reduce-transparency]) .nt-box {
     box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
   }
-  /* Under the default strip, a strip or a queue, the ring goes round strip and card as one on the
-     card's ::before layer (composerLocation.css), so the card adds only the rim and the shadow.
-     (0,6,0) here outranks the rule above whatever the stylesheet order. */
+  /* Under a queue the ring goes on the card's ::before layer (composerLocation.css), so the card
+     adds only the rim and the shadow. (0,6,0) here outranks the rule above whatever the stylesheet
+     order. */
   :root:not([data-reduce-transparency]):not([data-top-strip])
-    .acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box {
+    .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box {
     box-shadow: var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
   }
 }
@@ -275,6 +275,7 @@
   line-height: var(--text-control--line-height);
   white-space: nowrap;
   cursor: pointer;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-steer:hover {
   background: var(--acpmux-composer-hover);
@@ -456,11 +457,6 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .nt-composer .acpmux-composer-strip:focus-within {
   --acpmux-strip-edge: var(--acpmux-composer-edge-focus);
 }
-/* By default the card's one rim goes round the strip too (composerLocation.css), so a focused
-   location control lifts that rim, as the prompt and chips do. */
-.acpmux-composer:not([data-shell]):has(> .acpmux-composer-strip :focus-visible) > .acpmux-composer-box {
-  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
-}
 /* Queued prompts stack on the card's top edge (or the strip's) as part of the same outline, so their
    sides take the focused tone too (styles.css draws them in --acpmux-composer-edge). */
 .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
@@ -568,6 +564,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   font-size: var(--text-detail);
   line-height: 18px;
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-queued-more .ui-menu-shortcut {
   margin-inline-start: auto;
@@ -584,6 +581,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   font-size: var(--text-detail);
   font-weight: 600;
   line-height: 18px;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-queued-kind[data-kind="steer"] {
   /* Inline before the prompt at its smaller size: top-aligned, so the line stays 18px. */
@@ -675,7 +673,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   color: var(--acpmux-composer-dim);
   font: inherit;
   font-size: var(--text-detail);
-  cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-queue-fold:hover {
   background: var(--agent-control-hover);
@@ -759,7 +757,6 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: var(--acpmux-composer-bg);
   box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
   color: var(--agent-text);
-  cursor: default;
 }
 .acpmux-queued-image-remove:hover {
   background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
