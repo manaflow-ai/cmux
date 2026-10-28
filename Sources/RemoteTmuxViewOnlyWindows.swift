@@ -48,4 +48,12 @@ enum RemoteTmuxViewOnlyWindows {
         }
         return adoptions
     }
+
+    /// The tmux commands that carry out `adoptions`, in order.
+    static func linkCommands(_ adoptions: [Adoption]) -> [String] {
+        adoptions.map { adoption in
+            let target = RemoteTmuxHost.shellSingleQuoted("=\(adoption.sessionName):\(adoption.afterWindowIndex)")
+            return "link-window -a -s \(adoption.windowId) -t \(target)"
+        }
+    }
 }
