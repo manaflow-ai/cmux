@@ -6,6 +6,13 @@ public import Foundation
 /// whole (atomically, owner-only, as the folders and machines a user works on are their own). An
 /// actor, so the file IO never runs on the main actor.
 public actor SavedEnvironments: AgentPaneEnvironmentStoring {
+    /// The actor's own serial queue: its file calls block this queue, never a cooperative pool thread
+    /// (Chrome runs file work on a MayBlock sequence, base/task/task_traits.h).
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.agent-pane.saved-environments", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     /// Most environments kept; a save past it is refused.
     static let maximumCount = 200
 
@@ -97,10 +104,10 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
             throw Failure.unwritable
         }
         do {
-            let handle = try FileHandle(forWritingTo: temporary)
+            let handle = try FileHandle.blockingForWriting(to: temporary)
             do {
-                try handle.write(contentsOf: data)
-                try handle.synchronize()
+                try handle.blockingWrite(contentsOf: data)
+                try handle.blockingSynchronize()
                 try handle.close()
             } catch {
                 try? handle.close()
@@ -108,7 +115,7 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
             }
             // A plain rename: the new file's own 0600 mode replaces whatever the old one had.
             // SAFETY: rename reads the NUL-terminated copies of the two paths made for the call.
-            guard unsafe rename(temporary.path, url.path) == 0 else { throw Failure.unwritable }
+            guard unsafe blockingRename(temporary.path, url.path) == 0 else { throw Failure.unwritable }
         } catch {
             try? FileManager.default.removeItem(at: temporary)
             throw error

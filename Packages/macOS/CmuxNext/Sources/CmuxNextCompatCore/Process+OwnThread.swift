@@ -3,8 +3,8 @@ public import Foundation
 extension Process {
     /// Starts a process, like `run()`, on a new thread of its own at `qos`, and returns at once.
     ///
-    /// For a process without CmuxNextWakeups' `ProcessLauncher` (the privileged server helper links
-    /// only this file and `Mutex.swift` of Compat): the spawn, a fork and exec that takes hundreds of
+    /// For a process without CmuxNextWakeups' `ProcessLauncher` (the privileged server helper, which links
+    /// this module and not CmuxNextCompat): the spawn, a fork and exec that takes hundreds of
     /// ms under memory pressure, never runs on the caller's thread or on Swift's cooperative pool.
     /// Chromium launches children the same way, on a launcher thread of its own, never the UI thread
     /// (content/browser/child_process_launcher_helper.cc). The child runs at `qos` too.
@@ -34,6 +34,7 @@ extension Process {
             let process = child()
             process.qualityOfService = qos
             do {
+                // blocking-allow: the spawn runs on this thread of its own, made for it; nothing else waits on it.
                 try process.run()
             } catch {
                 return failed(error)

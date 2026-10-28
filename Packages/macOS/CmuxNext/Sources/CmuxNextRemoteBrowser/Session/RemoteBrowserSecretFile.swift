@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 #if DEBUG || CMUX_BENCH_HOOKS
 /// A remote browser host's per-launch secret, kept in a file that only this
@@ -36,7 +37,7 @@ public nonisolated struct RemoteBrowserSecretFile: Sendable, Hashable {
     /// The trimmed first line. The checks run on the opened descriptor, so
     /// the file that is checked is the file that is read.
     public func read() throws(Failure) -> String {
-        let fd = open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK)
+        let fd = blockingOpen(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK)
         guard fd >= 0 else { throw errno == ENOENT || errno == ENOTDIR ? .missing : .unreadable }
         defer { close(fd) }
         var info = stat()
@@ -45,7 +46,7 @@ public nonisolated struct RemoteBrowserSecretFile: Sendable, Hashable {
         guard info.st_uid == getuid() else { throw .notOwned }
         guard info.st_mode & 0o077 == 0 else { throw .notPrivate }
         var bytes = [UInt8](repeating: 0, count: Self.maxBytes)
-        let count = bytes.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
+        let count = bytes.withUnsafeMutableBytes { blockingRead(fd, $0.baseAddress, $0.count) }
         guard count >= 0 else { throw .unreadable }
         let text = String(decoding: bytes.prefix(count), as: UTF8.self)
         let first = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""

@@ -69,11 +69,10 @@ extension AgentPaneImageCopies {
         panel.begin { response in
             guard response == .OK, let destination = panel.url else { return }
             do {
-                let files = FileManager.default
-                if files.fileExists(atPath: destination.path) {
-                    _ = try files.replaceItemAt(destination, withItemAt: try stagedCopy(of: file, beside: destination))
+                if FileManager.checked.fileExists(atPath: destination.path) {
+                    _ = try FileManager.checked.replaceItemAt(destination, withItemAt: try stagedCopy(of: file, beside: destination))
                 } else {
-                    try files.copyItem(at: file, to: destination)
+                    try FileManager.checked.copyItem(at: file, to: destination)
                 }
             } catch {
                 NSSound.beep()
