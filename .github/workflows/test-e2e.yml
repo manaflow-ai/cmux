@@ -137,6 +137,7 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
+          skip-token-revoke: true
 
       - name: Mint the routing token without the org permission
         id: route-token-repo
@@ -151,6 +152,7 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
+          skip-token-revoke: true
 
       - name: Pick the macOS pool
         id: pool

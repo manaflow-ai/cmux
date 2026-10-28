@@ -740,6 +740,7 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
+          skip-token-revoke: true
 
       - name: Mint the routing token without the org permission
         id: route-token-repo
@@ -754,6 +755,7 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
+          skip-token-revoke: true
 
       - name: Choose the pull request macOS pool
         id: macos-pool
@@ -1041,6 +1043,7 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-actions: read
           permission-pull-requests: read
+          skip-token-revoke: true
 
       - name: Look for an earlier run that compiled these inputs
         id: admitted
