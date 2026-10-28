@@ -60,10 +60,16 @@ export interface ClientSessionValue {
 
 export type ClientSessionReply = { readonly ok: true; readonly value: ClientSessionValue } | { readonly ok: false; readonly refusal: ClientSessionRefusal }
 
-/** One identity per (machine, user), so repeated sessions reuse it instead of making a new provider identity each time. */
+/**
+ * One identity per (machine, user), so repeated sessions reuse it instead of making a new provider
+ * identity each time. An identity that must go (a VM the machine no longer has, a machine that is
+ * gone) moves to the retired table first and leaves it only once the provider confirms the delete,
+ * so a failed delete is retried (on the next mint, machine delete or alarm) and never forgotten.
+ */
 export class ClientIdentityStore {
   constructor(private readonly sql: SqlStore) {
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_client_identity (machine TEXT NOT NULL, user TEXT NOT NULL, identity TEXT NOT NULL, vm TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (machine, user))`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_client_identity_retired (identity TEXT PRIMARY KEY, at INTEGER NOT NULL)`)
   }
 
   get(machine: string, user: string): { identity: string; vmId: string } | null {
@@ -71,18 +77,56 @@ export class ClientIdentityStore {
     return r ? { identity: r.identity, vmId: r.vm } : null
   }
 
+  /** Records the current identity; a different one it replaces is retired in the same transaction. */
   put(machine: string, user: string, identity: string, vmId: string, at: number): void {
-    this.sql.exec(`INSERT OR REPLACE INTO cloud_client_identity (machine, user, identity, vm, at) VALUES (?, ?, ?, ?, ?)`, machine, user, identity, vmId, at)
+    this.sql.transaction(() => {
+      const before = this.get(machine, user)
+      if (before && before.identity !== identity) this.retire(before.identity, at)
+      this.sql.exec(`INSERT OR REPLACE INTO cloud_client_identity (machine, user, identity, vm, at) VALUES (?, ?, ?, ?, ?)`, machine, user, identity, vmId, at)
+    })
   }
 
-  /** At most `limit` rows, oldest first, for the sweep of machines that are gone. */
-  oldest(limit: number): Array<{ machine: string; user: string; identity: string }> {
-    return this.sql.exec<{ machine: string; user: string; identity: string }>(`SELECT machine, user, identity FROM cloud_client_identity ORDER BY at LIMIT ?`, limit)
+  retire(identity: string, at: number): void {
+    this.sql.exec(`INSERT OR IGNORE INTO cloud_client_identity_retired (identity, at) VALUES (?, ?)`, identity, at)
   }
 
-  remove(machine: string, user: string): void {
-    this.sql.exec(`DELETE FROM cloud_client_identity WHERE machine = ? AND user = ?`, machine, user)
+  /** Retires the identities of every machine `gone` says is gone (deleted, deleting or failed). */
+  retireGone(gone: (machine: string) => boolean, at: number): void {
+    const rows = this.sql.exec<{ machine: string; user: string; identity: string }>(`SELECT machine, user, identity FROM cloud_client_identity`)
+    for (const r of rows.filter((x) => gone(x.machine))) {
+      this.sql.transaction(() => {
+        this.retire(r.identity, at)
+        this.sql.exec(`DELETE FROM cloud_client_identity WHERE machine = ? AND user = ?`, r.machine, r.user)
+      })
+    }
   }
+
+  /** At most `limit` retired identities, oldest first. */
+  retired(limit: number): Array<string> {
+    return this.sql.exec<{ identity: string }>(`SELECT identity FROM cloud_client_identity_retired ORDER BY at LIMIT ?`, limit).map((r) => r.identity)
+  }
+
+  dropped(identity: string): void {
+    this.sql.exec(`DELETE FROM cloud_client_identity_retired WHERE identity = ?`, identity)
+  }
+
+  /** Whether any identity is waiting for its delete. */
+  pending(): boolean {
+    return this.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM cloud_client_identity_retired`)[0]!.n > 0
+  }
+}
+
+/**
+ * Retires the identities of gone machines, then deletes up to `limit` retired identities at the
+ * provider; only a confirmed delete (or 404) removes one. True when some are still waiting.
+ */
+export const sweepClientIdentities = async (store: ClientIdentityStore, machine: (id: string) => MachineRow | undefined, driver: GuardedCloudDriver, now: number, limit = 10): Promise<boolean> => {
+  store.retireGone((id) => {
+    const st = machine(id)?.status
+    return st === undefined || st === "deleting" || st === "failed"
+  }, now)
+  for (const identity of store.retired(limit)) if (await driver.dropClientIdentity(identity).then(() => true, () => false)) store.dropped(identity)
+  return store.pending()
 }
 
 /** What CloudDO gives the mint (tests replace any part). */
@@ -99,6 +143,8 @@ export interface ClientSessionHost {
   readonly identities: ClientIdentityStore
   audit(entry: Record<string, unknown>): void
   now(): number
+  /** Some retired identity is still waiting for its delete: arm the alarm to retry it. */
+  retryLater(): void
   /** Mints in flight per (machine, user): one at a time, so two calls never make two identities. */
   readonly inflight: Map<string, Promise<unknown>>
 }
@@ -121,15 +167,6 @@ export const clientSessionTtl = (body: unknown): number | null => {
   const ttl = (body as { ttl_seconds?: unknown }).ttl_seconds
   if (ttl === undefined) return CLIENT_SESSION_TTL_DEFAULT_S
   return typeof ttl === "number" && Number.isInteger(ttl) && ttl >= CLIENT_SESSION_TTL_MIN_S && ttl <= CLIENT_SESSION_TTL_MAX_S ? ttl : null
-}
-
-/** Drops up to `limit` stored identities whose machine is gone or ending (best effort; a failed drop stays for the next call). */
-const sweep = async (host: ClientSessionHost, driver: GuardedCloudDriver, limit = 5): Promise<void> => {
-  for (const r of host.identities.oldest(limit)) {
-    const st = host.machine(r.machine)?.status
-    if (st !== undefined && st !== "deleting" && st !== "failed") continue
-    if (await driver.dropClientIdentity(r.identity).then(() => true, () => false)) host.identities.remove(r.machine, r.user)
-  }
 }
 
 /** CloudDO's half: checks the caller and the machine, then mints through the guarded driver. */
@@ -165,9 +202,9 @@ export const mintClientSessionOn = async (host: ClientSessionHost, p: Principal,
     }
     const { grant, stale } = minted
     host.identities.put(machine, user, grant.identity, grant.vmId, host.now())
-    if (stale) await driver.dropClientIdentity(stale).catch(() => undefined)
+    if (stale) host.identities.retire(stale, host.now())
     host.audit({ op: "client_session", machine, by: p.identity, user, install: p.install ?? null, linux_user: grant.linuxUser, expires_at: grant.expiresAt, outcome: "minted", at: host.now() })
-    await sweep(host, driver).catch(() => undefined)
+    if (await sweepClientIdentities(host.identities, host.machine, driver, host.now()).catch(() => true)) host.retryLater()
     return {
       ok: true,
       value: { machine, vm_id: grant.vmId, linux_user: grant.linuxUser, token: grant.token, expires_at: grant.expiresAt, api_base_url: grant.apiBaseUrl, ssh: grant.ssh }

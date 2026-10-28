@@ -1,8 +1,9 @@
+import { env } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import type { Principal } from "@cmux/ownership"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { GuardedCloudDriver } from "../src/cloud-driver.ts"
-import { CLIENT_SESSION_LINUX_USER, clientSessionTtl } from "../src/cloud-client-session.ts"
+import { CLIENT_SESSION_LINUX_USER, ClientIdentityStore, clientSessionTtl, sweepClientIdentities } from "../src/cloud-client-session.ts"
 import { FreestyleCloudProvider } from "../src/providers/freestyle/cloud.ts"
 import { bindBody, bindFile, cloudStub, createdAndBound, installOf, person, post, sessionToken, worker } from "./cloud-bind-support.ts"
 
@@ -97,6 +98,31 @@ describe("the Freestyle provider's client session", () => {
   })
 })
 
+describe("retired identities", () => {
+  it("a replaced or gone machine's identity is retired and stays until the provider confirms its delete", async () => {
+    const ns = (env as unknown as { CLOUD_DO: DurableObjectNamespace }).CLOUD_DO
+    await inDO(ns.get(ns.idFromName(`client-identity-${crypto.randomUUID()}`)), async (_i, state) => {
+      const store = new ClientIdentityStore({ exec: <T>(q: string, ...p: Array<unknown>) => state.storage.sql.exec(q, ...p).toArray() as Array<T>, transaction: <T>(fn: () => T) => state.storage.transactionSync(fn) })
+      store.put("vm_live", "cmux", "fsid-a", "fsvm-1", 1)
+      store.put("vm_live", "cmux", "fsid-b", "fsvm-2", 2)
+      store.put("vm_gone", "cmux", "fsid-c", "fsvm-3", 3)
+      expect(store.get("vm_live", "cmux")).toEqual({ identity: "fsid-b", vmId: "fsvm-2" })
+      let fail = true
+      const dropped: Array<string> = []
+      const driver = { dropClientIdentity: async (id: string) => (fail ? Promise.reject(new Error("503")) : void dropped.push(id)) } as unknown as GuardedCloudDriver
+      const machine = (id: string) => (id === "vm_live" ? ({ status: "running" } as never) : undefined)
+      expect(await sweepClientIdentities(store, machine, driver, 4)).toBe(true)
+      expect(store.retired(10).sort()).toEqual(["fsid-a", "fsid-c"])
+      expect(store.get("vm_gone", "cmux")).toBeNull()
+      fail = false
+      expect(await sweepClientIdentities(store, machine, driver, 5)).toBe(false)
+      expect(dropped.sort()).toEqual(["fsid-a", "fsid-c"])
+      expect(store.retired(10)).toEqual([])
+      expect(store.get("vm_live", "cmux")).toEqual({ identity: "fsid-b", vmId: "fsvm-2" })
+    })
+  })
+})
+
 describe("ttl", () => {
   it("defaults to 10 minutes and accepts only whole seconds from 60 to 900", () => {
     expect(clientSessionTtl(null)).toBe(600)
@@ -136,6 +162,11 @@ describe("CloudDO client sessions", { timeout: 60_000 }, () => {
       expect(audit).not.toContain(t)
       expect(lines).not.toContain(t)
     }
+
+    // Deleting the machine deletes its client session identity at the provider.
+    const del = await alice.stub.submit(alice.team, alice.p, { t: "op", op: "cloud.machine.delete", params: { machine }, idempotency_key: crypto.randomUUID(), origin: "user" })
+    expect(del.frames.some((f) => f.t === "result"), JSON.stringify(del.frames)).toBe(true)
+    expect(await identities(alice.team)).toEqual([])
   })
 
   it("refuses another person, another team, agents and machine installs, a bad ttl, and a team without a plan", async () => {

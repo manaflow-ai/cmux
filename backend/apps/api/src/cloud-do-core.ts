@@ -74,6 +74,9 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     if (at !== null) void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(Math.max(at, Date.now())) : undefined))
   }
 
+  /** Client session identities waiting for their provider delete (CloudDO, cloud-client-session.ts); a no-op here. */
+  protected async sweepClientIdentities(_now: number): Promise<void> {}
+
   /** The idle rules (cloud-do-idle.ts CloudIdle): idle pause from reports, the 24 h cost backstop and its backoff. */
   protected abstract considerIdlePause(entity: string, machine: string, report: unknown, now: number): Promise<void>
   protected abstract pauseSilent(now: number): Promise<void>
@@ -253,6 +256,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     if (limited) return limited
     if (fresh && committed) this.audit.record({ op: frame.op, machine: (frame.params as { machine?: unknown } | null)?.machine ?? null, ...who(principal), at: Date.now() })
     await this.drainRevokes(Date.now() + this.skewMs)
+    // A deleted machine's client session identities go with it (never blocks the answer on a failed delete).
+    if (frame.op === "cloud.machine.delete" && committed) await this.sweepClientIdentities(Date.now() + this.skewMs).catch(() => undefined)
     if (!PROVIDER_OPS.has(frame.op)) return result
     const reply = result.frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t !== "result") return result
@@ -499,6 +504,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     if ((this.audit.pruneDueAt() ?? Infinity) <= now) this.audit.prune(now)
     await this.vmRevokes.settleRegisters(now, async (reg) => ((r) => (r.ok ? { ok: true as const, id: r.id } : { ok: false as const, code: r.code }))(await registerVmInstall(this.env, reg)), (m) => engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row.vm_install)
     await this.drainRevokes(now)
+    await this.sweepClientIdentities(now).catch(() => undefined)
     await this.pauseSilent(now)
     const entity = this.boundEntity()
     if (entity) await wakeCloudApprovals(this.approvalHost(entity), realNow, (p, f) => this.submitAs(entity, p, f), (e) => this.audit.record(e))

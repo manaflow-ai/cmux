@@ -15,7 +15,7 @@ import { deliverCloudAnswers, readCloudApproval } from "./cloud-approvals.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import { acpmuxKeyedStartOn, acpmuxPersonHoldsOn, type AcpmuxHost, type AcpmuxReply } from "./cloud-acpmux-do.ts"
 import type { MachineExecReply } from "./automation-machine.ts"
-import { ClientIdentityStore, mintClientSessionOn, type ClientSessionReply } from "./cloud-client-session.ts"
+import { ClientIdentityStore, mintClientSessionOn, sweepClientIdentities, type ClientSessionReply } from "./cloud-client-session.ts"
 import { teamPlan } from "./domains/cloud-plan.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
@@ -270,7 +270,8 @@ export class CloudDO extends CloudIdle {
         },
         limit: async (user) => !limit || (await limit.limit({ key: `cloud-client-session:${user}` })).success,
         driver: (row) => Promise.resolve(this.driverFor(row)),
-        identities: (this.clientIdentities ??= new ClientIdentityStore(this.sqlStore)),
+        identities: this.clientIdentityStore(),
+        retryLater: () => this.retryClientIdentities(),
         audit: (e) => this.audit.record(e),
         now: () => Date.now() + this.skewMs,
         inflight: this.clientInflight
@@ -282,6 +283,26 @@ export class CloudDO extends CloudIdle {
   }
   private readonly clientInflight = new Map<string, Promise<unknown>>()
   private clientIdentities: ClientIdentityStore | null = null
+  private clientIdentityStore(): ClientIdentityStore {
+    return (this.clientIdentities ??= new ClientIdentityStore(this.sqlStore))
+  }
+
+  /** A retired identity's delete failed: try again in an hour, unless an earlier alarm is already set. */
+  private retryClientIdentities(): void {
+    const at = Date.now() + 3_600_000
+    void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(at) : undefined))
+  }
+
+  /** Retires gone machines' identities and deletes retired ones; only for a team that ever minted one. */
+  protected override async sweepClientIdentities(now: number): Promise<void> {
+    if (!this.clientIdentities && this.sqlStore.exec<{ n: number }>(`SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'cloud_client_identity'`)[0]?.n !== 1) return
+    const entity = this.boundEntity()
+    if (!entity || !this.isBound(entity)) return
+    const rows = this.bind(entity).rows
+    const driver = await Promise.resolve(this.driverFor({ transport: "direct" }, "cleanup")).catch(() => null)
+    if (!driver) return
+    if (await sweepClientIdentities(this.clientIdentityStore(), (id) => rows.get<MachineRow>(TABLE_MACHINE, id)?.row, driver, now)) this.retryClientIdentities()
+  }
 
   private readonly acpmuxStarting = new Set<string>()
   /** null for an object nobody created (it is never created here). */
