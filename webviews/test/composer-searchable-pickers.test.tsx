@@ -562,3 +562,13 @@ test("scrollbar blur keeps a searchable menu open while outside blur cancels", a
   });
   expect(cancelled).toBe(1);
 });
+
+test("the classic machine menu offers Add Machine…, which opens Add Device", async () => {
+  const { calls } = await machines();
+  const action = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((button) =>
+    button.textContent?.includes("Add Machine"),
+  )!;
+  expect(action).toBeTruthy();
+  await click(action);
+  expect(calls).toEqual([["connect", "addMachine"]]);
+});
