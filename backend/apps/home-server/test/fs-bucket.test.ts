@@ -25,7 +25,15 @@ describe("self-hosted attachment bucket", () => {
       const stored = await bucket.get("home/v1/original")
       expect(stored?.body).toBeDefined()
       expect(new Uint8Array(await new Response(stored!.body!).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4, 5]))
-      await expect(upload.abort()).resolves.toBeUndefined()
+      await expect(bucket.resumeMultipartUpload(upload.key, upload.uploadId).abort()).resolves.toBeUndefined()
+
+      await bucket.put("pieces/a", "a")
+      await bucket.put("pieces/b", "b")
+      await bucket.put("pieces/c", "c")
+      const page = await bucket.list({ prefix: "pieces/", limit: 2 })
+      expect(page.truncated).toBe(true)
+      await bucket.delete(page.objects.map((object) => object.key))
+      expect((await bucket.list({ prefix: "pieces/", cursor: page.cursor })).objects.map((object) => object.key)).toEqual(["pieces/c"])
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

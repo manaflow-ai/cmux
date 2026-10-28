@@ -330,6 +330,10 @@ export const handleAttachmentUpload = async (request: Request, env: Env, convers
 
 const multipartKey = (slot: Pick<UploadSlot, "object_key">, part: number): string => `${multipartPartPrefix(slot.object_key)}${part}`
 const multipartKeys = (slot: Pick<UploadSlot, "object_key">, parts: ReadonlyArray<{ part_number: number }>): Array<string> => parts.map((part) => multipartKey(slot, part.part_number))
+const deleteMultipartKeys = async (bucket: R2Bucket, keys: Array<string>): Promise<void> => {
+  // R2 accepts at most 1,000 keys per delete request.
+  for (let start = 0; start < keys.length; start += 1000) await bucket.delete(keys.slice(start, start + 1000))
+}
 
 /** PUT one bounded piece of an arbitrarily large original. The slot remains open until complete. */
 export const handleAttachmentMultipartPart = async (request: Request, env: Env, conversation: string, token: string): Promise<Response> => {
@@ -395,15 +399,13 @@ export const handleAttachmentMultipartComplete = async (request: Request, env: E
   }
   const slot = await conv.uploadSlot(body.conversation, body.slot, "multipart", true, caller.actor)
   if (!slot) return invalid
-  const upload = await bucket.createMultipartUpload(slot.object_key, { httpMetadata: { contentType: slot.mime_type } })
-  if (!await conv.setMultipartUpload(body.conversation, slot.id, upload.uploadId)) {
-    await upload.abort()
-    return invalid
-  }
+  let upload: R2MultipartUpload | undefined
   const hasher = createHash("sha256")
   let count = 0
   let etag: string | undefined
   try {
+    upload = await bucket.createMultipartUpload(slot.object_key, { httpMetadata: { contentType: slot.mime_type } })
+    if (!await conv.setMultipartUpload(body.conversation, slot.id, upload.uploadId)) throw new Error("upload slot expired")
     const completed: Array<R2UploadedPart> = []
     // Group transport pieces to stay within R2's part count without imposing
     // a product file-size cap. Each group still streams with bounded memory.
@@ -438,12 +440,12 @@ export const handleAttachmentMultipartComplete = async (request: Request, env: E
     if (count !== slot.byte_count || hasher.digest("hex") !== slot.hash) throw new Error("attachment.hash_mismatch")
     etag = (await upload.complete(completed)).etag
   } catch (error) {
-    await upload.abort()
-    await bucket.delete([slot.object_key, ...keys])
+    await upload?.abort().catch(() => undefined)
+    await deleteMultipartKeys(bucket, [...slotKeys(slot), ...keys])
     await conv.settleSlot(body.conversation, slot.id)
     return failure({ status: 400, code: String(error).includes("hash_mismatch") ? "attachment.hash_mismatch" : "attachment.size_mismatch", message: "the uploaded object does not match the declared size and sha256" })
   }
-  await bucket.delete(keys)
+  await deleteMultipartKeys(bucket, keys)
   return finish(env, body.conversation, slot, etag)
 }
 

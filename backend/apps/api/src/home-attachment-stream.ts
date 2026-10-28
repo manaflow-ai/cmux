@@ -31,15 +31,15 @@ export const streamPartInto = async (bucket: R2Bucket, key: string, request: Req
     // for the same part (or a completion races a late PUT).
     const stored = await bucket.put(key, fixed.readable, { onlyIf: { etagDoesNotMatch: "*" }, httpMetadata: { contentType } })
     if (stored === null) {
-      // R2 may reject a failed precondition before consuming the body. The
-      // pipe has its own rejection handler, so do not wait on an unwatched
-      // stream here and risk holding the request open behind a loser.
+      await fixed.readable.cancel().catch(() => undefined)
       return { ok: false, code: "attachment.part_exists" }
     }
     etag = stored.etag
     await piped
   } catch {
-    await bucket.delete(key)
+    // A failed conditional PUT publishes nothing. Deleting here could
+    // delete a different request's successful part.
+    await fixed.readable.cancel().catch(() => undefined)
     return { ok: false, code: "attachment.size_mismatch" }
   }
   if (count !== length) {
