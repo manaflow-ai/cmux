@@ -39,6 +39,10 @@ struct Fixture {
     dir: PathBuf,
     socket: PathBuf,
     session: String,
+    /// The terminal hosts this test's owner started, ended on drop when a
+    /// failed test leaves them running (`server stop` cannot reach them once
+    /// their owner is gone).
+    hosts: std::cell::RefCell<Vec<u32>>,
 }
 
 impl Fixture {
@@ -47,7 +51,12 @@ impl Fixture {
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-bo-{name}-{}-{stamp}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
-        Self { socket: dir.join("mux.sock"), session: format!("bo-{name}"), dir }
+        Self {
+            socket: dir.join("mux.sock"),
+            session: format!("bo-{name}"),
+            dir,
+            hosts: Default::default(),
+        }
     }
 
     fn state(&self) -> PathBuf {
@@ -127,6 +136,7 @@ exec sleep 600"#;
         loop {
             let hosts = host_pids(&root);
             if !hosts.is_empty() {
+                self.hosts.borrow_mut().extend(&hosts);
                 return hosts;
             }
             assert!(Instant::now() < deadline, "no terminal host record appeared");
@@ -138,6 +148,11 @@ exec sleep 600"#;
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = self.server("stop").arg("--end-terminals").output();
+        let hosts = self.hosts.borrow().clone();
+        for pid in await_exit(&hosts, Duration::from_secs(5)) {
+            // SAFETY: a terminal host of this test's own owner, still running.
+            unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+        }
         let _ = fs::remove_dir_all(&self.dir);
     }
 }

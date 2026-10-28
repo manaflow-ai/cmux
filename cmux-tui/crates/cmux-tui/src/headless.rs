@@ -9,12 +9,19 @@ mod bound_owner;
 #[cfg(unix)]
 mod dev_orphan_exit;
 
-/// `exit_with_pid` (`--exit-with-pid`) binds this owner to a process: once
-/// it dies the owner ends its terminals and leaves (bound_owner.rs).
+#[cfg(unix)]
+pub(crate) use bound_owner::{Armed as BoundArmed, arm as arm_bound_owner};
+/// No `--exit-with-pid` off Unix (startup refuses it).
+#[cfg(not(unix))]
+pub(crate) type BoundArmed = std::convert::Infallible;
+
+/// `bound` (`--exit-with-pid`, armed at startup) binds this owner to a
+/// process: once it dies the owner ends its terminals and leaves
+/// (bound_owner.rs).
 pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
     socket_path: &Path,
-    exit_with_pid: Option<u32>,
+    bound: Option<BoundArmed>,
     remote_runtime_finished: F,
 ) -> anyhow::Result<()>
 where
@@ -69,9 +76,9 @@ where
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
     #[cfg(unix)]
-    let bound = exit_with_pid.and_then(|pid| bound_owner::start(mux, pid));
+    let bound = bound.map(|armed| armed.start(mux)).transpose()?;
     #[cfg(not(unix))]
-    let _ = exit_with_pid;
+    let _ = bound;
     let (lock, wake) = &HEADLESS_WAKE;
     let mut generation = lock.lock().unwrap();
     while !(shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()) {

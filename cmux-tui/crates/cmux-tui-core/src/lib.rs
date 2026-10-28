@@ -113,6 +113,9 @@ pub mod layout;
 pub use cmux_tui_platform::platform;
 #[cfg(unix)]
 use cmux_tui_platform::process_identity;
+/// When a process started (ms since the epoch), so a pid recorded earlier is
+/// never mistaken for a later process that reuses it.
+pub use cmux_tui_platform::process_identity::started_ms as process_started_ms;
 pub use cmux_tui_platform::process_resources;
 pub mod server;
 pub mod session_state_import;

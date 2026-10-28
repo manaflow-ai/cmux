@@ -41,22 +41,28 @@ pub(super) fn parse(flags: &mut Flags) -> Result<ServerAction, UsageError> {
 /// `--exit-with-pid <pid>`: the owner this call spawns ends its terminals
 /// and exits once that process dies (a test or CI launcher's own pid, so a
 /// launcher killed before its cleanup leaves nothing running). The process
-/// must exist now: an owner bound to a gone pid would exit at once.
-fn exit_with_pid(value: &str) -> Result<u32, UsageError> {
-    let pid = crate::parse_exit_with_pid(value).map_err(UsageError::new)?;
+/// must exist now: an owner bound to a gone pid would exit at once. Its
+/// start time goes to the owner with the pid, so a pid reused before the
+/// owner arms its watch counts as the process having exited.
+fn exit_with_pid(value: &str) -> Result<crate::BoundPid, UsageError> {
+    let mut bound = crate::parse_exit_with_pid(value).map_err(UsageError::new)?;
     #[cfg(unix)]
     {
+        let pid = bound.pid;
         // SAFETY: signal 0 only checks that the process exists.
         let gone = unsafe { libc::kill(pid as libc::pid_t, 0) } != 0
             && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
         if gone {
             return Err(UsageError::new(format!("--exit-with-pid {pid}: no such process")));
         }
-        Ok(pid)
+        if bound.started_ms.is_none() {
+            bound.started_ms = cmux_tui_core::process_started_ms(pid);
+        }
+        Ok(bound)
     }
     #[cfg(not(unix))]
     {
-        let _ = pid;
+        let _ = &mut bound;
         Err(UsageError::new(format!("--exit-with-pid is unsupported on {}", std::env::consts::OS)))
     }
 }

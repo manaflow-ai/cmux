@@ -11,17 +11,63 @@
 //! process dies, the owner ends its terminals (no one will adopt them) and
 //! leaves through the normal shutdown path.
 //!
+//! The watch is armed at startup, before the owner reports itself ready, so
+//! an owner asked to exit with a process never runs unbound: a watch that
+//! cannot be armed (no pidfd on an old Linux kernel, a seccomp denial) fails
+//! the start. `server ensure` passes the process's start time with its pid
+//! (`<pid>@<ms>`); once the watch is armed the owner compares it, so a pid
+//! that was reused between the check and the watch counts as the process
+//! having exited.
+//!
 //! One thread waits on the kernel's exit event for the pid (kqueue
 //! `EVFILT_PROC`/`NOTE_EXIT` on macOS, a pidfd on Linux) together with a stop
 //! pipe; no timer and no poll. It ends when the process exits (after it has
-//! asked the owner to leave) or when the owner leaves for another reason:
-//! [`BoundOwner::stop`] closes the pipe's write end, the thread wakes on its
-//! end of file, and `stop` joins it.
+//! asked the owner to leave), when the wait itself fails (it then also asks
+//! the owner to leave: a bound owner never keeps running unwatched), or when
+//! the owner leaves for another reason: [`BoundOwner::stop`] closes the
+//! pipe's write end, the thread wakes on its end of file, and `stop` joins
+//! it.
 
 use std::io;
 use std::sync::{Arc, Weak};
 
 use cmux_tui_core::Mux;
+
+use crate::BoundPid;
+
+/// A watch armed at startup; [`Armed::start`] runs it once the mux exists.
+pub(crate) struct Armed {
+    pid: u32,
+    watch: Watch,
+    stop: io::PipeWriter,
+    /// The pid now names another process than the one `server ensure` saw.
+    reused: bool,
+}
+
+/// Arms the watch on `bound`'s process. An error fails the owner's start.
+pub(crate) fn arm(bound: BoundPid) -> io::Result<Armed> {
+    let (reader, stop) = io::pipe()?;
+    let watch = Watch::new(bound.pid, reader)?;
+    // After the watch is registered, the pid cannot be reused unseen: a
+    // start time other than the one ensure saw (or none: gone) means the
+    // bound process already exited.
+    let reused = bound
+        .started_ms
+        .is_some_and(|expected| cmux_tui_core::process_started_ms(bound.pid) != Some(expected));
+    Ok(Armed { pid: bound.pid, watch, stop, reused })
+}
+
+impl Armed {
+    /// Starts the watching thread for this owner.
+    pub(crate) fn start(self, mux: &Arc<Mux>) -> io::Result<BoundOwner> {
+        let Self { pid, watch, stop, reused } = self;
+        let mux = Arc::downgrade(mux);
+        let thread = std::thread::Builder::new()
+            .name("bound-owner".into())
+            .spawn(move || run(&watch, reused, &mux, pid))?;
+        Ok(BoundOwner { stop: Some(stop), thread: Some(thread) })
+    }
+}
 
 /// The running watch; [`BoundOwner::stop`] ends and joins it.
 pub(crate) struct BoundOwner {
@@ -38,37 +84,6 @@ impl BoundOwner {
     }
 }
 
-/// Binds this owner to `pid`. `None` when the watch cannot be armed (the
-/// owner then keeps running, as an unbound owner does, and says so in its
-/// log).
-pub(crate) fn start(mux: &Arc<Mux>, pid: u32) -> Option<BoundOwner> {
-    let armed = io::pipe().and_then(|(reader, writer)| Ok((Watch::new(pid, reader)?, writer)));
-    let (watch, writer) = match armed {
-        Ok(armed) => armed,
-        Err(error) => {
-            crate::client_log::stderr_log!(
-                "lifecycle",
-                "{BIN}: cannot watch process {pid} (--exit-with-pid): {error}; this owner keeps running"
-            );
-            return None;
-        }
-    };
-    let mux = Arc::downgrade(mux);
-    let thread = std::thread::Builder::new()
-        .name("bound-owner".into())
-        .spawn(move || run(&watch, &mux, pid));
-    match thread {
-        Ok(thread) => Some(BoundOwner { stop: Some(writer), thread: Some(thread) }),
-        Err(error) => {
-            crate::client_log::stderr_log!(
-                "lifecycle",
-                "{BIN}: cannot watch process {pid} (--exit-with-pid): {error}; this owner keeps running"
-            );
-            None
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Eq)]
 enum Woke {
     /// The bound process exited (or was gone when the watch was armed).
@@ -77,30 +92,37 @@ enum Woke {
     Stopped,
 }
 
-fn run(watch: &Watch, mux: &Weak<Mux>, pid: u32) {
-    match watch.wait() {
-        Ok(Woke::Stopped) => {}
-        Ok(Woke::Exited) => {
-            let Some(mux) = mux.upgrade() else { return };
+fn run(watch: &Watch, reused: bool, mux: &Weak<Mux>, pid: u32) {
+    let woke = if reused { Ok(Woke::Exited) } else { watch.wait() };
+    match woke {
+        Ok(Woke::Stopped) => return,
+        Ok(Woke::Exited) => crate::client_log::stderr_log!(
+            "lifecycle",
+            "{BIN}: process {pid} exited (--exit-with-pid); ending this owner's terminals and stopping"
+        ),
+        Err(error) => crate::client_log::stderr_log!(
+            "lifecycle",
+            "{BIN}: watching process {pid} (--exit-with-pid) failed: {error}; ending this owner's terminals and stopping"
+        ),
+    }
+    let Some(mux) = mux.upgrade() else { return };
+    if let Err(error) = mux.end_all_terminals() {
+        crate::client_log::stderr_log!(
+            "lifecycle",
+            "{BIN}: ending the terminals of a bound owner failed: {error:#}"
+        );
+        // end_all_terminals can stop before its own survivor sweep: end
+        // every host still running by its record, so none outlives us.
+        let survivors = mux.end_surviving_terminal_hosts();
+        if !survivors.is_empty() {
             crate::client_log::stderr_log!(
                 "lifecycle",
-                "{BIN}: process {pid} exited (--exit-with-pid); ending this owner's terminals and stopping"
-            );
-            if let Err(error) = mux.end_all_terminals() {
-                crate::client_log::stderr_log!(
-                    "lifecycle",
-                    "{BIN}: ending the terminals of a bound owner failed: {error:#}"
-                );
-            }
-            mux.request_daemon_shutdown();
-        }
-        Err(error) => {
-            crate::client_log::stderr_log!(
-                "lifecycle",
-                "{BIN}: watching process {pid} (--exit-with-pid) failed: {error}; this owner keeps running"
+                "{BIN}: terminal hosts still running after a bound owner's exit: {}",
+                survivors.join(", ")
             );
         }
     }
+    mux.request_daemon_shutdown();
 }
 
 #[cfg(target_vendor = "apple")]
@@ -309,6 +331,24 @@ mod tests {
         let waiter = std::thread::spawn(move || watch.wait().unwrap());
         drop(writer);
         assert_eq!(waiter.join().unwrap(), Woke::Stopped);
+        drop(child.stdin.take());
+        child.wait().unwrap();
+    }
+
+    #[test]
+    fn a_pid_with_another_start_time_counts_as_reused() {
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", "read line"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let started = cmux_tui_core::process_started_ms(pid);
+        assert!(started.is_some(), "no start time for a live child");
+        assert!(!arm(BoundPid { pid, started_ms: started }).unwrap().reused);
+        assert!(!arm(BoundPid { pid, started_ms: None }).unwrap().reused);
+        let other = started.map(|started| started.wrapping_sub(60_000));
+        assert!(arm(BoundPid { pid, started_ms: other }).unwrap().reused);
         drop(child.stdin.take());
         child.wait().unwrap();
     }

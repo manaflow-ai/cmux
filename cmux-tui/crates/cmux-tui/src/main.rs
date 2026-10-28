@@ -579,7 +579,26 @@ struct Args {
     terminal_reap_grace: Option<std::time::Duration>,
     /// `--exit-with-pid`: a headless owner bound to this process ends its
     /// terminals and exits once it dies (headless/bound_owner.rs).
-    exit_with_pid: Option<u32>,
+    exit_with_pid: Option<BoundPid>,
+}
+
+/// The process a bound owner exits with (`--exit-with-pid`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BoundPid {
+    pub(crate) pid: u32,
+    /// When that process started (`cmux_tui_core::process_started_ms`), as
+    /// `server ensure` saw it: the owner checks it after arming its watch,
+    /// so a pid reused between the check and the watch is never watched.
+    pub(crate) started_ms: Option<u64>,
+}
+
+impl std::fmt::Display for BoundPid {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.started_ms {
+            Some(started) => write!(formatter, "{}@{started}", self.pid),
+            None => write!(formatter, "{}", self.pid),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -644,14 +663,21 @@ fn parse_owner_host_color(flag: &str, value: &str) -> Result<cmux_tui_core::Rgb,
     Ok(cmux_tui_core::Rgb { r: parse(0..2)?, g: parse(2..4)?, b: parse(4..6)? })
 }
 
-/// `--exit-with-pid` (startup and `server ensure`): a process id above 1;
-/// pid 1 never exits, so binding to it would bind to nothing.
-pub(crate) fn parse_exit_with_pid(value: &str) -> Result<u32, String> {
-    value
+/// `--exit-with-pid` (startup and `server ensure`): a process id above 1
+/// (pid 1 never exits, so binding to it would bind to nothing). The owner
+/// `server ensure` spawns also gets the process's start time, `<pid>@<ms>`.
+pub(crate) fn parse_exit_with_pid(value: &str) -> Result<BoundPid, String> {
+    let error = || "--exit-with-pid needs a process id above 1".to_string();
+    let (pid, started) = match value.split_once('@') {
+        Some((pid, started)) => (pid, Some(started.parse::<u64>().map_err(|_| error())?)),
+        None => (value, None),
+    };
+    let pid = pid
         .parse::<u32>()
         .ok()
         .filter(|pid| *pid > 1 && i32::try_from(*pid).is_ok())
-        .ok_or_else(|| "--exit-with-pid needs a process id above 1".to_string())
+        .ok_or_else(error)?;
+    Ok(BoundPid { pid, started_ms: started })
 }
 
 fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
@@ -2276,6 +2302,14 @@ fn run_server(
     #[cfg(unix)]
     host_orphan_policy::install();
     owner_start::prepare(&args)?;
+    // Armed before anything starts and before readiness is reported: an
+    // owner asked to exit with a process never runs unbound.
+    #[cfg(unix)]
+    let bound_owner = args
+        .exit_with_pid
+        .map(headless::arm_bound_owner)
+        .transpose()
+        .context("cannot watch the --exit-with-pid process")?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
@@ -2702,7 +2736,7 @@ fn run_server(
         }
         #[cfg(unix)]
         {
-            run_headless(&mux, &socket_path, args.exit_with_pid, || {
+            run_headless(&mux, &socket_path, bound_owner, || {
                 remote_runtime
                     .as_ref()
                     .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
@@ -2710,7 +2744,7 @@ fn run_server(
         }
         #[cfg(not(unix))]
         {
-            run_headless(&mux, &socket_path, args.exit_with_pid, || false)
+            run_headless(&mux, &socket_path, None, || false)
         }
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime, mux.clone(), config)

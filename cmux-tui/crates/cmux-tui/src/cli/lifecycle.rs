@@ -24,7 +24,7 @@ pub(super) enum ServerAction {
         terminal_reap_grace: Option<Duration>,
         /// `--exit-with-pid`: reaches only an owner this call spawns, which
         /// then ends its terminals and exits once that process dies.
-        exit_with_pid: Option<u32>,
+        exit_with_pid: Option<crate::BoundPid>,
         /// Private app contract (P8 3b-2): read the app's install key from
         /// stdin and hand it to an owner this call spawns.
         install_key_stdin: bool,
@@ -716,7 +716,7 @@ fn read_install_key_from_stdin() -> std::io::Result<cmux_tui_core::server::Front
 /// reap grace and `--exit-with-pid`) reaches only an owner this call spawns.
 fn run_ensure(
     expected_session: Option<String>,
-    (terminal_reap_grace, exit_with_pid): (Option<Duration>, Option<u32>),
+    (terminal_reap_grace, exit_with_pid): (Option<Duration>, Option<crate::BoundPid>),
     install_key: Option<cmux_tui_core::server::FrontendKey>,
     (socket, socket_is_derived): (std::path::PathBuf, bool),
     (progress, replace_unresponsive): (bool, bool),

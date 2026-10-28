@@ -210,7 +210,7 @@ pub(crate) struct OwnerSpec {
     /// terminals and exits once that process dies. `None` (the app, the
     /// interactive client, the Chief) starts an owner that outlives every
     /// client by design; a running owner keeps the binding it started with.
-    pub exit_with_pid: Option<u32>,
+    pub exit_with_pid: Option<crate::BoundPid>,
     /// The app's install key for an owner this call spawns (`server ensure
     /// --install-key-stdin`); a running owner never receives it.
     pub install_key: Option<cmux_tui_core::server::FrontendKey>,
