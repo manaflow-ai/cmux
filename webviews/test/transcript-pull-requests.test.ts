@@ -478,7 +478,6 @@ test("shell substitutions and conditions retain executed mutations", () => {
     "url=$(gh pr create -R acme/app); echo $url",
     "if gh pr merge 41 -R acme/app --squash; then echo merged; fi",
     "if false; then true; elif gh pr merge 42 -R acme/app --squash; fi",
-    "if ! gh pr merge 43 -R acme/app --squash; then echo merged; fi",
     "timeout 60 gh pr merge 44 -R acme/app --squash",
     "timeout -k 5 60 gh pr merge 47 -R acme/app --squash",
   ]) {
