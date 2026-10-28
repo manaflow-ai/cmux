@@ -138,17 +138,39 @@ const callText = (command: string) =>
     .replace(/(^|[ \t;&|])#.*$/gm, "$1");
 
 /// Shell text after dropping unexecuted short-circuit and conditional branches. Changes and Sources
-/// must scan the same executed command text or they will disagree about URLs from `if false` arms.
-const executedShellText = (command: string): string =>
-  callText(command)
-    .replace(
-      /\bif\s+false\b([\s\S]*?)\bfi\b/g,
-      (_, body: string) => body.match(/\b(?:else|elif)\b([\s\S]*)/)?.[1] ?? "",
-    )
-    .replace(/\btrue\s*\|\|\s*([^;&|\n]+)/g, "true")
-    .replace(/\bfalse\s*\|\|\s*/g, "")
-    .replace(/\btrue\s*&&\s*/g, "")
-    .replace(/\bfalse\s*&&\s*([^;&|\n]+)/g, "false");
+/// must scan the same executed command text or they will disagree about URLs from skipped arms.
+const executedShellText = (command: string): string => {
+  let text = callText(command).replace(/\bif\s+(true|false)\s*;\s*then\s+([\s\S]*?)\s*;\s*([\s\S]*?)\s*fi\b/g, (_, condition: string, thenBody: string, rest: string) => {
+    if (condition === "true") return thenBody.split(/\b(?:elif|else)\b/)[0]!;
+    const clauses = [...rest.matchAll(/\belif\s+(true|false)\s*;\s*then\s+([\s\S]*?)(?=\s*;\s*(?:elif|else)\b|$)/g)];
+    const chosen = clauses.find((clause) => clause[1] === "true")?.[2];
+    if (chosen) return chosen;
+    return /\belse\s+/.test(rest) ? rest.replace(/^([\s\S]*?)\belse\s+/, "") : "";
+  });
+  return text
+    .split(";")
+    .flatMap((statement) => {
+      const pieces: { text: string; op?: "&&" | "||" }[] = [];
+      let last = 0;
+      const operators = /\s*(&&|\|\|)\s*/g;
+      let match: RegExpExecArray | null;
+      while ((match = operators.exec(statement))) {
+        pieces.push({ text: statement.slice(last, match.index), op: match[1] as "&&" | "||" });
+        last = operators.lastIndex;
+      }
+      pieces.push({ text: statement.slice(last) });
+      const kept: string[] = [];
+      let status: boolean | undefined;
+      for (const [index, piece] of pieces.entries()) {
+        const value = piece.text.trim();
+        const run = index === 0 || status === undefined || (pieces[index - 1]!.op === "&&" ? status : !status);
+        if (run && value) kept.push(value);
+        if (run) status = value === "true" ? true : value === "false" ? false : undefined;
+      }
+      return kept;
+    })
+    .join("; ");
+};
 
 /// Command text suitable for Sources scanning: payloads such as PR comment bodies are data, not
 /// activity or external references.
