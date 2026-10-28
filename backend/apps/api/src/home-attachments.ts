@@ -18,11 +18,13 @@ import { presignUrl, type Presigner } from "./r2-presign.ts"
  *   A current participant only; allow list, 100 MB cap, per-user quota. Answers
  *   {state: "exists"} for a hash this caller can already use here, otherwise a single-use slot:
  *   up to 32 MB {mode: "stream", upload_url} (PUT through the Worker, which hashes the bytes);
- *   larger files, when the intent says `multipart: true`, {mode: "multipart", upload_url,
+ *   larger files, when the intent says `multipart: true` (at every size), {mode: "multipart", upload_url,
  *   part_size, part_count, slot}: each part in order is one PUT through the Worker (header
  *   `x-cmux-part-number`) into one R2 part, its bytes hashed onto the SHA-256 the owner keeps;
  *   then POST /v1/home/attachments/multipart/complete {conversation, slot}. Every request does
- *   the same bounded work whatever the file's size (home-core `multipartPlan`).
+ *   the same bounded work whatever the file's size (home-core `multipartPlan`). An intent without
+ *   `multipart` (older clients) gets one request: {mode: "presigned"} with the S3 settings, else
+ *   the Worker stream up to the zone's body limit (`uploadModeFor`).
  *   A video may declare `poster {sha256, byte_count, mime_type: image/jpeg|image/webp}` (2 MB):
  *   the answer adds `poster_upload` (PUT through the Worker, once, before the video commits);
  *   the poster is stored at `<object key>.poster` under the same slot and recorded on the video's record.
@@ -173,6 +175,28 @@ const s3Config = (env: Env) =>
     ? { endpoint: env.HOME_ATTACHMENTS_S3_ENDPOINT.replace(/\/$/, ""), bucket: env.HOME_ATTACHMENTS_S3_BUCKET, accessKeyId: env.HOME_ATTACHMENTS_S3_ACCESS_KEY_ID, secretAccessKey: env.HOME_ATTACHMENTS_S3_SECRET_ACCESS_KEY }
     : null
 
+/** The zone's request body limit (HOME_ATTACHMENT_WORKER_BODY_BYTES; 100 MB on Free and Pro, the default). */
+const workerBodyBytes = (env: Env): number => {
+  const set = Number(env.HOME_ATTACHMENT_WORKER_BODY_BYTES)
+  return Number.isSafeInteger(set) && set > 0 ? set : 100_000_000
+}
+/** What one presigned S3 PutObject may carry (R2: 5 GiB less 5 MiB; decimal 5 GB is under it). */
+const SINGLE_PUT_BYTES = 5_000_000_000
+
+/**
+ * How an original of `byteCount` bytes is uploaded, or the refusal. Small files stream through the
+ * Worker. A client that sends parts (`multipart: true`, CmuxHomeCore) gets multipart at every size.
+ * An older client gets one request: a presigned PUT with the S3 settings, otherwise the Worker
+ * stream up to the zone's body limit; past what one request can carry it is told to send parts.
+ */
+export const uploadModeFor = (byteCount: number, multipart: boolean, s3: boolean, workerBody: number): UploadSlot["mode"] | Fail => {
+  if (byteCount <= L.streamMaxBytes) return "stream"
+  if (multipart) return "multipart"
+  if (s3 && byteCount <= SINGLE_PUT_BYTES) return "presigned"
+  if (!s3 && byteCount <= workerBody) return "stream"
+  return { status: 400, code: "attachment.multipart_required", message: "a file this large uploads in parts: send the intent with multipart: true" }
+}
+
 const readJson = async <T>(request: Request): Promise<T | null> => (await request.json().catch(() => null)) as T | null
 
 /**
@@ -226,9 +250,9 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
   const derivedCheck = homeConversation.validateDerivedImages(body as Record<string, unknown>, checked.class)
   if (!derivedCheck.ok) return failure({ status: derivedCheck.code === "attachment.too_large" ? 413 : derivedCheck.code === "attachment.type_refused" ? 415 : 400, code: derivedCheck.code, message: derivedCheck.message })
   const derived = derivedCheck.derived
-  const mode: UploadSlot["mode"] = meta.byte_count > L.streamMaxBytes ? (body.multipart === true ? "multipart" : "presigned") : "stream"
   const s3 = s3Config(env)
-  if (mode === "presigned" && !s3) return failure({ status: 503, code: "attachment.large_unavailable", message: "large attachments are not enabled on this deployment" })
+  const mode = uploadModeFor(meta.byte_count, body.multipart === true, s3 !== null, workerBodyBytes(env))
+  if (typeof mode !== "string") return failure(mode)
   const slow = await limited(env, caller.user)
   if (slow) return failure(slow)
   // Participant check before any quota, slot or storage.
@@ -294,7 +318,7 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
       ...derivedUpload
     })
   }
-  // Legacy presigned path retained for deployments that explicitly select it.
+  // An older client's single presigned PUT (uploadModeFor answers it only with the S3 settings).
   if (!s3) return failure({ status: 503, code: "attachment.large_unavailable", message: "large attachments are not enabled on this deployment" })
   // Signed headers the client must send as given: the length, the checksum (R2 rejects other bytes) and
   // `if-none-match: *` (R2 rejects a PUT to a key that already holds an object, so the URL cannot overwrite after commit).

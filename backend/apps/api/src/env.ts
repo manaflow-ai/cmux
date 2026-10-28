@@ -371,11 +371,13 @@ export interface Env {
   /** Rotation: the previous key and its id; URLs signed with it stay valid until they expire. */
   readonly HOME_ATTACHMENT_KEY_PREVIOUS?: string
   readonly HOME_ATTACHMENT_KEY_PREVIOUS_ID?: string
-  /** Presigned PUTs for 32-100 MB files: R2 S3 endpoint (https://<account>.r2.cloudflarestorage.com), bucket and a bucket-scoped token. Unset = large files refused. */
+  /** Presigned PUTs for large files from clients that do not send parts: R2 S3 endpoint (https://<account>.r2.cloudflarestorage.com), bucket and a bucket-scoped token. Unset = such clients stream through the Worker. */
   readonly HOME_ATTACHMENTS_S3_ENDPOINT?: string
   readonly HOME_ATTACHMENTS_S3_BUCKET?: string
   readonly HOME_ATTACHMENTS_S3_ACCESS_KEY_ID?: string
   readonly HOME_ATTACHMENTS_S3_SECRET_ACCESS_KEY?: string
+  /** The largest request body this Worker's zone accepts, in bytes (decimal digits): 100 MB on Free and Pro (the default), 200 MB on Business, 500 MB on Enterprise. */
+  readonly HOME_ATTACHMENT_WORKER_BODY_BYTES?: string
   /** Burst limit per user on attachment intents and download URL mints. */
   readonly HOME_ATTACHMENT_LIMIT?: RateLimit
   /** "<Apple Team ID>.<iOS bundle id>" whose App Attest keys this deployment accepts (presence keys). */
