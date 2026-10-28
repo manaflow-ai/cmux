@@ -160,7 +160,6 @@ struct CloudSignedOutCreationContinuationTests {
         #expect(resumes == 1)
     }
 
-    @Test(arguments: [["other", "team"], ["user", "other"], ["user", nil], [nil, nil]])
     @Test func nilUserTeamHydrationCannotResumeAnewSignIn() async {
         let handoff = CloudSignedOutCreationContinuation()
         let gate = CloudSignInTestGate()
@@ -187,6 +186,7 @@ struct CloudSignedOutCreationContinuationTests {
         #expect(!handoff.isPending)
     }
 
+    @Test(arguments: [["other", "team"], ["user", "other"], ["user", nil], [nil, nil]])
     func accountOrTeamReplacementInvalidatesPendingSignIn(current: [String?]) async {
         let handoff = CloudSignedOutCreationContinuation()
         let gate = CloudSignInTestGate()
