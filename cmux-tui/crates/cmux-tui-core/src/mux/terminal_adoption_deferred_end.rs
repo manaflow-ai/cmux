@@ -5,53 +5,82 @@
 //! cold start of 600 terminals 10.5 s on a capture Mac (cp/restore-investigate
 //! bench). A dead host's record adopts as a work item like a live one (its
 //! try finds the host dead and ends it, `terminal_adoption_retry.rs`); a
-//! terminal with no record ends here, as such an adoption: held until the
-//! owner says ready, a few at a time ([`super::ADOPTION_REPLAYS`]), first
-//! when a request waits on it. Its tab reads adopting until then, never
-//! dead (R41), and its respawn follows (`terminal_respawn.rs`).
+//! running terminal with no record is marked adopting with the others in one
+//! commit and ends here, as such an adoption: held until the owner says
+//! ready, a few at a time ([`super::ADOPTION_REPLAYS`]), first when a request
+//! waits on it. Its tab reads adopting until then, never dead (R41), and its
+//! respawn follows (`terminal_respawn.rs`).
 
 use super::super::mux_work::Retry;
 use super::super::*;
 use super::{AdoptionEnd, HeldAdoption};
 use cmux_threads::work::{Lane, Priority};
 
+/// Why a terminal with no host record ends.
+const OPERATION: &str = "terminal-record-missing";
+const REASON: &str = "missing-host-record";
+
 impl Mux {
-    /// Ends `terminal` (no host record: `missing-host-record`) on a work
-    /// item after the owner's first answer, unless the holder re-attaches
-    /// it now (that stays inline: the holder releases what the start pass
-    /// did not claim).
+    /// Ends every terminal of `missing` (no host record, none the holder
+    /// runs). A running (or adopting) one with an incarnation is marked
+    /// adopting, all in one registry commit, and ends on a work item after
+    /// the first answer; any other (a launch the crash cut off, which a
+    /// creation's reconciliation may wait on) ends now, as before.
     #[cfg(any(unix, windows))]
     #[track_caller]
-    pub(super) fn adopt_from_holder_or_end_later(
+    pub(super) fn end_missing_hosts_later(
         self: &Arc<Self>,
-        terminal: &RegistryTerminal,
+        missing: Vec<RegistryTerminal>,
         options: &SurfaceOptions,
     ) -> anyhow::Result<()> {
-        if self.adopt_from_holder_or_none(terminal, options) {
-            return Ok(());
+        let (later, now): (Vec<_>, Vec<_>) = missing.into_iter().partition(|terminal| {
+            matches!(terminal.lifecycle, TerminalLifecycle::Running | TerminalLifecycle::Adopting)
+                && terminal.incarnation.is_some()
+        });
+        for terminal in now {
+            self.mark_terminal_ended(&terminal.terminal_id, OPERATION, REASON, options)?;
         }
-        let terminal_id = terminal.terminal_id.clone();
+        let adopting = later
+            .into_iter()
+            .filter_map(|terminal| {
+                let incarnation = terminal.incarnation.clone()?;
+                Some((terminal, incarnation))
+            })
+            .collect::<Vec<_>>();
+        let marked = {
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            let (marked, revision) = commit_terminals_adopting(&mut registry, &adopting)?;
+            if let Some(revision) = revision {
+                self.emit_terminal_registry_changed(&registry, revision);
+            }
+            marked
+        };
+        for ((terminal, _), marked) in adopting.into_iter().zip(marked) {
+            // A row that could not be marked, or has no tab to show it
+            // pending, ends now.
+            if marked.is_err()
+                || !self.set_pending_terminal(&terminal.terminal_id, PendingTerminal::Adopting)
+            {
+                self.mark_terminal_ended(&terminal.terminal_id, OPERATION, REASON, options)?;
+                continue;
+            }
+            self.end_missing_host_later(terminal.terminal_id, options);
+        }
+        Ok(())
+    }
+
+    /// Ends `terminal_id` on a retried work item held until the owner says
+    /// ready, under the adoption permits, first when a request waits on it.
+    #[cfg(any(unix, windows))]
+    fn end_missing_host_later(self: &Arc<Self>, terminal_id: String, options: &SurfaceOptions) {
         if !self
             .terminal_adoptions
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(terminal_id.clone())
         {
-            return Ok(());
-        }
-        // The tab is pending, not dead, until the end commits (R41). A row
-        // with no public id has no tab to show it: it ends now.
-        if !self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting) {
-            self.terminal_adoptions
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .remove(&terminal_id);
-            return self.mark_terminal_ended(
-                &terminal_id,
-                "terminal-record-missing",
-                "missing-host-record",
-                options,
-            );
+            return;
         }
         let end = AdoptionEnd { mux: Arc::downgrade(self), terminal_id: terminal_id.clone() };
         let options = options.clone();
@@ -59,7 +88,8 @@ impl Mux {
         let start: HeldAdoption = Box::new(move |mux: &Mux| {
             let mut delay = Duration::from_millis(100);
             // Refused: shutdown began; the dropped item ends the adoption,
-            // and the next owner's start finds the row as this one did.
+            // and the next owner's start finds the row adopting with no
+            // record and ends it the same way.
             let _ = mux.post_mux_retry_limited(
                 Duration::ZERO,
                 Priority::UserVisible,
@@ -67,8 +97,8 @@ impl Mux {
                 (&mux.terminal_replays, Some(key)),
                 move |mux| match mux.mark_terminal_ended(
                     &end.terminal_id,
-                    "terminal-record-missing",
-                    "missing-host-record",
+                    OPERATION,
+                    REASON,
                     &options,
                 ) {
                     Ok(()) => Retry::Done,
@@ -84,6 +114,5 @@ impl Mux {
             );
         });
         self.hold_startup_adoption(terminal_id, start);
-        Ok(())
     }
 }

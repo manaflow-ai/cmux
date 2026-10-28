@@ -356,6 +356,9 @@ impl Mux {
         // without a host-owned record therefore represents a closed crash
         // window, not permission to spawn a replacement shell.
         let snapshot = self.workspace_registry.lock().unwrap().terminal_snapshot()?;
+        // Rows with no host the holder runs either: they end after the first
+        // answer (terminal_adoption_deferred_end.rs).
+        let mut missing = Vec::new();
         for terminal in snapshot.terminals {
             if terminal.lifecycle == TerminalLifecycle::Tombstoned
                 || handled_terminals.contains(&terminal.terminal_id)
@@ -367,8 +370,11 @@ impl Mux {
                 self.record_terminal_end(&terminal.terminal_id);
                 continue;
             }
-            self.adopt_from_holder_or_end_later(&terminal, &options)?;
+            if !self.adopt_from_holder_or_none(&terminal, &options) {
+                missing.push(terminal);
+            }
         }
+        self.end_missing_hosts_later(missing, &options)?;
         self.release_unclaimed_holder_terminals(&options);
         Ok(())
     }
