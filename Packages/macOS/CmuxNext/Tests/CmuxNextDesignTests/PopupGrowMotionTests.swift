@@ -26,22 +26,23 @@ import CmuxNextDesignTokens
         return (window, layer)
     }
 
-    /// The popup adds its animations: a screen that is awake and speed not "off". Checks only the
-    /// animations it queues, so a Mac mini whose display does not advance frames still runs it.
-    static func queuesAnimations() async -> Bool {
-        guard let screen = NSScreen.main else { return false }
-        return Motion.speed != .off && !DisplaySleep.shared.isAsleep(screen)
-    }
-
-    static func hasScreen() async -> Bool { NSScreen.main != nil }
-
     /// The x scale a `sublayerTransform` value holds.
     private static func scale(_ value: Any?) -> CGFloat? {
         (value as? NSValue).map { $0.caTransform3DValue.m11 }
     }
 
-    @Test(.enabled("needs a screen to order a popup window") { await Self.hasScreen() })
+    @Test(.enabled("needs an awake display that can advance animations") { await GUIAnimationTestSupport.animatesHere() })
     func anOpenWithoutExplicitEntranceUsesTheSharedEntrance() throws {
+        let design = DesignSettings.shared
+        let oldSettings = (design.animationsEnabled, design.disabledAnimationCategories, design.animationSpeed)
+        design.animationsEnabled = true
+        design.disabledAnimationCategories.remove(.overlays)
+        design.animationSpeed = .fast
+        defer {
+            design.animationsEnabled = oldSettings.0
+            design.disabledAnimationCategories = oldSettings.1
+            design.animationSpeed = oldSettings.2
+        }
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
@@ -54,7 +55,7 @@ import CmuxNextDesignTokens
         #expect(layer.animation(forKey: "sublayerTransform") != nil, "the shared popup entrance grows in")
     }
 
-    @Test(.enabled("needs a screen and animation speed on, or every popup snaps") { await Self.queuesAnimations() })
+    @Test(.enabled("needs an awake display that can advance animations") { await GUIAnimationTestSupport.animatesHere() })
     func anOpenWithEntranceFalseShowsTheCardAtOnce() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
@@ -70,7 +71,7 @@ import CmuxNextDesignTokens
         #expect(CATransform3DIsIdentity(layer.sublayerTransform))
     }
 
-    @Test(.enabled("needs a screen and animation speed on, or every popup snaps") { await Self.queuesAnimations() })
+    @Test(.enabled("needs an awake display that can advance animations") { await GUIAnimationTestSupport.animatesHere() })
     func aCloseMirrorsTheOpenFasterAndThenEnds() async throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
