@@ -39,10 +39,14 @@ const localizedState = (t: ReturnType<typeof useT>, state: WorkflowAgent["state"
       return t("subagents.state.completed");
     case "failed":
       return t("subagents.state.failed");
+    case "waiting":
+      return t("subagents.state.waiting");
     case "paused":
       return t("goal.paused");
     case "cancelled":
       return t("subagents.state.cancelled");
+    case "unknown":
+      return t("inspector.unknown");
     default:
       return t("plan.status.pending");
   }
