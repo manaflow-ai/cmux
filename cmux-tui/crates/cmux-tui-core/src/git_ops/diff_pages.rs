@@ -38,7 +38,12 @@ impl Captures {
 
     fn put(&mut self, key: String, window: GitWindow, metadata: Value, now: Instant) {
         self.prune(now);
-        self.0.retain(|entry| entry.key != key);
+        // A request key describes the comparison inputs, but not the bytes that
+        // were captured at a particular revision. Keep older revisions alive so
+        // a continuation for an in-flight page cannot be evicted by a newer
+        // offset-zero capture for the same request. A new capture of the same
+        // revision still replaces the old one.
+        self.0.retain(|entry| entry.key != key || entry.window.sha256 != window.sha256);
         self.0.sort_by_key(|entry| entry.used);
         while !self.0.is_empty()
             && (self.0.len() >= MAX_CAPTURES
@@ -114,5 +119,52 @@ mod tests {
         assert!(cache.get("repository/path/9", &revision, now + Duration::from_secs(1)).is_some());
         cache.prune(now + IDLE + Duration::from_secs(2));
         assert!(cache.0.is_empty());
+    }
+
+    #[test]
+    fn captures_keep_distinct_revisions_for_the_same_request() {
+        let first = run_git_window_within(
+            &std::env::temp_dir(),
+            &[],
+            &["--version"],
+            0,
+            512,
+            Duration::from_secs(2),
+        )
+        .unwrap()
+        .window
+        .unwrap();
+        let second = run_git_window_within(
+            &std::env::temp_dir(),
+            &[],
+            &["--exec-path"],
+            0,
+            512,
+            Duration::from_secs(2),
+        )
+        .unwrap()
+        .window
+        .unwrap();
+        assert_ne!(first.sha256, second.sha256);
+
+        let now = Instant::now();
+        let mut cache = Captures::default();
+        cache.put("same request".into(), first.clone(), json!({"revision":"first"}), now);
+        cache.put(
+            "same request".into(),
+            second.clone(),
+            json!({"revision":"second"}),
+            now + Duration::from_millis(1),
+        );
+
+        assert_eq!(cache.0.len(), 2);
+        assert_eq!(
+            cache.get("same request", &first.sha256, now + Duration::from_millis(2)).unwrap().1,
+            json!({"revision":"first"})
+        );
+        assert_eq!(
+            cache.get("same request", &second.sha256, now + Duration::from_millis(2)).unwrap().1,
+            json!({"revision":"second"})
+        );
     }
 }
