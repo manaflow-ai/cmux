@@ -222,7 +222,7 @@ fn install_command(
     validate_git_source(&positionals[1])
         .map_err(|error| ManagerError::validation(Some("git_url"), error.to_string()))?;
     let root = install_root(kind)?;
-    fs::create_dir_all(&root)?;
+    cmux_blocking::fs::create_dir_all(&root)?;
     let temp_dir = root.join(format!(".install-{}-{}", std::process::id(), now_nanos()));
     // Keep the user-supplied source after `--` so a value beginning with `-`
     // cannot become a git option. The destination remains a separate final
@@ -230,7 +230,7 @@ fn install_command(
     let clone_result =
         run_git(["clone", "--depth", "1", "--", positionals[1].as_str()], Some(&temp_dir), None);
     if let Err(error) = clone_result {
-        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = cmux_blocking::fs::remove_dir_all(&temp_dir);
         return Err(error.into());
     }
 
@@ -296,8 +296,8 @@ fn install_command(
             selected,
         })}))
     })();
-    if result.is_err() && temp_dir.exists() {
-        let _ = fs::remove_dir_all(&temp_dir);
+    if result.is_err() && cmux_blocking::fs::metadata(&temp_dir).is_ok() {
+        let _ = cmux_blocking::fs::remove_dir_all(&temp_dir);
     }
     result
 }
@@ -375,7 +375,7 @@ fn update_command(
     let clone_result =
         run_git(["clone", "--depth", "1", "--", source.as_str()], Some(&temp_dir), None);
     if let Err(error) = clone_result {
-        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = cmux_blocking::fs::remove_dir_all(&temp_dir);
         return Err(error.into());
     }
 
@@ -422,8 +422,8 @@ fn update_command(
         transaction.commit();
         Ok(json!({"plugin": plugin_json(&plugin)}))
     })();
-    if result.is_err() && temp_dir.exists() {
-        let _ = fs::remove_dir_all(&temp_dir);
+    if result.is_err() && cmux_blocking::fs::metadata(&temp_dir).is_ok() {
+        let _ = cmux_blocking::fs::remove_dir_all(&temp_dir);
     }
     result
 }
@@ -445,7 +445,7 @@ fn remove_command(
     if installed.selected {
         persist_plugin_none(kind)?;
     }
-    fs::remove_dir_all(&installed.dir)?;
+    cmux_blocking::fs::remove_dir_all(&installed.dir)?;
     remove_registry_metadata(&install_root(kind)?, &installed.name, kind)?;
     plugin["active"] = Value::Bool(false);
     plugin["enabled"] = Value::Bool(false);
@@ -507,12 +507,12 @@ fn artifact_revision(manifest: &PluginManifest, dir: &Path, command: &[String]) 
     }
     let mut binary_digest = digest.clone();
     binary_digest.update(b"binary\0");
-    let binary_hashed = fs::File::open(&command[0])
+    let binary_hashed = cmux_blocking::fs::open(&command[0])
         .and_then(|file| update_file_digest(file, &mut binary_digest))
         .is_ok();
     if binary_hashed {
         digest = binary_digest;
-    } else if let Ok(metadata) = fs::metadata(&command[0]) {
+    } else if let Ok(metadata) = cmux_blocking::fs::metadata(&command[0]) {
         digest.update(b"metadata\0");
         digest.update(metadata.len().to_le_bytes());
         if let Ok(modified) = metadata.modified()
@@ -604,7 +604,7 @@ fn installed_plugins(kind: PluginKind) -> anyhow::Result<Vec<InstalledPlugin>> {
 /// the registry metadata directory, so an attacker cannot bypass the bound by
 /// creating entries the normal list path later ignores.
 fn bounded_plugin_registry_entries(root: &Path) -> anyhow::Result<Vec<fs::DirEntry>> {
-    let entries = match fs::read_dir(root) {
+    let entries = match cmux_blocking::fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => {
@@ -656,7 +656,7 @@ fn resolve_installed_plugin(
 
 fn read_manifest(dir: &Path, kind: PluginKind) -> anyhow::Result<PluginManifest> {
     let path = dir.join("cmux-plugin.toml");
-    let mut file = fs::File::open(&path)
+    let mut file = cmux_blocking::fs::open(&path)
         .map_err(|err| anyhow::anyhow!("failed to read {}: {err}", path.display()))?;
     let mut text = String::new();
     Read::by_ref(&mut file)
@@ -934,7 +934,7 @@ fn resolved_run_command(manifest: &PluginManifest, dir: &Path) -> anyhow::Result
 
 fn verify_executable(path: &str) -> anyhow::Result<()> {
     let path = Path::new(path);
-    let metadata = fs::metadata(path).map_err(|err| {
+    let metadata = cmux_blocking::fs::metadata(path).map_err(|err| {
         anyhow::anyhow!("run.command[0] {} is not readable: {err}", path.display())
     })?;
     if !metadata.is_file() {
@@ -1173,24 +1173,27 @@ fn replace_registry_metadata(
     validate_plugin_name(name)?;
     validate_plugin_id_for(&metadata.id, kind)?;
     let registry = install_root.join(".registry");
-    fs::create_dir_all(&registry)?;
+    cmux_blocking::fs::create_dir_all(&registry)?;
     let path = registry_metadata_path(install_root, name);
     let temp = registry.join(format!(".{name}.{}-{}.tmp", std::process::id(), now_nanos()));
     let result = (|| -> anyhow::Result<()> {
         let encoded = serde_json::to_vec(metadata)?;
-        let mut file = fs::OpenOptions::new().create_new(true).write(true).open(&temp)?;
+        let mut file = crate::blocking::fs::open_with(
+            fs::OpenOptions::new().create_new(true).write(true),
+            &temp,
+        )?;
         file.write_all(&encoded)?;
         file.write_all(b"\n")?;
-        file.sync_all()?;
+        crate::blocking::fs::sync_all(&file)?;
         drop(file);
-        fs::rename(&temp, &path)
+        cmux_blocking::fs::rename(&temp, &path)
             .map_err(|error| anyhow::anyhow!("failed to persist {}: {error}", path.display()))
     })();
     if result.is_err() {
         // A failed write or sync can leave a partial temporary file. Remove
         // it before returning so a later install cannot inherit stale
         // metadata and the registry does not accumulate unbounded debris.
-        let _ = fs::remove_file(&temp);
+        let _ = cmux_blocking::fs::remove_file(&temp);
     }
     result
 }
@@ -1246,7 +1249,7 @@ impl PluginInstallTransaction {
                 errors
                     .push(format!("remove new metadata {}: {error}", self.metadata_path.display()));
             }
-            if let Err(error) = fs::rename(&backup, &self.metadata_path) {
+            if let Err(error) = cmux_blocking::fs::rename(&backup, &self.metadata_path) {
                 errors.push(format!(
                     "restore metadata {} from {}: {error}",
                     self.metadata_path.display(),
@@ -1258,7 +1261,7 @@ impl PluginInstallTransaction {
         }
 
         if let Some(backup) = self.target_backup.take()
-            && let Err(error) = fs::rename(&backup, &self.target)
+            && let Err(error) = cmux_blocking::fs::rename(&backup, &self.target)
         {
             errors.push(format!(
                 "restore plugin {} from {}: {error}",
@@ -1296,7 +1299,7 @@ fn replace_plugin_install(
     let target_backup =
         install_root.join(format!(".{name}.backup-{}-{}", std::process::id(), now_nanos()));
     let registry = install_root.join(".registry");
-    fs::create_dir_all(&registry)?;
+    cmux_blocking::fs::create_dir_all(&registry)?;
     let metadata_path = registry_metadata_path(install_root, name);
     let metadata_backup =
         registry.join(format!(".{name}.backup-{}-{}.json", std::process::id(), now_nanos()));
@@ -1309,18 +1312,18 @@ fn replace_plugin_install(
 
     let install_result = (|| -> anyhow::Result<()> {
         if target_exists {
-            fs::rename(target, &target_backup).map_err(|error| {
+            cmux_blocking::fs::rename(target, &target_backup).map_err(|error| {
                 anyhow::anyhow!("failed to stage {}: {error}", target.display())
             })?;
             target_moved = true;
         }
         if metadata_exists {
-            fs::rename(&metadata_path, &metadata_backup).map_err(|error| {
+            cmux_blocking::fs::rename(&metadata_path, &metadata_backup).map_err(|error| {
                 anyhow::anyhow!("failed to stage {}: {error}", metadata_path.display())
             })?;
             metadata_moved = true;
         }
-        fs::rename(temp_dir, target)
+        cmux_blocking::fs::rename(temp_dir, target)
             .map_err(|error| anyhow::anyhow!("failed to install {}: {error}", target.display()))?;
         target_installed = true;
         replace_registry_metadata(install_root, name, metadata, kind)?;
@@ -1340,12 +1343,12 @@ fn replace_plugin_install(
             if metadata_installed {
                 let _ = remove_path_if_present(&metadata_path);
             }
-            let _ = fs::rename(&metadata_backup, &metadata_path);
+            let _ = cmux_blocking::fs::rename(&metadata_backup, &metadata_path);
         } else if metadata_installed {
             let _ = remove_path_if_present(&metadata_path);
         }
         if target_moved {
-            let _ = fs::rename(&target_backup, target);
+            let _ = cmux_blocking::fs::rename(&target_backup, target);
         }
         return Err(error);
     }
@@ -1361,7 +1364,7 @@ fn replace_plugin_install(
 }
 
 fn path_exists(path: &Path) -> anyhow::Result<bool> {
-    match fs::symlink_metadata(path) {
+    match cmux_blocking::fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(anyhow::anyhow!("failed to inspect {}: {error}", path.display())),
@@ -1369,10 +1372,10 @@ fn path_exists(path: &Path) -> anyhow::Result<bool> {
 }
 
 fn remove_path_if_present(path: &Path) -> anyhow::Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_dir() => fs::remove_dir_all(path)
+    match cmux_blocking::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_dir() => cmux_blocking::fs::remove_dir_all(path)
             .map_err(|error| anyhow::anyhow!("failed to remove {}: {error}", path.display())),
-        Ok(_) => fs::remove_file(path)
+        Ok(_) => cmux_blocking::fs::remove_file(path)
             .map_err(|error| anyhow::anyhow!("failed to remove {}: {error}", path.display())),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(anyhow::anyhow!("failed to inspect {}: {error}", path.display())),
@@ -1386,7 +1389,7 @@ fn remove_registry_metadata(
 ) -> anyhow::Result<()> {
     validate_plugin_name(name)?;
     let path = registry_metadata_path(install_root, name);
-    match fs::remove_file(&path) {
+    match cmux_blocking::fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(anyhow::anyhow!("failed to remove {}: {error}", path.display())),
@@ -1477,13 +1480,13 @@ fn read_bounded_child_stdout(child: &mut Child, max_bytes: usize) -> Option<Vec<
 }
 
 fn canonical_path(path: &Path) -> anyhow::Result<PathBuf> {
-    fs::canonicalize(path)
+    cmux_blocking::fs::canonicalize(path)
         .map_err(|err| anyhow::anyhow!("failed to resolve {}: {err}", path.display()))
 }
 
 fn same_path(left: &Path, right: &Path) -> bool {
-    let left = fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf());
-    let right = fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf());
+    let left = cmux_blocking::fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf());
+    let right = cmux_blocking::fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf());
     left == right
 }
 

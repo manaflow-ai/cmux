@@ -81,7 +81,7 @@ pub(super) fn select(
 /// A same-user process environment; other users' are unreadable.
 #[cfg(target_os = "linux")]
 fn proc_environ(pid: u32) -> Option<HashMap<String, String>> {
-    let data = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
+    let data = cmux_blocking::fs::read(format!("/proc/{pid}/environ")).ok()?;
     Some(
         data.split(|byte| *byte == 0)
             .filter_map(|entry| {

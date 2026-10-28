@@ -3,8 +3,9 @@
 //! attaches off the UI thread.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 
+use cmux_threads::sync::Condvar;
 use cmux_tui_core::SurfaceId;
 
 #[cfg(test)]

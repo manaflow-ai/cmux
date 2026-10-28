@@ -42,7 +42,8 @@ pub(super) struct Inputs {
 
 /// `cmux version`: gathers [`Inputs`] and prints the report.
 pub(super) fn run(global: &GlobalArgs) -> i32 {
-    let cli_path = std::env::current_exe().ok().and_then(|path| path.canonicalize().ok());
+    let cli_path =
+        std::env::current_exe().ok().and_then(|path| cmux_blocking::fs::canonicalize(&path).ok());
     let (identify, updates) = match super::connect_command(global) {
         Ok(mut stream) => {
             let identify =
@@ -202,7 +203,7 @@ fn bundle_of(exe: &Path) -> Option<PathBuf> {
 pub(super) fn read_components(bundle: &Path) -> Map<String, Value> {
     let bin = bundle.join("Contents/Resources/bin");
     let mut components = Map::new();
-    let Ok(entries) = std::fs::read_dir(&bin) else { return components };
+    let Ok(entries) = cmux_blocking::fs::read_dir(&bin) else { return components };
     let mut stamps: Vec<PathBuf> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.path())
@@ -211,7 +212,7 @@ pub(super) fn read_components(bundle: &Path) -> Map<String, Value> {
     stamps.sort();
     for stamp in stamps {
         let Some(name) = stamp.file_stem().and_then(|stem| stem.to_str()) else { continue };
-        let Ok(body) = std::fs::read_to_string(&stamp) else { continue };
+        let Ok(body) = cmux_blocking::fs::read_to_string(&stamp) else { continue };
         components.insert(name.to_owned(), Value::Object(parse_stamp(&body)));
     }
     components
@@ -257,7 +258,7 @@ fn text(value: &Value, key: &str) -> Option<String> {
 }
 
 fn same_file(left: &Path, right: &Path) -> bool {
-    match (left.canonicalize(), right.canonicalize()) {
+    match (cmux_blocking::fs::canonicalize(left), cmux_blocking::fs::canonicalize(right)) {
         (Ok(left), Ok(right)) => left == right,
         _ => left == right,
     }

@@ -365,7 +365,7 @@ impl Upstream {
         let deadline = Instant::now() + timeout;
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
-            let line = match conn.lines.recv_timeout(left) {
+            let line = match crate::blocking::sync::recv_timeout(&conn.lines, left) {
                 Ok(line) => line,
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     let secs = timeout.as_secs();

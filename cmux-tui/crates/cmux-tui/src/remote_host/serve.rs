@@ -52,9 +52,9 @@ impl Host {
         let result = config::ensure_dir().and_then(|dir| {
             let path = dir.join(ACTIVE_FILE);
             let tmp = dir.join(format!(".{ACTIVE_FILE}.{}", std::process::id()));
-            std::fs::write(&tmp, serde_json::to_vec(&list)?)?;
+            cmux_blocking::fs::write(&tmp, serde_json::to_vec(&list)?)?;
             cmux_tui_core::platform::restrict_file(&tmp)?;
-            std::fs::rename(&tmp, &path)?;
+            cmux_blocking::fs::rename(&tmp, &path)?;
             Ok(())
         });
         if let Err(e) = result {
@@ -186,7 +186,7 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
         threads.push(std::thread::spawn(move || accept_loop(&host, &listener)));
     }
     for thread in threads {
-        let _ = thread.join();
+        let _ = crate::blocking::thread::join(thread);
     }
     Err(anyhow!("every listener stopped"))
 }
@@ -391,7 +391,7 @@ pub(crate) fn ensure_session(exe: &Path, session: &str) -> anyhow::Result<PathBu
             bail!("`daemon ensure` did not finish within {}s", ENSURE_BOUND.as_secs());
         }
     };
-    let out = reader.join().unwrap_or_default();
+    let out = crate::blocking::thread::join(reader).unwrap_or_default();
     if !status.success() {
         bail!("`daemon ensure` failed: {}", String::from_utf8_lossy(&out).trim());
     }
@@ -448,7 +448,7 @@ fn splice(tcp: TcpStream, daemon: DaemonStream) -> io::Result<()> {
     let _ = copy_flush(&mut daemon_read, &mut tcp_write);
     let _ = tcp_write.shutdown(Shutdown::Both);
     let _ = daemon_read.shutdown(Shutdown::Both);
-    let _ = up.join();
+    let _ = crate::blocking::thread::join(up);
     Ok(())
 }
 

@@ -2,16 +2,16 @@
 //! mirrored surface terminals (VT replay + live stream).
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_threads::sync::Condvar;
 use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use cmux_tui_core::sizing_policy::TerminalSizingState;
 use cmux_tui_core::{
@@ -2184,7 +2184,7 @@ impl Drop for RemoteSession {
         let Some(dir) = self.frame_dump_dir.as_deref() else {
             return;
         };
-        let _ = fs::create_dir_all(dir);
+        let _ = cmux_blocking::fs::create_dir_all(dir);
         let logs = self.frame_logs.lock().unwrap();
         let mut entries_by_surface: HashMap<SurfaceId, Vec<&str>> = HashMap::new();
         for entry in &logs.entries {
@@ -2192,9 +2192,9 @@ impl Drop for RemoteSession {
         }
         for surface in self.surfaces.lock().unwrap().values() {
             let path = dir.join(format!("mirror-{}.txt", surface.id));
-            let _ = fs::write(path, dump_mirror(surface));
+            let _ = cmux_blocking::fs::write(path, dump_mirror(surface));
             let frames = dir.join(format!("frames-{}.log", surface.id));
-            if let Ok(file) = fs::File::create(frames) {
+            if let Ok(file) = cmux_blocking::fs::create(frames) {
                 let mut writer = io::BufWriter::new(file);
                 for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
                     let _ = writeln!(writer, "{line}");

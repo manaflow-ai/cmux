@@ -321,7 +321,7 @@ pub(super) fn feature_rows(report: &Value) -> Value {
 /// every key has its default. A file the caller names must exist.
 pub(super) fn validate(path: &std::path::Path, named: bool) -> Result<Value, Value> {
     let file = path.display().to_string();
-    let text = match std::fs::read_to_string(path) {
+    let text = match cmux_blocking::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if !named && error.kind() == std::io::ErrorKind::NotFound => {
             return Ok(json!({ "file": file, "exists": false, "valid": true, "diagnostics": [] }));

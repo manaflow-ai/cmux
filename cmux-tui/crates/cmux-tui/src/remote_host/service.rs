@@ -70,7 +70,7 @@ fn open_lock(create: bool) -> anyhow::Result<Option<File>> {
     options.read(true).write(true).create(create).truncate(false);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    match options.open(&path) {
+    match crate::blocking::fs::open_with(&options, &path) {
         Ok(file) => Ok(Some(file)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e).with_context(|| format!("cannot open {}", path.display())),
@@ -82,12 +82,13 @@ fn new_private_file(path: &Path) -> anyhow::Result<File> {
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(path).with_context(|| format!("cannot write {}", path.display()))
+    crate::blocking::fs::open_with(&options, path)
+        .with_context(|| format!("cannot write {}", path.display()))
 }
 
 fn read_pid() -> Option<u32> {
     let mut text = String::new();
-    File::open(pid_path().ok()?).ok()?.read_to_string(&mut text).ok()?;
+    cmux_blocking::fs::open(pid_path().ok()?).ok()?.read_to_string(&mut text).ok()?;
     text.trim().parse().ok()
 }
 
@@ -118,7 +119,7 @@ fn lock_released_within(bound: Duration) -> bool {
     std::thread::spawn(move || {
         let _ = tx.send(file.lock().is_ok());
     });
-    rx.recv_timeout(bound).unwrap_or(false)
+    crate::blocking::sync::recv_timeout(&rx, bound).unwrap_or(false)
 }
 
 #[cfg(unix)]
@@ -160,7 +161,7 @@ pub(crate) fn spawn_detached(exe: &Path) -> anyhow::Result<u32> {
     options.create(true).append(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let out = options.open(&log)?;
+    let out = crate::blocking::fs::open_with(&options, &log)?;
     let err = out.try_clone()?;
     let mut command = Command::new(exe);
     command.args(["host", "serve", "--dir"]).arg(&dir).stdin(Stdio::null()).stdout(out).stderr(err);
@@ -203,7 +204,7 @@ fn wait_ready(reader: std::io::PipeReader, log: &Path) -> anyhow::Result<()> {
         let _ = std::io::BufRead::read_line(&mut std::io::BufReader::new(reader), &mut line);
         let _ = tx.send(line);
     });
-    match rx.recv_timeout(READY_BOUND) {
+    match crate::blocking::sync::recv_timeout(&rx, READY_BOUND) {
         Ok(line) if line.trim() == "ready" => Ok(()),
         Ok(line) if line.trim() == "disabled" => {
             bail!("remote hosting is disabled (run `cmux host enable`)")
@@ -384,9 +385,9 @@ mod imp {
         let path = plist_path()?;
         let plist = launchd_plist(exe, dir, &log_path()?);
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            cmux_blocking::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&path, plist)?;
+        cmux_blocking::fs::write(&path, plist)?;
         Ok(format!("launchd agent {LAUNCHD_LABEL}"))
     }
 
@@ -410,14 +411,17 @@ mod imp {
     pub(super) fn remove() -> anyhow::Result<()> {
         stop();
         let path = plist_path()?;
-        if path.exists() {
-            std::fs::remove_file(&path)?;
+        if cmux_blocking::fs::metadata(&path).is_ok() {
+            cmux_blocking::fs::remove_file(&path)?;
         }
         Ok(())
     }
 
     pub(super) fn installed() -> Option<String> {
-        plist_path().ok().filter(|p| p.exists()).map(|p| p.display().to_string())
+        plist_path()
+            .ok()
+            .filter(|p| cmux_blocking::fs::metadata(p).is_ok())
+            .map(|p| p.display().to_string())
     }
 }
 
@@ -457,14 +461,14 @@ mod imp {
             quoted(dir)?,
         );
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            cmux_blocking::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&path, unit)?;
+        cmux_blocking::fs::write(&path, unit)?;
         // No user manager (a headless login without linger, `su`, a
         // container): leave no unit behind, so `installed()` stays false
         // and the caller starts `serve` detached instead.
         if let Err(e) = run_quiet("systemctl", &["--user", "daemon-reload"]) {
-            let _ = std::fs::remove_file(&path);
+            let _ = cmux_blocking::fs::remove_file(&path);
             return Err(e);
         }
         Ok(format!("systemd user unit {SYSTEMD_UNIT}"))
@@ -483,15 +487,18 @@ mod imp {
     pub(super) fn remove() -> anyhow::Result<()> {
         let _ = run_quiet("systemctl", &["--user", "disable", "--now", SYSTEMD_UNIT]);
         let path = unit_path()?;
-        if path.exists() {
-            std::fs::remove_file(&path)?;
+        if cmux_blocking::fs::metadata(&path).is_ok() {
+            cmux_blocking::fs::remove_file(&path)?;
             let _ = run_quiet("systemctl", &["--user", "daemon-reload"]);
         }
         Ok(())
     }
 
     pub(super) fn installed() -> Option<String> {
-        unit_path().ok().filter(|p| p.exists()).map(|p| p.display().to_string())
+        unit_path()
+            .ok()
+            .filter(|p| cmux_blocking::fs::metadata(p).is_ok())
+            .map(|p| p.display().to_string())
     }
 }
 

@@ -132,7 +132,7 @@ pub(super) fn parse(args: &[String]) -> Result<DialArgs, Failure> {
 pub(super) fn chosen_socket(explicit: Option<&Path>) -> Result<PathBuf, Failure> {
     use std::os::unix::fs::FileTypeExt;
     let Some(path) = explicit else { return Ok(link_socket()) };
-    match std::fs::metadata(path) {
+    match cmux_blocking::fs::metadata(path) {
         Ok(metadata) if metadata.file_type().is_socket() => Ok(path.to_path_buf()),
         Ok(_) => Err(Failure::BadUsage),
         Err(_) => Err(Failure::LinkUnavailable),

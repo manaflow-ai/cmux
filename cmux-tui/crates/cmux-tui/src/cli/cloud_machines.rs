@@ -67,7 +67,7 @@ fn read_by_deadline(socket: PathBuf) -> Result<Vec<Value>, String> {
             let _ = sender.send(cloud);
         })
         .map_err(|error| error.to_string())?;
-    receiver.recv_timeout(CLOUD_READ_TIMEOUT).unwrap_or_else(|_| {
+    crate::blocking::sync::recv_timeout(&receiver, CLOUD_READ_TIMEOUT).unwrap_or_else(|_| {
         let messages = &crate::localization::catalog().app_control;
         Err(messages.timeout.replace("{seconds}", &CLOUD_READ_TIMEOUT.as_secs().to_string()))
     })

@@ -48,8 +48,8 @@ pub(super) fn run(global: &GlobalArgs, chief_home: Option<&Path>) -> i32 {
     let marker = home.shutdown_marker();
     if let Err(error) = marker
         .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| std::fs::write(&marker, "cmux chief shutdown\n"))
+        .map_or(Ok(()), cmux_blocking::fs::create_dir_all)
+        .and_then(|()| cmux_blocking::fs::write(&marker, "cmux chief shutdown\n"))
     {
         eprintln!("cmux: {}: {error}", marker.display());
     }
@@ -59,7 +59,7 @@ pub(super) fn run(global: &GlobalArgs, chief_home: Option<&Path>) -> i32 {
         Ok(false) => {}
         Err(why) => {
             // The brain still runs: its next crash is restarted as before.
-            let _ = std::fs::remove_file(&marker);
+            let _ = cmux_blocking::fs::remove_file(&marker);
             eprintln!("cmux: {why}");
         }
     }
@@ -80,7 +80,7 @@ pub(super) fn stop_brain(lock: &Path, limit: Duration) -> Result<bool, String> {
             if Instant::now() >= deadline {
                 return Err(timeout(stopped.last().copied().unwrap_or(0), limit));
             }
-            std::thread::sleep(Duration::from_millis(20));
+            cmux_blocking::thread::sleep(Duration::from_millis(20));
             continue;
         };
         if stopped.len() >= MAX_BRAINS {
@@ -101,7 +101,7 @@ pub(super) fn stop_brain(lock: &Path, limit: Duration) -> Result<bool, String> {
             if Instant::now() >= deadline {
                 return Err(timeout(pid, limit));
             }
-            std::thread::sleep(Duration::from_millis(100));
+            cmux_blocking::thread::sleep(Duration::from_millis(100));
         }
     }
     Ok(!stopped.is_empty())
@@ -117,13 +117,13 @@ fn held_within(lock: &Path, grace: Duration) -> bool {
         if Instant::now() >= until {
             return false;
         }
-        std::thread::sleep(Duration::from_millis(20));
+        cmux_blocking::thread::sleep(Duration::from_millis(20));
     }
 }
 
 /// The pid the lock's holder wrote on its first line.
 fn holder(lock: &Path) -> Option<i32> {
-    std::fs::read_to_string(lock)
+    cmux_blocking::fs::read_to_string(lock)
         .ok()
         .and_then(|text| text.lines().next()?.trim().parse::<i32>().ok())
         .filter(|pid| *pid > 1)

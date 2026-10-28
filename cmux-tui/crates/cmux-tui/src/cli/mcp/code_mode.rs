@@ -316,7 +316,7 @@ pub(super) fn exec(
             }
         }
     }
-    let _ = engine.join();
+    let _ = crate::blocking::thread::join(engine);
     let Some(outcome) = outcome else {
         return Ok(super::tool_error(json!({
             "error": {
@@ -486,7 +486,7 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
                 }
                 let (reply, answer) = mpsc::channel();
                 let value = if to_server.send(ToServer::Request(request, reply)).is_ok() {
-                    answer.recv().unwrap_or_else(|_| closed())
+                    cmux_blocking::sync::recv(&answer).unwrap_or_else(|_| closed())
                 } else {
                     closed()
                 };

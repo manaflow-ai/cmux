@@ -76,7 +76,7 @@ impl TargetArgs {
             }
             Some(api) => {
                 let token = match &self.token_file {
-                    Some(path) => std::fs::read_to_string(path)
+                    Some(path) => cmux_blocking::fs::read_to_string(path)
                         .map_err(|e| format!("{}: {e}", path.display()))?,
                     None => std::env::var("CMUX_CLOUD_ACCESS_TOKEN")
                         .map_err(|_| text().token_missing.to_owned())?,
@@ -569,7 +569,7 @@ fn next_input(session: &Session, deadline: Option<Instant>) -> Option<Input> {
     loop {
         let wait = deadline
             .map_or(Duration::from_secs(3600), |d| d.saturating_duration_since(Instant::now()));
-        match session.rx.recv_timeout(wait) {
+        match crate::blocking::sync::recv_timeout(&session.rx, wait) {
             Ok(input) => return Some(input),
             Err(RecvTimeoutError::Timeout) if deadline.is_some_and(|d| Instant::now() >= d) => {
                 return None;

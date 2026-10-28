@@ -96,7 +96,7 @@ pub(crate) fn agent_plugin(raw: RawAgents, host: &DaemonHost<'_>) -> Option<Jour
 /// child, while every config load of one install sees the same value. Cheap,
 /// because every CLI invocation loads the config.
 pub(crate) fn bundled_revision(path: &Path) -> Option<String> {
-    let metadata = std::fs::metadata(path).ok()?;
+    let metadata = cmux_blocking::fs::metadata(path).ok()?;
     let modified = metadata.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
     #[cfg(unix)]
     let identity = {
@@ -111,7 +111,7 @@ pub(crate) fn bundled_revision(path: &Path) -> Option<String> {
 #[cfg(unix)]
 fn is_executable_file(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path)
+    cmux_blocking::fs::metadata(path)
         .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
 }
 
@@ -146,7 +146,7 @@ fn test_daemon_dir() -> Option<PathBuf> {
 /// The directory of `exe` with symlinks resolved (`exe`'s own directory when
 /// it cannot be resolved).
 fn daemon_dir_of(exe: &Path) -> Option<PathBuf> {
-    let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+    let exe = cmux_blocking::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
     exe.parent().map(Path::to_path_buf)
 }
 

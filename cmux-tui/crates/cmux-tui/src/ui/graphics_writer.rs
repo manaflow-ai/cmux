@@ -8,10 +8,11 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, TryLockError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, TryLockError};
 use std::thread::{JoinHandle, ThreadId};
 use std::time::{Duration, Instant};
 
+use cmux_threads::sync::Condvar;
 use cmux_tui_core::{Rect, SurfaceId};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
@@ -189,7 +190,10 @@ impl GraphicsFenceWaiter {
                     "graphics processing fence timed out",
                 ));
             }
-            match self.responses.recv_timeout(remaining.min(PROCESSING_FENCE_SHUTDOWN_POLL)) {
+            match crate::blocking::sync::recv_timeout(
+                &self.responses,
+                remaining.min(PROCESSING_FENCE_SHUTDOWN_POLL),
+            ) {
                 Ok(response) => break response,
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
@@ -492,10 +496,10 @@ impl InterruptibleStdout {
         // independent open-file description for the same terminal. std opens
         // it close-on-exec.
         use std::os::unix::fs::OpenOptionsExt as _;
-        let terminal = std::fs::OpenOptions::new()
-            .write(true)
-            .custom_flags(libc::O_NONBLOCK)
-            .open("/dev/tty")?;
+        let terminal = crate::blocking::fs::open_with(
+            std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK),
+            "/dev/tty",
+        )?;
         Ok(Self { fd: OwnedFd::from(terminal) })
     }
 
@@ -1090,7 +1094,7 @@ impl GraphicsWriter {
     pub fn shutdown(&mut self, timeout: Duration) {
         let Some(handle) = self.handle.take() else { return };
         let Some(notify) = self.notify.as_ref() else {
-            let _ = handle.join();
+            let _ = crate::blocking::thread::join(handle);
             return;
         };
         self.control.request_stop(notify);
@@ -1100,7 +1104,7 @@ impl GraphicsWriter {
             // cancellation at most every OUTPUT_POLL_INTERVAL_MS.
             self.control.wait_done();
         }
-        let _ = handle.join();
+        let _ = crate::blocking::thread::join(handle);
         self.notify.take();
     }
 }
@@ -1337,7 +1341,7 @@ fn writer_loop<O, P, F>(
         if control.stop_requested.load(Ordering::Acquire) {
             break;
         }
-        if notifications.recv().is_err() {
+        if cmux_blocking::sync::recv(&notifications).is_err() {
             break;
         }
     }

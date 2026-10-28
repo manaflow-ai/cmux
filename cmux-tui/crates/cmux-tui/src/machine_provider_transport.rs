@@ -6,7 +6,7 @@
 //! `machine_provider_client`; this module only owns endpoints and lifetimes.
 
 use std::ffi::{OsStr, OsString};
-use std::fs::{self, DirBuilder};
+use std::fs::DirBuilder;
 use std::io::{self, Read, Write};
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::net::UnixStream;
@@ -126,7 +126,7 @@ impl ProviderIoGuard {
         let thread_timed_out = Arc::clone(&timed_out);
         let worker = thread::Builder::new().name("machine-provider-deadline".to_string()).spawn(
             move || {
-                if cancelled.recv_timeout(timeout).is_err() {
+                if crate::blocking::sync::recv_timeout(&cancelled, timeout).is_err() {
                     thread_timed_out.store(true, Ordering::Release);
                     cleanup.close();
                 }
@@ -152,7 +152,7 @@ impl ProviderIoDeadline {
             let _ = cancel.try_send(());
         }
         if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+            let _ = crate::blocking::thread::join(worker);
         }
     }
 }
@@ -598,7 +598,7 @@ impl ProcessCleanup {
                 if let Some(child) = &mut child {
                     let _ = child.try_wait();
                 }
-                thread::sleep(Duration::from_millis(10));
+                cmux_blocking::thread::sleep(Duration::from_millis(10));
             }
             if self.group_is_alive() {
                 self.signal_group(libc::SIGKILL);
@@ -611,7 +611,7 @@ impl ProcessCleanup {
         if let Ok(mut worker) = self.stderr_worker.lock()
             && let Some(worker) = worker.take()
         {
-            let _ = worker.join();
+            let _ = crate::blocking::thread::join(worker);
         }
     }
 }
@@ -653,7 +653,7 @@ impl PrivateControlSocket {
             let directory = base.join(format!("cmux-provider-{suffix}"));
             let mut builder = DirBuilder::new();
             builder.mode(0o700);
-            match builder.create(&directory) {
+            match crate::blocking::fs::create_dir_with(&builder, &directory) {
                 Ok(()) => {
                     let path = directory.join("master.sock");
                     return Ok(Self { directory, path });
@@ -675,8 +675,8 @@ impl PrivateControlSocket {
 
 impl Drop for PrivateControlSocket {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-        let _ = fs::remove_dir(&self.directory);
+        let _ = cmux_blocking::fs::remove_file(&self.path);
+        let _ = crate::blocking::fs::remove_dir(&self.directory);
     }
 }
 
@@ -745,6 +745,7 @@ fn validate_ssh_user(user: &str) -> io::Result<()> {
 mod tests {
     #[cfg(unix)]
     use crate::test_exec::write_executable;
+    use std::fs;
     use std::io::{BufRead, BufReader};
     use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicU64, Ordering};

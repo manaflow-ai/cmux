@@ -109,7 +109,7 @@ impl SharedCatalog {
         if self.sender.send(Message::Intern { app, catalog, reply }).is_err() {
             return fallback;
         }
-        answer.recv().unwrap_or(fallback)
+        cmux_blocking::sync::recv(&answer).unwrap_or(fallback)
     }
 
     /// Writes `notifications/tools/list_changed` to `output` each time
@@ -193,7 +193,7 @@ impl Owner {
 fn spawn_notifier(output: watch::Output) -> std::io::Result<mpsc::Sender<()>> {
     let (notify, changes) = mpsc::channel::<()>();
     cmux_threads::spawn("cmux-mcp-client-notes", cmux_threads::ThreadQos::Utility, move || {
-        while changes.recv().is_ok() {
+        while cmux_blocking::sync::recv(&changes).is_ok() {
             while changes.try_recv().is_ok() {}
             if output.tools_changed().is_err() {
                 return;

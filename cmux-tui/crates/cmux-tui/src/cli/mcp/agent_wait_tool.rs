@@ -178,7 +178,7 @@ impl Ticker {
         let spawned =
             std::thread::Builder::new().name("cmux-mcp-wait-progress".into()).spawn(move || {
                 loop {
-                    match stopped.recv_timeout(PROGRESS_EVERY) {
+                    match crate::blocking::sync::recv_timeout(&stopped, PROGRESS_EVERY) {
                         Err(RecvTimeoutError::Timeout) => {}
                         Ok(()) | Err(RecvTimeoutError::Disconnected) => return,
                     }
@@ -209,7 +209,7 @@ impl Drop for Ticker {
     fn drop(&mut self) {
         drop(self.stop.take());
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = crate::blocking::thread::join(thread);
         }
     }
 }

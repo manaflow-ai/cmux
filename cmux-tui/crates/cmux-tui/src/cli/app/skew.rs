@@ -82,7 +82,7 @@ pub(super) fn message(method: &str, peer: &Peer, this_exe: Option<&Path>) -> Opt
 }
 
 fn same_file(left: &Path, right: &Path) -> bool {
-    match (left.canonicalize(), right.canonicalize()) {
+    match (cmux_blocking::fs::canonicalize(left), cmux_blocking::fs::canonicalize(right)) {
         (Ok(left), Ok(right)) => left == right,
         _ => left == right,
     }

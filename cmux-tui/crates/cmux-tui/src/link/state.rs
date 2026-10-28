@@ -63,7 +63,7 @@ impl LinkState {
 
     /// Whether `init` has run (the config exists).
     pub(super) fn has_config(&self) -> bool {
-        self.config_path().exists()
+        cmux_blocking::fs::metadata(self.config_path()).is_ok()
     }
 
     /// Where `link.json` goes: the daemon state dir, the parent of the
@@ -85,7 +85,7 @@ impl LinkState {
     }
 
     pub(super) fn config(&self) -> io::Result<LinkConfig> {
-        let text = std::fs::read_to_string(self.config_path())?;
+        let text = cmux_blocking::fs::read_to_string(self.config_path())?;
         let config: LinkConfig = serde_json::from_str(&text)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         if !cmux_link::stamp::valid_id(&config.install) {
@@ -102,7 +102,7 @@ impl LinkState {
         }
         if config.server_identity.is_some() {
             let _ = enrolled(config)?;
-            if self.key_path().symlink_metadata().is_ok()
+            if cmux_blocking::fs::symlink_metadata(self.key_path()).is_ok()
                 || (self.has_config() && {
                     let old = self.config()?;
                     old.server_identity != config.server_identity || old.install != config.install
@@ -112,7 +112,7 @@ impl LinkState {
             }
         } else if self.has_config() && self.config()?.server_identity.is_some() {
             return Err(io::Error::other("server_link.identity_conflict"));
-        } else if !self.key_path().exists() {
+        } else if cmux_blocking::fs::metadata(self.key_path()).is_err() {
             let mut private = Zeroizing::new([0u8; 32]);
             getrandom::fill(&mut *private).map_err(io::Error::other)?;
             let secret = x25519_dalek::StaticSecret::from(*private);
@@ -137,7 +137,7 @@ impl LinkState {
     /// `--install` can start this link as that install again.
     pub(super) fn archive_install(&self, install: &str) -> io::Result<()> {
         self.move_install(Some(install), None)?;
-        match std::fs::remove_file(self.config_path()) {
+        match cmux_blocking::fs::remove_file(self.config_path()) {
             Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
             _ => Ok(()),
         }
@@ -167,18 +167,18 @@ impl LinkState {
         for (current, stem, ext) in &currents {
             if let Some(old) = old {
                 let to = archive(stem, ext, old);
-                if std::fs::symlink_metadata(&to).is_ok() {
+                if cmux_blocking::fs::symlink_metadata(&to).is_ok() {
                     return Err(invalid(&format!("{} already exists", to.display())));
                 }
                 moves.push((current.clone(), to));
             }
             if let Some(new) = new {
                 let from = archive(stem, ext, new);
-                if std::fs::symlink_metadata(&from).is_ok() {
+                if cmux_blocking::fs::symlink_metadata(&from).is_ok() {
                     check_private_file(&from)?;
                     // A restore never overwrites a current file that was not
                     // archived first (no `old` moves it away here).
-                    if old.is_none() && std::fs::symlink_metadata(current).is_ok() {
+                    if old.is_none() && cmux_blocking::fs::symlink_metadata(current).is_ok() {
                         return Err(invalid(&format!(
                             "unarchived_key: {} exists and is not archived",
                             current.display()
@@ -190,12 +190,12 @@ impl LinkState {
         }
         let mut done: Vec<(PathBuf, PathBuf)> = Vec::new();
         for (from, to) in moves {
-            match std::fs::rename(&from, &to) {
+            match cmux_blocking::fs::rename(&from, &to) {
                 Ok(()) => done.push((from, to)),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => {
                     while let Some((back_to, back_from)) = done.pop() {
-                        let _ = std::fs::rename(&back_from, &back_to);
+                        let _ = cmux_blocking::fs::rename(&back_from, &back_to);
                     }
                     return Err(error);
                 }
@@ -209,7 +209,7 @@ impl LinkState {
         if config.server_identity.is_some() {
             return Ok(enrolled(&config)?.wireguard_key());
         }
-        let text = Zeroizing::new(std::fs::read_to_string(self.key_path())?);
+        let text = Zeroizing::new(cmux_blocking::fs::read_to_string(self.key_path())?);
         let bytes = Zeroizing::new(
             STANDARD
                 .decode(text.trim())
@@ -255,7 +255,7 @@ pub(super) fn default_dir() -> Option<PathBuf> {
 /// registration (`link.json`), never by this name.
 pub(super) fn socket_path_for(dir: &Path) -> PathBuf {
     use sha2::{Digest as _, Sha256};
-    let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let canonical = cmux_blocking::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
     let digest = Sha256::digest(canonical.as_os_str().as_encoded_bytes());
     let hex: String = digest.iter().take(6).map(|byte| format!("{byte:02x}")).collect();
     let leaf = format!("link-{hex}.sock");
@@ -270,7 +270,7 @@ pub(super) fn socket_path_for(dir: &Path) -> PathBuf {
 /// that no group or other user may open.
 fn check_private_file(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::MetadataExt;
-    let meta = std::fs::symlink_metadata(path)?;
+    let meta = cmux_blocking::fs::symlink_metadata(path)?;
     let uid = cmux_tui_core::platform::effective_uid();
     if !meta.file_type().is_file() || meta.uid() != uid || meta.mode() & 0o077 != 0 {
         return Err(io::Error::new(
@@ -284,14 +284,16 @@ fn check_private_file(path: &Path) -> io::Result<()> {
 /// Opens (or makes, 0600) a lock file of the state directory.
 pub(super) fn open_lock(path: &Path) -> io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)
+    crate::blocking::fs::open_with(
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW),
+        path,
+    )
 }
 
 /// The link socket's folder is this user's private folder: a real folder
@@ -300,7 +302,7 @@ pub(super) fn open_lock(path: &Path) -> io::Result<std::fs::File> {
 /// could have made the folder first.
 pub(super) fn check_socket_dir(dir: &Path) -> io::Result<()> {
     use std::os::unix::fs::MetadataExt;
-    let meta = std::fs::symlink_metadata(dir)?;
+    let meta = cmux_blocking::fs::symlink_metadata(dir)?;
     let uid = cmux_tui_core::platform::effective_uid();
     let refuse = |why: String| Err(io::Error::new(io::ErrorKind::PermissionDenied, why));
     if meta.file_type().is_symlink() || !meta.is_dir() {
@@ -321,8 +323,11 @@ pub(super) fn check_socket_dir(dir: &Path) -> io::Result<()> {
 
 fn create_private_dir(dir: &Path) -> io::Result<()> {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+    crate::blocking::fs::create_dir_with(
+        std::fs::DirBuilder::new().recursive(true).mode(0o700),
+        dir,
+    )?;
+    crate::blocking::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
 }
 
 fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -330,19 +335,18 @@ fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
     let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
     let temporary = path.with_file_name(format!(".{name}.{}.tmp", std::process::id()));
-    let _ = std::fs::remove_file(&temporary);
-    let written = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&temporary)
-        .and_then(|mut file| {
-            file.write_all(bytes)?;
-            file.sync_all()
-        })
-        .and_then(|()| std::fs::rename(&temporary, path));
+    let _ = cmux_blocking::fs::remove_file(&temporary);
+    let written = crate::blocking::fs::open_with(
+        std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600),
+        &temporary,
+    )
+    .and_then(|mut file| {
+        file.write_all(bytes)?;
+        crate::blocking::fs::sync_all(&file)
+    })
+    .and_then(|()| cmux_blocking::fs::rename(&temporary, path));
     if written.is_err() {
-        let _ = std::fs::remove_file(&temporary);
+        let _ = cmux_blocking::fs::remove_file(&temporary);
     }
     written
 }

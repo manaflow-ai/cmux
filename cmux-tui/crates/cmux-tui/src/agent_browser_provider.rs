@@ -30,7 +30,10 @@ const WORKSPACE_ENV: [&str; 1] = ["CMUX_TUI_WORKSPACE_ID"];
 pub(crate) fn configure_surface_options(options: &mut SurfaceOptions) -> anyhow::Result<()> {
     let executable = std::env::current_exe()
         .context("cannot resolve the cmux-tui executable for agent-browser")?;
-    let executable = executable.canonicalize().unwrap_or(executable).to_string_lossy().into_owned();
+    let executable = cmux_blocking::fs::canonicalize(&executable)
+        .unwrap_or(executable)
+        .to_string_lossy()
+        .into_owned();
 
     let mut plugins = inherited_plugins();
     plugins.retain(|plugin| plugin.get("name").and_then(Value::as_str) != Some(PLUGIN_NAME));
@@ -150,7 +153,7 @@ fn browser_launch_response(request: &Value) -> anyhow::Result<Value> {
         if remaining.is_zero() {
             return Err(last_error);
         }
-        std::thread::sleep(delay.min(remaining));
+        cmux_blocking::thread::sleep(delay.min(remaining));
         delay = (delay * 2).min(Duration::from_millis(250));
     }
 }
@@ -500,13 +503,13 @@ impl MuxControl {
             .spawn(move || {
             let _ = sender.send(UnixStream::connect(socket));
         })?;
-        let stream = match receiver.recv_timeout(remaining) {
+        let stream = match crate::blocking::sync::recv_timeout(&receiver, remaining) {
             Ok(result) => {
-                let _ = connector.join();
+                let _ = crate::blocking::thread::join(connector);
                 result.with_context(|| format!("cannot connect to cmux-tui socket {display}"))?
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                let _ = connector.join();
+                let _ = crate::blocking::thread::join(connector);
                 return Err(anyhow!("cmux-tui socket connector stopped without a result"));
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {

@@ -283,10 +283,11 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
-    let mut file =
-        options.open(&temp).map_err(|error| format!("write {}: {error}", temp.display()))?;
+    let mut file = crate::blocking::fs::open_with(&options, &temp)
+        .map_err(|error| format!("write {}: {error}", temp.display()))?;
     file.write_all(bytes).map_err(|error| format!("write {}: {error}", temp.display()))?;
-    std::fs::rename(&temp, path).map_err(|error| format!("write {}: {error}", path.display()))
+    cmux_blocking::fs::rename(&temp, path)
+        .map_err(|error| format!("write {}: {error}", path.display()))
 }
 
 #[cfg(test)]

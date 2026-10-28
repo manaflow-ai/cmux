@@ -17,6 +17,7 @@ mod agent_start_host;
 mod app;
 #[cfg(unix)]
 mod app_identity;
+mod blocking;
 mod browser_input;
 #[cfg(unix)]
 mod build_adopt;
@@ -1036,7 +1037,8 @@ fn version_report_json() -> serde_json::Value {
     );
     #[cfg(not(unix))]
     let (build_identity, build_time, remote_protocol) = (None, 0, None);
-    let executable = std::env::current_exe().ok().and_then(|path| std::fs::canonicalize(path).ok());
+    let executable =
+        std::env::current_exe().ok().and_then(|path| cmux_blocking::fs::canonicalize(path).ok());
     let mut report = version_report::version_json(
         &version_report::BuildFacts {
             build_identity,
@@ -2114,7 +2116,8 @@ fn run_relay(args: Args) -> anyhow::Result<()> {
     }
     output_result?;
     if input.is_finished() {
-        input.join().map_err(|_| anyhow::anyhow!("relay input thread panicked"))??;
+        blocking::thread::join(input)
+            .map_err(|_| anyhow::anyhow!("relay input thread panicked"))??;
     }
     Ok(())
 }
@@ -2238,7 +2241,8 @@ impl LocalOwnerEventLoop {
             stop.close();
         }
         self.thread.take().map_or(Ok(()), |thread| {
-            thread.join().map_err(|_| anyhow::anyhow!("local owner event loop panicked"))
+            blocking::thread::join(thread)
+                .map_err(|_| anyhow::anyhow!("local owner event loop panicked"))
         })
     }
 }
@@ -2295,7 +2299,7 @@ fn run_server(
     };
     let socket_is_derived = args.socket.is_none();
     if args.should_attach_existing(&ws_addr, &ws_token)
-        && socket_path.exists()
+        && cmux_blocking::fs::metadata(&socket_path).is_ok()
         && let Ok(remote) = RemoteSession::connect_session(&socket_path, socket_is_derived)
     {
         return run_connected_session_client(

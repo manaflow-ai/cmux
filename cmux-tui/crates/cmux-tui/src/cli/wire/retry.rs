@@ -105,7 +105,7 @@ impl Tries {
     /// Waits before the next try and counts it.
     pub(super) fn wait_before_next(&mut self) {
         let index = self.made.get().saturating_sub(1).min(BACKOFF.len() - 1);
-        std::thread::sleep(backoff(BACKOFF[index]));
+        cmux_blocking::thread::sleep(backoff(BACKOFF[index]));
         self.made.set(self.made.get() + 1);
     }
 }

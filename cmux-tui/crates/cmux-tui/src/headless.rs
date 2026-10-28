@@ -90,7 +90,7 @@ where
     if shutdown_requested()
         && let Some(signal_wait) = signal_wait
     {
-        let _ = signal_wait.join();
+        let _ = blocking::thread::join(signal_wait);
     }
     if let Some(chief_brains) = chief_brains {
         chief_brains.stop();
@@ -176,8 +176,8 @@ fn wait_for_stop(stopped: impl Fn() -> bool) {
 
 /// Wakes `run_headless`. Callers set their flag first; the wait re-checks
 /// every flag under this lock, so no wake is lost.
-static HEADLESS_WAKE: (std::sync::Mutex<u64>, std::sync::Condvar) =
-    (std::sync::Mutex::new(0), std::sync::Condvar::new());
+static HEADLESS_WAKE: (std::sync::Mutex<u64>, cmux_threads::sync::Condvar) =
+    (std::sync::Mutex::new(0), cmux_threads::sync::Condvar::new());
 
 pub(crate) fn wake_headless() {
     let (lock, wake) = &HEADLESS_WAKE;

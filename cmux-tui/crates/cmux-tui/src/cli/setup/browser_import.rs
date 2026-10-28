@@ -503,7 +503,7 @@ fn list(global: &GlobalArgs, profile: Option<&str>) -> Result<Value, Value> {
         if left <= LOAD_PAUSE {
             return Err(still_loading());
         }
-        std::thread::sleep(LOAD_PAUSE);
+        cmux_blocking::thread::sleep(LOAD_PAUSE);
         listed = match app_call(global, "bookmark.list", params.clone(), left - LOAD_PAUSE) {
             Ok(listed) => listed,
             // The reread's time ran out: the app is still slow to answer.
