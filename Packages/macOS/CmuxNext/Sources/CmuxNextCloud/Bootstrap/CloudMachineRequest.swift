@@ -22,6 +22,10 @@ public struct CloudMachineRequest: Equatable, Sendable {
     public var machineConfigPath: String?
     /// `--repo OWNER/NAME[@REF]`, cloned before the script (or alone).
     public var repo: CloudMachineRepo?
+    /// The chat's pick (``CloudWorkPick/autosize``): the server sizes the machine for the task
+    /// unless ``memoryMb`` names a size. Not a request option of its own (``isDefault``): a bare
+    /// create from a chat still takes the plain path, sized for that chat.
+    public var autosize: CloudAutosizeRequest?
     /// One key per request: the creation's Retry sends it again, so a create that reached the
     /// server but whose answer was lost does not make a second machine.
     public var idempotencyKey = UUID().uuidString

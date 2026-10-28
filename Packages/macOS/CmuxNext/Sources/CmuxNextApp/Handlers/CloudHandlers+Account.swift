@@ -18,7 +18,7 @@ extension CloudHandlers {
             let request = try newMachineRequest(invocation)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
             if request.isDefault, origin(of: invocation) == .user, window != nil {
-                beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession)
+                beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: CloudChatPick.chatTab(invocation, context.services))
                 return
             }
             let flow = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession)
@@ -58,7 +58,7 @@ extension CloudHandlers {
         }
     }
 
-    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?) {
+    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil) {
         runTracked("new Cloud workspace", context) {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
@@ -68,11 +68,11 @@ extension CloudHandlers {
                 let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
                 return await CmuxDialogCenter.shared.present(spec, in: scope)
             }
-            let wizard = CloudWorkspaceSetupWizard()
+            let wizard = CloudWorkspaceSetupWizard(), pick = await CloudChatPick(services: services).read(folder: chat?.cwd, tab: chat)
             guard let plan = try await wizard.choosePlan(availability: availability,
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
-                supportsRepository: cloud.configuration.linkSource == .legacy, present: present) else { return }
-            var request = plan.request
+                supportsRepository: cloud.configuration.linkSource == .legacy, suggested: pick?.repo, present: present) else { return }
+            var request = CloudChatPick.request(plan, sizedFor: pick)
             request.script = try await request.loadScript(work: services.work)
             try Task.checkCancellation()
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }

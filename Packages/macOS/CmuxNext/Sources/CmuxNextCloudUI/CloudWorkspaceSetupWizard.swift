@@ -61,11 +61,16 @@ public struct CloudWorkspaceSetupWizard {
     }
 
     /// Presents the starting-point choice; dismissal has no side effects.
+    /// `suggested`: the repository of the chat it was asked from (``CloudWorkPick/repo``), offered
+    /// as the starting point; the person may still pick an empty VM or another repository.
     public func choosePlan(availability: CredentialAvailability,
                            scopeIsCurrent: () -> Bool,
                            supportsRepository: Bool = true,
+                           suggested: CloudMachineRepo? = nil,
                            present: (CmuxDialogSpec) async -> CmuxDialogAnswer) async throws -> Plan? {
-        let answer = await present(Self.setupDialogSpec(availability: availability, supportsRepository: supportsRepository))
+        let suggestion = supportsRepository ? suggested : nil
+        let answer = await present(Self.setupDialogSpec(availability: availability, source: suggestion == nil ? .empty : .repository,
+                                                        repository: suggestion?.spec ?? "", supportsRepository: supportsRepository))
         guard scopeIsCurrent(), answer.button == "create", !answer.isDismissal,
               let choice = answer.text(Field.source),
               let source = Source(rawValue: choice),
