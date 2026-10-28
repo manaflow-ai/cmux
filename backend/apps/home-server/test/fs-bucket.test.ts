@@ -189,4 +189,27 @@ describe("self-hosted attachment bucket", () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+  it("keeps each open upload's parts in its own directory, so closing one never scans another's parts", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const first = await bucket.createMultipartUpload("home/v1/first")
+      const second = await bucket.createMultipartUpload("home/v1/second")
+      const parts = []
+      for (let n = 1; n <= 50; n++) {
+        parts.push(await first.uploadPart(n, "f"))
+        await second.uploadPart(n, "s")
+      }
+      // The shared directory grows with open uploads (a record and a parts directory each), not with their parts.
+      expect(readdirSync(join(root, ".multipart")).sort()).toEqual([first.uploadId, `${first.uploadId}.json`, second.uploadId, `${second.uploadId}.json`].sort())
+      await first.complete(parts)
+      expect(await new Response((await bucket.get("home/v1/first"))!.body!).text()).toBe("f".repeat(50))
+      expect(readdirSync(join(root, ".multipart")).sort()).toEqual([second.uploadId, `${second.uploadId}.json`].sort())
+      expect(readdirSync(join(root, ".multipart", second.uploadId))).toHaveLength(100)
+      await second.abort()
+      expect(readdirSync(join(root, ".multipart"))).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
