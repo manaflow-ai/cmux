@@ -171,6 +171,30 @@ class TerminalHistoryTests(unittest.TestCase):
                 self.assertEqual(shared.count('echo ONCE_13766'), 3, shared)
                 self.assertEqual(shared.count('echo OTHER_TERMINAL'), 1, shared)
 
+    def test_zsh_history_survives_no_clobber(self):
+        # NO_CLOBBER is a common user and plugin setting (zsh's APPEND_CREATE
+        # is off by default, so it governs whether `>>` may create a missing
+        # file). Under it the first append to a fresh surface history failed
+        # with ENOENT, and because the file was never created every later
+        # prompt repeated that error and the surface recorded nothing at all.
+        # Two commands, because the shell's initial prompt consumes one fc
+        # slot: the per-surface append first fires on the second command.
+        with tempfile.TemporaryDirectory(prefix='cmux13766-noclobber-') as temp:
+            directory = Path(temp)
+            self.global_startup('/bin/zsh', directory, extra=['setopt NO_CLOBBER'])
+            self.run_shell(
+                '/bin/zsh', directory, 'a',
+                [b'echo ALPHA_13766\n', b'echo BRAVO_13766\n'],
+            )
+            self.assertTrue(
+                (directory / 'a').exists(),
+                'surface history file was never created under NO_CLOBBER',
+            )
+            recorded = (directory / 'a').read_bytes()
+            self.assertEqual(recorded.count(b'echo BRAVO_13766'), 1, recorded)
+            output = self.run_shell('/bin/zsh', directory, 'a', [b'\x1b[A\n'])[0]
+            self.assertIn(b'BRAVO_13766', output)
+
     def test_noclobber_restore_is_silent(self):
         # https://github.com/manaflow-ai/cmux/issues/26514: with noclobber set,
         # zsh refused to create the terminal's history file on append (an
