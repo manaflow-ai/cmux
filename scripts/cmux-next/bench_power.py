@@ -275,6 +275,36 @@ def refused(response: dict) -> str | None:
     return response.get("error") or (response.get("message") if response.get("code") else None)
 
 
+CEF_LOG_LONG_ANIMATION = "CompositorAnimationObserver is active for too long ("
+
+
+def cef_log_animations(scratch: str) -> dict:
+    """Chromium's long-running compositor animations in the run's cef.log: lines like
+    `CompositorAnimationObserver is active for too long (341.814s) location=TabIcon@...`, which
+    an animation that never stops (a hidden tab strip's loading spinner) writes. Each such
+    animation ticks its window's compositor every frame, so the GPU process works at idle."""
+    found = {"lines": 0, "longest_s": 0.0, "locations": {}}
+    for root, _dirs, files in os.walk(os.path.join(scratch, "home", "Library")):
+        if "cef.log" not in files or os.path.basename(root) != "Chromium":
+            continue
+        with open(os.path.join(root, "cef.log"), errors="replace") as handle:
+            for line in handle:
+                at = line.find(CEF_LOG_LONG_ANIMATION)
+                if at < 0:
+                    continue
+                found["lines"] += 1
+                rest = line[at + len(CEF_LOG_LONG_ANIMATION):]
+                try:
+                    found["longest_s"] = max(found["longest_s"], float(rest.split("s)", 1)[0]))
+                except ValueError:
+                    pass
+                location = rest.split("location=", 1)[1].split("@", 1)[0].strip() if "location=" in rest else "?"
+                found["locations"][location] = found["locations"].get(location, 0) + 1
+    locations = ",".join(f"{name}:{count}" for name, count in sorted(found["locations"].items())) or "none"
+    print(f"PERF-CEF-ANIMATION lines={found['lines']} longest_s={found['longest_s']:.1f} locations={locations}", flush=True)
+    return found
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True)
@@ -384,10 +414,12 @@ def main():
             settle_measure("minimized")
     finally:
         bm.end_bundle(args.app)
+        animations = cef_log_animations(scratch)
         shutil.rmtree(scratch, ignore_errors=True)
     if args.out:
         with open(args.out, "w") as handle:
-            json.dump({"app": args.app, "measure_s": args.measure, "results": results}, handle, indent=1)
+            json.dump({"app": args.app, "measure_s": args.measure, "results": results,
+                       "cef_long_animations": animations}, handle, indent=1)
 
 
 if __name__ == "__main__":
