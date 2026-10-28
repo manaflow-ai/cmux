@@ -37,9 +37,10 @@ const NO_TEAM_ACCOUNT = /needs a team account on this machine|account is shared 
 const ADD_COMMAND = /\bcr add (?:codex|claude|opencode)\b/;
 /// The cmux model router refused the call for want of credits or a plan (backend inference/route.ts:
 /// 402 `inference.plan_required` or `credits.insufficient`). Its Messages endpoint passes on only the
-/// message text, so the router's own words are the signal: "AI models need cmux credits, your own API
-/// key, or a paid plan" and "Not enough cmux credits for this call".
-const NEEDS_CREDITS = /\bcmux credits\b|inference\.plan_required|credits\.insufficient/i;
+/// message text, so the router's own two sentences (backend inference/route.ts) or its codes are the
+/// signal; any other text that merely mentions cmux credits is not.
+const NEEDS_CREDITS =
+  /AI models need cmux credits, your own API key, or a paid plan|Not enough cmux credits for this call|\binference\.plan_required\b|\bcredits\.insufficient\b/i;
 const RATE =
   /\b(?:429|529)\b|rate.?limit|too many requests|overloaded|at capacity|no non-exhausted|usage limit|quota|\b503\b|service unavailable/i;
 const UNREACHABLE =

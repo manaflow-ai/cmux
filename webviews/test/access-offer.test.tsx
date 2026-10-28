@@ -34,6 +34,9 @@ test("the router's credit refusals read as needs-credits, not a key, quota or ge
   );
   // After credits land, the same prompt goes again.
   expect(failureRecovery("needs-credits")).toBe("retry");
+  // Other text that only mentions cmux credits is not the router's refusal.
+  expect(failureKind("agent process closed\nstderr: see the cmux credits docs", router)).toBe("agent-exited");
+  expect(failureKind("cmux credits: balance sync failed", router)).toBe("other");
   // A provider's own key or quota failure stays what it was.
   expect(failureKind("invalid x-api-key", router)).toBe("invalid-key");
   expect(failureKind("API Error: 429 rate_limit_error", router)).toBe("rate-limited");
