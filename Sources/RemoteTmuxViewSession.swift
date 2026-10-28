@@ -37,6 +37,14 @@ struct RemoteTmuxViewSession: Equatable, Sendable {
     static let optView = "@cmux_view"
     static let optOwner = "@cmux_view_owner"
     static let optVersion = "@cmux_view_version"
+    /// Window option cmux sets on every window it links into a view itself, so a later bringup
+    /// can tell those apart from windows that were created in the view by somebody else.
+    static let optLinked = "@cmux_view_linked"
+
+    /// Marks `windowId` as linked into a view by cmux (``optLinked``).
+    static func linkedMarkCommand(windowId: String) -> String {
+        "set-option -w -t \(windowId) \(optLinked) 1"
+    }
 
     /// Prefix all view sessions share, for a cheap first-pass filter and so a
     /// human running `tmux ls` can tell what these are.
