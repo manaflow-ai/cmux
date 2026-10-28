@@ -9,9 +9,9 @@
 //! a hang to its own thread the same way: the watched thread never reports
 //! or writes anything (base/threading/hang_watcher.cc).
 
+use cmux_threads::sync::Mutex;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::Shared;

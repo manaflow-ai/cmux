@@ -8,6 +8,7 @@
 use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields;
 use crate::workspace_registry::presentation_store::validate_presentation_color;
 use crate::workspace_registry::screen_store::ScreenPresentationState;
 
@@ -103,7 +104,7 @@ pub(crate) fn screen_group_snapshot(
         "icon": icon,
     });
     if let Some(saved_id) = saved_id {
-        snapshot["saved_id"] = json!(saved_id);
+        snapshot.insert("saved_id", json!(saved_id));
     }
     Ok(Some(snapshot))
 }

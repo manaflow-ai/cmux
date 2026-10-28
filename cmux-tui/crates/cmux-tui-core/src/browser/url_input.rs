@@ -54,8 +54,8 @@ fn is_intranet_address(input: &str) -> bool {
     if input.chars().any(char::is_whitespace) {
         return false;
     }
-    let authority_end = input.find(['/', '?', '#']).unwrap_or(input.len());
-    let authority = &input[..authority_end];
+    let (authority, after_authority) =
+        input.find(['/', '?', '#']).map_or((input, ""), |end| input.split_at(end));
     if authority.is_empty() || authority.contains('@') {
         return false;
     }
@@ -79,7 +79,7 @@ fn is_intranet_address(input: &str) -> bool {
     if host.is_empty() || !is_non_unique_host(&host) {
         return false;
     }
-    let has_path = input[authority_end..].starts_with('/');
+    let has_path = after_authority.starts_with('/');
     host.contains(['.', ':']) || has_port || has_path
 }
 
@@ -95,9 +95,11 @@ fn is_non_unique_host(host: &str) -> bool {
     }
     let labels: Vec<&str> = host.split('.').collect();
     let octets: Vec<u8> = labels.iter().filter_map(|label| label.parse::<u8>().ok()).collect();
-    if labels.len() == 4 && octets.len() == 4 {
+    if let [first, second, _, _] = octets.as_slice()
+        && labels.len() == 4
+    {
         return matches!(
-            (octets[0], octets[1]),
+            (first, second),
             (10, _) | (192, 168) | (169, 254) | (172, 16..=31) | (100, 64..=127)
         );
     }
@@ -130,7 +132,7 @@ fn is_loopback_address(input: &str) -> bool {
         let Some(rest) = input.strip_prefix(prefix) else {
             return false;
         };
-        rest.is_empty() || matches!(rest.as_bytes()[0], b':' | b'/' | b'?')
+        matches!(rest.as_bytes().first(), None | Some(b':' | b'/' | b'?'))
     })
 }
 
@@ -142,10 +144,7 @@ fn percent_encode_query(input: &str) -> String {
                 out.push(*byte as char);
             }
             other => {
-                const HEX: &[u8; 16] = b"0123456789ABCDEF";
-                out.push('%');
-                out.push(HEX[(other >> 4) as usize] as char);
-                out.push(HEX[(other & 0x0F) as usize] as char);
+                out.push_str(&format!("%{other:02X}"));
             }
         }
     }
