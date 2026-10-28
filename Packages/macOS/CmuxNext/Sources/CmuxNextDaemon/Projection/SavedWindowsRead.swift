@@ -4,7 +4,7 @@ import Foundation
 /// registry, journal maintenance after an update relaunch) can answer later than the 2 s
 /// control-plane deadline; before, that failure read as "nothing saved": the launch window took
 /// every workspace, and its first save replaced the stored windows with that one window. The read
-/// waits up to `attemptTimeout` and tries again after a timeout or a dropped connection; when it
+/// waits up to `attemptTimeout` and tries again after a timeout; when it
 /// still fails, the outcome says so, and the launch keeps the stored records unwritten.
 public struct SavedWindowsRead: Sendable {
     public enum Outcome: Sendable {
@@ -37,11 +37,10 @@ public struct SavedWindowsRead: Sendable {
         return .unread(failure)
     }
 
-    /// A failure another attempt can get past: the daemon was slow or its connection dropped.
+    /// A failure another attempt can get past: the daemon answered late. A connection that is not
+    /// ready fails at once, so retrying it at once could not help.
     public static func isTransient(_ error: any Error) -> Bool {
-        switch error as? DaemonError {
-        case .timedOut, .notConnected, .connectionClosed, .daemonShutdown: true
-        default: false
-        }
+        if case .timedOut = error as? DaemonError { return true }
+        return false
     }
 }

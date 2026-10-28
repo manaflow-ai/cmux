@@ -138,8 +138,9 @@ final class WindowRecordSaver {
     }
 
     /// Writes the records; returns why they were not stored, or nil. Nothing is written while the
-    /// launch could not read the stored records (`WindowManager.savedWindowsUnread`): they would be
-    /// replaced by this launch's windows alone, and the next launch would lose the others (#26681).
+    /// stored records are unread (`WindowManager.savedWindowsUnread`): they would be replaced by this
+    /// launch's windows alone, and the next launch would lose the others (#26681). That skip answers
+    /// nil: the action that asked for the save did its work, only its record is not kept.
     @discardableResult
     func saveNow() async -> (any Error)? {
         guard !manager.savedWindowsUnread else { return nil }

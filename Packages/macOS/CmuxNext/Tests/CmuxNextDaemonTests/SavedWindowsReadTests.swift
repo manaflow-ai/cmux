@@ -39,11 +39,11 @@ struct SavedWindowsReadTests {
         #expect(attempts.deadlines.count == 3)
     }
 
-    @Test func aFailureAnotherAttemptCannotFixIsNotRetried() async {
+    @Test func aConnectionThatIsNotReadyIsNotRetriedAtOnce() async {
         let attempts = Attempts()
         let outcome = await SavedWindowsRead().run { deadline in
             attempts.deadlines.append(deadline)
-            throw DaemonError.command(cmd: "frontend_projection.get", message: "unknown command", code: nil)
+            throw DaemonError.notConnected
         }
         guard case .unread = outcome else { Issue.record("expected unread"); return }
         #expect(attempts.deadlines.count == 1)

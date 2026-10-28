@@ -73,9 +73,10 @@ final class WindowManager {
     var closedDuringRestore: Set<String> = []
     /// True while `restore` runs.
     private(set) var restoring = false
-    /// The launch could not read the saved window records (`SavedWindowsRead`): they may hold
-    /// windows this launch does not show, so it never writes them (#26681).
-    var savedWindowsUnread = false
+    /// The saved window records are not read (yet, or the launch's read failed: `SavedWindowsRead`):
+    /// they may hold windows this launch does not show, so nothing writes them (#26681). True from
+    /// the start of the launch's read, so a window opened while it waits cannot save either.
+    private(set) var savedWindowsUnread = false
     /// The launch window the person closed before `restore` finished: the restore registers the
     /// workspaces it would have shown under this id, which is in `closedDuringRestore`, so they
     /// stay in a closed window. Nil once it finished.
@@ -213,16 +214,7 @@ final class WindowManager {
         }
         registry.provisional = [:]
         DebugTimings.markLaunch("daemon_snapshot_loaded")
-        var document = WindowStateDocument()
-        if let windowState = services.daemon.windowState {
-            switch await SavedWindowsRead().run({ try await windowState.load(timeout: $0) }) {
-            case .loaded(let saved):
-                document = saved
-            case .unread(let error):
-                savedWindowsUnread = true
-                services.daemon.logger.error("saved windows unread, kept unwritten: \(String(describing: error), privacy: .public)")
-            }
-        }
+        let document = await readSavedWindows()
         // Incognito workspaces a crashed run left on a daemon without state
         // resources: the app's ledger owns them, so they close, never shown.
         // A daemon with state resources owns its ephemeral workspaces (it closes them at its
@@ -287,6 +279,27 @@ final class WindowManager {
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
         Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
+    }
+
+    /// The saved window records, read with `read`'s deadline and retries; empty when the read
+    /// failed, and then `savedWindowsUnread` stays true for this launch. `load` reads the current
+    /// connection's store per attempt (a reconnect replaces it).
+    func readSavedWindows(_ read: SavedWindowsRead = SavedWindowsRead(),
+                          load: ((Duration) async throws -> WindowStateDocument)? = nil) async -> WindowStateDocument {
+        savedWindowsUnread = true
+        let daemon = services.daemon
+        let load = load ?? { deadline in
+            guard let windowState = daemon.windowState else { throw DaemonError.notConnected }
+            return try await windowState.load(timeout: deadline)
+        }
+        switch await read.run(load) {
+        case .loaded(let saved):
+            savedWindowsUnread = false
+            return saved
+        case .unread(let error):
+            daemon.logger.error("saved windows unread, kept unwritten: \(String(describing: error), privacy: .public)")
+            return WindowStateDocument()
+        }
     }
 
     /// The launch window takes the frontmost saved window's identity and
