@@ -5,6 +5,11 @@ The tags endpoint 404s for drafts. A publish step that looks the release up by
 tag therefore creates a second release and can publish it with 0 assets while
 the real assets sit on the staged draft (v0.65.2). Callers pass the id that
 publish-release-assets.py staged and reported.
+
+`adopt` repairs a tag that is already in that state (v0.65.2, v0.65.2.2, both
+tagged from a checkout whose release workflow still published by tag): it
+deletes the empty published release, moves the tag onto the staged draft and
+publishes the draft through `publish`.
 """
 from __future__ import annotations
 
@@ -124,6 +129,42 @@ def publish(client, args) -> None:
     print(f"Verified {args.tag}: release {args.release_id} with {len(assets)} assets", flush=True)
 
 
+def adopt(client, args) -> None:
+    staged = release(client, args.release_id)
+    # Once the publish-by-tag release claimed the tag, GitHub shows the staged
+    # draft as untagged-<hash>; only its name still says which tag it is for.
+    current = staged.get("tag_name") or ""
+    owned = current == args.tag or (current.startswith("untagged-") and staged.get("name") == args.tag)
+    if int(staged.get("id", 0)) != args.release_id or not staged.get("draft") or not owned:
+        raise RuntimeError(f"Release {args.release_id} is not a staged draft for tag {args.tag}")
+    check_assets(client, "Staged", args.release_id, args.expect_asset, args.expect_count)
+    others = [entry for entry in client.releases()
+              if entry.get("tag_name") == args.tag and int(entry["id"]) != args.release_id]
+    # Only an empty published release is the publish-by-tag duplicate. A draft
+    # or a release with assets may be someone's real release, so leave it.
+    keep = sorted(int(entry["id"]) for entry in others
+                  if entry.get("draft") or client.assets(int(entry["id"])))
+    if keep:
+        raise RuntimeError(
+            f"Refusing to adopt release {args.release_id}: releases {', '.join(map(str, keep))} for "
+            f"{args.tag} are drafts or have assets. Resolve them by hand.")
+    empty = sorted(int(entry["id"]) for entry in others)
+    print(f"Adopting draft {args.release_id} for {args.tag}; replacing empty published releases: "
+          f"{', '.join(map(str, empty)) or 'none'}", flush=True)
+    if args.dry_run:
+        return
+    for release_id in empty:
+        try:
+            client.request("DELETE", f"{client.api_url}/repos/{client.repo}/releases/{release_id}")
+        except RequestError as error:
+            if error.status != 404:
+                raise
+        print(f"Deleted empty release {release_id} for {args.tag}", flush=True)
+    if current != args.tag:
+        patch(client, args.release_id, {"tag_name": args.tag})
+    publish(client, args)
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
@@ -184,29 +225,30 @@ def download(client, args) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("publish", "download"):
+    for name in ("publish", "download", "adopt"):
         command = sub.add_parser(name)
         command.add_argument("--repo", required=True)
         command.add_argument("--tag", required=True)
         command.add_argument("--release-id", type=int, required=True)
-    pub = sub.choices["publish"]
-    pub.add_argument("--expect-asset", action="append", default=[])
-    pub.add_argument("--expect-count", type=int)
-    pub.add_argument("--name")
-    pub.add_argument("--target-commitish")
-    pub.add_argument("--body-file", type=Path)
-    pub.add_argument("--generate-notes", action="store_true")
-    pub.add_argument("--prerelease", choices=("true", "false"))
-    pub.add_argument("--make-latest", choices=("true", "false"))
+    for pub in (sub.choices["publish"], sub.choices["adopt"]):
+        pub.add_argument("--expect-asset", action="append", default=[])
+        pub.add_argument("--expect-count", type=int)
+        pub.add_argument("--name")
+        pub.add_argument("--target-commitish")
+        pub.add_argument("--body-file", type=Path)
+        pub.add_argument("--generate-notes", action="store_true")
+        pub.add_argument("--prerelease", choices=("true", "false"))
+        pub.add_argument("--make-latest", choices=("true", "false"))
+    sub.choices["adopt"].add_argument("--dry-run", action="store_true")
     dl = sub.choices["download"]
     dl.add_argument("--asset", action="append", required=True)
     dl.add_argument("--dest", type=Path, required=True)
     args = parser.parse_args()
-    if args.command == "publish" and not args.expect_asset and args.expect_count is None:
-        parser.error("publish needs --expect-asset or --expect-count")
+    if args.command in ("publish", "adopt") and not args.expect_asset and args.expect_count is None:
+        parser.error(f"{args.command} needs --expect-asset or --expect-count")
     # GH_APP_TOKEN first when the step passes one, GH_TOKEN as its fallback.
     client = publisher.client_from_env(args.repo)
-    (publish if args.command == "publish" else download)(client, args)
+    {"publish": publish, "download": download, "adopt": adopt}[args.command](client, args)
     return 0
 
 

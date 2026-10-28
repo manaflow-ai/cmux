@@ -640,5 +640,115 @@ class TransportTests(unittest.TestCase):
         self.assertNotIn("--location", command)
 
 
+finalize_spec = importlib.util.spec_from_file_location("finalize_release", ROOT / "scripts/ci/finalize-release.py")
+finalize = importlib.util.module_from_spec(finalize_spec)
+sys.modules[finalize_spec.name] = finalize
+finalize_spec.loader.exec_module(finalize)
+
+
+class FakeReleases:
+    """GitHub's release endpoints over an in-memory table, as finalize-release.py calls them."""
+
+    api_url = "https://api.test"
+    repo = "o/r"
+
+    def __init__(self, releases, assets):
+        self.table = {release["id"]: dict(release) for release in releases}
+        self.stored = assets
+        self.calls = []
+
+    def releases(self):
+        return [dict(release) for release in self.table.values()]
+
+    def assets(self, release_id):
+        return {name: {"name": name, "state": "uploaded"} for name in self.stored.get(release_id, [])}
+
+    def request(self, method, url, *, body=None, **_):
+        path = urlsplit(url).path.removeprefix("/repos/o/r/releases")
+        self.calls.append((method, path, json.loads(body) if body else None))
+        if method == "POST" and path == "/generate-notes":
+            return {"body": "notes"}
+        if path.startswith("/tags/"):
+            tag = path.removeprefix("/tags/")
+            for release in self.table.values():
+                if release["tag_name"] == tag and not release["draft"]:
+                    return dict(release)
+            raise publisher.RequestError("HTTP 404", status=404)
+        release_id = int(path.strip("/"))
+        if method == "DELETE":
+            self.table.pop(release_id)
+            return None
+        if method == "PATCH":
+            self.table[release_id].update(json.loads(body))
+        return dict(self.table[release_id])
+
+
+class AdoptTests(unittest.TestCase):
+    """v0.65.2.2 was tagged from a branch whose workflow still published by tag:
+    that made an empty published release, and the 12 assets stayed on a draft
+    GitHub now shows as untagged-<hash>, so every download 404ed."""
+
+    NAMES = ["cmux-macos.dmg", "appcast.xml"]
+
+    def client(self, extra=(), extra_assets=None):
+        draft = {"id": 1, "tag_name": "untagged-7319b3bc", "name": "v1.2.3", "draft": True, "prerelease": False}
+        empty = {"id": 2, "tag_name": "v1.2.3", "name": "v1.2.3", "draft": False, "prerelease": False}
+        return FakeReleases([draft, empty, *extra], {1: self.NAMES, **(extra_assets or {})})
+
+    def adopt(self, client, release_id=1, dry_run=False):
+        args = finalize.argparse.Namespace(
+            tag="v1.2.3", release_id=release_id, expect_asset=list(self.NAMES), expect_count=2,
+            name=None, target_commitish=None, body_file=None, generate_notes=True,
+            prerelease="false", make_latest="true", dry_run=dry_run)
+        finalize.adopt(client, args)
+
+    def test_empty_release_is_replaced_by_the_staged_draft(self):
+        client = self.client()
+        self.adopt(client)
+        self.assertEqual(list(client.table), [1])
+        published = client.table[1]
+        self.assertEqual(published["tag_name"], "v1.2.3")
+        self.assertFalse(published["draft"])
+        self.assertEqual(published["make_latest"], "true")
+        writes = [(method, path) for method, path, _ in client.calls if method != "GET"]
+        # The empty release goes before the draft takes its tag.
+        self.assertEqual(writes[:2], [("DELETE", "/2"), ("PATCH", "/1")])
+
+    def test_dry_run_changes_nothing(self):
+        client = self.client()
+        self.adopt(client, dry_run=True)
+        self.assertEqual(sorted(client.table), [1, 2])
+        self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
+
+    def test_a_release_with_assets_is_never_deleted(self):
+        client = self.client(extra_assets={2: ["cmux-macos.dmg"]})
+        with self.assertRaisesRegex(RuntimeError, "releases 2 for v1.2.3 are drafts or have assets"):
+            self.adopt(client)
+        self.assertEqual(sorted(client.table), [1, 2])
+
+    def test_another_draft_for_the_tag_is_never_deleted(self):
+        other = {"id": 3, "tag_name": "v1.2.3", "name": "v1.2.3", "draft": True, "prerelease": False}
+        client = self.client(extra=[other])
+        with self.assertRaisesRegex(RuntimeError, "releases 3 for"):
+            self.adopt(client)
+        self.assertEqual(sorted(client.table), [1, 2, 3])
+
+    def test_only_a_draft_named_for_the_tag_is_adopted(self):
+        client = self.client()
+        client.table[1]["name"] = "v9.9.9"
+        with self.assertRaisesRegex(RuntimeError, "not a staged draft for tag v1.2.3"):
+            self.adopt(client)
+        with self.assertRaisesRegex(RuntimeError, "not a staged draft"):
+            self.adopt(client, release_id=2)
+        self.assertEqual(sorted(client.table), [1, 2])
+
+    def test_an_incomplete_draft_is_not_adopted(self):
+        client = self.client()
+        client.stored[1] = ["appcast.xml"]
+        with self.assertRaisesRegex(RuntimeError, "missing cmux-macos.dmg"):
+            self.adopt(client)
+        self.assertEqual(sorted(client.table), [1, 2])
+
+
 if __name__ == "__main__":
     unittest.main()
