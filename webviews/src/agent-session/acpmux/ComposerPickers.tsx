@@ -454,7 +454,16 @@ export function ComposerPickers({
         }
       : undefined;
   // A Codex chip with no composer to draw the bolt (a bare gallery row) keeps Fast mode in its menu.
-  const bolted = speedTiers !== undefined;
+  const fullFastMode =
+    speedTiers && fastMode
+      ? {
+          ...fastMode,
+          currentValue: speedTiers.current,
+          onValue: speedTiers.tiers[0] ?? fastMode.onValue,
+          onPick: speedTiers.onPick,
+          onLabel: speedTiers.names?.[speedTiers.tiers[0] ?? ""] ?? fastMode.onLabel,
+        }
+      : fastMode;
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
   // Recents follow what the session actually runs, whichever control changed it,
@@ -908,16 +917,21 @@ export function ComposerPickers({
     chatAccounts && summary?.sessionId && !summary.host && summary.hostKind !== "cloud"
       ? { sessionId: summary.sessionId, accounts: chatAccounts }
       : undefined;
-  // Claude Code's Fast mode is one checkbox row of the menu, after Account (Leo 2026-10-20, as Claude
-  // Code's). On is any tier past off; a click turns it off, or on at the option's first tier. Codex
-  // has the bolt instead.
+  // Fast mode is one checkbox row of the menu for every harness (Leo 2026-10-28): the first
+  // offered service tier turns it on, and the off value turns it off. The picker owns this control;
+  // no separate lightning-bolt button is drawn.
   const quickFast: QuickMenuExtras["fast"] =
-    fastMode && fastOffered && !bolted
+    speedTiers
       ? {
-          checked: fastMode.currentValue !== undefined && fastMode.currentValue !== fastMode.offValue,
-          onChange: (on) => fastMode.onPick(on ? fastMode.onValue : fastMode.offValue),
+          checked: speedTiers.current !== undefined && speedTiers.current !== speedTiers.off,
+          onChange: (on) => speedTiers.onPick(on ? (speedTiers.tiers[0] ?? speedTiers.off) : speedTiers.off),
         }
-      : undefined;
+      : fastMode && fastOffered
+        ? {
+            checked: fastMode.currentValue !== undefined && fastMode.currentValue !== fastMode.offValue,
+            onChange: (on) => fastMode.onPick(on ? fastMode.onValue : fastMode.offValue),
+          }
+        : undefined;
   const quick: QuickMenuExtras = {
     ...(quickEffort ? { effort: quickEffort } : {}),
     ...(quickAccount ? { account: quickAccount } : {}),
@@ -962,8 +976,7 @@ export function ComposerPickers({
           onAddAgent={onAddAgent}
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
-          fastMode={bolted ? undefined : fastMode}
-          {...(speedTiers ? { speed: speedTiers } : {})}
+          fastMode={fullFastMode}
           catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"
