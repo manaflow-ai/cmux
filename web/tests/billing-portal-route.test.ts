@@ -54,6 +54,7 @@ const captureBillingError = mock(() => undefined);
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => stackConfigured,
+  promoteStackUserFromAnonymousViaApi: async () => undefined,
   stackServerApp: stackConfigured ? { getUser } : null,
 }));
 
@@ -75,6 +76,11 @@ mock.module("../db/client", () => ({
   }),
 }));
 
+// The Stripe side of a past-due subscription for the payment method return.
+let customerDefaultPaymentMethod: string | null = null;
+let providerSubscriptions: Array<Record<string, unknown>> = [];
+const payInvoice = mock(async (id: string) => ({ id, status: "paid" }));
+
 const resolvePersonalPlanSwitchPortalConfiguration = mock(async () => "bpc_switch");
 mock.module("../services/billing/stripe", () => ({
   ...stripeModule,
@@ -85,6 +91,18 @@ mock.module("../services/billing/stripe", () => ({
       sessions: {
         create: createPortalSession,
       },
+    },
+    customers: {
+      retrieve: async () => ({ id: "cus_123", invoice_settings: { default_payment_method: customerDefaultPaymentMethod } }),
+    },
+    subscriptions: {
+      list: async () => ({ data: providerSubscriptions }),
+      retrieve: async (id: string) => providerSubscriptions.find((subscription) => subscription.id === id),
+      update: async (id: string) => ({ id }),
+    },
+    invoices: {
+      retrieve: async (id: string) => ({ id, status: "open" }),
+      pay: payInvoice,
     },
   }),
 }));
@@ -115,6 +133,83 @@ describe("billing portal route", () => {
       url: "https://billing.stripe.com/session/test",
     });
     captureBillingError.mockClear();
+    customerDefaultPaymentMethod = null;
+    providerSubscriptions = [];
+    payInvoice.mockClear();
+  });
+
+  test("opens the portal's card form for flow=payment_method_update and returns through recovery", async () => {
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal?flow=payment_method_update"),
+    );
+
+    const returnURL = "https://cmux.test/api/billing/portal?flow=payment_method_return";
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("https://billing.stripe.com/session/test");
+    expect(createPortalSession).toHaveBeenCalledWith({
+      customer: "cus_123",
+      return_url: returnURL,
+      flow_data: {
+        type: "payment_method_update",
+        after_completion: { type: "redirect", redirect: { return_url: returnURL } },
+      },
+    });
+  });
+
+  test("pays a past-due renewal with the saved card on return and reports it", async () => {
+    customerDefaultPaymentMethod = "pm_new";
+    providerSubscriptions = [{
+      id: "sub_pro", status: "past_due", metadata: { app: "cmux", plan: "pro" },
+      default_payment_method: "pm_declined", latest_invoice: "in_failed",
+    }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal?flow=payment_method_return"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?billing=payment_updated");
+    expect(payInvoice).toHaveBeenCalledWith("in_failed", { payment_method: "pm_new" });
+    expect(createPortalSession).not.toHaveBeenCalled();
+  });
+
+  test("reports a declined replacement card on return", async () => {
+    customerDefaultPaymentMethod = "pm_new";
+    providerSubscriptions = [{
+      id: "sub_pro", status: "past_due", metadata: { app: "cmux", plan: "pro" },
+      default_payment_method: "pm_declined", latest_invoice: "in_failed",
+    }];
+    payInvoice.mockImplementationOnce(async () => {
+      throw Object.assign(new Error("Your card was declined."), { type: "StripeCardError" });
+    });
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal?flow=payment_method_return"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?billing=payment_failed");
+  });
+
+  test("returns to the dashboard without a banner when nothing was due", async () => {
+    customerDefaultPaymentMethod = "pm_new";
+    providerSubscriptions = [{ id: "sub_pro", status: "active", metadata: { app: "cmux", plan: "pro" }, latest_invoice: "in_paid" }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal?flow=payment_method_return"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing");
+    expect(payInvoice).not.toHaveBeenCalled();
+  });
+
+  test("sends a payment method update without a Stripe customer to pricing", async () => {
+    customerRows = [];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal?flow=payment_method_update"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=unavailable");
+    expect(createPortalSession).not.toHaveBeenCalled();
   });
 
   test("opens Stripe's plan switch flow on the active Pro subscription for flow=switch_plan", async () => {

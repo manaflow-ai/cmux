@@ -77,6 +77,38 @@ describe("team portal", () => {
     });
   });
 
+  test("opens the team's card form for its admin and returns to the team through recovery", async () => {
+    dbRows.customers = [{ id: "cus_team_b" }];
+
+    const response = await portalGET(
+      new NextRequest("https://cmux.test/api/billing/portal?scope=team&teamId=team-b&flow=payment_method_update"),
+    );
+
+    const returnURL = "https://cmux.test/api/billing/portal?flow=payment_method_return&scope=team&teamId=team-b";
+    expect(response.headers.get("location")).toBe("https://billing.stripe.com/p/team");
+    expect(createPortal).toHaveBeenCalledWith({
+      customer: "cus_team_b",
+      return_url: returnURL,
+      flow_data: {
+        type: "payment_method_update",
+        after_completion: { type: "redirect", redirect: { return_url: returnURL } },
+      },
+    });
+  });
+
+  test("refuses a non-admin's payment method update for the team", async () => {
+    dbRows.customers = [{ id: "cus_team_a" }];
+
+    const response = await portalGET(
+      new NextRequest("https://cmux.test/api/billing/portal?scope=team&teamId=team-a&flow=payment_method_return"),
+    );
+
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/billing?team=team-a&billing=team_admin_required",
+    );
+    expect(createPortal).not.toHaveBeenCalled();
+  });
+
   test("returns non-admins to the team billing view with a banner and no session", async () => {
     dbRows.customers = [{ id: "cus_team_a" }];
 
