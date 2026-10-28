@@ -1,6 +1,7 @@
 //! `exit_with_process` (server/starter_exit.rs): an owner started for one
 //! process ends its terminals and stops when that process exits.
 
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use crate::server::*;
@@ -90,6 +91,21 @@ fn exit_with_process_of_an_exited_starter_stops_at_once() {
 }
 
 #[test]
+fn exit_with_process_matches_a_known_start_time_only() {
+    assert!(starter_exit::same_process(17, Some(17)));
+    // Another start time, or one that cannot be read, is another process.
+    assert!(!starter_exit::same_process(17, Some(18)));
+    assert!(!starter_exit::same_process(17, None));
+    // A bare pid (an owner started by hand) names the process alone.
+    assert!(starter_exit::same_process(0, None));
+    // ensure never records an unknown start time: a gone pid has no starter.
+    let mut process = StarterProcess::spawn();
+    let pid = process.starter().pid;
+    process.exit();
+    assert_eq!(Starter::current(pid), None);
+}
+
+#[test]
 fn exit_with_process_never_follows_a_reused_pid() {
     let mux = mux("reused");
     let process = StarterProcess::spawn();
@@ -112,10 +128,18 @@ fn exit_with_process_waits_out_a_running_handoff_and_stops_after_it_is_cancelled
     assert!(!mux.daemon_shutdown_requested());
     assert_ne!(lifecycle(&mux, &terminal), TerminalLifecycle::Tombstoned);
 
+    let refused_before = starter_exit::REFUSED_STOPS.load(Ordering::SeqCst);
     let mut process = StarterProcess::spawn();
     exit_with_process(&mux, process.starter()).unwrap();
     process.exit();
-    std::thread::sleep(Duration::from_millis(600));
+    // The watcher met the running handoff (at least once) before it ends.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while starter_exit::REFUSED_STOPS.load(Ordering::SeqCst) == refused_before
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(starter_exit::REFUSED_STOPS.load(Ordering::SeqCst) > refused_before);
     assert!(!mux.daemon_shutdown_requested(), "the exit raced the running handoff");
     // That handoff is cancelled: the owner must still stop.
     mux.control_clients.cancel_daemon_handoff(orphan_shutdown::ORPHAN_SHUTDOWN_REQUESTER);

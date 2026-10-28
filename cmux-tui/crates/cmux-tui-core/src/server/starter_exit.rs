@@ -29,27 +29,42 @@ const HANDOFF_RETRY: Duration = Duration::from_millis(250);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Starter {
     pub pid: u32,
-    /// Kernel start time in milliseconds since the epoch; 0 when unknown
-    /// (then the pid alone names it).
+    /// Kernel start time in milliseconds since the epoch. 0 only for an
+    /// owner started by hand with a bare pid: then the pid alone names it.
     pub started_ms: u64,
 }
 
 impl Starter {
-    /// The running process `pid` with its start time; `None` when no
-    /// process runs under it.
+    /// The running process `pid` with its known start time; `None` when no
+    /// process runs under it or its start time cannot be read (a process
+    /// that exits while it is read), so `server ensure` never hands an owner
+    /// an identity that any later process under the pid would match.
     pub fn current(pid: u32) -> Option<Self> {
-        let process = crate::state::status_meta::OwnerProcess::current(pid)?;
-        Some(Self { pid, started_ms: process.started })
+        let started_ms =
+            crate::process_identity::started_ms(pid).filter(|started| *started != 0)?;
+        crate::state::status_owners::process_is_running(pid).then_some(Self { pid, started_ms })
     }
 
     /// Whether `pid` still names this process (not a later one that reused
     /// the pid).
     fn still_running(self) -> bool {
-        crate::state::status_meta::OwnerProcess::current(self.pid).is_some_and(|process| {
-            self.started_ms == 0 || process.started == 0 || process.started == self.started_ms
-        })
+        crate::state::status_owners::process_is_running(self.pid)
+            && same_process(self.started_ms, crate::process_identity::started_ms(self.pid))
     }
 }
+
+/// Whether a process now under the pid, started at `current` (`None` when
+/// unreadable), is the one recorded as started at `recorded`. A known start
+/// time matches only itself: an unreadable one never stands in for it.
+pub(super) fn same_process(recorded: u64, current: Option<u64>) -> bool {
+    recorded == 0 || current == Some(recorded)
+}
+
+/// Stops refused because another handoff ran (tests wait on it to prove the
+/// watcher met the running handoff before it is cancelled).
+#[cfg(test)]
+pub(super) static REFUSED_STOPS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 
 /// Starts the watcher. A starter that already exited stops the owner at
 /// once. Call it once the owner has started (its terminals restored and its
@@ -73,6 +88,8 @@ pub fn exit_with_process(mux: &Arc<Mux>, starter: Starter) -> std::io::Result<()
                 return;
             }
             drop(mux);
+            #[cfg(test)]
+            REFUSED_STOPS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             std::thread::sleep(HANDOFF_RETRY);
         }
     })?;

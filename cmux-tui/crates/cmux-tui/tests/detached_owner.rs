@@ -167,9 +167,17 @@ fn cmux_next_ensure_rejects_an_invalid_reap_grace() {
 /// cancelled job) instead of running on detached for hours.
 #[test]
 fn an_owner_ensured_with_exit_with_pid_stops_when_that_process_exits() {
+    /// Killed when the test ends however it ends.
+    struct Starter(std::process::Child);
+    impl Drop for Starter {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
     let fixture = EnsureFixture::new("exitwith");
-    let mut starter = Command::new("sleep").arg("120").spawn().unwrap();
-    let starter_pid = starter.id().to_string();
+    let mut starter = Starter(Command::new("sleep").arg("120").spawn().unwrap());
+    let starter_pid = starter.0.id().to_string();
     let output =
         fixture.command("ensure").args(["--exit-with-pid", &starter_pid]).output().unwrap();
     let started = parse_success("ensure", &output);
@@ -177,13 +185,13 @@ fn an_owner_ensured_with_exit_with_pid_stops_when_that_process_exits() {
     let pid = started["pid"].as_u64().expect("owner pid") as u32;
     let command_line = owner_command_line(u64::from(pid));
     assert!(
-        command_line.contains(&format!("--exit-with-pid {starter_pid}")),
+        command_line.contains(&format!("--exit-with-pid {starter_pid}:")),
         "owner argv lacks the watched pid: {command_line}"
     );
     assert_eq!(fixture.run("status")["pid"].as_u64(), Some(u64::from(pid)));
 
-    starter.kill().unwrap();
-    starter.wait().unwrap();
+    starter.0.kill().unwrap();
+    starter.0.wait().unwrap();
     assert!(owner_exits(&fixture, pid), "the owner outlived the process it was started for");
 
     let output = fixture.command("ensure").args(["--exit-with-pid", "1"]).output().unwrap();
