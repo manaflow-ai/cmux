@@ -136,6 +136,15 @@ final class ComposerKeyboardPinUITests: XCTestCase {
         return last
     }
 
+    /// An iPhone app on an iPad running iOS 27 gets the iPad's own keyboard,
+    /// drawn across the iPad's screen outside the app's window; the keyboard
+    /// placeholder the probe reads stays at the iPhone keyboard's size there,
+    /// so the gap is checked from the simulator's screenshots instead
+    /// (verify/keyboard-pin.md, iPad).
+    private var probeReadsKeyboard: Bool {
+        !(UIDevice.current.userInterfaceIdiom == .pad && ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27)
+    }
+
     /// The keyboard's top minus the field's bottom, once both are still.
     @MainActor
     private func pinnedGap(_ probe: XCUIElement, _ step: String) -> CGFloat {
@@ -144,6 +153,7 @@ final class ComposerKeyboardPinUITests: XCTestCase {
             XCTFail("\(step): no keyboard on screen (\(r.line))")
             return -1
         }
+        guard probeReadsKeyboard else { return 0 }
         let gap = top - r.fieldBottom
         XCTAssertGreaterThanOrEqual(gap, 0, "\(step): the keyboard covers the field (\(r.line))")
         XCTAssertLessThanOrEqual(gap, 24, "\(step): the field floats \(gap) pt above the keyboard (\(r.line))")

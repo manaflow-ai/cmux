@@ -36,6 +36,8 @@ public final class MobileKeyboardDock: NSObject {
     /// The keyboard's latest notified end frame, screen coordinates, shared
     /// by every dock so a dock made while the keyboard is up starts on it.
     private static var lastEndFrame: CGRect?
+    /// The last will-show / will-hide: whether the keyboard is on screen.
+    private static var keyboardShown = false
 
     private weak var view: UIView?
     private let usesBottomSafeArea: Bool
@@ -78,6 +80,9 @@ public final class MobileKeyboardDock: NSObject {
                            name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidChangeFrame(_:)),
                            name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
+        for name in [UIResponder.keyboardWillShowNotification, UIResponder.keyboardWillHideNotification] {
+            center.addObserver(self, selector: #selector(keyboardWillShowOrHide(_:)), name: name, object: nil)
+        }
     }
 
     /// Whether an interactive dismissal is handing the guide to the system
@@ -117,17 +122,50 @@ public final class MobileKeyboardDock: NSObject {
     }
 
     @objc private func keyboardWillChangeFrame(_ note: Notification) {
-        guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-        Self.lastEndFrame = end
+        follow(note)
+    }
+
+    @objc private func keyboardWillShowOrHide(_ note: Notification) {
+        Self.keyboardShown = note.name == UIResponder.keyboardWillShowNotification
+        // Only a frame that needs the show / hide state (see `screenFrame`)
+        // moves the dock here; will-change already placed every other one.
+        guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+              let screen = view?.window?.screen.bounds, end.width > screen.width + 1 else { return }
+        follow(note)
+    }
+
+    /// The notified frame in this app's screen coordinates.
+    ///
+    /// An iPhone app on an iPad (iOS 27.0 simulator) sees a 375 x 667 screen
+    /// while the iPad's own keyboard spans the iPad's screen, and the
+    /// notifications carry that keyboard in iPad points: `0, 881, 820 x 299`
+    /// on an 820 x 1180 iPad, whose bottom edge is the iPad screen's. The
+    /// app's window fills the iPad's height (scaled 1180 / 667), so the
+    /// keyboard's top in the app is 881 x 667 / 1180 = 498 pt, where the
+    /// system guide and the screen put it. A frame wider than the app's
+    /// screen is scaled that way; whether it is on screen comes from the
+    /// last will-show / will-hide (a hidden frame starts at the iPad's bottom).
+    private func screenFrame(_ end: CGRect) -> CGRect {
+        guard let screen = view?.window?.screen.bounds, end.width > screen.width + 1, end.maxY > 0 else { return end }
+        let height = end.height * screen.height / end.maxY
+        let top = Self.keyboardShown ? screen.maxY - height : screen.maxY
+        return CGRect(x: screen.minX, y: top, width: screen.width, height: height)
+    }
+
+    private func follow(_ note: Notification) {
+        guard let raw = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+        Self.lastEndFrame = screenFrame(raw)
         // UIKit has decided where the keyboard goes: any drag hand-off ends,
         // also for a view out of its window (its next layout re-reads it).
         holdingAfterDrag = false
         fingerDrag = false
         followNotifications()
         guard let view, view.window != nil else { return }
-        notifiedTop.constant = notifiedConstant
+        let constant = notifiedConstant
+        guard notifiedTop.constant != constant else { return }
+        notifiedTop.constant = constant
         view.setNeedsLayout()
-        // UIKit posts this inside the keyboard's animation; a nested animation
+        // UIKit posts these inside the keyboard's animation; a nested animation
         // inherits its remaining duration and curve, so the composer rides it.
         let remaining = UIView.inheritedAnimationDuration
         guard remaining > 0 else {

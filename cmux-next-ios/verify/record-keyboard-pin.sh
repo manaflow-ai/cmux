@@ -90,7 +90,10 @@ echo "t=$(python3 -c 'import time;print(time.time())') rec-start" >"$dir/$label.
 sleep 0.8
 
 midx=$((ww / 2)) top=$((wh * 28 / 100))
+n=0
+xcrun simctl io "$udid" screenshot "$dir/$label-00-rest.png" >/dev/null 2>&1 || true
 for step in "${steps[@]}"; do
+  n=$((n + 1))
   read -r fx fy _ _ < <(field_xy)
   echo "t=$(python3 -c 'import time;print(time.time())') $step field=$fx,$fy" >>"$dir/$label.steps.txt"
   case $step in
@@ -105,6 +108,8 @@ for step in "${steps[@]}"; do
   esac
   sleep 0.5
   settle
+  # The settled screen after each step (exact pixels, unlike the video).
+  xcrun simctl io "$udid" screenshot "$dir/$label-$(printf %02d $n)-$step.png" >/dev/null 2>&1 || true
 done
 kill -INT $rec; wait $rec || true
 trap - EXIT
