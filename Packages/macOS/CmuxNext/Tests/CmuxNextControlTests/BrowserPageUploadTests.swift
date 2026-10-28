@@ -17,17 +17,35 @@ import Testing
         let download: BrowserPageDownload?
         /// How long each answer takes (a chooser that opens late, a download that runs).
         let delay: Duration
+        let ignoreCancellation: Bool
 
-        init(chooser: String, fileInput: Bool = false, download: BrowserPageDownload? = nil, delay: Duration = .zero) {
+        init(chooser: String, fileInput: Bool = false, download: BrowserPageDownload? = nil,
+             delay: Duration = .zero, ignoreCancellation: Bool = false) {
             self.chooser = chooser
             self.fileInput = fileInput
             self.download = download
             self.delay = delay
+            self.ignoreCancellation = ignoreCancellation
+        }
+
+        private func waitIfNeeded() async {
+            guard delay > .zero else { return }
+            if ignoreCancellation {
+                let components = delay.components
+                let nanoseconds = components.seconds * 1_000_000_000 + components.attoseconds / 1_000_000_000
+                await withCheckedContinuation { continuation in
+                    DispatchQueue.global().asyncAfter(deadline: .now() + .nanoseconds(Int(nanoseconds))) {
+                        continuation.resume()
+                    }
+                }
+            } else {
+                try? await Task.sleep(for: delay)
+            }
         }
 
         func run(_ operation: BrowserPageOperation, tabID: String, url: String?) async throws -> JSONValue {
             operations.withLock { $0.append(operation) }
-            if delay > .zero { try await Task.sleep(for: delay) }
+            await waitIfNeeded()
             if case .upload = operation {
                 return ["chooser": .string(chooser), "value": ["value": ["fileInput": .bool(fileInput)]]]
             }
@@ -36,7 +54,7 @@ import Testing
 
         func downloads(_ query: BrowserPageDownloadQuery) async throws -> BrowserPageDownloads {
             queries.withLock { $0.append(query) }
-            if delay > .zero { try await Task.sleep(for: delay) }
+            await waitIfNeeded()
             guard query.wait != nil else { return .list([]) }
             return download.map(BrowserPageDownloads.ended) ?? .timedOut
         }
@@ -113,11 +131,11 @@ import Testing
         let engine = ChooserEngine(chooser: "withdrawn", fileInput: true)
         let router = install(engine)
 
-        async let first = call(router, "browser.page.upload", ["selector": "#f", "files": [paths[0]]])
-        async let second = call(router, "browser.page.upload", ["selector": "#f", "files": [paths[1]]])
+        async let first = call(router, "browser.page.upload", ["selector": .string("#f"), "files": .array([.string(paths[0])])])
+        async let second = call(router, "browser.page.upload", ["selector": .string("#f"), "files": .array([.string(paths[1])])])
         _ = await (first, second)
 
-        let starts = engine.scripts.filter { $0.contains("__cmuxUploads") }
+        let starts = engine.scripts.filter { $0.contains("Object.create(null)") }
         #expect(starts.count == 2)
         #expect(Set(starts).count == 2, "overlapping uploads need separate page state identities")
     }
@@ -125,10 +143,12 @@ import Testing
     @Test func cancelledStreamRunsIdentityScopedCleanup() async throws {
         let (folder, paths) = try scratch(["a.txt"])
         defer { try? FileManager.default.removeItem(at: folder) }
-        let engine = ChooserEngine(chooser: "withdrawn", fileInput: true, delay: .milliseconds(100))
-        let snapshot = ControlSnapshot.sample()
+        let engine = ChooserEngine(chooser: "withdrawn", fileInput: true, delay: .milliseconds(100), ignoreCancellation: true)
+        var snapshot = ControlSnapshot.sample()
+        let tab = ControlTabInfo(id: "tab_0123abcd", surface: "12", kind: "browser", title: "Form", url: "https://example.com/")
+        snapshot.topology.workspaces[0].screens[0].panes[0].tabs.append(tab)
         let call = ControlCall(
-            request: ControlRequest(method: "browser.page.upload", params: ["selector": "#f", "files": [paths[0]]]),
+            request: ControlRequest(method: "browser.page.upload", params: ["selector": .string("#f"), "files": .array([.string(paths[0])])]),
             snapshot: snapshot,
             connection: ControlConnectionID(rawValue: 1),
             deadline: .now + .seconds(10)
