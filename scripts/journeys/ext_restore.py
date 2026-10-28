@@ -14,6 +14,8 @@ Steps (`do`):
                                            made through the daemon (`cmux workspace create`), each printing
                                            one line; the current terminal's workspace is shown again after
   close_seeded      {prefix}               clean-up: closes the workspaces seed_workspaces made
+  require_drawable  {timeout?}             `not run` (with the window server's order) while the app's window is
+                                           occluded on the shared capture host: frame checks cannot judge it
   restore_diagnose  {}                     evidence (a `finally` step): debug.surfaces/input/timings/windows,
                                            a window snapshot and a 3 s sample of the app, as diag-* files
   restore_relaunch  {how?, mark?}          the driver's `relaunch` (Cmd-Q, reopen through LaunchServices), with
@@ -247,6 +249,29 @@ def step_restore_diagnose(journey, step):
     return saved
 
 
+def step_require_drawable(journey, step):
+    """Frame checks judge what a person sees only in a window on screen. A capture mini's GUI login is shared by
+    its slots and keeps other apps' windows (another slot's cmux, Safari, Terminal); `open -g` can reopen our
+    window fully behind them. AppKit then reports it occluded and the terminals stop drawing by design, so the
+    window's own snapshot shows its panes empty though the text and the link are live (proven 6 of 6 on cmux17,
+    2026-10-28). Such a run is `not run`, with the window server's order as evidence, never a pass or a fail."""
+    end = D.now() + float(step.get("timeout", 5))
+    while True:
+        panes = [p for p in journey.app.panes() if p.get("visible") and p.get("kind", "terminal") == "terminal"]
+        covered = [p.get("pane") for p in panes if p.get("window_occluded")]
+        if not covered:
+            return {"panes": len(panes), "occluded": 0}
+        if D.now() >= end:
+            break
+        time.sleep(0.25)
+    order = D.subprocess.run(["/usr/bin/osascript", "-l", "JavaScript", "-e", WINDOW_ORDER_JXA],
+                             capture_output=True, text=True, timeout=60)
+    (journey.out / "diag-order.txt").write_text(order.stdout + order.stderr)
+    front = [line for line in order.stdout.splitlines() if f" {journey.app.pid} " not in line][:6]
+    raise D.NotRun(f"the app's window is covered on the shared capture host (AppKit occluded, {len(covered)} visible "
+                   f"terminal pane(s) paused); in front of it: {front}")
+
+
 def _restore(journey):
     record = getattr(journey, "restore", None)
     if record is None:
@@ -284,6 +309,7 @@ def cond_restore_hidden_lazy(journey, want, cache):
 
 
 STEPS = {"seed_workspaces": step_seed_workspaces, "restore_relaunch": step_restore_relaunch,
-         "close_seeded": step_close_seeded, "restore_diagnose": step_restore_diagnose}
+         "close_seeded": step_close_seeded, "restore_diagnose": step_restore_diagnose,
+         "require_drawable": step_require_drawable}
 CONDITIONS = {"restore_no_blank": ("app", cond_restore_no_blank), "restore_live": ("app", cond_restore_live),
               "restore_hidden_lazy": ("app", cond_restore_hidden_lazy)}

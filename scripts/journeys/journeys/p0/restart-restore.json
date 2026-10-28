@@ -44,6 +44,7 @@
        {"restore_hidden_lazy": {"max": 8}},
        {"app_rpc": {"method": "debug.surfaces", "path": "blank_panes", "equals": 0}}
      ]},
+    {"do": "require_drawable"},
     {"do": "use", "name": "down"},
     {"do": "expect", "title": "the restored text is in the daemon, the view and the frame", "since": "reopened", "timeout": 30,
      "all": [
