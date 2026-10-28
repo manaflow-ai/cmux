@@ -1,9 +1,9 @@
 internal import CMUXMobileCore
-internal import Foundation
-internal import os
 internal import class CmuxSafeConcurrency.OnceContinuation
 internal import enum CmuxSafeConcurrency.OnceContinuationError
 internal import func CmuxSafeConcurrency.withOnceContinuation
+internal import CmuxThreading
+internal import Foundation
 
 /// Linearizes new transport ownership against synchronous client retirement.
 final class MobileRPCClientLifecycleGate: Sendable {
@@ -27,7 +27,7 @@ final class MobileRPCClientLifecycleGate: Sendable {
     // lint:allow lock - `makeTransport` and `retire` are synchronous by contract.
     // Critical regions only mutate counters/task handles; factories and async
     // transport cleanup always run after admission state has been released.
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = CmuxThreading.Mutex(State())
 
     func makeTransport(
         _ make: () throws -> any CmxByteTransport

@@ -11,8 +11,8 @@ use crate::Actor;
 use crate::diagnostics::LockCaller;
 use crate::panic_free::RecoverPoison;
 use crate::request_origin::{
-    CONFIRMATION_TTL_MS, HelloRole, LocalPeer, PeerProcess, RequestOrigin, forbidden, mint_token,
-    needs_user, valid_sha256_hex,
+    CONFIRMATION_TTL_MS, HelloRole, LocalPeer, OpenStreamRefusal, PeerProcess, RequestOrigin,
+    forbidden, mint_token, needs_user, valid_sha256_hex,
 };
 use crate::resource::RequestEnvelope;
 use cmux_threads::checked::fs as files;
@@ -203,7 +203,7 @@ fn sync_lock_caller(record: &ClientRecord) {
 }
 
 /// The origin `client` derives; a client with no record is an agent.
-fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
+pub(super) fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
     let state = mux.control_clients.state.lock().recover_poison();
     state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
 }
@@ -353,8 +353,10 @@ pub(super) fn require_user(mux: &Mux, client: u64) -> Result<(), crate::apps::Ap
 }
 
 /// Fixes `client`'s hello role (step 1), and `verified_app` when prover A
-/// (the app's code signature) passed for a role-main hello. False when the
-/// client is gone or already has a role; nothing changes then.
+/// (the app's code signature) passed for a role-main hello. A page relay
+/// serves one `page`, or with `streams` opens page streams instead
+/// (`page-streams-v1`). False when the client is gone or already has a
+/// role; nothing changes then.
 pub(super) fn set_hello(
     mux: &Mux,
     client: u64,
@@ -362,6 +364,7 @@ pub(super) fn set_hello(
     peer_key: Option<String>,
     signature_proved: bool,
     page: Option<String>,
+    streams: bool,
 ) -> bool {
     let mut state = mux.control_clients.state.lock().recover_poison();
     let Some(record) = state.clients.get_mut(&client) else { return false };
@@ -373,6 +376,8 @@ pub(super) fn set_hello(
         record.origin.peer_key = peer_key;
     }
     record.origin.page = page;
+    record.origin.page_streams =
+        (role == HelloRole::PageRelay && streams).then(crate::request_origin::PageStreams::default);
     record.origin.verified_app = role == HelloRole::Main && signature_proved;
     sync_lock_caller(record);
     let verified_process = record.origin.verified_app.then(|| record.origin.peer_key.clone());
@@ -380,6 +385,32 @@ pub(super) fn set_hello(
         state.reclassify_process(&peer_key);
     }
     true
+}
+
+/// Opens page stream `stream` of `page` on `client`, a streamed page relay,
+/// and returns its relay id (the `relay_connection_id` of a confirmation for
+/// it). The id comes from the connection id counter, so it never names a
+/// connection or an earlier stream. A relay holds at most as many streams
+/// as the daemon holds connections: each stream stands for what was one
+/// page relay connection.
+pub(super) fn open_page_stream(
+    mux: &Mux,
+    client: u64,
+    stream: std::num::NonZeroU16,
+    page: String,
+) -> Result<u64, OpenStreamRefusal> {
+    let relay_id = mux.control_clients.next_id.fetch_add(1, Ordering::Relaxed);
+    let mut state = mux.control_clients.state.lock().recover_poison();
+    let record = state.clients.get_mut(&client).ok_or(OpenStreamRefusal::NotStreamed)?;
+    record.origin.open_page_stream(stream, page, relay_id, MAX_SERVER_CONNECTIONS)?;
+    Ok(relay_id)
+}
+
+/// Closes page stream `stream` of `client` and every token issued for it.
+/// False when it was not open.
+pub(super) fn close_page_stream(mux: &Mux, client: u64, stream: std::num::NonZeroU16) -> bool {
+    let mut state = mux.control_clients.state.lock().recover_poison();
+    state.clients.get_mut(&client).is_some_and(|record| record.origin.close_page_stream(stream))
 }
 
 /// The accepted peer's kernel identity: its process key, whether it runs in
@@ -674,13 +705,30 @@ fn issue(
         return Err(needs_user(derived));
     }
     let caller_peer = caller.peer_key.clone();
-    let same_peer_relay = state.clients.get_mut(&relay).filter(|record| {
-        relay != client
-            && record.origin.role == HelloRole::PageRelay
-            && caller_peer.is_some()
-            && record.origin.peer_key == caller_peer
+    // `relay` names a one-page relay connection, or one page stream of a
+    // streamed relay; a streamed relay's own connection id names none of
+    // its pages, so a token for it would act for no page and is refused.
+    let endpoint = state
+        .clients
+        .get(&relay)
+        .filter(|record| record.origin.page_streams.is_none())
+        .map(|_| (relay, None))
+        .or_else(|| {
+            let mut streamed = state.clients.iter();
+            streamed
+                .find(|(_, record)| record.origin.has_page_stream(relay))
+                .map(|(id, _)| (*id, Some(relay)))
+        });
+    let same_peer_relay = endpoint.and_then(|(connection, endpoint)| {
+        let record = state.clients.get_mut(&connection).filter(|record| {
+            connection != client
+                && record.origin.role == HelloRole::PageRelay
+                && caller_peer.is_some()
+                && record.origin.peer_key == caller_peer
+        })?;
+        Some((record, endpoint))
     });
-    let Some(relay_record) = same_peer_relay else {
+    let Some((relay_record, endpoint)) = same_peer_relay else {
         return Err(forbidden(
             "the relay connection is not a page relay of the same app",
             json!({"required": "user", "derived": derived.wire_name(), "reason": "relay_mismatch"}),
@@ -690,6 +738,7 @@ fn issue(
         token.clone(),
         operation,
         params_sha256,
+        endpoint,
         deadline_ms,
         now_ms,
     );
@@ -784,6 +833,10 @@ mod tests;
 #[cfg(all(test, unix))]
 #[path = "page_access_tests.rs"]
 mod page_access_tests;
+
+#[cfg(all(test, unix))]
+#[path = "page_stream_tests.rs"]
+mod page_stream_tests;
 
 #[cfg(all(test, unix))]
 #[path = "pairing_gate_tests.rs"]

@@ -30,6 +30,12 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
         process: crate::Process::Both,
     },
     crate::FeatureDef {
+        name: "hiddenTerminalQos",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
+        process: crate::Process::Daemon,
+    },
+    crate::FeatureDef {
         name: "ipcFrames",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
         kind: crate::Kind::PerfPath,
@@ -96,6 +102,8 @@ pub mod feature {
         DAEMON_REQUEST_QOS = "daemonRequestQos",
         /// Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.
         ENERGY_SAVER = "energySaver",
+        /// A terminal that no view shows (its tab is parked or its workspace is hidden) runs its PTY reader and parser threads at utility, in the daemon and in its terminal host; showing it again returns them to user-interactive at their next wake.
+        HIDDEN_TERMINAL_QOS = "hiddenTerminalQos",
         /// The daemon offers and grants ipc-frames-v2 to same-user local clients at its own API revision, so they may send REQUEST and CANCEL frames and get REPLY and ERROR frames instead of JSON lines.
         IPC_FRAMES = "ipcFrames",
         /// The acpmux daemon and a headless cmux-tui owner exit after 10 minutes with no client, no live agent, no live terminal (own or holder-owned) and no owning app; an app that reconnects within the 10 minutes keeps them.
