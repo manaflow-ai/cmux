@@ -79,8 +79,8 @@ extension AgentHibernationController {
             case .undecided:
                 continue
             case .pending(let evidence):
-                // The same transcript and process scope give the same answer;
-                // don't read the transcript again until one of them changes.
+                // The same transcript, scan window and process scope give the
+                // same answer; don't read the transcript again until one changes.
                 backgroundWorkDrainRejections[candidate.key] = evidence
                 continue
             case .drained:
@@ -174,7 +174,9 @@ enum ClaudeBackgroundWorkDrain {
 
     /// The transcript and process evidence a rejected check read.
     struct Evidence: Equatable, Sendable {
+        let transcriptPath: String
         let transcriptModifiedAt: Date
+        let notBefore: Date?
         let processScopeShowsNoBackgroundShell: Bool
     }
 
@@ -238,7 +240,9 @@ enum ClaudeBackgroundWorkDrain {
               let modifiedAt = (try? fileManager.attributesOfItem(atPath: transcriptPath))?[.modificationDate] as? Date,
               now.timeIntervalSince(modifiedAt) >= quietSeconds else { return .undecided }
         let evidence = Evidence(
+            transcriptPath: transcriptPath,
             transcriptModifiedAt: modifiedAt,
+            notBefore: notBefore,
             processScopeShowsNoBackgroundShell: processScopeShowsNoBackgroundShell
         )
         guard evidence != unchangedSince else { return .pending(evidence) }

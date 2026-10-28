@@ -107,7 +107,13 @@ struct ClaudeBackgroundWorkDrainTests {
     func unchangedEvidenceIsNotReadAgainButChangedEvidenceIs() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        try fixture.write([
+        // A whole-second mtime survives the round trip through the file system.
+        let modifiedAt = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 - 3_600).rounded(.down))
+        func write(_ lines: [String]) throws {
+            try fixture.write(lines)
+            try FileManager.default.setAttributes([.modificationDate: modifiedAt], ofItemAtPath: fixture.transcriptURL.path)
+        }
+        try write([
             AgentHibernationBackgroundWorkTests.userTurn,
             AgentHibernationBackgroundWorkTests.backgroundBashLaunch(toolUseID: "toolu_bash", taskID: "bshell1"),
         ])
@@ -119,8 +125,16 @@ struct ClaudeBackgroundWorkDrainTests {
         }
         // The shell exited: the process scope changed, so the check reads again.
         #expect(verdict(fixture, processScopeShowsNoBackgroundShell: true, unchangedSince: evidence) == .drained)
-        // Same evidence as the rejected check: no read, same answer.
+
+        // The transcript now says drained, but its mtime and the process scope
+        // match the rejected evidence, so it is not read.
+        try write([
+            AgentHibernationBackgroundWorkTests.userTurn,
+            AgentHibernationBackgroundWorkTests.backgroundBashLaunch(toolUseID: "toolu_bash", taskID: "bshell1"),
+            AgentHibernationBackgroundWorkTests.queuedNotification(toolUseID: "toolu_bash", taskID: "bshell1", status: "completed"),
+        ])
         #expect(verdict(fixture, processScopeShowsNoBackgroundShell: false, unchangedSince: evidence) == .pending(evidence))
+        #expect(verdict(fixture, processScopeShowsNoBackgroundShell: false) == .drained)
     }
 
     @Test
@@ -224,6 +238,28 @@ struct ClaudeBackgroundWorkDrainTests {
     }
 
     @Test
+    func aTurnStampedBeforeTheCheckButCommittedAfterTheDrainStillRuns() {
+        var pipeline = Pipeline()
+        pipeline.apply(Self.draft(.sessionStarted, atMs: 1_000))
+        pipeline.apply(Self.draft(.turnStarted, atMs: 2_000))
+        pipeline.apply(Self.draft(.turnCompleted, atMs: 3_000, pendingWork: true))
+        let drain = pipeline.apply(ClaudeBackgroundWorkDrain.drainedDraft(
+            sessionId: Self.sessionId,
+            workspaceId: Self.workspaceId,
+            panelId: Self.panelId,
+            observedAt: Date(timeIntervalSince1970: 60)
+        ))
+        #expect(drain?.assignment.phase == .idle)
+
+        // The prompt hook fired just before the check read the clock, but its
+        // journal append landed after the drain event.
+        let wake = pipeline.apply(Self.draft(.turnStarted, atMs: 59_000))
+
+        #expect(wake?.assignment.phase == .running)
+        #expect(pipeline.phase == .running)
+    }
+
+    @Test
     func aHookCompletionDoesNotRewriteThePill() {
         var pipeline = Pipeline()
         pipeline.apply(Self.draft(.sessionStarted, atMs: 1_000))
@@ -305,7 +341,7 @@ struct ClaudeBackgroundWorkDrainTests {
         )
     }
 
-    /// The live journal consumer's order: drop a superseded drain event,
+    /// The live journal consumer's order: admit (or drop) a drain event,
     /// reconcile, then reduce the reconciled lifecycle event.
     private struct Pipeline {
         private var notifications = AgentNotificationReconciler()
@@ -320,8 +356,10 @@ struct ClaudeBackgroundWorkDrainTests {
         @discardableResult
         mutating func apply(_ draft: AgentJournalEventDraft) -> AgentJournalLifecycleCenter.LifecycleApplication? {
             sequence += 1
-            let event = AgentJournalEvent(sequence: sequence, committedAtMs: sequence, draft: draft)
-            guard !AgentJournalLifecycleCenter.isSupersededBackgroundWorkDrain(event, state: state) else { return nil }
+            guard let event = AgentJournalLifecycleCenter.admittingBackgroundWorkDrain(
+                AgentJournalEvent(sequence: sequence, committedAtMs: sequence, draft: draft),
+                state: state
+            ) else { return nil }
             let decision = notifications.apply(event)
             guard decision.disposition != .stale, decision.projectsLifecycle else { return nil }
             return AgentJournalLifecycleCenter.reduceIngest(

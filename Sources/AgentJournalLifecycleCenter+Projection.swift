@@ -60,16 +60,29 @@ extension AgentJournalLifecycleCenter {
         )
     }
 
-    /// The drain check's synthetic completion settles only a pane still
-    /// waiting on background work. A turn that began meanwhile keeps the
-    /// pane, even when its hook was stamped before the check ran.
-    static func isSupersededBackgroundWorkDrain(
+    /// The drain check's synthetic completion, admitted only while its
+    /// session and pane still wait on background work, and stamped with the
+    /// session's newest event time instead of the check's. A turn that began
+    /// meanwhile keeps the pane whichever of the two commits first: the drain
+    /// never raises the watermark a late-committed hook is judged against.
+    /// Every other event passes through unchanged.
+    static func admittingBackgroundWorkDrain(
         _ event: AgentJournalEvent,
         state: AgentLifecycleReducerState
-    ) -> Bool {
-        guard event.draft.nativeEvent == ClaudeBackgroundWorkDrain.nativeEvent else { return false }
-        guard let surfaceId = event.draft.surfaceId else { return true }
-        return state.combinedPhase(surfaceId: surfaceId, agentKey: event.agentKey) != .backgroundWorkPending
+    ) -> AgentJournalEvent? {
+        guard event.draft.nativeEvent == ClaudeBackgroundWorkDrain.nativeEvent else { return event }
+        guard let surfaceId = event.draft.surfaceId,
+              state.combinedPhase(surfaceId: surfaceId, agentKey: event.agentKey) == .backgroundWorkPending,
+              let session = state.session(
+                  surfaceId: surfaceId,
+                  agentKey: event.agentKey,
+                  sessionKey: AgentLifecycleReducerState.sessionKey(for: event.draft)
+              ),
+              !session.ended,
+              session.phase == .backgroundWorkPending else { return nil }
+        var draft = event.draft
+        draft.occurredAtMs = session.lastOccurredAtMs
+        return AgentJournalEvent(sequence: event.sequence, committedAtMs: event.committedAtMs, draft: draft)
     }
 
     static func reduceStartupReplay(
@@ -104,8 +117,10 @@ extension AgentJournalLifecycleCenter {
             }
             if page.isEmpty { break }
             for event in page.events {
-                let canonical = canonicalized(event, aliases: aliases)
-                guard !isSupersededBackgroundWorkDrain(canonical, state: state) else { continue }
+                guard let canonical = admittingBackgroundWorkDrain(
+                    canonicalized(event, aliases: aliases),
+                    state: state
+                ) else { continue }
                 let decision = notifications.apply(canonical)
                 if decision.disposition != .stale, decision.projectsLifecycle {
                     reducer.apply(notifications.lifecycleEvent(canonical), to: &state)
