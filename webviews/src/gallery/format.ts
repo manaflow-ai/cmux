@@ -172,6 +172,20 @@ export type AgentPaneVariant = VariantBase & {
   snapshot: AcpmuxSnapshot;
   /** With `ready.transport: "mock"`: the harnesses the mock daemon lists (`[]`: none installed). */
   mockHarnesses?: unknown[];
+  /** Mock-daemon health rows by harness id. Absent keeps its signed-in default. */
+  mockHarnessHealth?: Record<string, { auth: "signedIn" | "signedOut" | "unknown"; login?: string }>;
+  /** Mock-daemon selected-session auth reply. Expiry is session-scoped, never a harness health row. */
+  mockSessionAuth?: {
+    state: "ready" | "signedOut" | "expired" | "routeAuthNeeded" | "routeUnreachable" | "peerUnreachable" | "unknown";
+    source: "peerLink" | "routeProbe" | "turn" | "authCheck" | "none";
+    evidenceAt: number | null;
+    detail?: string;
+    harness: string;
+    host: string | null;
+    routeId: string | null;
+    fromSessionId: string | null;
+    login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
+  };
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
    * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. */
   native?: Record<string, unknown>;
