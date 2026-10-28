@@ -18,7 +18,6 @@
         "method": "debug.dialog",
         "params": {}
       },
-      "record": "file",
       "wait": 0,
       "shot": false
     },
