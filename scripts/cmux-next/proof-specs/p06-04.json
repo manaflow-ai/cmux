@@ -11,7 +11,13 @@
  ],
  "validity": [],
  "probe": [
-  "starvation guard held main work|debug.main_budget|{}|^render_starvation\\.(held_tasks\\.[^.]+|held_slices)$|1"
+  {
+   "name": "starvation guard held main work",
+   "method": "debug.main_budget",
+   "params": {},
+   "regex": "^render_starvation\\.(held_tasks\\.[^.]+|held_slices)$",
+   "min": 1
+  }
  ],
  "inner_args": [
   "--rounds=1"

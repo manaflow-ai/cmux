@@ -11,7 +11,13 @@
  ],
  "validity": [],
  "probe": [
-  "Energy Saver policy active (frame cap set)|debug.energy|{}|^policy\\.ambientMaxFPS$|1"
+  {
+   "name": "Energy Saver policy active (frame cap set)",
+   "method": "debug.energy",
+   "params": {},
+   "regex": "^policy\\.ambientMaxFPS$",
+   "min": 1
+  }
  ],
  "inner_args": [
   "--sessions=light,light-hidden",

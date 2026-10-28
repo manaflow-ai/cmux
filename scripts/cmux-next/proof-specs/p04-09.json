@@ -11,7 +11,17 @@
  ],
  "validity": [],
  "probe": [
-  "CEF pump passes held for non-Chromium input|debug.input|{\"sections\":[\"pump\"]}|^pump\\.deferred_for_input$|1"
+  {
+   "name": "CEF pump passes held for non-Chromium input",
+   "method": "debug.input",
+   "params": {
+    "sections": [
+     "pump"
+    ]
+   },
+   "regex": "^pump\\.deferred_for_input$",
+   "min": 1
+  }
  ],
  "inner_args": [
   "--sessions=stress",

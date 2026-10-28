@@ -11,7 +11,17 @@
  ],
  "validity": [],
  "probe": [
-  "key.frame field histogram samples served by metrics.snapshot|metrics.snapshot|{\"names\":[\"key.frame\"]}|^histograms\\.\\*\\.count$|1"
+  {
+   "name": "key.frame field histogram samples served by metrics.snapshot",
+   "method": "metrics.snapshot",
+   "params": {
+    "names": [
+     "key.frame"
+    ]
+   },
+   "regex": "^histograms\\.\\*\\.count$",
+   "min": 1
+  }
  ],
  "inner_args": [
   "--sessions=stress",

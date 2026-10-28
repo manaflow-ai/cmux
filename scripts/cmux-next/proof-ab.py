@@ -120,7 +120,12 @@ def parse_metric(spec):
 
 
 def parse_probe(spec):
-    name, method, params, regex, minimum = spec.split("|")
+    """A probe: a dict {name, method, params, regex, min} (spec files), or NAME|METHOD|PARAMS_JSON|REGEX|MIN, where only
+    the first three and the last `|` split (a regex may hold `|`)."""
+    if isinstance(spec, dict):
+        return spec["name"], spec["method"], spec.get("params") or {}, re.compile(spec["regex"]), float(spec["min"])
+    name, method, params, rest = spec.split("|", 3)
+    regex, _, minimum = rest.rpartition("|")
     return name, method, json.loads(params or "{}"), re.compile(regex), float(minimum)
 
 

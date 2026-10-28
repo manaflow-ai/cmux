@@ -11,7 +11,13 @@
  ],
  "validity": [],
  "probe": [
-  "wire_method_samples|debug.daemon.wire|{}|^methods\\.\\*\\.send_to_reply_us\\.count$|1"
+  {
+   "name": "wire_method_samples",
+   "method": "debug.daemon.wire",
+   "params": {},
+   "regex": "^methods\\.\\*\\.send_to_reply_us\\.count$",
+   "min": 1
+  }
  ],
  "inner_args": [
   "--sessions=light",

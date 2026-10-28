@@ -10,7 +10,13 @@
  ],
  "validity": [],
  "probe": [
-  "launch_picture_shown|debug.timings|{}|^launch_ms_since_process_start\\.launch_picture_shown$|1"
+  {
+   "name": "launch_picture_shown",
+   "method": "debug.timings",
+   "params": {},
+   "regex": "^launch_ms_since_process_start\\.launch_picture_shown$",
+   "min": 1
+  }
  ],
  "inner_args": [
   "--mode",

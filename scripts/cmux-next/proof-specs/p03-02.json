@@ -11,7 +11,13 @@
  ],
  "validity": [],
  "probe": [
-  "vsync_hub_main_hop_ticks|debug.wakeups|{}|^vsync\\.main_hop_ticks$|1"
+  {
+   "name": "vsync_hub_main_hop_ticks",
+   "method": "debug.wakeups",
+   "params": {},
+   "regex": "^vsync\\.main_hop_ticks$",
+   "min": 1
+  }
  ],
  "inner_args": [
   "--rounds=1"

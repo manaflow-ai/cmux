@@ -11,7 +11,17 @@
  ],
  "validity": [],
  "probe": [
-  "main_job_gate_held_or_exempt|debug.input|{\"sections\":[\"gate\"]}|^gate\\.(held_by_origin\\.(main|offMain)|exempt_by_rule\\.[A-Za-z_]+)$|1"
+  {
+   "name": "main_job_gate_held_or_exempt",
+   "method": "debug.input",
+   "params": {
+    "sections": [
+     "gate"
+    ]
+   },
+   "regex": "^gate\\.(held_by_origin\\.(main|offMain)|exempt_by_rule\\.[A-Za-z_]+)$",
+   "min": 1
+  }
  ],
  "inner_args": [
   "--sessions=stress",

@@ -10,7 +10,13 @@
  ],
  "validity": [],
  "probe": [
-  "launch picture shown over a restored browser pane|debug.timings|{}|^launch_ms_since_process_start\\.browser\\.launch_picture_shown$|1"
+  {
+   "name": "launch picture shown over a restored browser pane",
+   "method": "debug.timings",
+   "params": {},
+   "regex": "^launch_ms_since_process_start\\.browser\\.launch_picture_shown$",
+   "min": 1
+  }
  ],
  "inner_args": [
   "--mode",
