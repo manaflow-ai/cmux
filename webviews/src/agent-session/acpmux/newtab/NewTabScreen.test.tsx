@@ -489,6 +489,46 @@ test("New Tab omits unavailable capture, project, Plan and stale unbound skill a
   expect(container.querySelector('[data-value^="add.skill."]')).toBeNull();
 });
 
+// Review of #27049 (P1): a no-project send is a fresh `chat.new {noProject}`, which cancels the
+// deferred switch that holds a + mode pick, so the prompt ran in Build after Plan was picked. Plan
+// is offered only where the send continues that deferred chat.
+test("New Tab offers no Plan for a no-project chat, whose send would drop it", async () => {
+  const picks: unknown[] = [];
+  const asks: unknown[][] = [];
+  await addPage({
+    cwd: "/chosen",
+    startCwd: "/chosen",
+    projects: [{ cwd: "/chosen", label: "chosen" }],
+    snapshot: noChat([], {
+      summary: {
+        sessionId: "deferred",
+        harness: "claude",
+        cwd: "/chosen",
+        modes: { currentModeId: "default", availableModes: [{ id: "default" }, { id: "plan" }] },
+      },
+    }),
+    onPlusMode: async (pick) => {
+      picks.push(pick);
+    },
+    onAsk: (...args) => asks.push(args),
+  });
+  await openAdd();
+  expect(container.querySelector('.acpmux-newtab-plus [data-value="add.mode.plan"]')).toBeTruthy();
+  await act(async () => container.querySelector<HTMLElement>(".acpmux-newtab-plus .acpmux-picker-button")!.click());
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
+  const option = [...dom!.window.document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (row) => row.textContent === "Do not work in a project",
+  );
+  expect(option).toBeDefined();
+  await act(async () => option!.click());
+  await draft("plan this without a project");
+  await openAdd();
+  expect(container.querySelector('.acpmux-newtab-plus [data-value^="add.mode."]')).toBeNull();
+  expect(picks).toEqual([]);
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(asks[0]?.[4]).toBe(true);
+});
+
 test("a refused New Tab mode change keeps every draft byte and attachment", async () => {
   await addPage({
     snapshot: noChat([], {
