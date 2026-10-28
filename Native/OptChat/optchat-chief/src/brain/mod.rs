@@ -1666,6 +1666,17 @@ impl Brain {
             (self.log)(&format!("setting {key} = {secs}"));
             return Ok(format!("{key} = {secs}"));
         }
+        if key == crate::chief_settings::TRACE_FULL {
+            let on = parse_bool(value)?;
+            let mut next = self.chief;
+            next.trace_full = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            self.trace.set_full(on);
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
         if key == SHOW_AFTER_REPORT {
             let on = parse_bool(value)?;
             let mut next = self.chief;

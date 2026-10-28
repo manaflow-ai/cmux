@@ -94,11 +94,14 @@ async function show(source: string, streaming = false) {
 }
 
 /// The lines a code card in `element` shows. The highlighted card (HighlightedCode.tsx) draws them in
-/// its `<diffs-container>`'s shadow root, which `textContent` leaves out, once Pierre has highlighted.
-const codeLines = (element: Element | null | undefined) =>
-  [...(element?.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line]") ?? [])].map(
+/// its `<diffs-container>`'s shadow root, which `textContent` leaves out. Without a worker,
+/// HighlightedCode keeps the plain card; both paths must preserve the refused source.
+const codeLines = (element: Element | null | undefined) => {
+  const lines = element?.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line]");
+  return [...(lines?.length ? lines : (element?.querySelectorAll(".cv-code-plain__line") ?? []))].map(
     (line) => line.textContent ?? "",
   );
+};
 
 const FLOW = "flowchart LR\n  Start --> Check{Valid?}\n  Check -->|Yes| Done";
 
@@ -130,11 +133,10 @@ test("a source both renderers refuse shows the source and why", async () => {
   mermaidCalls.length = 0;
   await show("```mermaid\nflowchart TD\n  A --> \n```");
   const diagram = host.querySelector(".cv-diagram[data-language='mermaid']");
-  // The source card's lines appear when Pierre's highlighter has loaded, which takes longer on a
-  // loaded runner.
+  // Wait for the refused source in either the highlighted or workerless code card.
   await settleUntil(() => codeLines(diagram).length > 0, "the source card's lines");
   expect(diagram?.querySelector(".cv-diagram__error")?.textContent ?? "").toContain("Parse error");
-  expect(codeLines(diagram).join("\n")).toContain("flowchart TD");
+  expect(codeLines(diagram).join("\n")).toBe("flowchart TD\n  A --> ");
   expect(mermaidCalls.length).toBe(1);
 });
 
