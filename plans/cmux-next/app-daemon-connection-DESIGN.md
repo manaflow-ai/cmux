@@ -397,3 +397,28 @@ touched: `CmuxNextTerminal` (TerminalSession, TerminalOutputLane, TerminalSurfac
 | Date | Row | Host / sha / Hz | Light | STRESS | Note |
 |---|---|---|---|---|---|
 | | | | | | |
+
+### 9.1 macOS 14 and 15 behavior (Tart VMs, chrome-parity p05-ipc task 117)
+
+No fleet Mac runs macOS 14 or 15. The ring (4.3), descriptor passing (3.2 RING) and the QoS and lock rules the
+connection's threads follow depend on OS behavior, so their tests run in Tart guests of both majors (behavior
+only, never a timing number):
+
+```bash
+scripts/cmux-next/os-matrix.sh --build JOB --os 14,15 --suite unit --ref SHA
+```
+
+`--ref` must hold the tests (tasks 110, 111, 112, 138 and 080); the rows and how they run are in
+`scripts/fuzz/macos-matrix/MATRIX.md` ("Unit suite").
+
+| Row | Tests | macOS 14 | macOS 15 | Run (date, ref, step) |
+|---|---|---|---|---|
+| `output_ring` | cmux-ipc `output_ring`, `shm`; cmux-tui-core `output_ring_attach` | not run | not run | |
+| `fds` | cmux-ipc `cmux_ipc_fds` | not run | not run | |
+| `qos` | `qos` in cmux-tui-platform, cmux-threads, cmux-tui-core | not run | not run | |
+| `pi_mutex` | cmux-tui-platform `pi_mutex` | not run | not run | |
+| `shared_output_ring` | CmuxNext `SharedOutputRingTests` | not run | not run | |
+
+Not run yet: tasks 111, 112 and 138 are not on perf/chrome-parity (their branches are cp/p05-ipc-111, -112,
+-138), and the fleet runs vm.sh only from a reviewed ref. Fill each cell with PASS, FAIL or NO-VERDICT and its
+reason from the run's `matrix.json`.

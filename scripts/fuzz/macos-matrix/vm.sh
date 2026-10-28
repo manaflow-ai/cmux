@@ -3,8 +3,8 @@
 # the seeded UI fuzz, or the replay of a saved repro. Run it ON a Tart host, never on a laptop.
 # Agents start it on the fleet with os-matrix.sh (a cmux-ci step of class vm).
 #
-# Usage: vm.sh [--majors 14,15,26,27] [--suite smoke|threads|fuzz|repro|exec|chaos] [--seed N] [--steps N] [--minutes N]
-#              [--repro NAME | --replay STEPS.jsonl | --probe NAME | --faults A,B] [--diag NAME]
+# Usage: vm.sh [--majors 14,15,26,27] [--suite smoke|threads|fuzz|repro|exec|chaos|unit] [--seed N] [--steps N] [--minutes N]
+#              [--repro NAME | --replay STEPS.jsonl | --probe NAME | --faults A,B | --rows A,B] [--diag NAME]
 #              [--work DIR] [--results FILE] [--keep-vm] BUILD
 #   BUILD      a cmux-next .app, a .zip with one, or a .dmg (a shipped nightly).
 #   --suite    smoke: smoke.py (launch, window, terminal echo, split, Chromium and WebKit tabs,
@@ -26,6 +26,11 @@
 #              (a probe must catch its errors and exit 1 for a FAIL: a trap is no verdict).
 #              The probe never runs on the host. It tests the OS, not the build (BUILD is still
 #              copied into the guest, so a probe may use it).
+#              unit: the app-daemon connection's OS-behavior tests (unit.py; chrome-parity p05-ipc
+#              117): --rows (default all) of output_ring, fds, qos, pi_mutex, shared_output_ring,
+#              built once on the host from this checkout (Rust test binaries, the CmuxNext test
+#              bundle with the host Xcode's Swift Testing runtime) and run in each guest. One
+#              result.json row per test row, PASS/FAIL/NO-VERDICT. It tests this ref, not BUILD.
 #   --diag     fuzz and repro: run the app under a check (diag.py): gmalloc, scribble, probguard,
 #              mtc, coop-strict, or asan|tsan|ubsan (a sanitizer app: reload.sh --config asan|tsan|ubsan).
 #              The guest copy of the app is re-signed ad hoc; malloc and sanitizer checks run with
@@ -53,7 +58,7 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 IMAGES="$HERE/images.json"
-MAJORS=14,15,26; SEED=1; STEPS=""; KEEP_VM=0; REPLAY=""; SUITE=fuzz; REPRO=""; RESULTS=""; MINUTES=0; PROBE=""; FAULTS=""; DIAG=""
+MAJORS=14,15,26; SEED=1; STEPS=""; KEEP_VM=0; REPLAY=""; SUITE=fuzz; REPRO=""; RESULTS=""; MINUTES=0; PROBE=""; FAULTS=""; DIAG=""; ROWS=""
 WORK=${FUZZ_WORK:-/Volumes/ephemeral0/cmux-agent-work/mfloor}
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -67,16 +72,18 @@ while [[ $# -gt 0 ]]; do
     --repro) REPRO=$2; shift 2 ;;
     --probe) PROBE=$2; shift 2 ;;
     --faults) FAULTS=$2; shift 2 ;;
+    --rows) ROWS=$2; shift 2 ;;
     --results) RESULTS=$2; shift 2 ;;
     --keep-vm) KEEP_VM=1; shift ;;
     --diag) DIAG=$2; shift 2 ;;
-    -h|--help) sed -n '2,52p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,57p' "$0"; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) BUILD=$1; shift ;;
   esac
 done
-[[ -n "${BUILD:-}" && -e "$BUILD" ]] || { echo "usage: vm.sh [--majors 14,15,26] [--suite smoke|threads|fuzz|repro|exec|chaos] BUILD" >&2; exit 2; }
+[[ -n "${BUILD:-}" && -e "$BUILD" ]] || { echo "usage: vm.sh [--majors 14,15,26] [--suite smoke|threads|fuzz|repro|exec|chaos|unit] BUILD" >&2; exit 2; }
 [[ -z "$PROBE" || "$SUITE" == exec ]] || { echo "--probe needs --suite exec" >&2; exit 2; }
+[[ -z "$ROWS" || "$SUITE" == unit ]] || { echo "--rows needs --suite unit" >&2; exit 2; }
 [[ -z "$FAULTS" || "$SUITE" == chaos && "$FAULTS" =~ ^[a-z-]+(,[a-z-]+)*$ ]] || {
   echo "--faults needs --suite chaos and names like daemon,holder (see chaos.py)" >&2; exit 2; }
 case "$SUITE" in
@@ -91,7 +98,11 @@ case "$SUITE" in
     [[ "$REPRO" =~ ^[a-z0-9][a-z0-9-]{0,63}$ && -f "$HERE/repros/$REPRO.jsonl" ]] || {
       echo "--suite repro needs --repro NAME of a file in $HERE/repros (without .jsonl)" >&2; exit 2; }
     REPLAY="$HERE/repros/$REPRO.jsonl" ;;
-  *) echo "--suite must be smoke, threads, fuzz, repro, exec or chaos" >&2; exit 2 ;;
+  unit)
+    if [[ -n "$REPRO" ]] || ! python3 -I "$HERE/unit.py" check-rows "${ROWS:-all}"; then
+      echo "--suite unit takes --rows of unit.py's table (no --repro)" >&2; exit 2
+    fi ;;
+  *) echo "--suite must be smoke, threads, fuzz, repro, exec, chaos or unit" >&2; exit 2 ;;
 esac
 # A diag's guest work, from diag.py: a bundle id suffix, a host dylib, bundle paths to remove.
 DIAG_SUFFIX="" DIAG_HOST_DYLIB="" DIAG_REMOVE=()
@@ -171,10 +182,16 @@ print(next((i.get("host_os_min", "") for i in json.load(open(sys.argv[1]))["imag
   scp "${SSHB[@]}" -q "$BUILD_ZIP" "admin@$ip:/Users/admin/build.zip" </dev/null
   local app; app=$(ssh "${SSHB[@]}" "admin@$ip" 'set -e; pkill -x "System Settings" || true; pkill -x Terminal || true; rm -rf ~/fuzzapp; mkdir ~/fuzzapp;
     ditto -x -k ~/build.zip ~/fuzzapp; ls -d ~/fuzzapp/*.app | head -1' </dev/null)
-  local common=(--ssh "admin@$ip" --vnc "$vncarg" --app "$app" --out "$out" --ssh-opt=-oPubkeyAuthentication=no
+  local guest_ssh=(--ssh "admin@$ip" --ssh-opt=-oPubkeyAuthentication=no
     --ssh-opt=-oPreferredAuthentications=password,keyboard-interactive --ssh-opt=-oNumberOfPasswordPrompts=1)
+  local common=("${guest_ssh[@]}" --vnc "$vncarg" --app "$app" --out "$out")
   if [[ "$SUITE" == exec ]]; then
     exec_probe "$ip" "$out" "$app"
+    return 0
+  fi
+  if [[ "$SUITE" == unit ]]; then
+    python3 -I "$HERE/unit.py" run "${guest_ssh[@]}" --bin "$RUN/unit-build/bin" --out "$out" >"$out/unit.log" 2>&1 || echo "unit exit $?" >"$out/failure"
+    grep -E '^(UNIT|[a-z_]+ +(PASS|FAIL|NO-VERDICT)) ' "$out/unit.log" | cut -c1-400 >&2 || true
     return 0
   fi
   if [[ "$SUITE" == smoke || "$SUITE" == threads ]]; then
@@ -344,6 +361,19 @@ if [[ "$SUITE" == exec ]] && ! compile_probe "$RUN/probe-bin"; then
   done
   majors=()
 fi
+# unit: build the rows' tests once, from this runner's checkout; a row that does not build is its NO-VERDICT.
+if [[ "$SUITE" == unit ]]; then
+  if python3 -I "$HERE/unit.py" build --repo "$HERE/../../.." --rows "${ROWS:-all}" --out "$RUN/unit-build" \
+       >"$RUN/unit-build.log" 2>&1; then
+    cat "$RUN/unit-build.log" >&2  # one line per part: built, or why not
+  else
+    tail -c 3000 "$RUN/unit-build.log" >&2
+    for major in "${majors[@]}"; do
+      mkdir -p "$RUN/$major"; echo "unit.py build failed (unit-build.log)" >"$RUN/$major/failure"
+    done
+    majors=()
+  fi
+fi
 if [[ -n "$DIAG" ]] && ! prepare_diag "$RUN/diag-bin" 2>"$RUN/diag-prepare.log"; then
   # No malloc-zones, no proof of the allocator: every major records why (and boots no VM).
   cat "$RUN/diag-prepare.log" >&2
@@ -400,6 +430,16 @@ for m in majors:
             ",".join(skipped) or "-", s.get("crashes", "-"), fail)
         for f in s.get("faults", []):
             line += "\n       %-18s %-4s expected: %s" % (f.get("fault"), f.get("outcome"), f.get("expected", ""))
+    elif suite == "unit":
+        # unit.py's verdict (the worst row); a run that ended without one is no verdict.
+        s = load("result.json")
+        verdict = s.get("verdict", "NO-VERDICT") if s and not (fail and s.get("verdict") == "PASS") else "NO-VERDICT"
+        line = "%-4s %-8s unit  %-10s failed=%s %s" % (
+            m, s.get("os", "?"), verdict, ",".join(s.get("failed_steps", [])) or "-", fail)
+        for r in s.get("rows", []):
+            line += ("\n       %-20s %-10s %s" % (r.get("row"), r.get("verdict"), "; ".join(
+                "%s: %s" % (p.get("label"), p.get("detail")) for p in r.get("parts", [])
+                if p.get("verdict") != "PASS"))).rstrip()
     else:
         s = load("summary.json")
         verdict, extra = fuzz_verdict(s, fail, diag)
@@ -419,9 +459,11 @@ if results:
     with os.fdopen(fd, "wb") as out, tarfile.open(fileobj=out, mode="w:gz") as tar:
         for name in sorted(os.listdir(run)):
             if name not in ("build.zip", "askpass.sh"):
-                # The probe's compiler module cache is not a result.
+                # The probe's compiler module cache and the unit suite's builds are not results (its logs
+                # and manifest are).
+                skip = ("unit-build/cargo-target", "unit-build/bin/rust", "unit-build/bin/swift")
                 tar.add(os.path.join(run, name), arcname=name,
-                        filter=lambda info: None if "/module-cache" in "/" + info.name else info)
+                        filter=lambda info: None if "/module-cache" in "/" + info.name or info.name in skip else info)
     print("results:", results)
     # With --results the verdict is data, NO-VERDICT included: the results upload either way.
     sys.exit(0)

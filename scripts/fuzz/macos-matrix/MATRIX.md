@@ -41,6 +41,7 @@ scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14,15 --suite threads        
 scripts/cmux-next/os-matrix.sh --build JOB_ID --os 15 --suite fuzz --seed 7 --minutes 20
 scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14 --suite repro:incognito-close-14
 scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14,15,26 --suite chaos             # one row per fault
+scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14,15 --suite unit --ref SHA     # p05-ipc 117: ring, fds, qos, pi_mutex
 ```
 
 It submits one `cmux-ci run --class vm --script scripts/fuzz/macos-matrix/vm.sh` step with one `tart-<digest>`
@@ -160,10 +161,39 @@ has the exit code, stdout, stderr, the runner commit (`runner_ref`) and the sour
   an ancestor resize, `wantsLayer`, a new backing layer, a window style change and full screen. FAIL when the
   motion container loses its spring.
 
+### Unit suite (the app-daemon connection's OS behavior)
+
+`os-matrix.sh --build JOB --os 14,15 --suite unit[:ROWS] --ref SHA` runs fixed test rows of the runner ref in
+each guest (chrome-parity p05-ipc task 117; `unit.py`). The rows check what the connection needs from the OS:
+
+| Row | Tests | OS behavior |
+|---|---|---|
+| `output_ring` | cmux-ipc `output_ring`, `shm` (lib, `tests/output_ring.rs`); cmux-tui-core `output_ring_attach` | shared segments, a `PROT_READ` mapping, a writable one refused |
+| `fds` | cmux-ipc `cmux_ipc_fds` (`tests/fds.rs`, `tests/fds_leak.rs`) | SCM_RIGHTS order, caps, truncation, close-on-exec |
+| `qos` | `qos` in cmux-tui-platform, cmux-threads, cmux-tui-core (and its `request_threads`) | QoS classes and `pthread_override_qos_class_start_np` |
+| `pi_mutex` | cmux-tui-platform `pi_mutex` | os_unfair_lock priority inheritance |
+| `shared_output_ring` | CmuxNext `SharedOutputRingTests` (Swift Testing) | the app's read-only mapping and no-copy spans |
+
+- vm.sh builds once on the Tart host, inside the step, from the runner ref's checkout (the tests are the ref's,
+  not BUILD's): `cargo test --no-run` per row with `MACOSX_DEPLOYMENT_TARGET=14.0` (the toolchain of
+  `rust-toolchain.toml`, the ghostty-next submodule initialized), and `package-test-lane.sh suite
+  Packages/macOS/CmuxNext SharedOutputRingTests`, which builds the CmuxNext tests and runs the suite on the host.
+  The build's logs are in `<out>/unit-build/logs`; a part that does not build is its row's NO-VERDICT.
+- The guest has no Xcode. The Swift part runs `swiftpm-testing-helper` with the host Xcode's macOS platform
+  frameworks (`Developer/Library/{Frameworks,PrivateFrameworks}`, `Developer/usr/lib`) copied into the guest
+  and named in `DYLD_FRAMEWORK_PATH` and `DYLD_LIBRARY_PATH`, as `swift test` runs it. When that runtime does
+  not load on a major (dyld), the row is NO-VERDICT, not FAIL.
+- Each test process runs as `admin` with a 10 min bound. A part PASSes on exit 0 with at least one test run;
+  a failed test or a crash in a test is FAIL; no test matched, a timeout or an SSH failure is NO-VERDICT.
+  `<out>/<major>/result.json` has each row and part with its exit code, counts and log (`<row>-<n>.log`).
+- Behavior only: the `pi_mutex` inversion test compares wait times, and a VM's numbers are not perf evidence.
+- Offline checks of the rows, verdicts, guest command and summary: `python3 -I scripts/fuzz/macos-matrix/test_unit.py`.
+- os-matrix.sh gives the step a 3 h `--timeout` (the first build of cmux-tui-core and the CmuxNext tests).
+
 ### cmux-unit and xctrace in the guest
 
-Not supported by the pinned base images: they have no Xcode, so neither Swift Testing (`swift test`,
-`xcodebuild test`) nor `xctrace` runs in them. A guest with Xcode can do both. Measured 2026-10-24 on
+Whole cmux-unit runs are not supported by the pinned base images (the unit suite above runs a fixed set of
+rows): they have no Xcode, so neither `swift test`, `xcodebuild test` nor `xctrace` runs in them. A guest with Xcode can do both. Measured 2026-10-24 on
 aws-m4pro-6 with a CoW clone of the local `cmux-ci-sequoia-xcode-26-3` VM (macOS 15.7.3, Xcode 26.3, Swift
 6.2.4): `xctrace record --template "Time Profiler" --launch` records and `xctrace export` reads the
 `time-profile` table (4960 rows in 5 s); `CPU Counters` fails (a VM has no CPU performance counters).

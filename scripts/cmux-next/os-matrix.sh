@@ -4,7 +4,7 @@
 # (scripts/fuzz/macos-matrix/vm.sh on a Tart worker), waits, downloads the results and prints
 # the verdict per macOS major.
 #
-# Usage: scripts/cmux-next/os-matrix.sh --build JOB_ID [--os 14,15] [--suite smoke|threads|fuzz|chaos|repro:NAME|exec:NAME]
+# Usage: scripts/cmux-next/os-matrix.sh --build JOB_ID [--os 14,15] [--suite smoke|threads|fuzz|chaos|repro:NAME|exec:NAME|unit[:ROWS]]
 #                                       [--seed N] [--minutes N] [--diag NAME] [--ref SHA] [--attempt N]
 #                                       [--out DIR]
 #   --build    a done fleet `cmux` build job (cmux-ci build cmux ...). The smoke needs a DEV build
@@ -26,6 +26,11 @@
 #              exec:NAME: an OS probe, scripts/fuzz/macos-matrix/probes/NAME.swift, compiled on the
 #              Tart host from the runner ref and run in each guest (exit 0 PASS, 1 FAIL, else no
 #              verdict; its output is in <out>/<major>/result.json). It tests the OS, not the build.
+#              unit[:ROWS]: the app-daemon connection's OS-behavior tests (chrome-parity p05-ipc 117;
+#              scripts/fuzz/macos-matrix/unit.py): rows output_ring, fds, qos, pi_mutex and
+#              shared_output_ring (default all), built once on the Tart host from --ref (Rust test
+#              binaries; the CmuxNext test bundle with the host Xcode's Swift Testing runtime) and run in
+#              each guest; one line per row. It tests --ref, not the build: pass a --ref that has them.
 #   --seed     fuzz seed (default 1); the same seed and build repeat the same steps.
 #   --diag     fuzz and repro: run the app under a check (gmalloc, scribble, probguard, mtc, coop-strict,
 #              asan, tsan, ubsan; scripts/fuzz/macos-matrix/diag.py). summary.json's "diag" records it.
@@ -37,10 +42,11 @@
 # Prints one line per major and "MATRIX VERDICT PASS|FAIL|NO-VERDICT"; exits 0 on PASS, 1 on FAIL, 2 on a
 # usage error and 75 when there is no verdict (a refused, failed or unfinished step, or a major without
 # one: a VM that did not boot, an exec probe that crashed, timed out or did not compile). Results: <out>/<major>/{result.json|summary.json,app.log,shot-*.png,*.ips,
-# *.hang,faults.ndjson,smoke.log|threads.log|fuzz.log}, <out>/matrix.json and <out>/step.log.
+# *.hang,faults.ndjson,smoke.log|threads.log|fuzz.log|unit.log}, <out>/matrix.json and <out>/step.log.
 # A VM has a paravirtual GPU and no ProMotion: use it for correctness, crashes, hangs, launch and
 # OS-behavior differences, never for frame timing. Label any VM timing "VM, not comparable".
-# cmux-unit tests inside the guest are not supported (the base images have no Xcode); see MATRIX.md.
+# Whole cmux-unit runs inside the guest are not supported (the base images have no Xcode; see MATRIX.md):
+# --suite unit runs a fixed set of rows.
 set -euo pipefail
 
 BUILD="" OS=14,15 SUITE=smoke SEED=1 MINUTES=15 REF="" OUT="" ATTEMPT=1 DIAG=""
@@ -55,8 +61,8 @@ while [[ $# -gt 0 ]]; do
     --ref) REF=$2; shift 2 ;;
     --out) OUT=$2; shift 2 ;;
     --attempt) ATTEMPT=$2; shift 2 ;;
-    --tests) echo "--tests: cmux-unit in the guest is not supported yet (the base images have no Xcode; see scripts/fuzz/macos-matrix/MATRIX.md)" >&2; exit 2 ;;
-    -h|--help) sed -n '2,43p' "$0"; exit 0 ;;
+    --tests) echo "--tests: cmux-unit in the guest is not supported (the base images have no Xcode; see scripts/fuzz/macos-matrix/MATRIX.md); --suite unit runs a fixed set of rows" >&2; exit 2 ;;
+    -h|--help) sed -n '2,49p' "$0"; exit 0 ;;
     *) echo "unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -69,10 +75,13 @@ done
 suite_args=(--suite "${SUITE%%:*}")
 case "$SUITE" in
   smoke|threads|chaos) ;;
+  unit) ;;
+  unit:*) [[ "${SUITE#unit:}" =~ ^[a-z_]+(,[a-z_]+)*$ ]] || { echo "--suite unit:ROWS takes row names like fds,qos" >&2; exit 2; }
+    suite_args+=(--rows "${SUITE#unit:}") ;;
   fuzz) suite_args+=(--seed "$SEED" --minutes "$MINUTES") ;;
   repro:*) suite_args+=(--repro "${SUITE#repro:}") ;;
   exec:*) suite_args+=(--probe "${SUITE#exec:}") ;;
-  *) echo "--suite takes smoke, threads, fuzz, chaos, repro:NAME or exec:NAME" >&2; exit 2 ;;
+  *) echo "--suite takes smoke, threads, fuzz, chaos, repro:NAME, exec:NAME or unit[:ROWS]" >&2; exit 2 ;;
 esac
 if [[ -n "$DIAG" ]]; then
   # vm.sh checks the name against diag.py; this keeps the step key and arguments plain.
@@ -99,12 +108,14 @@ if len(set(majors)) != len(majors): sys.exit("--os names a major twice")
 for m in majors:
     if m not in pins: sys.exit("macOS %s has no pinned image in images.json (have %s)" % (m, ",".join(sorted(pins))))
     print("--label=tart-" + pins[m][len("sha256:"):][:32])' "$images" "$OS") || exit 2
-OUT=${OUT:-$ROOT/artifacts/os-matrix/${BUILD:0:12}-${SUITE//:/-}-$(date -u +%Y%m%dT%H%M%SZ)}
+OUT=${OUT:-$ROOT/artifacts/os-matrix/${BUILD:0:12}-${SUITE//[:,_]/-}-$(date -u +%Y%m%dT%H%M%SZ)}
 mkdir -p "$OUT"
-key="os-matrix-${BUILD:0:12}-${REF:0:12}-${OS//,/-}-${SUITE//:/-}-a$ATTEMPT"
+key="os-matrix-${BUILD:0:12}-${REF:0:12}-${OS//,/-}-${SUITE//[:,_]/-}-a$ATTEMPT"
 [[ "$SUITE" == fuzz ]] && key+="-s$SEED-m$MINUTES"
 [[ -z "$DIAG" ]] || key+="-d$DIAG"
 args=(--arg=--build-job "--arg=$BUILD" --arg=--majors "--arg=$OS")
+# unit builds its tests on the host first (a CmuxNext test build and the Rust test binaries).
+[[ "$SUITE" != unit* ]] || args+=(--timeout 10800)
 for a in "${suite_args[@]}"; do args+=("--arg=$a"); done
 echo "os-matrix: build $BUILD, macOS $OS, suite $SUITE, vm.sh at $REF, key $key" >&2
 set +e
@@ -127,7 +138,7 @@ if ! "$CI" artifact "$step" "$OUT/results.tgz" >/dev/null || ! tar -xzf "$OUT/re
   echo "os-matrix: step $step gave MATRIX VERDICT $verdict, but its results did not download: $CI artifact $step OUT.tgz" >&2
   exit 75
 fi
-grep -E '^EXEC |^[0-9]+ +[0-9.?]+ +[a-z]+ +(PASS|FAIL|NO-VERDICT)' "$OUT/step.log" || true
+grep -E '^EXEC |^[0-9]+ +[0-9.?]+ +[a-z]+ +(PASS|FAIL|NO-VERDICT)|^ {7}[a-z_]+ +(PASS|FAIL|NO-VERDICT)' "$OUT/step.log" || true
 echo "results: $OUT"
 echo "MATRIX VERDICT $verdict"
 case "$verdict" in
