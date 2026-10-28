@@ -30,6 +30,12 @@ export type FindMatchesResult = {
   scannedRows: number;
 };
 
+/** Rows carry a monotonic view revision. Hosts may rebuild the immutable snapshot array while
+ * retaining unchanged row objects, so identity alone is not enough to identify the reusable prefix.
+ * A row with the same id and revision has identical searchable text by the model contract. */
+const sameRowRevision = (left: AcpmuxRow, right: AcpmuxRow) =>
+  left === right || (left.id === right.id && left.version === right.version);
+
 /** The highlight names conversation.css styles. */
 export const FIND_HIGHLIGHT = "acpmux-find";
 export const FIND_ACTIVE_HIGHLIGHT = "acpmux-find-active";
@@ -116,7 +122,12 @@ export function findMatchesIncremental(
 
   let prefix = 0;
   if (previous?.needle === needle) {
-    while (prefix < rows.length && prefix < previous.rows.length && rows[prefix] === previous.rows[prefix]) prefix += 1;
+    while (
+      prefix < rows.length &&
+      prefix < previous.rows.length &&
+      sameRowRevision(rows[prefix]!, previous.rows[prefix]!)
+    )
+      prefix += 1;
   }
 
   if (previous?.needle === needle && prefix === rows.length && rows.length === previous.rows.length) {

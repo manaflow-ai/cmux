@@ -35,6 +35,20 @@ test("incremental find rescans only a changed tail", () => {
   ]);
 });
 
+test("incremental find reuses cloned rows with the same revision", () => {
+  const first = row("turn-1", "first answer");
+  const second = row("turn-2", "second answer");
+  const initial = findMatchesIncremental([first, second], "answer");
+
+  // Snapshot assembly can clone unchanged rows while a streaming tail advances. The id/revision
+  // pair is the stable cache key; requiring object identity would rescan the whole transcript.
+  const clonedFirst = { ...first };
+  const changedSecond = { ...second, version: 2, text: "revised" };
+  const next = findMatchesIncremental([clonedFirst, changedSecond], "answer", initial.cache);
+  expect(next.scannedRows).toBe(1);
+  expect(next.matches).toEqual([{ rowIndex: 0, rowId: "turn-1", occurrence: 0 }]);
+});
+
 test("incremental find invalidates the prefix when history is prepended or edited", () => {
   const first = row("turn-1", "first answer");
   const second = row("turn-2", "second answer");
