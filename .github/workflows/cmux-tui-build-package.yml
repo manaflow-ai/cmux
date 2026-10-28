@@ -326,6 +326,14 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # Go selects the exact toolchain requested by libtailscale's pinned go.mod.
+      - name: Install Go for the embedded tailnet archive
+        if: runner.os == 'macOS' || matrix.darwin_on_linux
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: daemon/remote/go.mod
+          cache: false
+
       - name: Install Rust target
         shell: bash
         run: rustup target add ${{ matrix.target }}
@@ -374,7 +382,8 @@ jobs:
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
-          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }}
+          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }} \
+            $(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})
 
       - name: Build cmux-tui (Linux cross)
         if: matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux
@@ -442,7 +451,8 @@ jobs:
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
-          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }}
+          cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }} \
+            $(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }})
 
       - name: Build cmux-cloud app server
         # The first-party Cloud app server (cmux/cloud) is its own Cargo
@@ -529,6 +539,7 @@ jobs:
           sha="$(git rev-parse HEAD)"
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
           ./scripts/ci/macos-cross.sh toolchain "$XC_SDK_VERSION"
+          bash tests/test_tailnet_cross_link.sh
           # hosts and bins in one command: every cargo invocation at once.
           ./scripts/ci/macos-cross.sh all "$sha" "$ghostty" "$CMUX_TUI_DISTRIBUTION_VERSION"
 

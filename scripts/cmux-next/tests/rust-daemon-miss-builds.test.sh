@@ -14,8 +14,9 @@ fail() { printf '%s\n' "$@" >&2; exit 1; }
 git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
 
 src="$TMP/src"
-mkdir -p "$src/scripts/cmux-next" "$src/cmux-tui/crates/acpmux" "$src/Native/OptChat/optchat-chief" "$TMP/bin"
+mkdir -p "$src/scripts/ci" "$src/scripts/cmux-next" "$src/cmux-tui/crates/acpmux" "$src/Native/OptChat/optchat-chief" "$TMP/bin"
 cp "$ROOT/scripts/cmux-next/build-acpmux.sh" "$ROOT/scripts/cmux-next/build-optchat-chief.sh" "$src/scripts/cmux-next/"
+cp "$ROOT/scripts/ci/acpmux-build-features.sh" "$ROOT/scripts/ci/tailnet-go.sh" "$src/scripts/ci/"
 echo '[package]' > "$src/cmux-tui/crates/acpmux/Cargo.toml"
 echo '[package]' > "$src/Native/OptChat/optchat-chief/Cargo.toml"
 printf '[toolchain]\nchannel = "1.95.0"\n' > "$src/cmux-tui/rust-toolchain.toml"
@@ -25,6 +26,7 @@ git_q init "$src"; git_q -C "$src" add -A; git_q -C "$src" commit -m one
 # $CARGO_TARGET_DIR/T/release/<name> and logs the target dir it used.
 cat > "$TMP/bin/cargo" <<'EOF'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FAKE_CARGO_LOG.args"
 target="" name=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -39,6 +41,8 @@ chmod 755 "$CARGO_TARGET_DIR/$target/release/$name"
 echo "$CARGO_TARGET_DIR" >> "$FAKE_CARGO_LOG"
 EOF
 printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/rustup"
+printf '#!/bin/sh\necho "go version go1.27.1 darwin/arm64"\n' > "$TMP/bin/go"
+chmod 755 "$TMP/bin/go"
 chmod 755 "$TMP/bin/cargo" "$TMP/bin/rustup"
 
 run() { env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" TMPDIR="$TMP" FAKE_CARGO_LOG="$TMP/cargo.log" "$@"; }
@@ -76,8 +80,10 @@ got=$(run FAKE_ARCHS="arm64 x86_64" CMUX_NEXT_ACPMUX_ARCHS=arm64 "$dev/scripts/c
 cmp -s "$got" "$dev/tree/acpmux" || fail "the cached acpmux is not the same-tree binary: $got"
 
 # The next commit of the same tree builds in the same target dir (warm).
-echo '// two' >> "$src/cmux-tui/crates/acpmux/Cargo.toml"; git_q -C "$src" commit -am two
+printf '\n[features]\ntailnet = []\n' >> "$src/cmux-tui/crates/acpmux/Cargo.toml"; git_q -C "$src" commit -am two
 run CMUX_FLEET_BUILD_TAG=x "$src/scripts/cmux-next/build-acpmux.sh" >/dev/null 2>&1 || fail "a fleet build did not build acpmux"
+grep -q -- '--features=tailnet' "$TMP/cargo.log.args" || fail "shipping acpmux omitted tailnet"
+head -1 "$TMP/cargo.log.args" | grep -q -- '--features' && fail "old source got an unsupported feature"
 dirs=$(grep -c . "$TMP/cargo.log"); first=$(sed -n 1p "$TMP/cargo.log"); last=$(sed -n '$p' "$TMP/cargo.log")
 [[ "$first" == "$last" && "$first" == "$src/"* ]] || fail "acpmux did not build in one persistent target dir in the tree:" "$(cat "$TMP/cargo.log")"
 

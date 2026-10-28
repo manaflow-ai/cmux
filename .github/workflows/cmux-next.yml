@@ -4754,6 +4754,13 @@ jobs:
       # The same-tree fetch above also brought this tree's acpmux (built once
       # with the cmux-tui binaries, cmuxterm-hq#1279). A tree published before
       # the tree build carried acpmux has none, and this compiles it.
+      - name: Install Go for the embedded tailnet archive
+        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: daemon/remote/go.mod
+          cache: false
+
       - name: Build in-tree acpmux for the app bundle
         if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
         env:
@@ -5352,6 +5359,13 @@ jobs:
       - name: Install Rust (diff sidecar)
         if: steps.dev-product.outputs.hit != 'true'
         run: ./scripts/install-rust-ci.sh
+      - name: Install Go for the embedded tailnet archive
+        if: steps.dev-product.outputs.hit != 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: daemon/remote/go.mod
+          cache: false
+
       - name: Build in-tree acpmux for the app bundle
         if: steps.dev-product.outputs.hit != 'true'
         env:
