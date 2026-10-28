@@ -8,7 +8,6 @@ name: gallery health
 # default branch (main), and this workflow lives on feat-cmux-next.
 
 on:
-  workflow_dispatch:
   pull_request:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened]
@@ -98,11 +97,7 @@ jobs:
           set -euo pipefail
           cd webviews
           bun install --frozen-lockfile
-          if [ "$EVENT" = workflow_dispatch ]; then
-            echo 'all=false' >> "$GITHUB_OUTPUT"
-            echo 'ids=' >> "$GITHUB_OUTPUT"
-            exit 0
-          elif [ "$EVENT" = pull_request ]; then
+          if [ "$EVENT" = pull_request ]; then
             # The merge's first parent is the base it was merged with: the diff is the pull request's change.
             git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
           elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
