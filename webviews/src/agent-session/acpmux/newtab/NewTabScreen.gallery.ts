@@ -399,8 +399,10 @@ export default agentPaneEntry({
         await ctx.click({ role: "menuitem", name: "More models" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list"));
         const more = ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list")!;
-        if (!more.nextElementSibling?.textContent?.includes("Add harness"))
-          throw new Error("the model menu's More models does not end on Add harness…");
+        if (more.querySelector('[aria-label="Add harness…"]'))
+          throw new Error("More models must contain models only; Add harness belongs in the rail");
+        if (!ctx.document.querySelector('.acpmux-quick-rail-add[aria-label="Add harness…"]'))
+          throw new Error("the model menu's harness rail must end on Add harness…");
       },
     },
     // The effort is part of the one model button (Leo 2026-10-20: "Opus 5.5  Medium"), and its

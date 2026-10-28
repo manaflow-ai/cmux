@@ -960,6 +960,7 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   const focusRail = (index: number) => {
     if (index === addRailIndex && onAddAgent) {
+      setActiveHarness(index);
       menu.current?.querySelector<HTMLButtonElement>(".acpmux-mp-add-harness")?.focus();
       return;
     }
@@ -982,6 +983,12 @@ export function ModelPicker(props: ModelPickerProps) {
     }
   };
   const move = (step: number) => {
+    // An empty search still has a rail action: ArrowDown reaches Add harness instead of
+    // trapping focus at the search field when no model rows match.
+    if (step > 0 && rowCount === 0 && onAddAgent) {
+      focusRail(addRailIndex);
+      return;
+    }
     // Moving down past the last row opens the More models fold, so keys reach every model.
     if (step > 0 && !olderOpen && olderCount > 0 && active >= visible.length - 1) {
       setOlderOpen(true);
@@ -1316,7 +1323,8 @@ export function ModelPicker(props: ModelPickerProps) {
                   <PickerOption
                     type="button"
                     className={`acpmux-mp-add-harness ${railTab}`}
-                    active={false}
+                    active={activeHarness === addRailIndex}
+                    selected={activeHarness === addRailIndex}
                     aria-label={addHarnessText}
                     title={addHarnessText}
                     keyboard={(event) => {
