@@ -499,6 +499,19 @@ while True:
         if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_DELAY_MS"):
             import time
             time.sleep(int(os.environ["FAKE_CLAUDE_INIT_DELAY_MS"]) / 1000)
+        if request.get("subtype") == "set_permission_mode" and os.environ.get("FAKE_CLAUDE_MODE_DELAY_MS"):
+            import time
+            time.sleep(int(os.environ["FAKE_CLAUDE_MODE_DELAY_MS"]) / 1000)
+        # FAKE_CLAUDE_IDLE_CHILDREN=<file>: the harness starts a worker in its group, one that left
+        # it (setsid) and an MCP server (`sleep 3599`), and writes their pids there.
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_IDLE_CHILDREN"):
+            import subprocess
+            pids = {name: subprocess.Popen(["sleep", secs], start_new_session=escape, stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).pid
+                    for name, secs, escape in (("worker", "3601", False), ("escaped", "3602", True),
+                                               ("sidecar", "3599", False))}
+            with open(os.environ["FAKE_CLAUDE_IDLE_CHILDREN"], "w") as f:
+                f.write(json.dumps(pids))
         answer = {}
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}

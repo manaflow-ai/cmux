@@ -602,7 +602,7 @@ class PathRoutingStructure(unittest.TestCase):
         """a925bd9 went red when PRs that skipped swift test landed a stale export."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         runs = " ".join(step.get("run", "") for step in jobs["generated-files"]["steps"])
-        self.assertIn("check-action-surfaces.sh", runs)
+        self.assertIn("judge-action-exports.sh", runs)
         # The CI target graph is bot-only (#21946): no event checks it.
         self.assertNotIn("ci-target-graph.py --check", runs)
         self.assertNotIn("same-tree-cmux-tui", jobs["generated-files"]["needs"])
@@ -610,7 +610,7 @@ class PathRoutingStructure(unittest.TestCase):
         # build (generated_host, tests/test_cmux_next_generated_fold.py); a PR that skips swift
         # test still gets the generated-files job.
         for step in jobs["swift-test"]["steps"]:
-            if "check-action-surfaces.sh" in step.get("run", ""):
+            if "judge-action-exports.sh" in step.get("run", ""):
                 self.assertIn("env.CMUX_NEXT_FOLD_GENERATED == 'true'", step["if"])
         self.assertIn("needs.path_route.outputs.generated_host == 'generated-files'", jobs["generated-files"]["if"])
 
@@ -1350,7 +1350,7 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertLess(max(init, zig, rust), tier)
         # The Zig packages come from the deadlined, retried fetch, not from build.rs's
         # single unretried download (a pkg/highway ReadFailed failed the job).
-        fetch = next(i for i, run in enumerate(runs) if "scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next" in run)
+        fetch = next(i for i, step in enumerate(job["steps"]) if step.get("uses") == "./.github/actions/ghostty-zig-packages")
         self.assertLess(zig, fetch)
         self.assertLess(fetch, tier)
 
@@ -1529,7 +1529,7 @@ REUSE_GUARD = "steps.reuse.outputs.hit != 'true'"
 SAME_REPOSITORY = "(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)"
 # Steps that build, test or regenerate: none may run before a job's reuse lookup.
 HEAVY_MARKERS = ("swift build", "swift-test-with-hang-sampler", "fast-tier.py", "check-release-compile.sh",
-                 "cargo test", "build-web-bundles.sh", "check-action-surfaces.sh", "defaults_guard.py",
+                 "cargo test", "build-web-bundles.sh", "check-action-surfaces.sh", "judge-action-exports.sh", "defaults_guard.py",
                  "regenerate-", "ensure-cef.sh", "build-cef-shim.sh")
 
 
@@ -2931,38 +2931,85 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         self.assertIn("app-compile-fleet", jobs["release-compile"]["needs"])
 
-    def run_check(self, client_exit: int) -> tuple[subprocess.CompletedProcess, str, str]:
+    def run_check(self, client_exit: int | None, *, mac_release: str = "false"
+                  ) -> tuple[subprocess.CompletedProcess, str, str, str]:
+        """Run the step with a stub cmux-ci exiting client_exit (None: no client installed)."""
         step = next(s for s in self.job()["steps"] if s.get("id") == "check")
         self.assertEqual(step["env"]["REF"], "${{ github.event.pull_request.head.sha }}")
         with tempfile.TemporaryDirectory() as tmp:
             client = Path(tmp) / "cmux-ci"
-            client.write_text(f'#!/bin/bash\necho "$@" > "{tmp}/args"\nexit {client_exit}\n')
-            client.chmod(0o755)
+            if client_exit is not None:
+                client.write_text(f'#!/bin/bash\necho "$@" > "{tmp}/args"\nexit {client_exit}\n')
+                client.chmod(0o755)
             output = Path(tmp) / "output"
             output.touch()
+            summary = Path(tmp) / "summary"
             env = {"PATH": os.environ["PATH"], "HOME": tmp, "CMUX_CI_CLIENT": str(client), "REF": "d" * 40,
                    "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": tmp, "RUNNER_NAME": "gw",
-                   "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary")}
-            result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", step["run"]], env=env,
+                   "GITHUB_STEP_SUMMARY": str(summary), "MAC_RELEASE": mac_release}
+            # The step's own shell: bash -e {0}.
+            result = subprocess.run(["bash", "-e", "-c", step["run"]], env=env,
                                     capture_output=True, text=True, timeout=60)
             args = (Path(tmp) / "args").read_text() if (Path(tmp) / "args").exists() else ""
-            return result, output.read_text(), args
+            return result, output.read_text(), args, summary.read_text() if summary.exists() else ""
 
     def test_a_fleet_pass_is_green_and_compiles_the_head(self):
-        result, output, args = self.run_check(0)
+        result, output, args, summary = self.run_check(0)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("verdict=pass", output)
         self.assertIn(f"compile-check --ref {'d' * 40} --app", args)
+        self.assertIn("Build fleet app compile: pass", summary)
 
     def test_a_fleet_compile_failure_is_the_prs_red(self):
-        result, output, _ = self.run_check(1)
+        result, output, _, _ = self.run_check(1)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("verdict=fail", output)
 
-    def test_no_fleet_verdict_is_not_a_red(self):
-        result, output, _ = self.run_check(3)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    def test_no_fleet_verdict_is_never_green(self):
+        """2026-10-28: cmux-ci exited 69 (EX_UNAVAILABLE, a TimeoutError against the wedged controller)
+        on PR #26741's head 292b43ef and this job went green, though no Mac Release compile ran for
+        that change: a pass with nothing compiled. No verdict fails the job and says so; the verdict
+        output stays unavailable, so release-compile still takes over where mac_release sends it."""
+        for client_exit in (69, 75, 124, 2, 3, 137):
+            with self.subTest(client_exit=client_exit):
+                result, output, _, summary = self.run_check(client_exit)
+                self.assertNotEqual(result.returncode, 0, "no build-fleet verdict must not report success")
+                self.assertIn("verdict=unavailable", output)
+                self.assertNotIn("verdict=pass", output)
+                self.assertIn("no verdict", result.stdout)
+                self.assertIn("controller unreachable or timed out", result.stdout)
+                self.assertIn(f"exit {client_exit}", result.stdout)
+                self.assertIn("Build fleet app compile: no verdict", summary)
+                self.assertIn("No Mac Release compile runs for this change", result.stdout)
+
+    def test_no_fleet_verdict_names_the_mac_fallback_when_it_runs(self):
+        step = next(s for s in self.job()["steps"] if s.get("id") == "check")
+        self.assertEqual(step["env"].get("MAC_RELEASE"), "${{ needs.path_route.outputs.mac_release }}")
+        result, output, _, _ = self.run_check(69, mac_release="true")
+        self.assertNotEqual(result.returncode, 0)
         self.assertIn("verdict=unavailable", output)
+        self.assertIn("Mac Release compile (cmux-next Release compile (Xcode 26)) runs as the fallback", result.stdout)
+        # The fallback still runs on that output, failed job or not (release-compile's always()).
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        self.assertIn("always()", jobs["release-compile"]["if"])
+        self.assertIn("needs.app-compile-fleet.outputs.verdict != 'pass'", jobs["release-compile"]["if"])
+
+    def test_a_missing_client_is_no_verdict_not_a_pass(self):
+        result, output, args, _ = self.run_check(None)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(args, "")
+        self.assertIn("verdict=unavailable", output)
+        self.assertIn("is not installed on runner gw", result.stdout)
+
+    def test_a_skip_is_a_skip_never_a_pass(self):
+        """The only no-compile outcome that is not red is the job-level skip (no idle gateway, a
+        fork, full-ci, no native tier): GitHub reports the job skipped, and release-compile runs.
+        Inside the step, success is reachable only after a verdict=pass."""
+        step = next(s for s in self.job()["steps"] if s.get("id") == "check")
+        self.assertNotIn("exit 0", step["run"])
+        self.assertNotIn("continue-on-error", self.job())
+        self.assertNotIn("continue-on-error", step)
+        self.assertNotIn("|| true", step["run"])
 
 
 if __name__ == "__main__":

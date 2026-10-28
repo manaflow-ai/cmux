@@ -375,9 +375,8 @@ extension CloudHandlers {
                 let shown = CloudPresenter.offerPro(refusal.message, in: windows.active?.window) { upgraded in
                     cloud.proOfferOpen = false
                     guard upgraded else { return }
-                    do { try context.open(refusal.upgradeURL ?? UpgradeToPro.pricingURL) } catch {
-                        cloud.logger.error("cmux Pro upgrade did not open: \(String(describing: error), privacy: .public)")
-                    }
+                    // The one paid-plan path: Checkout that returns here, else the refusal's link, else pricing.
+                    Task { await context.services.paidPlanUpgrade().start(plan: refusal.plan, source: .cloudRefusal, fallback: refusal.upgradeURL) }
                 }
                 if shown { cloud.proOfferOpen = true }
             },

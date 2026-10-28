@@ -43,6 +43,7 @@ import {
   isBeforeFooter,
   isLastFooter,
   QUEUED_MESSAGE,
+  WAITING_MESSAGES,
 } from "./model";
 import { ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import {
@@ -50,6 +51,8 @@ import {
   SteerWaitingActions,
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
+import { WaitingMessagesCard } from "./conversation/WaitingMessagesCard";
+import { groupWaitingTurn } from "./conversation/waitingMessages";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
@@ -1402,6 +1405,21 @@ const StartedSessionsRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
 
+/// Several other sessions' waiting messages as one card (conversation/WaitingMessagesCard.tsx): each
+/// message draws in it as its own row draws alone.
+const WaitingMessagesRow = memo(
+  function WaitingMessagesRow(props: RowProps) {
+    const renderMessage = (message: AcpmuxRow) =>
+      message.kind === QUEUED_MESSAGE ? (
+        <QueuedMessageRow {...props} row={message} />
+      ) : (
+        <MessageRow {...props} row={message} />
+      );
+    return <WaitingMessagesCard row={props.row} renderMessage={renderMessage} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
+);
+
 const defaultRegistry: NativeRegistry = {
   user: MessageRow,
   assistant: MessageRow,
@@ -1426,6 +1444,7 @@ const defaultRegistry: NativeRegistry = {
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
   [QUEUED_MESSAGE]: QueuedMessageRow,
+  [WAITING_MESSAGES]: WaitingMessagesRow,
   [STARTED_SESSIONS]: StartedSessionsRow,
   typing: NoticeRow,
   permission: PermissionRow,
@@ -1474,6 +1493,8 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
   row.kind !== RENDER &&
   row.kind !== "turnSummary" &&
   row.kind !== SUBAGENT_OF &&
+  // Each message in a card of waiting messages has its own Copy.
+  row.kind !== WAITING_MESSAGES &&
   rowKind(row) !== "editedFiles" &&
   // A row that draws nothing has nothing to copy, and its Copy would give it a box.
   !onlyQuietThoughts(row) &&
@@ -1556,6 +1577,15 @@ function sameReferenceScope(previous: ReferenceScope | undefined, next: Referenc
   );
 }
 
+/// Whether two rows hold the same value in every own field (one level deep).
+function sameFields(previous: AcpmuxRow, next: AcpmuxRow): boolean {
+  if (previous === next) return true;
+  const before = previous as unknown as Record<string, unknown>;
+  const after = next as unknown as Record<string, unknown>;
+  const keys = Object.keys(after);
+  return keys.length === Object.keys(before).length && keys.every((key) => Object.is(before[key], after[key]));
+}
+
 function sameRowFrame(previous: Record<string, unknown>, next: Record<string, unknown>): boolean {
   const keys = Object.keys(next);
   if (keys.length !== Object.keys(previous).length) return false;
@@ -1568,6 +1598,10 @@ function sameRowFrame(previous: Record<string, unknown>, next: Record<string, un
       // the comparison because they are read outside the child renderer.
       const before = previous.row as AcpmuxRow;
       const after = next.row as AcpmuxRow;
+      // The running turn's live and working lines are drawn by turns.ts on every snapshot with a
+      // fixed version: what they say (the call in flight, its time, the clock offset) is in their
+      // fields, so they redraw whenever a field changes.
+      if (after.kind === THINKING || after.kind === WORKING) return sameFields(before, after);
       return (
         before.id === after.id &&
         before.version === after.version &&
@@ -1794,8 +1828,12 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
   atLatest: node.scrollTop >= totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX,
 });
 
+/// Puts a following view at the latest row. Anything past the browser's rounding is corrected: the
+/// stack's eased growth (the queue's max-height move, #24718) comes in steps under
+/// `FOLLOW_BOTTOM_DEADBAND_PX`, and a deadband here left the view resting up to that far from its end,
+/// the last row under the stack.
 function settleFollowBottom(node: HTMLElement, latest: number): boolean {
-  if (Math.abs(latest - node.scrollTop) <= FOLLOW_BOTTOM_DEADBAND_PX) return false;
+  if (Math.abs(latest - node.scrollTop) <= 1) return false;
   node.scrollTop = latest;
   return true;
 }
@@ -2843,16 +2881,22 @@ export function VirtualTranscript({
   // held for a sent prompt (`floor`) reaches past the rows, it already covers the card: the lift on
   // screen stays as it is (shrinking it drew every row down by the queue card that left, and up
   // again as its prompt came), and growth meanwhile never adds to it. A card shorter than it was
-  // draws the rows down within the room it left. Whole pixels, as the offset.
+  // draws the rows down within the room it left. The lift is the card's growth exactly, not rounded:
+  // a composer line is fractional (22.75px at the chat font, #26523), and a rounded lift changed the
+  // room under the rows by a fraction each line, which moved the content's rounded height and the
+  // followed offset a pixel. The cap is whole pixels, as the offset.
   const floorHolds = floorHeight > rowsAtDock;
-  const lifted = Math.round(
+  const lifted =
     grown > 0
       ? Math.max(
           0,
-          Math.min(grown, atDock - height - FOLLOW_BOTTOM_DEADBAND_PX - 1, floorHolds ? liftedBefore.current : grown),
+          Math.min(
+            grown,
+            Math.round(atDock - height - FOLLOW_BOTTOM_DEADBAND_PX - 1),
+            floorHolds ? liftedBefore.current : grown,
+          ),
         )
-      : grown,
-  );
+      : grown;
   const room = sessionSwitched || following ? dockSpace - lifted : heldRoom.current;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + room;
   // The held room less the lift, as the rows' end is: what the reader sees stays where it was drawn.
@@ -3357,10 +3401,14 @@ export function VirtualTranscript({
   const findIndex = findTargetRowId !== undefined ? findRowIndex(rows, findTargetRowId) : -1;
   const drawnId = rows[findIndex]?.id;
   const drawnCard = Boolean(rows[findIndex]?.ended);
+  // A card of waiting messages draws its messages in one row (conversation/WaitingMessagesCard.tsx):
+  // which of them holds the match.
+  const findMember =
+    rows[findIndex]?.kind === WAITING_MESSAGES && findTargetRowId !== drawnId ? findTargetRowId : undefined;
   const revealing = useRef<string | undefined>(undefined);
   const targetKey =
     findTargetRowId !== undefined && findTargetOccurrence !== undefined && findQuery && drawnId !== undefined
-      ? `${drawnId}:${drawnCard}:${findTargetOccurrence}:${findQuery}`
+      ? `${drawnId}:${drawnCard}:${findTargetOccurrence}:${findQuery}${findMember ? `:${findMember}` : ""}`
       : undefined;
   // A group or call that opens to show the match asks for a render here, so the highlights and
   // the scroll below see its text.
@@ -3375,9 +3423,10 @@ export function VirtualTranscript({
             card: drawnCard,
             needle: findQuery.toLocaleLowerCase(),
             repaint: () => setRevealed((count) => count + 1),
+            ...(findMember ? { member: findMember } : {}),
           }
         : undefined,
-    [drawnId, drawnCard, findQuery],
+    [drawnId, drawnCard, findQuery, findMember],
   );
   // Find's scroll is the reader's: it stops following now, not when the browser reports the
   // scroll a frame later, or a re-measure before then puts the view back at the latest row.
@@ -3449,7 +3498,7 @@ export function VirtualTranscript({
       node,
       findQuery,
       findTargetRowId !== undefined && findTargetOccurrence !== undefined && drawnId !== undefined
-        ? { rowId: drawnId, card: drawnCard, occurrence: findTargetOccurrence }
+        ? { rowId: drawnId, card: drawnCard, occurrence: findTargetOccurrence, member: findMember }
         : undefined,
     );
     if (!current || revealing.current !== targetKey) return;
@@ -3498,6 +3547,7 @@ export function VirtualTranscript({
   }, [
     drawnCard,
     drawnId,
+    findMember,
     findQuery,
     findTargetOccurrence,
     findMoved,
@@ -5063,6 +5113,8 @@ function AcpmuxPane() {
           liveRuns: codexRuns,
           sessionStatus,
           lineBelow,
+          // Other sessions' messages among them, two or more in a run, draw as one card.
+          waitingSteers: snapshot.waitingSteers,
         },
         last?.turns,
       );
@@ -5081,19 +5133,23 @@ function AcpmuxPane() {
     codexRuns,
     sessionStatus,
     lineBelow,
+    snapshot.waitingSteers,
     chatShellRuns,
     panelAsks,
     subagentTray,
     workflowLabsEnabled,
   ]);
   // Another agent's messages waiting in the queue: their received cards after the running turn, in
-  // the queue's order (conversation/queuedMessages.ts), never composer-queue rows. A chat with none
-  // keeps its rows as they are; one with some copies the row list once per change.
+  // the queue's order (conversation/queuedMessages.ts), never composer-queue rows; two or more, one
+  // card that holds them (conversation/waitingMessages.ts). A chat with none keeps its rows as they
+  // are; one with some copies the row list once per change.
   const lastQueuedRows = useRef<readonly AcpmuxRow[] | undefined>(undefined);
-  const queuedRows = useMemo(
-    () => (childRows ? NO_ROWS : (lastQueuedRows.current = queuedMessageRows(snapshot.queue, lastQueuedRows.current))),
-    [childRows, snapshot.queue],
-  );
+  const lastQueuedTail = useRef<readonly AcpmuxRow[] | undefined>(undefined);
+  const queuedRows = useMemo(() => {
+    if (childRows) return NO_ROWS;
+    lastQueuedRows.current = queuedMessageRows(snapshot.queue, lastQueuedRows.current);
+    return (lastQueuedTail.current = groupWaitingTurn(lastQueuedRows.current, lastQueuedTail.current));
+  }, [childRows, snapshot.queue]);
   const transcriptRows = useMemo(
     () => (queuedRows.length ? [...turnRowsShown, ...queuedRows] : turnRowsShown),
     [turnRowsShown, queuedRows],
@@ -7451,6 +7507,7 @@ function AcpmuxPane() {
           "chat.model": ({ modelId, expectedSessionId }) => {
             const summary = snapshotRef.current?.summary;
             if (!configurationSessionMatches(expectedSessionId, summary?.sessionId))
+              // l10n-allow: a refusal for the host action's caller, which drops a stale pick; never shown.
               throw new Error("the agent chat session changed");
             return harnessSwitch.pickModel(
               String(modelId),
@@ -7460,18 +7517,21 @@ function AcpmuxPane() {
           "chat.mode": async ({ modeId, expectedSessionId }) => {
             const sessionId = snapshotRef.current?.summary?.sessionId;
             if (!configurationSessionMatches(expectedSessionId, sessionId))
+              // l10n-allow: a refusal for the host action's caller, which drops a stale pick; never shown.
               throw new Error("the agent chat session changed");
             if (!harnessSwitch.pickMode(String(modeId))) await setMode(String(modeId));
           },
           "chat.effort": async ({ configId, value, effort, expectedSessionId }) => {
             const summary = snapshotRef.current?.summary;
             if (!configurationSessionMatches(expectedSessionId, summary?.sessionId))
+              // l10n-allow: a refusal for the host action's caller, which drops a stale pick; never shown.
               throw new Error("the agent chat session changed");
             const requested = typeof value === "string" && value ? value : String(effort ?? "");
             const resolved = resolveEffortOption(
               summary?.configOptions,
               typeof configId === "string" ? configId : undefined,
             );
+            // l10n-allow: a refusal for the host action's caller; the picker offers no effort then.
             if (!resolved || !requested) throw new Error("the session offers no effort option");
             const current = resolved.currentValue;
             if (
