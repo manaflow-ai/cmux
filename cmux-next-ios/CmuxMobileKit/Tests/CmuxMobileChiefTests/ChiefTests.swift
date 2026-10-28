@@ -477,7 +477,7 @@ func within<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async
         let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox)
         session.send(ConversationComposeMessage(text: "run the tests"))
         #expect(session.outbox.count == 1)
-        #expect(outbox.load().map(\.text) == ["run the tests"])
+        #expect(outbox.load().map(\.message.text) == ["run the tests"])
         // A relaunch keeps it.
         #expect(ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox).outbox.count == 1)
         session.use(ChiefMockBackend(sleep: { _ in }))

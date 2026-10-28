@@ -258,14 +258,21 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             for part in object["parts"] as? [[String: Any]] ?? [] where part["type"] as? String == "attachment" {
                 guard let hash = part["hash"] as? String, attachmentBytes[hash] == nil else { continue }
                 var data = Data()
+                var complete = false
                 while true {
                     guard let chunk = try? await call("conversation-attachment-read", [
                         "conversation": id, "hash": hash, "offset": data.count, "length": Self.chunkBytes,
                     ]), let text = chunk["data"] as? String, let bytes = Data(base64Encoded: text) else { break }
                     data.append(bytes)
-                    if chunk["eof"] as? Bool ?? true || bytes.isEmpty { break }
+                    if chunk["eof"] as? Bool ?? true || bytes.isEmpty {
+                        complete = true
+                        break
+                    }
                 }
-                if !data.isEmpty { attachmentBytes[hash] = data }
+                // Only a whole file is kept: a read that failed partway keeps
+                // nothing, so the next time the message decodes it reads again
+                // (a kept half would draw as a broken image for good).
+                if complete, !data.isEmpty { attachmentBytes[hash] = data }
             }
         }
 
@@ -273,7 +280,7 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
         private func decode(_ object: [String: Any]) async -> ConversationMessage? {
             await hydrate(object)
             let asked = ChiefQuestionFeed.questions(in: object)
-            questionFeed.update(asked.questions, seq: asked.seq)
+            questionFeed.update(asked.questions, seq: asked.seq, messageID: object["id"] as? String)
             if let id = object["id"] as? String { failureLog.record(wire.failure(object), messageID: id) }
             return wire.message(object, peerReadSeq: peerReadSeq, bytes: attachmentBytes)
         }
@@ -528,9 +535,13 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             }
         }
 
+        /// Ends the event stream and the daemon channel under it: without the
+        /// channel's close its read loop and the Mac's connection stayed up
+        /// for every conversation screen Home replaced.
         func close() async {
             continuation?.finish()
             continuation = nil
+            await client.close()
         }
     }
 }

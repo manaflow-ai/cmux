@@ -106,9 +106,9 @@ extension ShellModel {
         switch target {
         case .chief:
             tab = .home
-            var path = NavigationPath()
-            path.append(ChiefRoute(place: .mac))
-            homePath = path
+            // The notification's own conversation: the Mac Chief, the Cloud
+            // Chief, or another conversation of the Mac's Home list.
+            homePath = NavigationPath(chiefConversation: route.conversationID)
         case .chat(let destination):
             tab = .feed
             feedPath = [destination]

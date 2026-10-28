@@ -109,8 +109,8 @@ public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
 
     /// Posts an alert for `message` from Chief in `conversationID`.
     /// `visible`: that Chief's conversation is on screen (it shows the message itself).
-    func notify(_ message: ConversationMessage, title: String, conversationID: String, preferences: ChiefPreferences,
-                visible: Bool) {
+    func notify(_ message: ConversationMessage, title: String, conversationID: String, macID: String? = nil,
+                preferences: ChiefPreferences, visible: Bool) {
         guard Self.canNotify, !(visible && appActive), !preferences.muted(conversationID) else { return }
         let content = UNMutableNotificationContent()
         content.title = title
@@ -118,7 +118,9 @@ public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
             : message.text.isEmpty && !message.attachments.isEmpty ? String(localized: "Attachment") : message.text
         content.sound = .default
         content.threadIdentifier = "chief.\(conversationID)"
-        content.userInfo = ["cmuxMobile.chief.conversation": conversationID]
+        var userInfo: [String: String] = [Self.conversationKey: conversationID]
+        if let macID { userInfo[Self.macKey] = macID }
+        content.userInfo = userInfo
         let request = UNNotificationRequest(identifier: "chief.\(message.id)", content: content, trigger: nil)
         Task {
             let center = UNUserNotificationCenter.current()
@@ -128,13 +130,31 @@ public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    /// Hide Alerts turned on: take back what is already delivered for it.
+    nonisolated static let conversationKey = "cmuxMobile.chief.conversation"
+    nonisolated static let macKey = "cmuxMobile.chief.mac"
+
+    /// Where a tap on one of these alerts goes: Chief's conversation (kind
+    /// `chief`, the shell's route), on its Mac when it has one. Nil for any
+    /// other notification, and for a button other than the tap itself.
+    public nonisolated static func route(userInfo: [AnyHashable: Any], actionIdentifier: String)
+        -> (kind: String, mac: String?, conversationID: String)? {
+        guard actionIdentifier == UNNotificationDefaultActionIdentifier,
+              let conversation = userInfo[conversationKey] as? String else { return nil }
+        return ("chief", userInfo[macKey] as? String, conversation)
+    }
+
+    /// Take back what is already delivered for a conversation: Hide Alerts
+    /// turned on, or its messages were read (here or on the Mac).
     func clearDelivered(conversationID: String) {
         guard Self.canNotify else { return }
         let center = UNUserNotificationCenter.current()
         Task {
             let ids = await center.deliveredNotifications()
-                .filter { $0.request.content.threadIdentifier == "chief.\(conversationID)" }
+                // This app's own alerts, and the Macs' Chief pushes (`<mac>:chief:<conversation>`).
+                .filter {
+                    let thread = $0.request.content.threadIdentifier
+                    return thread == "chief.\(conversationID)" || thread.hasSuffix(":chief:\(conversationID)")
+                }
                 .map(\.request.identifier)
             center.removeDeliveredNotifications(withIdentifiers: ids)
         }

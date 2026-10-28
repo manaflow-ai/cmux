@@ -94,7 +94,10 @@ public final class ChiefSession {
     /// The Mac Chief runs on (its link device id): the key of the kept engine report.
     public var macID: String? {
         didSet {
-            guard macID != oldValue, !engineReportIsCurrent else { return }
+            guard macID != oldValue else { return }
+            outboxTarget = Self.target(of: backend, macID: macID, previous: outboxTarget)
+            refreshOutbox()
+            guard !engineReportIsCurrent else { return }
             engineReport = macID.flatMap { preferences.engineReport(macID: $0) }
         }
     }
@@ -109,9 +112,18 @@ public final class ChiefSession {
     public var answerSigner: (@MainActor () -> (any ChiefAnswerSigning)?)?
     /// The newest message the user has seen with the conversation open.
     private var seenMessageID: String?
-    /// Messages waiting for Chief to connect (``ChiefOutbox``).
+    /// Messages waiting for this Chief to connect (``ChiefOutbox``): the ones
+    /// written to the Chief open now (``outboxTarget``), or to no Chief in
+    /// particular. Messages for another Mac or Cloud Chief wait in ``parked``
+    /// and go out only when that Chief is the one open again.
     public private(set) var outbox: [ConversationComposeMessage] = []
+    /// Each waiting message with the Chief it was written to.
+    private var waiting: [ChiefOutbox.Waiting] = []
     private let outboxStore: ChiefOutbox
+    /// The Chief a message sent now is for: `mac:<id>` for a Mac's Chief (its
+    /// link, or its cloud copy while the Mac is away), `cloud:<conversation>`
+    /// for a Cloud Chief. Nil before either is known.
+    public private(set) var outboxTarget: String?
     /// Newest message seq already seen; newer ones from Chief alert.
     private var alertedSeq: Int?
 
@@ -123,8 +135,10 @@ public final class ChiefSession {
         avatar = identity.avatar
         self.preferences = preferences
         outboxStore = outbox ?? .standard
-        self.outbox = outboxStore.load()
+        waiting = outboxStore.load()
         self.backend = backend
+        outboxTarget = Self.target(of: backend, macID: nil, previous: nil)
+        refreshOutbox()
         store = ConversationStore(backend: backend)
         control = (backend as? ChiefDaemonBackend)?.control
         ChiefAlerts.shared.install()
@@ -145,6 +159,22 @@ public final class ChiefSession {
     /// Swaps the backend (offline to `ChiefDaemonBackend` once a Mac link is
     /// up, or to ``ChiefCloudBackend`` with the Cloud Chief's `identity`).
     public func use(_ backend: any ConversationBackend, identity: ChiefIdentity? = nil) {
+        // Sends the old backend never confirmed (still sending, or Not
+        // Delivered) live only in its store: keep them in the outbox for the
+        // Chief they were written to, or they vanish with the store.
+        let unconfirmed = store.messages.filter { message in
+            message.senderID == store.meID && message.seq == nil && !message.isScheduled
+                && (message.delivery == .sending || message.delivery?.isFailed == true)
+        }
+        if !unconfirmed.isEmpty {
+            waiting += unconfirmed.map { message in
+                ChiefOutbox.Waiting(message: ConversationComposeMessage(text: message.text, images: message.attachments.compactMap { attachment in
+                    guard attachment.kind == .image, let data = attachment.localData else { return nil }
+                    return ConversationComposeImage(data: data, width: attachment.width, height: attachment.height, mimeType: "image/jpeg")
+                }), target: outboxTarget)
+            }
+            outboxStore.save(waiting)
+        }
         store.stop()
         if let identity, identity != self.identity {
             self.identity = identity
@@ -164,7 +194,23 @@ public final class ChiefSession {
         alertedSeq = nil
         questions = []
         answers = [:]
+        outboxTarget = Self.target(of: backend, macID: macID, previous: outboxTarget)
+        refreshOutbox()
         attach()
+    }
+
+    /// The Chief `backend` talks to (``outboxTarget``). An offline backend
+    /// keeps the Chief that was open: what is written meanwhile is for it.
+    static func target(of backend: any ConversationBackend, macID: String?, previous: String?) -> String? {
+        if let cloud = backend as? ChiefCloudBackend { return "cloud:\(cloud.conversationID)" }
+        if let macID { return "mac:\(macID)" }
+        return backend is ChiefOfflineBackend ? previous : nil
+    }
+
+    /// ``outbox``: what waits for the Chief open now.
+    private func refreshOutbox() {
+        let shown = waiting.filter { $0.target == nil || $0.target == outboxTarget }.map(\.message)
+        if shown != outbox { outbox = shown }
     }
 
     /// Chief's newest message, when it reports a failed turn (the
@@ -403,6 +449,8 @@ public final class ChiefSession {
     /// The conversation is on screen: what it shows now has been seen.
     public func markSeen() {
         seenMessageID = lastMessage?.id
+        // Its alerts in Notification Center are read now too.
+        if let id = conversationID { ChiefAlerts.shared.clearDelivered(conversationID: id) }
     }
 
     /// Chief is waiting on the user: a message is still in the outbox, or
@@ -411,7 +459,10 @@ public final class ChiefSession {
     public var isWaitingOnYou: Bool {
         if !outbox.isEmpty { return true }
         guard let message = lastMessage, message.senderID == identity.chiefID, !message.isUnsent else { return false }
-        return message.text.contains("?") && message.id != seenMessageID
+        // Read anywhere (this phone, the Mac): not waiting. The seen marker
+        // alone lives only in memory, so after a relaunch every old question
+        // came back as Needs You.
+        return message.text.contains("?") && message.id != seenMessageID && unreadCount > 0
     }
 
     /// Home's Needs You filter: something waits in the outbox, Chief is
@@ -501,7 +552,11 @@ public final class ChiefSession {
             lastTurnFailureID = failure == nil ? nil : newest?.id
         }
         if isVisible, seenMessageID != newest?.id { seenMessageID = newest?.id }
-        if unreadCount != store.unreadCount { unreadCount = store.unreadCount }
+        if unreadCount != store.unreadCount {
+            // Read on another device (the Mac): its alerts here are read too.
+            if store.unreadCount == 0, let id = conversationID { ChiefAlerts.shared.clearDelivered(conversationID: id) }
+            unreadCount = store.unreadCount
+        }
         let typing = store.typingParticipantIDs.contains(identity.chiefID)
         if isTyping != typing { isTyping = typing }
         let connected = store.connection == .connected
@@ -532,25 +587,28 @@ public final class ChiefSession {
             store.sendWhenConnected(message)
             return
         }
-        outbox.append(message)
-        outboxStore.save(outbox)
+        waiting.append(ChiefOutbox.Waiting(message: message, target: outboxTarget))
+        outboxStore.save(waiting)
+        refreshOutbox()
     }
 
-    /// Drops what waits in the outbox (the user chose not to send it).
+    /// Drops what waits in the outbox for this Chief (the user chose not to send it).
     public func discardOutbox() {
-        outbox = []
-        outboxStore.save(outbox)
+        waiting.removeAll { $0.target == nil || $0.target == outboxTarget }
+        outboxStore.save(waiting)
+        refreshOutbox()
     }
 
     private func flushOutbox() {
         guard !outbox.isEmpty, store.meID != nil, store.connection == .connected else { return }
-        let waiting = outbox
-        outbox = []
-        outboxStore.save(outbox)
+        let ready = outbox
+        waiting.removeAll { $0.target == nil || $0.target == outboxTarget }
+        outboxStore.save(waiting)
+        refreshOutbox()
         // Not from inside the store's own change callback.
         let store = store
         Task { @MainActor in
-            for message in waiting { store.sendWhenConnected(message) }
+            for message in ready { store.sendWhenConnected(message) }
         }
     }
 
@@ -567,8 +625,8 @@ public final class ChiefSession {
         guard newest > seen else { return }
         alertedSeq = newest
         for message in store.messages where (message.seq ?? 0) > seen && message.senderID == identity.chiefID {
-            ChiefAlerts.shared.notify(message, title: store.info?.title ?? identity.title, conversationID: id, preferences: preferences,
-                                     visible: isVisible)
+            ChiefAlerts.shared.notify(message, title: store.info?.title ?? identity.title, conversationID: id, macID: macID,
+                                     preferences: preferences, visible: isVisible)
         }
     }
 
@@ -598,9 +656,17 @@ public final class ChiefSession {
 /// order once Chief connects; after that the transcript shows each one's
 /// delivery (and Not Delivered, with retry) as for any message.
 public struct ChiefOutbox: Sendable {
+    /// A waiting message and the Chief it is for (``ChiefSession/outboxTarget``).
+    struct Waiting: Equatable {
+        var message: ConversationComposeMessage
+        var target: String?
+    }
+
     struct Item: Codable, Equatable {
         var text: String
         var images: [Image]
+        /// Nil in files written before messages named their Chief.
+        var target: String?
 
         struct Image: Codable, Equatable {
             var data: Data
@@ -627,26 +693,26 @@ public struct ChiefOutbox: Sendable {
         return ChiefOutbox(file: directory?.appendingPathComponent("cmux-mobile-cloud-chief-outbox.json"))
     }
 
-    func load() -> [ConversationComposeMessage] {
+    func load() -> [Waiting] {
         guard let file, let data = try? Data(contentsOf: file),
               let items = try? JSONDecoder().decode([Item].self, from: data) else { return [] }
         return items.map { item in
-            ConversationComposeMessage(text: item.text, images: item.images.map {
+            Waiting(message: ConversationComposeMessage(text: item.text, images: item.images.map {
                 ConversationComposeImage(data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType)
-            })
+            }), target: item.target)
         }
     }
 
-    func save(_ messages: [ConversationComposeMessage]) {
+    func save(_ messages: [Waiting]) {
         guard let file else { return }
         guard !messages.isEmpty else {
             try? FileManager.default.removeItem(at: file)
             return
         }
-        let items = messages.map { message in
-            Item(text: message.text, images: message.images.map {
+        let items = messages.map { waiting in
+            Item(text: waiting.message.text, images: waiting.message.images.map {
                 Item.Image(data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType)
-            })
+            }, target: waiting.target)
         }
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         // Readable after first unlock, so a message written on a locked phone is kept.

@@ -137,8 +137,10 @@ struct ChiefConversationController: UIViewControllerRepresentable {
             return true
         }
         // Select mode's Forward opens New Message with the draft, as in the lab.
-        conversation.onForward = { [compose] draft in
-            compose?.present(forwarding: draft)
+        // A conversation of the Mac's Home list has no composer: no Forward
+        // button there (it did nothing when tapped).
+        if let compose {
+            conversation.onForward = { draft in compose.present(forwarding: draft) }
         }
     }
 }
@@ -700,6 +702,12 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     /// The Chief screen on screen now: a rebuilt one may appear before the old one disappears.
     private static weak var shown: ChiefConversationContainer?
 
+    /// The conversation the Chief screen on screen shows (``ChiefSession/conversationOnScreen``).
+    static var shownConversation: String? {
+        guard let shown, shown.session.isVisible else { return nil }
+        return shown.session.conversationID
+    }
+
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         enableEdgePop()
@@ -726,7 +734,11 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         super.viewDidDisappear(animated)
         // A sheet over Chief keeps it on screen; so does the screen that replaced this one.
         // Chief's info pushed over it does not: the transcript is off screen.
-        if presentedViewController == nil, Self.shown === self || Self.shown == nil { session.isVisible = false }
+        // Another Chief's screen pushed over this one: this Chief is not seen
+        // (it no longer marks its messages seen or holds back their alerts).
+        if presentedViewController == nil, Self.shown === self || Self.shown == nil || Self.shown?.session !== session {
+            session.isVisible = false
+        }
     }
 
     public override func viewWillDisappear(_ animated: Bool) {
@@ -848,3 +860,9 @@ public final class ChiefDemoHook {
 }
 #endif
 #endif
+
+extension ChiefSession {
+    /// The conversation a Chief screen shows now, nil when none is on screen:
+    /// a notification about it needs no banner.
+    public static var conversationOnScreen: String? { ChiefConversationContainer.shownConversation }
+}
