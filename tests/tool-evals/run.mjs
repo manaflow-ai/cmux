@@ -2,8 +2,8 @@
 // Tool evals: does a model use cmux's MCP tools (code mode or every tool) and CLI
 // correctly? Replays one Claude Code turn per case on a real model; the cmux side is
 // real (an ephemeral headless daemon, `cmux mcp serve`, the CLI). See README.md.
-import { execFile } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { execFile, spawn } from "node:child_process";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { gunzipSync } from "node:zlib";
@@ -31,8 +31,11 @@ const PRICES = {
 const MODEL = arg("model", "claude-sonnet-5-5");
 /** `openrouter:<id>` runs any OpenRouter model in the generic harness (an OpenCode-like agent). */
 const OPENROUTER = MODEL.startsWith("openrouter:") ? MODEL.slice("openrouter:".length) : null;
-if (!OPENROUTER && !MODELS.includes(MODEL)) throw new Error(`--model is one of ${MODELS.join(", ")} or openrouter:<id>`);
-const HARNESS = OPENROUTER ? "generic" : "claude";
+/** `claude-cli:<model>` / `codex-cli:<model>` run the real CLI on this machine (cmux MCP behind mcp-log.mjs). */
+const CLI_AGENT = /^(claude|codex)-cli:(.+)$/.exec(MODEL);
+const HARNESS = CLI_AGENT ? `${CLI_AGENT[1]}-cli` : OPENROUTER ? "generic" : "claude";
+if (!OPENROUTER && !CLI_AGENT && !MODELS.includes(MODEL)) throw new Error(`--model is one of ${MODELS.join(", ")} openrouter:<id>, claude-cli:<id> or codex-cli:<id>`);
+
 const SURFACES = (arg("surface", "code")).split(",");
 const CLI = arg("cli", process.env.CMUX_EVAL_CLI ?? "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux");
 const OUT = resolve(arg("out", join(REPO, "artifacts/tool-evals", new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19))));
@@ -40,6 +43,7 @@ const SAMPLES = Number(arg("samples", "2"));
 const CONCURRENCY = Number(arg("concurrency", "4"));
 const MAX_STEPS = Number(arg("max-steps", "20"));
 const EFFORT = arg("effort", "medium");
+const CLI_TIMEOUT_S = Number(arg("timeout", "600"));
 const BASE_URL = process.env.ANTHROPIC_BASE_URL ?? "http://sr2-gateway.tail137216.ts.net:4016";
 const AUTH = process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? "";
 const OVERLAY = arg("overlay", null) ? JSON.parse(readFileSync(arg("overlay"), "utf8")) : null;
@@ -247,6 +251,118 @@ function readLines(path) {
 
 let jobSeq = 0;
 
+// ---------- real CLIs on this machine ----------
+const tomlString = (value) => JSON.stringify(String(value));
+
+/** Runs the real `claude` or `codex` CLI on one case and fills the sample from its logs. */
+async function runCliAgent(sample, testCase, surface) {
+  const { dir, session } = sample;
+  const mcpLog = join(dir, "mcp.jsonl");
+  const serveArgs = surface === "all" ? ["--all-tools"] : [];
+  const mcpEnv = {
+    CMUX_TUI_SOCKET: session.socket,
+    CMUX_TUI_TERMINAL_ID: session.origin.terminal_id,
+    CMUX_SOCKET_PATH: session.env.CMUX_SOCKET_PATH,
+    CMUX_NEXT_CONFIG_FILE: session.env.CMUX_NEXT_CONFIG_FILE,
+  };
+  const bun = process.execPath;
+  const logger = [join(HERE, "mcp-log.mjs"), mcpLog, CLI, ...serveArgs];
+  // Only cmux sockets are fenced: the CLI keeps its own state in its home directory.
+  writeFileSync(join(dir, "sandbox-cli.sb"), [
+    "(version 1)", "(allow default)",
+    '(deny network-outbound (remote unix-socket (path-regex #"cmux")))',
+    `(allow network-outbound (remote unix-socket (literal ${JSON.stringify(session.socket)})))`,
+    `(allow network-outbound (remote unix-socket (literal ${JSON.stringify(session.env.CMUX_SOCKET_PATH)})))`,
+    "",
+  ].join("\n"));
+  const env = { ...sample.shellEnv, HOME: process.env.HOME, PATH: `${join(dir, "bin")}:${dirname(CLI)}:${process.env.PATH}` };
+  // A clean agent home: the model route and login only, none of this machine's skills,
+  // memory, hooks or MCP servers, so a run measures what cmux gives every user.
+  if (CLI_AGENT[1] === "codex") {
+    const home = join(dir, "codex-home");
+    mkdirSync(home, { recursive: true });
+    const config = readFileSync(join(process.env.HOME, ".codex/config.toml"), "utf8");
+    const route = config.split("\n[")[0].split("\n").filter((l) => /^(openai_base_url|model_provider|service_tier)\s*=/.test(l));
+    const provider = /\n\[model_providers\.[^\]]+\][\s\S]*?(?=\n\[|$)/.exec(config)?.[0] ?? "";
+    writeFileSync(join(home, "config.toml"), `${route.join("\n")}\napproval_policy = "never"\nsandbox_mode = "danger-full-access"\n${provider}\n`);
+    copyFileSync(join(process.env.HOME, ".codex/auth.json"), join(home, "auth.json"));
+    env.CODEX_HOME = home;
+  } else {
+    // Claude reads its login from the keychain; CLAUDE_CONFIG_DIR keeps settings, skills and
+    // memory out of the run.
+    const home = join(dir, "claude-home");
+    mkdirSync(home, { recursive: true });
+    env.CLAUDE_CONFIG_DIR = home;
+  }
+  for (const k of Object.keys(env)) if (/^(ACPMUX|MUX)_/.test(k) || k === "CMUX_AGENT_SESSION") delete env[k];
+  const prompt = testCase.context ? `${testCase.context}\n\n${testCase.prompt}` : testCase.prompt;
+  let argv;
+  if (CLI_AGENT[1] === "claude") {
+    writeFileSync(join(dir, "mcp-claude.json"), JSON.stringify({ mcpServers: { cmux: { command: bun, args: logger, env: mcpEnv } } }));
+    if (surface === "all") env.ENABLE_TOOL_SEARCH = "true";
+    argv = ["claude", "-p", prompt, "--model", CLI_AGENT[2], "--output-format", "stream-json", "--verbose",
+      "--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", join(dir, "mcp-claude.json"), "--setting-sources", "project"];
+  } else {
+    const envToml = `{${Object.entries(mcpEnv).map(([k, v]) => `${k}=${tomlString(v)}`).join(",")}}`;
+    argv = ["codex", "exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-m", CLI_AGENT[2],
+      "-c", "notify=[]",
+      "-c", `mcp_servers.cmux.command=${tomlString(bun)}`, "-c", `mcp_servers.cmux.args=[${logger.map(tomlString).join(",")}]`,
+      "-c", `mcp_servers.cmux.env=${envToml}`, "-c", `model_reasoning_effort=${tomlString(EFFORT)}`,
+      "-o", join(dir, "last.txt"), prompt];
+  }
+  const out = await new Promise((resolve) => {
+    const child = spawn("sandbox-exec", ["-f", join(dir, "sandbox-cli.sb"), ...argv], { cwd: session.work, env, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (c) => { stdout += c; });
+    child.stderr.on("data", (c) => { stderr += c; });
+    const timer = setTimeout(() => child.kill("SIGTERM"), CLI_TIMEOUT_S * 1000);
+    child.on("exit", (code) => { clearTimeout(timer); resolve({ stdout, stderr, code }); });
+  });
+  writeFileSync(join(dir, "agent.out"), out.stdout);
+  writeFileSync(join(dir, "agent.err"), out.stderr);
+  const events = out.stdout.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  if (CLI_AGENT[1] === "claude") {
+    const result = events.findLast((e) => e.type === "result");
+    sample.text = result?.result ?? "";
+    sample.steps = (result?.num_turns ?? 1) - 1;
+    sample.usage.cost = result?.total_cost_usd ?? 0;
+    const u = result?.usage ?? {};
+    Object.assign(sample.usage, { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0 });
+    for (const e of events) for (const b of e.message?.content ?? []) if (b.type === "tool_use" && b.name === "Bash") sample.shell.push(String(b.input?.command ?? ""));
+  } else {
+    sample.text = existsSync(join(dir, "last.txt")) ? readFileSync(join(dir, "last.txt"), "utf8") : "";
+    const items = events.filter((e) => e.type === "item.completed").map((e) => e.item ?? {});
+    for (const item of items) if (item.type === "command_execution") sample.shell.push(String(item.command ?? ""));
+    sample.steps = Math.max(0, items.filter((i) => i.type !== "agent_message" && i.type !== "reasoning").length - 1);
+    const u = events.findLast((e) => e.type === "turn.completed")?.usage ?? {};
+    Object.assign(sample.usage, { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cached_input_tokens ?? 0 });
+  }
+  if (!events.length || (out.code !== 0 && !sample.text)) sample.agentError = `${out.code}: ${out.stderr.slice(-400)}`;
+  // MCP calls and, for cmux_exec, the calls its scripts made.
+  const log = readLines(mcpLog);
+  const requests = new Map(log.filter((l) => l.dir === "in" && l.msg.method === "tools/call").map((l) => [l.msg.id, l.msg.params]));
+  for (const l of log.filter((l) => l.dir === "out" && requests.has(l.msg.id))) {
+    const { name: tool, arguments: input } = requests.get(l.msg.id);
+    const r = l.msg.result ?? { isError: true, structuredContent: { error: l.msg.error } };
+    const sc = r.structuredContent;
+    const text = (r.content ?? []).map((c) => c.text ?? "").join("\n");
+    if (tool === "cmux_exec") {
+      sample.scripts.push(String(input?.script ?? ""));
+      sample.docsCalls += (String(input?.script ?? "").match(/cmux\.docs\(/g) ?? []).length;
+      for (const c of sc?.call_log ?? []) sample.ops.push({ via: "exec", tool: c.name, ok: c.ok !== false, error: c.error?.message ?? c.state });
+      if (r.isError && !(sc?.call_log ?? []).length) sample.ops.push({ via: "exec", tool: "cmux_exec", ok: false, error: sc?.error?.message ?? text.slice(0, 200) });
+    } else {
+      sample.ops.push({ via: "mcp", tool, ok: !r.isError, input, error: r.isError ? text.slice(0, 200) : undefined });
+    }
+  }
+  for (const c of readLines(join(dir, "cli.jsonl"))) {
+    sample.ops.push({ via: "cli", tool: cliTool(c.argv), ok: true, argv: c.argv, input: c.argv });
+    sample.cliCalls.push(c);
+  }
+}
+
+
 // ---------- OpenRouter (OpenAI chat format) ----------
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY ?? "";
 if (OPENROUTER && !OPENROUTER_KEY) throw new Error("openrouter models need OPENROUTER_API_KEY (~/.secrets/openrouter.env, or 1Password Employee/OpenRouter API Key)");
@@ -365,6 +481,10 @@ async function runSample(testCase, surface, index) {
     sample.base = HARNESS === "generic" ? buildGenericBase(surface, session) : buildBase(surface, session);
     sample.tools = [...sample.base.tools];
     const before = normalize(await capture(session.cmux));
+    if (CLI_AGENT) {
+      await runCliAgent(sample, testCase, surface);
+      return await finishSample(sample, testCase, surface, index, before, name, [], "cli", sample.steps + 1);
+    }
     const messages = firstMessages(sample.base, testCase);
     const harnessMessages = HARNESS === "generic" ? 0 : 2;
     let stop = "";
@@ -397,30 +517,38 @@ async function runSample(testCase, surface, index) {
       }
       messages.push({ role: "user", content: results });
     }
-    await new Promise((r) => setTimeout(r, 1500)); // commands the agent started print
-    const beforeTabs = new Set(before.tabs.map((t) => t.id));
-    const after = normalize(await capture(session.cmux, { textFor: (t) => !beforeTabs.has(t.id) }));
-    const ctx = {
-      before, after, origin: session.origin, aliases: session.aliases, answer: sample.text,
-      calls: sample.cliCalls,
-      markers: Object.fromEntries(readdirSync(join(dir, "markers")).map((r) => [r, readFileSync(join(dir, "markers", r), "utf8").trim()])), session: { name, sockets: [session.socket] }, posts: [],
-    };
-    const checks = [...gradeState(testCase.expect?.state, ctx), ...gradeCalls(testCase.expect ?? {}, sample)];
-    const row = {
-      case: testCase.id, surface, sample: index, model: MODEL, ...verdict(checks), checks,
-      steps: sample.steps + 1, stop, ops: sample.ops.length, op_errors: sample.ops.filter((o) => !o.ok).length,
-      docs_calls: sample.docsCalls, first_input_tokens: sample.firstInput, usage: sample.usage, cost_usd: cost(sample.usage),
-    };
-    writeFileSync(join(dir, "transcript.json"), JSON.stringify({ messages: messages.slice(harnessMessages), ops: sample.ops, shell: sample.shell }, null, 1));
-    writeFileSync(join(dir, "row.json"), JSON.stringify(row, null, 1));
-    return row;
+    return await finishSample(sample, testCase, surface, index, before, name, messages.slice(harnessMessages), stop, sample.steps + 1);
   } finally {
     await session.close();
   }
 }
 
+/** Grades a finished sample and writes its row and transcript. */
+async function finishSample(sample, testCase, surface, index, before, name, transcript, stop, steps) {
+  const { dir, session } = sample;
+  await new Promise((r) => setTimeout(r, 1500)); // commands the agent started print
+  const beforeTabs = new Set(before.tabs.map((t) => t.id));
+  const after = normalize(await capture(session.cmux, { textFor: (t) => !beforeTabs.has(t.id) }));
+  const ctx = {
+    before, after, origin: session.origin, aliases: session.aliases, answer: sample.text,
+    calls: sample.cliCalls,
+    markers: Object.fromEntries(readdirSync(join(dir, "markers")).map((r) => [r, readFileSync(join(dir, "markers", r), "utf8").trim()])), session: { name, sockets: [session.socket] }, posts: [],
+  };
+  const checks = [...gradeState(testCase.expect?.state, ctx), ...gradeCalls(testCase.expect ?? {}, sample)];
+  const row = {
+    case: testCase.id, surface, sample: index, model: MODEL, ...verdict(checks), checks,
+    steps, stop, ops: sample.ops.length, op_errors: sample.ops.filter((o) => !o.ok).length,
+    docs_calls: sample.docsCalls, first_input_tokens: sample.firstInput, usage: sample.usage, cost_usd: cost(sample.usage),
+    // The CLI itself failed (no output, a crash): not a cmux result.
+    ...(sample.agentError ? { pass: false, category: "agent_error", detail: sample.agentError } : {}),
+  };
+  writeFileSync(join(dir, "transcript.json"), JSON.stringify({ messages: transcript, ops: sample.ops, shell: sample.shell }, null, 1));
+  writeFileSync(join(dir, "row.json"), JSON.stringify(row, null, 1));
+  return row;
+}
+
 const cost = (u) => {
-  if (OPENROUTER) return Number((u.cost ?? 0).toFixed(4));
+  if (OPENROUTER || CLI_AGENT) return Number((u.cost ?? 0).toFixed(4));
   const p = PRICES[MODEL];
   return Number(((u.input * p.input + u.output * p.output + u.cacheWrite * p.cacheWrite + u.cacheRead * p.cacheRead) / 1e6).toFixed(4));
 };
