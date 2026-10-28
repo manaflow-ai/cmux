@@ -3365,7 +3365,7 @@ export function VirtualTranscript({
         ? startTurnFold(
             host,
             id,
-            !foldInputs.current.expanded.has(id),
+            !(shown.find((row) => row.id === id)?.foldOpen ?? foldInputs.current.expanded.has(id)),
             { count: shown.length, idAt: (index) => shown[index]?.id, tops: foldInputs.current.layout.tops },
             foldInputs.current.sessionId,
           )

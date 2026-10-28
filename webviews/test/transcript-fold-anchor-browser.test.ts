@@ -310,9 +310,16 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const line = page.locator('[data-row-id="worked-older-prompt"] .cv-worked');
     expect(await line.getAttribute("aria-expanded")).toBe("true");
     expect(await line.getAttribute("aria-controls")).toContain("loaded-tool");
-    const phase = page.evaluate(() => new Promise<string | null>((resolve) => {
-      document.addEventListener("click", () => resolve(document.querySelector(".acpmux-thread")?.getAttribute("data-turn-fold") ?? null), { once: true });
-    }));
+    const phase = page.evaluate(
+      () =>
+        new Promise<string | null>((resolve) => {
+          document.addEventListener(
+            "click",
+            () => resolve(document.querySelector(".acpmux-thread")?.getAttribute("data-turn-fold") ?? null),
+            { once: true },
+          );
+        }),
+    );
     await line.click();
     expect(await phase).toBe("close");
     await settle(page);
