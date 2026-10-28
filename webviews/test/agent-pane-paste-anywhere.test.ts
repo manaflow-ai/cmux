@@ -149,9 +149,11 @@ await requireBrowserLane("agent-pane-paste-anywhere.test.ts", async () => {
             plain: '![Screenshot · 778×696]([image] "Screenshot · 778×696")',
           }),
         ).toBe(true);
-        const chips = page.locator(".acpmux-attachments .acpmux-attachment-image");
+        // The image goes in the prompt at the caret (the default inline view), not the strip as well.
+        const chips = page.locator(`${PROMPT} [data-inline-attachment] img`);
         await chips.first().waitFor();
         expect(await chips.count()).toBe(1);
+        expect(await page.locator(".acpmux-attachments .acpmux-attachment-image").count()).toBe(0);
         expect(await promptText(page)).toBe("");
         expect(await inPrompt(page)).toBe(true);
         await page.close();
@@ -165,9 +167,10 @@ await requireBrowserLane("agent-pane-paste-anywhere.test.ts", async () => {
           html: '<img src="https://example.com/shot.png" alt="Screenshot · 778×696">',
           plain: 'see ![Screenshot · 778×696]([image] "Screenshot · 778×696")',
         });
-        const chips = page.locator(".acpmux-attachments .acpmux-attachment-image");
+        const chips = page.locator(`${PROMPT} [data-inline-attachment] img`);
         await chips.first().waitFor();
         expect(await chips.count()).toBe(1);
+        expect(await page.locator(".acpmux-attachments .acpmux-attachment-image").count()).toBe(0);
         expect((await promptText(page)).trim()).toBe("see");
         await page.close();
       });
