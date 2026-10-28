@@ -122,7 +122,28 @@
   > .acpmux-composer[data-composer-look="codex"]
   > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
   > .acpmux-composer-field-menu
-  > :is(.acpmux-md-field, .acpmux-shell-field) {
+  > .acpmux-md-field {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.acpmux-main[data-dock="float"]
+  > .acpmux-dock
+  > .acpmux-composer[data-composer-look="codex"]
+  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
+  > .acpmux-composer-field-menu
+  > .acpmux-shell-prompt {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.acpmux-main[data-dock="float"]
+  > .acpmux-dock
+  > .acpmux-composer[data-composer-look="codex"]
+  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
+  > .acpmux-composer-field-menu
+  > .acpmux-shell-prompt
+  > .acpmux-shell-field {
   flex: 1 1 auto;
   min-height: 0;
 }
