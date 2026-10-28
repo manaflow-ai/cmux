@@ -278,7 +278,7 @@ fn snapshot_total_cap(policy: PersistencePolicy) -> u64 {
 
 /// Text, size, screen and history epoch: what a cursor redraw does not move.
 fn content_digest(terminal: &mut ghostty_vt::Terminal) -> Option<u64> {
-    let text = terminal.viewport_text().ok()?;
+    let text = terminal.active_text().ok()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     terminal.cols().hash(&mut hasher);
     terminal.rows().hash(&mut hasher);

@@ -195,33 +195,34 @@ enum Op : uint16_t {
   kOpTabPagePush = 183,
   kOpSetPopupMenus = 184,
   kOpBrowserPopupMenuReply = 185,
-  kOpAddDocumentScript = 186,  // optional
-  kOpAddPageChannel = 187,  // optional
-  kOpTabEvaluate = 188,  // optional
-  kOpTabSetFrozen = 189,  // optional
-  kOpTabSendClick = 190,  // optional
-  kOpTabSetColorScheme = 191,  // optional
-  kOpPageSchemeSetGroup = 192,  // optional
-  kOpTabDiscard = 193,  // optional
-  kOpWidgetSetGeometry = 194,  // optional
-  kOpWidgetDismiss = 195,  // optional
-  kOpWidgetSendInput = 196,  // optional
-  kOpBrowserImeSetComposition = 197,  // optional
-  kOpBrowserImeCommitText = 198,  // optional
-  kOpBrowserImeFinishComposing = 199,  // optional
-  kOpBrowserImeCancelComposition = 200,  // optional
-  kOpTabCopySurface = 201,  // optional
-  kOpTabSendMouseMove = 202,  // optional
+  kOpSetPumpTimeSlice = 186,
+  kOpAddDocumentScript = 187,  // optional
+  kOpAddPageChannel = 188,  // optional
+  kOpTabEvaluate = 189,  // optional
+  kOpTabSetFrozen = 190,  // optional
+  kOpTabSendClick = 191,  // optional
+  kOpTabSetColorScheme = 192,  // optional
+  kOpPageSchemeSetGroup = 193,  // optional
+  kOpTabDiscard = 194,  // optional
+  kOpWidgetSetGeometry = 195,  // optional
+  kOpWidgetDismiss = 196,  // optional
+  kOpWidgetSendInput = 197,  // optional
+  kOpBrowserImeSetComposition = 198,  // optional
+  kOpBrowserImeCommitText = 199,  // optional
+  kOpBrowserImeFinishComposing = 200,  // optional
+  kOpBrowserImeCancelComposition = 201,  // optional
+  kOpTabCopySurface = 202,  // optional
+  kOpTabSendMouseMove = 203,  // optional
 };
-inline constexpr uint16_t kOpCount = 202;
+inline constexpr uint16_t kOpCount = 203;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 66;
-inline constexpr char kShimAbiID[] = "85905a14aa941ee50ca79b22d5d415cff3ce955b67cb2411d2a681397889ec6f";
+inline constexpr char kShimAbiID[] = "8c1693b9467e0deac489ea936713bd779ba9a2a93bcd0db155a406cfc76f538d";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "ee2f7f7d4d46b158c179b1e5732f1b1996a8062d18078ad880151a85e24efbff";
+inline constexpr char kWireID[] = "120f957d1f023878e693d5abafde6854327ff0cb56deccba734f9363155c726d";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
