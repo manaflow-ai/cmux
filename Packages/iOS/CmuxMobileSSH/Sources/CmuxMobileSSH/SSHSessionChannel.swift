@@ -82,6 +82,18 @@ public final class SSHSessionChannel: Sendable {
             channel.close(promise: nil)
         }
     }
+
+    /// Writes one final command, then closes without waiting for the peer.
+    public func abort(afterWriting data: Data) {
+        let channel = channel
+        channel.eventLoop.execute {
+            var buffer = channel.allocator.buffer(capacity: data.count)
+            buffer.writeBytes(data)
+            channel.writeAndFlush(SSHChannelData(type: .channel, data: .byteBuffer(buffer))).whenComplete { _ in
+                channel.close(promise: nil)
+            }
+        }
+    }
 }
 
 /// Pipeline handler that turns SSH channel traffic into ``SSHSessionEvent``s

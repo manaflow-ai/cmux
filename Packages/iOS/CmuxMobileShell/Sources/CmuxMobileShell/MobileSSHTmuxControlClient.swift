@@ -8,6 +8,7 @@ protocol MobileSSHTmuxControlTransport: AnyObject, Sendable {
     func write(_ data: Data) async throws
     func close() async
     func abort()
+    func abort(afterWriting data: Data)
 }
 
 extension SSHSessionChannel: MobileSSHTmuxControlTransport {}
@@ -315,9 +316,9 @@ final class MobileSSHTmuxControlClient {
     /// be allowed to keep the SSH channel alive.
     func abort() {
         guard !isClosed else { return }
-        send("kill-session -t \(Self.quoteForTmux("=" + groupedSessionName))")
         finish()
-        channel.abort()
+        let command = "kill-session -t \(Self.quoteForTmux("=" + groupedSessionName))\n"
+        channel.abort(afterWriting: Data(command.utf8))
     }
 
     // MARK: Stream

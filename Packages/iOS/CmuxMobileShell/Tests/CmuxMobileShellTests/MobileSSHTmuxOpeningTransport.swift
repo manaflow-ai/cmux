@@ -36,4 +36,11 @@ final class MobileSSHTmuxOpeningTransport: MobileSSHTmuxControlTransport {
         continuation.finish()
         writesContinuation.finish()
     }
+
+    func abort(afterWriting data: Data) {
+        writesContinuation.yield(data)
+        continuation.yield(.closed)
+        continuation.finish()
+        writesContinuation.finish()
+    }
 }

@@ -75,6 +75,8 @@ struct MobileSSHTmuxOpeningTests {
         _ = try #require(await writes.next())
 
         client.abort()
+        let cleanup = try #require(await writes.next())
+        #expect(String(decoding: cleanup, as: UTF8.self).contains("kill-session"))
         let result = await pending.result
         if case .success = result { Issue.record("A stalled command completed after abort") }
         #expect(client.isClosed)
