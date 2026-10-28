@@ -90,7 +90,7 @@ test("the client sends queue_approve and queue_decline with the right ids", asyn
     const daemon = socket as unknown as Daemon;
     daemon.emit(id, {
       mux: "queued",
-      msg: { promptId: "g-1", text: ASK, awaitingOwner: true, revision: 0, _meta: fromCy },
+      msg: { promptId: "g-1", turnId: "t-g1", text: ASK, awaitingOwner: true, revision: 0, _meta: fromCy },
     });
     daemon.emit(id, {
       mux: "queued",
@@ -105,20 +105,28 @@ test("the client sends queue_approve and queue_decline with the right ids", asyn
     // The guest edits it: still held, at a new revision, which Approve names.
     daemon.emit(id, {
       mux: "queue_updated",
-      msg: { promptId: "g-1", text: "Retry on 429 too", awaitingOwner: true, revision: 1, _meta: fromCy },
+      msg: {
+        promptId: "g-1",
+        turnId: "t-g1",
+        text: "Retry on 429 too",
+        awaitingOwner: true,
+        revision: 1,
+        _meta: fromCy,
+      },
     });
     await until(() => shown.queue[0]?.revision === 1);
     expect(shown.queue[0]?.awaitingOwner).toBe(true);
     // Approve: acpmux records `queue_approved`, and the prompt waits as any queued prompt.
-    // The card names the revision it was drawn with (QueuedMessageCard.tsx).
-    await client.answerHeld("g-1", true, shown.queue[0]?.revision);
+    // The card names the incarnation and revision it was drawn with (QueuedMessageCard.tsx).
+    expect(shown.queue[0]?.turnId).toBe("t-g1");
+    await client.answerHeld("g-1", true, shown.queue[0]?.revision, shown.queue[0]?.turnId);
     await until(() => shown.queue.find((entry) => entry.id === "g-1")?.awaitingOwner === undefined);
     // Decline: the prompt leaves the queue.
     await client.answerHeld("g-2", false);
     await until(() => shown.queue.length === 1);
     const sent = log.filter((each) => each.method.includes("queue_"));
     expect(sent.map((each) => [each.method, each.params])).toEqual([
-      ["acpmux _acpmux/queue_approve", { sessionId: id, promptId: "g-1", revision: 1 }],
+      ["acpmux _acpmux/queue_approve", { sessionId: id, promptId: "g-1", revision: 1, turnId: "t-g1" }],
       ["acpmux _acpmux/queue_decline", { sessionId: id, promptId: "g-2" }],
     ]);
     expect(shown.queue.map((entry) => entry.id)).toEqual(["g-1"]);

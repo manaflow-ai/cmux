@@ -31,6 +31,7 @@ import type {
   StartSource,
   TurnTokenSplit,
 } from "./model";
+import { QUEUED_MESSAGE } from "./model";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -578,6 +579,7 @@ function queuedEntry(
     ...(hold.revision !== undefined ? { revision: hold.revision } : {}),
     ...(hold.awaitingOwner && hold.updating ? { updating: true } : {}),
     ...(hold.awaitingOwner && hold.listedRevision !== undefined ? { listedRevision: hold.listedRevision } : {}),
+    ...(hold.awaitingOwner && hold.turnId ? { turnId: hold.turnId } : {}),
   };
 }
 
@@ -595,25 +597,43 @@ function keepStopHold(entry: QueuedPrompt, from: QueuedPrompt | undefined): Queu
 /// preview) never sets it, whatever its preview looks like. `listedRevision` is the newest revision
 /// acpmux named anywhere; `updating` (not approvable) holds while the record the pane has is older
 /// than it, or there is none.
-type Hold = { awaitingOwner?: boolean; revision?: number; updating?: boolean; listedRevision?: number };
-const heldHold = (awaitingOwner: boolean | undefined, revision: number | undefined, listedRevision: number): Hold => ({
+/// `turnId` is the incarnation of the record `revision` is from (Approve names both).
+type Hold = { awaitingOwner?: boolean; revision?: number; updating?: boolean; listedRevision?: number; turnId?: string };
+const heldHold = (
+  awaitingOwner: boolean | undefined,
+  revision: number | undefined,
+  listedRevision: number,
+  turnId?: string,
+): Hold => ({
   awaitingOwner,
   revision,
   ...(listedRevision >= 0 ? { listedRevision } : {}),
+  ...(turnId ? { turnId } : {}),
   updating: awaitingOwner === true && (revision === undefined || listedRevision > revision),
 });
 /// The hold an authoritative record carries (`queued`, `queue_updated`): its revision is the text's.
 const holdOf = (msg: any, had?: Hold): Hold => {
   const revision = typeof msg?.revision === "number" ? msg.revision : had?.revision;
   const awaitingOwner = typeof msg?.awaitingOwner === "boolean" ? msg.awaitingOwner : had?.awaitingOwner;
-  return heldHold(awaitingOwner, revision, Math.max(revision ?? -1, had?.listedRevision ?? -1));
+  const turnId = typeof msg?.turnId === "string" && msg.turnId ? msg.turnId : had?.turnId;
+  return heldHold(awaitingOwner, revision, Math.max(revision ?? -1, had?.listedRevision ?? -1), turnId);
 };
 /// The hold a listing names: never a record. It only says which revision is current (a list older
 /// than the record the pane holds names a lower one, which changes nothing).
 function listedHold(entry: any, had: QueuedPrompt | undefined): Hold {
   const awaitingOwner = typeof entry?.awaitingOwner === "boolean" ? entry.awaitingOwner : had?.awaitingOwner;
   const listed = typeof entry?.revision === "number" ? entry.revision : -1;
-  return heldHold(awaitingOwner, had?.revision, Math.max(listed, had?.listedRevision ?? -1, had?.revision ?? -1));
+  // A list naming another incarnation than the record the pane holds: that record is not this
+  // prompt's, so nothing is approvable until its own record is read.
+  const turn = typeof entry?.turnId === "string" && entry.turnId ? entry.turnId : undefined;
+  if (turn !== undefined && had?.turnId !== undefined && turn !== had.turnId)
+    return heldHold(awaitingOwner, undefined, listed);
+  return heldHold(
+    awaitingOwner,
+    had?.revision,
+    Math.max(listed, had?.listedRevision ?? -1, had?.revision ?? -1),
+    had?.turnId,
+  );
 }
 
 /// Whether listed chat `session` is the one `name` names: its name, its short name, or, for a chat
@@ -5124,6 +5144,10 @@ export class AcpmuxDirectClient {
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
         this.streamingActivity = undefined;
+      } else if (event.kind === "queue_declined") {
+        // The owner declined a guest's prompt: one quiet line where it was declined, never gone silently.
+        this.declinedRow(event);
+        this.reduceLiveState(event);
       } else if (!reduceAgentPair(this.rows, event)) this.reduceLiveState(event);
       return;
     }
@@ -6506,7 +6530,9 @@ export class AcpmuxDirectClient {
       const revision = msg.revision;
       if (entry.id !== promptId || !entry.awaitingOwner || typeof revision !== "number") return entry;
       if (msg.awaitingOwner === false) return entry;
-      if (entry.revision !== undefined && revision <= entry.revision) return entry;
+      const turnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+      const sameTurn = turnId !== undefined && turnId === entry.turnId;
+      if (sameTurn && entry.revision !== undefined && revision <= entry.revision) return entry;
       changed = true;
       const { updating: _updating, images: _images, inlineParts: _parts, ...rest } = entry;
       const images = recordImages(msg);
@@ -6519,23 +6545,42 @@ export class AcpmuxDirectClient {
         ...(parts?.length ? { inlineParts: parts } : {}),
         revision,
         ...(hold.listedRevision !== undefined ? { listedRevision: hold.listedRevision } : {}),
+        ...(hold.turnId ? { turnId: hold.turnId } : {}),
         ...(hold.updating ? { updating: true } : {}),
       };
     });
     if (changed) this.emit();
   }
-  /// Approve names the revision the owner saw (the card's, as it was drawn): a guest's edit since
-  /// is refused (`queue.stale`), never approved unseen.
-  answerHeld(promptId: string, approve: boolean, revision = 0): Promise<unknown> {
+  /// Approve names the incarnation and revision the owner saw (the card's, as it was drawn): a
+  /// guest's edit since, or another prompt under a reused id, is refused (`queue.stale`), never
+  /// approved unseen.
+  answerHeld(promptId: string, approve: boolean, revision = 0, turnId?: string): Promise<unknown> {
     const sessionId = this.actingSessionId;
     if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
     if (!approve) return this.request("_acpmux/queue_decline", { sessionId, promptId });
-    return this.request("_acpmux/queue_approve", { sessionId, promptId, revision });
+    return this.request("_acpmux/queue_approve", { sessionId, promptId, revision, ...(turnId ? { turnId } : {}) });
   }
   /// Whether this acpmux serves the owner's Approve and Decline (initialize feature `queueApproval`).
   private queueApproval = false;
   /// Whether this acpmux reads a queued prompt whole (`_acpmux/queue_get`, feature `queueGet`).
   private queueGet = false;
+  /// A declined guest prompt's row (`queue_declined`), from its queue entry while the pane still has it.
+  private declinedRow(event: EventRecord): void {
+    const promptId = String(event.msg?.promptId ?? "");
+    const entry = this.queue.find((each) => each.id === promptId);
+    const text = entry?.prompt ?? (typeof event.msg?.text === "string" ? event.msg.text : "");
+    if (!promptId || !entry?.author) return;
+    this.rows.set(`declined-${promptId}`, {
+      id: `declined-${promptId}`,
+      version: 1,
+      at: event.at,
+      kind: QUEUED_MESSAGE,
+      text,
+      incoming: { kind: "message", message: { name: entry.author.name, text, raw: text } },
+      queuedMessage: { promptId, person: entry.author, declined: true },
+      untyped: true,
+    });
+  }
   /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
     const sessionId = this.actingSessionId;

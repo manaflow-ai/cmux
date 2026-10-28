@@ -171,6 +171,9 @@ export type QueuedPrompt = {
   updating?: boolean;
   /// The newest revision acpmux listed or recorded for it, which `updating` waits for.
   listedRevision?: number;
+  /// The queued incarnation (`turnId`) of the record `revision` is from, which Approve names with
+  /// it: a prompt id a client reuses after a restart is another incarnation.
+  turnId?: string;
 };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 /// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record
@@ -268,7 +271,24 @@ export type AcpmuxRow = {
   /// now already (acpmux marks it `next`; it runs right after the turn).
   /// `lead`: the first queued message, which explains a Stop hold for the run.
   /// `heldByStop`: the person's Stop holds it (QueuedPrompt `heldByStop`).
-  queuedMessage?: { promptId: string; next?: boolean; lead?: boolean; heldByStop?: boolean };
+  /// A person's (a guest's) waiting prompt names them (`person`): `held` while it waits for the
+  /// owner's Approve, `declined` once the owner declined it (one quiet line, never removed silently).
+  /// `revision` is the held prompt's as this row draws it, which Approve names (a guest's edit since
+  /// makes acpmux answer `queue.stale`).
+  queuedMessage?: {
+    promptId: string;
+    next?: boolean;
+    lead?: boolean;
+    heldByStop?: boolean;
+    person?: Participant;
+    held?: boolean;
+    declined?: boolean;
+    revision?: number;
+    /// The incarnation `revision` is from, which Approve names with it (QueuedPrompt `turnId`).
+    turnId?: string;
+    /// A newer revision is on its way: the card says so and offers no Approve until it shows.
+    updating?: boolean;
+  };
   /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
   /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
   untyped?: boolean;
