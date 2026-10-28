@@ -18,7 +18,12 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
 fn hub() -> Arc<Hub> {
-    let mut cfg = Config::default();
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
@@ -129,7 +134,14 @@ fn hung_peer_session_new_returns_readable_error_within_deadline() {
 fn briefs_asks_all_peers_in_parallel_and_keeps_healthy_rows_within_total_budget() {
     run(async {
         let hub = hub();
-        hub.briefs.put(json!({"briefId": "local", "status": "running"}));
+        let local = call(
+            &hub,
+            method::MUX_DISPATCH,
+            json!({"brief": "say hi", "title": "local brief", "host": "local",
+                "cwd": std::env::temp_dir(), "harness": "fake"}),
+        )
+        .await;
+        let local_id = local["result"]["brief"]["briefId"].as_str().unwrap();
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut tasks = Vec::new();
         for name in ["hung-a", "healthy", "hung-b"] {
@@ -149,7 +161,7 @@ fn briefs_asks_all_peers_in_parallel_and_keeps_healthy_rows_within_total_budget(
             .expect("all peers share a 10-second budget")
             .unwrap();
         let rows = reply["result"]["briefs"].as_array().unwrap();
-        for id in ["local", "healthy"] {
+        for id in [local_id, "healthy"] {
             assert!(rows.iter().any(|row| row["briefId"] == id), "{reply}");
         }
         tokio::task::yield_now().await;
