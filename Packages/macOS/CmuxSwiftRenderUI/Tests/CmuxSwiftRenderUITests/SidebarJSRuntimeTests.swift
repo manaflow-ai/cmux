@@ -28,6 +28,41 @@ struct SidebarJSRuntimeTests {
         #expect(first?.string("font") == "headline")
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/26306: `Image()` only
+    /// took an SF Symbol name, so a sidebar could not draw the agent marks
+    /// cmux bundles. Both the name form and `{ asset }` reach the node.
+    @Test func imageCarriesBundledAssetNames() {
+        let runtime = SidebarJSRuntime()
+        runtime.start(source: """
+        sidebar(() => HStack([
+            Image("AgentIcons/Codex"),
+            Image({ asset: "AgentIcons/Claude" }).size(16),
+            Image("star.fill"),
+        ]))
+        """)
+        #expect(runtime.errorMessage == nil)
+        let root = try! #require(runtime.store.rootId.flatMap { runtime.store.node($0) })
+        let byName = try! #require(runtime.store.node(root.children[0]))
+        let byAsset = try! #require(runtime.store.node(root.children[1]))
+        let symbol = try! #require(runtime.store.node(root.children[2]))
+        #expect(byName.string("systemName") == "AgentIcons/Codex")
+        #expect(byAsset.string("asset") == "AgentIcons/Claude")
+        #expect(byAsset.double("size") == 16)
+        #expect(symbol.string("systemName") == "star.fill")
+    }
+
+    @Test func bundledImageResolvesOnlyAgentIcons() {
+        let present: (String) -> Bool = { _ in true }
+        #expect(DSLBundledImage.assetName("AgentIcons/Codex", exists: present) == "AgentIcons/Codex")
+        // Outside the allowed namespace (or the bare namespace) stays a symbol.
+        #expect(DSLBundledImage.assetName("AppIcon", exists: present) == nil)
+        #expect(DSLBundledImage.assetName("AgentIcons/", exists: present) == nil)
+        #expect(DSLBundledImage.assetName("star.fill", exists: present) == nil)
+        #expect(DSLBundledImage.assetName(nil, exists: present) == nil)
+        // A name in the namespace that the bundle lacks also stays a symbol.
+        #expect(DSLBundledImage.assetName("AgentIcons/Nope", exists: { _ in false }) == nil)
+    }
+
     @Test func fixedSizeReachesTheNode() {
         let runtime = SidebarJSRuntime()
         runtime.start(source: """
