@@ -8320,12 +8320,12 @@ function AcpmuxPane() {
             (picked) => void readUntilMoved(picked),
             () => {
               const client = directClient.current;
-              return { session: client?.shownSession(), running: client?.turnRunning() ?? false };
+              return { session: client?.shownSession()?.sessionId, running: client?.turnRunning() ?? false };
             },
             (session) =>
               stopWaiter.wait(() => {
                 const client = directClient.current;
-                return client?.shownSession() === session && client.turnRunning();
+                return client !== undefined && client.shownSession()?.sessionId === session && client.turnRunning();
               }),
           )
         : [];

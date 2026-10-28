@@ -97,14 +97,26 @@ test("the pick reads the chat's turn when it runs, not when the menu was drawn",
 });
 
 test("a pick for a chat the pane has left pauses nothing", async () => {
-  const r = rows(machines[0], false);
-  const pick = (r.items[0] as Exclude<ChatMenuItem, "separator">).onSelect!;
-  pick();
-  // The pane shows another chat by the time the pick runs its check.
-  r.state.session = "s2";
+  const state = { session: "s1" as string | undefined, running: true };
+  const calls: string[] = [];
+  let reads = 0;
+  const items = cloudMachineRows(
+    machines[0],
+    true,
+    t,
+    async (method) => void calls.push(method),
+    () => (reads += 1),
+    () => ({ ...state }),
+    async () => {
+      // While the stop is awaited, the pane moves to another chat.
+      state.session = "s2";
+      return true;
+    },
+  );
+  (items[0] as Exclude<ChatMenuItem, "separator">).onSelect!();
   await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(r.calls).toEqual([]);
-  expect(r.reads()).toBe(1);
+  expect(calls).toEqual(["chat.cancel"]);
+  expect(reads).toBe(1);
 });
 
 test("a turn that has not stopped is not frozen: no pause, and the list is read again", async () => {
