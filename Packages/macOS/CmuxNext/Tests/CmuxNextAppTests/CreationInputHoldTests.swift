@@ -89,4 +89,15 @@ import Testing
         #expect(buffer.isCreating(tab: "daemon"))
         #expect(!buffer.isCreating(tab: "standin"))
     }
+
+    /// A close of a stand-in its daemon tab adopted (by mouse or menu: by the daemon tab's id) drops the keys typed
+    /// for it (third review of c9a01e50068, follow-up 1).
+    @Test func closingAnAdoptedStandInDropsItsKeys() {
+        let buffer = CreationInputBuffer(began: .now)
+        _ = buffer.open(generation: 1, earlyTab: "standin", tab: "standin")
+        buffer.capture(Self.key("a", code: 0))
+        buffer.rekey(tab: "standin", to: "daemon")
+        #expect(buffer.cancel(tab: "daemon"))
+        #expect(buffer.take().isEmpty, "a key typed for the closed terminal waited to run into another view")
+    }
 }
