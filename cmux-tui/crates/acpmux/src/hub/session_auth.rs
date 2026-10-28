@@ -4,7 +4,7 @@
 //! answering:
 //!
 //! 1. The peer link (`server/session_auth.rs`): a peer's chat whose link is down is
-//!    `peerUnreachable`; one whose link is up is `unknown` until this daemon asks the peer.
+//!    `peerUnreachable`.
 //! 2. The chat's bound route: with `refresh` a new probe (never of a route whose secret is in
 //!    the keychain), else its last answer at most [`PROBE_FRESH_MS`] old (`route_probe.rs`).
 //!    `auth_needed` is `routeAuthNeeded`, `unreachable` `routeUnreachable`; `rate_limited` and
@@ -15,8 +15,6 @@
 //! 4. With `refresh`, the harness's own check that reads no keychain
 //!    (`harness_health::fresh_auth`).
 //! 5. Else `unknown`, never signed out. A connection error is never a sign-in state.
-//!
-//! Asking a peer comes next; until then `initialize` does not list the feature.
 //!
 //! Never the saved harness health (checked every six hours), and never the login keychain.
 
@@ -30,6 +28,8 @@ use crate::protocol::auth::{
 use crate::{route_account, routes};
 use std::collections::BTreeMap;
 
+/// Listed in `initialize`'s features: this daemon answers `_acpmux/session/auth`.
+pub(crate) const FEATURE: &str = "sessionAuth";
 /// A route probe answer younger than this is reused (as long as `route_probe.rs` keeps one).
 pub(crate) const PROBE_FRESH_MS: u64 = crate::route_probe::KEPT_MS;
 

@@ -381,3 +381,132 @@ async fn session_auth_reads_the_routes_probe_and_a_rate_limit_falls_through() {
     let refused = c.call(method::MUX_SESSION_AUTH, other).await;
     assert_eq!(refused["error"]["code"], -32602, "{refused}");
 }
+
+/// A fake peer daemon: lists the session `session`, answers `_acpmux/session/auth` as signed
+/// out when `features` lists `sessionAuth`, and serves one connection only, which it closes
+/// after `close_after` session/auth requests (0: on the first, without answering it).
+async fn fake_peer(features: Value, session: &'static str, close_after: usize) -> u16 {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Ws;
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let Ok((tcp, _)) = l.accept().await else { return };
+        let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { return };
+        let mut asked = 0;
+        while let Some(Ok(Ws::Text(text))) = ws.next().await {
+            let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
+                continue;
+            };
+            let result = match m.as_str() {
+                method::INITIALIZE => json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                    "build": "older", "origin": "peer", "features": features}}}),
+                method::MUX_WATCH => {
+                    json!({"sessions": [{"sessionId": session, "harness": "fake"}]})
+                }
+                method::MUX_SESSION_AUTH if close_after == 0 => {
+                    let _ = ws.close(None).await;
+                    return;
+                }
+                method::MUX_SESSION_AUTH => {
+                    asked += 1;
+                    json!({"state": "signedOut", "source": "turn", "evidenceAt": 5,
+                           "detail": "its last turn failed", "harness": "fake", "host": null,
+                           "routeId": null, "fromSessionId": session,
+                           "login": {"kind": "terminal", "command": "claude auth login"}})
+                }
+                _ => json!({}),
+            };
+            let reply = Message::ok(id, result).to_line();
+            if ws.send(Ws::Text(reply.trim_end().to_owned().into())).await.is_err() {
+                return;
+            }
+            if close_after > 0 && asked >= close_after {
+                let _ = ws.close(None).await;
+                return;
+            }
+        }
+    });
+    port
+}
+
+/// A peer's chat or target is the peer's answer, naming the peer; a peer whose link is down is
+/// peerUnreachable from the link, and a peer on an acpmux without the method is unknown.
+#[tokio::test]
+async fn session_auth_asks_the_peer_and_answers_for_a_peer_that_is_down() {
+    let root = scratch("peers");
+    let hub = hub(&root);
+    let port = fake_peer(json!(["sessionAuth"]), "far-1", 1).await;
+    hub.add_peer("far", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let old = fake_peer(json!(["filePutChunks"]), "old-1", usize::MAX).await;
+    hub.add_peer("old", &format!("ws://127.0.0.1:{old}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let drop = fake_peer(json!(["sessionAuth"]), "drop-1", 0).await;
+    hub.add_peer("drop", &format!("ws://127.0.0.1:{drop}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    // Nothing listens on port 9: never reached.
+    hub.add_peer("gone", "ws://127.0.0.1:9", Some("tok".into()), None, false).await.unwrap();
+    let mut c = client(&hub);
+
+    let out = c.auth(json!({"sessionId": "far-1"})).await;
+    assert_eq!(state(&out), ("signedOut", "turn"), "{out}");
+    assert_eq!(out["host"], "far", "{out}");
+    assert_eq!(out["login"]["host"], "far", "sign in on the peer: {out}");
+
+    // The peer closed its only connection: the link is down, and the chat's row stays.
+    let far = hub.peer_by_name("far").unwrap();
+    for _ in 0..200 {
+        if !far.connected.load(std::sync::atomic::Ordering::SeqCst) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let out = c.auth(json!({"sessionId": "far-1"})).await;
+    assert_eq!(state(&out), ("peerUnreachable", "peerLink"), "{out}");
+    assert_eq!(out["host"], "far", "{out}");
+    assert!(out.get("login").is_none(), "{out}");
+
+    // The link drops under the request: peerUnreachable, not an error.
+    let out = c.auth(json!({"sessionId": "drop-1"})).await;
+    assert_eq!(state(&out), ("peerUnreachable", "peerLink"), "{out}");
+    assert_eq!(out["host"], "drop", "{out}");
+
+    let out = c.auth(json!({"target": {"harness": "fake", "host": "gone"}})).await;
+    assert_eq!(state(&out), ("peerUnreachable", "peerLink"), "{out}");
+    assert!(out["evidenceAt"].as_u64().is_some(), "{out}");
+    // A target's own route stays named when the peer cannot answer for it.
+    let routed = json!({"target": {"harness": "fake", "host": "gone", "routeId": "far-route"}});
+    let out = c.auth(routed).await;
+    assert_eq!(state(&out), ("peerUnreachable", "peerLink"), "{out}");
+    assert_eq!(out["routeId"], "far-route", "{out}");
+
+    for old in
+        [json!({"sessionId": "old-1"}), json!({"target": {"harness": "fake", "host": "old"}})]
+    {
+        let out = c.auth(old).await;
+        assert_eq!(state(&out), ("unknown", "none"), "{out}");
+        assert_eq!(out["host"], "old", "{out}");
+        assert!(out["detail"].as_str().unwrap().contains("acpmux host update old"), "{out}");
+    }
+    let routed = json!({"target": {"harness": "fake", "host": "old", "routeId": "old-route"}});
+    let out = c.auth(routed).await;
+    assert_eq!((state(&out), &out["routeId"]), (("unknown", "none"), &json!("old-route")), "{out}");
+}
+
+/// `initialize` lists the feature a client checks before it asks.
+#[tokio::test]
+async fn session_auth_is_listed_in_initialize() {
+    let root = scratch("init");
+    let mut c = client(&hub(&root));
+    let v = c
+        .call(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "t"}}))
+        .await;
+    let features = v.pointer("/result/_meta/acpmux/features").cloned().unwrap_or_default();
+    assert!(features.as_array().unwrap().contains(&json!("sessionAuth")), "{v}");
+    let methods = v.pointer("/result/_meta/acpmux/extensions").cloned().unwrap_or_default();
+    assert!(methods.as_array().unwrap().contains(&json!(method::MUX_SESSION_AUTH)), "{v}");
+}
