@@ -1116,6 +1116,7 @@ fn run_browser_proxy(args: &[String]) -> anyhow::Result<()> {
 
 fn spawn_rpc_stdin_reader() -> anyhow::Result<tokio::sync::mpsc::Receiver<io::Result<String>>> {
     let (sender, receiver) = tokio::sync::mpsc::channel(1);
+    // supervise-allow: one-shot helper of this CLI process; a panic drops its sender, so the async side sees the end.
     let _reader = thread::Builder::new()
         .name("cmux-rpc-stdin".into())
         .spawn(move || {
@@ -1770,6 +1771,7 @@ async fn wait_for_parent_exit(expected: u32) {
         return;
     }
     let (sender, receiver) = tokio::sync::oneshot::channel();
+    // supervise-allow: one-shot helper of this CLI process; a panic drops its sender, so the async side sees the end.
     let waiter = thread::Builder::new().name("cmux-parent-exit".into()).spawn(move || {
         let _ = sender.send(wait_for_process_exit(expected));
     });

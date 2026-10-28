@@ -23,6 +23,7 @@ mod host_state;
 mod input;
 mod local_output;
 mod local_reader;
+mod memory_usage;
 mod metadata;
 mod mouse_input;
 mod options;
@@ -42,6 +43,7 @@ pub use color_overrides::apply_terminal_color_overrides;
 pub(crate) use holder_spawn::{HolderAdoption, HolderSpawn};
 pub(crate) use host_launch::HostLaunch;
 pub use host_state::{TerminalHostConnectionState, TerminalHostFallback};
+pub(crate) use memory_usage::{PtyHome, SurfaceMemory, TerminalMemory};
 // Hosted (unix) code and the unit tests are the only callers.
 use clear_history::LOCAL_PASTE_WRITE_TIMEOUT;
 pub use clear_history::{
