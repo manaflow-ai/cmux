@@ -25,7 +25,9 @@ export function resolveSenderIdentity(
     senderSessionName(entry?.shortName ?? "", entry?.peer) ||
     senderSessionName(entry?.name ?? "", entry?.peer) ||
     senderSessionName(sender.name, entry?.peer);
-  const host = entry?.peer || (entry?.hostKind === "cloud" ? entry.host : undefined);
+  // Older session summaries omitted hostKind. Keep their host as remote evidence, while an
+  // explicitly local entry remains unlabeled (the same rule as sessionList.cloudHost).
+  const host = entry?.peer ?? (entry?.hostKind === "local" ? undefined : entry?.host);
   return {
     name,
     known: entry !== undefined || sender.sessionId !== undefined,
