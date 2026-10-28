@@ -117,8 +117,12 @@ def picker_scripts(jobs: dict, needed: str, output: str) -> list[str]:
     found = []
     for step_id in dict.fromkeys(STEP_OUTPUT.findall(value)):
         run = steps.get(step_id, "")
-        found.append(OWNED_PICKER if OWNED_PICKER in run else BLACKSMITH_PICKER if BLACKSMITH_PICKER in run
-                     else f"steps.{step_id} ({run.strip()[:60] or 'no run'})")
+        if OWNED_PICKER in run:  # its `owned` output names a mini; `runner` and `alternate` are nightly_sign_runner's
+            owned = re.search(rf"steps\.{re.escape(step_id)}\.outputs\.owned\b", value) is not None
+            found.append(OWNED_PICKER if owned else BLACKSMITH_PICKER)
+        else:
+            found.append(BLACKSMITH_PICKER if BLACKSMITH_PICKER in run
+                         else f"steps.{step_id} ({run.strip()[:60] or 'no run'})")
     return found or [f"needs.{needed}.outputs.{output} (no step output)"]
 
 
@@ -171,9 +175,10 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             elif first_secret is not None and first_secret < claim:
                 failures.append(f"{label}: step {first_secret} names a secret before the claim step ({claim})")
             else:
-                if steps[claim].get("if") is not None or str(steps[claim].get("continue-on-error", "false")) != "false":
-                    failures.append(f"{label}: the claim step must run unconditionally and fail the job "
-                                    "(no `if`, no continue-on-error)")
+                # Its `if` may skip it with the job's own work (cmux-next-dev-daily's sign skips everything without a
+                # source artifact); the unconditional first-step gate is what fails the job without the claim.
+                if str(steps[claim].get("continue-on-error", "false")) != "false":
+                    failures.append(f"{label}: the claim step must fail the job (no continue-on-error)")
                 for index, step in enumerate(steps[1:], 1):
                     if "secrets." in json.dumps(step) and RUNS_AFTER_FAILURE.search(str(step.get("if", ""))):
                         failures.append(f"{label}: step {index} names a secret and runs after a failed claim "
@@ -224,7 +229,7 @@ class SigningOwnedMacTests(unittest.TestCase):
                                                                    good["steps"][3]]}),
             "without an `if: always()` step": ("release.yml", "build-sign-notarize",
                                                {**good, "steps": good["steps"][:3]}),
-            "must run unconditionally": ("release.yml", "build-sign-notarize",
+            "must fail the job": ("release.yml", "build-sign-notarize",
                                          {**good, "steps": [good["steps"][0], {"run": CLAIM, "continue-on-error": True},
                                                             *good["steps"][2:]]}),
             "runs after a failed claim": ("release.yml", "build-sign-notarize",
