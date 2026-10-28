@@ -623,6 +623,7 @@ name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
  "cmux-threads",
+ "cmux-trace",
  "libc",
  "serde",
  "serde_json",

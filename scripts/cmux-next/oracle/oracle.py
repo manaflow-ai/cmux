@@ -49,10 +49,14 @@ optional "uncertain": true, optional "notComparable": [facet, ...]}], "message":
 optional "step" (where a Crash or Timeout happened), optional "session_dirty": true (a lost or
 unusable process: the next case gets a fresh session, with no reset check), optional "switch_hits":
 {name: {arm: count}} (the per-site hit counters, by the arm each site ran), optional
-"switch_readback": {name: arm} (the arm the product reports: snapshot.switches for the app,
-identify for the daemon; task 049)}. Switch names are registry names
-(plans/cmux-next/refactor-switches/<name>.json). This file hashes each snapshot (sha256 of its
-sorted-key compact JSON) and decides flakiness by hashes; diff.py compares the snapshot values.
+"launch_switch_hits" (the same, counted from the session's launch to its first case: startup
+sites), optional "switch_readback": {name: arm} (the arm the product reports: snapshot.switches
+for the app, identify and oracle-state for the daemon; task 049)}. Switch names are registry names
+(plans/cmux-next/refactor-switches/<name>.json). A driver raises switches.ArmNotApplied from
+run_case when the product reads back other arms than the run applied: the run stops there with
+one `arm_not_applied` verdict in the receipt, with no retry and no relaunch, since every later
+case would run on the same arms. This file hashes each snapshot (sha256 of its sorted-key
+compact JSON) and decides flakiness by hashes; diff.py compares the snapshot values.
 
 Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra fields below):
     receipt.json       {"schema": "cmux-oracle-run-v1", "runId", "sha", "host": {"name", "os",
@@ -62,11 +66,15 @@ Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra f
                         shards of different kinds), "cases": {"<suite>/<case>": {"suite", "result"
                         (Flaky for a flaky case), "outcome", "flaky", "reasons", "expected", "attempts",
                         "checkpoints": N, "leaked_state": [leak], "environment" (the first attempt's
-                        env and isolation, when the driver reports it)}},
+                        env and isolation, when the driver reports it), "switch_readback" (the first
+                        attempt's)}},
                         "leaked_state": [case ids], "order" (the plan's case order), "sessions":
                         [{"session", "iteration", "attempt", "phase", "cases" (run order), "end"
-                        (batch-end, dirty, leaked, relaunch or fixture-unreadable), "reason"}],
-                        "counts", ...}
+                        (batch-end, dirty, leaked, relaunch, fixture-unreadable or arm-not-applied),
+                        "reason"}], "counts", "switch_hits" (cases and launches), "launch_switch_hits",
+                        "switch_readback" ({name: {arm: attempts}}), "arm_applied", "arm_exercised",
+                        "arm_not_applied" (null, or {"verdict", "case", "phase", "problems",
+                        "readback"}), ...}
                         A leak is {"case", "pointers" (first differing RFC 6901 pointers; "" is
                         the whole snapshot), "count",
                         "error", "launch_order" (the cases that ran in its launch, up to it),
@@ -141,6 +149,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
 from dataclasses import dataclass, field, replace
@@ -558,13 +567,19 @@ class Attempt:
     reset_ms: Optional[int] = field(default=None, hash=False, compare=False)
     # The driver's `environment` (hermetic_env CaseEnv.receipt(): every variable and the isolation).
     environment: Optional[Dict[str, Any]] = field(default=None, hash=False, compare=False)
+    # The arms the product read back for this attempt (switches.ArmNotApplied when they are not the plan's) and
+    # the hits its launch counted before its first case (startup sites).
     switch_readback: Dict[str, str] = field(default_factory=dict, hash=False, compare=False)
+    launch_switch_hits: Dict[str, Dict[str, int]] = field(default_factory=dict, hash=False, compare=False)
 
 
 @dataclass(frozen=True)
 class Work:
     case: Case
     ctx: Dict[str, Any] = field(hash=False, compare=False)
+
+
+ARM_NOT_APPLIED = "arm-not-applied"
 
 
 def crash(message: str) -> Dict[str, Any]:
@@ -610,8 +625,22 @@ def coerce_result(raw: Any) -> Dict[str, Any]:
         "session_dirty": bool(raw.get("session_dirty")),
         "switch_hits": raw.get("switch_hits") or {},
         "switch_readback": dict(readback),
+        "launch_switch_hits": raw.get("launch_switch_hits") or {},
         "environment": environment if isinstance(environment, dict) else None,
     }
+
+
+def arm_refusals() -> Tuple[type, ...]:
+    """The driver exception that ends a run: the product reads back other arms than the run applied."""
+    module = load_sibling("switches")
+    return (module.ArmNotApplied,) if module is not None else ()
+
+
+def arm_refusal(work: Work, error: Any) -> Dict[str, Any]:
+    """The receipt's `arm_not_applied`: where the run stopped, every mismatch and what was read back."""
+    return {"verdict": ARM_NOT_APPLIED, "case": work.case.id, "phase": work.ctx.get("phase"),
+            "problems": [str(p) for p in getattr(error, "problems", ()) or (str(error),)],
+            "readback": dict(sorted(getattr(error, "readback", {}).items()))}
 
 
 # The first differing pointers a leak lists; `count` has them all.
@@ -687,15 +716,17 @@ def reset_check(session: Any, fixture: Any) -> ResetOutcome:
 
 @dataclass(frozen=True)
 class BatchOutput:
-    """(work, result, ms, session number, position, reset ms) per case that ran, infra errors, one log per launch."""
+    """(work, result, ms, session number, position, reset ms) per case that ran, infra errors, one log per launch,
+    and the arm-not-applied refusal that ended the batch (arm_refusal), if any."""
 
     results: Tuple[Tuple[Work, Dict[str, Any], int, int, int, Optional[int]], ...]
     errors: Tuple[str, ...]
     sessions: Tuple[Dict[str, Any], ...]
+    refusal: Optional[Dict[str, Any]] = None
 
 
 def run_batch(works: Sequence[Work], open_session: SessionOpener, session_ctx: Dict[str, Any],
-              numbers: Iterator[int]) -> BatchOutput:
+              numbers: Iterator[int], stop: Optional[threading.Event] = None) -> BatchOutput:
     """Runs one batch in as few launches as possible, with the reset check after each case.
 
     A dirty session (lost process), a leak or a reset that asks for one closes the launch; the next
@@ -703,10 +734,17 @@ def run_batch(works: Sequence[Work], open_session: SessionOpener, session_ctx: D
     the case it was opened for did not run (no result; execute retries it). `ms` is the case alone;
     the reset check's time is `reset ms`. `numbers` gives out session numbers (itertools.count: one
     atomic step per launch).
+
+    An arm-not-applied from the driver (switches.ArmNotApplied) ends the launch and the batch and sets
+    `stop`, so no other batch starts a case: the product would run every case on the same wrong arms,
+    launch after launch. The case it was raised for has no result.
     """
+    stop = threading.Event() if stop is None else stop
     results = []
     errors: List[str] = []
     logs: List[Dict[str, Any]] = []
+    refusal: Optional[Dict[str, Any]] = None
+    refusals = arm_refusals()
     session: Any = None
     fixture: Any = NO_RESET
     log: Dict[str, Any] = {}
@@ -728,6 +766,8 @@ def run_batch(works: Sequence[Work], open_session: SessionOpener, session_ctx: D
 
     try:
         for work in works:
+            if stop.is_set():
+                break
             if not log or "end" in log:
                 ctx = work.ctx
                 log = {"session": next(numbers), "iteration": ctx.get("iteration"), "attempt": ctx.get("attempt"),
@@ -751,6 +791,11 @@ def run_batch(works: Sequence[Work], open_session: SessionOpener, session_ctx: D
             start = time.monotonic()
             try:
                 result = coerce_result(session.run_case(work.case.data, dict(work.ctx)))
+            except refusals as error:
+                refusal = arm_refusal(work, error)
+                stop.set()
+                end(ARM_NOT_APPLIED, "; ".join(refusal["problems"])[:500])
+                break
             except Exception as error:  # noqa: BLE001 - a driver failure fails this case only
                 result = {**crash(f"driver error: {error!r}"), "session_dirty": True}
             ms = int((time.monotonic() - start) * 1000)
@@ -777,27 +822,37 @@ def run_batch(works: Sequence[Work], open_session: SessionOpener, session_ctx: D
     finally:
         if log and "end" not in log:
             end("batch-end")
-    return BatchOutput(tuple(results), tuple(errors), tuple(logs))
+    return BatchOutput(tuple(results), tuple(errors), tuple(logs), refusal)
 
 
 def run_phase(
     batches: Sequence[Sequence[Work]], open_session: SessionOpener, session_ctx: Dict[str, Any], jobs: int,
     numbers: Iterator[int],
-) -> Tuple[list, list, list]:
+    stop: Optional[threading.Event] = None,
+) -> Tuple[list, list, list, list]:
+    """The results, infra errors, launch logs and arm-not-applied refusals of one phase's batches; `stop` is
+    shared by the batches, so a refusal in one keeps the others from starting a case."""
+    stop = threading.Event() if stop is None else stop
     outputs: Iterable[BatchOutput]
+
+    def one(batch: Sequence[Work]) -> BatchOutput:
+        return run_batch(batch, open_session, session_ctx, numbers, stop)
+
     if jobs <= 1 or len(batches) <= 1:
-        outputs = [run_batch(b, open_session, session_ctx, numbers) for b in batches]
+        outputs = [one(b) for b in batches]
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(jobs, len(batches))) as pool:
-            outputs = list(pool.map(lambda b: run_batch(b, open_session, session_ctx, numbers), batches))
+            outputs = list(pool.map(one, batches))
     results: list = []
     errors: list = []
     sessions: list = []
+    refusals: list = []
     for output in outputs:
         results.extend(output.results)
         errors.extend(output.errors)
         sessions.extend(output.sessions)
-    return results, errors, sessions
+        refusals.extend([output.refusal] if output.refusal else [])
+    return results, errors, sessions, refusals
 
 
 @dataclass(frozen=True)
@@ -833,6 +888,9 @@ class RunOptions:
     facets: Optional[str] = None
     # The engine arm (an ENGINE_READBACK key): every launch's browser.defaultEngine; None is the app's default.
     engine: Optional[str] = None
+    # The refactor switch registry the run's switches are checked against (`--switch-registry`); the driver
+    # gets the same directory, so the run and the product's launch plan never read two registries.
+    switch_registry: Path = SWITCH_REGISTRY
 
     @property
     def filtered(self) -> bool:
@@ -880,7 +938,8 @@ def needs_retry(attempt: Tuple[str, Optional[str]], expected: Expected) -> bool:
 
 
 def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expected: Dict[str, Expected],
-            isolation: Mapping[str, Any]) -> Tuple[List[Attempt], List[str], List[Dict[str, Any]]]:
+            isolation: Mapping[str, Any]
+            ) -> Tuple[List[Attempt], List[str], List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """Runs every iteration of the plan with the retry policy of spec 3G.
 
     Retry 1 reruns the whole shard with the same order and batches; retries 2..limit run each
@@ -888,6 +947,8 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
     here, on one thread, before work is dispatched. `isolation` (resolve_isolation, probed once
     for the run) reaches every session as `isolation`, so no session probes the host again. Returns
     the attempts, the infra errors and one log per launch (the cases it ran, in order, and why it ended).
+    An arm-not-applied from the driver stops the run with no retry: the fourth value is that refusal
+    (arm_refusal), else None.
     """
     run_key = base36(int.from_bytes(hashlib.sha256(options.run_id.encode()).digest()[:4], "big"))[-6:]
     keys = itertools.count()
@@ -905,6 +966,7 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
         "isolation": dict(isolation),
         "engine": options.engine,
         **({"facets": options.facets} if options.facets else {}),
+        "switch_registry": str(options.switch_registry.resolve()),
     }
     runnable = [tuple(c for c in batch if not expected[c.id].skip) for batch in plan.batches]
     runnable = [batch for batch in runnable if batch]
@@ -912,12 +974,6 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
     errors: List[str] = []
     sessions: List[Dict[str, Any]] = []
     numbers = itertools.count()
-
-    def phase_of(batches: Sequence[Sequence[Work]], jobs: int) -> list:
-        results, errs, logs = run_phase(batches, open_session, session_ctx, jobs, numbers)
-        errors.extend(errs)
-        sessions.extend(logs)
-        return results
 
     def works(batch: Sequence[Case], iteration: int, attempt: int, phase: str) -> Tuple[Work, ...]:
         out = []
@@ -960,32 +1016,52 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
                     work.case.id, iteration, attempt, phase, result["status"], result.get("step"), result["checkpoints"],
                     result["message"], ms, result.get("switch_hits") or {}, result["rows"] if first else (),
                     session, position, leak, reset_ms, result.get("environment"),
-                    result.get("switch_readback") or {},
+                    result.get("switch_readback") or {}, result.get("launch_switch_hits") or {},
                 )
             )
             statuses[work.case.id] = (result["status"], result.get("step"))
         return statuses
 
+    stop = threading.Event()
+    refused: List[Dict[str, Any]] = []
+
     def not_settled(statuses: Dict[str, Tuple[str, Optional[str]]], case: Case) -> bool:
         status = statuses.get(case.id)
         return status is None or needs_retry(status, expected[case.id])
 
+    def run(batches: Sequence[Sequence[Work]], iteration: int, attempt: int, phase: str,
+            jobs: int) -> Optional[Dict[str, Tuple[str, Optional[str]]]]:
+        """The statuses of one phase, or None when the driver refused the arms: the run ends there."""
+        results, errs, logs, refusals = run_phase(batches, open_session, session_ctx, jobs, numbers, stop)
+        errors.extend(errs)
+        sessions.extend(logs)
+        statuses = record(results, iteration, attempt, phase)
+        refused.extend(refusals)
+        return None if refusals else statuses
+
     for iteration in range(options.repeat):
-        results = phase_of([works(b, iteration, 0, "run") for b in runnable], options.jobs)
-        statuses = record(results, iteration, 0, "run")
+        statuses = run([works(b, iteration, 0, "run") for b in runnable], iteration, 0, "run", options.jobs)
+        if statuses is None:
+            break
         failing = [c for b in runnable for c in b if not_settled(statuses, c)]
         if failing and options.retry_limit >= 1:
-            results = phase_of([works(b, iteration, 1, "shard-retry") for b in runnable], options.jobs)
-            statuses = record(results, iteration, 1, "shard-retry")
+            statuses = run([works(b, iteration, 1, "shard-retry") for b in runnable], iteration, 1, "shard-retry",
+                           options.jobs)
+            if statuses is None:
+                break
             failing = [c for c in failing if not_settled(statuses, c)]
         for attempt in range(2, options.retry_limit + 1):
             if not failing:
                 break
-            results = phase_of([works((c,), iteration, attempt, "alone-retry") for c in failing], 1)
-            statuses = record(results, iteration, attempt, "alone-retry")
+            statuses = run([works((c,), iteration, attempt, "alone-retry") for c in failing], iteration, attempt,
+                           "alone-retry", 1)
+            if statuses is None:
+                break
             failing = [c for c in failing if not_settled(statuses, c)]
+        if refused:
+            break
     sessions.sort(key=lambda log: log["session"])
-    return attempts, errors, sessions
+    return attempts, errors, sessions, (refused[0] if refused else None)
 
 
 def classify(attempts: Sequence[Attempt], expected: Expected) -> Dict[str, Any]:
@@ -1067,14 +1143,21 @@ def arms_seen(counts: Mapping[str, Mapping[str, int]], name: str) -> List[str]:
 
 def run_summary(cases: Mapping[str, Mapping[str, Any]], *, hits: Dict[str, Dict[str, int]],
                 readback: Dict[str, Dict[str, int]], config: Mapping[str, Any],
-                dry_run: bool, infra_errors: Sequence[str]) -> Dict[str, Any]:
-    """The receipt fields that follow from its cases; one function for a shard and a merge."""
+                dry_run: bool, infra_errors: Sequence[str],
+                arm_not_applied: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """The receipt fields that follow from its cases; one function for a shard and a merge.
+
+    `hits` counts every case and every launch (a site that runs only at startup still counts);
+    `arm_not_applied` is the refusal that stopped the run, which fails it whatever the cases show.
+    """
     arm_exercised: Optional[bool] = None
     arm_applied: Optional[bool] = None
     switch, arm = config.get("switch"), config.get("arm")
     if switch and arm and not dry_run and any(r["attempts"] for r in cases.values()):
         arm_exercised = hits.get(switch, {}).get(arm, 0) > 0
         arm_applied = arms_seen(readback, switch) == [arm]
+    if arm_not_applied is not None:
+        arm_applied = False
     counts: Dict[str, int] = {}
     for record in cases.values():
         counts[record["outcome"]] = counts.get(record["outcome"], 0) + 1
@@ -1090,8 +1173,9 @@ def run_summary(cases: Mapping[str, Mapping[str, Any]], *, hits: Dict[str, Dict[
         "switch_readback": readback,
         "arm_exercised": arm_exercised,
         "arm_applied": arm_applied,
-        "ok": not unexpected and not leaked and not infra_errors and arm_exercised is not False
-              and arm_applied is not False,
+        "arm_not_applied": arm_not_applied,
+        "ok": (not unexpected and not leaked and not infra_errors and arm_exercised is not False
+               and arm_applied is not False),
     }
 
 
@@ -1162,12 +1246,13 @@ def perform_run(
     attempts: List[Attempt] = []
     errors: List[str] = []
     sessions: List[Dict[str, Any]] = []
+    refusal: Optional[Dict[str, Any]] = None
     isolation: Dict[str, Any] = {"mode": options.isolation, "kind": None, "reason": "dry run: nothing ran"}
     if not options.dry_run:
         if open_session is None:
             raise UsageError("no driver to run cases with")
         isolation = isolate(options.isolation)
-        attempts, errors, sessions = execute(plan, options, open_session, expected, isolation)
+        attempts, errors, sessions, refusal = execute(plan, options, open_session, expected, isolation)
     by_case: Dict[str, List[Attempt]] = {c.id: [] for c in plan.order}
     for a in attempts:
         by_case[a.case].append(a)
@@ -1179,6 +1264,10 @@ def perform_run(
         if options.dry_run:
             record = {"outcome": "skipped" if exp.skip else "planned", "result": "Skip" if exp.skip else None,
                       "status": "Skip" if exp.skip else None, "flaky": False, "reasons": [], "attempts": 0}
+        elif refusal is not None and not exp.skip and not by_case[case.id]:
+            # The run stopped on arm-not-applied before this case ran.
+            record = {"outcome": "not-run", "result": None, "status": None, "flaky": False, "reasons": [ARM_NOT_APPLIED],
+                      "attempts": 0}
         else:
             record = classify(by_case[case.id], exp)
         first = min((a for a in by_case[case.id] if a.iteration == 0), key=lambda a: a.attempt, default=None)
@@ -1191,6 +1280,8 @@ def perform_run(
             record["leaked_state"] = leaks
         if first is not None and first.environment is not None:
             record["environment"] = first.environment
+        if first is not None and first.switch_readback:
+            record["switch_readback"] = dict(sorted(first.switch_readback.items()))
         records[case.id] = record
         if first is not None:
             rows.extend(checkpoint_rows(case.id, first.rows, attempt=first.attempt, result=first.status))
@@ -1221,9 +1312,12 @@ def perform_run(
         "sessions": sessions,
         "cases": records,
         "infra_errors": errors,
-        **run_summary(records, hits=sum_switch_hits(a.switch_hits for a in attempts),
-                      readback=count_readback(a.switch_readback for a in attempts), config=config,
-                      dry_run=options.dry_run, infra_errors=errors),
+        "launch_switch_hits": sum_switch_hits(a.launch_switch_hits for a in attempts),
+        **run_summary(records, hits=sum_switch_hits([*(a.switch_hits for a in attempts),
+                                                     *(a.launch_switch_hits for a in attempts)]),
+                      readback=count_readback([*(a.switch_readback for a in attempts),
+                                               *([refusal["readback"]] if refusal else [])]),
+                      config=config, dry_run=options.dry_run, infra_errors=errors, arm_not_applied=refusal),
     }
     write_json(options.out / "receipt.json", receipt)
     write_jsonl(options.out / "checkpoints.jsonl", rows)
@@ -1270,6 +1364,10 @@ def write_index(options: RunOptions, receipt: Dict[str, Any]) -> None:
         f"relaunched for state the reset cannot put back); LeakedState: {len(receipt['leaked_state'])}",
         f"- ok: {receipt['ok']}",
     ]
+    refusal = receipt["arm_not_applied"]
+    if refusal:
+        lines.append(f"- {ARM_NOT_APPLIED} at {refusal['case']} ({refusal['phase']}), the run stopped: "
+                     + "; ".join(refusal["problems"]))
     for cid in receipt["leaked_state"][:50]:
         lines.append(f"  - LeakedState: {leak_line(receipt['cases'][cid]['leaked_state'][0])}")
     for cid in receipt["unexpected"][:50]:
@@ -1369,9 +1467,11 @@ def merge_runs(directories: Sequence[Path], *, require_complete: bool) -> Tuple[
         "sessions": [{**log, "runId": r["runId"]} for r in loaded for log in r.get("sessions") or ()],
         "cases": cases,
         "infra_errors": infra,
+        "launch_switch_hits": sum_switch_hits(r.get("launch_switch_hits") or {} for r in loaded),
         **run_summary(cases, hits=sum_switch_hits(r.get("switch_hits") or {} for r in loaded),
                       readback=sum_switch_hits(r.get("switch_readback") or {} for r in loaded), config=config,
-                      dry_run=dry_run, infra_errors=infra),
+                      dry_run=dry_run, infra_errors=infra,
+                      arm_not_applied=next((r["arm_not_applied"] for r in loaded if r.get("arm_not_applied")), None)),
     }
     merged["ok"] = merged["ok"] and complete and not errors
     return RunView(merged, tuple(directories), tuple(sorted(owner)), total, complete, seeds), errors
@@ -2017,6 +2117,7 @@ def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int],
         isolation=args.isolation,
         engine=engine,
         facets=getattr(args, "facets", None),
+        switch_registry=args.switch_registry,
     )
     if args.retry_limit is not None:
         retry = args.retry_limit
@@ -2032,6 +2133,11 @@ def run_expectations(options: RunOptions) -> Optional[ExpectationStore]:
                              product=options.product, build=options.build)
 
 
+def switch_roots(registry: Path) -> Any:
+    """The switches.Roots a run checks its switches against: the run's registry, this checkout's catalogs."""
+    return require_sibling("switches", "p15-oracle-018").Roots(registry=registry.resolve())
+
+
 def run_one(options: RunOptions, *, open_session: Optional[SessionOpener] = None) -> Tuple[Dict[str, Any], int]:
     cases, errors = load_corpus(options.corpus)
     if errors:
@@ -2041,6 +2147,13 @@ def run_one(options: RunOptions, *, open_session: Optional[SessionOpener] = None
         "expectations": "used" if store else "absent (p15-oracle-015): every case expects Pass",
         "normalize": "present" if (HERE / "normalize.py").is_file() else "absent (p15-oracle-013): drivers send canonical snapshots",
     }
+    if options.switches and not options.dry_run:
+        # An unknown switch, arm or key (or no catalog to check the key in) aborts before any product starts.
+        switches = require_sibling("switches", "p15-oracle-018")
+        try:
+            switches.arm_plan(options.switches, switch_roots(options.switch_registry))
+        except switches.UnknownSwitch as error:
+            raise UsageError(f"{error}; nothing ran") from None
     if open_session is None and not options.dry_run:
         driver = load_sibling(f"driver_{options.product}")
         # driver_daemon.py has the facet capture (021) before its case runner (023).
@@ -2062,11 +2175,15 @@ def print_run(receipt: Dict[str, Any], options: RunOptions, as_json: bool) -> No
         print(f"  flaky, left out of comparisons: {len(receipt['flaky'])}")
     for cid in receipt["unexpected"][:20]:
         print(f"  unexpected: {cid} ({receipt['cases'][cid]['status']})")
+    refusal = receipt["arm_not_applied"]
+    if refusal:
+        print(f"  {ARM_NOT_APPLIED} at {refusal['case']}, the run stopped: {'; '.join(refusal['problems'])}; "
+              f"read back {json.dumps(refusal['readback'], sort_keys=True)}")
+    elif receipt["arm_applied"] is False:
+        seen = arms_seen(receipt["switch_readback"], options.switch)
+        print(f"  {ARM_NOT_APPLIED}: {options.switch}={options.arm} read back {seen or 'nothing'}")
     for cid in receipt["leaked_state"][:20]:
         print(f"  LeakedState: {leak_line(receipt['cases'][cid]['leaked_state'][0])}")
-    if receipt["arm_applied"] is False:
-        seen = arms_seen(receipt["switch_readback"], options.switch)
-        print(f"  arm-not-applied: {options.switch}={options.arm} read back {seen or 'nothing'}")
     if receipt["arm_exercised"] is False:
         print(f"  arm-not-exercised: {options.switch}={options.arm} had 0 hits")
     if options.engine:
@@ -2109,6 +2226,18 @@ class Side:
     switches: Dict[str, str]
     ref: Optional[str]
     binary: Optional[str]
+
+
+def side_refusal(receipt: Mapping[str, Any], side: Side) -> Optional[str]:
+    """Why one side's run is no evidence for a diff: it ran on other arms than it applied, or never ran its arm."""
+    if receipt.get("arm_applied") is False:
+        refusal = receipt.get("arm_not_applied") or {}
+        seen = arms_seen(receipt.get("switch_readback") or {}, side.switch or "")
+        return (f"{ARM_NOT_APPLIED}: the {side.label} side "
+                + ("; ".join(refusal.get("problems") or ()) or f"read back {side.switch}={','.join(seen) or 'nothing'}"))
+    if receipt.get("arm_exercised") is False:
+        return f"arm-not-exercised: {side.switch}={side.arm}"
+    return None
 
 
 def diff_sides(args: argparse.Namespace, registry: Dict[str, Dict[str, Any]]) -> Tuple[Tuple[Side, Side], List[Path]]:
@@ -2351,8 +2480,9 @@ def cmd_diff(args: argparse.Namespace) -> int:
                                     ref=side.ref, binary=side.binary)
         receipt, _ = run_one(options)
         print_run(receipt, options, False)
-        if receipt["arm_exercised"] is False:
-            print(f"arm-not-exercised: {side.switch}={side.arm}")
+        refused = side_refusal(receipt, side)
+        if refused:
+            print(refused)
             return EXIT_REFUSED
         view, errors = merge_runs([options.out], require_complete=False)
         if errors:
@@ -2446,8 +2576,9 @@ def queued_diff(args: argparse.Namespace, sides: Tuple[Side, Side], expected: Li
                   file=sys.stderr)
             return EXIT_REFUSED
         print(f"{side.label}: {side.ref} run {run_dir} (oracle.py run exit {code})")
-        if read_receipt(run_dir)["arm_exercised"] is False:
-            print(f"arm-not-exercised: {side.switch}={side.arm}")
+        refused = side_refusal(read_receipt(run_dir), side)
+        if refused:
+            print(refused)
             return EXIT_REFUSED
         view, errors = merge_runs([run_dir], require_complete=False)
         if errors:
