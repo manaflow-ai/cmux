@@ -1,6 +1,13 @@
 /* The composer's model picker (ModelPicker.tsx): a harness rail beside the model list. It builds
    on the composer menu (.acpmux-menu, .acpmux-menu-item, .acpmux-menu-active).
    Theme tokens only; motion only for viewers who allow it. */
+/* Base UI can publish an invalid or missing available-height token while a popup is measuring. A
+   typed room falls back to a large value, so the viewport cap still applies without a hidden spacer. */
+@property --acpmux-quick-room {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 100000px;
+}
 .acpmux-mp {
   --acpmux-mp-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
   --acpmux-mp-gap: 4px;
@@ -68,12 +75,36 @@
     border-inline-end: 0;
     border-block-end: 0.5px solid var(--ui-line, color-mix(in srgb, var(--agent-text) 12%, transparent));
   }
+  .acpmux-mp-rail-viewport {
+    scroll-snap-type: inline mandatory;
+    scroll-snap-stop: always;
+    scroll-padding-inline: 6px;
+    /* Keep the padding peek visual-only: edge hits must not activate a partly visible tab. */
+    -webkit-clip-path: inset(0 6px);
+    clip-path: inset(0 6px);
+    /* A partial edge item is a deliberate, bounded peek rather than a clipped-looking icon. */
+    mask-image: linear-gradient(to right, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .acpmux-mp-rail-viewport { mask-image: none; }
+  }
+  :root[data-reduce-transparency="true"] .acpmux-mp-rail-viewport {
+    mask-image: none;
+  }
   .acpmux-mp-rail-list {
     width: max-content;
     min-width: 100%;
     flex-direction: row !important;
     align-items: center;
     padding: 6px;
+    gap: 4px;
+  }
+  .acpmux-mp-rail-list > .acpmux-mp-rail-tab {
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    inline-size: 32px;
+    min-inline-size: 32px;
+    max-inline-size: 32px;
   }
   .acpmux-mp-content {
     width: 100%;
@@ -112,9 +143,12 @@
   padding: 6px;
   border: 0;
   border-radius: 12px;
-  /* Never past the room on its side (Base UI's --available-height, cx-m6jn0): the list scrolls. */
-  max-height: var(--available-height, none);
+  /* Size to visible rows, then give the list room up to the popup boundary and viewport. */
+  --acpmux-quick-room: min(var(--available-height, calc(100vh - 16px)), calc(100vh - 16px));
+  max-height: calc(100vh - 16px);
+  max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .acpmux-quick-menu .ui-menu-group-label {
   display: block;
@@ -210,9 +244,9 @@
 .acpmux-quick-disclosure .ui-submenu-chevron,
 .acpmux-quick-disclosure .ui-submenu-chevron:dir(rtl) { transform: translateY(-2px) rotate(135deg); }
 .acpmux-quick-disclosure[aria-expanded="true"] .ui-submenu-chevron { transform: translateY(1px) rotate(-45deg); }
-/* The shown models scroll in about six rows, so the rows after them (Effort, Account, Fast mode)
-   stay in view. */
-.acpmux-quick-more-list { min-inline-size: 0; margin: 0; border: 0; padding: 0; max-height: calc(6.5 * var(--ui-row-height)); overflow-y: auto; overscroll-behavior: contain; }
+/* Expanded models share the menu body's scroll. Available anchor room, not a row cap, bounds
+   the list, so a tall window shows more models without a nested scroll region. */
+.acpmux-quick-more-list { min-inline-size: 0; margin: 0; border: 0; padding: 0; }
 /* The optional Effort slider keeps the submenu's glass surface compact while the native range
    input remains the full hit target. Its custom thumb is endpoint-inclusive (composerControls.css). */
 .acpmux-quick-effort-slider {
@@ -227,9 +261,9 @@
 .acpmux-quick-fast .ui-menu-check { display: none; }
 .ui-menu-item.acpmux-quick-item.acpmux-quick-fast { display: flex; }
 .acpmux-quick-fast-toggle {
+  position: relative;
   flex: none;
-  display: flex;
-  align-items: center;
+  display: block;
   width: 30px;
   box-sizing: border-box;
   height: calc(var(--ui-row-height) * 0.65);
@@ -239,19 +273,33 @@
   background: color-mix(in srgb, var(--agent-text) 24%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
 }
-.acpmux-quick-fast-toggle > span {
+/* Keep both thumb positions in the layout at all times. Toggling opacity changes only paint,
+   preventing the compact menu from registering a layout shift when Fast mode changes. */
+.acpmux-quick-fast-toggle > span,
+.acpmux-quick-fast-toggle::after {
+  content: "";
+  position: absolute;
+  inset-block-start: calc(var(--ds-space-1) / 2);
   width: calc(var(--ui-row-height) * 0.5);
   height: calc(var(--ui-row-height) * 0.5);
   border-radius: 50%;
+  transition: none;
+}
+.acpmux-quick-fast-toggle > span {
+  inset-inline-start: calc(var(--ds-space-1) / 2);
   background: var(--agent-text);
+  opacity: 1;
+}
+.acpmux-quick-fast-toggle::after {
+  inset-inline-end: calc(var(--ds-space-1) / 2);
+  background: var(--agent-accent-text, var(--agent-page-bg));
+  opacity: 0;
 }
 .acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle {
-  justify-content: flex-end;
   background: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
 }
-.acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle > span {
-  background: var(--agent-accent-text, var(--agent-page-bg));
-}
+.acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle > span { opacity: 0; }
+.acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle::after { opacity: 1; }
 .acpmux-quick-note.ui-menu-item[data-disabled] {
   opacity: 1;
   color: var(--agent-muted);
@@ -267,7 +315,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: calc(var(--ui-row-height) + var(--ui-popup-padding) * 2);
+  height: var(--ui-row-height);
+  box-sizing: border-box;
   margin: 0;
   padding-inline: var(--ui-row-padding-inline);
   border-block-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
@@ -299,16 +348,23 @@
   width: min(480px, var(--available-width, calc(100vw - 24px)));
   max-width: min(480px, var(--available-width, calc(100vw - 24px)));
   padding: 0;
+  --acpmux-quick-room: min(var(--available-height, calc(100vh - 16px)), calc(100vh - 16px));
+  max-height: calc(100vh - 16px);
+  max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
   overflow: hidden;
 }
 .acpmux-quick-layout {
   display: flex;
   flex-direction: row;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-height: 0;
+  max-height: calc(100vh - 16px);
+  max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
   overflow: hidden;
 }
-.acpmux-quick-newtab { max-height: min(480px, var(--available-height, 100vh)); }
+.acpmux-quick-newtab {
+  max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
+}
 .acpmux-quick-rail {
   flex: 0 0 38%;
   contain: size;
@@ -365,18 +421,14 @@
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
-  padding: 6px;
+  padding: 0;
   overflow-y: auto;
-  scroll-padding-block: 6px;
+  scroll-padding-block: 0;
 }
 .acpmux-quick-body[data-scrolled] { mask-image: linear-gradient(to bottom, transparent, #000 6px); }
-.acpmux-quick-list,
-.acpmux-quick-spacer { grid-area: 1 / 1; min-width: 0; }
 .acpmux-quick-list { display: flex; flex-direction: column; min-height: 0; }
 .acpmux-quick-list > * { flex: none; }
-.acpmux-quick-list > .acpmux-quick-more-list { flex: 0 1 auto; min-height: var(--ui-row-height); contain: inline-size; }
-.acpmux-quick-spacer { visibility: hidden; pointer-events: none; }
-.acpmux-quick-probe { height: 0; overflow: hidden; }
+.acpmux-quick-list > .acpmux-quick-more-list { contain: inline-size; }
 /* A filtered row names its harness in secondary text. */
 .acpmux-quick-item:not(.acpmux-quick-sub) .acpmux-quick-value {
   padding-inline-start: 12px;
@@ -437,4 +489,19 @@
 }
 .ui-menu-item.acpmux-quick-offer {
   padding-inline-start: calc(var(--ui-row-padding-inline) + 12px);
+}
+
+/* Model rows own their inset; the list wrapper must not add a second inset. */
+.acpmux-mp-models { padding: 0; }
+
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-mp-rail-viewport {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+
+:root[data-reduce-transparency] .acpmux-mp-rail-viewport {
+  -webkit-mask-image: none;
+  mask-image: none;
 }

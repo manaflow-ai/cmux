@@ -182,7 +182,10 @@ class Workflow(unittest.TestCase):
                 self.assertEqual(jobs[job]["outputs"][alternate], "${{ steps.sign-runner.outputs.alternate }}")
                 # legacy-identity-target takes release-next only for the release App credentials of its
                 # gh calls (tests/test_gh_app_token.py); that environment has no reviewers, so nothing waits.
-                self.assertEqual(jobs[job].get("environment"), "release-next" if job == "legacy-identity-target" else None)
+                # pick-nightly-sign-runner mints the routing token, so it reads GLAEDA_ROUTE_APP_KEY in
+                # ci-routing-agent, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
+                expected = {"legacy-identity-target": "release-next", "pick-nightly-sign-runner": "ci-routing-agent"}
+                self.assertEqual(jobs[job].get("environment"), expected.get(job))
         self.assertEqual(jobs["pick-nightly-sign-runner"]["permissions"], {"actions": "read", "contents": "read"})
         # A failed pick never blocks signing: the jobs fall back to the variable.
         self.assertTrue(jobs["pick-nightly-sign-runner"]["continue-on-error"])
@@ -233,7 +236,8 @@ class OwnedVerify(unittest.TestCase):
                          "${{ (github.event_name == 'push' && github.run_attempt == 1 || "
                          "steps.upload-marker.outcome == 'success') && steps.owned.outputs.owned || '' }}")
         self.assertEqual(job["outputs"]["attempt"], "${{ github.run_attempt }}")
-        self.assertNotIn("environment", job)
+        # The routing environment only scopes the routing App key; it has no reviewers, so nothing waits.
+        self.assertEqual(job.get("environment"), "ci-routing-agent")
         step = next(s for s in job["steps"] if s.get("id") == "owned")
         self.assertTrue(step["continue-on-error"])
         self.assertNotIn("github.run_attempt == 1", step["if"])
