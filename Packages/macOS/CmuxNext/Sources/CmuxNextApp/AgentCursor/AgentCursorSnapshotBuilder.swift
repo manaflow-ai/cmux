@@ -67,7 +67,8 @@ struct AgentCursorSnapshotBuilder {
         let content = controller.content
         let space = window?.contentView.map(AgentCursorContentSpace.init)
         // The Home page draws the home workspace's chief conversation: that workspace is on screen.
-        let homePage = controller.shownTopPage == .home ? controller.topPages.views[.home] : nil
+        // Classic Home only: a window's own docked Home page is not the home workspace (multiwindow.md).
+        let homePage = controller.shownTopPage == .home && services.home.dock.isClassic ? controller.topPages.views[.home] : nil
         let shown = content?.workspace.id ?? homePage.flatMap { _ in services.home.homeWorkspace?.id }
         var rows: [String: AgentCursorRect] = [:]
         var panes: [AgentCursorVisibilitySnapshot.Pane] = []

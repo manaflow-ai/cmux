@@ -154,15 +154,22 @@ final class HomeDockTab: InternalPageProvider {
     /// Whether the Home window `windowID` shows (its own page when `page` is Home, else the home workspace's
     /// dock) shows Channels: the window's sidebar marks its Channels entry by it.
     static func showsChannels(_ services: AppServices, windowID: String, page: TopPageRoute?) -> Bool {
-        guard let key = dockKey(services, windowID: windowID, page: page) else { return false }
+        // Only a window that shows Home marks Channels (its own page, or the home workspace it lists).
+        guard page == .home || services.windows.controller(for: windowID)?.state.workspaceID == services.home.dockedHomeID,
+              let key = dockKey(services, windowID: windowID, page: page) else { return false }
         return services.home.dockModes[key] == .channels
     }
 
     /// The provider key of the Home window `windowID` shows: its own when `page` is Home (docked Home), else the
     /// home workspace's dock tab.
+    /// A window that does not list the home workspace has its own Home, also while it shows a workspace: a Home
+    /// action from it (send, leave, toggle Channels) acts on its own Home, never on another window's dock.
     static func dockKey(_ services: AppServices, windowID: String?, page: TopPageRoute?) -> String? {
-        if let windowID, page == .home, !services.home.dock.isClassic { return windowKey(windowID) }
-        guard let tab = services.home.homeWorkspace.flatMap(HomeDock.pageTab(in:))?.tab else { return nil }
+        guard !services.home.dock.isClassic else { return nil }
+        if let windowID, page == .home { return windowKey(windowID) }
+        guard let home = services.home.homeWorkspace else { return nil }
+        if let windowID, let owner = services.windows.registry.value.owner(of: home.id), owner != windowID { return windowKey(windowID) }
+        guard let tab = HomeDock.pageTab(in: home)?.tab else { return nil }
         return services.pages.storeKey(of: tab.id) ?? tab.id
     }
 
