@@ -76,3 +76,21 @@ async fn replaced_peer_ignores_old_drop_deadline() {
     assert_eq!(hub.resolve_remote("live").unwrap().2["status"], "ready");
     assert!(events.try_recv().is_err());
 }
+
+#[tokio::test(start_paused = true)]
+async fn peer_loop_never_consumes_the_daemons_pending_shutdown() {
+    // No yield after construction: the notice loop has not registered a waiter
+    // when shutdown is broadcast. The stored permit belongs to the daemon.
+    let (hub, peer, _) = fixture();
+    hub.peer_notices
+        .send((peer.name.clone(), peer.generation, PeerNotice::Disconnected("reset".into())))
+        .await
+        .unwrap();
+    hub.stop_idle_reaper();
+    hub.shutdown.notify_waiters();
+    hub.shutdown.notify_one();
+    tokio::task::yield_now().await;
+    tokio::time::timeout(Duration::from_secs(1), hub.shutdown.notified())
+        .await
+        .expect("peer loop stole the main daemon's shutdown permit");
+}
