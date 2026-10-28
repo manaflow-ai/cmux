@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextCompat
 import CmuxNextInput
 import CmuxNextTerminalGeometry
 import CmuxNextTrace
@@ -21,10 +22,14 @@ import QuartzCore
 public final class TerminalSurfaceView: NSView {
     // MARK: State
 
-    /// SAFETY: the view's live surface: made in `init`, freed only in `deinit`, and never
-    /// replaced, so a non-nil read on the main actor is a live handle for that turn. Off-main
-    /// work reaches it only through ``lane``, which `deinit` closes before the free.
+    /// SAFETY: the view's live surface: made in `init`, freed only in ``destroy()`` (the session's
+    /// close, or `deinit` on the main thread), which sets it to nil on the main actor, and never
+    /// replaced, so a non-nil read on the main actor is a live handle for that turn. Off-main work
+    /// reaches it only through ``lane``, which ``destroy()`` closes before the free.
     @safe private(set) var surface: ghostty_surface_t?
+    /// ``destroy()`` ran: the surface is freed. Atomic so the nonisolated `deinit` reads it on any thread.
+    private let destroyed = Atomic<Bool>(false)
+    private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "terminal")
     /// The light/dark scheme last given to this surface (diagnostics).
     var colorSchemeIsDark = false
     /// SAFETY: +1 from `init` until `deinit` releases it after ghostty_surface_free, so the
@@ -240,24 +245,46 @@ public final class TerminalSurfaceView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    /// Frees the surface and stops everything that reaches it, in order: the window and secure-input
+    /// watches, the output lane (the off-main path to the surface), vsync, `ghostty_surface_free` (which
+    /// joins the renderer and IO threads and drops the Metal resources), then the hook's hold on the
+    /// bridge. Idempotent. The session calls it from ``TerminalSession/close()``, so a closed terminal
+    /// holds no surface, threads or GPU memory whatever thread its last reference goes on (cleanup.md,
+    /// audit batch 7 A2). One owner with an ordered close, as Chrome's RenderWidgetHostViewMac::Destroy
+    /// releases the compositor before the view goes, not in dealloc.
+    func destroy() {
+        guard !destroyed.load(ordering: .relaxed) else { return }
+        windowWatch.stop()
+        shownWatch = nil
+        occlusionWatch = nil
+        secureInput.release(ObjectIdentifier(self))
+        if let surface {
+            lane?.close()
+            vsync.close() // no vsync tick reaches the surface after this
+            // SAFETY: the one free of the view's surface (`surface`'s note), after the lane
+            // that reaches it off the main thread closed.
+            unsafe ghostty_surface_free(surface)
+            self.surface = nil
+        }
+        bridgeObject.surfaceFreed() // free joined every thread that reads the bridge: the hook stops reading it
+        destroyed.store(true, ordering: .relaxed)
+    }
+
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            windowWatch.stop()
-            secureInput.release(ObjectIdentifier(self))
-            if let surface {
-                lane?.close()
-                vsync.close() // no vsync tick reaches the surface after this
-                // SAFETY: the one free of the view's surface (`surface`'s note), after the lane
-                // that reaches it off the main thread closed.
-                unsafe ghostty_surface_free(surface)
-            }
-            bridgeObject.surfaceFreed() // free joined every thread that reads the bridge: the hook stops reading it
-            // Released after free: free joins the IO thread that reads the bridge.
-            // SAFETY: the one release of `init`'s retain (`bridge`'s note), after the free.
-            unsafe bridge.release()
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { destroy() } // main-proof: on the main thread; a view no session closed
         }
+        // Off the main thread the surface cannot be freed here (free must run on the main actor). A view
+        // its session closed freed it in destroy(), so only the bridge's retain is left; one no session
+        // closed keeps its bridge too, as Ghostty may still call back into it.
+        guard destroyed.load(ordering: .relaxed) else {
+            Self.logger.fault("a terminal surface view was released off the main thread before its session closed it: its Ghostty surface leaks")
+            return
+        }
+        // Released after free: free joins the IO thread that reads the bridge.
+        // SAFETY: the one release of `init`'s retain (`bridge`'s note), after the free.
+        unsafe bridge.release()
     }
 
     /// `ghostty_surface_new` with embedder-owned IO (ghostty.h:548-559, :627-629). `GHOSTTY_SURFACE_IO_MANUAL_MIRROR` for

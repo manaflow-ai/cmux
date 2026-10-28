@@ -320,7 +320,10 @@ public final class TerminalSession {
         closeCancels = []
         input.finish()
         outputLane.close() // the IO's reader feeds no lane of this session again
+        frameHold.end() // no held last frame paints over a closed terminal (audit batch 7 A10)
         surfaceView.removeFromSuperview()
+        // The surface, its threads and GPU memory go now, not with the view's last reference (audit batch 7 A2).
+        surfaceView.destroy()
     }
 
     // MARK: Events
