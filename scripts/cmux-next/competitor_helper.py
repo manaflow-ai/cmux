@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """The program in each measured terminal of competitor-bench.py (pro audit 11). Never lands on its own.
 
-Every app's shell (zsh with the bench's ZDOTDIR) execs this at its first prompt, so every terminal app runs the same
-child: no app's own shell integration, prompt or plugins count. It connects to the bench (A11_SOCK), says hello with
+Every app's shell (zsh with the bench's HOME/.zshrc) execs this at its first prompt (argv[1]: the bench socket), so every terminal app runs the same
+child: no app's own shell integration, prompt or plugins count. It connects to the bench, says hello with
 its pid, tty, size and the terminal's own environment (its IPC socket names), puts the tty in cbreak mode and then:
 
   stdin   every byte typed (the app's input path, injected by the bench) is stamped (CLOCK_UPTIME_RAW ns), echoed at
@@ -66,7 +66,7 @@ ENV_KEYS = ("TERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "KITTY_LISTEN_ON", "
 def main():
     started = now()
     sock = socket.socket(socket.AF_UNIX)
-    sock.connect(os.environ["A11_SOCK"])
+    sock.connect(sys.argv[1] if len(sys.argv) > 1 else os.environ["A11_SOCK"])
 
     def send(obj):
         sock.sendall((json.dumps(obj) + "\n").encode())

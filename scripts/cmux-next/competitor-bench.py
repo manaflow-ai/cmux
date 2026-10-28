@@ -6,7 +6,7 @@ Binding brief: handoff/benchmark.md. One fleet step measures every app in turn o
 artifact sha256; this script downloads each competitor at a pinned version and sha256).
 
 Method, the same for every app:
-  shell     every terminal runs /bin/zsh with this bench's ZDOTDIR; its first prompt writes a marker (the live
+  shell     every terminal runs /bin/zsh with HOME = the bench's home (its .zshrc); its first prompt writes a marker (the live
             prompt) and execs competitor_helper.py, so every app hosts the same child.
   input     no perf host holds the Accessibility grant (real HID keys need it), so keys are injected through each
             app's own automation path where it has one: cmux `debug.key` (the app's key path), Kitty remote control
@@ -465,23 +465,26 @@ def info(app):
 
 
 # ---------------------------------------------------------------- shell
-def make_zdot():
-    zdot = os.path.join(OUT, "zdot")
-    os.makedirs(zdot, exist_ok=True)
-    with open(os.path.join(zdot, ".zshrc"), "w") as f:
+def make_home():
+    """The HOME every app's shell starts in: zsh reads its .zshrc there whatever the app does to the environment
+    (cmux-next captures a login shell's env from HOME and SHELL only, LoginEnvironment.capture, so ZDOTDIR and
+    A11_SOCK of the launch never reach its terminals). The first prompt logs its time and execs the helper."""
+    home = os.path.join(OUT, "home")
+    os.makedirs(home, exist_ok=True)
+    with open(os.path.join(home, ".zshrc"), "w") as f:
         f.write(f"""zmodload zsh/datetime
 autoload -Uz add-zsh-hook
 PROMPT='%~ %# '
 a11_first() {{
   add-zsh-hook -d precmd a11_first
   print -r -- "$EPOCHREALTIME $$ $TTY" >> {OUT}/prompt.log
-  [[ -n $A11_SOCK ]] && exec {sys.executable} -I {os.path.join(HERE, 'competitor_helper.py')}
+  exec {sys.executable} -I {os.path.join(HERE, 'competitor_helper.py')} {HUB.path}
 }}
 add-zsh-hook precmd a11_first
 """)
-    for name in (".zshenv", ".zprofile"):
-        open(os.path.join(zdot, name), "w").close()
-    return zdot
+    for name in (".zshenv", ".zprofile", ".zlogin"):
+        open(os.path.join(home, name), "w").close()
+    return home
 
 
 def prompts_after(wall):
@@ -492,11 +495,11 @@ def prompts_after(wall):
     return [float(l.split()[0]) for l in lines if l.split() and float(l.split()[0]) >= wall]
 
 
-def base_env(zdot, scratch):
+def base_env(home, scratch):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("CMUX", "KITTY", "WEZTERM", "ALACRITTY", "GHOSTTY"))}
-    env.update(SHELL="/bin/zsh", ZDOTDIR=zdot, A11_SOCK=HUB.path, XDG_CONFIG_HOME=os.path.join(scratch, "xdg"),
-               TERM_PROGRAM="")
-    env.pop("TERM_PROGRAM")
+    for key in ("ZDOTDIR", "TERM_PROGRAM", "TERM_PROGRAM_VERSION"):
+        env.pop(key, None)
+    env.update(SHELL="/bin/zsh", HOME=home, XDG_CONFIG_HOME=os.path.join(scratch, "xdg"))
     return env
 
 
@@ -744,7 +747,9 @@ class Cmux(Adapter):
         self.bench = None
 
     def launch(self):
-        env = {**self.shipping_env(), "SHELL": "/bin/zsh", "ZDOTDIR": self.zdot, "A11_SOCK": HUB.path}
+        self.probe_csv = os.path.join(OUT, f"cmux-typing-probe-{len(HUB.terms)}.csv")
+        env = {**self.shipping_env(), "SHELL": "/bin/zsh", "HOME": self.zdot, "ZDOTDIR": None,
+               "CMUX_NEXT_TYPING_PROBE": self.probe_csv}
         self.bench = self.BenchApp(self.app, out=os.path.join(OUT, "cmux-launch"), window=(40, 40, 1240, 820), env=env,
                                    log_name="app-competitors.log")
         with open(os.path.join(self.bench.scratch, "ghostty"), "w") as f:
@@ -875,9 +880,25 @@ def key_to_photon(adapter, term, photon, samples):
                 read_to_frame.append(first_frame_after(frames, read, int(0.1e9), big))
         if photon:
             send_to_frame.append(first_frame_after(frames, t, int(0.15e9), big))
-    return {"send_to_child_read": dist(send_to_read), "child_read_to_frame": dist(read_to_frame),
-            "send_to_frame": dist(send_to_frame), "keys_read": len(keys), "sent": len(sends), "errors": errors[:3],
-            "path": adapter.ipc}
+    out = {"send_to_child_read": dist(send_to_read), "child_read_to_frame": dist(read_to_frame),
+           "send_to_frame": dist(send_to_frame), "keys_read": len(keys), "sent": len(sends), "errors": errors[:3],
+           "path": adapter.ipc}
+    if isinstance(adapter, Cmux):
+        rows = adapter.hid.probe_rows(adapter.probe_csv)[-len(sends):]
+
+        def col(name):
+            vals = []
+            for r in rows:
+                try:
+                    vals.append(float(r.get(name)))
+                except (TypeError, ValueError):
+                    pass
+            return dist(vals)
+        # The app's own software probe: key event -> the frame Ghostty hands the layer after the echo's parse.
+        out["cmux_typing_probe"] = {"rows": len(rows), "contents_ms": col("contents_ms"),
+                                    "output_received_ms": col("output_received_ms"), "io_write_ms": col("io_write_ms"),
+                                    "dispatch_end_ms": col("dispatch_end_ms"), "columns": list(rows[0].keys()) if rows else []}
+    return out
 
 
 def open_latency(adapter, term, photon, kind, rounds, typing_rounds):
@@ -1054,7 +1075,7 @@ def measure_app(name, app, zdot, catfile, refresh_ms):
     pid = adapter.pid()
     entry["windows"] = probe("windows", "--pid", str(pid))[1].splitlines()[:6] if pid else None
     if not term:
-        entry["helper"] = "no terminal said hello in 60 s (the app ran no shell with the bench's ZDOTDIR)"
+        entry["helper"] = "no terminal said hello in 60 s (the app ran no shell with the bench's HOME/.zshrc)"
         time.sleep(opts.settle)
         entry["idle_1"] = idle_window(app, opts.idle)
         adapter.quit()
@@ -1168,6 +1189,12 @@ def table():
             ("output->photon p95 ms", ["output_to_photon_ms", "p95"]),
             ("key->photon (injected) p50 ms", ["key_to_photon_ms", "send_to_frame", "p50"]),
             ("key->photon (injected) p95 ms", ["key_to_photon_ms", "send_to_frame", "p95"]),
+            ("key send->child read p50 ms", ["key_to_photon_ms", "send_to_child_read", "p50"]),
+            ("key send->child read p95 ms", ["key_to_photon_ms", "send_to_child_read", "p95"]),
+            ("cmux probe key->frame p50 ms", ["key_to_photon_ms", "cmux_typing_probe", "contents_ms", "p50"]),
+            ("cmux probe key->frame p95 ms", ["key_to_photon_ms", "cmux_typing_probe", "contents_ms", "p95"]),
+            ("new tab -> helper p50 ms", ["new_tab", "helper_ms", "p50"]),
+            ("split -> helper p50 ms", ["split", "helper_ms", "p50"]),
             ("new tab -> frame p50 ms", ["new_tab", "frame_ms", "p50"]),
             ("new tab -> prompt p50 ms", ["new_tab", "prompt_ms", "p50"]),
             ("split -> frame p50 ms", ["split", "frame_ms", "p50"]),
@@ -1209,7 +1236,7 @@ def main():
     if m:
         refresh_ms = float(m.group(1))
     REPORT["refresh_ms"] = refresh_ms
-    zdot = make_zdot()
+    zdot = make_home()
     catfile = make_catfile(opts.cat_mb if opts.phase == "full" else 10)
     for name in [a for a in opts.apps.split(",") if a]:
         try:
