@@ -78,7 +78,7 @@ struct NewTabHoldFocusTests {
         let file = try #require(AgentPageAppTestRoot.page)
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
         model.becomeNewTab(AgentPaneNewTab(kind: .agent))
-        let page = try #require(AgentPaneView(model: model, source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
+        let page = try #require(AgentPaneView(mainThread: .standalone(), model: model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
         page.frame = other.view.bounds
         other.view.addSubview(page)
         services.agentTabs.views[key] = page
@@ -104,7 +104,7 @@ struct NewTabHoldFocusTests {
         // The field reports ready: the held keys go to it now, not at the hold's limit.
         input.acknowledge(token, in: window)
         #expect(!input.isHolding(in: window), "the hold kept the keys after the page's field was ready: \(input.log)")
-        #expect(window.firstResponder === page.webView, "the page's field never got the keyboard (first responder \(String(describing: window.firstResponder)))")
+        #expect(window.firstResponder === page.focusTarget, "the page's field never got the keyboard (first responder \(String(describing: window.firstResponder)))")
         #expect(input.log.contains { $0.hasPrefix("drained to field") }, "the held keys did not go to the page's field: \(input.log)")
         #expect(controller.focus.state.pane == other.paneKey, "the focus model still names the pane the keys were not typed for")
     }

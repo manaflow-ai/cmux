@@ -51,6 +51,30 @@
         "settled"
       ],
       "note": "a well-formed restore id; purging a backup that does not exist purges 0"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "history.backups.purge",
+        "params": {
+          "restore_id": "history:0000000000000000000000000000000a"
+        },
+        "idempotencyKey": "history-backups-purge-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

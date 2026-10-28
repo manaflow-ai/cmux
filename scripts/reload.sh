@@ -1716,9 +1716,11 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   # (check-no-bench-hooks.sh).
   SWIFT_OTHER_FLAGS+=" -DCMUX_BENCH_HOOKS"
   if [[ "$BLOCKING_CHECKS" -eq 1 ]]; then
-    # bench-checks only: the main-thread blocking detector records (never traps) each blocking call
-    # (`debug.blocking`, plans/cmux-next/threading-model.md). Its bookkeeping costs time on every checked
-    # call, so the latency, frame, launch, idle and memory stories measure `bench` without it.
+    # bench-checks only: the main-thread blocking detector records each blocking call (`debug.blocking`,
+    # plans/cmux-next/threading-model.md). It never traps here: with CMUX_BENCH_HOOKS, BlockingMode ignores
+    # CMUX_BLOCKING_TRAP=1 (the Debug/Nightly opt-in crash mode), so an inherited export cannot stop a bench
+    # run. Its bookkeeping costs time on every checked call, so the latency, frame, launch, idle and memory
+    # stories measure `bench` without it.
     SWIFT_OTHER_FLAGS+=" -DCMUX_BLOCKING_CHECKS"
     echo "==> bench-checks configuration: Release optimization with -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS (no DEBUG)"
   elif [[ "$PGO_PROFILE" -eq 1 ]]; then
@@ -1755,6 +1757,11 @@ if [[ "${CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS:-0}" == "1" ]]; then
   XCODEBUILD_ARGS+=(-showBuildTimingSummary)
 else
   SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE=0
+fi
+# Per-task-kind seconds (Ld, SwiftCompile, ...) at the end of the log, with no build
+# setting changed, so nothing rebuilds for it (pgo/lto-ab.sh reads the Ld row).
+if [[ "${CMUX_RELOAD_BUILD_TIMING_SUMMARY:-0}" == "1" && "$SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE" -ne 1 ]]; then
+  XCODEBUILD_ARGS+=(-showBuildTimingSummary)
 fi
 if reload_skips_app_module_emission "$(selected_xcode_version)"; then
   # A dev build runs the app; nothing imports its Swift module (only cmuxTests,

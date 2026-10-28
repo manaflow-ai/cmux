@@ -192,6 +192,26 @@ fn shutdown_runs_block_items_and_drops_skip_items() {
 }
 
 #[test]
+fn posted_counts_accepted_items_of_their_lane_only() {
+    let work = work("t-posted", 2, Duration::from_secs(30), 0);
+    for _ in 0..3 {
+        work.post(Priority::UserVisible, Lane::Cpu, Shutdown::SkipOnShutdown, || {}).unwrap();
+    }
+    assert_eq!(
+        work.run(Priority::BestEffort, Lane::Files, Shutdown::SkipOnShutdown, || 1).wait(),
+        Ok(1)
+    );
+    assert_eq!(lane_stats(&work, Lane::Cpu).posted, 3);
+    assert_eq!(lane_stats(&work, Lane::Files).posted, 1);
+    work.shutdown();
+    assert_eq!(
+        work.post(Priority::UserBlocking, Lane::Cpu, Shutdown::SkipOnShutdown, || {}),
+        Err(Refused)
+    );
+    assert_eq!(lane_stats(&work, Lane::Cpu).posted, 3, "a refused item counted as posted");
+}
+
+#[test]
 fn shutdown_waits_for_started_skip_items_and_not_for_continue_items() {
     let work = work("t-skip", 1, Duration::from_secs(30), 0);
     let skip =
@@ -510,7 +530,8 @@ fn worker_and_class() -> (String, bool) {
     #[cfg(target_os = "linux")]
     let user_initiated = current_nice() == base_nice();
     #[cfg(target_vendor = "apple")]
-    let user_initiated = crate::qos::current() == LiveQos::Class(ThreadQos::UserInitiated);
+    let user_initiated =
+        crate::qos::current() == crate::qos::LiveQos::Class(ThreadQos::UserInitiated);
     #[cfg(not(any(target_os = "linux", target_vendor = "apple")))]
     let user_initiated = true;
     (name, user_initiated)
@@ -624,4 +645,47 @@ fn shutdown_raise_starts_on_the_item_worker_and_ends_after_it_at_the_worker_clas
     let log = log.lock().unwrap();
     assert_eq!(log.ended, vec![WorkerClass::BestEffort.qos()]);
     assert_eq!(log.raised.len(), 1);
+}
+
+/// Task p02-threads-119: a checked receive in an item is one `lane-sync` site, recorded in record mode
+/// and never a panic; a checked file read in it and a checked receive on a dedicated thread record
+/// nothing.
+#[test]
+fn a_checked_receive_in_an_item_is_one_lane_sync_site() {
+    crate::blocking::set_mode(crate::blocking::BlockingMode::Record);
+    let work = work("t-ls", 2, Duration::from_secs(30), 0);
+    let (recv_line, fs_line) = work
+        .run(Priority::UserVisible, Lane::Files, Shutdown::SkipOnShutdown, || {
+            assert!(crate::blocking::is_sync_primitives_disallowed());
+            let (tx, rx) = channel();
+            tx.send(()).unwrap();
+            let recv_line = line!() + 1;
+            crate::checked::sync::recv(&rx).unwrap();
+            let fs_line = line!() + 1;
+            crate::blocking::assert_blocking_allowed(crate::blocking::BlockingKind::Fs);
+            (recv_line, fs_line)
+        })
+        .wait()
+        .unwrap();
+    let dedicated_line = std::thread::Builder::new()
+        .name("t-ls-dedicated".into())
+        .spawn(|| {
+            let (tx, rx) = channel();
+            tx.send(()).unwrap();
+            let line = line!() + 1;
+            crate::checked::sync::recv(&rx).unwrap();
+            line
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    let snapshot = crate::blocking::snapshot();
+    let site = snapshot.site(file!(), recv_line).expect("the item's receive is a site");
+    assert_eq!(site.count, 1);
+    assert!(site.lane_sync);
+    assert!(site.kinds.contains(crate::blocking::BlockingKind::Recv));
+    assert!(snapshot.site(file!(), fs_line).is_none(), "an item may read a file");
+    assert!(snapshot.site(file!(), dedicated_line).is_none(), "a dedicated thread may wait");
+    assert!(!crate::blocking::is_sync_primitives_disallowed(), "only the item's scope");
+    work.shutdown();
 }

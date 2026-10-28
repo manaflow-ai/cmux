@@ -182,11 +182,11 @@ import Testing
             configuration: .init(path: temporarySocketPath(), accessMode: mode),
             router: router,
             accept: { Darwin.accept($0, nil, nil) },
-            bind: { descriptor, address, length in
+            bind: { descriptor, address in
                 // Another thread's file create, landing while the socket file is created.
                 let mode = Self.createdMode(probe)
                 seen.withLock { $0.append(mode) }
-                return Darwin.bind(descriptor, address, length)
+                return address.bind(descriptor)
             }
         )
         try server.start()
@@ -320,8 +320,8 @@ import Testing
             configuration: .init(path: path, accessMode: .automation),
             router: router,
             accept: { Darwin.accept($0, nil, nil) },
-            bind: { descriptor, address, length in
-                let result = Darwin.bind(descriptor, address, length)
+            bind: { descriptor, address in
+                let result = address.bind(descriptor)
                 let count = binds.withLock { count -> Int in
                     count += 1
                     return count
@@ -356,7 +356,7 @@ import Testing
             configuration: .init(path: path, accessMode: .automation),
             router: router,
             accept: { Darwin.accept($0, nil, nil) },
-            bind: { descriptor, address, length in
+            bind: { descriptor, address in
                 let count = binds.withLock { count -> Int in
                     count += 1
                     return count
@@ -365,7 +365,7 @@ import Testing
                     errno = EACCES
                     return -1
                 }
-                return Darwin.bind(descriptor, address, length)
+                return address.bind(descriptor)
             }
         )
         try server.start()

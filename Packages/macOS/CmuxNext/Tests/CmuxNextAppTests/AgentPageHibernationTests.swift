@@ -3,9 +3,11 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextHibernation
 import CmuxNextInput
 import CmuxNextSettings
 import AppKit
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -34,13 +36,13 @@ struct AgentPageHibernationTests {
         let start = ContinuousClock.now
 
         init() {
-            tabs = AgentTabStore(build: nil, registry: ActionRegistry(), webUI: .agentTabsTestHost(), input: InputEventTap(),
+            tabs = AgentTabStore(build: nil, registry: ActionRegistry(), work: BackgroundWork(label: "test.agent-pane"), webUI: .agentTabsTestHost(), input: InputEventTap(),
                                  environment: AgentPageAppTestRoot.environment, showcase: true)
             tabs.localHost = AgentPageHibernationTests.thisMac
             turns.localHost = AgentPageHibernationTests.thisMac
             turns.watching = true
             let tree = DaemonStore()
-            hibernation = AgentPageHibernation(tabs: { [tabs] in tabs })
+            hibernation = AgentPageHibernation(tabs: { [tabs] in tabs }, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
             tabs.lookup = { [unowned self] key in self.records[key].map { ($0, tree) } }
             hibernation.turnState = { [unowned self] key in self.records[key].flatMap(self.turns.state(for:)) }
             hibernation.turnsWatched = { [unowned self] in self.turns.watching }
@@ -319,5 +321,36 @@ struct AgentPageHibernationTests {
         #expect(rig.tabs.existingView("tab_c") === pages["tab_c"], "a page within the budget went")
         #expect(rig.tabs.existingView("tab_d") === pages["tab_d"], "a page within the budget went")
         #expect(released.count == 2)
+    }
+
+    /// p13-webui-092 (`memoryUrgentDiscardRanking`): critical pressure releases no chat in its own turn,
+    /// as it did before (every hidden chat past the minimum at once): the app's urgent pass ranks the
+    /// chats with the tabs and pages and takes one. Then the timeout lets one go per urgent pace interval.
+    @Test func withTheUrgentRankingTheCriticalEventsChatDiscardIsTheUrgentPasss() async throws {
+        let rig = Rig()
+        rig.hibernation.leavesCriticalEventToUrgentPass = true
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        let keys = ["tab_a", "tab_b", "tab_c"]
+        let pages = try hideInOrder(keys, on: rig)
+        rig.elapsed += .seconds(60)
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .critical)
+        await rig.settle { false }
+        for key in keys { #expect(rig.tabs.existingView(key) === pages[key], "\(key) went in the critical event's own turn") }
+        let candidates = rig.hibernation.urgentCandidates()
+        #expect(Set(candidates.map(\.key)) == Set(keys))
+        #expect(candidates.allSatisfy { $0.kind == .agentPage })
+
+        #expect(rig.hibernation.urgentDiscard("tab_b"))
+        rig.hibernation.urgentPassDidRun()
+        await rig.settle { rig.tabs.existingView("tab_b") == nil }
+        #expect(rig.tabs.existingView("tab_b") == nil, "the chat the urgent pass chose kept its page")
+        #expect(rig.tabs.existingView("tab_a") === pages["tab_a"], "a second chat went with the urgent pass")
+        #expect(rig.tabs.existingView("tab_c") === pages["tab_c"], "a second chat went with the urgent pass")
+
+        rig.elapsed += .seconds(HibernationPlanner.Pace.chromeUrgent.interval)
+        rig.hibernation.replan()
+        await rig.settle { rig.tabs.existingView("tab_a") == nil }
+        #expect(rig.tabs.existingView("tab_a") == nil, "the oldest chat did not go at the urgent pace")
+        #expect(rig.tabs.existingView("tab_c") === pages["tab_c"], "two chats went in one urgent pace interval")
     }
 }

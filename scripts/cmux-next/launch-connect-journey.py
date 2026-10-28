@@ -2,10 +2,12 @@
 """Launch journey: does a launch of cmux NEXT show the blocking "Connecting to cmux-tui" screen?
 
 Lawrence 2026-10-15: "i'm seeing 'connect to cmux tui' loading screen when app launches" (cx-r650e).
-This drives one fleet-built tagged app (`nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA`)
-through the launches a person makes and reads every launch mark as an event (the app writes one
+This drives one tagged app (--app, default `$NX_APP` of `nx-remote --needs gui --app-from-fleet cmux --tag T
+--ref SHA`) through the launches a person makes and reads every launch mark as an event (the app writes one
 `<name> <ms since process start>` line per mark to CMUX_NEXT_LAUNCH_MARKS_FD,
-CmuxNextLaunch/LaunchMarkSink.swift):
+CmuxNextLaunch/LaunchMarkSink.swift). Every launch goes through bench_launch.BenchApp (the bench env, the scratch
+cmux.json, the window on the last screen, the GUI-session check); the warm and restart launches are relaunches on
+the same tag (launch_journey_report.relaunch), so they start on what the earlier launch left:
 
   first    a new tag: no daemon, no saved state (each dogfood build is one)
   warm     the app quit keeping its sessions; the daemon runs on (the daemon is adopted)
@@ -27,9 +29,16 @@ became visible (`connecting_status_shown`), and saves a window still 1.5 s after
     the pane each show in it (`reveal.<region>`, or the pane's launch frame), none after it;
   - every launch: the app shows workspace content within --usable-ms of process start.
 
+Percentiles are scripts/perf-lab/perf_stats.py's. With --story (scripts/perf-lab/stories.d, engine none) a
+journey that finished (every launch ran and sent its first frame and workspace content marks) is written into --out
+as cmux-perf-result/v1 (BenchApp.record): launch_connect.<launch>.{first_window_frame_committed,usable,
+connecting_screen} (ms since process start; the connecting screen only when it showed and left). Failed checks still
+record; a journey that did not finish writes none and exits 1.
+
 It stops only what it started: the app process it launched (its own pid, quit through the app's
-`action.run quitKeepSessions`), the tag's daemon through the bundled `cmux-tui server stop`, and
-at the end `$NX_APP_STOP`. It never scans or signals other processes.
+`action.run quitKeepSessions`), the tag's daemon through the bundled `cmux-tui server stop`, and at the end the
+BenchApp's tag teardown (each launch's daemon and terminals, by exact PID) and `$NX_APP_STOP` when nx-remote set it.
+A tag whose daemon already runs is refused: the first launch would adopt it.
 """
 import argparse
 import base64
@@ -39,8 +48,12 @@ import select
 import socket
 import subprocess
 import sys
-import tempfile
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
+import launch_journey_report as journey  # noqa: E402
+from bench_launch import BenchApp  # noqa: E402
+from bench_story import story_problem  # noqa: E402
 
 MARKS = [
     "main_start", "did_finish_launching_start", "launch_snapshot_applied", "launch_snapshot_shown",
@@ -109,18 +122,20 @@ def connect(path, timeout):
 
 
 class Tag:
-    def __init__(self, args):
-        self.app = os.environ["NX_APP"]
-        self.tag = os.environ["NX_APP_TAG"]
-        self.socket = os.environ["NX_APP_SOCKET"]
+    """The tag under the journey: its BenchApp (one for every launch), daemon session and saved state."""
+
+    def __init__(self, args, bench_app=BenchApp):
+        self.bench = bench_app(args.app, out=args.out, config={}, window=None, screen="last",
+                               log_name="launch-connect-app.log", perf_session=args.session)
+        self.app, self.tag = self.bench.app, self.bench.tag
         self.out = args.out
         self.session = "cmux-app-" + self.tag
-        self.binary = os.path.join(self.app, "Contents/MacOS/cmux DEV")
         self.tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
-        self.state = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{self.tag}/tui")
-        self.scratch = tempfile.mkdtemp(prefix="launch-connect-")
-        with open(os.path.join(self.scratch, "cmux.json"), "w") as config:
-            config.write("{}\n")
+        self.state = os.path.join(self.bench.state_root(), "tui")
+
+    @property
+    def socket(self):
+        return self.bench.socket
 
     def daemon_env(self):
         temp = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
@@ -144,22 +159,34 @@ class Tag:
 
 
 class Launch:
-    """One app process this script started; its launch marks arrive on a pipe."""
+    """One app process this script started through the tag's BenchApp; its launch marks arrive on a pipe. The first
+    launch starts the tag fresh, every later one is a relaunch on the same tag (journey.relaunch). Returns once the
+    app's socket answered with a window (BenchApp.launch); the marks sent meanwhile wait in the pipe."""
 
-    def __init__(self, tag, extra_env=None):
+    def __init__(self, tag, args, first):
         read_fd, write_fd = os.pipe()
-        env = dict(os.environ)
-        env.update({
-            "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
-            "CMUX_NEXT_CONFIG_FILE": os.path.join(tag.scratch, "cmux.json"),
-            "CMUX_NEXT_LAUNCH_MARKS_FD": str(write_fd),
-            **(extra_env or {}),
-        })
-        self.started = time.monotonic()
-        self.process = subprocess.Popen([tag.binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                        start_new_session=True, pass_fds=(write_fd,))
-        os.close(write_fd)
+        bench = tag.bench
+        bench.extra_env["CMUX_NEXT_LAUNCH_MARKS_FD"] = str(write_fd)
+        bench.pass_fds = (write_fd,)
+        self.started = None
+
+        def spawned(_process):
+            self.started = time.monotonic()
+
+        try:
+            if first:
+                bench.launch(timeout=args.timeout, on_start=spawned)
+                journey.remember(bench)
+            else:
+                journey.relaunch(bench, timeout=args.timeout, on_start=spawned)
+        except BaseException:
+            os.close(read_fd)
+            raise
+        finally:
+            os.close(write_fd)
+            bench.pass_fds = ()
+            bench.extra_env.pop("CMUX_NEXT_LAUNCH_MARKS_FD", None)
+        self.process = bench.process
         self.tag = tag
         self.read_fd = read_fd
         self.buffer = b""
@@ -265,8 +292,8 @@ def report(name, launch, still):
     return row
 
 
-def one_launch(tag, name, args, extra_env=None):
-    launch = Launch(tag, extra_env)
+def one_launch(tag, name, args):
+    launch = Launch(tag, args, first=name == "first")
     launch.wait_for("first_window_frame_committed", args.timeout)
     # The still 1.5 s after the first frame: what a person sees once "Connecting" could have faded in.
     first = launch.marks.get("first_window_frame_committed")
@@ -282,8 +309,19 @@ def one_launch(tag, name, args, extra_env=None):
     return row
 
 
-def main():
+def record(tag, story, rows, wanted, log=print):
+    """The finished journey's series under `story` ({metric: path or `not recorded: why`}), or the reason none was
+    written."""
+    unfinished = journey.launch_connect_finished(rows, wanted)
+    if unfinished:
+        return f"none: {unfinished}"
+    return journey.record_all(tag.bench, story, "none", journey.launch_connect_series(rows), log=log)
+
+
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--app", default=os.environ.get("NX_APP"), help="the tagged `cmux DEV <tag>.app` (default $NX_APP)")
+    parser.add_argument("--tag", help="the app's tag (the story runner passes it; it must be --app's)")
     parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "."))
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--usable-ms", type=float, default=4000.0)
@@ -291,15 +329,33 @@ def main():
     parser.add_argument("--seed-workspaces", type=int, default=20)
     parser.add_argument("--seed-seconds", type=float, default=240.0)
     parser.add_argument("--launches", default="first,warm,restart")
-    args = parser.parse_args()
+    parser.add_argument("--story", help="write a finished journey as cmux-perf-result/v1 under this story")
+    parser.add_argument("--session", choices=["light"], default="light", help="result-v1 session (the story runner's)")
+    args = parser.parse_args(argv)
+    if not args.app:
+        parser.error("--app is required (or $NX_APP)")
+    if args.story:
+        problem = story_problem(args.story, "none")
+        if problem:
+            parser.error(problem)
+    return args
+
+
+def main(argv=None, bench_app=BenchApp):
+    args = parse_args(argv)
     os.makedirs(args.out, exist_ok=True)
-    tag = Tag(args)
-    wanted = args.launches.split(",")
+    tag = Tag(args, bench_app)
+    if args.tag and args.tag != tag.tag:
+        raise SystemExit(f"--tag {args.tag} is not the tag of {args.app} ({tag.tag})")
+    wanted = ["first"] + [name for name in ("warm", "restart") if name in args.launches.split(",")]
     rows = []
     failures = []
+    report_data = {"tag": tag.tag, "launches": rows}
     try:
-        if os.path.exists(tag.state):
-            raise SystemExit(f"{tag.state} exists: use a new tag (the first launch must be a new tag's)")
+        running = tag.bench.teardown.processes() if tag.bench.teardown else []
+        if running:
+            raise SystemExit(f"a process of tag {tag.tag} already runs (pid {running[0][0]}): the first launch would "
+                             "adopt its daemon; use a new tag")
         rows.append(one_launch(tag, "first", args))
         size = seed(tag, args)
         print(f"\nregistry after seeding: {size / 1048576:.0f} MiB")
@@ -309,12 +365,18 @@ def main():
             code, result, error = tag.tui_json("server", "stop")
             print(f"\nserver stop: exit {code} {result} {error[-300:]}")
             rows.append(one_launch(tag, "restart", args))
+        if args.story:
+            report_data["results"] = record(tag, args.story, rows, wanted)
     finally:
-        with open(os.path.join(args.out, "launch-connect.json"), "w") as out:
-            json.dump({"tag": tag.tag, "registry_bytes": tag.registry_bytes(), "launches": rows}, out, indent=2)
-        stop = os.environ.get("NX_APP_STOP")
-        if stop:
-            subprocess.run([stop], timeout=180)
+        report_data["registry_bytes"] = tag.registry_bytes()
+        try:
+            tag.bench.stop()  # the last launch already quit: the tag teardown ends every launch's daemon
+        finally:
+            with open(os.path.join(args.out, "launch-connect.json"), "w") as out:
+                json.dump(report_data, out, indent=2)
+            stop = os.environ.get("NX_APP_STOP")
+            if stop:
+                subprocess.run([stop], timeout=180)
     for row in rows:
         if row["usable_ms"] is None or row["usable_ms"] > args.usable_ms:
             failures.append(f"{row['launch']}: workspace content at {row['usable_ms']} ms (limit {args.usable_ms:.0f})")
@@ -331,9 +393,11 @@ def main():
                 failures.append(f"{row['launch']}: the connecting screen never went away")
             elif row["connecting_screen_ms"] is not None:
                 failures.append(f"{row['launch']}: the connecting screen showed for {row['connecting_screen_ms']} ms")
+    if args.story and not journey.any_written(report_data.get("results")):
+        failures.append(f"RESULT-V1: no series was written ({report_data.get('results')})")
     print("\nFAIL\n  " + "\n  ".join(failures) if failures else "\nPASS")
-    sys.exit(1 if failures else 0)
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

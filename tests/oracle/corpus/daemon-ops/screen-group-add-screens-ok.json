@@ -71,6 +71,26 @@
       }
     },
     {
+      "id": "second-screen",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "screen.create",
+        "params": {
+          "name": "second"
+        },
+        "idempotencyKey": "screen-group-add-screens-ok.second-screen"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -82,7 +102,7 @@
         "params": {
           "screen_group": "$step:fx-screen-group#/value/id",
           "screens": [
-            "$step:fx-workspace#/value/screen_id"
+            "$step:second-screen#/value/screen_id"
           ]
         },
         "idempotencyKey": "screen-group-add-screens-ok.call"
@@ -95,7 +115,57 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a second screen joins the fixture group"
+    },
+    {
+      "id": "second-grouped",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/1/extra/screen_group_id",
+        "equals": "$step:fx-screen-group#/value/id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "group-of-two",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/extra/state/screen_groups/0/screen_ids",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 2
+        },
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "screen_group.add_screens",
+        "params": {
+          "screen_group": "$step:fx-screen-group#/value/id",
+          "screens": [
+            "$step:second-screen#/value/screen_id"
+          ]
+        },
+        "idempotencyKey": "screen-group-add-screens-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

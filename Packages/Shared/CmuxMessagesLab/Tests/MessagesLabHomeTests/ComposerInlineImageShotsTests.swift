@@ -21,12 +21,12 @@ import UniformTypeIdentifiers
     /// A W x H px opaque PNG: a vertical gradient from HUE with a white band across its middle, so
     /// a shot shows the picture's aspect and that it is not cropped.
     nonisolated static func png(_ w: Int, _ h: Int, hue: CGFloat) throws -> Data {
-        let ctx = try #require(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+        let ctx = try #require(CGContext.ownedBitmap(width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
         let top = NSColor(hue: hue, saturation: 0.6, brightness: 0.95, alpha: 1).cgColor
         let bottom = NSColor(hue: hue, saturation: 0.9, brightness: 0.5, alpha: 1).cgColor
-        let gradient = try #require(CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: [top, bottom] as CFArray, locations: [0, 1]))
+        let gradient = try #require(CGGradient.checked(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: [top, bottom], locations: [0, 1]))
         ctx.drawLinearGradient(gradient, start: CGPoint(x: 0, y: h), end: .zero, options: [])
         ctx.setFillColor(CGColor(gray: 1, alpha: 0.85))
         ctx.fill(CGRect(x: 0, y: h / 2 - h / 20, width: w, height: h / 10))
@@ -289,7 +289,7 @@ import UniformTypeIdentifiers
         let layer = try #require(view.layer)
         let scale: CGFloat = 2
         let size = view.bounds.size
-        let ctx = try #require(CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
+        let ctx = try #require(CGContext.ownedBitmap(width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
                                          bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.setFillColor(Fixture.background.cgColor)

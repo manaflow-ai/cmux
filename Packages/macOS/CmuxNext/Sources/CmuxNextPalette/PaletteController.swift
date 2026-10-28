@@ -28,6 +28,12 @@ public final class PaletteController {
     public var sources: PaletteSources
     /// Additional rows the app hides from the registry page based on live Labs/debug state.
     public var hiddenActionIDs: (() -> Set<ActionID>)?
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`, the App's
+    /// `hoverFrameInput`): the results and the Actions menu hover on a frame interval's first move and
+    /// once more at its frame, at the latest point. Nil: each move hovers at once.
+    public var hoverFrameInput: FrameInputCoalescers? {
+        didSet { contentView?.hoverFrameInput = hoverFrameInput }
+    }
 
     public private(set) var isVisible = false
     /// Called synchronously when the panel opens (true) or closes (false),
@@ -63,9 +69,10 @@ public final class PaletteController {
         registry: ActionRegistry,
         sources: PaletteSources = PaletteSources(),
         frecencyPersistence: (any FrecencyPersisting)? = UserDefaultsFrecencyPersistence(),
-        usage: (any PaletteUsageStore)? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
+        usage: (any PaletteUsageStore)? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        hoverFrameInput: FrameInputCoalescers? = nil
     ) {
-        (self.registry, self.mainWork, self.sources) = (registry, mainWork, sources)
+        (self.registry, self.mainWork, self.sources, self.hoverFrameInput) = (registry, mainWork, sources, hoverFrameInput)
         self.model = PaletteModel(usage: usage ?? LocalPaletteUsageStore(persistence: frecencyPersistence))
         // What an open's first frame does not show (the command page's workspaces and tabs)
         // loads once that frame is committed.
@@ -138,12 +145,14 @@ public final class PaletteController {
         case 0:
             guard panel == nil else { return true }
             let panel = makePanel()
+            // sync-layout: the first open's layout, in an idle frame: the panel is not ordered in, so no window pass runs it.
             panel.contentView?.layoutSubtreeIfNeeded()
             return true
         case 1:
             guard let panel else { return false }
             configureScopes()
             model.reset(to: commandsPage())
+            // sync-layout: the command page's visible rows lay out here in an idle frame, not on the first open.
             panel.contentView?.layoutSubtreeIfNeeded()
             return false
         default:
@@ -346,6 +355,7 @@ public final class PaletteController {
     private func makePanel() -> PalettePanel {
         let panel = PalettePanel(size: PaletteLayout.windowSize)
         let content = PaletteContentView(model: model, mainWork: mainWork)
+        content.hoverFrameInput = hoverFrameInput
         content.autoresizingMask = [.width, .height]
         content.onPreferredSizeChange = { [weak self, weak panel] size in
             guard let self, let panel, self.isVisible else { return }

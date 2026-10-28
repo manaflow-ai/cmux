@@ -84,6 +84,7 @@ public final class RenderDamageWindow {
         self.ghosttyOwners = ghosttyOwners
         self.windows = windows
         elapsed = Self.stopwatch(clock)
+        // timer-class-allow: a debug window's one 30 s backstop on the injected clock, made with AppControl before the app's deadline scheduler exists
         expiry = DemandTimer(owner: "debug.damage.expiry", clock: clock)
     }
 
@@ -106,7 +107,7 @@ public final class RenderDamageWindow {
         if !holdsPassArm, let displayPasses { holdsPassArm = displayPasses.armPasses() }
         current = Span(owners: stats.ownerTotals(), totals: stats.totals, started: elapsed(),
                        passes: holdsPassArm ? displayPasses?.passCount : nil)
-        expiry.schedule(after: Self.maximumRun) { @MainActor [weak self] in _ = self?.stop() }
+        expiry.scheduleOnMain(after: Self.maximumRun) { [weak self] in _ = self?.stop() }
         return Report(running: true)
     }
 

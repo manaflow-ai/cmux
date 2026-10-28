@@ -83,7 +83,7 @@ enum DebugNewTab {
             // Ready: the page asked for its handshake, so it is loaded and rendered.
             var entry: [String: JSONValue] = ["window": .number(Double(spare.window)), "ready": .bool(spare.view.model.hasHandshake),
                                               "phase": pool.phase.map { JSONValue.string($0.rawValue) } ?? .null]
-            if let pid = WebContentProcess.identifier(of: spare.view.webView) {
+            if let pid = spare.view.page.webKitEngine.flatMap({ WebContentProcess.identifier(of: $0) }) {
                 entry["pid"] = .number(Double(pid))
                 entry["footprint_mb"] = ProcessUsage.sample(pid).map { .number(Double($0.physFootprint) / 1_048_576) } ?? .null
             }

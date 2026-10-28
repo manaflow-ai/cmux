@@ -86,9 +86,10 @@ final class NewTabButtonView: NSView {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        needsLayout = true
+        needsLayout = true // invalidate: a new backing scale redraws the glyph path at its pixels
     }
 
+    // visibility-walk-allow: sets the plus's fill and glyph colors only (no layout, no motion: an instant change)
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors(animated: false)

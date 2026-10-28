@@ -46,6 +46,7 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
     }
 
     public func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {
+        // sync-layout: the toast's wrapped message sets its fitting size, which sizes the overlay below.
         toast.layoutSubtreeIfNeeded()
         let size = toast.fittingSize
         toast.translatesAutoresizingMaskIntoConstraints = true

@@ -68,16 +68,49 @@ public nonisolated protocol TerminalIO: Sendable {
     /// restore did not match the owner's check): a daemon IO asks for a full
     /// snapshot. Ordered with `write`.
     func resyncRequested() async
+
+    /// Where the session's input lane drains (``TerminalInputLane``): called once per session. An IO
+    /// whose sends do not block returns its own serial queue and a handler that takes each record
+    /// there, so a key reaches it in one thread hop. The default runs the async calls above in order.
+    func inputDrain() -> TerminalInputDrain
+
+    /// The surface's output lane for live output, nil while it has none (no content yet, or closed). An IO
+    /// whose reader thread can feed the lane in stream order hands it each live chunk straight from that
+    /// thread, and sends an ``TerminalIOEvent/outputResume(_:)`` behind the events the session has not
+    /// applied yet; the default keeps every chunk on `events`.
+    func setOutputLane(_ lane: TerminalEchoLane?)
+
+    /// The session took `bytes` of `.output` (its output lane has them). An IO that bounds the bytes
+    /// its `events` hold (``LocalPTYTerminalIO``: it stops reading the PTY at the bound) reads on once
+    /// enough are taken. The default does nothing: the daemon's terminals bound theirs on the daemon.
+    func outputConsumed(_ bytes: Int)
 }
 
 public extension TerminalIO {
-    var answersTerminalQueries: Bool { true }
+    nonisolated var answersTerminalQueries: Bool { true }
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { false }
     @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool { false }
     func focusGained() async {}
     func takeOverSize(setLatest: Bool) async {}
     func reconnectRequested() async {}
     func resyncRequested() async {}
+    nonisolated func inputDrain() -> TerminalInputDrain { .awaiting(self) }
+    nonisolated func setOutputLane(_ lane: TerminalEchoLane?) {}
+    nonisolated func outputConsumed(_ bytes: Int) {}
+}
+
+/// Resumes live output to the lane (``TerminalIOEvent/outputResume(_:)``): call ``resume()`` once every
+/// event before it is applied.
+public nonisolated final class TerminalOutputResume: Sendable, Equatable {
+    private let action: @Sendable () -> Void
+
+    public init(_ action: @escaping @Sendable () -> Void) {
+        self.action = action
+    }
+
+    public func resume() { action() }
+
+    public static func == (lhs: TerminalOutputResume, rhs: TerminalOutputResume) -> Bool { lhs === rhs }
 }
 
 /// One event from a ``TerminalIO``.
@@ -102,6 +135,9 @@ public nonisolated enum TerminalIOEvent: Sendable, Equatable {
     /// The `output` before this one carries the echo of key press `flow`
     /// (``TypingLatencyProbe``): only while the probe records.
     case inputEcho(flow: UInt64)
+    /// Every event before this one is applied (or queued on the lane): resume it, and live output goes
+    /// straight to the lane again (``TerminalIO/setOutputLane(_:)``). Never handled on the main actor.
+    case outputResume(TerminalOutputResume)
     /// The PTY's grid from this point in the stream (the daemon applied a
     /// size). Always applied with `ghostty_surface_set_grid` on the output
     /// lane; after the first one the surface renders only these grids. Send one for every

@@ -10,6 +10,11 @@ internal import Atomics
 /// store; a reader loads the id with acquire, so it never reads a half-written key. A reader that runs into a
 /// slot an insert is still filling reads it as empty and misses the site; the caller then takes the insert
 /// path, which probes again with inserts serialized and finds it.
+///
+/// Memory safety: `words` is the one allocation of `slotCount * 3` initialized words that init made; deinit
+/// deinitializes and frees it once. Every word is reached through ``word(_:_:)``, whose slot is a probe position
+/// modulo `slotCount` and whose field is 0, 1 or 2.
+@safe
 final class BlockingSharedSiteIndex: Sendable {
     private let slotCount: Int
     private let limit: Int
@@ -21,20 +26,25 @@ final class BlockingSharedSiteIndex: Sendable {
     init(capacity: Int) {
         limit = capacity
         slotCount = capacity * 2
-        words = .allocate(capacity: slotCount * 3)
+        // SAFETY: a fresh allocation of slotCount * 3 words, each initialized to zero here; freed once, in deinit.
+        unsafe words = UnsafeMutablePointer<UnsafeAtomic<UInt>.Storage>.allocate(capacity: slotCount * 3)
         for word in 0..<(slotCount * 3) {
-            (words + word).initialize(to: UnsafeAtomic<UInt>.Storage(0))
+            unsafe (words + word).initialize(to: UnsafeAtomic<UInt>.Storage(0))
         }
     }
 
     deinit {
-        words.deinitialize(count: slotCount * 3)
-        words.deallocate()
+        // SAFETY: the allocation of init, slotCount * 3 initialized words; nothing else holds `self` any more.
+        unsafe words.deinitialize(count: slotCount * 3)
+        unsafe words.deallocate()
         insertedCount.destroy()
     }
 
     private func word(_ slot: Int, _ field: Int) -> UnsafeAtomic<UInt> {
-        UnsafeAtomic<UInt>(at: words + (slot * 3 + field))
+        assert(slot >= 0 && slot < slotCount && field >= 0 && field < 3)
+        // SAFETY: slot * 3 + field is under slotCount * 3 (the bounds above), so the word is inside the allocation,
+        // which lives as long as `self`.
+        return unsafe UnsafeAtomic<UInt>(at: words + (slot * 3 + field))
     }
 
     /// The site id of `key`, if its insert was published. Any thread, no lock. At most every slot is probed

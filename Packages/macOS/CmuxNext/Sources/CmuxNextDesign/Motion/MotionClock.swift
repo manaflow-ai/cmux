@@ -1,5 +1,8 @@
 public import AppKit
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Something whose springs a ``MotionClock`` steps: the tab strip, the
 /// layout's panes and dividers, the sidebar rows.
@@ -27,7 +30,8 @@ public final class MotionClock {
 
     private var entries: [ObjectIdentifier: Entry] = [:]
     private var order: [ObjectIdentifier] = []
-    private lazy var client = FrameClient(owner: "Motion.clock", scheduler: resolveScheduler) { [weak self] tick in
+    // frame-client: the window's one chrome spring clock (motion.md P4), on main while an animator moves
+    private lazy var client = FrameClient(owner: "Motion.clock", rate: .motion, scheduler: resolveScheduler) { [weak self] tick in
         self?.tick(tick) ?? false
     }
     /// The scheduler the clock ticks on: its window's (``FrameScheduler/app`` for the app clock).
@@ -39,8 +43,10 @@ public final class MotionClock {
     /// Frames delivered while something moved (debug).
     public private(set) var frames: UInt64 = 0
     /// ``waitIdle()`` callers, by id, resumed where the last animator leaves the clock.
-    private var idleWaiters: [UInt64: CheckedContinuation<Bool, Never>] = [:]
+    private var idleWaiters: [UInt64: OnceContinuation<Bool, OnceContinuationError>] = [:]
     private var lastIdleWaiterID: UInt64 = 0
+    /// Frames a step keeps ``MotionActivity`` running for: up to the next step, and the last step's commit.
+    private static let activityFrames: Double = 2
 
     convenience init(window: NSWindow?) {
         self.init(scheduler: { [weak window] in window.map(FrameScheduler.forWindow) ?? .app })
@@ -51,14 +57,14 @@ public final class MotionClock {
         resolveScheduler = resolve
     }
 
-    private static var associationKey: UInt8 = 0
+    private static let clocks = ObjectAssociation<MotionClock>()
     private static let app = MotionClock(window: nil)
 
     /// `window`'s clock, created on first use and kept by the window.
     public static func forWindow(_ window: NSWindow) -> MotionClock {
-        if let clock = objc_getAssociatedObject(window, &associationKey) as? MotionClock { return clock }
+        if let clock = clocks.value(on: window) { return clock }
         let clock = MotionClock(window: window)
-        objc_setAssociatedObject(window, &associationKey, clock, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        clocks.set(clock, on: window)
         return clock
     }
 
@@ -70,7 +76,7 @@ public final class MotionClock {
     /// The clocks that can step an animator now: those `windows` already have (none is created) and the app
     /// clock window-less views share.
     public static func existing(in windows: [NSWindow]) -> [MotionClock] {
-        windows.compactMap { objc_getAssociatedObject($0, &associationKey) as? MotionClock } + [app]
+        windows.compactMap { clocks.value(on: $0) } + [app]
     }
 
     /// Steps `animator` every frame until it reports rest. `trace` names its
@@ -90,6 +96,7 @@ public final class MotionClock {
         if !order.contains(id) { order.append(id) }
         MotionTrace.begin(trace, id: id)
         client.activate()
+        MotionActivity.began(seconds: Self.activityFrames * FrameTick.defaultRefreshInterval)
     }
 
     /// Stops stepping `animator` (it left its window).
@@ -123,13 +130,21 @@ public final class MotionClock {
         lastIdleWaiterID &+= 1
         let id = lastIdleWaiterID
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                if Task.isCancelled { return continuation.resume(returning: false) }
-                if isIdle { return continuation.resume(returning: true) }
+            // A dropped waiter reads as not idle, as a cancelled one does.
+            (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
+                if Task.isCancelled {
+                    continuation.resume(returning: false)
+                    return
+                }
+                if isIdle {
+                    continuation.resume(returning: true)
+                    return
+                }
                 idleWaiters[id] = continuation
-            }
+            }) ?? false
         } onCancel: {
             // task-owner: one hop to the clock's actor to resume this cancelled wait's continuation
+            // main-hop-allow: the cancel handler runs on the canceller's thread; the hop only resumes the oracle's cancelled wait, no frame work
             Task { @MainActor in self.idleWaiters.removeValue(forKey: id)?.resume(returning: false) }
         }
     }
@@ -152,6 +167,7 @@ public final class MotionClock {
 
     private func step(_ tick: FrameTick) -> Bool {
         frames &+= 1
+        MotionActivity.began(seconds: Self.activityFrames * (tick.refreshInterval ?? FrameTick.defaultRefreshInterval))
         if MotionTrace.isEnabled { MotionTrace.sample("clock.dt_ms", tick.elapsed * 1000) }
         // Animators started during this frame step from the next one.
         for id in order {

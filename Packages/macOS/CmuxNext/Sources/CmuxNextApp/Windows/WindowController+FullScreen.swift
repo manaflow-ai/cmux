@@ -41,7 +41,8 @@ extension WindowController {
     /// top row and every strip under it measure once more, in this turn.
     private func fullScreenTransitionDidEnd() {
         (window as? ShellWindow)?.isLeavingFullScreen = false
-        root.needsLayout = true
+        root.needsLayout = true // invalidate: the full-screen transition ended; the traffic lights moved.
+        // sync-layout: relayoutTopRowStrips reads the strips' window frames and the top row the root places.
         root.layoutSubtreeIfNeeded()
         relayoutTopRowStrips()
     }

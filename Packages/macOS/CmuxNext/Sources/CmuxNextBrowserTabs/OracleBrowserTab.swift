@@ -54,6 +54,8 @@ extension OracleTabsFacet.Tab {
         tab.audible = state.media?.isAudible == true
         // Chrome's `crashed_status`: the page's content process ended.
         tab.crashed = state.processExit != nil
+        // Chrome's hung renderer: the page shows "Page unresponsive" until it answers or its renderer ends.
+        tab.unresponsive = state.isUnresponsive
         return tab
     }
 

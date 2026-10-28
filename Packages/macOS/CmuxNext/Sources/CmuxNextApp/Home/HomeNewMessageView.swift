@@ -4,6 +4,8 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextInput
+import CmuxNextWakeups
 
 /// New Message as a page, as in Messages (Lawrence 2026-10-19: "it makes a
 /// modal but iMessage just creates a new page"): the To: field across the
@@ -17,7 +19,7 @@ import CmuxNextHomeEngine
 /// person looks at another conversation: the page keeps its state.
 @MainActor
 final class HomeNewMessageView: NSView {
-    let field = HomeRecipientField()
+    let field: HomeRecipientField
     /// Clips the conversation below the field (its header slides under the field).
     let content = HomeNewMessageClip()
     let notice = ThemedLabel(wrappingLabelWithString: "")
@@ -27,7 +29,11 @@ final class HomeNewMessageView: NSView {
     /// The blank page's message box, over a store that only knows the draft.
     private(set) var composer: HomeNativeTranscriptView?
     private var composerStore: HomeStore?
-    private var spellCheckingWatch: Task<Void, Never>?
+    /// This page in the visibility tree: its observation reads only while the page is on screen.
+    private let visibility = ViewVisibility("home.newMessage")
+    private var visibilityNode: VisibilityNode { visibility.node }
+    private let mainWork: MainWorkScheduler
+    private var spellCheckingWatch: VisibleObservation<Bool>?
     private weak var services: AppServices?
     /// The first send made this conversation (the Home page shows it).
     var onSent: (ConversationID) -> Void = { _ in }
@@ -37,6 +43,8 @@ final class HomeNewMessageView: NSView {
 
     init(services: AppServices) {
         self.services = services
+        mainWork = services.mainWork
+        field = HomeRecipientField(pictures: HomeRecipientPictures(work: services.work, mainWork: services.mainWork))
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.home.newMessage")
         content.wantsLayer = true
@@ -55,19 +63,22 @@ final class HomeNewMessageView: NSView {
         field.idleSuggestions = { [weak home, weak field] in field.flatMap { home?.newMessageChiefs($0.draft) } ?? [] }
         field.suggestions.look = { [weak home] in home?.recipientLook($0) ?? HomeRecipientLook() }
         field.onChange = { [weak self] _ in self?.recipientsChanged() }
+        // The page places the field and its suggestions: it lays out when their sizes change, not per keystroke.
+        field.onGeometryChange = { [weak self] in self?.needsLayout = true } // invalidate: told only on a size change
         field.onDone = { [weak self] in self?.focusMessageBox() }
         field.onEscape = { [weak self] in
             guard let self, isEmpty else { return }
             onEscape()
         }
         showComposer(carrying: "")
-        spellCheckingWatch = Task { [weak self, weak services] in
-            for await enabled in ObservationStream({ services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false }) {
-                self?.composer?.composerSpellCheckingEnabled = enabled
-            }
+        spellCheckingWatch = VisibleObservation(visibilityNode, owner: "HomeNewMessage.spellChecking", on: services.mainWork) { [weak services] in
+            services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false
+        } apply: { [weak self] enabled in
+            self?.composer?.composerSpellCheckingEnabled = enabled
         }
         field.refreshSuggestions()
         // task-owner: one read of the team and Chiefs for the suggestions; ends when it is read
+        // main-hop-allow: userBlocking rest of the person opening New Message (p06 rule 2): it awaits the main-actor HomeDirectory; post has no userBlocking class
         Task { [weak self] in
             await home.directory.refresh()
             self?.field.refreshSuggestions()
@@ -82,21 +93,50 @@ final class HomeNewMessageView: NSView {
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // The last reference can go on any thread (OffMainReleaseCleanupTests' shape, 39256ad7181). This view owns no
     // Sendable handle; its composer's own HomeStore is main-actor and only stop() ends its connection, resend and
-    // prune tasks and flushes its cache, so the stops run on the main actor. A guard that returned off main
-    // skipped them, and the store ran on.
+    // prune tasks and flushes its cache, so the stops are posted to the main actor. A guard that returned off main
+    // skipped them, and the store ran on. Releasing the observation ends it.
     nonisolated deinit {
         let composer = composer, composerStore = composerStore
-        spellCheckingWatch?.cancel()
-        // task-owner: the main-actor half of this view's release; one call each, then it ends
-        Task { @MainActor in
+        mainWork.postFromAnyThread(.visible, owner: "HomeNewMessage.release") {
             composer?.stop()
             composerStore?.stop()
         }
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        visibility.place(in: window)
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        visibilityNode.set(.hidden)
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibilityNode.set(.visible)
+    }
+
     /// Nothing chosen, nothing typed in To:, and an empty message box:
     /// leaving drops the draft (and its row in the list).
     var isEmpty: Bool { field.draft.isEmpty && messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    /// What the person put on the page: the To: field and the blank page's text. The text of a
+    /// conversation the people already have is that conversation's draft in Home's store, which
+    /// every Home view reads live; it is never copied here, so a message sent meanwhile from
+    /// another view does not come back.
+    typealias Saved = HomePageViewState.NewMessage
+
+    var saved: Saved { Saved(recipients: field.draft, text: existing == nil ? messageText : "") }
+
+    /// Puts `saved` back on a new page (its Home view was discarded): the box takes the blank
+    /// page's text, then the To: field's people show their conversation, as when the person chose them.
+    func restore(_ saved: Saved) {
+        showComposer(carrying: saved.text)
+        field.setDraft(saved.recipients)
+        recipientsChanged()
+    }
 
     /// The message box's text (the blank page's, or the shown conversation's draft).
     var messageText: String {
@@ -146,7 +186,7 @@ final class HomeNewMessageView: NSView {
         guard let services else { return }
         let home = services.home
         let match = field.draft.existingConversation(in: home.homeStore.rows, me: home.homeStore.me?.id)
-        guard match != existing else { needsLayout = true; return }
+        guard match != existing else { return }
         let text = messageText
         if let existing { home.homeStore.setDraft("", for: existing) }
         if let match {
@@ -154,7 +194,7 @@ final class HomeNewMessageView: NSView {
         } else {
             showComposer(carrying: text)
         }
-        needsLayout = true
+        needsLayout = true // invalidate: the page shows another conversation or the blank composer
     }
 
     private func showConversation(_ id: ConversationID, carrying text: String) {
@@ -188,8 +228,9 @@ final class HomeNewMessageView: NSView {
         store.start()
         if !text.isEmpty { store.setDraft(text, for: HomeNewMessageComposerSource.conversation) }
         let view = HomeNativeTranscriptView(store: store, conversation: HomeNewMessageComposerSource.conversation, me: me.id,
-                                            openPanel: services.openPanel, mainWork: services.mainWork)
+                                            openPanel: services.openPanel, deadlines: services.mainDeadlines)
         view.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
+        view.composerTextInputScope = services.inputLatency.textInput.interpreting
         // The first message is text: attachments go once the conversation exists (they upload to it).
         view.attachmentPreparer = nil
         view.setAccessibilityIdentifier("cmux.home.newMessage.composer")
@@ -236,9 +277,10 @@ final class HomeNewMessageView: NSView {
 
     /// The line under the field (a refusal), or nil to hide it.
     func say(_ text: String?) {
+        guard notice.isHidden != (text == nil) || notice.stringValue != (text ?? "") else { return }
+        needsLayout = true
         notice.stringValue = text ?? ""
         notice.isHidden = text == nil
-        needsLayout = true
     }
 
     // MARK: Layout

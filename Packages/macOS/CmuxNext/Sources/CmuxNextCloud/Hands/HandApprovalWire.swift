@@ -31,6 +31,8 @@ final class HandApprovalWire {
     func start(_ sink: @escaping @MainActor (Event) -> Void) {
         stop()
         let generation = generation
+        // task-owner: `runner`; the socket loop of this generation; stop() cancels it
+        // main-hop-allow: the wire's main-actor socket loop (its awaits are the socket and its Backoff); each frame reaches the main-actor sink in arrival order
         runner = Task { [weak self] in await self?.run(generation, sink: sink) }
     }
 
@@ -78,7 +80,7 @@ final class HandApprovalWire {
                 case let .data(bytes): data = bytes
                 @unknown default: continue
                 }
-                let frame = await Task.detached(priority: .utility) { Frame.decode(data) }.value
+                let frame = await Task.detached(priority: Task.currentPriority) { Frame.decode(data) }.value
                 guard generation == self.generation else { throw CancellationError() }
                 switch frame {
                 case .welcome:

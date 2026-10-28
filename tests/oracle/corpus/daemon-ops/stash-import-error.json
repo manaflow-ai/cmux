@@ -41,9 +41,11 @@
           "source": "oracle-not-in-enum",
           "groups": [
             {
+              "name": "oracle",
               "tabs": [
                 {
-                  "url": "about:blank"
+                  "url": "http://127.0.0.1:9/",
+                  "title": "oracle"
                 }
               ]
             }

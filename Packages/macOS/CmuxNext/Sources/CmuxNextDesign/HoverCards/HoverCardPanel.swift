@@ -73,8 +73,6 @@ final class HoverCardPanel: NSPanel {
     var sizeConstraints: [NSLayoutConstraint] = []
     /// A resize in flight between two cards of different sizes.
     var activeMorph: HoverCardMorph?
-    /// The card takes clicks and scrolls (the update highlights' "See all changes").
-    private(set) var isInteractive = false
     /// The current press began in the clear band around the card: it and its drags and release
     /// go to the parent window (`HoverCardPanel+ClickThrough.swift`).
     var forwardsPress = false
@@ -195,9 +193,7 @@ final class HoverCardPanel: NSPanel {
             NSLayoutConstraint.activate(edgeConstraints)
             body = newBody
         }
-        isInteractive = interactive
-        ignoresMouseEvents = !interactive
-        acceptsMouseMovedEvents = interactive
+        setInteractive(interactive)
         // The card draws in the theme scope of the view it describes and
         // follows that scope's changes while it shows, at full strength even
         // over an unfocused pane's subtle strip.
@@ -224,9 +220,9 @@ final class HoverCardPanel: NSPanel {
         if let previous {
             // A visible card: it slides from where it is drawn to its new place, and resizes
             // there when the next card is another size (a quick return during the fade-out
-            // fades back in from the alpha it reached).
+            // fades back in from the opacity it reached).
             if !morph(from: previous) { slide(from: offset(of: previous, to: cardFrame)) }
-            if wasDismissing || alphaValue < 1 { Self.motion.resume(self) }
+            if wasDismissing || HoverCardMotion.isFaded(self) { Self.motion.resume(self) }
         } else {
             // A first show: from clear, the card fades in while it moves the last few points
             // away from its target (`HoverCardMotion`, shared with the update card).
@@ -272,7 +268,7 @@ final class HoverCardPanel: NSPanel {
         fade.duration = duration
         // motion-allow: the crossfade's ease-out curve (CATransition takes no Motion curve)
         fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        layer.add(fade, forKey: "hoverCard.crossfade")
+        layer.add(MotionActivity.began(fade), forKey: "hoverCard.crossfade")
     }
 
     /// Recolors the glass and the body in the card's theme scope.
@@ -297,6 +293,7 @@ final class HoverCardPanel: NSPanel {
     }
 
     func place() {
+        // sync-layout: the card's fitting size below sizes and places the window.
         glass.layoutSubtreeIfNeeded()
         let scale = max(parentWindowRef?.backingScaleFactor ?? 2, 1)
         // Whole device pixels, so the edge `origin(for:)` puts on the target stays there.

@@ -52,6 +52,31 @@
         "settled"
       ],
       "note": "rejects the waiting pairing; any local connection may reject"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "pairing_request": "pairing_00000000000000000000000000000000"
+      },
+      "args": {
+        "method": "pairing_request.resolve",
+        "params": {
+          "decision": "reject"
+        },
+        "idempotencyKey": "pairing-request-resolve-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
