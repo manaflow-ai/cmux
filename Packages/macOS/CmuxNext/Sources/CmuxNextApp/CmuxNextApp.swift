@@ -183,14 +183,14 @@ public struct CmuxNextApp {
         let resolvedTerminalEnvironment = environment.resolvedTerminalEnvironment()
         let terminalEnvironmentProvider = environment.terminalEnvironmentProvider()
         let resolvesShellIntegration = environment.resolvesShellIntegration, echoesPlacementShift = SidebarMirror.isLinked
-        let featureHello = environment.daemonFeatureHello
+        let featureHello = environment.daemonFeatureHello, terminalStreams = Self.terminalStreams(features)
         let daemonStart = LaunchRead<DaemonLaunchStart>(on: work, mayBlock: .system) {
             let start = DaemonService.launchStart(work: work, launch: launch, terminalEnvironment: terminalEnvironment,
                                                   resolvedTerminalEnvironment: resolvedTerminalEnvironment,
                                                   terminalEnvironmentProvider: terminalEnvironmentProvider,
                                                   resolvesShellIntegration: resolvesShellIntegration,
                                                   echoesPlacementShift: echoesPlacementShift, wireStats: wireStats, hangWatch: hangWatch,
-                                                  featureHello: featureHello)
+                                                  featureHello: featureHello, terminalStreams: terminalStreams)
             guard let names = start.snapshotNames else { return start }
             let read = LaunchRead(on: work, dropped: LaunchSnapshot.Found.missing) {
                 LaunchSnapshot.find(session: names.session, stateDirectory: names.stateDirectory)
@@ -264,5 +264,13 @@ public struct CmuxNextApp {
         withExtendedLifetime(delegate) {
             app.run()
         }
+    }
+
+    /// This Mac as the sizing device of the local daemon connection's terminal streams while feature
+    /// `terminalStreams` is on (p05-ipc-095): its terminal views then attach as streams on that connection,
+    /// for the prestart's first connect and `AppServices.startLocalDaemon`'s. Nil keeps a connection per view.
+    nonisolated static func terminalStreams(_ features: FeatureList) -> TerminalStreamsDevice? {
+        guard features.isEnabled(.terminalStreams) else { return nil }
+        return { await DaemonTerminalIO.sizingDevice.value }
     }
 }

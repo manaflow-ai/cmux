@@ -706,6 +706,18 @@ impl ClientFrames {
                 };
                 ctx.host.set_default_colors(colors);
             }
+            MessageKind::SetThreadQos => {
+                if !ctx.granted_rights.contains(CapabilityRights::MINT_CAPABILITY)
+                    || frame.request_id != 0
+                {
+                    return FrameStep::Close;
+                }
+                let Some(qos) = super::thread_qos::decode_thread_qos(&frame.payload) else {
+                    return FrameStep::Close;
+                };
+                // One atomic store: no parser wait, so it runs inline.
+                ctx.host.set_thread_qos(qos);
+            }
             MessageKind::SetCellPixelSize if frame.request_id != 0 && frame.payload.len() == 4 => {
                 if !ctx.granted_rights.contains(CapabilityRights::RESIZE) {
                     return FrameStep::Close;

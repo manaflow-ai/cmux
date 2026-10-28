@@ -509,6 +509,18 @@
   },
   "exceptions": [
     {
+      "date": "2026-10-26",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "Not a new static: cp/p08-startup-007's fixer gives DebugTimings.launchMarks back the base's own declaration (origin/feat-cmux-next's Mutex<[(name: String, ms: Double)]> line, then p08-startup-004's Mutex<LaunchMarks> from origin/perf/chrome-parity). The task's first head 11288c7c9ac had re-declared it over five lines, which the counter did not read as a static, so the push range over that head reads the restored line as +1; over origin/feat-cmux-next and over origin/perf/chrome-parity the row does not rise (prepush-gate.py --base origin/perf/chrome-parity: no new violations)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "CmuxNextApp DebugTimings.launchCounters (p08-startup-007): the launch counter record (page-ins and main CPU at the first frame; the temperature stays LaunchSlices' in launchMarks) beside the process-wide launch mark record DebugTimings.launchMarks already is. Marks arrive from main() before AppDelegate or AppServices exist and from the daemon's threads, so no composition root can inject it; Chrome keeps the same one process-wide recorder (components/startup_metric_utils/browser/startup_metric_utils.cc, GetBrowser()). The log itself is injected (LaunchCounterLog(reader:sink:); tests pass fixed counters). It folds into the LaunchMarks record behind launchMarks (p08-startup-004; 002 rebuilds its marks on it) once 002 lands, which takes this +1 back."
+    },
+    {
       "date": "2026-10-23",
       "row": "assume_isolated_outside_adapters",
       "allow": 1,
@@ -747,6 +759,12 @@
       "row": "global_mutable_statics",
       "allow": 1,
       "why": "p08-startup-082: GlobalJobCensus.installedBits (CmuxNextLaunch), the one word through which the launch's off-main job census reaches its recorder. swift_task_enqueueGlobal_hook is a thin function with no context argument, so the census the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_GLOBAL_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "observer_sites",
+      "allow": 2,
+      "why": "p14-energy-055b (fixer): chrome hover tracking areas now hear the pointer only in the active app (.activeInActiveApp), so no exit arrives once cmux resigns active and a lit hover (a toast's hold, a tab or reveal) stayed. PointerHover's KeyWindowObserver, the one app-wide hover adapter that already took the key notices, subscribes once per app to NSApplication didResignActive and didBecomeActive through AppEvents (recipe R-notif), the two sites counted. It refreshes only the windows with a hovering target and calls only the hover owners that hold a deactivation watch while their hover shows (ChromeHover, HoverReveal, the tab strip, the saved groups bar), instead of each owner observing the notice. The fan-out already observes both names for TooltipPresenter, HoverCardCoordinator and the others, so the app gains no NotificationCenter observer."
     },
     {
       "date": "2026-10-27",
