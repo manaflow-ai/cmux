@@ -274,9 +274,7 @@ type Props = {
   onImportFile?(file: File): void | Promise<void>;
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
-  /// Live tools, chats and tabs from the existing command-palette registry.
   plusExtensions?: readonly ComposerPlusExtension[];
-  /// Runs a host-provided command-palette action from the + menu.
   onPlusCommand?(id: string): void;
   /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
   /// or a window, attached as an image; an error for one too large to attach (shown as the
@@ -926,8 +924,6 @@ export function Composer({
     edit(next.text, next.caret);
     field.current?.focus();
   };
-  // A + row is chosen while a draft may already exist. The command starts the prompt and the
-  // entire draft becomes its arguments; the typed slash-completion path above replaces /word.
   const pickFromPlus = (command: SlashCommand) => {
     const existing = field.current?.value() ?? text;
     const next = `/${command.name} ${existing}`;
