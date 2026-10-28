@@ -1,4 +1,4 @@
-import type { Translate } from "./i18n";
+import { translate, type Translate } from "./i18n";
 import type { SlashCommand } from "./slashCommands";
 
 export const COMPOSER_PLUS_SECTIONS = ["add", "tools", "sessions", "tabs", "files"] as const;
@@ -46,7 +46,8 @@ const staticRows: readonly ComposerPlusEntry[] = [
   {
     id: "add.files",
     section: "add",
-    name: "Attach files or images",
+    // Named from the pane's table when the registry is built (`composer.attach`).
+    name: "",
     description: "",
     icon: "file",
     keywords: ["attach", "upload", "folder", "files"],
@@ -59,12 +60,14 @@ function extensionKey(entry: ComposerPlusEntry): string {
 }
 
 export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}): ComposerPlusEntry[] {
-  const text = (key: Parameters<Translate>[0], fallback: string) => options.translate?.(key) ?? fallback;
+  // Every label is the pane's table's, in the app's language (pane-english.test.ts).
+  const t: Translate = options.translate ?? translate;
+  const text = (key: Parameters<Translate>[0]) => t(key);
   const label = text;
   const description = text;
   const rows: ComposerPlusEntry[] = staticRows.map((row) => ({
     ...row,
-    name: label("composer.attach", row.name),
+    name: label("composer.attach"),
   }));
 
   if (options.canCapture !== false) {
@@ -72,7 +75,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       {
         id: "add.screenshot",
         section: "add",
-        name: label("composer.attachScreenshot", "Attach Screenshot…"),
+        name: label("composer.attachScreenshot"),
         description: "",
         icon: "site.permission.camera",
         keywords: ["capture", "screen", "image"],
@@ -81,7 +84,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       {
         id: "add.window",
         section: "add",
-        name: label("composer.attachWindow", "Attach Window…"),
+        name: label("composer.attachWindow"),
         description: "",
         icon: "site.permission.windowmanagement",
         keywords: ["capture", "window", "image"],
@@ -94,7 +97,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     rows.push({
       id: "add.project",
       section: "add",
-      name: label("project.choose", "Choose a project"),
+      name: label("project.choose"),
       description: "",
       icon: "folder",
       keywords: ["project", "folder", "cwd", "workspace"],
@@ -119,8 +122,8 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     rows.push({
       id: "add.goal",
       section: "add",
-      name: label("goal.label", "Set a goal"),
-      description: description("goal.label", "Keep pursuing a goal across turns"),
+      name: label("goal.label"),
+      description: description("goal.label"),
       icon: "agent.chat",
       keywords: ["goal", "objective", "task"],
       action: { kind: "slash", command: goalCommand },
@@ -135,7 +138,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       id: `add.skill.${name.toLowerCase()}`,
       section: "add",
       name: `/${name}`,
-      description: command.description || description("composer.slashSkill", "Run this skill in the current chat"),
+      description: command.description || description("composer.slashSkill"),
       icon: "terminal",
       keywords: [name, command.description],
       action: { kind: "slash", command },
@@ -146,7 +149,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     {
       id: "add.mention",
       section: "add",
-      name: label("composer.mention", "Mention"),
+      name: label("composer.mention"),
       description: "",
       icon: "composer.mention",
       keywords: ["@", "mention", "file", "chat"],
@@ -155,7 +158,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     {
       id: "add.commands",
       section: "add",
-      name: label("composer.commands", "Commands"),
+      name: label("composer.commands"),
       description: "",
       icon: "terminal",
       keywords: ["/", "slash", "commands"],
@@ -166,7 +169,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
   rows.push({
     id: "files.search",
     section: "files",
-    name: label("files.search", "Search files"),
+    name: label("files.search"),
     description: "",
     icon: "search",
     keywords: ["files", "chats", "search", "context"],

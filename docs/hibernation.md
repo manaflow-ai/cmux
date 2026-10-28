@@ -67,15 +67,20 @@ instead:
   `_acpmux/bg/output` reads by offset in the whole output, returns the exact bytes (base64) and
   the text, and says how much is gone. `_acpmux/bg/list` shows each task's state and its last
   1 KiB.
-- A woken agent finds its tasks by id. `_acpmux/bg/stop` writes one byte to the task's FIFO,
-  which opens only while its runner holds it, so no pid is signalled. The runner then sends
+- A woken agent finds its tasks by id. `_acpmux/bg/stop` writes the chat folder's generation to
+  the task's FIFO, which opens only while its runner holds it, so no pid is signalled. A runner
+  acts only on its own generation, so a runner of an earlier folder of the chat id never takes
+  a later chat's stop or purge. The runner then sends
   SIGTERM to the task's own group, then SIGKILL to the group 5 s later, so a stop takes 5 s.
   Only the runner signals that group, and only before it reaps the leader, which it reaps only
   once the pipe ends and a stop's SIGKILL went out. So output a child writes after the leader
   exited is kept, and a child that ignores SIGTERM is killed even with its output sent
-  elsewhere. Stopping a chat keeps its tasks, and a stopped chat starts none. Each folder has a
-  generation its records carry, so a runner of an earlier folder of the same chat id never
-  shows in a later one.
+  elsewhere. Purging a chat stops its tasks and moves their folder aside at once, so the chat is gone
+  without waiting; the moved folder is removed once its runners exit (a background wait of at
+  most 20 s, and every later purge clears any left). A folder that neither moves nor goes fails
+  the purge.
+  Each folder has a generation its records carry, so a runner that outlived a purge never shows
+  in a later folder of the same chat id. Stopping a chat keeps them, and a stopped chat starts none.
 - A task whose spool failed (a full disk) says so in `outputError`: its output is incomplete.
 - Only the chat's own agent (its proven caller token) and the person reach a chat's tasks. A
   chat moved away and imported back is the same chat, and finds its tasks again.

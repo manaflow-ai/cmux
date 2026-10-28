@@ -450,12 +450,11 @@ CUA_TOOLCHAIN_KEY="$(
   } | shasum -a 256 | cut -c1-16
 )"
 
+# shellcheck source=scripts/lib/rust-targets.sh
+source "$REPO_ROOT/scripts/lib/rust-targets.sh"
 ensure_rust_target() {
-  local target="$1"
   if command -v rustup >/dev/null 2>&1; then
-    if ! rustup target list --installed | grep -qx "$target"; then
-      rustup target add "$target"
-    fi
+    ensure_rust_targets "$1"
   fi
 }
 
