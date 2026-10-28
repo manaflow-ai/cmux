@@ -114,7 +114,7 @@ final class CEFHostView: NSView {
         Self.trackerStats.occlusionReads += 1
         // The fork reads these first on every update of a shown page.
         readGeometry = CEFHostGeometry(of: self)
-        return allOcclusionRects.map { NSValue(rect: $0) } as NSArray
+        return occlusionMemoValue().bridged
     }
 
     /// Read by the fork (`-cmuxClipPath`) on every geometry update: the
@@ -149,6 +149,18 @@ final class CEFHostView: NSView {
         let bezier: NSBezierPath?
     }
 
+    /// The fork asks for the same occlusion array several times while a page
+    /// settles. Keep both the normalized rectangles and their Objective-C
+    /// bridge for one geometry revision. `postGeometryChange` invalidates this
+    /// when any input that the tracker can read changes.
+    private struct OcclusionMemo {
+        let rects: [CGRect]
+        let bridged: NSArray
+    }
+
+    private var occlusionRevision = 0
+    private var occlusionMemo: (revision: Int, value: OcclusionMemo)?
+
     private func clipShape() -> ClipMemo {
         let started = CEFTrackerStats.now()
         defer { Self.trackerStats.clipSeconds += CEFTrackerStats.now() - started }
@@ -168,15 +180,33 @@ final class CEFHostView: NSView {
     /// The chrome's rects plus the window's interactive overlays over this
     /// view, in this view's coordinates.
     var allOcclusionRects: [CGRect] {
-        if CEFClipShape.showsNothing(pageClip), !bounds.isEmpty { return [bounds] }
-        var rects = occlusionRects
-        if let provider = window as? any BrowserWindowOcclusionProviding {
-            for rect in provider.browserOcclusionRectsInWindow {
-                let local = convert(rect, from: nil).intersection(bounds)
-                if !local.isNull, !local.isEmpty { rects.append(local) }
-            }
+        occlusionMemoValue().rects
+    }
+
+    private func occlusionMemoValue() -> OcclusionMemo {
+        if let memo = occlusionMemo, memo.revision == occlusionRevision {
+            Self.trackerStats.occlusionHits += 1
+            return memo.value
         }
-        return Self.outermost(rects)
+        let started = CEFTrackerStats.now()
+        defer { Self.trackerStats.occlusionSeconds += CEFTrackerStats.now() - started }
+        Self.trackerStats.occlusionBuilds += 1
+        let rects: [CGRect]
+        if CEFClipShape.showsNothing(pageClip), !bounds.isEmpty {
+            rects = [bounds]
+        } else {
+            var normalized = occlusionRects
+            if let provider = window as? any BrowserWindowOcclusionProviding {
+                for rect in provider.browserOcclusionRectsInWindow {
+                    let local = convert(rect, from: nil).intersection(bounds)
+                    if !local.isNull, !local.isEmpty { normalized.append(local) }
+                }
+            }
+            rects = Self.outermost(normalized)
+        }
+        let memo = OcclusionMemo(rects: rects, bridged: rects.map { NSValue(rect: $0) } as NSArray)
+        occlusionMemo = (occlusionRevision, memo)
+        return memo
     }
 
     /// `rects` without those inside another (one of equal rects stays): a
@@ -195,6 +225,7 @@ final class CEFHostView: NSView {
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
         readGeometry = nil
+        invalidateOcclusionMemo()
         // A resize-wait tunable edit made while out of a window applies (CEFResizeSyncDeadline).
         layerHosting.windowDidChange()
         guard let window else { return }
@@ -230,8 +261,14 @@ final class CEFHostView: NSView {
     /// Tells the tracker about moves AppKit does not report (layer
     /// transforms, manual frame animation in an ancestor).
     func postGeometryChange() { // perf-hot: 0.2ms cef-geometry (each post makes the fork re-place one page window)
+        invalidateOcclusionMemo()
         Self.trackerStats.geometryPosts += 1
         NotificationCenter.default.post(name: CEFHostView.geometryDidChange, object: self)
+    }
+
+    private func invalidateOcclusionMemo() {
+        occlusionRevision &+= 1
+        occlusionMemo = nil
     }
 
     /// What the fork's tracker read from host views so far (`debug.cef` `tracker`).

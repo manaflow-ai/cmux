@@ -36,6 +36,27 @@ import Testing
         #expect(CEFHostView.trackerStats.clipBuilds - builds == 1, "one shape for four reads")
     }
 
+    @Test func repeatedOcclusionReadsReuseNormalizedRectsAndBridge() {
+        let column = Column()
+        let beforeBuilds = CEFHostView.trackerStats.occlusionBuilds
+        let beforeHits = CEFHostView.trackerStats.occlusionHits
+        let first = column.page.cmuxOcclusionRects()
+        for _ in 0..<20 { _ = column.page.cmuxOcclusionRects() }
+        #expect(first === column.page.cmuxOcclusionRects(), "the bridge is stable while geometry holds")
+        #expect(CEFHostView.trackerStats.occlusionBuilds - beforeBuilds == 1)
+        #expect(CEFHostView.trackerStats.occlusionHits - beforeHits >= 20)
+    }
+
+    @Test func occlusionChangeInvalidatesNormalizedRects() {
+        let column = Column()
+        _ = column.page.cmuxOcclusionRects()
+        let before = CEFHostView.trackerStats.occlusionBuilds
+        column.page.occlusionRects = [CGRect(x: 20, y: 20, width: 30, height: 30)]
+        let holes = (column.page.cmuxOcclusionRects() as? [NSValue])?.map(\.rectValue) ?? []
+        #expect(holes == [CGRect(x: 20, y: 20, width: 30, height: 30)])
+        #expect(CEFHostView.trackerStats.occlusionBuilds - before == 1)
+    }
+
     @Test func aStripClipWithoutAFrameChangeGivesTheNewShape() throws {
         let column = Column()
         let whole = try #require(column.page.cmuxClipPath()?.bounds)
