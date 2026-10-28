@@ -1612,6 +1612,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_source_archive.py
 
+      - name: Validate the retried Zig package fetch of the source archive
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_zig_fetch_all.py
+
       - name: Validate the cmux-next guards' notices pair check
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_guards_notices_pair.py

@@ -14,6 +14,7 @@ mod aside;
 pub(crate) mod auto_resume;
 mod btw;
 mod exit_reason;
+pub(crate) mod session_auth;
 pub(crate) mod subagent_retry;
 pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
@@ -37,6 +38,8 @@ mod harness_view;
 mod harness_watch;
 mod health_view;
 mod idle;
+mod idle_census;
+pub(crate) use idle_census::LaunchServers;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
@@ -882,6 +885,8 @@ impl Hub {
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
+            harness_use: RwLock::new(()),
+            idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
             loading: AtomicBool::new(false),
             replaying: StdMutex::new(Vec::new()),

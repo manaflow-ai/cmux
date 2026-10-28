@@ -62,12 +62,10 @@ async fn a_peer_reads_connected_only_once_its_handshake_finished() {
     assert_eq!(summary["connected"], false, "connected before the handshake finished: {summary}");
     assert_eq!(summary["handshaking"], true, "{summary}");
     assert_eq!(summary["state"], "degraded", "{summary}");
-    let early = tokio::time::timeout(
-        Duration::from_secs(2),
-        peer.request("_acpmux/early", json!({})),
-    )
-    .await
-    .expect("a request during the handshake is refused at once, not sent");
+    let early =
+        tokio::time::timeout(Duration::from_secs(2), peer.request("_acpmux/early", json!({})))
+            .await
+            .expect("a request during the handshake is refused at once, not sent");
     let e = early.expect_err("a request during the handshake is refused");
     assert_eq!(reason(&e), Some("peer_unreachable"), "{e:?}");
 
@@ -94,7 +92,10 @@ async fn a_peer_reads_connected_only_once_its_handshake_finished() {
         methods.push(m);
     }
     assert!(methods.iter().any(|m| m == "_acpmux/later"), "{methods:?}");
-    assert!(!methods.iter().any(|m| m == "_acpmux/early"), "sent during the handshake: {methods:?}");
+    assert!(
+        !methods.iter().any(|m| m == "_acpmux/early"),
+        "sent during the handshake: {methods:?}"
+    );
     serving.abort();
     fake.abort();
 }

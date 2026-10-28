@@ -1589,6 +1589,7 @@ pub(crate) mod remote_guard;
 mod requests;
 mod routes;
 mod secrets;
+mod session_auth;
 mod session_files;
 mod stream;
 mod subsessions;
