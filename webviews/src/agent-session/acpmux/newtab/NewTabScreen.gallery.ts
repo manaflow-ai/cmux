@@ -356,6 +356,36 @@ export default agentPaneEntry({
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
+    "slash-skill-selected": {
+      note: "A picked skill stays a command draft: the omnibar must not offer to open /review as a file.",
+      ready: newTab(),
+      snapshot: noChat([], { commands: [{ name: "review", description: "Review changes", source: "skill" }] }),
+      play: async (ctx) => {
+        await ctx.type("/rev", { selector: ".nt-field" });
+        await ctx.click({ selector: "#acpmux-slash-0" });
+        await ctx.waitFor(() => ctx.document.querySelector<HTMLTextAreaElement>(".nt-field")?.value === "/review ");
+        if (ctx.document.querySelector('.nt-row[data-type="open"]'))
+          throw new Error("a selected skill was offered as a file URL");
+      },
+    },
+    "slash-skill-send": {
+      note: "Selecting a slash skill then pressing Send sends the command to the new chat, never file.open or tab.open.",
+      ready: newTab(),
+      snapshot: noChat([], { commands: [{ name: "review", description: "Review changes", source: "skill" }] }),
+      native: { "chat.new": true, "chat.send": null },
+      play: async (ctx) => {
+        await ctx.type("/rev", { selector: ".nt-field" });
+        await ctx.click({ selector: "#acpmux-slash-0" });
+        await ctx.click({ selector: ".nt-send" });
+        await ctx.waitFor(() =>
+          galleryNativeCalls(ctx.document).some(
+            (call) => call.method === "chat.send" && call.params?.text === "/review",
+          ),
+        );
+        if (galleryNativeCalls(ctx.document).some((call) => call.method === "file.open" || call.method === "tab.open"))
+          throw new Error("a selected skill opened a file or browser tab");
+      },
+    },
     empty: {
       note: "No chats yet. A harness is installed, so the chip names its model and nothing on the page offers Add harness.",
       ready: newTab(),
