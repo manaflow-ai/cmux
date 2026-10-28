@@ -1054,7 +1054,7 @@ mod machine_catalog;
 fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
     for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
         let help = crate::localization::catalog_for_locale(locale).local_server.cmux_root_help;
-        for scope in surface::CMUX_SCOPES.iter().chain(super::OWN_HELP_SCOPES) {
+        for scope in surface::CMUX_SCOPES.iter().chain(OWN_HELP_SCOPES) {
             assert!(
                 help.lines().any(|line| line.starts_with(&format!("  {scope} "))),
                 "{locale}: `cmux --help` does not list {scope}"
@@ -1063,10 +1063,10 @@ fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
     }
     let rewritten = |words: &[&str]| {
         let mut args = strings(words);
-        super::rewrite_help_word_on(&mut args, Surface::Cmux);
+        rewrite_help_word_on(&mut args, Surface::Cmux);
         args
     };
-    for &scope in super::OWN_HELP_SCOPES {
+    for &scope in OWN_HELP_SCOPES {
         let own_help = if scope == "device" { "help" } else { "--help" };
         assert_eq!(rewritten(&["help", scope]), strings(&[scope, own_help]), "{scope}");
     }
@@ -1088,7 +1088,7 @@ fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
         assert_eq!(rewritten(&unchanged), strings(&unchanged), "{unchanged:?}");
     }
     let os = |words: &[&str]| words.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
-    assert_eq!(super::acp_scope_args(&strings(&["acp", "ls", "--json"])), os(&["ls", "--json"]));
-    assert_eq!(super::acp_scope_args(&rewritten(&["help", "harness"])), os(&["harness", "--help"]));
-    assert_eq!(super::acp_scope_args(&rewritten(&["help", "chats"])), os(&["chats", "--help"]));
+    assert_eq!(acp_scope_args(&strings(&["acp", "ls", "--json"])), os(&["ls", "--json"]));
+    assert_eq!(acp_scope_args(&rewritten(&["help", "harness"])), os(&["harness", "--help"]));
+    assert_eq!(acp_scope_args(&rewritten(&["help", "chats"])), os(&["chats", "--help"]));
 }
