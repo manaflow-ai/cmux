@@ -64,6 +64,8 @@ impl ExitedDrain {
             return;
         }
         let timeout = self.deadline.saturating_duration_since(Instant::now());
+        // wakeup-allow: deadline the exited child's one drain bound; once it passes the drain is forced and
+        // the wait above has no timeout
         let (state, result) = host
             .child_exit
             .1

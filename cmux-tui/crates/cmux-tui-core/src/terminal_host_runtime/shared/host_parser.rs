@@ -8,7 +8,7 @@ use cmux_threads::checked::sync as waits;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use ghostty_vt::Callbacks;
 
@@ -103,19 +103,15 @@ impl HostShared {
 
     /// Waits until the exit is published (`dead`), at most `bound`.
     fn wait_until_dead(&self, bound: Duration) -> bool {
-        let deadline = Instant::now() + bound;
         let (lock, published) = &self.parser_progress;
         // Exit publication sets `dead`, then bumps parser progress under
         // this lock, so a check made under the lock cannot miss the wake.
-        let mut generation = lock.lock().recover_poison();
-        while !self.dead.load(Ordering::Acquire) {
-            let now = Instant::now();
-            if now >= deadline {
-                return false;
-            }
-            generation = published.wait_timeout(generation, deadline - now).recover_poison().0;
-        }
-        true
+        let generation = lock.lock().recover_poison();
+        // wakeup-allow: deadline the panicked parser's one exit bound; the exit's publication ends it first
+        let (_generation, _) = published
+            .wait_timeout_while(generation, bound, |_| !self.dead.load(Ordering::Acquire))
+            .recover_poison();
+        self.dead.load(Ordering::Acquire)
     }
 }
 
