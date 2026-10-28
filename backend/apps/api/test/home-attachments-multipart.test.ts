@@ -23,7 +23,7 @@ const multipart = async (who: Who, conversation: string, body: Uint8Array) => {
     )
     return { status: res.status, json: (await res.json()) as any }
   }
-  return { slot: r.json.value.slot as string, size, parts: r.json.value.part_count as number, putPart, complete }
+  return { slot: r.json.value.slot as string, uploadUrl: r.json.value.upload_url as string, token, size, parts: r.json.value.part_count as number, putPart, complete }
 }
 
 /** The env with a bucket whose resumed uploads complete through `complete` (given the real upload). */
@@ -119,5 +119,64 @@ describe("Home attachments: multipart completion keeps a valid upload through tr
     const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id))
     const states = await runInDurableObject(stub, async (_i, state) => state.storage.sql.exec("SELECT state FROM home_attachment_slots WHERE id IN (?, ?)", m.slot, gone.slot).toArray().map((r) => (r as { state: string }).state))
     expect(states).toEqual(["tombstone", "tombstone"])
+  })
+})
+
+/** A request body that is read only once `open` is called: `pulled` settles when the Worker starts reading it. */
+const gatedBody = (bytes: Uint8Array) => {
+  let pulled!: () => void
+  let open!: () => void
+  const started = new Promise<void>((r) => (pulled = r))
+  const gate = new Promise<void>((r) => (open = r))
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(ctl) {
+      pulled()
+      await gate
+      ctl.enqueue(bytes)
+      ctl.close()
+    }
+  })
+  return { stream, started, open }
+}
+
+describe("Home attachments: one request at a time uploads a multipart part", { timeout: 120_000 }, () => {
+  it("two concurrent PUTs of different bytes for the same part: one uploads, the other is refused before it reaches R2, and the file completes as the winner's bytes", async () => {
+    const alice = await signIn("att-part-race")
+    const { id } = await group(alice)
+    const { handleAttachmentMultipartPart } = await import("../src/home-attachments.ts")
+    const body = new Uint8Array(32 * 1024 * 1024 + 17).map((_, i) => i % 233)
+    const m = await multipart(alice, id, body)
+    expect(m.parts).toBe(2)
+    const send = (stream: ReadableStream<Uint8Array>) =>
+      handleAttachmentMultipartPart(new Request(m.uploadUrl, { method: "PUT", body: stream, headers: { "content-length": String(m.size), "x-cmux-part-number": "1" } }), testEnv, id, m.token)
+    const winner = gatedBody(body.subarray(0, m.size))
+    const loser = gatedBody(new Uint8Array(m.size).fill(0xee))
+    const first = send(winner.stream)
+    await winner.started
+    // The second PUT reads the same slot state while the first is still streaming.
+    const second = send(loser.stream)
+    const early = await Promise.race([loser.started.then(() => null), second])
+    winner.open()
+    expect((await first).status).toBe(200)
+    loser.open()
+    const refused = early ?? (await second)
+    expect(refused.status).toBe(409)
+    expect(((await refused.json()) as any).error.code).toMatch(/^attachment\.part_(busy|order)$/)
+    expect((await m.putPart(2)).status).toBe(200)
+    const done = await m.complete()
+    expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
+    expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+  })
+
+  it("a part whose upload failed releases its claim at once: the same part uploads again right away", async () => {
+    const alice = await signIn("att-part-retry")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32 * 1024 * 1024 + 17).map((_, i) => i % 229)
+    const m = await multipart(alice, id, body)
+    // Short: the R2 part fails and the request answers 400.
+    expect((await m.putPart(1, body.subarray(0, 1024))).status).toBe(400)
+    expect((await m.putPart(1)).status).toBe(200)
+    expect((await m.putPart(2)).status).toBe(200)
+    expect((await m.complete()).status).toBe(200)
   })
 })
