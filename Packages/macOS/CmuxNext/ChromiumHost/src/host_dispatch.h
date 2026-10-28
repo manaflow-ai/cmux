@@ -98,6 +98,9 @@
 //   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of one of a page's wheels,
 //              with that wheel's input seq (host_wheel_ack.h); the HELLO lists
 //              kWheelAcksHelloName when the fork has the handler
+//   kOpHostHang, kOpInputDispatched  the UI thread's hangs and the input it
+//              dispatched (host_hang_watcher.h); the HELLO lists
+//              kHangWatchHelloName when the host sends them
 //   kOpEvent   CMUX_SHIM_LOCK: one call of the fork's lock delegate while
 //              cmux's handler is installed (host_locks.h); the HELLO lists
 //              kLocksHelloName when the fork has the delegate
@@ -355,6 +358,11 @@ class HostContext {
   // kEnergySaverHelloName); nullptr takes kOpEnergySaver and changes nothing.
   void SetEnergySaver(EnergySaverFn energy_saver) { energy_saver_ = energy_saver; }
 
+  // The host watches its UI thread's turns and acks the input it dispatches
+  // (host_hang_watcher.h, browser_host_main.mm, before Attach): the HELLO
+  // lists kHangWatchHelloName, so cmux arms its busy deadline on the acks.
+  void SetHangWatch(bool watching) { hang_watch_ = watching; }
+
   // The host shim's cmux_shim_set_lock_handler when its fork has the lock
   // delegate (browser_host_main.mm, before Attach, which then lists
   // kLocksHelloName); nullptr takes kOpSetLockHandler and changes nothing.
@@ -538,6 +546,7 @@ class HostContext {
   SetWheelAckHandlerFn set_wheel_ack_handler_ = nullptr;
   WheelAcks wheel_acks_;
   EnergySaverFn energy_saver_ = nullptr;
+  bool hang_watch_ = false;
   SetLockHandlerFn set_lock_handler_ = nullptr;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
