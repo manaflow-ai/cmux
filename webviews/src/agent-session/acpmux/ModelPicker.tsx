@@ -1121,6 +1121,13 @@ export function ModelPicker(props: ModelPickerProps) {
                 quickPicked.current = true;
                 onLand(id);
               },
+              onModelEffort: (model, effort) => {
+                if (onCombo) pickQuickToPrompt({ ...model, effort });
+                else {
+                  quickPicked.current = true;
+                  onLand(model.id, effort);
+                }
+              },
               search: { find: quickSearch, pick: pickQuickToPrompt },
               ...(quickFamilies
                 ? {

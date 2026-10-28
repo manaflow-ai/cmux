@@ -116,6 +116,21 @@
   max-height: var(--available-height, none);
   overflow-y: auto;
 }
+/* A model name keeps the running effort; the adjacent segments pick that model and effort in one
+   action. One row stays one height. The whole row can shrink inside a short chat column. */
+.acpmux-quick-combo { min-width: min(420px, var(--available-width, calc(100vw - 24px))); max-width: min(540px, var(--available-width, calc(100vw - 24px))); }
+.acpmux-quick-combo-row { display: flex; align-items: center; min-width: 0; height: var(--ui-row-height); }
+.acpmux-quick-combo-row > .acpmux-quick-combo-model { flex: 1 1 auto; min-width: 0; }
+.acpmux-quick-combo-row > .acpmux-quick-combo-model .acpmux-quick-label { overflow: hidden; }
+.acpmux-quick-effort-group { display: flex; flex: none; align-items: center; gap: var(--ui-popup-padding); min-inline-size: 0; margin: 0; padding: calc(var(--ui-popup-padding) / 2) var(--ui-popup-padding); border: 0; border-radius: var(--ui-row-radius); background: var(--acpmux-menu-hover); }
+.ui-menu-item.acpmux-quick-effort-pick { display: flex; align-items: center; justify-content: center; flex: none; width: auto; height: calc(var(--ui-row-height) - 3 * var(--ui-popup-padding)); min-height: 0; padding: 0 var(--ui-popup-padding); border-radius: var(--ui-row-radius); color: var(--agent-muted); font-size: var(--text-caption); line-height: var(--text-caption--line-height); letter-spacing: var(--text-caption--letter-spacing); }
+.acpmux-quick-effort-group[data-compact] .acpmux-quick-effort-pick { width: calc(var(--ui-row-height) * 0.65); padding-inline: 0; }
+.ui-menu-item.acpmux-quick-effort-pick[data-highlighted],
+.ui-menu-item.acpmux-quick-effort-pick:hover { color: var(--agent-text); background: var(--agent-surface, var(--acpmux-menu-hover)); }
+.acpmux-quick-effort-pick [data-current] { color: var(--agent-text); font-weight: 600; }
+.acpmux-quick-combo-quiet .acpmux-quick-effort-group { background: transparent; }
+.acpmux-quick-combo-underline .acpmux-quick-effort-group { background: transparent; }
+.acpmux-quick-combo-underline .acpmux-quick-effort-pick [data-current] { text-decoration: underline; text-underline-offset: 4px; }
 .acpmux-quick-menu .ui-menu-group-label {
   display: block;
   padding: 4px var(--ui-row-padding-inline) 2px;

@@ -30,6 +30,10 @@ export type QuickMenu = {
   models: readonly Omit<QuickModel, "family">[];
   current?: string;
   onModel(id: string): void;
+  /// A single pick of a model and its effort; the caller sequences the two against the session.
+  onModelEffort?(model: QuickModel, effort: string): void;
+  /// Gallery treatments of the same one-click control. The compact capsule is the shipped look.
+  effortRowStyle?: "capsule" | "quiet" | "underline";
   /// The reasoning levels; absent when the model offers no choice.
   effort?: {
     levels: Choice[];
@@ -310,6 +314,44 @@ export function QuickModelMenu({
     else if (!families) menu.onModel(row.id);
     else families.onPick(row);
   };
+  const effortButtons = (row: QuickModel) => {
+    if (!menu.onModelEffort || !effort || levels.length < 2 || (families && row.family !== families.current))
+      return null;
+    return (
+      <fieldset
+        className="acpmux-quick-effort-group"
+        aria-label={`${row.name} ${t("effort.title")}`}
+        data-compact={levels.length > 3 ? "" : undefined}
+      >
+        {levels.map((choice) => (
+          <MenuItem
+            key={choice.id}
+            className="acpmux-quick-effort-pick"
+            // tooltip-allow: compact labels keep every level visible; the full name is in this tooltip and accessible text.
+            onSelect={() => {
+              onOpenChange(false);
+              menu.onModelEffort?.(row, choice.id);
+            }}
+          >
+            <span className="acpmux-permission-sr-only">
+              {row.name} · {choice.name}
+            </span>
+            <span
+              aria-hidden="true"
+              title={choice.name}
+              data-current={row.id === current && choice.id === effort.current ? "" : undefined}
+            >
+              {levels.length > 3
+                ? (({ low: "Lo", medium: "Md", high: "Hi", xhigh: "XH", max: "Mx" } as Record<string, string>)[
+                    choice.id
+                  ] ?? choice.name.slice(0, 2))
+                : choice.name}
+            </span>
+          </MenuItem>
+        ))}
+      </fieldset>
+    );
+  };
   /// The field's editing keys stay in it: Base UI's typeahead and the menu's own keys never see
   /// them. Digits on an empty field still pick a row, and Left and Right move along the rail.
   const fieldKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -479,24 +521,27 @@ export function QuickModelMenu({
                 {choice.offers.map((offer) => providerRow(offer, "acpmux-quick-item acpmux-quick-offer"))}
               </Fragment>
             );
+          const segments = effortButtons(choice);
           return (
-            <MenuRadioItem
-              key={value}
-              value={value}
-              closeOnClick
-              disabled={choice.disabled}
-              className="acpmux-quick-item"
-              // tooltip-allow: New Tab's menu keeps its width, so a long model name ends in "…"; the tooltip names it whole.
-              {...(newTab ? { title: detail ? `${choice.name} · ${detail}` : choice.name } : {})}
-              shortcut={
-                !newTab && !query && index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined
-              }
-            >
-              <span className="acpmux-quick-label">
-                {label}
-                {detail && <span className="acpmux-quick-value">{detail}</span>}
-              </span>
-            </MenuRadioItem>
+            <div key={value} className={segments ? "acpmux-quick-combo-row" : "acpmux-quick-plain-row"}>
+              <MenuRadioItem
+                value={value}
+                closeOnClick
+                disabled={choice.disabled}
+                className={`acpmux-quick-item${segments ? " acpmux-quick-combo-model" : ""}`}
+                // tooltip-allow: New Tab's menu keeps its width, so a long model name ends in "…"; the tooltip names it whole.
+                {...(newTab ? { title: detail ? `${choice.name} · ${detail}` : choice.name } : {})}
+                shortcut={
+                  !newTab && !query && index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined
+                }
+              >
+                <span className="acpmux-quick-label">
+                  {label}
+                  {detail && <span className="acpmux-quick-value">{detail}</span>}
+                </span>
+              </MenuRadioItem>
+              {segments}
+            </div>
           );
         })}
       </MenuRadioGroup>
@@ -557,17 +602,22 @@ export function QuickModelMenu({
                 }}
               >
                 {shown.more.map((choice) => (
-                  <MenuRadioItem
+                  <div
                     key={choice.id}
-                    value={rowValue(choice)}
-                    closeOnClick
-                    disabled={choice.disabled}
-                    className="acpmux-quick-item"
-                    // tooltip-allow: a long model name ends in "…" at the menu's width; the tooltip names it whole.
-                    title={choice.provider ? `${choice.name} · ${choice.provider}` : choice.name}
+                    className={effortButtons(choice) ? "acpmux-quick-combo-row" : "acpmux-quick-plain-row"}
                   >
-                    <QuickModelLabel model={choice} />
-                  </MenuRadioItem>
+                    <MenuRadioItem
+                      value={rowValue(choice)}
+                      closeOnClick
+                      disabled={choice.disabled}
+                      className={`acpmux-quick-item${effortButtons(choice) ? " acpmux-quick-combo-model" : ""}`}
+                      // tooltip-allow: a long model name ends in "…" at the menu's width; the tooltip names it whole.
+                      title={choice.provider ? `${choice.name} · ${choice.provider}` : choice.name}
+                    >
+                      <QuickModelLabel model={choice} />
+                    </MenuRadioItem>
+                    {effortButtons(choice)}
+                  </div>
                 ))}
               </MenuRadioGroup>
             </fieldset>
@@ -635,7 +685,7 @@ export function QuickModelMenu({
       {!query && !inlineMore && families && ((shown?.more.length ?? 0) > 0 || families.onAddHarness) && (
         <Submenu
           className="acpmux-quick-item acpmux-quick-sub"
-          popupClassName="acpmux-quick-menu acpmux-quick-more"
+          popupClassName={`acpmux-quick-menu acpmux-quick-more${menu.onModelEffort && effort && levels.length > 1 ? " acpmux-quick-combo acpmux-quick-combo-capsule" : ""}`}
           label={<span className="acpmux-menu-label">{t("picker.moreModels")}</span>}
         >
           {shown && shown.more.length > 0 && (
@@ -648,15 +698,20 @@ export function QuickModelMenu({
                 }}
               >
                 {shown.more.map((choice) => (
-                  <MenuRadioItem
+                  <div
                     key={choice.id}
-                    value={rowValue(choice)}
-                    closeOnClick
-                    disabled={choice.disabled}
-                    className="acpmux-quick-item"
+                    className={effortButtons(choice) ? "acpmux-quick-combo-row" : "acpmux-quick-plain-row"}
                   >
-                    <QuickModelLabel model={choice} />
-                  </MenuRadioItem>
+                    <MenuRadioItem
+                      value={rowValue(choice)}
+                      closeOnClick
+                      disabled={choice.disabled}
+                      className={`acpmux-quick-item${effortButtons(choice) ? " acpmux-quick-combo-model" : ""}`}
+                    >
+                      <QuickModelLabel model={choice} />
+                    </MenuRadioItem>
+                    {effortButtons(choice)}
+                  </div>
                 ))}
               </MenuRadioGroup>
               {families.onAddHarness && <MenuSeparator />}
@@ -719,7 +774,7 @@ export function QuickModelMenu({
         flip={false}
         align="start"
         label={t("picker.model")}
-        className={`acpmux-quick-menu acpmux-quick-placement-${placement}${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
+        className={`acpmux-quick-menu acpmux-quick-placement-${placement}${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}${menu.onModelEffort && effort && levels.length > 1 ? ` acpmux-quick-combo acpmux-quick-combo-${menu.effortRowStyle ?? "capsule"}` : ""}`}
         boundary={CHAT_COLUMN}
         // A native menu panel cannot draw the harness strip or the More models scroll area.
         // Keep this combined surface inside the window in both directions.

@@ -77,7 +77,13 @@ const family = (id: string, name: string): QuickFamily => ({
   more: ["x", "y"].map((model) => ({ id: `${id}-${model}`, name: `${name} old ${model}`, family: id })),
 });
 
-function Harness({ newTab }: { newTab: boolean }) {
+function Harness({
+  newTab,
+  combo,
+}: {
+  newTab: boolean;
+  combo?: { model(id: string): void; effort(id: string, level: string): void };
+}) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const [fast, setFast] = useState(false);
@@ -91,9 +97,27 @@ function Harness({ newTab }: { newTab: boolean }) {
         menu={{
           models: [],
           current: "claude-a",
-          onModel() {},
+          onModel: (id) => combo?.model(id),
+          ...(combo ? { onModelEffort: (model, level) => combo.effort(model.id, level) } : {}),
+          ...(combo
+            ? {
+                effort: {
+                  levels: [
+                    { id: "low", name: "Low" },
+                    { id: "medium", name: "Medium" },
+                    { id: "high", name: "High" },
+                  ],
+                  current: "medium",
+                  onPick() {},
+                },
+              }
+            : {}),
           fast: { checked: fast, onChange: setFast },
-          families: { list: [family("claude", "Claude"), family("codex", "Codex")], current: "claude", onPick() {} },
+          families: {
+            list: [family("claude", "Claude"), family("codex", "Codex")],
+            current: "claude",
+            onPick: (model) => combo?.model(model.id),
+          },
         }}
         onMore={() => {}}
       >
@@ -103,11 +127,11 @@ function Harness({ newTab }: { newTab: boolean }) {
   );
 }
 
-async function openMenu(newTab: boolean) {
+async function openMenu(newTab: boolean, combo?: { model(id: string): void; effort(id: string, level: string): void }) {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
-    root.render(<Harness newTab={newTab} />);
+    root.render(<Harness newTab={newTab} combo={combo} />);
   });
   await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
   await settle();
@@ -182,4 +206,63 @@ test("Fast mode exposes one checked menu row with a visual switch and no bare st
   await act(async () => fast.click());
   await settle();
   expect(document.querySelector(".acpmux-quick-fast")?.getAttribute("aria-checked")).toBe("true");
+});
+
+for (const newTab of [false, true]) {
+  test(`an effort segment picks a model and effort with one click in ${newTab ? "New Tab" : "chat"}`, async () => {
+    const picked: string[] = [];
+    await openMenu(newTab, {
+      model: (id) => picked.push(`model:${id}`),
+      effort: (id, level) => picked.push(`combo:${id}:${level}`),
+    });
+    const row = [...document.querySelectorAll<HTMLElement>(".acpmux-quick-combo-row")].find((node) =>
+      node.textContent?.includes("Claude b"),
+    );
+    expect(row).toBeDefined();
+    const high = [...row!.querySelectorAll<HTMLElement>(".acpmux-quick-effort-group [role='menuitem']")].find((node) =>
+      node.textContent?.includes("High"),
+    );
+    expect(high).toBeDefined();
+    await act(async () => high!.click());
+    expect(picked).toEqual(["combo:claude-b:high"]);
+  });
+}
+
+test("a model name keeps the chosen effort, and the current model's effort changes alone", async () => {
+  const picked: string[] = [];
+  await openMenu(false, {
+    model: (id) => picked.push(`model:${id}`),
+    effort: (id, level) => picked.push(`combo:${id}:${level}`),
+  });
+  const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-quick-combo-row")];
+  const other = rows.find((node) => node.textContent?.includes("Claude b"))!;
+  await act(async () => other.querySelector<HTMLElement>("[role='menuitemradio']")!.click());
+  expect(picked).toEqual(["model:claude-b"]);
+  await act(async () => document.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  const current = [...document.querySelectorAll<HTMLElement>(".acpmux-quick-combo-row")].find((node) =>
+    node.textContent?.includes("Claude a"),
+  )!;
+  const low = [...current.querySelectorAll<HTMLElement>(".acpmux-quick-effort-group [role='menuitem']")].find((node) =>
+    node.textContent?.includes("Low"),
+  )!;
+  await act(async () => low.click());
+  expect(picked).toEqual(["model:claude-b", "combo:claude-a:low"]);
+});
+
+test("New Tab's expanded More models rows also offer one-click effort", async () => {
+  const picked: string[] = [];
+  await openMenu(true, {
+    model: (id) => picked.push(`model:${id}`),
+    effort: (id, level) => picked.push(`combo:${id}:${level}`),
+  });
+  await act(async () => disclosure()!.click());
+  const more = [...document.querySelectorAll<HTMLElement>(".acpmux-quick-more-list .acpmux-quick-combo-row")].find(
+    (node) => node.textContent?.includes("Claude old x"),
+  )!;
+  const high = [...more.querySelectorAll<HTMLElement>(".acpmux-quick-effort-group [role='menuitem']")].find((node) =>
+    node.textContent?.includes("High"),
+  )!;
+  await act(async () => high.click());
+  expect(picked).toEqual(["combo:claude-x:high"]);
 });

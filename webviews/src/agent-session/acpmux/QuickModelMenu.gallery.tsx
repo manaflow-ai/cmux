@@ -17,6 +17,7 @@ type Props = {
   stress?: boolean;
   anchorTop?: boolean;
   anchorMiddle?: boolean;
+  effortStyle?: "capsule" | "quiet" | "underline";
 };
 
 const models = (family: string, names: string[]) => names.map((name) => ({ id: `${family}/${name}`, name, family }));
@@ -89,11 +90,13 @@ export default componentEntry<Props>({
           anchorMiddle,
           placement = "left",
           stress,
+          effortStyle = "capsule",
         }: Props) {
           const [isOpen, setOpen] = useState(false);
           const trigger = useRef<HTMLButtonElement | null>(null);
           const [isFast, setFast] = useState(fast);
           const [selection, setSelection] = useState("");
+          const [selectedEffort, setSelectedEffort] = useState("high");
           const available = many
             ? [
                 ...families,
@@ -124,9 +127,15 @@ export default componentEntry<Props>({
                   chip={{ "data-menu": "model", label: "Model", title: "Model" }}
                   menu={{
                     models: [],
-                    current: "claude/Opus 5.5",
-                    onModel: () => undefined,
+                    current: selection || "claude/Opus 5.5",
+                    onModel: setSelection,
                     ...extras,
+                    effort: { ...extras.effort!, current: selectedEffort, onPick: setSelectedEffort },
+                    effortRowStyle: effortStyle,
+                    onModelEffort: (model, effort) => {
+                      setSelection(model.id);
+                      setSelectedEffort(effort);
+                    },
                     harnessPlacement: placement,
                     search: {
                       find: (query) =>
@@ -167,6 +176,12 @@ export default componentEntry<Props>({
         },
     ),
   variants: {
+    "effort-capsule-chat": { props: { chat: true, effortStyle: "capsule" }, play: open },
+    "effort-quiet-chat": { props: { chat: true, effortStyle: "quiet" }, play: open },
+    "effort-underline-chat": { props: { chat: true, effortStyle: "underline" }, play: open },
+    "effort-capsule-newtab": { props: { effortStyle: "capsule" }, play: open },
+    "effort-quiet-newtab": { props: { effortStyle: "quiet" }, play: open },
+    "effort-underline-newtab": { props: { effortStyle: "underline" }, play: open },
     "newtab-midpoint": { props: { anchorMiddle: true }, play: open },
     "chat-flipped": { props: { chat: true, anchorTop: true }, play: open },
     "claude-many-harnesses": { props: { many: true }, play: open },
