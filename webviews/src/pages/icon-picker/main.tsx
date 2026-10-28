@@ -1,6 +1,8 @@
 // Boots the icon picker page (mount.tsx). In the app the host installs the `cmuxPage` bridge; in a
 // browser (`/icon-picker/?mock`) the in-memory mock host stands in.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
+// Page state (shared/pageState.ts): none is kept. Each open is a new pick session that resets the
+// search and the scroll (mount.tsx), so a restored page has nothing to put back.
 import "../shared/desktop";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { mountIconPicker, type MountedPicker } from "./mount";

@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextInputModel
 import CmuxNextSettings
 import Foundation
 

@@ -219,6 +219,12 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ScriptLogEvent, "request");
     try expectExplicitNullRejected(protocol.ScriptLogEvent, "session");
     try expectExplicitNullRejected(protocol.ScrollChangedEvent, "cause");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "cause");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "crate");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "file_hash");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "lane_sync");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "line");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "method");
     try expectExplicitNullRejected(protocol.SettingsChangedEvent, "cause");
     try expectExplicitNullRejected(protocol.SizeStateEvent, "cause");
     try expectExplicitNullRejected(protocol.SizeStateEvent, "self_participant");
@@ -271,6 +277,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "endpoint");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "hosting");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "provider_id");
+    try expectExplicitNullRejected(protocol.ClientHelloFeatures, "hash");
+    try expectExplicitNullRejected(protocol.ClientHelloResult, "features");
     try expectExplicitNullRejected(protocol.ClientHelloResult, "install_id");
     try expectExplicitNullRejected(protocol.ClientHelloResult, "nonce");
     try expectExplicitNullRejected(protocol.ClientHelloResult, "page");
@@ -365,6 +373,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ServerStatsRequestPathIo, "lock_hold_over_1ms");
     try expectExplicitNullRejected(protocol.ServerStatsRequestPathIo, "lock_waits");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "dispatch_queue_us");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "hangs");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "ipc");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "ipc_methods");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "lock_classes");

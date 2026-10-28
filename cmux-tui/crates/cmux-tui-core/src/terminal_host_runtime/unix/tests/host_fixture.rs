@@ -87,6 +87,7 @@ pub(super) fn test_host_shared_with_budget(
         session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: None,
         trace_control: shared::host_trace::HostTraceQueue::default(),
+        thread_qos: cmux_threads::DesiredQos::new(crate::echo_thread::ECHO_PATH_QOS),
         fail_next_resize_publication: AtomicBool::new(false),
     });
     HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();

@@ -344,6 +344,17 @@ struct ThreadsControlTests {
         #expect(record.qos == .userInteractive)
     }
 
+    /// `LaunchWarmup` runs its thread at user-interactive (main reads what it builds before the first frame), so its
+    /// row and the closed list say the same.
+    @Test func theLaunchWarmUpThreadIsOnTheClosedList() throws {
+        #expect(ThreadRegistry.app.declaration(for: "cmux-next launch warm-up")?.policy == .fixed(.userInteractive))
+        let doc = try Self.threadingModel()
+        let start = try #require(doc.range(of: "## Closed user-interactive list"))
+        let rest = doc[start.upperBound...]
+        let closedList = rest.range(of: "\n## ").map { rest[..<$0.lowerBound] } ?? rest
+        #expect(closedList.contains("| `cmux-next launch warm-up` (one-shot) | app |"))
+    }
+
     @Test func kernelTiersMapToQoS() {
         #expect((0...6).compactMap { ThreadQoS(kernelTier: Int32($0)) }
                 == [.unspecified, .maintenance, .background, .utility, .default, .userInitiated, .userInteractive])

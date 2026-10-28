@@ -23,6 +23,7 @@
         clippy::exit
     )
 )]
+#![forbid(unsafe_code)]
 
 mod catalog;
 mod cli;

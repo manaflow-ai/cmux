@@ -1378,7 +1378,8 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     {
         validate_prefixed_id("workspace", "ws", workspace)?;
     }
-    let caller_terminal = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty());
+    let caller_terminal =
+        super::caller_env::var("CMUX_TUI_TERMINAL_ID").filter(|id| !id.is_empty());
     let surface = match flags.take_dashed("--surface") {
         Some(value) if value == "current" => match caller_terminal {
             Some(terminal) => Some(terminal),
@@ -1526,7 +1527,7 @@ fn parse_agent(
                 }
             };
             let terminal =
-                flags.take("terminal").or_else(|| std::env::var("CMUX_TUI_TERMINAL_ID").ok());
+                flags.take("terminal").or_else(|| super::caller_env::var("CMUX_TUI_TERMINAL_ID"));
             terminal.iter().try_for_each(|id| validate_prefixed_id("terminal", "term", id))?;
             // Read before the journal event redacts them; they travel beside it (memory only).
             let live = cmux_tui_core::agent_hook_live_fields(&source, &native_event, &native);

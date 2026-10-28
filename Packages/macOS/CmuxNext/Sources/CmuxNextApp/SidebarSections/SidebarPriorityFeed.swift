@@ -20,7 +20,7 @@ extension SidebarPriorityFeed {
                                    if let services { SidebarPriorityRowActions.perform(action, in: services.registry) }
                                },
                                toggleShown: { [weak services] in _ = services?.registry.perform(Self.toggleAction, invocation: ActionInvocation(origin: .user)) }),
-                  chats: .app)
+                  chats: .app, deadlines: services.mainDeadlines)
     }
 
     /// Opens a row's chat: the tab that shows it here, else the tab of the other machine's tree

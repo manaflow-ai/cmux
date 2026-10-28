@@ -258,10 +258,16 @@ pub(crate) fn install_daemon_features() -> cmux_features::Snapshot {
 /// shared rule (`cmux_features::sources::daemon_snapshot`, acpmux's too) on the
 /// channel of the app this owner belongs to.
 pub(crate) fn daemon_features() -> cmux_features::Snapshot {
-    let env = |name: &str| std::env::var(name).ok();
-    let exe = std::env::current_exe().ok();
-    let kind = crate::app_identity::AppIdentity::detect(env, exe.as_deref())
-        .map(|identity| identity.build().kind());
+    #[cfg(unix)]
+    let kind = {
+        let env = |name: &str| std::env::var(name).ok();
+        let exe = std::env::current_exe().ok();
+        crate::app_identity::AppIdentity::detect(env, exe.as_deref())
+            .map(|identity| identity.build().kind())
+    };
+    // app_identity is unix-only: no app channel to read elsewhere.
+    #[cfg(not(unix))]
+    let kind = None;
     cmux_features::sources::daemon_snapshot(kind)
 }
 

@@ -178,7 +178,7 @@ final class SwipeReply {
     }
 
     // cmux: the swipe's own cache (one image per scale), not process-wide mutable state.
-    private var arrowCache: [CGFloat: CGImage] = [:]
+    private var arrowCache: [CGFloat: CGImage] = [:] // cmux: memory: fixed one arrow per display scale (1x to 3x)
     func arrowImage(scale: CGFloat) -> CGImage? {
         if let i = arrowCache[scale] { return i }
         let cfg = NSImage.SymbolConfiguration(pointSize: Tuning.arrowSize * 0.7, weight: .semibold)
