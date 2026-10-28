@@ -71,13 +71,13 @@ run("copy Postgres projection rows into MySQL, then verify", () => {
     expect(await teamRowCounts(pgc, junk)).toMatchObject({ teams: 2, memberships: 1, audit_events: 1, hosts: 0 })
     await copyTables(pgc, my, { excludeTeams: junk, batch: 2 })
     const [kept] = (await my.query("SELECT id FROM teams WHERE kind = 'stack' ORDER BY id")) as unknown as [Array<{ id: string }>]
-    expect(kept.map((r) => r.id)).toEqual(["team_stack_real", "team_stack_used"])
+    expect(kept.map((r) => r.id)).toEqual(["team_stack_named", "team_stack_real", "team_stack_used"])
     const [junkRows] = (await my.query("SELECT (SELECT count(*) FROM memberships WHERE team_id = 'team_junk') + (SELECT count(*) FROM audit_events WHERE team_id = 'team_junk') AS n")) as unknown as [Array<{ n: number }>]
     expect(Number(junkRows[0]?.n)).toBe(0)
     // The kept set is equal (teams differs only on the newer shadow row of the first case).
     const scoped = await verifyTables(pgc, my, { excludeTeams: junk })
     expect(scoped.filter((r) => r.table !== "teams" && !r.equal)).toEqual([])
-    expect(scoped.find((r) => r.table === "teams")).toMatchObject({ pgCount: 3, mysqlCount: 3, missingInMysql: [], missingInPostgres: [], changed: ["team_p1"] })
+    expect(scoped.find((r) => r.table === "teams")).toMatchObject({ pgCount: 4, mysqlCount: 4, missingInMysql: [], missingInPostgres: [], changed: ["team_p1"] })
     // Without the filter the skipped rows show as missing in MySQL.
     const full = await verifyTables(pgc, my)
     expect(full.find((r) => r.table === "teams")!.missingInMysql).toEqual(["team_junk", "team_junk_empty"])

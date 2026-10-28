@@ -49,16 +49,20 @@ export const toMysqlValue = (v: unknown): unknown => {
 }
 
 /**
- * Junk teams (cmuxterm-hq#4767 step 1): Stack team mirrors that no cmux-next user belongs to and
- * that were never used in cmux-next. Before the sign-up fix (team-stack-sync.ts,
- * anonymous_team_ignored) the Stack webhook mirrored every cmux.com visitor's anonymous sign-up
- * personal team. Stack's anonymous flag is not in the projection, so the rule reads what is: an
- * anonymous Stack user can never call the API (auth.ts refuses is_anonymous tokens), so it never
- * has a `users` row, and a team without a signed-in member has no hosts, automations, runs,
- * connections or conversations. The copy skips these teams and their team-scoped rows instead of
- * deleting them on Postgres, and verify and the compare cron leave them out on both sides.
+ * Junk teams (cmuxterm-hq#4767 step 1): the sign-up personal teams of cmux.com visitors that Stack
+ * signed up anonymously, which the Stack webhook mirrored before the fix in team-stack-sync.ts
+ * (anonymous_team_ignored). Stack's anonymous flag is not in the projection, so the rule reads what
+ * is, and a team that fails any part is kept:
+ * - Stack's default name for a personal team whose owner has no display name, "Personal Team" (an
+ *   anonymous user has none; a named user's team is "<name>'s Team");
+ * - no member with a `users` row: auth.ts refuses anonymous tokens, so an anonymous user never
+ *   gets one;
+ * - never used: no hosts, automations, runs, connections or conversations.
+ * The copy skips these teams and their team-scoped rows instead of deleting them on Postgres, and
+ * verify and the compare cron leave them out on both sides. The TeamDO stays the source of truth: a
+ * kept-out team that changes later is projected again by its next outbox write.
  */
-export const JUNK_TEAMS_SQL = `SELECT t.id FROM teams t WHERE t.kind = 'stack'
+export const JUNK_TEAMS_SQL = `SELECT t.id FROM teams t WHERE t.kind = 'stack' AND t.display_name = 'Personal Team'
   AND NOT EXISTS (SELECT 1 FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.team_id = t.id)
   AND NOT EXISTS (SELECT 1 FROM hosts x WHERE x.team_id = t.id)
   AND NOT EXISTS (SELECT 1 FROM automations x WHERE x.team_id = t.id)
