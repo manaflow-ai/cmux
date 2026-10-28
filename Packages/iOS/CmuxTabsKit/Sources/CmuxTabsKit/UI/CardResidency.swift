@@ -20,28 +20,39 @@ final class CardSlot {
 /// Scrolling never re-runs the grid's body: the offset comes in through
 /// `scrolled(to:)` and changes only the slots that flip.
 @MainActor
-@Observable
 final class CardResidency {
-    @ObservationIgnored private var slots: [String: CardSlot] = [:]
-    @ObservationIgnored private var ids: [String] = []
-    @ObservationIgnored private var layout: OverviewLayout?
-    @ObservationIgnored private var offset: CGFloat = 0
-    @ObservationIgnored private var visible = false
-    @ObservationIgnored private var settled = true
+    private var slots: [String: CardSlot] = [:]
+    private var ids: [String] = []
+    private var layout: OverviewLayout?
+    private var offset: CGFloat = 0
+    private var visible = false
+    private var settled = true
     private let plan = CardResidencyPlan()
     private let clock = FrameClock()
-    @ObservationIgnored private var ticking = false
+    private var ticking = false
     /// Cards built so far (tests and the rig's log).
-    @ObservationIgnored private(set) var builds = 0
-    @ObservationIgnored private var building = false { didSet { publishBusy() } }
+    private(set) var builds = 0
+    private var building = false { didSet { publishBusy() } }
     /// The offset changed within the last `restFrames` frames: any scroll,
     /// a finger's, a deceleration's or one set from code (which the scroll
     /// phase does not report).
-    @ObservationIgnored private var moving = false { didSet { publishBusy() } }
-    /// Moving or building ahead (observed: the grid is idle only without it).
+    private var moving = false { didSet { publishBusy() } }
+    /// Moving or building ahead.
     private(set) var busy = false
+    /// Scrolled by a finger or a deceleration (the scroll phase).
+    private var scrolling = false
+    /// Whether the grid rests: settled, not scrolling, not moving, nothing
+    /// left to build. Sent to `idleSink` on change; never observed by a
+    /// view, so a scroll that starts or stops re-runs no body.
+    private(set) var idle = false
+    /// Receives idle changes (the data source's `overviewIdleChanged`). Set
+    /// to a closure that holds the source weakly.
+    var idleSink: (Bool) -> Void = { _ in } {
+        // A sink installed after the first update hears the current state.
+        didSet { if idle { idleSink(true) } }
+    }
     private let motionClock = FrameClock()
-    @ObservationIgnored private var stillFrames = 0
+    private var stillFrames = 0
     /// Frames without an offset change before the grid counts as at rest.
     static let restFrames = 6
 
@@ -49,6 +60,19 @@ final class CardResidency {
         let now = building || moving
         guard now != busy else { return }
         busy = now
+        publishIdle()
+    }
+
+    private func publishIdle() {
+        let now = settled && visible && !scrolling && !busy
+        guard now != idle else { return }
+        idle = now
+        idleSink(now)
+    }
+
+    func setScrolling(_ scrolling: Bool) {
+        self.scrolling = scrolling
+        publishIdle()
     }
 
     func slot(_ id: String) -> CardSlot {
@@ -91,11 +115,13 @@ final class CardResidency {
     func setVisible(_ visible: Bool) {
         self.visible = visible
         reconcile(urgent: visible)
+        publishIdle()
     }
 
     func setSettled(_ settled: Bool) {
         self.settled = settled
         tick()
+        publishIdle()
     }
 
     private func isBuilt(_ index: Int) -> Bool {

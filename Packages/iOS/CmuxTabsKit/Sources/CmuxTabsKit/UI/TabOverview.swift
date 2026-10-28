@@ -178,8 +178,6 @@ struct TabOverview<Source: TabsDataSource>: View {
     /// The grid is at rest (no zoom running): cards off screen are built
     /// ahead only then, so the zoom's frames build nothing but what it shows.
     var isSettled = true
-    /// Scrolling (for `overviewIdleChanged`; `residency.busy` covers the rest).
-    @State private var scrolling = false
 
     var body: some View {
         let tabs = source.tabs
@@ -236,7 +234,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                 residency.scrolled(to: y)
             }
             .onScrollPhaseChange { _, phase in
-                if scrolling != phase.isScrolling { scrolling = phase.isScrolling }
+                residency.setScrolling(phase.isScrolling)
                 onScrolling(phase.isScrolling)
             }
             .scrollIndicators(.hidden)
@@ -291,7 +289,9 @@ struct TabOverview<Source: TabsDataSource>: View {
         // The grid rests (settled, still for a few frames, nothing left to build):
         // the source may draw costly cards now, never in a frame the grid
         // itself needs.
-        .onChange(of: isSettled && !scrolling && !residency.busy, initial: true) { _, idle in source.overviewIdleChanged(idle) }
+        .onAppear { [residency, source] in
+            residency.idleSink = { [weak source] idle in source?.overviewIdleChanged(idle) }
+        }
     }
 
     private struct ResidencyInputs: Equatable {
