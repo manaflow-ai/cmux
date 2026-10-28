@@ -9,14 +9,24 @@ import { ProjectChooser, type Project } from "../ProjectChooser";
 import { projectName } from "../EmptyState";
 import { newTabHeadline } from "./headline.experiment";
 import { useNt } from "./strings";
+import { EnvironmentIcon, EnvironmentPicker } from "../EnvironmentPicker";
+import { ChevronIcon } from "../ComposerPickers";
+import type { Environment } from "../environments";
+import { useT } from "../i18n";
 
 export type NewTabHeadlineProps = {
   projects: Project[];
   /// The folder a prompt starts in (the composer's project); none in no project.
   folder?: string;
+  /// The machine whose project list this page represents. With no folder, the machine name is
+  /// the inline picker label so the question makes its scope explicit (the list stays machine-wide).
+  machineName?: string;
+  machines?: Environment[];
+  machineId?: string;
+  onPickMachine?(id: string): void;
   /// Do not work in a project was picked: it is checked in the menu.
   noProject: boolean;
-  onPick(cwd: string): void;
+  onPick(cwd: string, peer?: string): void;
   onNoProject(): void;
   onBrowse?(): void;
 };
@@ -25,8 +35,11 @@ export type NewTabHeadlineProps = {
 /// with none, the question ends there and Choose project sits under it, so a pick is one click.
 export function NewTabHeadline(props: NewTabHeadlineProps) {
   const nt = useNt();
+  const t = useT();
   const look = experimentArm(newTabHeadline);
   const project = projectName(props.folder);
+  const machine = props.machineName?.trim();
+  const selectedMachine = props.machines?.find((candidate) => candidate.id === props.machineId);
   const chooser = (
     <ProjectChooser
       projects={props.projects}
@@ -34,14 +47,37 @@ export function NewTabHeadline(props: NewTabHeadlineProps) {
       noProject={props.noProject}
       {...(project ? { currentLabel: project } : {})}
       icon={<FolderIcon />}
-      onPick={(cwd) => props.onPick(cwd)}
+      onPick={(cwd, peer) => props.onPick(cwd, peer)}
       {...(props.onBrowse ? { onBrowse: props.onBrowse } : {})}
       onNoProject={props.onNoProject}
       side="bottom"
       inline={look !== "chip"}
     />
   );
+  const machinePicker =
+    machine && selectedMachine && props.onPickMachine ? (
+      <span className="nt-headline-machine-picker">
+        <EnvironmentPicker
+          label={t("composer.computer")}
+          menu={t("composer.computer")}
+          value={selectedMachine.label}
+          face={
+            <>
+              <EnvironmentIcon kind={selectedMachine.kind} name={selectedMachine.label} />
+              <span className="nt-headline-machine-label">{selectedMachine.label}</span>
+              <ChevronIcon />
+            </>
+          }
+          environments={props.machines ?? []}
+          current={selectedMachine.id}
+          onPick={props.onPickMachine}
+        />
+      </span>
+    ) : (
+      chooser
+    );
   const [before, after] = nt("headline.in").split("{project}");
+  const [machineBefore, machineAfter] = nt("headline.machine").split("{machine}");
   return (
     <div className="nt-headline" data-look={look}>
       <h1 className="nt-headline-text">
@@ -50,6 +86,12 @@ export function NewTabHeadline(props: NewTabHeadlineProps) {
             {before}
             {chooser}
             {after}
+          </>
+        ) : machine ? (
+          <>
+            {machineBefore}
+            {machinePicker}
+            {machineAfter}
           </>
         ) : (
           nt("headline")
