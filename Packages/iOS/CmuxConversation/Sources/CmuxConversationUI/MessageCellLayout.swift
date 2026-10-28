@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+import struct CmuxSafeConcurrency.Mutex
 import UIKit
 
 /// Precomputed frames for one message row, in cell coordinates. Computing
@@ -136,11 +137,16 @@ final class MessageLayoutCache {
 
     // MARK: Measuring ahead
 
-    /// A row measured away from the main thread.
-    struct Measured: @unchecked Sendable {
+    /// A row measured away from the main thread. Its text is the frozen
+    /// one `BubbleTextCache` shares with every thread; its layout (frames and
+    /// a reply thread path made for it) belongs to no one else, so a batch
+    /// of these is sent to the main actor once (`measureAway`).
+    struct Measured {
         var model: MessageRowModel
         var layout: MessageCellLayout
-        var text: NSAttributedString
+        var text: FrozenAttributedText
+        /// The pixel grid the layout rounds to: the measuring traits' scale.
+        var displayScale: CGFloat
     }
 
     /// Of `models`, those this cache has no layout for at `width` and
@@ -163,20 +169,41 @@ final class MessageLayoutCache {
     /// (`performAsCurrent`) so text styles resolve to the same fonts.
     nonisolated static func measure(_ model: MessageRowModel, width: CGFloat, margin: CGFloat) -> Measured {
         let (body, mentions, runs, links) = attributedInputs(model)
-        let text = MessageCellLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs, links: links)
-        let layout = MessageCellLayout.compute(model: model, width: width, margin: margin, text: text)
-        return Measured(model: model, layout: layout, text: text)
+        let text = MessageCellLayout.frozenBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs, links: links)
+        let layout = MessageCellLayout.compute(model: model, width: width, margin: margin, text: text.value)
+        return Measured(model: model, layout: layout, text: text, displayScale: ConversationTheme.displayScale)
     }
 
-    /// Adopts rows measured ahead, unless the cache moved on meanwhile.
+    /// `measure` for each of `models`, on the concurrent executor (never the
+    /// main thread) and inside `traits`, so text styles resolve to the
+    /// transcript's fonts. The batch is new and nothing else holds it, so it
+    /// is sent to the caller.
+    @concurrent
+    nonisolated static func measureAway(
+        _ models: [MessageRowModel], width: CGFloat, margin: CGFloat, traits: UITraitCollection
+    ) async -> sending [Measured] {
+        var result: [Measured] = []
+        result.reserveCapacity(models.count)
+        traits.performAsCurrent {
+            for model in models {
+                result.append(measure(model, width: width, margin: margin))
+            }
+        }
+        return result
+    }
+
+    /// Adopts rows measured ahead, unless the cache moved on meanwhile. Rows
+    /// measured for another screen scale (the window moved to another
+    /// display while they were measured) are dropped and measure here.
     func adopt(_ measured: [Measured], width: CGFloat, margin: CGFloat) {
-        for item in measured {
+        let scale = ConversationTheme.displayScale
+        for item in measured where item.displayScale == scale {
             let model = item.model
             let key = Key(model: model, width: width, margin: margin)
             if let (cachedKey, _) = cache[model.rowID], cachedKey == key { continue }
             cache[model.rowID] = (key, item.layout)
             let (body, mentions, runs, links) = Self.attributedInputs(model)
-            attributed[model.rowID + (model.isOutgoing ? "o" : "i")] = (body, mentions, runs, links, item.text)
+            attributed[model.rowID + (model.isOutgoing ? "o" : "i")] = (body, mentions, runs, links, item.text.value)
         }
     }
 
@@ -196,15 +223,31 @@ final class MessageLayoutCache {
     }
 }
 
+/// An attributed string no one can change, so any thread may read it: a
+/// mutable one (a builder's `NSMutableAttributedString`) is copied here into
+/// an immutable one, so no caller's mutable instance is ever shared.
+// crash-allow: `value` is an immutable NSAttributedString (copied in init) that nothing mutates, nor its attribute values once built; Apple's Thread Safety Summary lists immutable NSAttributedString as safe to share among threads
+struct FrozenAttributedText: @unchecked Sendable {
+    let value: NSAttributedString
+
+    init(_ text: NSAttributedString) {
+        // `copy()` of an immutable string is the string itself; of a
+        // mutable one, an immutable copy.
+        value = text.copy() as? NSAttributedString ?? NSAttributedString(attributedString: text)
+    }
+}
+
 /// Bubble texts and their measured sizes, shared by every thread: text a
 /// live message readied off the main thread (data detection, mentions,
 /// formatting, line breaking) is the very text the transcript then shows.
-final class BubbleTextCache: @unchecked Sendable {
+/// The texts are frozen (`FrozenAttributedText`) and the tables sit in a
+/// `Mutex`; text layout runs outside the lock.
+final class BubbleTextCache: Sendable {
     static let shared = BubbleTextCache()
 
     /// Everything `MessageCellLayout.attributedBody` builds from; the font
     /// carries the text size.
-    struct Key: Hashable {
+    struct Key: Hashable, Sendable {
         var text: String
         var outgoing: Bool
         var mentions: [ConversationMention]
@@ -214,33 +257,36 @@ final class BubbleTextCache: @unchecked Sendable {
         var font: UIFont
     }
 
-    private struct SizeKey: Hashable {
+    private struct SizeKey: Hashable, Sendable {
         var text: ObjectIdentifier
         var width: CGFloat
     }
 
-    /// Beyond this many texts the cache starts over.
-    private let limit = 4000
-    private let lock = NSLock()
-    private var texts: [Key: NSAttributedString] = [:]
-    /// The cached texts by identity: sizes are kept only for them, so an
-    /// identity is never reused while its size is.
-    private var held: [ObjectIdentifier: NSAttributedString] = [:]
-    private var sizes: [SizeKey: CGSize] = [:]
-
-    func text(for key: Key) -> NSAttributedString? {
-        lock.withLock { texts[key] }
+    private struct State {
+        var texts: [Key: FrozenAttributedText] = [:]
+        /// The cached texts by identity: sizes are kept only for them, so an
+        /// identity is never reused while its size is.
+        var held: [ObjectIdentifier: FrozenAttributedText] = [:]
+        var sizes: [SizeKey: CGSize] = [:]
     }
 
-    func store(_ text: NSAttributedString, for key: Key) {
-        lock.withLock {
-            if texts.count >= limit {
-                texts.removeAll(keepingCapacity: true)
-                held.removeAll(keepingCapacity: true)
-                sizes.removeAll(keepingCapacity: true)
+    /// Beyond this many texts the cache starts over.
+    private let limit = 4000
+    private let state = Mutex(State())
+
+    func text(for key: Key) -> FrozenAttributedText? {
+        state.withLock { $0.texts[key] }
+    }
+
+    func store(_ text: FrozenAttributedText, for key: Key) {
+        state.withLock { state in
+            if state.texts.count >= limit {
+                state.texts.removeAll(keepingCapacity: true)
+                state.held.removeAll(keepingCapacity: true)
+                state.sizes.removeAll(keepingCapacity: true)
             }
-            texts[key] = text
-            held[ObjectIdentifier(text)] = text
+            state.texts[key] = text
+            state.held[ObjectIdentifier(text.value)] = text
         }
     }
 
@@ -248,14 +294,14 @@ final class BubbleTextCache: @unchecked Sendable {
     /// cached text.
     func size(of text: NSAttributedString, width: CGFloat) -> CGSize {
         let key = SizeKey(text: ObjectIdentifier(text), width: width)
-        if let size = lock.withLock({ held[key.text] === text ? sizes[key] : nil }) { return size }
+        if let size = state.withLock({ $0.held[key.text]?.value === text ? $0.sizes[key] : nil }) { return size }
         let size = text.boundingRect(
             with: CGSize(width: width, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             context: nil
         ).size
-        lock.withLock {
-            if held[key.text] === text { sizes[key] = size }
+        state.withLock { state in
+            if state.held[key.text]?.value === text { state.sizes[key] = size }
         }
         return size
     }
@@ -275,9 +321,22 @@ extension MessageCellLayout {
         runs: [ConversationTextRun] = [],
         links: [ConversationTextLink] = []
     ) -> NSAttributedString {
+        frozenBody(text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, links: links).value
+    }
+
+    /// `attributedBody` as the frozen text `BubbleTextCache` shares, for a
+    /// value that crosses threads.
+    static func frozenBody(
+        _ text: String,
+        outgoing: Bool,
+        mentions: [ConversationMention] = [],
+        meID: String? = nil,
+        runs: [ConversationTextRun] = [],
+        links: [ConversationTextLink] = []
+    ) -> FrozenAttributedText {
         let key = BubbleTextCache.Key(text: text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, links: links, font: ConversationTheme.bubbleFont)
         if let cached = BubbleTextCache.shared.text(for: key) { return cached }
-        let result = buildAttributedBody(text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, links: links)
+        let result = FrozenAttributedText(buildAttributedBody(text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, links: links))
         BubbleTextCache.shared.store(result, for: key)
         return result
     }

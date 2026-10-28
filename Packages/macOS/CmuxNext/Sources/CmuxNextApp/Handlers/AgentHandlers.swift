@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextComputerUse
 import CmuxNextControl
 import CmuxNextDaemon

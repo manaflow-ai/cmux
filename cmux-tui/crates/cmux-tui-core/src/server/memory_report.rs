@@ -1,4 +1,4 @@
-//! `memory-report` (p07-memory-044): where this daemon's memory goes, read
+//! `memory-report`: where this daemon's memory goes, read
 //! when the request arrives. Per PTY terminal: its scrollback pages, live and
 //! compressed, its alternate screen, its Kitty images and the holder ring the
 //! daemon keeps a copy of, or, for a cold terminal, the bytes its compressed

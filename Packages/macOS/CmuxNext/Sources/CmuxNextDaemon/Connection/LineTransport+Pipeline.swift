@@ -43,8 +43,8 @@ extension LineTransport {
         }
     }
 
-    /// Runs on the connection's decode lane with a request's reply (inline on the reader while that lane is idle,
-    /// p05-ipc-144), or on the closing thread with the connection's end; once, and never under the transport's locks.
+    /// Runs on the connection's decode lane with a request's reply (inline on the reader while that lane is idle),
+    /// or on the closing thread with the connection's end; once, and never under the transport's locks.
     typealias ReplyHandler = @Sendable (Result<Response, DaemonError>) -> Void
 
     /// An `ok:true` response line plus the number of events routed before it

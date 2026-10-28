@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextCompat
 
-/// The main run loop's side of a ``MainJobGate`` (p04-input-076): what the word says about input
+/// The main run loop's side of a ``MainJobGate``: what the word says about input
 /// is refreshed each turn, held jobs drain after each commit, the one-refresh deadline releases
 /// them, and a nested run loop releases them at its entry and suspends holding until it exits.
 ///

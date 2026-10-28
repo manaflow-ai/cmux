@@ -55,8 +55,15 @@ use std::collections::VecDeque;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::MutexGuard;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+
+use crate::stream_interrupt::ReadyHook;
+
+fn duration_millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
 
 #[path = "outbound_lanes.rs"]
 mod lanes;
@@ -79,13 +86,25 @@ mod tests;
 
 #[path = "outbound_batch.rs"]
 mod batch;
+#[cfg(any(test, not(unix)))]
 pub(super) use batch::write_counted_turn;
 #[cfg(test)]
 pub(super) use batch::write_line_outbound_item;
+#[cfg(unix)]
+pub(super) use batch::{BatchPoll, count_sent, write_batch_nonblocking};
 
 pub(super) struct BoundedOutbound {
     pub(super) state: Mutex<BoundedOutboundState>,
     pub(super) changed: Condvar,
+    /// Run after an item is queued, an inline write leaves a rest, and
+    /// when the queue closes: the mux-io loop's doorbell for a connection it
+    /// writes (server/mux_io.rs), which takes items with
+    /// [`BoundedOutbound::try_recv_turn`] instead of waiting on `changed`.
+    ready: ReadyHook,
+    /// How long a write may make no progress before the connection closes,
+    /// in milliseconds: the socket's write timeout for the mux-io loop,
+    /// which writes without blocking (`MessageWriter::set_write_timeout`).
+    write_timeout_ms: AtomicU64,
     /// Where producers write inline when nothing waits; `None` for none.
     inline: Option<InlineSocket>,
 }
@@ -207,7 +226,34 @@ impl BoundedOutbound {
         Self {
             state: Mutex::new(BoundedOutboundState::new(chunk_bytes)),
             changed: Condvar::new(),
+            ready: ReadyHook::default(),
+            write_timeout_ms: AtomicU64::new(duration_millis(super::STREAM_WRITE_TIMEOUT)),
             inline: None,
+        }
+    }
+
+    /// Runs `hook` after each queued item and at the close; false when a
+    /// hook is set already.
+    pub(super) fn on_ready(&self, hook: impl Fn() + Send + Sync + 'static) -> bool {
+        self.ready.set(hook)
+    }
+
+    /// An item was queued or the queue closed: wake whoever writes it.
+    fn notify_item(&self) {
+        self.changed.notify_all();
+        self.ready.wake();
+    }
+
+    /// How long a write may make no progress before the connection closes.
+    pub(super) fn write_timeout(&self) -> Duration {
+        Duration::from_millis(self.write_timeout_ms.load(Ordering::Relaxed))
+    }
+
+    /// Sets [`Self::write_timeout`]; `None` keeps the current one (a socket
+    /// with no write timeout would wait for a stuck peer forever).
+    pub(super) fn set_write_timeout(&self, timeout: Option<Duration>) {
+        if let Some(timeout) = timeout {
+            self.write_timeout_ms.store(duration_millis(timeout).max(1), Ordering::Relaxed);
         }
     }
 
@@ -374,7 +420,7 @@ impl BoundedOutbound {
         self.state.lock().recover_poison().client_streams.get(id)
     }
 
-    /// Moves `stream` to `lane` (`set-stream-priority`, p05-ipc-142): what it
+    /// Moves `stream` to `lane` (`set-stream-priority`): what it
     /// still queues keeps its order and is written in `lane`'s turn from now
     /// on, as is every later item. Under the lock every lane read holds.
     pub(super) fn set_stream_lane(&self, stream: &OutboundStream, lane: StreamLane) {
@@ -388,7 +434,7 @@ impl BoundedOutbound {
             state.turns.became_ready(ready);
         }
         drop(state);
-        self.changed.notify_one();
+        self.notify_item();
     }
 
     pub(super) fn push_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
@@ -406,7 +452,7 @@ impl BoundedOutbound {
         }
         state.enqueue_control(ControlOutbound::Flush(flushed_tx));
         drop(state);
-        self.changed.notify_one();
+        self.notify_item();
         match waits::recv_timeout(&flushed_rx, timeout) {
             Ok(()) => Ok(()),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(std::io::Error::new(
@@ -432,7 +478,8 @@ impl BoundedOutbound {
             return Ok(());
         }
         Self::push_control_locked(&mut state, text)?;
-        self.changed.notify_one();
+        drop(state);
+        self.notify_item();
         Ok(())
     }
 
@@ -450,7 +497,7 @@ impl BoundedOutbound {
         state.mark_terminal_queued(stream);
         Self::push_control_locked(&mut state, text)?;
         drop(state);
-        self.changed.notify_one();
+        self.notify_item();
         Ok(())
     }
 
@@ -469,7 +516,7 @@ impl BoundedOutbound {
             state = next;
         }
         drop(state);
-        self.changed.notify_all();
+        self.notify_item();
         Ok(())
     }
 
@@ -489,7 +536,7 @@ impl BoundedOutbound {
             return Ok(false);
         }
         drop(state);
-        self.changed.notify_all();
+        self.notify_item();
         Ok(true)
     }
 
@@ -716,7 +763,7 @@ impl BoundedOutbound {
     fn release_closed(&self, mut state: MutexGuard<'_, BoundedOutboundState>) {
         let room = std::mem::take(&mut state.room_waiters);
         drop(state);
-        self.changed.notify_all();
+        self.notify_item();
         for waker in room {
             waker();
         }

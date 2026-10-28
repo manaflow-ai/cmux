@@ -8,8 +8,8 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// Clicks on the launch picture and the picture phase's edges (p08-startup-061). The picture is the window's
-/// `LaunchPictureView` over the live root, masked by `LaunchPictureRegions` (p08-startup-060). A click where a part
+/// Clicks on the launch picture and the picture phase's edges. The picture is the window's
+/// `LaunchPictureView` over the live root, masked by `LaunchPictureRegions`. A click where a part
 /// still shows the picture is held and raises the window's build (`LaunchWindowBuild.raise`) to the next frame; when
 /// the part leaves at its region's first content the click goes again at the same point, exactly once, to the live
 /// view under it. It is dropped when what the window shows or its size changed meanwhile, past the hold, or at the

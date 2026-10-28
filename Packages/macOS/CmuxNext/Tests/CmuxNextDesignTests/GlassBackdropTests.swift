@@ -142,7 +142,7 @@ import CmuxNextWakeups
         #expect(feed.sent == nil)
     }
 
-    /// The next-frame push waits for its window's node (p06-scheduler-047): a hidden window's page gets
+    /// The next-frame push waits for its window's node: a hidden window's page gets
     /// nothing, however many frames pass, until the window is seen or a capture vote holds it.
     @Test func aHiddenWindowsPageGetsNoPushUntilItsWindowIsSeenOrCaptured() async throws {
         let art = try Self.artFile()

@@ -50,7 +50,7 @@ final class ServerUpdatePresenter {
     }
 
     /// Follows the daemon's handshakes and the notices until the app quits (the
-    /// `ServerUpdates.start` launch post, p08-startup-031). Once.
+    /// `ServerUpdates.start` launch post). Once.
     func start() {
         guard observers.isEmpty else { return }
         let daemon = daemon

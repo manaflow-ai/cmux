@@ -11,8 +11,8 @@ extension TabStripView {
         set { hoverCard.coordinator = newValue }
     }
 
-    /// Makes the strip report to `coordinator` (the App's one), registers its hover card's thumbnails (pixels in `thumbnailPages`,
-    /// p07-memory-107) and samples, one memory consumer, with `memory`, and has its tab cards ask `energy` (nil: none).
+    /// Makes the strip report to `coordinator` (the App's one), registers its hover card's thumbnails (pixels in `thumbnailPages`)
+    /// and samples, one memory consumer, with `memory`, and has its tab cards ask `energy` (nil: none).
     public func attachHoverCards(_ coordinator: HoverCardCoordinator, memory: any MemoryConsumerRegistry, thumbnailPages: PurgeableAllocator = .resident, energy: (any TabEnergySource)? = nil) {
         (hoverCards, hoverCard.energy) = (coordinator, energy)
         hoverCard.thumbnails = TabThumbnailCache(allocator: thumbnailPages)

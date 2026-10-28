@@ -5,7 +5,7 @@ import CmuxNextInputCoreTestSupport
 import Foundation
 import Testing
 
-/// p01-process-086: with the Chromium Host the warm-up's `CefInitialize` step waits for neither the input
+/// With the Chromium Host the warm-up's `CefInitialize` step waits for neither the input
 /// quiet nor a long idle slot, since the start holds the main thread only for the shim calls. The spare
 /// window still follows the warm start: content makes its spare RenderProcessHost only after a navigation
 /// took a process (`SpareRenderProcessHostManagerImpl::PrepareForFutureRequests`), so the spare window is

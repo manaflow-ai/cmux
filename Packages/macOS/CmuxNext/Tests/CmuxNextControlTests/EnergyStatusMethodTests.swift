@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// `energy.status` (p14-energy-033): served in every build (no `#if DEBUG` here), it answers exactly the policy and
+/// `energy.status`: served in every build (no `#if DEBUG` here), it answers exactly the policy and
 /// the inputs `debug.energy` reports under the same keys, which `cmux energy status` and the MCP `energy_status` tool read.
 @Suite(.timeLimit(.minutes(1)))
 struct EnergyStatusMethodTests {

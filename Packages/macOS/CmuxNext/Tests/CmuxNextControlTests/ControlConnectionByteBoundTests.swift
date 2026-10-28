@@ -6,7 +6,7 @@ import Testing
 
 /// A control connection's consumer holds at most `maxQueuedBytes` of lines it has not finished (one
 /// line of any size always passes): past it the read source suspends and the socket pushes back on
-/// the client (p07-memory-098). Only the line count bounded it, so 64 lines of up to `maxLineBytes`
+/// the client. Only the line count bounded it, so 64 lines of up to `maxLineBytes`
 /// (4 MiB each) could wait at once.
 @Suite(.timeLimit(.minutes(2))) struct ControlConnectionByteBoundTests {
     /// A client writes 100 MB of 64 KiB lines to a consumer that finishes none until it holds the byte

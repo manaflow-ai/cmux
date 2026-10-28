@@ -2,7 +2,7 @@
 import Testing
 
 /// An isolated launch (agent or bench) leaves the account alone whether or not it may activate
-/// (p14-energy-100: idle-budget's shipping mode activates the app but must not claim the `cmux` shim).
+/// (idle-budget's shipping mode activates the app but must not claim the `cmux` shim).
 @Suite struct LaunchIsolationTests {
     @Test func noActivateIsIsolated() {
         let isolation = LaunchIsolation(environment: ["CMUX_NEXT_NO_ACTIVATE": "1"])

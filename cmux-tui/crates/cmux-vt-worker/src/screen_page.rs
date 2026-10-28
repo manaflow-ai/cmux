@@ -9,8 +9,8 @@
 //! the writer makes `seq` odd, stores the image, makes `seq` even; a reader
 //! copies the image between two equal even reads of `seq`. Both sides reach
 //! every word atomically (8-byte words), so a torn copy is only ever
-//! discarded, never undefined. The reader treats the page as untrusted
-//! (p01-process-141): it decodes the copy with every length and offset
+//! discarded, never undefined. The reader treats the page as untrusted:
+//! it decodes the copy with every length and offset
 //! checked against the copy itself.
 //!
 //! Layout 1, little endian, every section 8-byte aligned:
@@ -149,7 +149,7 @@ pub enum PageError {
     /// The page is too small for the screen: the worker needs `needed` bytes.
     TooSmall { needed: u64 },
     /// The copy broke a layout rule (a bad message: the broker ends the
-    /// worker, p01-process-141).
+    /// worker).
     Corrupt(&'static str),
 }
 

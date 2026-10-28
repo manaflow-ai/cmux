@@ -33,6 +33,9 @@ mod windows;
 pub struct DaemonOptions {
     pub ws_listen: Option<String>,
     pub ws_token: Option<String>,
+    /// `--insecure-network-listen`: bind a network (non-loopback) listen
+    /// address this run, as `websocket.allowInsecureNetwork` does.
+    pub insecure_network_listen: bool,
     pub memory: bool,
     /// Write one JSON readiness line to this file descriptor once the
     /// socket and the listen address are bound, then close it.
@@ -154,10 +157,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             .as_ref()
             .and_then(|w| w.token.clone())
             .filter(|t| !t.trim().is_empty());
-        let (allowed_origins, allowed_hosts) = config
+        let (allowed_origins, allowed_hosts, allow_insecure_network) = config
             .websocket
             .as_ref()
-            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone(), w.allow_insecure_network))
             .unwrap_or_default();
         config.websocket = Some(crate::config::WebSocketConfig {
             listen: first_run_listen(shared_home, saved_listen.as_deref()).to_owned(),
@@ -166,6 +169,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             allowed_hosts,
             // A kept token was rotated just above; a new one is new.
             token_rotated: TOKEN_ROTATION,
+            allow_insecure_network,
         });
         if let Err(e) = config.save() {
             tracing::warn!("could not save generated web config: {e}");
@@ -186,6 +190,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         })
         .or_else(|| config.websocket.clone().map(|w| (w.listen, w.token)));
 
+    // Plain ws:// on a network address sends the token in clear: only with
+    // the person's opt-in, on every path below (`server/ws_auth.rs`).
+    let allow_network = opts.insecure_network_listen
+        || config.websocket.as_ref().is_some_and(|w| w.allow_insecure_network);
+    if let Some((listen, _)) = &ws {
+        crate::server::check_listen_address(listen, allow_network).await.map_err(|e| {
+            let from = if explicit_listen { "--listen" } else { "websocket.listen" };
+            e.context(format!("refusing {from} {listen}"))
+        })?;
+    }
+
     // Bind before any slow startup work, so clients can connect and ask
     // `_acpmux/status` at once. Agent spawns wait for `finish_startup`.
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
@@ -197,7 +212,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         // which it reports and saves; the app reads the port from status
         // and checks its listener before it connects, and a proof names its
         // transport, so a squatter on the old port relays nothing.
-        Some((listen, token)) => match crate::server::bind_ws(listen).await {
+        Some((listen, token)) => match crate::server::bind_ws_with(listen, allow_network).await {
             Ok(l) => Some((l, token.clone())),
             Err(e) if explicit_listen => {
                 let _ = tokio::fs::remove_file(socket_path()).await;
@@ -226,10 +241,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // `--listen 127.0.0.1:0` asked for any free port; report the real one.
     let bound = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok()).map(|a| a.to_string());
     if let (Some(addr), Some((_, token))) = (&bound, &ws) {
-        let (allowed_origins, allowed_hosts) = config
+        let (allowed_origins, allowed_hosts, allow_insecure_network) = config
             .websocket
             .as_ref()
-            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone(), w.allow_insecure_network))
             .unwrap_or_default();
         let token_rotated = config.websocket.as_ref().map_or(0, |w| w.token_rotated);
         // A later save (policy, peers, presets) writes the saved token, never
@@ -244,6 +259,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             allowed_origins,
             allowed_hosts,
             token_rotated,
+            allow_insecure_network,
         });
         // The new port is this home's port from now on.
         if moved_listener && let Err(e) = config.save() {

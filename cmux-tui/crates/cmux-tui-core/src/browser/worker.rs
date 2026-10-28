@@ -2,6 +2,7 @@
 //! pointer and lifecycle deadlines, and status/dirty/failure notifications.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 pub(super) fn start_surface_thread(
@@ -280,7 +281,7 @@ pub(super) fn start_browser_worker(
                     },
                 };
                 let mut batch = vec![first];
-                let mut order = command_order.lock().unwrap();
+                let mut order = command_order.lock().recover_poison();
                 while let Ok(next) = rx.try_recv() {
                     batch.push(next);
                 }
@@ -418,21 +419,21 @@ pub(super) fn release_abandoned_pointer_presses(
 pub(super) fn take_latest_worker_commands(
     latest_nav: &Arc<Mutex<Option<SequencedBrowserCommand>>>,
 ) -> Option<SequencedBrowserCommand> {
-    latest_nav.lock().unwrap().take()
+    latest_nav.lock().recover_poison().take()
 }
 
+/// Drops each mouse move the next command supersedes (a move of the same owner).
 pub(super) fn coalesce_worker_mouse_moves(batch: &mut Vec<SequencedBrowserCommand>) {
-    let mut index = 0;
-    while index + 1 < batch.len() {
-        if batch[index].command.mouse_move_owner().is_some()
-            && batch[index].command.mouse_move_owner()
-                == batch[index + 1].command.mouse_move_owner()
-        {
-            batch.remove(index);
-        } else {
-            index += 1;
-        }
-    }
+    let superseded: Vec<bool> = batch
+        .windows(2)
+        .map(|pair| {
+            matches!(pair, [move_, next]
+                if move_.command.mouse_move_owner().is_some()
+                    && move_.command.mouse_move_owner() == next.command.mouse_move_owner())
+        })
+        .collect();
+    let mut superseded = superseded.into_iter();
+    batch.retain(|_| !superseded.next().unwrap_or(false));
 }
 
 pub(super) fn run_browser_worker_command(
@@ -589,8 +590,9 @@ pub(super) fn run_browser_worker_command(
             BrowserCommand::Close => {
                 browser.close_blocking().map(|_| BrowserWorkerSuccess::BrowserResponded)
             }
+            // The outer wrapper was taken off above; a wrapped wrapper fails its caller.
             BrowserCommand::Confirmed { .. } => {
-                unreachable!("confirmed wrappers are removed before execution")
+                Err(anyhow::anyhow!("a confirmed browser command cannot wrap another"))
             }
             BrowserCommand::Reconfigure { queued, .. } => {
                 browser.reconfigure_reserved_blocking(queued)

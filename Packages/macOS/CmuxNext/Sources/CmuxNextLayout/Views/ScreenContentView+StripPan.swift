@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// Strip pans at O(1) per input event (p03-rendering-026, behind `motion.renderServer`). The strip's
+/// Strip pans at O(1) per input event (behind `motion.renderServer`). The strip's
 /// hosts and dividers sit in the strip container (`StripClipContainerView`, the motion container), and
 /// their rings and dims in its companion plane (`StripChromePlane`); a pan event sets the translation of
 /// the two layers and nothing else: no host, divider or ring frame, no layout, no overlay sync, no

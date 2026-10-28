@@ -15,7 +15,7 @@ import Foundation
 import Observation
 import Testing
 
-/// The CmuxNextApp small-directories sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-320,
+/// The CmuxNextApp small-directories sweep (plans/cmux-next/chrome-parity/p06-scheduler.md,
 /// rule 9): one case per migrated owner class. The vault list resolves a theme change of a hidden vault once, on show;
 /// a person's Copy Image ends in one userBlocking task and a script's in one automation task; a new tab the store
 /// never lists ends the link move at its limit as the person's work; Search Tabs' change signal and the Passwords

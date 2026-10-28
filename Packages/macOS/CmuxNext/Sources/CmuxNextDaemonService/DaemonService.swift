@@ -59,6 +59,8 @@ public final class DaemonService {
     }
     /// The app's Energy Saver the local daemon follows (DaemonService+Energy); nil until `follow(_:on:)`.
     @ObservationIgnored var energyFollow: DaemonEnergyFollow?
+    /// Tells the local daemon which tabs this app shows (FrontendVisibilityReporter); nil until `reportFrontendVisibility(on:)`.
+    @ObservationIgnored var frontendVisibility: FrontendVisibilityReporter?
     @ObservationIgnored var featureHello: DaemonFeatureHello?  // the local hellos' features (`start`); settled at the first connection
     @ObservationIgnored private var runTask: Task<Void, Never>?
     /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
@@ -157,8 +159,7 @@ public final class DaemonService {
         }
     }
 
-    /// The app became active: with the App's presence the connection's heartbeat asks once
-    /// (p14-energy-064).
+    /// The app became active: with the App's presence the connection's heartbeat asks once.
     private func becameActive() {
         guard connectionPresence != nil else { return }
         connection?.heartbeat.activated()

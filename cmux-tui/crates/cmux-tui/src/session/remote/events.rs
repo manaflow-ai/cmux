@@ -14,14 +14,14 @@ impl RemoteSession {
     pub fn subscribe(&self) -> MuxEventReceiver {
         self.primed_subscription
             .lock()
-            .unwrap()
+            .recover_poison()
             .take()
             .unwrap_or_else(|| self.subscribers.subscribe())
     }
 
     pub(super) fn prime_local_subscription(&self) {
         let receiver = self.subscribers.subscribe();
-        let previous = self.primed_subscription.lock().unwrap().replace(receiver);
+        let previous = self.primed_subscription.lock().recover_poison().replace(receiver);
         debug_assert!(previous.is_none(), "event receiver must be consumed before re-priming");
     }
 
@@ -42,7 +42,7 @@ impl RemoteSession {
         self.event_surface_filter.store(surface, Ordering::Release);
         self.prime_local_subscription();
         if let Err(error) = self.request(self.subscription_request()) {
-            self.primed_subscription.lock().unwrap().take();
+            self.primed_subscription.lock().recover_poison().take();
             self.event_surface_filter.store(0, Ordering::Release);
             self.subscription_started.store(false, Ordering::Release);
             return Err(error);
@@ -98,7 +98,7 @@ impl RemoteSession {
 
     pub(super) fn report_read_progress(&self, partial: &[u8]) {
         let Some(target) = remote_progress_target(partial) else { return };
-        let pending = self.pending.lock().unwrap();
+        let pending = self.pending.lock().recover_poison();
         let attach_progressed = match target {
             RemoteProgressTarget::Request(id) => {
                 if let Some(request) = pending.get(&id) {
@@ -135,7 +135,7 @@ impl RemoteSession {
             None => {
                 // Response: route to the waiting request.
                 let Some(id) = value.get("id").and_then(|v| v.as_u64()) else { return };
-                if let Some(request) = self.pending.lock().unwrap().remove(&id) {
+                if let Some(request) = self.pending.lock().recover_poison().remove(&id) {
                     let _ = request.response.send(value);
                 }
             }
@@ -163,7 +163,7 @@ impl RemoteSession {
                     self.disconnect_transport();
                     return;
                 };
-                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                if let Some(surface) = self.surfaces.lock().recover_poison().get(&id).cloned() {
                     if surface
                         .apply_stream_resize_with_colors(
                             cols,
@@ -200,7 +200,7 @@ impl RemoteSession {
                     value.get("error").and_then(Value::as_str).unwrap_or("browser resize failed");
                 let retry_after_ms = value.get("retry_after_ms").and_then(Value::as_u64);
                 let reservation_id = value.get("reservation_id").and_then(Value::as_u64);
-                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                if let Some(surface) = self.surfaces.lock().recover_poison().get(&id).cloned() {
                     surface.clear_reported_size_if((cols.max(1), rows.max(1)));
                 }
                 self.emit(MuxEvent::SurfaceResizeFailed {
@@ -220,9 +220,9 @@ impl RemoteSession {
                 };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(id, format_args!("output bytes={}", bytes.len()));
-                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                if let Some(surface) = self.surfaces.lock().recover_poison().get(&id).cloned() {
                     surface.scan_cursor_provenance(&bytes);
-                    let mut term = surface.term.lock().unwrap();
+                    let mut term = surface.term.lock().recover_poison();
                     term.vt_write(&bytes);
                     if let Some(colors) = colors.as_ref() {
                         apply_terminal_colors(&mut term, colors);
@@ -273,7 +273,7 @@ impl RemoteSession {
                         replay.as_ref().map(|bytes| bytes.len()).unwrap_or(0)
                     ),
                 );
-                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                if let Some(surface) = self.surfaces.lock().recover_poison().get(&id).cloned() {
                     if surface
                         .apply_stream_resize_with_colors(
                             cols,
@@ -302,8 +302,8 @@ impl RemoteSession {
             Some("colors-changed") => {
                 let Some(id) = surface_id() else { return };
                 let Some(colors) = parse_terminal_colors(&value) else { return };
-                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    let mut term = surface.term.lock().unwrap();
+                if let Some(surface) = self.surfaces.lock().recover_poison().get(&id).cloned() {
+                    let mut term = surface.term.lock().recover_poison();
                     apply_terminal_colors(&mut term, &colors);
                     surface.sync_mouse_encoders(&term);
                     surface.content_generation.fetch_add(1, Ordering::AcqRel);
@@ -315,7 +315,7 @@ impl RemoteSession {
             }
             Some("browser-state") => {
                 let Some(id) = surface_id() else { return };
-                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                if let Some(surface) = self.surfaces.lock().recover_poison().get(&id).cloned() {
                     let Some((cols, rows)) = remote_terminal_size(&value) else { return };
                     if surface.apply_stream_resize(cols, rows, None, &[]).is_err() {
                         self.disconnect_transport();
@@ -334,7 +334,7 @@ impl RemoteSession {
             }
             Some("frame") => {
                 let Some(id) = surface_id() else { return };
-                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                if let Some(surface) = self.surfaces.lock().recover_poison().get(&id).cloned() {
                     surface.update_browser_frame(&value);
                     if !surface.dirty.swap(true, Ordering::AcqRel) {
                         self.emit(MuxEvent::SurfaceOutput(id));
@@ -343,13 +343,13 @@ impl RemoteSession {
             }
             Some("detached") => {
                 if let Some(id) = surface_id() {
-                    self.surfaces.lock().unwrap().remove(&id);
-                    self.size_states.lock().unwrap().remove(&id);
+                    self.surfaces.lock().recover_poison().remove(&id);
+                    self.size_states.lock().recover_poison().remove(&id);
                     self.emit(MuxEvent::SurfaceOutput(id));
                 }
             }
             Some(cmux_tui_core::server::DAEMON_SHUTDOWN_EVENT) => {
-                let mut state = self.disconnect_state.lock().unwrap();
+                let mut state = self.disconnect_state.lock().recover_poison();
                 if matches!(&*state, DisconnectState::Active) {
                     *state = DisconnectState::ExpectedRemoteShutdown;
                 }
@@ -422,11 +422,11 @@ impl RemoteSession {
                     last_prompt: value.get("last_prompt").and_then(Value::as_str).map(Arc::from),
                 };
                 {
-                    let retired_surfaces = self.retired_surfaces.lock().unwrap();
+                    let retired_surfaces = self.retired_surfaces.lock().recover_poison();
                     if retired_surfaces.contains(&surface) {
                         return;
                     }
-                    self.tree.lock().unwrap().update_agent(agent, &retired_surfaces);
+                    self.tree.lock().recover_poison().update_agent(agent, &retired_surfaces);
                 }
                 self.emit(event);
             }
@@ -452,7 +452,8 @@ impl RemoteSession {
             Some("title-changed") => {
                 if let Some(id) = surface_id() {
                     if let Some(title) = value.get("title").and_then(Value::as_str) {
-                        let updated = self.tree.lock().unwrap().update_title(id, title.to_string());
+                        let updated =
+                            self.tree.lock().recover_poison().update_title(id, title.to_string());
                         if !updated && self.invalidate_tree_once() {
                             self.emit(MuxEvent::TreeChanged);
                         }
@@ -535,7 +536,7 @@ impl RemoteSession {
                     let surface_id = surface_id().filter(|surface_id| *surface_id != 0);
                     if let Some(surface_id) = surface_id {
                         let was_attached =
-                            self.surfaces.lock().unwrap().remove(&surface_id).is_some();
+                            self.surfaces.lock().recover_poison().remove(&surface_id).is_some();
                         if !was_attached {
                             return;
                         }
@@ -648,7 +649,7 @@ impl RemoteSession {
 
     fn start_subscription_recovery(self: &Arc<Self>) {
         {
-            let mut recovery = self.subscription_recovery.lock().unwrap();
+            let mut recovery = self.subscription_recovery.lock().recover_poison();
             recovery.generation = recovery.generation.wrapping_add(1).max(1);
             if recovery.in_flight {
                 return;
@@ -664,7 +665,7 @@ impl RemoteSession {
             move || {
                 loop {
                     let recovery_generation =
-                        session.subscription_recovery.lock().unwrap().generation;
+                        session.subscription_recovery.lock().recover_poison().generation;
                     let first = session.request(session.subscription_request());
                     let result = match first {
                         Err(error) if Self::subscription_recovery_is_retryable(&error) => {
@@ -672,7 +673,7 @@ impl RemoteSession {
                         }
                         result => result,
                     };
-                    let mut recovery = session.subscription_recovery.lock().unwrap();
+                    let mut recovery = session.subscription_recovery.lock().recover_poison();
                     if recovery.generation != recovery_generation {
                         drop(recovery);
                         continue;
@@ -698,7 +699,7 @@ impl RemoteSession {
             },
         );
         if let Err(error) = spawn {
-            let mut recovery = self.subscription_recovery.lock().unwrap();
+            let mut recovery = self.subscription_recovery.lock().recover_poison();
             self.emit(MuxEvent::Status(format!(
                 "event subscription overflowed; resubscribe failed: {error}"
             )));
@@ -718,6 +719,6 @@ impl RemoteSession {
         if self.frame_dump_dir.is_none() {
             return;
         }
-        self.frame_logs.lock().unwrap().push(surface, line.to_string());
+        self.frame_logs.lock().recover_poison().push(surface, line.to_string());
     }
 }

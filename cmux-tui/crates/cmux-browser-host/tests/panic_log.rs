@@ -1,4 +1,4 @@
-//! p09-observability-099: the browser host's panic log. A worker-thread
+//! The browser host's panic log. A worker-thread
 //! panic appends one JSON line (owner-only) and ends only its thread.
 #![cfg(unix)]
 

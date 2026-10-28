@@ -18,8 +18,8 @@ import os
 /// Everything runs on the main actor in frame order: a `lease` frame marks
 /// its tab agent-driven before the next frame is handled. Each frame is one
 /// task of the automation class, posted as it is read
-/// (``MainWorkScheduler/post(_:owner:file:line:_:)``, owner `browser-host.<tag>`;
-/// p06-scheduler-036): an agent never competes with the person, so a frame
+/// (``MainWorkScheduler/post(_:owner:file:line:_:)``, owner `browser-host.<tag>`):
+/// an agent never competes with the person, so a frame
 /// read while a key is pending runs after that key. Tasks of one class run in
 /// post order. The post runs on the next main run loop turn, also while frames
 /// run, not on a display frame: an agent's CDP and driver traffic is
@@ -68,6 +68,12 @@ public final class BrowserHostProvider {
     @ObservationIgnored weak var opener: (any ProviderTabOpening)?
     /// The tab nodes an agent's capture votes on (``ProviderCaptureVoting``); nil takes no votes.
     @ObservationIgnored weak var capture: (any ProviderCaptureVoting)?
+    /// The app's Chromium Host, which relays agent CDP to the browser host by itself;
+    /// nil (the default, and with feature `chromiumHostAgentRelay` off) relays every tab through the app.
+    @ObservationIgnored public weak var relayLinking: (any ProviderRelayLinking)?
+    /// The id this app gives its Chromium Host's relay link, once per launch: the browser host relays a tab on
+    /// the link only when the app names this id for it, so a link of another app's host never gets its pages.
+    @ObservationIgnored let relayLinkID = "link_" + UUID().uuidString.lowercased()
     @ObservationIgnored let driver: (any DriverCallHandler)?
     /// The app's main-thread scheduler: frame tasks and the tab observation run in its automation class.
     @ObservationIgnored let mainWork: MainWorkScheduler
@@ -177,6 +183,7 @@ public final class BrowserHostProvider {
         credentialCheck?.cancel()
         retryTimer.cancel()
         dropConnection(reason: "the provider stopped")
+        relayLinking?.setRelayLink(nil)
         status = .idle
     }
 
@@ -272,6 +279,8 @@ public final class BrowserHostProvider {
         backoff.reset()
         agentBundleSHA = sha
         onAgentBundle?(bundle, sha)
+        // The host serves this app now: its Chromium Host may open the relay link (only the derived credential).
+        relayLinking?.setRelayLink(Self.relayLink(credentials, linkID: relayLinkID))
         while let frame = await frames.next() {
             guard gen == generation else { return }
             post(frame, from: link)
@@ -307,6 +316,9 @@ public final class BrowserHostProvider {
         guard let link = connection else { return }
         connection = nil
         link.close(reason: reason)
+        // The browser host ends the Chromium Host's relay link with this connection; the next `hello.ack`
+        // gives it again, so the host dials the same browser host anew after a reconnect.
+        relayLinking?.setRelayLink(nil)
         for targetID in Array(relays.keys) { endRelay(targetID) }
         announced = [:]
         accessSent = [:]
@@ -326,6 +338,13 @@ public final class BrowserHostProvider {
     /// (a CDP reply's id rewrite runs there, off the main actor).
     func send(building build: @escaping @Sendable () -> [ProviderFrame]) {
         connection?.send(building: build)
+    }
+
+    /// The Chromium Host's relay link for a connection's `credentials`: their socket and peer pids, and the
+    /// credential derived from their secret (``ProviderSecret/relayCredential``), never the secret.
+    nonisolated static func relayLink(_ credentials: ProviderCredentials, linkID: String) -> ChromiumHostRelayLink {
+        ChromiumHostRelayLink(socketPath: credentials.socketPath, credential: credentials.secret.relayCredential.value,
+                              linkID: linkID, hostPID: credentials.hostPID, listenerPID: credentials.listenerPID ?? 0)
     }
 
     private func sendHello(_ link: ProviderConnection, secret: ProviderSecret) {

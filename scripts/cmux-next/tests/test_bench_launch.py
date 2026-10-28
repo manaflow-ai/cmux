@@ -744,7 +744,7 @@ class LeftDaemonTests(unittest.TestCase):
 
 
 PERF_RESULT_PATH = ROOT / "scripts/perf-lab/perf_result.py"
-perf_result = bl.load_by_path("perf_result", str(PERF_RESULT_PATH))  # the real writer (p12-perf-process-001)
+perf_result = bl.load_by_path("perf_result", str(PERF_RESULT_PATH))  # the real writer
 store = bl.load_by_path("perf_lab_store", str(ROOT / "scripts/perf-lab/store.py"))
 HOST = bl.host_record("Apple M4 Pro", 48 * 2**30, "26.1", "25B78", 120)
 FEATURES = ({"perfLabKillProbe": {"state": "off", "source": "remote"},
@@ -923,7 +923,7 @@ class RecordTests(unittest.TestCase):
             config("lie2", "release", marker=True)
 
     def test_a_tagged_bench_build_names_its_own_config(self):
-        # p12-perf-process-147: bench and bench-checks executables look alike; reload.sh stamps the config.
+        # Bench and bench-checks executables look alike; reload.sh stamps the config.
         def config(want, stated=None, **kwargs):
             app = record_bundle(os.path.join(self.folder, f"{want}-{stated}"), "cfg", commit="b" * 40, **kwargs)
             return bl.build_config(app, os.path.join(app, "Contents/MacOS/cmux DEV"), stated)

@@ -46,10 +46,15 @@ fn message(text: &str, client: &str, provenance: Option<&Value>) -> Option<(Stri
                     senders.push(from);
                 }
             }
-            let name = match senders.len() {
-                0 => return None,
-                n if n > 3 => format!("{} +{}", senders[..3].join(", "), n - 3),
-                _ => senders.join(", "),
+            if senders.is_empty() {
+                return None;
+            }
+            let more = senders.len().saturating_sub(3);
+            senders.truncate(3);
+            let name = if more > 0 {
+                format!("{} +{more}", senders.join(", "))
+            } else {
+                senders.join(", ")
             };
             Some((name, format!("{} messages", messages.len())))
         }
@@ -71,7 +76,7 @@ fn rendered_body<'a>(text: &'a str, msg_id: &str) -> Option<&'a str> {
     }
     let start = text.find("\n---\n")? + "\n---\n".len();
     let end = text.rfind(&format!("\n--- end of message {msg_id} ---"))?;
-    (start <= end).then(|| &text[start..end])
+    text.get(start..end)
 }
 
 /// `[name] words`: a sender's name in brackets (a word or a few, as `coord-deputy` or
@@ -104,14 +109,14 @@ fn cross_session(text: &str) -> Option<(String, String)> {
         .find(|tag| rest.starts_with(&format!("<{tag}>")))
     {
         let close = format!("</{tag}>");
-        rest = rest[rest.find(&close)? + close.len()..].trim_start();
+        rest = rest.split_once(close.as_str())?.1.trim_start();
     }
     let open = rest.strip_prefix("<cross-session-message")?;
     let (attributes, after) = open.split_once('>')?;
-    let words = &after[..after.find("</cross-session-message>")?];
+    let (words, _) = after.split_once("</cross-session-message>")?;
     let attribute = |key: &str| {
-        let at = attributes.find(&format!(" {key}=\""))? + key.len() + 3;
-        let value = attributes[at..].split('"').next()?.trim();
+        let (_, from) = attributes.split_once(format!(" {key}=\"").as_str())?;
+        let value = from.split('"').next()?.trim();
         (!value.is_empty()).then(|| decode_xml(value))
     };
     let name = attribute("from-name").or_else(|| attribute("from"))?;

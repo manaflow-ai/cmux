@@ -69,7 +69,7 @@ class SidebarScrollView: NSScrollView {
     }
 }
 
-/// The sidebar list on AppKit's responsive scrolling (feature `responsiveScrolling`, p03-rendering-110):
+/// The sidebar list on AppKit's responsive scrolling (feature `responsiveScrolling`):
 /// the list scrolls on AppKit's scrolling thread, as Chrome scrolls on its compositor thread
 /// (cc/input/input_handler.cc), so a main-thread stall does not stop a scroll or its momentum.
 final class ResponsiveSidebarScrollView: SidebarScrollView {

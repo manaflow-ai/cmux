@@ -136,7 +136,7 @@ extension KeyRouter {
     }
 
     /// The facts of `window` (the key window) and its cmux window: the lookups are cached while nothing
-    /// they were built from changed (``keyFactsCache``, p04-input-053), and the flags of the objects they
+    /// they were built from changed (``keyFactsCache``), and the flags of the objects they
     /// found are read live on every key (``liveKeyFacts(_:from:in:)``).
     func facts(in window: NSWindow, controller: WindowController) -> Facts { // perf-hot: 0.05ms key-dispatch (every chord)
         let cached = keyFactsCache.value(for: window, stamp: { keyFactsStamp(in: window, controller: controller) }, build: {

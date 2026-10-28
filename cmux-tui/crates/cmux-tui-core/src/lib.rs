@@ -75,6 +75,7 @@ mod oracle_state;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod input_flow;
+mod input_stages;
 mod output_store;
 /// `RecoverPoison` and `JsonFields` (panic-free lane).
 mod panic_free;
@@ -95,7 +96,7 @@ pub mod release;
 mod request_origin;
 /// Blocking notes on request threads (`server-stats` `request_path_io`).
 mod request_path;
-/// A request's cause and QoS class together (p06-scheduler-035).
+/// A request's cause and QoS class together.
 mod request_qos;
 pub mod resource;
 mod resource_api;
@@ -112,9 +113,10 @@ mod shell_integration;
 use cmux_tui_util::short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
+pub mod startup_marks;
 mod state;
 pub mod store_schemas;
-/// Every thread this crate starts runs under the process supervisor (p10-stability-112).
+/// Every thread this crate starts runs under the process supervisor.
 pub mod supervised;
 use cmux_tui_util::stream_interrupt;
 #[cfg(unix)]

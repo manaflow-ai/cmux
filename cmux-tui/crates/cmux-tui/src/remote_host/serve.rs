@@ -1,6 +1,7 @@
 //! `cmux host serve`: the listener on this machine's tailnet addresses
 //! (remote-hosts.md 6-8). Accept and splice block in threads; nothing polls.
 
+use crate::json_fields::JsonFields;
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
@@ -295,11 +296,7 @@ fn serve_one(
     match op {
         Op::Probe => {
             record("probe", "ok", None);
-            let mut reply = probe_reply(host, &config, access);
-            if let Some(scopes) = &scopes {
-                reply["host"]["scopes"] =
-                    json!(scopes.iter().map(|s| s.name()).collect::<Vec<_>>());
-            }
+            let reply = probe_reply(host, &config, access, scopes.as_deref());
             preface::write_value(&mut stream, &reply)?;
             Ok(())
         }
@@ -340,18 +337,20 @@ fn serve_one(
     }
 }
 
-fn probe_reply(host: &Host, config: &Config, access: &str) -> Value {
-    json!({
-        "ok": true,
-        "host": {
-            "name": host.name,
-            "os": std::env::consts::OS,
-            "version": env!("CARGO_PKG_VERSION"),
-            "session": config.session.clone().unwrap_or_else(|| "main".to_owned()),
-            "owner": config.owner,
-            "access": access,
-        }
-    })
+/// The probe answer; a teammate grant's `scopes` are listed under `host`.
+fn probe_reply(host: &Host, config: &Config, access: &str, scopes: Option<&[Scope]>) -> Value {
+    let mut about = json!({
+        "name": host.name,
+        "os": std::env::consts::OS,
+        "version": env!("CARGO_PKG_VERSION"),
+        "session": config.session.clone().unwrap_or_else(|| "main".to_owned()),
+        "owner": config.owner,
+        "access": access,
+    });
+    if let Some(scopes) = scopes {
+        about.insert("scopes", json!(scopes.iter().map(|s| s.name()).collect::<Vec<_>>()));
+    }
+    json!({"ok": true, "host": about})
 }
 
 type DaemonStream = Box<dyn cmux_tui_core::platform::transport::Stream>;
@@ -426,7 +425,8 @@ pub(crate) fn ensure_session(exe: &Path, session: &str) -> anyhow::Result<PathBu
         bail!("`daemon ensure` failed: {}", String::from_utf8_lossy(&out).trim());
     }
     let value: Value = serde_json::from_slice(&out).context("`daemon ensure` printed no JSON")?;
-    let socket = value["socket"].as_str().or_else(|| value["result"]["socket"].as_str());
+    let socket =
+        value.field("socket").as_str().or_else(|| value.field("result").field("socket").as_str());
     socket.map(PathBuf::from).ok_or_else(|| anyhow!("`daemon ensure` named no socket"))
 }
 
@@ -496,7 +496,7 @@ fn copy_flush(from: &mut impl Read, to: &mut impl Write) -> io::Result<u64> {
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(e),
         };
-        to.write_all(&buf[..n])?;
+        to.write_all(crate::panic_free::reported_prefix(&buf, n)?)?;
         to.flush()?;
         total += n as u64;
     }

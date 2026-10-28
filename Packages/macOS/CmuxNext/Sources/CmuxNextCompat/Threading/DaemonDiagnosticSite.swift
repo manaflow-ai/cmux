@@ -1,5 +1,5 @@
 /// One diagnostic site the daemon saw for the first time in its life, from its `server-diagnostic-site` event
-/// (cmux-tui spec/events.md, p02-threads-233): a blocking call on a daemon thread that disallows blocking, a
+/// (cmux-tui spec/events.md): a blocking call on a daemon thread that disallows blocking, a
 /// wait on lower-QoS work, or a request method that ran past the daemon's 250 ms watchdog. The daemon's half
 /// of the app's ``BlockingViolation``: it goes to the same hang report sink, with the daemon as its source.
 ///

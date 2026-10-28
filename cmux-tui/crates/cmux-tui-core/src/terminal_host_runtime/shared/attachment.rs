@@ -125,8 +125,11 @@ pub struct HostAttachment {
     /// (`FLAG_VIEWER_SIZE_ACKS`), after the resize it caused.
     pub(crate) viewer_size_acks: bool,
     /// The host takes a key press's flow on interactive input
-    /// (`FLAG_INPUT_FLOW`, p09-observability-018).
+    /// (`FLAG_INPUT_FLOW`).
     pub(crate) input_flow: bool,
+    /// The host's flow Output frames carry its PTY write and read of the key
+    /// press (`FLAG_INPUT_STAGES`).
+    pub(crate) input_stages: bool,
     /// Exact process ownership retained only between a successful launch
     /// handshake and complete Surface materialization. Adoption never
     /// carries this guard.

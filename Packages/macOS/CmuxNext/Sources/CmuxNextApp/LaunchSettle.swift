@@ -36,7 +36,7 @@ final class LaunchSettle {
     private weak var warmup: AgentPageWarmup?
     /// The launch's windows, read for the terminals on screen once every visible pane loaded.
     private weak var windows: WindowManager?
-    /// `launch.visible_terminals_drawn` (p01-process-152): each terminal's first frame after its first content.
+    /// `launch.visible_terminals_drawn`: each terminal's first frame after its first content.
     private let terminalsDrawn = LaunchTerminalsDrawn()
 
     /// - Parameters:
@@ -92,7 +92,7 @@ final class LaunchSettle {
     }
 
     /// `memorySmallAppStores` (default off): once the launch settled and no agent pane draws its last page, the
-    /// launch reads of the last quit's terminal frames and agent pages go, not at their 30 s deadline (p07-memory-083).
+    /// launch reads of the last quit's terminal frames and agent pages go, not at their 30 s deadline.
     ///
     /// - Parameters:
     ///   - frames: The last quit's terminal frames (`AppServices.terminalLaunchFrames`).

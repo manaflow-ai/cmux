@@ -16,7 +16,7 @@ enum SidebarTabRowHandoff {
 
     /// False when another drag is running or the tab's workspace is not shown.
     static func begin(_ handoff: SidebarTabRowDragHandoff, session: TabDragSession) -> Bool {
-        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per drag start, no observation
+        // view-observation-allow: one MachineTabIndex lookup per drag start, no observation
         guard session.drag == nil, let paneModel = session.services.locateTab(handoff.tab.rawValue)?.1,
               let pane = session.services.paneController(for: paneModel) else { return false }
         let id = handoff.tab.rawValue, onGlass = WindowBackdrop.dragPreview(pane.view.themeScope).dragsOnGlass

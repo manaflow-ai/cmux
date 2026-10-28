@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextTerminalFind
 public import CmuxNextTrace
 public import CmuxNextWakeups
+import CmuxNextCompat
 import GhosttyNextKit
 
 /// One terminal on screen: a Ghostty surface fed by a ``TerminalIO``.
@@ -301,13 +302,61 @@ public final class TerminalSession {
         guard !surfaceHasContent else { return "has_content" }
         guard let surface = frame.take() else { return "purged" }
         lastFrameHolds += 1
-        frameHold.begin(lastFrame: surface, over: surfaceView, in: view)
+        frameHold.begin(lastFrame: .surface(surface), over: surfaceView, in: view)
         return nil
+    }
+
+    /// What this session's pane shows now, for a session that replaces it on the same tab (a daemon restart
+    /// gives the terminal a new generation, so the App makes a new view of it): the held frame while a hold
+    /// is on screen, else the surface's last presented frame once it drew content; nil when it shows nothing.
+    /// A surface frame is made non-volatile here and given away: this session, closed next, never marks it
+    /// volatile again (``TerminalHeldFrame/giveAway(_:)``); nil when the system purged its pages meanwhile.
+    public func carriedFrame() -> TerminalCarriedFrame? {
+        let frame: TerminalFrameHold.HeldFrame
+        if let held = frameHold.heldFrame {
+            frame = held
+        } else if surfaceHasContent, let surface = surfaceView.presentedFrame {
+            frame = .surface(surface)
+        } else {
+            return nil
+        }
+        if case .surface(let surface) = frame {
+            surfaceView.heldFrame.giveAway(surface)
+            guard surface.reclaim() else { return nil }
+        }
+        return TerminalCarriedFrame(frame: frame)
+    }
+
+    /// Shows `frame` (``carriedFrame()`` of the session this one replaces) until this session's first content
+    /// is drawn, as a launch or evicted terminal's last frame is: no empty pane between the two views.
+    /// Returns false when this session has content or holds a frame already.
+    @discardableResult
+    public func holdCarriedFrame(_ frame: TerminalCarriedFrame) -> Bool {
+        applyEvents()
+        guard !surfaceHasContent, !frameHold.isHolding else { return false }
+        lastFrameHolds += 1
+        frameHold.begin(lastFrame: frame.frame, over: surfaceView, in: view)
+        return true
     }
 
     /// ``snapshot(maxPixelSize:)`` rendered off the main thread (it waits on the GPU).
     public func snapshotInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
         await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
+    }
+
+    /// What the pane shows now, rendered off the main thread: while the frame hold is on screen (a restored or
+    /// evicted terminal whose attach has not drawn its content yet), the held frame, never the empty surface under
+    /// it; else ``snapshotInBackground(maxPixelSize:)``. The quit saves this for the next launch, and the hover card
+    /// pictures it: a quit during a slow attach must not save an empty pane as the terminal's last frame.
+    public func shownFrameInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
+        switch frameHold.heldFrame {
+        case nil:
+            return await snapshotInBackground(maxPixelSize: maxPixelSize)
+        case .image(let image)?:
+            return image
+        case .surface(let surface)?:
+            return await TerminalSnapshotRenderer.renderOffMain(SendableSurface(surface: surface), maxPixelSize: maxPixelSize)
+        }
     }
 
     /// Stops consuming events and detaches the surface. The IO owner decides

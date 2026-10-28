@@ -199,8 +199,8 @@ fn shim_script(executable: &Path, dir: &Path) -> anyhow::Result<String> {
 /// so the wrapper's hooks survive `codex exec -c ...` and resume/fork.
 fn hoist_session_global_args(args: &[OsString]) -> Vec<OsString> {
     let mut index = 0;
-    while index < args.len() {
-        let arg = args[index].to_string_lossy();
+    while let Some(arg) = args.get(index) {
+        let arg = arg.to_string_lossy();
         if arg == "--" {
             return args.to_vec();
         }
@@ -212,36 +212,40 @@ fn hoist_session_global_args(args: &[OsString]) -> Vec<OsString> {
             return args.to_vec();
         }
     }
-    if index >= args.len() {
+    let Some((leading, from_subcommand)) = args.split_at_checked(index) else {
         return args.to_vec();
-    }
-    let mut head = args[..index].to_vec();
-    let mut tail = vec![args[index].clone()];
-    index += 1;
-    while index < args.len() {
-        let arg = args[index].to_string_lossy();
+    };
+    let Some((subcommand, mut rest)) = from_subcommand.split_first() else {
+        return args.to_vec();
+    };
+    let mut head = leading.to_vec();
+    let mut tail = vec![subcommand.clone()];
+    while let Some((raw, after)) = rest.split_first() {
+        let arg = raw.to_string_lossy();
         if arg == "--" {
-            tail.extend_from_slice(&args[index..]);
+            tail.extend_from_slice(rest);
             break;
         }
         let separate = matches!(arg.as_ref(), "-c" | "--config" | "--enable" | "--disable");
         let inline =
             ["--config=", "--enable=", "--disable="].iter().any(|prefix| arg.starts_with(prefix))
                 || (arg.starts_with("-c") && arg.len() > 2);
-        if separate && index + 1 < args.len() {
-            head.extend_from_slice(&args[index..index + 2]);
-            index += 2;
+        if separate && let Some((value, after_value)) = after.split_first() {
+            head.push(raw.clone());
+            head.push(value.clone());
+            rest = after_value;
         } else if inline {
-            head.push(args[index].clone());
-            index += 1;
+            head.push(raw.clone());
+            rest = after;
+        } else if launch_classification::consumes_value(&arg)
+            && let Some((value, after_value)) = after.split_first()
+        {
+            tail.push(raw.clone());
+            tail.push(value.clone());
+            rest = after_value;
         } else {
-            let count = if launch_classification::consumes_value(&arg) && index + 1 < args.len() {
-                2
-            } else {
-                1
-            };
-            tail.extend_from_slice(&args[index..index + count]);
-            index += count;
+            tail.push(raw.clone());
+            rest = after;
         }
     }
     head.extend(tail);

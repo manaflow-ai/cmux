@@ -312,10 +312,9 @@ fn random_hex(length: usize) -> anyhow::Result<String> {
         .map_err(|_| anyhow::anyhow!("could not generate provider notice identity"))?;
     let mut encoded = String::with_capacity(length * 2);
     use std::fmt::Write as _;
-    for byte in &bytes {
-        write!(&mut encoded, "{byte:02x}").expect("writing to String cannot fail");
-    }
+    let written = bytes.iter().try_for_each(|byte| write!(&mut encoded, "{byte:02x}"));
     bytes.zeroize();
+    written?;
     Ok(encoded)
 }
 

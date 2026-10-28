@@ -207,34 +207,15 @@ fn accept_loop(
         let Some(permit) = claim_connection(&connections) else { continue };
         let (mux, verifier, gate, render_service) =
             (mux.clone(), verifier.clone(), gate.clone(), render_service.clone());
-        let setup_mux = mux.clone();
-        let _ = spawn_connection_reader(
-            "mux-remote-conn",
-            move || {
-                let peer = origin_gate::AcceptedPeer::resolve(&setup_mux, &stream);
-                (stream, peer)
-            },
-            move |(stream, peer)| {
-                serve_remote_connection(
-                    mux,
-                    stream,
-                    peer,
-                    &verifier,
-                    gate,
-                    render_service,
-                    permit,
-                    config,
-                );
-            },
-        );
+        let _ = spawn_connection_reader("mux-remote-conn", move || {
+            serve_remote_connection(mux, stream, &verifier, gate, render_service, permit, config);
+        });
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn serve_remote_connection(
     mux: Arc<Mux>,
     stream: UnixStream,
-    peer_identity: origin_gate::AcceptedPeer,
     verifier: &LinkVerifier,
     gate: Arc<dyn RemoteGate>,
     render_service: Arc<RenderService>,
@@ -272,18 +253,19 @@ fn serve_remote_connection(
     // A dial whose first line asks for an `fs.*` byte stream is served raw
     // (fs_wire.rs); any other dial reaches the line connection unchanged.
     let entry_fs = config.entry_fs;
-    let Some(stream) = fs_wire::route_first_line(&mux, stream, &*gate, &peer, entry_fs) else {
+    let Some(dial) = fs_wire::route_first_line(&mux, stream, &*gate, &peer, entry_fs) else {
         return;
     };
+    // From here the mux-io loop serves the dial; this handshake thread ends.
     let admission = RemoteAdmission { peer, gate };
     serve_line_connection(
         mux,
-        stream,
-        peer_identity,
+        Box::new(dial.stream),
+        dial.prefix,
         render_service,
         Some(permit),
         ClientTransport::Remote,
-        &admission,
+        Box::new(admission),
     );
 }
 

@@ -5,7 +5,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The transport on CmuxNextIPC (p05-ipc-090): one deadline timer per connection, one JSON parse per reply,
+/// The transport on CmuxNextIPC: one deadline timer per connection, one JSON parse per reply,
 /// O(1) waiters that keep the id-less error's oldest-request rule, 512 KiB socket buffers, and a bad message
 /// that ends the connection.
 extension LineTransportTests {

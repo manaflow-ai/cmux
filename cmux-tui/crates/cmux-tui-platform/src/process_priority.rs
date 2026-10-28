@@ -1,4 +1,4 @@
-//! Process priority of idle helpers (p14-energy-038): a process nobody waits
+//! Process priority of idle helpers: a process nobody waits
 //! for runs best-effort until it is needed, and is put back before it is.
 //!
 //! Chromium does the same for hidden and spare renderers

@@ -3,8 +3,8 @@ public import Foundation
 /// cmux-page:// first-party pages for Chromium tabs. The app sets the checked
 /// table (CmuxNextApp `FirstPartyPageSchemes`) before Chromium starts;
 /// `CEFRuntime` hands each entry to `cmux_shim_page_scheme_add_first_party`
-/// when it initializes CEF, in process or as a preinit op to the Chromium Host
-/// (p01-process-070). The shim refuses a reserved (`cmux.`) id on any other
+/// when it initializes CEF, in process or as a preinit op to the Chromium Host.
+/// The shim refuses a reserved (`cmux.`) id on any other
 /// path.
 @MainActor
 public struct CEFPageSchemes {

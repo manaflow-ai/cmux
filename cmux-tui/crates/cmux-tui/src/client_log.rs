@@ -508,16 +508,21 @@ pub(crate) fn redirect_stderr_into_log() {
                             break;
                         }
                         Ok(read) => {
-                            pending.extend_from_slice(&buffer[..read]);
+                            let Ok(chunk) = crate::panic_free::reported_prefix(&buffer, read)
+                            else {
+                                break;
+                            };
+                            pending.extend_from_slice(chunk);
                             // One pass over complete lines, one drain per
                             // read: draining per line would shift the whole
                             // buffer for every short line (quadratic).
                             let mut start = 0;
-                            while let Some(offset) =
-                                pending[start..].iter().position(|byte| *byte == b'\n')
+                            while let Some(unread) = pending.get(start..)
+                                && let Some(offset) = unread.iter().position(|byte| *byte == b'\n')
+                                && let Some(line) = unread.get(..offset)
                             {
                                 let end = start + offset;
-                                let text = String::from_utf8_lossy(&pending[start..end]);
+                                let text = String::from_utf8_lossy(line);
                                 let text = text.trim_end();
                                 if text == PIPE_FLUSH_MARKER {
                                     PIPE_MARKERS_SEEN.fetch_add(1, Ordering::AcqRel);
@@ -657,11 +662,9 @@ pub(crate) fn log(level: &'static str, area: &str, message: &str) {
 fn log_tracked(level: &'static str, area: &str, message: &str) -> bool {
     let Some(sender) = queue() else { return false };
     let message = if message.len() > MAX_MESSAGE_BYTES {
-        let mut end = MAX_MESSAGE_BYTES;
-        while !message.is_char_boundary(end) {
-            end -= 1;
-        }
-        format!("{} [truncated {} bytes]", &message[..end], message.len() - end)
+        let end = message.floor_char_boundary(MAX_MESSAGE_BYTES);
+        let kept = message.get(..end).unwrap_or_default();
+        format!("{kept} [truncated {} bytes]", message.len() - kept.len())
     } else {
         message.to_string()
     };

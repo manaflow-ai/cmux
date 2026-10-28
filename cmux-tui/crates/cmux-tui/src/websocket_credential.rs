@@ -8,6 +8,7 @@
 //! same-user host (the cmux app) reads it; the token never goes on argv, in
 //! the environment or in a log. The file goes away with its daemon.
 
+use crate::json_fields::JsonFields;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
@@ -93,7 +94,9 @@ impl Drop for CredentialFile {
         let ours = cmux_blocking::fs::read(&self.path)
             .ok()
             .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-            .is_some_and(|value| value["pid"].as_u64() == Some(u64::from(std::process::id())));
+            .is_some_and(|value| {
+                value.field("pid").as_u64() == Some(u64::from(std::process::id()))
+            });
         if ours {
             let _ = cmux_blocking::fs::remove_file(&self.path);
         }

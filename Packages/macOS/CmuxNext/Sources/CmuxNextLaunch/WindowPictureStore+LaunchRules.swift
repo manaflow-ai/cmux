@@ -1,4 +1,4 @@
-/// When a launch may show the front window's saved picture (p08-startup-063, section 3C): never with
+/// When a launch may show the front window's saved picture: never with
 /// `launch.savedPicture` off, never after crash recovery (the pictures on disk are from a quit before the crashed
 /// run, not of what it showed), never after a run that ended with no quit while its daemon kept running (the same
 /// earlier quit's screens, under `relaunchReattach`: `RelaunchReattach.keepsSavedScreens`), never while the last run

@@ -7,7 +7,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// CmuxNextSettings imports no AppKit (p15-oracle-133): its function-key characters and its modifier
+/// CmuxNextSettings imports no AppKit: its function-key characters and its modifier
 /// conversion stand in for AppKit's, it follows activation through `AppEvents.subscribeToActivation`,
 /// and its refused-value toast goes through CmuxNextSettingsWindow's presenter. These pin each stand-in
 /// to the AppKit value it replaces.
@@ -64,7 +64,7 @@ import Testing
         }
     }
 
-    /// Settings names no CmuxToast (p15-oracle-134): its notice draws as the toast it built before, one
+    /// Settings names no CmuxToast: its notice draws as the toast it built before, one
     /// button and its time-out, and a notice with no duration stays until closed.
     @Test func aNoticeDrawsAsTheToastSettingsBuiltBefore() {
         let timed = SettingsDiagnosticToast(id: "settings-diagnostics", message: "m", actionTitle: "Show in Settings", duration: .seconds(12))

@@ -207,11 +207,13 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 | FLAG_PTY_CUSTODY
                 | FLAG_PROGRAM_STATUS
                 | FLAG_SHELL_ACTIVITY
-                | FLAG_INPUT_FLOW)
+                | FLAG_INPUT_FLOW
+                | FLAG_INPUT_STAGES)
             != 0
         || (hello_frame.flags & FLAG_TERMINAL_METADATA != 0
             && hello_frame.version != PROTOCOL_VERSION)
         || (hello_frame.flags & FLAG_INPUT_FLOW != 0 && hello_frame.version != PROTOCOL_VERSION)
+        || (hello_frame.flags & FLAG_INPUT_STAGES != 0 && hello_frame.flags & FLAG_INPUT_FLOW == 0)
         || (hello_frame.flags & FLAG_PROGRAM_STATUS != 0
             && hello_frame.flags & FLAG_TERMINAL_METADATA == 0)
         || (hello_frame.flags & FLAG_SHELL_ACTIVITY != 0
@@ -272,7 +274,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     if shell_activity_negotiated {
         hello_response.flags |= FLAG_SHELL_ACTIVITY;
     }
-    // Key-press flows (p09-observability-018): only a client that may write input, and on the
+    // Key-press flows: only a client that may write input, and on the
     // smart stream, whose Output frames carry the flow of the read they come from.
     let input_flow = hello_frame.flags & FLAG_INPUT_FLOW != 0
         && selected_version == PROTOCOL_VERSION
@@ -280,6 +282,11 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         && granted_rights.contains(CapabilityRights::INPUT);
     if input_flow {
         hello_response.flags |= FLAG_INPUT_FLOW;
+    }
+    // Key stages ride on the flow's Output frames.
+    let input_stages = input_flow && hello_frame.flags & FLAG_INPUT_STAGES != 0;
+    if input_stages {
+        hello_response.flags |= FLAG_INPUT_STAGES;
     }
     hello_response.request_id = hello_frame.request_id;
     write_frame(&mut stream, &hello_response)?;
@@ -517,7 +524,8 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 tap.release(&frame);
                 break;
             }
-            let write_result = write_frame(output, &client_wire_frame(&frame, input_flow));
+            let write_result =
+                write_frame(output, &client_wire_frame(&frame, input_flow, input_stages));
             tap.release(&frame);
             if write_result.is_err() {
                 break;
@@ -989,15 +997,34 @@ fn run_control(frames: &Arc<ClientFrames>, lane: &ControlLane) {
 
 /// `frame` as this client may read it: an `Output` that carries a key
 /// press's flow ([`FLAG_INPUT_FLOW`]) loses the trailer toward a client that
-/// did not negotiate it. Every other frame goes as it is.
-pub(crate) fn client_wire_frame(frame: &Frame, input_flow: bool) -> Cow<'_, Frame> {
-    if input_flow || frame.kind != MessageKind::Output || frame.flags & FLAG_INPUT_FLOW == 0 {
+/// did not negotiate it, and its key stages ([`FLAG_INPUT_STAGES`]) toward
+/// one that negotiated only the flow, which gets the flow trailer. Every
+/// other frame goes as it is.
+pub(crate) fn client_wire_frame(
+    frame: &Frame,
+    input_flow: bool,
+    input_stages: bool,
+) -> Cow<'_, Frame> {
+    let carries_stages = frame.flags & FLAG_INPUT_STAGES != 0;
+    if frame.kind != MessageKind::Output
+        || frame.flags & FLAG_INPUT_FLOW == 0
+        || (input_flow && (input_stages || !carries_stages))
+    {
         return Cow::Borrowed(frame);
     }
-    let mut plain = frame.clone();
-    plain.flags &= !FLAG_INPUT_FLOW;
-    if let Some((bytes, _)) = split_flow_trailer(frame.flags, &frame.payload) {
-        plain.payload.truncate(bytes.len());
+    let split = if carries_stages {
+        split_stages_trailer(&frame.payload).map(|(bytes, flow, _, _)| (bytes.len(), flow))
+    } else {
+        split_flow_trailer(frame.flags, &frame.payload).map(|(bytes, flow)| (bytes.len(), flow))
+    };
+    let mut wire = frame.clone();
+    wire.flags &= !(FLAG_INPUT_FLOW | FLAG_INPUT_STAGES);
+    if let Some((len, flow)) = split {
+        wire.payload.truncate(len);
+        if input_flow {
+            wire.payload.extend_from_slice(&flow.to_le_bytes());
+            wire.flags |= FLAG_INPUT_FLOW;
+        }
     }
-    Cow::Owned(plain)
+    Cow::Owned(wire)
 }

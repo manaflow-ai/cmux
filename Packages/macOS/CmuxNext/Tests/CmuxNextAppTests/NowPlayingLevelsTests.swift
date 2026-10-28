@@ -81,7 +81,7 @@ import Testing
         #expect(h.loops.isEmpty, "a hidden card keeps its bars moving")
     }
 
-    /// An occluded window keeps no bar moving (LoopVisibility, p03-rendering-070); shown again, all three move.
+    /// An occluded window keeps no bar moving (LoopVisibility); shown again, all three move.
     @Test func theBarsStopWhileTheWindowIsOccluded() {
         let h = Harness()
         defer { h.close() }

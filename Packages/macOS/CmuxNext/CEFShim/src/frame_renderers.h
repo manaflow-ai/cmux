@@ -1,5 +1,5 @@
 // When CMUX_SHIM_FRAME_RENDERERS (cmux_cef_shim.h) goes out, with no CEF
-// (scripts/cmux-next/tests/shim-frame-renderers.test.sh compiles it alone; task p01-process-225).
+// (scripts/cmux-next/tests/shim-frame-renderers.test.sh compiles it alone).
 //
 // CEF reports each frame's link to its renderer (CefFrameHandler: OnFrameAttached, OnFrameDetached,
 // OnMainFrameChanged), which follows the frame changes Chrome's task manager uses to list a tab's

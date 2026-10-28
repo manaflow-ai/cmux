@@ -8,9 +8,9 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import Testing
 
-/// p03-rendering-051: divider catcher panels exist only while a page window takes the mouse (a page drawn
+/// Divider catcher panels exist only while a page window takes the mouse (a page drawn
 /// in its own child window, or a layer-hosted page's input window). A page attached as a view of its pane
-/// (p03-rendering-045, Chrome's `RenderWidgetHostViewCocoa` as a subview) keeps its own window a child that
+/// (Chrome's `RenderWidgetHostViewCocoa` as a subview) keeps its own window a child that
 /// is never ordered in: the divider views above it take the mouse in the window, as over a terminal, and no
 /// catcher, panel, window move or catcher sync slice is made. A remote page's popup (`ContentChildPanel`)
 /// lies below the catchers: they are cut around it, so it keeps its clicks.
@@ -152,7 +152,7 @@ import Testing
     }
 
     /// An attached page's own window stays a child of the window, ordered out, as an attached CEF browser
-    /// keeps it (p03-rendering-045). While the overlay layer keeps evaluating, dividers move, a pane splits
+    /// keeps it. While the overlay layer keeps evaluating, dividers move, a pane splits
     /// and the window resizes: no catcher panel shows, none is made or moved, and no catcher sync slice is
     /// taken. Before p03-rendering-051 every divider area change took a `catcherSync` slice, page or not.
     @Test func anAttachedPageMakesNoCatcherWorkWhileTheOverlayEvaluates() throws {

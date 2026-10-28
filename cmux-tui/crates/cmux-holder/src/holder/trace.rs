@@ -217,7 +217,7 @@ mod tests {
         assert_eq!(failed, cmux_trace::TraceError::NotInitialized.to_string());
     }
 
-    /// p02-threads-207: the loop runs at USER_INTERACTIVE, and the map
+    /// The loop runs at USER_INTERACTIVE, and the map
     /// thread it starts runs at UTILITY, not at the class it inherits.
     #[test]
     fn the_map_thread_runs_at_utility_below_the_loop() {

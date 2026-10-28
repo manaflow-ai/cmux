@@ -49,7 +49,7 @@ import Testing
         #expect(released.isEmpty, "a tab the tree still lists was released")
     }
 
-    /// p06-scheduler-303: the walk is one posted background task per burst, not one hop per change.
+    /// The walk is one posted background task per burst, not one hop per change.
     @Test func aBurstOfTabListChangesIsOneWalkInOnePostedTask() throws {
         let store = DaemonStore()
         store.connectionState = .connected(try Self.connected())
@@ -66,7 +66,7 @@ import Testing
         #expect(watch.tabsVisited - before == 1, "three changes, \(watch.tabsVisited - before) visits of the one tracked tab")
     }
 
-    /// p06-scheduler-303: a person's workspace close applies the watch in their input-response pass, which only
+    /// A person's workspace close applies the watch in their input-response pass, which only
     /// posts the walk: no tab is visited and nothing is released before their commit; the background walk does it later.
     @Test func aPersonsWorkspaceCloseReleasesNothingInTheirInputResponsePass() throws {
         let rig = LinkedWork()
@@ -98,7 +98,7 @@ import Testing
         #expect(released == [tracked.id], "the background walk did not release the closed workspace's tab")
     }
 
-    /// p06-scheduler-303: the background walk yields to the person's pending input (a frame with input pending runs
+    /// The background walk yields to the person's pending input (a frame with input pending runs
     /// none of it), then runs once the input is handled.
     @Test func theWalkYieldsToThePersonsPendingInput() throws {
         let rig = LinkedWork()

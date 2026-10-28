@@ -45,7 +45,7 @@ public final class MainDeadline {
     /// that does not stay hidden flips it) and media starting or stopping place the pending wake again.
     private var subscriptions: [VisibilitySubscription] = []
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// Its record in the arm census (startup-queue.py arms, p08-startup-085) until its first wake.
+    /// Its record in the arm census (startup-queue.py arms) until its first wake.
     private var census = ArmCensusEntry()
     #endif
 

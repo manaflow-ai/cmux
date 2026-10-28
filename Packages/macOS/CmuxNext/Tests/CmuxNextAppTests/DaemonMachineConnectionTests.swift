@@ -3,7 +3,7 @@ import CmuxNextDaemonService
 import Testing
 @testable import CmuxNextApp
 
-/// Terminal views attach on their machine's connection (p05-ipc-098): `DaemonService.machineConnection()` is
+/// Terminal views attach on their machine's connection: `DaemonService.machineConnection()` is
 /// the seam both terminal call sites pass to `DaemonTerminalIO`, and it refuses the same way `endpoint()` did.
 @MainActor
 struct DaemonMachineConnectionTests {

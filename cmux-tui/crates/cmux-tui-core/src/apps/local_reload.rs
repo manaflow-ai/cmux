@@ -24,6 +24,7 @@ use serde_json::json;
 use super::catalog::{self, CUSTOMIZE_APP, Package};
 use super::mirror::{self, Op, Source};
 use super::supervisor::{Out, Supervisor};
+use crate::panic_free::RecoverPoison;
 
 /// Fingerprints of the local packages (`fingerprint`), by app id.
 type Prints = HashMap<String, u64>;
@@ -42,7 +43,7 @@ impl Supervisor {
         let local = self.config.sources.local.clone();
         let customize = self.config.sources.customize.clone();
         let prints = {
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().recover_poison();
             local_prints(inner.catalog.packages.values())
         };
         let spawned = supervised::spawn_at(
@@ -75,7 +76,7 @@ impl Supervisor {
             return next;
         }
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             let mut outs = Vec::new();
             for (dir, issue) in &catalog.rejected {
                 if is_local_dir(&self.config.sources, dir) {

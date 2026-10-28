@@ -1,8 +1,7 @@
-// The Chromium Host's input dispatch (plans/cmux-next/chrome-parity/p01-process.md 3.1, task
-// p01-process-042).
+// The Chromium Host's input dispatch (plans/cmux-next/chrome-parity/p01-process.md 3.1).
 //
 // The input ring's reader (chromium_host_input_ring.h, HostInput) hands each batch of frames
-// to the UI thread through the host's InputTasks (host_user_input.h, task p04-input-065):
+// to the UI thread through the host's InputTasks (host_user_input.h):
 // Chromium's user-input queue (BrowserTaskType::kUserInput in
 // content/public/browser/browser_task_traits.h), or CefPostTask(TID_UI) on a fork without it;
 // there the frames go into the host's one ordered stream (OrderedInput, task 092), which

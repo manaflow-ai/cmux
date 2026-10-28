@@ -5,7 +5,7 @@ import Foundation
 import Testing
 
 /// The key slots' `key.frame` signposts hand each committed key's time to ``InputFrameSignposts/committedKey``, the
-/// seam the app's opt-in hang reports take the black box from at a slow key frame (p09-observability-063). The test
+/// seam the app's opt-in hang reports take the black box from at a slow key frame. The test
 /// ends the key's turn itself instead of the main run loop's observer.
 @MainActor
 struct InputFrameSignpostsCommitTests {

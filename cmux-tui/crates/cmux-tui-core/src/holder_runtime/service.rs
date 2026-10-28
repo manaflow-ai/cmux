@@ -1010,7 +1010,7 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// p02-threads-237: a holder the daemon starts is reaped by the mux's
+    /// A holder the daemon starts is reaped by the mux's
     /// one child reaper once it exits, with no `holder-reaper` thread.
     #[test]
     fn a_ready_holder_is_reaped_by_the_mux_reaper_with_no_thread_of_its_own() {

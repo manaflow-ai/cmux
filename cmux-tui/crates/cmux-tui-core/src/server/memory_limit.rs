@@ -1,4 +1,4 @@
-//! `memory.limit` (p07-memory-109): the app's memory pressure level, Memory
+//! `memory.limit`: the app's memory pressure level, Memory
 //! Saver mode and debug override, pushed to the daemon on each change.
 //!
 //! Chrome's browser process owns the memory limit of each child process

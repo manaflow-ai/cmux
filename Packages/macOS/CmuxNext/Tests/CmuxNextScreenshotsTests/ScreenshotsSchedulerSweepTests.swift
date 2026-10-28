@@ -8,7 +8,7 @@ import Foundation
 import Testing
 
 /// The Screenshots pane's part of the History, Feed, Cloud, Server and Screenshots sweep
-/// (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-344, rule 9): a folder's read runs off the
+/// (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9): a folder's read runs off the
 /// main actor and lands as a posted task on the app's scheduler, and the pane's grid follows the model only while
 /// it shows (a hidden pane reads no model change and refreshes once on show).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct ScreenshotsSchedulerSweepTests {

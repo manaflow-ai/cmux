@@ -3,7 +3,7 @@ import CmuxNextMemory
 import Foundation
 import Testing
 
-/// p07-memory-016: bucketed local histograms (Chrome's `base::Histogram` layouts), hours closed by
+/// Bucketed local histograms (Chrome's `base::Histogram` layouts), hours closed by
 /// the next event or read with no timer, empty hours recorded in one step, minutes at the applied
 /// level per hour, WARN deliveries per hour, discards per hour by kind, wake latency and footprints.
 @MainActor @Suite struct MemoryHistogramTests {

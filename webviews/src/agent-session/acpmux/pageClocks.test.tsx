@@ -1,9 +1,9 @@
-// The agent page's clocks rest while the page is hidden (p13-webui-034, MQ4 batch A): the running
+// The agent page's clocks rest while the page is hidden (MQ4 batch A): the running
 // turn's activity line, "Working for", the subagents' clock and the sign-in wait make no call while
 // hidden, and after the page shows again each reads what a page that never hid would read. Chrome
 // throttles a hidden page's timers (third_party/blink/renderer/platform/scheduler/main_thread/
 // page_scheduler_impl.cc); a page of ours stops them (ui/pageClock.ts, pages/shared/pageLifecycle.ts).
-// The elapsed labels read the page's one clock (p14-energy-061): every label on the page shares one
+// The elapsed labels read the page's one clock: every label on the page shares one
 // timer, and a label past a minute ticks once a minute (ui/useElapsedNow.ts).
 import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import { act } from "react";

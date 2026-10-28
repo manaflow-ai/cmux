@@ -19,7 +19,7 @@ enum TabGroupHandlers {
             registry.bind(id, unavailable: gate, invoke: invoke)
         }
         bindMembership(bind, ctx)
-        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per menu check, no observation
+        // view-observation-allow: one MachineTabIndex lookup per menu check, no observation
         ActionTargetVisibility.hide("tabGroup.removeTab", in: registry) { $0.target.flatMap { $0.kind == .tab ? ctx.services.locateTab($0.id) : nil }.map { $0.0.tabGroup == nil } ?? false }
         bindAppearance(bind, ctx)
         bindLifecycle(bind, ctx)

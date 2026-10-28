@@ -129,7 +129,7 @@ import Testing
         }
     }
 
-    /// The page cursor lives in `.cursorUpdate` areas over the uncovered pieces (p04-input-090): a divider
+    /// The page cursor lives in `.cursorUpdate` areas over the uncovered pieces: a divider
     /// grab moving over the page on each of 20 drag frames swaps the areas and invalidates none of the
     /// window's cursor rects, where each move rebuilt them before. No cursor: no areas.
     @Test func aHoleMovingEveryFrameRebuildsNoCursorRects() throws {

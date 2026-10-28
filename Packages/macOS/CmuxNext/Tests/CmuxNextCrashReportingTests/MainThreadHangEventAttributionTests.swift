@@ -2,7 +2,7 @@ import Sentry
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p06-scheduler-203: a main-thread hang event names what ran, the scheduled task's owner and class
+/// A main-thread hang event names what ran, the scheduled task's owner and class
 /// as tags and its posting location and the turn so far as extras, or `unattributed`.
 @Suite struct MainThreadHangEventAttributionTests {
     @Test func aHangInATaskCarriesItsOwnerClassLocationAndTurn() {
@@ -25,7 +25,7 @@ import Testing
         #expect(event.extra?["turn_ms"] as? Int == 3_000)
     }
 
-    /// p09-observability-077: a hang the watchdog caught inside the Chromium message pump is tagged `hang.cef`.
+    /// A hang the watchdog caught inside the Chromium message pump is tagged `hang.cef`.
     @Test func aHangInsideTheCEFPumpIsTaggedCEF() {
         let event = MainThreadHangEvent(duration: .seconds(2), addresses: [], phase: "cef_pump", cef: true).event()
         #expect(event.tags?["hang.cef"] == "true")

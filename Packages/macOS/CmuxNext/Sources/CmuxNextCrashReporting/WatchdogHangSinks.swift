@@ -1,11 +1,11 @@
 public import CmuxNextControl
 public import Foundation
 
-/// The main-thread watchdog's hang sinks, set before Sentry starts (p09-observability-076): each hang still running
+/// The main-thread watchdog's hang sinks, set before Sentry starts: each hang still running
 /// after 2 s goes to crash reporting (`MainThreadWatchdog.onHang`); each hang episode of
 /// ``CrashReporter/appHangThreshold`` and up is one Sentry app hang (`MainThreadWatchdog.onHangEpisode`,
-/// ``AppHangReporter``, p14-energy-101); and, when this run keeps the fatal-hang record (feature `fatalHangReports`,
-/// p09-observability-110), every hang episode goes to that record (`MainThreadWatchdog.fatalHangs`), so a hang the
+/// ``AppHangReporter``); and, when this run keeps the fatal-hang record (feature `fatalHangReports`),
+/// every hang episode goes to that record (`MainThreadWatchdog.fatalHangs`), so a hang the
 /// app does not survive is reported at the next launch.
 ///
 /// The watchdog is the process's one hang watcher, as Chrome has one HangWatcher per process: Sentry's app-hang
@@ -34,7 +34,7 @@ public struct WatchdogHangSinks: Sendable {
         self.markerFolder = markerFolder
     }
 
-    /// Who reports main-thread hangs this launch: the watchdog alone, its episodes the app hangs (p14-energy-101).
+    /// Who reports main-thread hangs this launch: the watchdog alone, its episodes the app hangs.
     public var hangTracking: CrashReporter.HangTracking { .watchdog }
 
     /// Sets the sinks on ``watchdog`` for `reporter`. Call before `reporter` starts Sentry. The fatal-hang record is

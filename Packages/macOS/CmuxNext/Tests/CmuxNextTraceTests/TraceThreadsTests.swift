@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Darwin
 import Testing
 
-/// The ring's thread table (p09-observability-004): whole 256-entry pages, generations for reused entries,
+/// The ring's thread table: whole 256-entry pages, generations for reused entries,
 /// overflow counted in the header, and every chunk's writer named from the ring alone.
 @Suite(.serialized)
 struct TraceThreadsTests {

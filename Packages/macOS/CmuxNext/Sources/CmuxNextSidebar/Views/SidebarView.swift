@@ -62,7 +62,7 @@ public final class SidebarView: NSView {
     /// The footer's Search button, after the profile avatar (plans/cmux-next/sidebar-search.md):
     /// a press hands it to ``onSearch`` as the palette's anchor. `sidebar.showSearchButton` hides it.
     let searchButton = SidebarIconButton(icon: .search, pointSize: { Metrics.iconSize }, label: Strings.searchButton)
-    /// Energy Saver's leaf at the footer's trailing end while the saver is on (p14-energy-026).
+    /// Energy Saver's leaf at the footer's trailing end while the saver is on.
     let energyIndicator = SidebarEnergyIndicator()
     /// The Priority view, its titlebar bell and the bell's dot (SidebarView+Priority); nil `priority` hides all three.
     let priorityPanelView = SidebarPriorityPanelView(), priorityButton = SidebarIconButton(icon: .notification, label: Strings.priorityTitle)

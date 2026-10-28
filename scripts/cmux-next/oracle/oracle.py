@@ -196,9 +196,9 @@ CAPABILITIES = frozenset(
 )
 # WPT runs one suite against several products; a case runs on a product only when the
 # product has every capability the case `requires`. git_repo (a case with fixture.repo): the
-# driver builds the repository with make_repo.build_for_case first; no driver does yet
-# (p15-oracle-243), so no product has it. state_root (a case with fixture.stateRoot) runs a tag's
-# build and head's on one state root: gen_upgrades.py run is its runner (p15-oracle-208), so no
+# driver builds the repository with make_repo.build_for_case first; no driver does yet,
+# so no product has it. state_root (a case with fixture.stateRoot) runs a tag's
+# build and head's on one state root: gen_upgrades.py run is its runner, so no
 # product has it either.
 PRODUCTS: Dict[str, frozenset] = {
     "daemon": frozenset({"resource_api", "restart"}),
@@ -258,7 +258,7 @@ DELEGATES: Dict[str, Tuple[str, Tuple[str, ...], str]] = {
     "switches": ("switches.py", (), "p15-oracle-018"),
     "route": ("route.py", (), "p15-oracle-118"),
     "coverage": ("coverage.py", (), "p15-oracle-190"),
-    "selftest": ("selftest.py", (), "p15-oracle-019"),  # --mutants: mutant_catch.py (p15-oracle-115)
+    "selftest": ("selftest.py", (), "p15-oracle-019"),  # --mutants: mutant_catch.py
 }
 
 
@@ -408,10 +408,15 @@ def load_case(path: Path, case_id: str, *, check_id: bool = True) -> Tuple[Optio
     return Case(case_id, suite, path, data), None
 
 
-def load_corpus(root: Path) -> Tuple[List[Case], List[str]]:
-    """Every tests/oracle/corpus/<suite>/**/<case>.json; the id is the path without .json."""
+def load_corpus(root: Path, suites: Optional[Sequence[str]] = None) -> Tuple[List[Case], List[str]]:
+    """Every tests/oracle/corpus/<suite>/**/<case>.json; the id is the path without .json. The stored suites
+    (tests/oracle/corpus-store.json; `suites` of them, default all) are written first; one that cannot be is an error."""
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    import corpus_store  # noqa: PLC0415 - sibling
+
     cases: List[Case] = []
-    errors: List[str] = []
+    errors: List[str] = corpus_store.load_errors(root, suites)
     if not root.is_dir():
         return cases, [f"{root}: no corpus directory"]
     for path in sorted(root.rglob("*.json")):
@@ -941,7 +946,7 @@ class RunOptions:
     # hermetic_env.ISOLATION_MODES: netns refuses a host without unprivileged user namespaces.
     isolation: str = "netns"
     # "v0": push-base methods only (facets_v0.py), so the run compares with a base from before the oracle
-    # (overlay.py, p15-oracle-202). None is the driver's default (v1).
+    # (overlay.py). None is the driver's default (v1).
     facets: Optional[str] = None
     # The engine arm (an ENGINE_READBACK key): every launch's browser.defaultEngine; None is the app's default.
     engine: Optional[str] = None
@@ -2330,7 +2335,7 @@ def switch_roots(registry: Path) -> Any:
 
 
 def run_one(options: RunOptions, *, open_session: Optional[SessionOpener] = None) -> Tuple[Dict[str, Any], int]:
-    cases, errors = load_corpus(options.corpus)
+    cases, errors = load_corpus(options.corpus, options.suites)
     if errors:
         raise UsageError("corpus errors (run `oracle.py check`):\n  " + "\n  ".join(errors[:20]))
     store = run_expectations(options)
@@ -2384,7 +2389,7 @@ def print_run(receipt: Dict[str, Any], options: RunOptions, as_json: bool) -> No
     print(f"  receipt: {options.out / 'receipt.json'}")
 
 
-# The Linux VM runs every cmux-tui suite run in the runnerd queue (p15-oracle-007, spec 3G): one
+# The Linux VM runs every cmux-tui suite run in the runnerd queue (spec 3G): one
 # quota scope, request joining and receipt reuse. This process is a runnerd job when RUNNERD_JOB is set.
 QUEUE_HINT = ("on the Linux VM cmux-tui suite runs go through the runnerd queue: `linux_run.sh run REF "
               "[--suite S] [--arm A] [-- RUN_OPTIONS]`, or `oracle.py diff` with --base/--head, or with "

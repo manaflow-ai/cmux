@@ -7,11 +7,12 @@ import CmuxNextDesign
 import CmuxNextSidebar
 @testable import CmuxNextTerminal
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Observation
 import Testing
 
-/// The CmuxNextApp root files T* to W* sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-303),
+/// The CmuxNextApp root files T* to W* sweep (plans/cmux-next/chrome-parity/p06-scheduler.md),
 /// one harness case per migrated owner class (rule 9):
 /// - a wait for a tab ends on the change that brings it, through one keyed waiter and one posted task, never a poll
 ///   or a Task per change;
@@ -124,7 +125,7 @@ import Testing
 
 extension MainPaneGutterSuites {
     /// Hidden -> 0 view reads and applies, 1 apply on show, for the window root: its main pane follows the
-    /// tunables only while its window's node shows (p06-scheduler-303). Under the gutter suites, as it sets the gutter.
+    /// tunables only while its window's node shows. Under the gutter suites, as it sets the gutter.
     @MainActor @Suite struct WindowRootHiddenTests {
         @Test func aHiddenWindowReadsNoMainPaneTunablesAndAppliesThemOnceWhenShown() {
             _ = NSApplication.shared
@@ -136,7 +137,7 @@ extension MainPaneGutterSuites {
             defer { store.set(curved.key, nil) }
             let work = linklessMainWork()
             let node = VisibilityNode(root: "test.window", own: .visible)
-            let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: work))
+            let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: work), revealDeadlines: .testing())
             root.follow(on: node, work: work)
             let counts = { work.observations.snapshot(matching: "WindowRootView.mainPane").first }
             let before = counts()

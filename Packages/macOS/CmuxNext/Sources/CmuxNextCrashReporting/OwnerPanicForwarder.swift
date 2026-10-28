@@ -4,10 +4,10 @@ import CmuxNextCompat
 import CmuxNextWakeups
 import os
 
-/// The forwarder of every cmux Rust process's diagnostics logs (p09-observability-075).
+/// The forwarder of every cmux Rust process's diagnostics logs.
 public typealias RustDiagnosticsForwarder = OwnerPanicForwarder
 
-/// Sends cmux Rust processes' panic and hang logs to Sentry (cx-urd.59, p09-observability-075).
+/// Sends cmux Rust processes' panic and hang logs to Sentry (cx-urd.59).
 ///
 /// Each ``RustDiagnosticsLog`` is a family of JSONL files: a panic log (`cmux-panic-log`: message, location,
 /// thread, backtrace) or a hang log (`cmux-hang-watch`'s `hangs-<pid>.jsonl`, ``RustHangRecord``). This reads
@@ -97,7 +97,7 @@ public final class OwnerPanicForwarder: Sendable {
     // storage of that queue-confined value and is never contended.
     private let hangSink: Mutex<HangSink>
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
-    /// The watches' record in the launch's arm census (Debug and bench builds, p08-startup-085): the first watch
+    /// The watches' record in the launch's arm census (Debug and bench builds): the first watch
     /// armed and the first event of any of them.
     private let census: ArmCensusWatch
 

@@ -1,4 +1,0 @@
-{// note
-"notifications":{"attention":{// "quoted"
-"persist":10E-1},"sources":{/* {"k": 1} */ "cli":{/* * */ "dismissal":"keystroke"}}},"browser":{/* // inside */ "enabled":false},"sidebar":{"workspaceRow":{"terminal":{/* {"k": 1} */ "pullRequest":true,"directory":1}},"priorityView":{/* * */ "shown":false},"hoverCards":{// "quoted"
-"delay":2500e0}}}

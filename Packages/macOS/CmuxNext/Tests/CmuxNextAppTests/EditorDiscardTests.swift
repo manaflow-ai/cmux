@@ -13,7 +13,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// Page policies batch 3 (p07-memory-026, `memoryDiscardInternalPages`): the Files tree, the Files
+/// Page policies batch 3 (`memoryDiscardInternalPages`): the Files tree, the Files
 /// pane, Find, the Markdown and code editor pages and the diff each declare when a hidden tab's view
 /// goes, what keeps it and what it saves. A file page with unsaved edits is never discarded at any
 /// pressure (Chrome's `kUserEdits`, cmux's lead rule); a discard changes no file's grant or route;
@@ -156,7 +156,7 @@ struct EditorDiscardTests {
         service.tabs[key]?.userChose = true
         service.tabs[key]?.readOnly = true
         let provider = FilePageProvider(kind: .markdown, file: a, userChose: true, readOnly: true, host: Host(),
-                                        libraries: nil, images: NoImages())
+                                        libraries: nil, images: NoImages(), deadlines: .testing())
         service.tabs[key]?.provider = provider
         let page = PageCallContext(page: "cmux.markdown")
         _ = try await provider.call("cmux.markdown.resolveLinks", params: ["from": .string(a.path), "paths": ["B.md"]], context: page)
@@ -173,7 +173,7 @@ struct EditorDiscardTests {
 
         // The next provider, as makeView builds it from the tab, keeps B writable and ungranted.
         let next = FilePageProvider(kind: .markdown, file: b, userChose: true, readOnly: true, access: access, host: Host(),
-                                    libraries: nil, images: NoImages())
+                                    libraries: nil, images: NoImages(), deadlines: .testing())
         defer { next.close() }
         #expect(next.access.granted == access.granted)
         let config = try await next.call("cmux.markdown.config", params: [:], context: page)

@@ -221,7 +221,8 @@ impl App {
     }
 
     fn resolve_status_segments_now(&self) -> ResolvedStatusSegments {
-        let outputs = self.status_command_outputs.lock().unwrap();
+        let outputs =
+            self.status_command_outputs.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut index = 0usize;
         let mut resolve = |segments: &[crate::config::StatusSegment]| {
             segments

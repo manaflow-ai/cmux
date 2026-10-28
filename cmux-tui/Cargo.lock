@@ -1005,6 +1005,7 @@ name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
  "chacha20poly1305",
+ "cmux-link",
  "cmux-panic-log",
  "cmux-threads",
  "cmux-trace",
@@ -1015,6 +1016,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "sha2 0.10.9",
  "url",
 ]
 

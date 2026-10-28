@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// The "Page unresponsive" card of one cmux page in Chromium (p13-webui-057). Chrome shows its hung
+/// The "Page unresponsive" card of one cmux page in Chromium. Chrome shows its hung
 /// renderer dialog for the tab whose renderer hangs and takes it down when the renderer answers
 /// (`Browser::RendererUnresponsive` / `RendererResponsive`, chrome/browser/ui/browser.cc;
 /// chrome/browser/ui/views/hung_renderer_view.cc); here that dialog is a tab-scoped ``CmuxDialogSpec``

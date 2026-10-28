@@ -1,4 +1,4 @@
-//! The frontend's reserved worker permits (p06-scheduler-225): with
+//! The frontend's reserved worker permits: with
 //! automation holding every shared surface or resource worker permit, the
 //! verified app's op is still admitted at once, and automation never takes a
 //! reserved permit.

@@ -1,7 +1,7 @@
 import CmuxNextHibernation
 import Testing
 
-/// ``UrgentDiscardRanker/run(_:)`` (p13-webui-092): the critical memory event's one pass over every
+/// ``UrgentDiscardRanker/run(_:)``: the critical memory event's one pass over every
 /// owner's hidden pages (browser tabs, agent chats, cmux pages) discards exactly one page, the first
 /// of the joint ranking its owner can discard, through that owner only; then every owner hears that the
 /// pass ran.

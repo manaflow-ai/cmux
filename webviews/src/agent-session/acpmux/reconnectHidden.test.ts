@@ -1,4 +1,4 @@
-// The direct client's reconnect backoff rests while the page is hidden (p13-webui-069, MQ4b): a
+// The direct client's reconnect backoff rests while the page is hidden (MQ4b): a
 // connection lost on a hidden page opens no socket for a minute, and the show opens one at once.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";

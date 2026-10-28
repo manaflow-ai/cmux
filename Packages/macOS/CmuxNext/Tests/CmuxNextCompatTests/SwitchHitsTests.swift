@@ -2,7 +2,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// `debug.oracle.switch_hits`'s counts (p15-oracle-027): one counter per site name across instances,
+/// `debug.oracle.switch_hits`'s counts: one counter per site name across instances,
 /// a switch's entry sums its sites per arm, a registered site that never ran reports 0, `reset`
 /// zeroes the counts after the read, a non-counting value (Release) hands out hits that count
 /// nothing, and the encoded reply is the shape `switches.py --hits` reads.

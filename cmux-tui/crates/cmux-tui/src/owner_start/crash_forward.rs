@@ -234,9 +234,10 @@ pub(super) fn forward_new(
     let mut sent = 0;
     let mut failure = None;
     while sent < max {
-        let rest = &bytes[offset..];
+        let Some(rest) = bytes.get(offset..) else { break };
         let Some(end) = rest.iter().position(|byte| *byte == b'\n') else { break };
-        let line = String::from_utf8_lossy(&rest[..end]);
+        let Some(line) = rest.get(..end) else { break };
+        let line = String::from_utf8_lossy(line);
         if let Some(event) = event_for(&line, home) {
             if let Err(error) = send(&envelope(&event)) {
                 failure = Some(error);

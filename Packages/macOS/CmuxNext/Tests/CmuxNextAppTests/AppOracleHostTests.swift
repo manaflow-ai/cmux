@@ -7,9 +7,9 @@ import CmuxNextOracle
 import CmuxNextSettings
 import Testing
 
-/// The app's oracle facet list (p15-oracle-030): AppServices builds it with at most one provider per
+/// The app's oracle facet list: AppServices builds it with at most one provider per
 /// facet, and `debug.oracle.snapshot` over it lists every facet and answers each facet that has no
-/// provider yet as not-comparable with its task; the invariants facet (p15-oracle-033) is the desync check.
+/// provider yet as not-comparable with its task; the invariants facet is the desync check.
 /// Run: `swift test --filter AppOracleHostTests`.
 @MainActor @Suite(.serialized) struct AppOracleHostTests {
     @MainActor final class Executor: ControlActionExecutor {
@@ -41,11 +41,11 @@ import Testing
         #expect(reply == .object(answers))
     }
 
-    /// p15-oracle-033: the invariants facet runs the check `debug.desync` runs, in the snapshot's turn.
+    /// The invariants facet runs the check `debug.desync` runs, in the snapshot's turn.
     @Test func theInvariantsFacetRunsTheDesyncCheck() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        services.input.start(services: services)  // the app's launch post (p08-startup-031); init only wires it
+        services.input.start(services: services)  // the app's launch post; init only wires it
         let monitor = try #require(services.input.monitor)
         let before = monitor.checks
         let snapshot = try #require(try services.makeOracleFacets().beginCapture([.invariants]).completed)
@@ -56,7 +56,7 @@ import Testing
         #expect(invariants["windowInvariants"] == .array(WindowInvariants.problems(services.windows).map(OracleValue.string)))
     }
 
-    /// p15-oracle-032: the registry's perform-turn observer is the app's one turn recorder, and the
+    /// The registry's perform-turn observer is the app's one turn recorder, and the
     /// `debug.oracle.*` methods AppControl registers read that same recorder, so a turn of the app's
     /// registry shows in `debug.oracle.turns`.
     @Test func theAppRegistryReportsItsTurnsToTheRecorderTheRouterReads() async throws {
@@ -82,7 +82,7 @@ import Testing
         #expect(checkpoints.first?["origin"] == "cli")
     }
 
-    /// p15-oracle-040: the app list's intents facet reads the app's daemon store and counts a refused turn of the
+    /// The app list's intents facet reads the app's daemon store and counts a refused turn of the
     /// app's registry, by the action's id.
     @Test func theIntentsFacetCountsARefusedTurnOfTheAppRegistry() throws {
         _ = NSApplication.shared
@@ -104,7 +104,7 @@ import Testing
         #expect(after["pending"] == .array([]))
     }
 
-    /// p15-oracle-040: the App's own refusal wiring (AppActions.bind installs AppActionContext.observeRefusals,
+    /// The App's own refusal wiring (AppActions.bind installs AppActionContext.observeRefusals,
     /// which feeds the turn observer the registry's willRun and refusal observers) counts a handler that refuses,
     /// the normal refusal (no target, unavailable), as one refused turn named by its action. The disabled action
     /// above takes the `!ran` path, which counts with no wiring; this one counts only through it.

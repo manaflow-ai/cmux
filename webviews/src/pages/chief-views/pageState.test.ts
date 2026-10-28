@@ -1,5 +1,5 @@
-// The Chief view gallery keeps whether the gallery is open and its scroll across a discard
-// (p13-webui-082). Its layout (views on, the pane and the side) lives in localStorage already.
+// The Chief view gallery keeps whether the gallery is open and its scroll across a discard.
+// Its layout (views on, the pane and the side) lives in localStorage already.
 import { describe, expect, test } from "bun:test";
 import { DOCUMENT_SCROLL_KEY, restoredPageInputs } from "../shared/pageState";
 import { pageRoundTrip, scrollOf } from "../shared/pageStateTesting";

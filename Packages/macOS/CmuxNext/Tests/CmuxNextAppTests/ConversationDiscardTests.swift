@@ -11,7 +11,7 @@ import Foundation
 @testable import MessagesLabHome
 import Testing
 
-/// Conversation tab discards (`memoryDiscardConversations`, p07-memory-030): a conversation tab hidden for 10
+/// Conversation tab discards (`memoryDiscardConversations`): a conversation tab hidden for 10
 /// minutes, or 10 s at critical memory pressure, lets its transcript's laid-out rows, row cells, open thread view
 /// and the bitmaps only they drew go (row cache 0), and keeps its view, messages, draft and scroll place. Its show
 /// lays the rows out again once, at the view's first layout back in its pane (at the pane's size then), around the

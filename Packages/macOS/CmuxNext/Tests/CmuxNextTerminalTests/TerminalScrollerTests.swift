@@ -3,10 +3,10 @@ import CmuxNextDesign
 @testable import CmuxNextTerminal
 import Testing
 
-/// The terminal's scroller hears its own clip move from the clip (p03-rendering-039), not from a
+/// The terminal's scroller hears its own clip move from the clip, not from a
 /// NotificationCenter observer of the clip: a scroller drag reports the row it shows, and the
 /// scroller's own placement for Ghostty's scrollbar reports nothing back. It places each scrollbar
-/// the host delivers at once (p04-input-051: the host's FrameObservation coalesces output to one per
+/// the host delivers at once (the host's FrameObservation coalesces output to one per
 /// frame), and a drag move is compared with the row the terminal is going to.
 @MainActor
 struct TerminalScrollerTests {

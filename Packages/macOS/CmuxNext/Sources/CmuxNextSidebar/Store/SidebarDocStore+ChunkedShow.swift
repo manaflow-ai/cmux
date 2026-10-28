@@ -1,6 +1,6 @@
 public import CmuxNextWakeups
 
-/// A chunked `SidebarDocStore.show` (feature `sidebarDocChunkedShow`, p06-scheduler-200): the projection of a large
+/// A chunked `SidebarDocStore.show` (feature `sidebarDocChunkedShow`): the projection of a large
 /// document that no person's change asked for is built a few rows at a time as `visible` tasks on the app's main-thread
 /// scheduler. Each task stops when ``MainFrameBudget/shouldYield()`` says so and posts the rest as a continuation, so
 /// the show keeps to the visible share of each frame and a person's key goes first, as Blink splits long work with

@@ -22,7 +22,7 @@ import os
 /// In process only. In host mode the helpers are the Chromium Host's
 /// children: the host watches them the same way (HOST/src/host_helper_exits.h)
 /// and sends each end as HELPER_EXIT, which decodes to the same ``Exit``
-/// (``CEFShimEvent/helperExit(_:)``, task p01-process-225).
+/// (``CEFShimEvent/helperExit(_:)``).
 nonisolated final class CEFChildProcessMonitor: Sendable {
     /// One helper's end; also what the Chromium Host's HELPER_EXIT carries (``CEFShimEvent/helperExit(_:)``).
     nonisolated struct Exit: Sendable, Equatable {

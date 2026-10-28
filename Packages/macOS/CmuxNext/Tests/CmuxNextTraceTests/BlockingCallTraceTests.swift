@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 /// A checked blocking call is one `task.blocking_call` slice while the routing runtime's `task` category records,
-/// and none while it is off (p02-threads-124, plans/cmux-next/trace.md "Blocking calls and lane jobs"). Each test
+/// and none while it is off (plans/cmux-next/trace.md "Blocking calls and lane jobs"). Each test
 /// routes the process's blocking calls into its own runtime and ring; other tests' calls on other threads may land
 /// there too, so the checks read only this file's sites.
 @Suite(.serialized)

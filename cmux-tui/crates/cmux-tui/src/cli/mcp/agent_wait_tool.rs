@@ -12,6 +12,7 @@ use serde_json::{Map, Value, json};
 use super::super::GlobalArgs;
 use super::super::agents::{self, AgentCommand, AgentFailure};
 use super::{Backend, agent_tools, envelope, failure_result, success, tool_error, v2_tools, watch};
+use crate::cli::json_fields::JsonFields;
 
 pub(super) const NAME: &str = "agents_wait";
 
@@ -124,7 +125,9 @@ pub(super) fn call<B: Backend>(
 /// The `cmux agents wait` command these arguments name, and its session.
 fn command(arguments: &Map<String, Value>) -> Result<(AgentCommand, Option<String>), String> {
     let schema = input_schema();
-    if let Some(name) = arguments.keys().find(|name| schema["properties"].get(*name).is_none()) {
+    if let Some(name) =
+        arguments.keys().find(|name| schema.field("properties").get(*name).is_none())
+    {
         return Err(format!("{NAME} has no argument {name:?}"));
     }
     let text = |name: &str| match arguments.get(name) {

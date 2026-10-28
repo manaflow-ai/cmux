@@ -181,7 +181,7 @@ final class CEFRuntime {
     var spareAfterFirstTabFeature: @MainActor () -> Bool = { false }
     private(set) var builtInAdBlockerLoaded = false  // this Chromium has the built-in uBlock Origin (at start or first tabs)
     let builtInLoader = CEFBuiltInExtensionLoader()  // built-in extensions at each profile's first tab (chromiumAdBlockerAtFirstTab)
-    let surfaceCopies = CEFSurfaceCopies()  // pages' surface copies waiting for Chromium (fork API 40, p13-webui-078)
+    let surfaceCopies = CEFSurfaceCopies()  // pages' surface copies waiting for Chromium (fork API 40)
     /// True when this Chromium started with `cmux-process-reuse-per-renderer-devtools` (`debug.cef` `windows`).
     private(set) var processReusePerRendererDevTools = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -240,7 +240,9 @@ final class CEFRuntime {
     private(set) var signInCallbacks = CEFSignInCallbacks()
     /// The main thread's one deadline queue (`MainWorkScheduler.wakeUps`, from the engine's `adopt`): the
     /// pump's delayed fire dates and the pages' keyed waits. A queue of the runtime's own until then (a
-    /// spy runtime in tests).
+    /// spy runtime in tests, and the queue an engine made without one shares): the process's one runtime is
+    /// made on Chromium's first use, before any engine can hand it the app's. Its timer stays parked while it
+    /// holds no entry, and every app path adopts first.
     private(set) var wakeUps = MainWakeUpQueue(energy: EnergyPolicySource())
     /// The pages' keyed waits on ``wakeUps``.
     var waitDeadlines: AlignedWakeups { AlignedWakeups(queue: wakeUps) }

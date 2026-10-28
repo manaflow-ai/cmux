@@ -62,7 +62,7 @@ public final class PageRouter {
     public internal(set) var debugPageHidden = false
     /// Events delivered while ``debugPageHidden``: one integer add per delivery (`debug.webui`).
     public internal(set) var debugDeliveriesWhileHidden = 0
-    /// The page's oracle reading may have changed (``oracleStateChangedOp``, p15-oracle-215): the page
+    /// The page's oracle reading may have changed (``oracleStateChangedOp``): the page
     /// host's feed (``WebUIHost/oracleChanges``) wakes `debug.oracle.wait_for` on the `webviews` facet.
     public var oracleStateChanged: (@MainActor () -> Void)?
     #endif

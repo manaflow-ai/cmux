@@ -64,7 +64,7 @@ final class HomeService {
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
     @ObservationIgnored private let servicesReference: OwnerReference<AppServices>
     /// The services' schedulers and the app's launch read of this owner's list, taken at init: the lazy parts made
-    /// from them need no back-reference (p10-stability-091). Owned by the services, never owning them.
+    /// from them need no back-reference. Owned by the services, never owning them.
     @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private let mainWork: MainWorkScheduler
     @ObservationIgnored private let deadlines: MainDeadlineScheduler
@@ -72,13 +72,13 @@ final class HomeService {
     @ObservationIgnored private let appListRead: (hasCaches: Bool, read: HomeListLaunchRead?)
     /// The app's services, which own this; nil (reported) only once they are gone.
     var services: AppServices? { servicesReference.resolve() }
-    /// The transcript and list caches' memory consumer (`memoryHomeLabCaches`, p07-memory-081); Home views track it.
+    /// The transcript and list caches' memory consumer (`memoryHomeLabCaches`); Home views track it.
     @ObservationIgnored private(set) lazy var labCaches: MessagesLabMemoryConsumer? = services.flatMap { AppMemoryConsumers(services: $0).makeHomeLabCaches() }
     @ObservationIgnored private var availability: ServiceObservation<DaemonConnection?>?
     @ObservationIgnored private var listing: Task<Void, any Error>?
     /// The latest conversation-list read; only its answer is applied.
     @ObservationIgnored private(set) var listGeneration = 0
-    /// The launch's Home and New Tab feeds (``postLaunchFeeds(startup:)``, p08-startup-027): ``start()`` is one of their
+    /// The launch's Home and New Tab feeds (``postLaunchFeeds(startup:)``): ``start()`` is one of their
     /// posts, after startup unless a Home view needs it right after the first frame. nil (tests, a
     /// service made after launch): nothing waits on the launch order.
     @ObservationIgnored var launchFeeds: LaunchNeedPosts?
@@ -121,7 +121,7 @@ final class HomeService {
     /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine
     /// (`markdown-viewer/ondine.min.js`); one renderer (one JavaScriptCore context) for every pane.
     /// nil when the bundle lacks the script: fences stay text. With `memoryFileHomeCaches` it is a memory
-    /// consumer (`home-diagrams`) and its context goes after 10 min with no diagram shown (p07-memory-082).
+    /// consumer (`home-diagrams`) and its context goes after 10 min with no diagram shown.
     @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? =
         services.flatMap { OndineMermaidRenderer.bundled(memory: AppMemoryConsumers(services: $0).fileCacheRegistry) }
     @ObservationIgnored let homeSource: DaemonHomeSource
@@ -134,7 +134,7 @@ final class HomeService {
     /// The Home list rows (`home-inbox`) the Messages list maps: local from the Chief home, Cloud from the build daemon.
     @ObservationIgnored let homeInbox = HomeInboxSource(owners: ["local"])
     @ObservationIgnored let homeCloudInbox = HomeInboxSource(owners: ["cloud"])
-    /// The Home list's two caches and their launch read (HomeService+LaunchList, p08-startup-076), of this Chief owner.
+    /// The Home list's two caches and their launch read (HomeService+LaunchList), of this Chief owner.
     /// A folder of this service's own (no app caches folder: tests) is new, so there is nothing to read in it.
     @ObservationIgnored private(set) lazy var listLaunch = HomeListLaunch(
         read: appListRead.hasCaches

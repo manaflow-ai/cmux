@@ -44,7 +44,7 @@ enum SurfaceHostReport {
     /// Terminal panes of every window, with their daemon tab.
     @MainActor static func targets(_ services: AppServices) -> [Target] {
         SurfaceDiagnosticsReport.statuses(services).compactMap { row in
-            // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051) per mounted pane; no walk, no observation
+            // view-observation-allow: locateTab is one MachineTabIndex lookup per mounted pane; no walk, no observation
             guard let key = row.pane.currentTabKey, let (tab, pane) = services.locateTab(key), tab.kind == .pty else { return nil }
             let daemon = services.daemon(for: pane)
             return Target(paneKey: row.status.paneKey, surface: tab.surface, terminalID: tab.terminalID?.rawValue,

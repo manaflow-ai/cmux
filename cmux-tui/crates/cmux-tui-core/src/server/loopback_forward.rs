@@ -784,7 +784,7 @@ pub(in crate::server) const ROUTES: &[Route] = &[Route {
 }];
 
 /// The route's typed handler for a `loopback-*` line, on the connection's
-/// control sequence in arrival order (p05-ipc-086). Its line is held to the
+/// control sequence in arrival order. Its line is held to the
 /// connection's own queue caps, never to the daemon's surface-operation
 /// byte budget; a line the full sequence refuses ends its stream
 /// ([`end_refused_stream`]). The line's `cmd` named this family, so it

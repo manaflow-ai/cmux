@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxNextPages
 import WebKit
 
-/// A New Tab agent pane as the app's one preload (``PagePreloadSlot``, p13-webui-044): the slot
+/// A New Tab agent pane as the app's one preload (``PagePreloadSlot``): the slot
 /// holds the pane in its parking and hands it to Cmd-T in the key's turn. Its own type, not an
 /// ``AgentPaneView`` conformance, so the pane's type does not grow.
 ///

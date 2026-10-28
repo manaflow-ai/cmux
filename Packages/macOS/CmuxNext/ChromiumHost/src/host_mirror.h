@@ -1,5 +1,5 @@
 // The Chromium Host's producers of the tab and host mirrors
-// (plans/cmux-next/chrome-parity/p01-process.md 3.2, tasks p01-process-016
+// (plans/cmux-next/chrome-parity/p01-process.md 3.2
 // and 017): tab_navigation_entries, tab_navigation_state, tab_window_id,
 // window_count, live_browser_count and foreign_browser_count (016);
 // side_panel_state, ext_actions, ext_list, ext_commands and omnibox_keywords

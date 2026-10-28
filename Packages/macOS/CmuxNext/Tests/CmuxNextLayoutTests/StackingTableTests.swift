@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextLayout
 import Testing
 
-/// p10-stability-082: `sortSubviews`' comparator reads the stacking ranks through a pointer lent for the one
+/// `sortSubviews`' comparator reads the stacking ranks through a pointer lent for the one
 /// synchronous call (``StackingTable/sort(_:)``), not an object's unretained address.
 @MainActor @Suite struct StackingTableTests {
     @Test func subviewsTakeTheirRanksOrderBackToFront() {

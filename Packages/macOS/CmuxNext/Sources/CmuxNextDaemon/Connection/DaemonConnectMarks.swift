@@ -7,8 +7,9 @@ public import Foundation
 /// a connection (``attach(_:)``) or gives up (``close()``); a reconnect, a respawn after a crash or a later snapshot
 /// adds nothing. `identified` and `snapshot_received` describe the attached connection only: a connection's marks
 /// wait, with their times, until it is attached, and an attempt that failed or was handed off to a newer build
-/// sends none. The recurring per-step marks (`daemon.connect_start`, `daemon.identify_end`, ...) stay
-/// ``DaemonLaunchTimings``'s. Marks come from any thread.
+/// sends none. When this launch spawned the attached daemon, its own start (``DaemonStartupMarks``) follows its first
+/// snapshot, each step at the daemon's time. The recurring per-step marks (`daemon.connect_start`,
+/// `daemon.identify_end`, ...) stay ``DaemonLaunchTimings``'s. Marks come from any thread.
 public final class DaemonConnectMarks: Sendable {
     /// The milestones in launch order; their names are bench-startup.py's rows.
     public enum Milestone: String, CaseIterable, Sendable {
@@ -43,11 +44,20 @@ public final class DaemonConnectMarks: Sendable {
         var closed = false
         var attached: DaemonConnection?
         var held: [Held] = []
+        var daemonStartRead = false
 
         /// Whether `milestone` goes out now; it never goes out twice.
         mutating func claim(_ milestone: Milestone) -> Bool {
             guard sent & milestone.bit == 0 else { return false }
             sent |= milestone.bit
+            return true
+        }
+
+        /// Whether the attached daemon's own start is read now: once, after its first snapshot, and only when this
+        /// launch spawned it (a warm launch's daemon started before the launch).
+        mutating func claimDaemonStart(after milestone: Milestone) -> Bool {
+            guard milestone == .snapshotReceived, sent & Milestone.spawned.bit != 0, !daemonStartRead else { return false }
+            daemonStartRead = true
             return true
         }
     }
@@ -76,18 +86,19 @@ public final class DaemonConnectMarks: Sendable {
     /// connection, sent at once when it is the attached one, dropped for any other.
     public func mark(_ milestone: Milestone, of connection: DaemonConnection) {
         let now = Date()
-        let send = state.withLock { state -> Bool in
+        let (send, readStart) = state.withLock { state -> (Bool, Bool) in
             if let attached = state.attached {
-                guard attached === connection else { return false }
-                return state.claim(milestone)
+                guard attached === connection, state.claim(milestone) else { return (false, false) }
+                return (true, state.claimDaemonStart(after: milestone))
             }
-            guard !state.closed else { return false }
+            guard !state.closed else { return (false, false) }
             if !state.held.contains(where: { $0.connection === connection && $0.milestone == milestone }) {
                 state.held.append(Held(connection: connection, milestone: milestone, date: now))
             }
-            return false
+            return (false, false)
         }
         if send { sink(milestone.rawValue, now) }
+        if readStart { readDaemonStart(of: connection) }
     }
 
     /// The startup connect attached `connection`, which is identified (its handshake is done): sends its kept marks
@@ -96,21 +107,36 @@ public final class DaemonConnectMarks: Sendable {
     /// kept, and its arrival is marked through ``mark(_:of:)``).
     public func attach(_ connection: DaemonConnection) async {
         let now = Date()
-        let due = state.withLock { state -> [(Milestone, Date)] in
-            guard !state.closed else { return [] }
+        let (due, readStart) = state.withLock { state -> ([(Milestone, Date)], Bool) in
+            guard !state.closed else { return ([], false) }
             state.closed = true
             state.attached = connection
             var kept = state.held.filter { $0.connection === connection }.map { ($0.milestone, $0.date) }
             state.held.removeAll()
             if !kept.contains(where: { $0.0 == .identified }) { kept.insert((.identified, now), at: 0) }
             var due: [(Milestone, Date)] = []
+            var readStart = false
             for (milestone, date) in kept {
-                if state.claim(milestone) { due.append((milestone, date)) }
+                guard state.claim(milestone) else { continue }
+                due.append((milestone, date))
+                if state.claimDaemonStart(after: milestone) { readStart = true }
             }
-            return due
+            return (due, readStart)
         }
         for (milestone, date) in due { sink(milestone.rawValue, date) }
+        if readStart { readDaemonStart(of: connection) }
         await connection.prefetchSnapshot(onReceived: { self.mark(.snapshotReceived, of: connection) })
+    }
+
+    /// Reads the attached daemon's own start (``DaemonStartupMarksRequest``) and sends each step with the daemon's
+    /// time, after `daemon.main_start`. A daemon without `startup-marks-v1` is not asked and sends none.
+    private func readDaemonStart(of connection: DaemonConnection) {
+        let sink = sink
+        // task-owner: one read per launch, after the first snapshot; it ends with its reply or the connection
+        Task {
+            guard let marks = try? await connection.request(DaemonStartupMarksRequest()).startupMarks else { return }
+            for (name, date) in marks.launchMarks { sink(name, date) }
+        }
     }
 
     /// Whether a startup attempt started a daemon (``Milestone/spawned`` went out): false when the launch found the

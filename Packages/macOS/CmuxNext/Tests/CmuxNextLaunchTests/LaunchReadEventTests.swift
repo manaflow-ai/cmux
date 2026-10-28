@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// A launch read's completion event (p08-startup-028): steps that need the read run on its signal, in
+/// A launch read's completion event: steps that need the read run on its signal, in
 /// post order, once; a step posted later runs at once. The browser follows that no engine reads are
 /// afterFirstFrame posts.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct LaunchReadEventTests {
@@ -23,7 +23,7 @@ import Testing
         #expect(ran.names == ["a", "b"], "a second signal ran a step again")
     }
 
-    /// The signal is the catalog's `launch.read_done` instant on the launch category (p09-observability-036), with
+    /// The signal is the catalog's `launch.read_done` instant on the launch category, with
     /// the steps it released in arg0; a second signal records nothing.
     @Test func theSignalIsOneLaunchReadDoneEventWithTheStepsReleased() {
         let log = TraceLog()

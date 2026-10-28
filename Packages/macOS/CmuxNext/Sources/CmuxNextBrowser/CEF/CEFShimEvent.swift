@@ -85,7 +85,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
     /// Chromium Host: the page did not handle the Command or Control chord whose key frame had
-    /// input seq `seq` (KEY_UNHANDLED with b bit 1, p01-process-030); cmux runs the action it held
+    /// input seq `seq` (KEY_UNHANDLED with b bit 1); cmux runs the action it held
     /// for the page or re-dispatches the key to its menus.
     case keyUnhandledChord(browser: Int32, seq: UInt32)
     /// An extension install or permission prompt (fork API 12); prompt 0
@@ -138,10 +138,10 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case popupMenu(browser: Int32, token: Int64, popup: ChromiumHostPopupMenu?)
     /// Chromium closed that popup before cmux answered (POPUP_MENU_HIDE): its menu closes with no answer.
     case popupMenuHidden(browser: Int32, token: Int64)
-    /// One of the Chromium Host's helpers ended (HELPER_EXIT; host mode, task p01-process-225): the host
+    /// One of the Chromium Host's helpers ended (HELPER_EXIT; host mode): the host
     /// watches its children as ``CEFChildProcessMonitor`` watches the app's in process.
     case helperExit(CEFChildProcessMonitor.Exit)
-    /// The renderers of the tab's frames changed (FRAME_RENDERERS, task p01-process-225): an iframe's renderer came
+    /// The renderers of the tab's frames changed (FRAME_RENDERERS): an iframe's renderer came
     /// or went after the load. In host mode `tab.renderer_client_ids` was pushed before it.
     case frameRenderers(browser: Int32)
     case unknown(kind: Int32)

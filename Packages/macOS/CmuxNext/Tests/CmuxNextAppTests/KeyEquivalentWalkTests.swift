@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextBrowser
 import CmuxNextDesign
+@testable import CmuxNextRemoteBrowser
 @testable import CmuxNextTabs
 @testable import CmuxNextTerminal
 import CmuxNextWakeups
@@ -156,6 +158,17 @@ import Testing
 
         _ = shown.window.performKeyEquivalent(with: event)
         #expect(shown.offers == 30, "an undecided chord was offered to \(shown.offers) of 30 pane views")
+    }
+
+    /// The surfaces that take their own key equivalents are named by ``KeyEquivalentOwningSurface``, not by
+    /// type in the router, so a Release build (no remote browser page) compiles it (Mac build
+    /// ba28759692eb7bd5c6f51408: "cannot find type 'RemoteBrowserContentView' in scope"). The Chromium host
+    /// page and the remote browser page still own theirs; a pane view or a text view does not.
+    @Test func thePageSurfacesOwnTheirKeyEquivalents() {
+        #expect(KeyRouter.takesOwnKeyEquivalents(ChromiumHostPageView(frame: .zero)))
+        #expect(KeyRouter.takesOwnKeyEquivalents(RemoteBrowserContentView(frame: .zero)))
+        #expect(!KeyRouter.takesOwnKeyEquivalents(NSView(frame: .zero)))
+        #expect(!KeyRouter.takesOwnKeyEquivalents(NSTextView(frame: .zero)))
     }
 
     /// A text view outside every pane (not a field editor) keeps the walk, and the counter names it.

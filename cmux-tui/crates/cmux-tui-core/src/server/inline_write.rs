@@ -10,12 +10,15 @@
 //! for room. When the socket takes none or part of it, the rest is the next
 //! thing the writer thread writes, ahead of every queued item.
 
+#[cfg(unix)]
+use super::BatchPoll;
 use super::BoundedOutbound;
 use super::BoundedOutboundState;
 use super::OutboundItem;
 use crate::diagnostics::IpcStats;
 use crate::panic_free::RecoverPoison;
 use crate::platform::transport;
+#[cfg(any(test, not(unix)))]
 use cmux_threads::sync::Mutex;
 use cmux_threads::sync::MutexGuard;
 use std::io;
@@ -79,8 +82,10 @@ pub(super) struct WriterState {
     wakeups: usize,
 }
 
-/// The writer thread's turn: what it writes (a rest an inline write left,
+/// The writer thread's turn (where a connection has a writer thread, and
+/// in tests): what it writes (a rest an inline write left,
 /// then the batch it took), and while it lives no producer writes inline.
+#[cfg(any(test, not(unix)))]
 pub(in crate::server) struct WriterTurn<'a> {
     state: &'a Mutex<BoundedOutboundState>,
     /// The tail of a message an inline write began: written as is, before
@@ -88,6 +93,7 @@ pub(in crate::server) struct WriterTurn<'a> {
     pub(in crate::server) rest: Option<Vec<u8>>,
 }
 
+#[cfg(any(test, not(unix)))]
 impl Drop for WriterTurn<'_> {
     fn drop(&mut self) {
         self.state.lock().recover_poison().writer.busy = false;
@@ -132,17 +138,20 @@ impl BoundedOutbound {
             state.closed = true;
         }
         drop(state);
-        self.changed.notify_all();
+        // The rest or the queued item is the writer's: the writer thread's
+        // condvar, or the mux-io loop's doorbell (server/mux_io.rs).
+        self.notify_item();
         woken.wake();
         written.map(|_| ())
     }
 
     /// The writer thread's next turn: waits for a rest or an item, then
     /// takes the rest and a batch of the ready items behind it into `batch`
-    /// (`BoundedOutboundState::take_batch`, p05-ipc-088). `None` once the
+    /// (`BoundedOutboundState::take_batch`). `None` once the
     /// queue closed with nothing left. No producer writes inline until the
     /// turn drops. The wait is an idle wait, so a writer that disallows
     /// blocking may take it (p02-threads 308).
+    #[cfg(any(test, not(unix)))]
     pub(in crate::server) fn recv_turn(
         &self,
         batch: &mut Vec<OutboundItem>,
@@ -170,6 +179,34 @@ impl BoundedOutbound {
                 state.writer.wakeups += 1;
             }
         }
+    }
+
+    /// [`Self::recv_turn`] for a writer that never waits (the mux-io loop,
+    /// server/mux_io.rs): takes a rest an inline write left into `rest` and
+    /// the ready items behind it into `batch`. While the loop holds a turn
+    /// (from `Taken` until a later poll finds the queue `Empty`) no producer
+    /// writes inline, so nothing passes the bytes the loop still writes.
+    #[cfg(unix)]
+    pub(in crate::server) fn try_recv_turn(
+        &self,
+        batch: &mut Vec<OutboundItem>,
+        rest: &mut Option<Vec<u8>>,
+    ) -> BatchPoll {
+        batch.clear();
+        let mut state = self.state.lock().recover_poison();
+        *rest = state.writer.rest.take();
+        if state.take_batch(batch) || rest.is_some() {
+            state.writer.busy = true;
+            // Producers that got room (a stream's space hook, an ordered
+            // terminal's room waker) run once the lock is released.
+            let woken = state.take_space_woken();
+            drop(state);
+            self.changed.notify_all();
+            woken.wake();
+            return BatchPoll::Taken;
+        }
+        state.writer.busy = false;
+        if state.closed { BatchPoll::Closed } else { BatchPoll::Empty }
     }
 
     /// Times the writer thread woke from its idle wait in `recv_turn`.

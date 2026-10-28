@@ -4,6 +4,7 @@
 //! a failed turn streamed as an ordinary message.
 
 use super::*;
+use crate::no_panic::LockExt;
 
 /// Largest trailing message text kept for the error comparison.
 const TRAILING_LIMIT: usize = 64 * 1024;
@@ -47,7 +48,7 @@ impl Hub {
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
         let mut superseded = None;
         {
-            let mut st = session.stream.lock().unwrap();
+            let mut st = session.stream.lock_or_recover();
             match kind {
                 "agent_message_chunk" => {
                     let id = update.get("messageId").and_then(Value::as_str);
@@ -123,7 +124,7 @@ impl Hub {
         else {
             return;
         };
-        let mut st = session.stream.lock().unwrap();
+        let mut st = session.stream.lock_or_recover();
         if st.trailing_overflow {
             return;
         }
@@ -150,7 +151,7 @@ impl Hub {
         session: &Session,
         error: Option<(&str, Value)>,
     ) -> serde_json::Map<String, Value> {
-        let st = session.stream.lock().unwrap();
+        let st = session.stream.lock_or_recover();
         let mut out = serde_json::Map::new();
         let (text, code, source) = match (error, &st.harness_error) {
             (Some((t, c)), _) => (t.to_owned(), c, "agent"),

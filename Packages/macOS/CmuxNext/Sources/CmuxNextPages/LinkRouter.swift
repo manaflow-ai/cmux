@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxNextSettings
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// The one place a link the person clicks in cmux goes (cx-ir3z4): terminals, agent chats, the
 /// Home transcript, cmux pages, the Help menu and update notes all open through ``shared``. The

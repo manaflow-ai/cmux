@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// p15-oracle-223. Chromium runs a debug URL (chrome://gpucrash/, chrome://crash/, chrome://hang/) at once and
+/// Chromium runs a debug URL (chrome://gpucrash/, chrome://crash/, chrome://hang/) at once and
 /// starts no navigation for it (content/browser/renderer_host/navigation_controller_impl.cc,
 /// `NavigateWithoutEntry`), so no load start, commit or load end follows. Loading one keeps the tab's page,
 /// address and load state, as Chrome's omnibox keeps the committed page; before, the tab stayed loading on the

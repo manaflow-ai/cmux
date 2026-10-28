@@ -16,7 +16,7 @@
 #   --artifact=PATH   the step's --artifact, a relative artifacts/oracle/<name>.tar.gz (required)
 #   --config=C        bench (default) or debug: reload.sh --config and oracle.py --build
 #   --dry-run         plan the shard and write its receipt; build and launch nothing
-#   --mutant=PATH     a seeded fault, tests/oracle/mutants/app/<name>.patch of this checkout (p15-oracle-026):
+#   --mutant=PATH     a seeded fault, tests/oracle/mutants/app/<name>.patch of this checkout:
 #                     applied to the checkout before the build and reverted on exit; a dry run only checks it applies
 # The checkout is the worker's reused one, so a build runs only on clean product sources (no tracked change under
 # Packages or cmux-tui), and fleet-step.json records the sha256 of what was built over HEAD ("none" when clean).

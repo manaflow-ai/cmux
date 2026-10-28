@@ -1,4 +1,4 @@
-/// Input latency field data in a hang report (p04-input-010; hang-reports-DESIGN.md section 4,
+/// Input latency field data in a hang report (hang-reports-DESIGN.md section 4,
 /// "Input latency"): Chrome's field latency as distributions, never single events
 /// (components/metrics, `EventLatency.*` UMA histograms; cc/metrics/event_metrics.h for the
 /// row keys, cc/metrics/scroll_jank_dropped_frame_tracker.cc for `scroll_jank`). Numbers and
@@ -111,7 +111,7 @@ extension HangReport {
     }
 
     /// `interaction_latency`: cmux's Interaction to Next Paint for the report period
-    /// (web.dev/articles/inp; p04-input-097): how many interactions the person made (a key press to
+    /// (web.dev/articles/inp): how many interactions the person made (a key press to
     /// its release, a click, a drag), the longest, the longest after ignoring one for each 50 (Chrome's
     /// high percentile, components/page_load_metrics/browser/responsiveness_metrics_normalization.cc),
     /// and the kind of the longest. Numbers and a closed kind only.

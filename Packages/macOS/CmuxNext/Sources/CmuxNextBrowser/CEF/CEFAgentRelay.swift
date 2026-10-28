@@ -104,6 +104,15 @@ public final class CEFAgentRelay {
     /// True once the Chromium browser exists.
     public var hasBrowser: Bool { tab?.browserID != nil }
 
+    /// The page as the attached Chromium Host relays it straight to the browser host:
+    /// nil in process, before the browser exists, without a relay link, or with a host that cannot relay (its
+    /// HELLO did not list the provider link). The app relays such a page itself (``send(_:)``).
+    public var directTarget: CEFAgentDirectTarget? {
+        guard let tab, !tab.isClosed, let browser = tab.browserID, let hostStart = tab.runtime.hostStart,
+              hostStart.relaysAgents, !hostStart.hostGone, let link = hostStart.agentRelayLink else { return nil }
+        return CEFAgentDirectTarget(browser: browser, linkID: link.linkID)
+    }
+
     /// No pane shows the tab, nor any other tab of its pane's Chromium window:
     /// that window is in no app window, so Chromium draws no frame for it
     /// (screenshots never answer). The App then moves the tab's content

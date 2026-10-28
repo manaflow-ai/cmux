@@ -264,6 +264,18 @@ fn request_watchdog_counts_runs_past_its_slots_as_unwatched() {
 }
 
 #[test]
+fn request_watchdog_claims_wrap_from_the_last_slot_to_the_first() {
+    let watchdog = RequestWatchdog::default();
+    let last = SLOT_COUNT as u64 - 1;
+    // Every run hints the last slot: the second one on finds it taken and
+    // wraps to the start, until every slot is held.
+    let scopes: Vec<_> = (0..SLOT_COUNT).map(|_| watchdog.begin(last, CREATE)).collect();
+    assert!(scopes.iter().all(Option::is_some), "every slot is reached from the last one");
+    assert!(watchdog.begin(last, CREATE).is_none());
+    assert_eq!(watchdog.snapshot().unwatched, 1);
+}
+
+#[test]
 fn request_watchdog_ring_keeps_the_newest_128() {
     let watchdog = RequestWatchdog::default();
     for client in 0..(SLOW_REQUEST_RING as u64 + 5) {
@@ -503,7 +515,7 @@ fn request_watchdog_records_a_slow_sniffed_frame() {
 /// (the client registry is held 300 ms, so the reader's client lookup is
 /// slow) and, ended before the watchdog looks, named by the stage it ended
 /// in: the reader hands a remote line to the relay on its connection's
-/// control sequence (p05-ipc-086).
+/// control sequence.
 #[cfg(unix)]
 #[test]
 fn request_watchdog_records_a_slow_remote_fs_frame() {

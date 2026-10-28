@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::mux::*;
+use crate::panic_free::JsonFields;
 use crate::state::prelude::*;
 use crate::state::store::StateCommit;
 use crate::workspace_registry::PresentationSnapshot;
@@ -249,10 +250,12 @@ fn choose(request: &BulkRequest, anchor: &str, items: Vec<Item>) -> anyhow::Resu
             .filter(|item| ids.contains(&item.id) && closes(item))
             .collect());
     }
-    let Some(position) = items.iter().position(|item| item.id == anchor) else {
+    let Some((position, anchor_item)) =
+        items.iter().enumerate().find(|(_, item)| item.id == anchor)
+    else {
         return Err(crate::state::commit::state_not_found(level, anchor));
     };
-    let container = items[position].container;
+    let container = anchor_item.container;
     let skip_pinned = !request.include_pinned;
     let chosen = items
         .into_iter()
@@ -344,7 +347,7 @@ impl Mux {
         });
         if surfaces.is_empty() {
             let mut result = result;
-            result["closed_ids"] = json!([]);
+            result.insert("closed_ids", json!([]));
             return Ok(StateCommit { revision, result, replayed: false, personal_revision: None });
         }
         let outcome = self.close_tabs_for_bulk(

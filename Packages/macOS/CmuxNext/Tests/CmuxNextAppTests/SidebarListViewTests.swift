@@ -3,7 +3,7 @@ import CmuxNextInput
 @testable import CmuxNextSidebar
 import Testing
 
-/// The list's pointer-end watch on the app's input tap (p04-input-019): while the list is in a window it holds one
+/// The list's pointer-end watch on the app's input tap: while the list is in a window it holds one
 /// press observer and one release after-dispatch observer, both every window and both asked only while it holds a
 /// gesture; a press anywhere ends a press whose release never came; leaving the window gives both back.
 /// Uses `SidebarPointerGestureTests`' list: loose `x`, `y`; group `g1` (`a`, `b`); collapsed group `g2` (`c`, `d`).

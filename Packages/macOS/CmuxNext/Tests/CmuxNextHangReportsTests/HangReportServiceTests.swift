@@ -73,7 +73,7 @@ struct HangReportServiceTests {
                 features: features))
     }
 
-    /// The features are read as each report is built (p12-perf-process-151): a live Debug toggle flipped after
+    /// The features are read as each report is built: a live Debug toggle flipped after
     /// launch changes the arm the app runs, and the next report names that arm, as `features.list` does.
     @Test func eachReportNamesTheFeaturesTheAppRunsWithThen() async throws {
         let launch = HangReport.FeatureState(hash: "0123456789abcdef", nonDefault: [])

@@ -1,4 +1,4 @@
-//! Stream visibility priority (p05-ipc-142; p05-ipc.md 3.4 "Stream
+//! Stream visibility priority (p05-ipc.md 3.4 "Stream
 //! visibility"): `set-stream-priority {stream, focused|visible|hidden}` ranks
 //! one client-minted attach stream against the others of its connection.
 //!

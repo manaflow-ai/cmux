@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// p08-startup-066: the launch's daemon connect milestones (`daemon.connect_started`, `spawned`, `identified`,
+/// The launch's daemon connect milestones (`daemon.connect_started`, `spawned`, `identified`,
 /// `snapshot_received`) go out once each, only while the startup connect runs, and `identified` and
 /// `snapshot_received` only for the connection the startup attaches.
 @Suite(.timeLimit(.minutes(1)))
@@ -75,7 +75,7 @@ struct DaemonConnectMarksTests {
         #expect(received.names.isEmpty)
     }
 
-    /// p01-process-152: a launch after the app alone ended (`kill -9`) finds the daemon running and reattaches to it
+    /// A launch after the app alone ended (`kill -9`) finds the daemon running and reattaches to it
     /// (`DaemonService.launchAttach`); one whose attempt started a daemon did not.
     @Test("startedDaemon says whether a startup attempt started the daemon")
     func startedDaemonFollowsTheSpawn() async throws {

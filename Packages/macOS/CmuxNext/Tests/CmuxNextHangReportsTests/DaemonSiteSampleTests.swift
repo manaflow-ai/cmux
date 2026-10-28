@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// The daemon's diagnostic sites in opt-in hang reports and crash reports (p02-threads-233): a site is one
+/// The daemon's diagnostic sites in opt-in hang reports and crash reports: a site is one
 /// sample with the daemon as its source and no path; the same site again adds nothing, whatever kind it
 /// names; the schema 3 server rules and the privacy scanner pass the report; the deployed schema keeps none;
 /// the sink sends one non-fatal event per site within the blocking budget.

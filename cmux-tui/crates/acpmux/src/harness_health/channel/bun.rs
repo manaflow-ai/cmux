@@ -199,7 +199,7 @@ pub(in crate::harness_health) fn pin_manager(
         return None;
     }
     let mut pinned = argv.to_vec();
-    pinned[parts.manager_index] = manager;
+    *pinned.get_mut(parts.manager_index)? = manager;
     Some(pinned)
 }
 

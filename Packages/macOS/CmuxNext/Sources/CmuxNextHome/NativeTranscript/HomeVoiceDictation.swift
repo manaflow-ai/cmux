@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDictation
 import CmuxNextWakeups
 import MessagesLabHome

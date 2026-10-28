@@ -22,6 +22,7 @@ use std::time::Duration;
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
+use crate::cli::json_fields::JsonFields;
 
 mod accounts;
 
@@ -86,7 +87,8 @@ pub(super) fn split(command_args: &[String]) -> Option<(&str, &[String])> {
 fn raw_tail(args: &[String]) -> Vec<String> {
     args.iter()
         .position(|arg| arg == "coderouter" || arg == "cr")
-        .map(|index| args[index + 1..].to_vec())
+        .and_then(|index| args.get(index + 1..))
+        .map(<[String]>::to_vec)
         .unwrap_or_default()
 }
 
@@ -461,7 +463,7 @@ fn run_owned(global: &GlobalArgs, verb: Verb) -> i32 {
                 _ => 1,
             };
             if let Some(message) = error.get("message").and_then(Value::as_str) {
-                error["message"] = json!(redact_emails(message));
+                error.insert("message", json!(redact_emails(message)));
             }
             super::wire::print_local_error(&error, global.output, exit_code)
         }
@@ -618,8 +620,7 @@ impl Options {
         let messages = &crate::localization::catalog().app_control;
         let mut options = Self { values: Vec::new(), flags: Vec::new(), positionals: Vec::new() };
         let mut index = 0;
-        while index < args.len() {
-            let arg = &args[index];
+        while let Some(arg) = args.get(index) {
             index += 1;
             let Some(name) = arg.strip_prefix("--") else {
                 if arg.starts_with('-') && arg != "-" {

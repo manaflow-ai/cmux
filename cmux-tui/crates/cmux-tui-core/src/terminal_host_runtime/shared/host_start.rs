@@ -131,6 +131,7 @@ pub(crate) fn start_host_runtime(
         parser_progress: (Mutex::new(0), Condvar::new()),
         next_client: AtomicU64::new(1),
         last_input_flow: Default::default(),
+        input_stages: Default::default(),
         dead: AtomicBool::new(false),
         launch_owner_claimed: AtomicBool::new(false),
         launch_owner_stream_ready: AtomicBool::new(false),
@@ -332,6 +333,9 @@ pub(crate) fn read_pty_once(
         Ok(count) => {
             // The key press this read echoes goes with its output to the clients.
             let flow = host.last_input_flow.take();
+            if flow != 0 {
+                host.input_stages.echoed(flow, crate::input_stages::now_ns());
+            }
             cmux_flow_trace::hop_id("host.pty.read", flow, host.terminal_id.as_bytes());
             let read = buffer.get(..count).unwrap_or(&*buffer);
             let published = publish_pty_output_flow(
@@ -377,11 +381,15 @@ fn publish_pty_frame(host: &HostShared, bytes: Vec<u8>, flow: u64) -> bool {
     host.parser_budget.reserve(count);
     // The smart stream's frame carries the flow; the writer of a client that
     // did not negotiate it strips it (`client_wire_frame`).
+    // A flow's frame also carries the host's write and read of the press; the
+    // writer of a client that negotiated only the flow turns it into the flow trailer.
     let frame = if flow == 0 {
         Frame::new(MessageKind::Output, bytes.clone())
     } else {
-        let mut frame = Frame::new(MessageKind::Output, flow_trailer_payload(&bytes, flow));
-        frame.flags = FLAG_INPUT_FLOW;
+        let stages = host.input_stages.stages(flow).unwrap_or_default();
+        let payload = stages_trailer_payload(&bytes, flow, stages.written_ns, stages.read_ns);
+        let mut frame = Frame::new(MessageKind::Output, payload);
+        frame.flags = FLAG_INPUT_FLOW | FLAG_INPUT_STAGES;
         frame
     };
     // Publication deliberately precedes parser enqueue. The bounded queue

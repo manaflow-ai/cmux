@@ -35,10 +35,6 @@ impl FrontendJournalSlot {
             FrontendJournalEvent::Viewport { .. } => Self::Viewport,
         }
     }
-
-    pub(super) const fn index(self) -> usize {
-        self as usize
-    }
 }
 
 impl PendingFrontendJournalEvent {
@@ -54,6 +50,17 @@ pub(super) struct FrontendJournalQueueState {
     stopping: bool,
 }
 
+impl FrontendJournalQueueState {
+    fn slot_mut(&mut self, slot: FrontendJournalSlot) -> &mut Option<PendingFrontendJournalEvent> {
+        let [focus, resize, viewport] = &mut self.pending;
+        match slot {
+            FrontendJournalSlot::Focus => focus,
+            FrontendJournalSlot::Resize => resize,
+            FrontendJournalSlot::Viewport => viewport,
+        }
+    }
+}
+
 #[derive(Default)]
 pub(super) struct FrontendJournalQueue {
     pub(super) state: Mutex<FrontendJournalQueueState>,
@@ -62,14 +69,14 @@ pub(super) struct FrontendJournalQueue {
 
 impl FrontendJournalQueue {
     pub(super) fn push(&self, session: Session, event: FrontendJournalEvent) {
-        let slot = FrontendJournalSlot::for_event(&event).index();
-        let mut state = self.state.lock().unwrap();
+        let slot = FrontendJournalSlot::for_event(&event);
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.stopping {
             return;
         }
         state.next_sequence = state.next_sequence.wrapping_add(1).max(1);
         let sequence = state.next_sequence;
-        state.pending[slot] = Some(PendingFrontendJournalEvent {
+        *state.slot_mut(slot) = Some(PendingFrontendJournalEvent {
             sequence,
             retry_at: Instant::now(),
             session,
@@ -80,52 +87,48 @@ impl FrontendJournalQueue {
     }
 
     pub(super) fn take(&self) -> Option<PendingFrontendJournalEvent> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
             if state.stopping {
                 return None;
             }
             let now = Instant::now();
-            if let Some(slot) = state
+            if let Some(next) = state
                 .pending
-                .iter()
-                .enumerate()
-                .filter_map(|(slot, pending)| {
-                    pending
-                        .as_ref()
-                        .filter(|pending| pending.retry_at <= now)
-                        .map(|pending| (slot, pending.sequence))
-                })
-                .min_by_key(|(_, sequence)| *sequence)
-                .map(|(slot, _)| slot)
+                .iter_mut()
+                .filter(|pending| pending.as_ref().is_some_and(|pending| pending.retry_at <= now))
+                .min_by_key(|pending| pending.as_ref().map(|pending| pending.sequence))
             {
-                return state.pending[slot].take();
+                return next.take();
             }
             if let Some(retry_at) =
                 state.pending.iter().flatten().map(|pending| pending.retry_at).min()
             {
                 let wait = retry_at.saturating_duration_since(now);
-                (state, _) = self.changed.wait_timeout(state, wait).unwrap();
+                (state, _) = self
+                    .changed
+                    .wait_timeout(state, wait)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
             } else {
-                state = self.changed.wait(state).unwrap();
+                state = self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
             }
         }
     }
 
     pub(super) fn retry(&self, mut pending: PendingFrontendJournalEvent) {
         let slot = pending.slot();
-        let mut state = self.state.lock().unwrap();
-        if state.stopping || state.pending[slot.index()].is_some() {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.stopping || state.slot_mut(slot).is_some() {
             return;
         }
         pending.retry_at = Instant::now() + Duration::from_millis(100);
-        state.pending[slot.index()] = Some(pending);
+        *state.slot_mut(slot) = Some(pending);
         drop(state);
         self.changed.notify_one();
     }
 
     pub(super) fn stop(&self) {
-        self.state.lock().unwrap().stopping = true;
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).stopping = true;
         self.changed.notify_one();
     }
 

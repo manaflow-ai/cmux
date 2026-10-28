@@ -10,6 +10,7 @@
 //! same `session.events` batch.
 
 use crate::mux::*;
+use crate::panic_free::RecoverPoison;
 use crate::state::home_store::{self, EmptyWorkspaceMark, HOME_CREATION_KEY};
 use crate::state::prelude::*;
 use crate::user_settings::NewWorkspacePlacement;
@@ -53,7 +54,7 @@ impl Mux {
             .read_registry_state(home_store::live_home)?
             .context("the created home workspace has no kind row")?;
         // The raw tree reads `kind` from the presentation snapshot.
-        self.reload_presentation(&self.workspace_registry.lock().unwrap())?;
+        self.reload_presentation(&self.workspace_registry.lock().recover_poison())?;
         self.emit(MuxEvent::TreeChanged);
         // The creation commit moved the personal order too; raw
         // `personal-changed` readers refetch on this event.

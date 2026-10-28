@@ -20,6 +20,7 @@ use serde_json::{Map, Value, json};
 
 use super::app::ActionName;
 use super::{GlobalArgs, OutputMode, UsageError};
+use crate::cli::json_fields::JsonFields;
 use crate::localization::EnergyMessages;
 
 /// The app action that `off` runs.
@@ -164,7 +165,7 @@ pub(super) fn daemon_line(global: &GlobalArgs, cmd: &str) -> Result<Value, Strin
             return Err("transport closed before response".into());
         }
         let value: Value = serde_json::from_str(&reply).map_err(|error| error.to_string())?;
-        if value.get("id") != Some(&request["id"]) {
+        if value.get("id") != Some(request.field("id")) {
             continue;
         }
         return daemon_reply(value);
@@ -207,10 +208,10 @@ pub(super) fn status_text(report: &Value, messages: &EnergyMessages) -> String {
     let app = &report["app"];
     let app_line = if app.get("error").is_some() {
         messages.app_unreachable.to_owned()
-    } else if app["policy"]["isSaver"] == true {
-        let reason = reason_text(app["policy"]["reason"].as_str(), messages);
+    } else if app.field("policy").field("isSaver") == true {
+        let reason = reason_text(app.field("policy").field("reason").as_str(), messages);
         messages.app_on.replace("{reason}", reason)
-    } else if app["inputs"]["sessionOverride"] == true {
+    } else if app.field("inputs").field("sessionOverride") == true {
         messages.app_held_off.to_owned()
     } else {
         messages.app_off.to_owned()

@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
+use crate::cli::json_fields::JsonFields;
 use crate::localization::TraceMessages;
 
 mod bundle;
@@ -179,8 +180,7 @@ impl Options {
         };
         let mut options = Options { values: Vec::new(), flags: Vec::new() };
         let mut index = 0;
-        while index < args.len() {
-            let arg = args[index].as_str();
+        while let Some(arg) = args.get(index).map(String::as_str) {
             index += 1;
             let Some(flag) = arg.strip_prefix("--") else { return Err(unexpected(arg)) };
             let (name, inline) = match flag.split_once('=') {
@@ -515,7 +515,7 @@ pub(super) fn execute(
         Verb::Status => call(app, "trace.status", json!({}), STATUS_TIMEOUT)?,
         Verb::Export(plan) => {
             let value = export(&plan, exporter)?;
-            let path = value["perfetto"].as_str().unwrap_or_default();
+            let path = value.field("perfetto").as_str().unwrap_or_default();
             let text = messages.perfetto_written.replace("{path}", path);
             return Ok((value, text));
         }
@@ -556,18 +556,18 @@ pub(super) fn record(
         "not_copied": collected.not_copied,
     });
     for (key, value) in collected.bundle.manifest_fields() {
-        manifest[key] = value;
+        manifest.insert(key, value);
     }
     write_file(&plan.out.join(MANIFEST_FILE), &manifest_bytes(&manifest))?;
     let perfetto = plan.out.join(PERFETTO_FILE);
     if !exporter.available() {
-        manifest["export"] = json!("unavailable");
+        manifest.insert("export", json!("unavailable"));
     } else if let Err(error) = exporter.export(&collected.bundle, &perfetto) {
-        manifest["export_error"] = json!(error);
+        manifest.insert("export_error", json!(error));
     } else {
-        manifest["perfetto"] = json!(perfetto.display().to_string());
+        manifest.insert("perfetto", json!(perfetto.display().to_string()));
     }
-    manifest["out"] = json!(plan.out.display().to_string());
+    manifest.insert("out", json!(plan.out.display().to_string()));
     Ok(manifest)
 }
 

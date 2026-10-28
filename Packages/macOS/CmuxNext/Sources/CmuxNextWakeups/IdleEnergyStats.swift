@@ -3,7 +3,7 @@ public import CoreFoundation
 import Darwin
 
 /// The main process's idle interrupt wakeups per second over this launch, as a histogram with
-/// fixed buckets (p14-energy-008, `debug.energy`'s `idle`).
+/// fixed buckets (`debug.energy`'s `idle`).
 ///
 /// Chrome samples the same counter (`ProcessMetrics::GetIdleWakeupsPerSecond` in
 /// `base/process/process_metrics_apple.mm` reads `ri_interrupt_wkups`) from the repeating timer of

@@ -5,7 +5,7 @@ import Foundation
 import Testing
 
 /// Nightly field trials: Finch-style arms from the flags document's `Studies`, picked by the install's
-/// low-entropy value (p12-perf-process.md section 3.9, task p12-perf-process-152;
+/// low-entropy value (p12-perf-process.md section 3.9;
 /// components/variations/entropy_provider.cc, components/variations/study_filtering.cc).
 struct FieldTrialTests {
     private static let slack = feature(0, "slackThing", .perfPath)

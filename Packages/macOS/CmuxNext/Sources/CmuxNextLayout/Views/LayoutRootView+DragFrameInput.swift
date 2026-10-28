@@ -32,7 +32,7 @@ extension LayoutRootView {
         dragResampler = resampler
     }
 
-    /// Feature `stripPanResampling` (p04-input-041): a trackpad pan of the column strip on its motion
+    /// Feature `stripPanResampling`: a trackpad pan of the column strip on its motion
     /// container shows at each display frame, at the offset resampled at the frame's time; the snap and
     /// the fling read the real events. False: each pan event shows at once.
     public var resamplesStripPan: Bool {

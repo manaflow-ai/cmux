@@ -3,7 +3,7 @@ import CmuxNextWakeups
 
 // The pane's owners on a main-thread scheduler of their own, for tests and fixtures. Internal, so the app, which
 // must pass its one `MainWorkScheduler` and `MainDeadlineScheduler` (`AppServices.mainWork`, `.mainDeadlines`),
-// cannot reach them (as `WebKitEngine`'s test init, p06-scheduler-323).
+// cannot reach them (as `WebKitEngine`'s test init).
 
 extension AgentPaneModel {
     /// A model on its transport's scheduler, or one of its own, with blocking-work lanes of its own unless the test

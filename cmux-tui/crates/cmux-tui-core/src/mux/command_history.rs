@@ -287,7 +287,7 @@ impl Mux {
             checkpoint_pending,
             deletes_waiting: Arc::clone(&queue.deletes_waiting),
         };
-        // An upkeep thread (p04-input-084): a pass runs at utility unless a
+        // An upkeep thread: a pass runs at utility unless a
         // client waits for a delete (`Worker::pass`).
         supervised::spawn_at(
             "terminal-command-history",

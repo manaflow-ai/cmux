@@ -7,7 +7,7 @@ public import CmuxNextWakeups
 import Darwin
 import os
 
-/// The hang watch's monitor on the main-thread watchdog's thread (p02-threads-016, p09-observability 067):
+/// The hang watch's monitor on the main-thread watchdog's thread (p09-observability 067):
 /// it adds no thread and no timer. The watchdog thread's kqueue wait is bounded by the slot table's next
 /// scan (``HangWatch/nextScanNanos``), and a scope that needs an earlier scan triggers the kqueue's user
 /// event (``MainThreadWatchdog/attach(hangWatch:crashKeys:trace:)``). Chrome runs one `HangWatcher` thread per
@@ -23,7 +23,7 @@ import os
 ///   moment. Like Chrome's `HangWatcher::RecordHang`, which names the hung threads in crash keys, the monitor
 ///   names the thread in the crash keys' hung threads (``CrashKeySlots/noteHung(_:)``) until its scope ends,
 ///   so a crash meanwhile says which threads were hung. Each hang dump also writes a `hang.thread_hung`
-///   instant into the trace ring (p09-observability-068), and goes out as a ``ThreadHang``
+///   instant into the trace ring, and goes out as a ``ThreadHang``
 ///   (``MainThreadWatchdog/onThreadHang``: the crash report tagged `hang.thread` and the hang-report entry;
 ///   ``MainThreadWatchdog/onLastHang``: the local last-hang bundle) at most once per registration name per
 ///   `hangReportInterval`, as the main thread's hangs are, so a lane that hangs again and again sends one

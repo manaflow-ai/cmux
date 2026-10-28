@@ -92,7 +92,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
-    /// Set once in `CmuxNextApp.main` while feature `mainJobGate` is on (p04-input-076): each event's
+    /// Set once in `CmuxNextApp.main` while feature `mainJobGate` is on: each event's
     /// route is marked as a dispatch on its word, so the main-actor jobs the route enqueues pass it.
     var jobGate: MainJobGateSwitch?
 

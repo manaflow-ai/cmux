@@ -1,4 +1,4 @@
-//! A terminal's threads follow its visibility (p02-threads-236, feature
+//! A terminal's threads follow its visibility (feature
 //! `hiddenTerminalQos`). A view shows the terminal while it has a viewport
 //! and has not said it is hidden. The app's hidden view sends
 //! `set-size-counts counts:false` by its lease (`TerminalAttachment.sendHidden`),

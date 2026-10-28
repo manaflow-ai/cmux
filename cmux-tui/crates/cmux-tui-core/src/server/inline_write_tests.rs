@@ -1,9 +1,10 @@
-//! The inline write fast path (p05-ipc-140): on an idle connection replies
+//! The inline write fast path: on an idle connection replies
 //! and input-lane echo frames leave on the producer's thread with no writer
 //! turn; what the socket does not take is the writer's next write, in order;
 //! nothing is written inline while an item waits or the writer is writing.
 //! Test names start with `message_writer` (the task's `RUST(message_writer)`).
 
+use super::super::{BatchPoll, write_batch_nonblocking};
 use super::super::{BoundedOutbound, QueuedSink, SinkControl, write_counted_turn};
 use super::InlineSocket;
 use crate::diagnostics::IpcStats;
@@ -19,7 +20,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-/// The daemon's socket buffer size (p05-ipc-083).
+/// The daemon's socket buffer size.
 const SOCKET_BUFFER: libc::c_int = 512 * 1024;
 
 /// A connected pair with the daemon's buffer sizes: the daemon's end, the
@@ -57,8 +58,8 @@ fn inline_outbound(server: &UnixStream) -> (Arc<BoundedOutbound>, MessageWriter)
     (outbound, writer)
 }
 
-/// The `mux-line-out` loop of server/line_connection.rs over `server`,
-/// counting the turns it took.
+/// The writer thread's loop (server/line_connection.rs where there is no
+/// mux-io loop) over `server`, counting the turns it took.
 fn spawn_writer(
     outbound: &Arc<BoundedOutbound>,
     server: &UnixStream,
@@ -171,7 +172,7 @@ fn message_writer_nothing_is_written_inline_while_an_item_waits_or_the_writer_wr
     writer.send_control(&json!({"id": 2, "ok": true})).unwrap();
     nothing_on_the_wire();
 
-    // The writer's turn holds the queued items (one batch, p05-ipc-088);
+    // The writer's turn holds the queued items (one batch);
     // while it lives the queue is not idle even once it is empty.
     let mut batch = Vec::new();
     let turn = outbound.recv_turn(&mut batch).unwrap();
@@ -208,4 +209,64 @@ fn message_writer_abort_drops_the_rest_of_a_partial_message() {
     assert!(outbound.state.lock().unwrap().writer.rest.is_some());
     outbound.abort();
     assert!(outbound.recv_turn(&mut Vec::new()).is_none(), "an aborted queue still wrote a rest");
+}
+
+/// The mux-io loop's turns (server/mux_io.rs `Connection::write`): the rest
+/// a full socket left goes first, then the queued items, in order; a reply
+/// sent while the loop holds a turn queues behind them; once a poll finds
+/// the queue empty, a reply leaves inline again and rings nobody.
+#[test]
+fn message_writer_the_mux_io_loop_writes_the_rest_first_then_frees_inline() {
+    let (server, client) = socket_pair();
+    let (outbound, writer) = inline_outbound(&server);
+    let rings = Arc::new(AtomicUsize::new(0));
+    let counted = rings.clone();
+    assert!(outbound.on_ready(move || {
+        counted.fetch_add(1, Ordering::Relaxed);
+    }));
+    let line = |index: usize| json!({"id": index, "pad": "p".repeat(16 * 1024)});
+    let mut expected = Vec::new();
+    for index in 0..200 {
+        expected.extend_from_slice(line(index).to_string().as_bytes());
+        expected.push(b'\n');
+        writer.send_control(&line(index)).unwrap();
+    }
+    assert!(outbound.state.lock().unwrap().writer.rest.is_some(), "the full socket left no rest");
+    assert!(rings.load(Ordering::Relaxed) > 0, "the rest rang no doorbell");
+    let during = json!({"id": "during"});
+    expected.extend_from_slice(during.to_string().as_bytes());
+    expected.push(b'\n');
+
+    let reader = spawn_reader(&client, expected.len());
+    server.set_nonblocking(true).unwrap();
+    let mut socket = server.try_clone().unwrap();
+    let (mut batch, mut rest, mut turns) = (Vec::new(), None, 0);
+    loop {
+        match outbound.try_recv_turn(&mut batch, &mut rest) {
+            BatchPoll::Taken => {}
+            BatchPoll::Empty => break,
+            BatchPoll::Closed => panic!("the queue closed"),
+        }
+        if turns == 0 {
+            assert!(rest.is_some(), "the rest did not come first");
+            // The loop holds a turn: this reply queues behind it.
+            writer.send_control(&during).unwrap();
+        }
+        turns += 1;
+        let mut written = 0;
+        while !write_batch_nonblocking(&mut socket, rest.as_deref(), &batch, &mut written).unwrap()
+        {
+            std::thread::yield_now();
+        }
+        rest = None;
+    }
+    assert_eq!(reader.join().unwrap(), expected, "the rest or a queued line left out of order");
+
+    // Idle again: the next reply leaves inline, with no doorbell.
+    let before = rings.load(Ordering::Relaxed);
+    let after = json!({"id": "after"});
+    writer.send_control(&after).unwrap();
+    assert_eq!(rings.load(Ordering::Relaxed), before, "an idle reply rang the loop");
+    let expected = format!("{after}\n");
+    assert_eq!(spawn_reader(&client, expected.len()).join().unwrap(), expected.as_bytes());
 }

@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextInputCore
 
-/// Which surface an input lands in, for its latency slot's ``CmuxNextInputCore/InputTarget`` (p04-input-005), so each
+/// Which surface an input lands in, for its latency slot's ``CmuxNextInputCore/InputTarget``, so each
 /// surface gets its own EventLatency rows (Chrome splits its histograms by the frame's source the same way,
 /// cc/metrics/event_latency_tracing_recorder.cc).
 ///

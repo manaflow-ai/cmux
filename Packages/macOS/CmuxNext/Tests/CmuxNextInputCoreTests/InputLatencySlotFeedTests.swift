@@ -1,7 +1,7 @@
 import CmuxNextInputCore
 import Testing
 
-/// The closed-slot feed behind the latency HUD's input rows (p04-input-009): a new reader hears the
+/// The closed-slot feed behind the latency HUD's input rows: a new reader hears the
 /// newest slots oldest first before `addReader` returns, then each slot in the turn it is
 /// published; a removed reader hears nothing more and is forgotten. Run:
 /// `swift test --filter InputLatencySlotFeedTests`.
