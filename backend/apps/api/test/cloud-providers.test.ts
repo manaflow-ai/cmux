@@ -18,6 +18,12 @@ const SLUG = `${PREFIX}snap-${"c".repeat(20)}`
 const TAG = { team: `team_${"t".repeat(20)}`, machine: `vm_${"m".repeat(20)}` }
 const RULE: EdgeTlsRule = { action: "allow", domain: "coderouter.cmux.internal", source: {}, destination: { host: "edge.test", port: 443 }, transform: [{ headers: { "x-test": "v" } }] }
 
+/** What each provider's backing store holds, read outside the contract, so a no-op call cannot pass. */
+interface Observe {
+  file(vmId: string, path: string): { content: string; mode: number } | null
+  rule(vmId: string, domain: string): EdgeTlsRule | null
+}
+
 /** Counts the provider calls, so a guard refusal can be shown to make none. */
 const counted = (p: CloudProvider, override: Partial<CloudProvider> = {}) => {
   const box = { calls: 0 }
@@ -31,7 +37,7 @@ const counted = (p: CloudProvider, override: Partial<CloudProvider> = {}) => {
   return { provider: proxy, box }
 }
 
-const scenario = async (raw: CloudProvider) => {
+const scenario = async (raw: CloudProvider, seen: Observe) => {
   const { provider, box } = counted(raw)
   const d = new GuardedCloudDriver(provider, PREFIX)
   expect(Object.keys(d.capabilities).sort()).toEqual(["edgeTls", "guestExec", "resize", "sizing", "snapshot"])
@@ -60,13 +66,19 @@ const scenario = async (raw: CloudProvider) => {
   }
 
   await d.writeBindFile(NAME, TAG, JSON.stringify({ team: TAG.team }))
-  expect(await d.replaceEdgeRule(NAME, TAG, RULE)).toBe(d.capabilities.edgeTls)
+  expect(seen.file(id, "/var/lib/cmux/bind.json")).toEqual({ content: JSON.stringify({ team: TAG.team }), mode: 0o600 })
+  expect(seen.rule(id, RULE.domain)?.transform).toEqual(RULE.transform)
+  const fresh: EdgeTlsRule = { ...RULE, transform: [{ headers: { "x-test": "rotated" } }] }
+  expect(await d.replaceEdgeRule(NAME, TAG, fresh)).toBe(d.capabilities.edgeTls)
+  expect(seen.rule(id, RULE.domain)).toEqual({ ...fresh, source: { vmId: id } })
   expect(await d.listOurs(TAG.team)).toEqual([{ name: NAME, id }])
 
   if (d.capabilities.snapshot) {
     const snap = await d.snapshot(NAME, TAG, SLUG)
     expect((await d.snapshot(NAME, TAG, SLUG)).id).toBe(snap.id)
+    expect(await raw.findSnapshot(SLUG)).toMatchObject({ id: snap.id, sourceVmId: id })
     await d.removeSnapshot(SLUG)
+    expect(await raw.findSnapshot(SLUG)).toBeNull()
     await d.removeSnapshot(SLUG)
   }
 
@@ -86,9 +98,10 @@ const scenario = async (raw: CloudProvider) => {
 
 /** A small in-memory Freestyle v5 API: only what the Cloud provider calls. */
 const mockFreestyle = () => {
-  type Vm = { id: string; slug: string; metadata: Record<string, unknown>; state: string; resources: { cpu: number; memory: number; storage: number }; rules: Array<{ id: string; domain: string }> }
+  type Vm = { id: string; slug: string; metadata: Record<string, unknown>; state: string; resources: { cpu: number; memory: number; storage: number }; rules: Array<{ id: string; domain: string; rule: EdgeTlsRule }> }
   const vms = new Map<string, Vm>()
   const snaps = new Map<string, { id: string; sourceVmId: string }>()
+  const files = new Map<string, { content: string; mode: number }>()
   let n = 0
   const vmBy = (x: string) => vms.get(x) ?? [...vms.values()].find((v) => v.slug === x)
   const fetchFn: typeof fetch = async (input, init) => {
@@ -96,12 +109,19 @@ const mockFreestyle = () => {
     expect(req.headers.get("authorization")).toBe("Bearer test-only-key")
     const url = new URL(req.url)
     const parts = url.pathname.split("/").slice(2).map(decodeURIComponent)
-    const body = req.method === "POST" || req.method === "PUT" ? ((await req.json().catch(() => ({}))) as Record<string, unknown>) : {}
+    const raw = req.method === "POST" || req.method === "PUT" ? await req.text() : ""
+    const body = (() => {
+      try {
+        return JSON.parse(raw) as Record<string, unknown>
+      } catch {
+        return {}
+      }
+    })()
     const json = (b: unknown, status = 200) => Response.json(b, { status })
     if (parts[0] === "vms" && parts.length === 1 && req.method === "POST") {
       if (vmBy(String(body.slug))) return json({ code: "CONFLICT" }, 409)
       const id = `fsvm-${++n}`
-      const rules = ((body.tls as { rules?: Array<EdgeTlsRule> } | undefined)?.rules ?? []).map((r) => ({ id: `tls-${++n}`, domain: r.domain }))
+      const rules = ((body.tls as { rules?: Array<EdgeTlsRule> } | undefined)?.rules ?? []).map((r) => ({ id: `tls-${++n}`, domain: r.domain, rule: r }))
       vms.set(id, { id, slug: String(body.slug), metadata: body.metadata as Record<string, unknown>, state: "running", resources: { cpu: 2, memory: 4096, storage: 16384 }, rules })
       return json({ id })
     }
@@ -122,7 +142,13 @@ const mockFreestyle = () => {
         return (vm.state = target), json({})
       }
       if (verb === "resize") return (vm.resources = body as Vm["resources"]), json({})
-      if (verb === "fs") return json({})
+      if (verb === "fs" && parts[3] === "write" && req.method === "PUT") {
+        // Like the provider: the write lands only when the sha256 matches the bytes.
+        const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw)))].map((b) => b.toString(16).padStart(2, "0")).join("")
+        if (digest !== url.searchParams.get("sha256")) return json({ code: "SHA_MISMATCH" }, 400)
+        files.set(`${vm.id}:${url.searchParams.get("path")}`, { content: raw, mode: Number(url.searchParams.get("mode")) })
+        return json({})
+      }
       if (verb === "exec-await") return json({ statusCode: 0, stdout: "", stderr: "" })
       if (verb === "snapshot") {
         const id = `fssnap-${++n}`
@@ -140,10 +166,19 @@ const mockFreestyle = () => {
       const vm = vms.get(url.searchParams.get("vmId") ?? "")
       return json({ rules: (vm?.rules ?? []).filter((r) => r.domain === url.searchParams.get("domain")) })
     }
-    if (parts[0] === "tls" && req.method === "PUT") return json({})
+    if (parts[0] === "tls" && req.method === "PUT") {
+      const held = [...vms.values()].flatMap((v) => v.rules).find((r) => r.id === parts[1])
+      if (!held) return json({ code: "NOT_FOUND" }, 404)
+      held.rule = body as unknown as EdgeTlsRule
+      return json({})
+    }
     return json({ code: "UNMOCKED" }, 500)
   }
-  return fetchFn
+  const seen: Observe = {
+    file: (vmId, path) => files.get(`${vmId}:${path}`) ?? null,
+    rule: (vmId, domain) => vms.get(vmId)?.rules.find((r) => r.domain === domain)?.rule ?? null
+  }
+  return { fetchFn, seen }
 }
 
 describe("CloudProvider contract", () => {
@@ -152,11 +187,16 @@ describe("CloudProvider contract", () => {
     const stub = ns.get(ns.idFromName(`provider-contract-${crypto.randomUUID()}`))
     await (runInDurableObject as unknown as <T>(s: unknown, fn: (i: unknown, st: DurableObjectState) => Promise<T>) => Promise<T>)(stub, async (_i, state) => {
       const sql: SqlStore = { exec: <T>(q: string, ...p: Array<unknown>) => state.storage.sql.exec(q, ...p).toArray() as Array<T>, transaction: <T>(fn: () => T) => state.storage.transactionSync(fn) }
-      await scenario(new FakeCloudDriver(sql))
+      const seen: Observe = {
+        file: (vm, path) => sql.exec<{ content: string; mode: number }>(`SELECT content, mode FROM cloud_fake_file WHERE vm = ? AND path = ?`, vm, path).map((f) => ({ content: f.content, mode: Number(f.mode) }))[0] ?? null,
+        rule: (vm, domain) => sql.exec<{ rule: string }>(`SELECT rule FROM cloud_fake_tls WHERE vm = ? AND domain = ?`, vm, domain).map((t) => JSON.parse(t.rule) as EdgeTlsRule)[0] ?? null
+      }
+      await scenario(new FakeCloudDriver(sql), seen)
     })
   })
 
   it("the Freestyle provider keeps the contract over a mocked transport", async () => {
-    await scenario(new FreestyleCloudProvider("test-only-key", "https://freestyle.test", "cmuxnp-test-vmimg-contract", mockFreestyle()))
+    const { fetchFn, seen } = mockFreestyle()
+    await scenario(new FreestyleCloudProvider("test-only-key", "https://freestyle.test", "cmuxnp-test-vmimg-contract", fetchFn), seen)
   })
 })
