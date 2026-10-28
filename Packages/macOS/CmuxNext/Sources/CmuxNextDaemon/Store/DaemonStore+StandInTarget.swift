@@ -58,6 +58,8 @@ extension DaemonStore {
                 standInWaiters.append(StandInWaiter(id: id, target: target) { done.resume(returning: $0) })
             }
         } onCancel: {
+            // task-owner: a one-shot hop to the main actor (onCancel runs on any thread) that ends
+            // this waiter; the store's waiter list owns it, and a waiter already run is a no-op.
             Task { @MainActor in self.dropStandInWaiter(id) }
         }
     }
