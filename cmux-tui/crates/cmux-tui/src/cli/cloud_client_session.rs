@@ -363,11 +363,16 @@ pub(super) fn checked_session(
     }
     // Neither secret is in any field this command prints, and the token is not the credential.
     let secret_free = |v: &str| !v.contains(session.token.as_str()) && !v.contains(credential);
+    // The expiry is printed too (milliseconds in JSON, seconds for people): a numeric secret could hide in it.
+    let expiry_ms = session.expires_at.to_string();
+    let expiry_s = session.expires_at.checked_div(1000).unwrap_or_default().to_string();
     let mut printed = vec![
         session.machine.as_str(),
         session.vm_id.as_str(),
         session.linux_user.as_str(),
         session.api_base_url.as_str(),
+        expiry_ms.as_str(),
+        expiry_s.as_str(),
     ];
     if let Some(ssh) = &session.ssh {
         printed.extend([ssh.host.as_str(), ssh.user.as_str()]);

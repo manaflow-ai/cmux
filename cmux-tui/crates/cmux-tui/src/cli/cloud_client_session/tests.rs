@@ -319,3 +319,16 @@ fn the_configured_api_url_carries_no_secret_and_is_never_echoed() {
     }
     assert_eq!(secure_origin("https://api.example/"), Ok("https://api.example".to_owned()));
 }
+
+#[test]
+fn a_numeric_secret_in_the_expiry_is_refused() {
+    let with_expiry = |expires_at: u64, token: &str| {
+        serde_json::from_value::<Session>(json!({ "machine": VM, "vm_id": "fsvm-1", "linux_user": "cmux", "token": token, "expires_at": expires_at, "api_base_url": "https://api.freestyle.sh", "ssh": null })).unwrap()
+    };
+    // The credential 1800000000 is the printed expiry in seconds of 1800000000000 ms.
+    assert!(checked_session(with_expiry(1_800_000_000_000, TOKEN), VM, "1800000000").is_err());
+    // A numeric token in the expiry, in either unit.
+    assert!(checked_session(with_expiry(1_800_000_000_000, "1800000000000"), VM, "cred").is_err());
+    assert!(checked_session(with_expiry(1_800_000_000_000, "1800000000"), VM, "cred").is_err());
+    assert!(checked_session(with_expiry(1_800_000_000_000, TOKEN), VM, "cred").is_ok());
+}
