@@ -175,10 +175,18 @@ export function QuickModelMenu({
   const { open: sideOpen, setOpen: setSideOpen, side } = useOpenSide(trigger, newTab ? "bottom" : "top", 320);
   if (sideOpen !== open) setSideOpen(open);
   const { models, current, effort, account, fast } = menu;
-  const levels = effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? [];
+  const families = menu.families;
+  const currentFamily = families?.list.find((family) => family.id === families.current);
+  const currentModels = currentFamily ? [...currentFamily.models, ...currentFamily.more] : models;
+  const currentModel = currentModels
+    .flatMap((model) => [model, ...(model.offers ?? [])])
+    .find((model) => model.id === current);
+  // Explicit no-effort capability also suppresses the fallback submenu, even when the
+  // running model is folded under More models or is one provider of a grouped row.
+  const levels =
+    currentModel?.efforts?.length === 0 ? [] : (effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? []);
   const level = levels.find((choice) => choice.id === effort?.current);
   const accounts = useAccountList(open, account);
-  const families = menu.families;
   // The rail's tab and the typed filter start over with each opening.
   const [tab, setTab] = useState(families?.current);
   const [query, setQuery] = useState("");
@@ -284,8 +292,7 @@ export function QuickModelMenu({
   const pickRow = (row: QuickModel) => {
     if (row.disabled) return;
     onOpenChange(false);
-    const running =
-      (!families || row.family === families.current) && (row.id === current || runsOffers(row, current));
+    const running = (!families || row.family === families.current) && (row.id === current || runsOffers(row, current));
     if (running && !row.effort && !row.fast) return;
     if (query && search) search.pick(row);
     else if (running && row.effort && effort?.onPick) effort.onPick(row.effort);
@@ -293,8 +300,7 @@ export function QuickModelMenu({
       if (running && effort?.onPick) effort.onPick(row.effort);
       else if (menu.onModelEffort) menu.onModelEffort(row.id, row.effort);
       else menu.onModel(row.id);
-    }
-    else if (!families) menu.onModel(row.id);
+    } else if (!families) menu.onModel(row.id);
     else families.onPick(row);
   };
   const effortChoices = (model: QuickModel) => {
@@ -600,39 +606,39 @@ export function QuickModelMenu({
             (row.id === current || runsOffers(row, current)) &&
             effortChoices(row).length > 0,
         ) && (
-        <>
-          <MenuSeparator />
-          <Submenu
-            className="acpmux-quick-item acpmux-quick-sub"
-            popupClassName="acpmux-quick-menu"
-            label={<QuickRowLabel label={t("effort.title")} value={level?.name} />}
-          >
-            {effort.slider ? (
-              <div className="acpmux-quick-effort-slider">
-                <EffortTrack
-                  efforts={levels}
-                  current={effort.current}
-                  fallback={levels.find((choice) => choice.recommended)?.id}
-                  sliderStyle={effort.sliderStyle}
-                  onPick={effort.onPick}
-                  onRangeKey={(event) => {
-                    if (EFFORT_SLIDER_KEYS.has(event.key)) event.stopPropagation();
-                  }}
-                  focusOnMount
-                />
-              </div>
-            ) : (
-              <MenuRadioGroup value={effort.current ?? ""} onValueChange={(value) => effort.onPick(value)}>
-                {levels.map((choice) => (
-                  <MenuRadioItem key={choice.id} value={choice.id} closeOnClick className="acpmux-quick-item">
-                    <span className="acpmux-menu-label">{choice.name}</span>
-                  </MenuRadioItem>
-                ))}
-              </MenuRadioGroup>
-            )}
-          </Submenu>
-        </>
-      )}
+          <>
+            <MenuSeparator />
+            <Submenu
+              className="acpmux-quick-item acpmux-quick-sub"
+              popupClassName="acpmux-quick-menu"
+              label={<QuickRowLabel label={t("effort.title")} value={level?.name} />}
+            >
+              {effort.slider ? (
+                <div className="acpmux-quick-effort-slider">
+                  <EffortTrack
+                    efforts={levels}
+                    current={effort.current}
+                    fallback={levels.find((choice) => choice.recommended)?.id}
+                    sliderStyle={effort.sliderStyle}
+                    onPick={effort.onPick}
+                    onRangeKey={(event) => {
+                      if (EFFORT_SLIDER_KEYS.has(event.key)) event.stopPropagation();
+                    }}
+                    focusOnMount
+                  />
+                </div>
+              ) : (
+                <MenuRadioGroup value={effort.current ?? ""} onValueChange={(value) => effort.onPick(value)}>
+                  {levels.map((choice) => (
+                    <MenuRadioItem key={choice.id} value={choice.id} closeOnClick className="acpmux-quick-item">
+                      <span className="acpmux-menu-label">{choice.name}</span>
+                    </MenuRadioItem>
+                  ))}
+                </MenuRadioGroup>
+              )}
+            </Submenu>
+          </>
+        )}
       {!query && runningRow?.offers && providerLook === "row" && !(effort && levels.length > 1) && <MenuSeparator />}
       {!query && runningRow?.offers && providerLook === "row" && (
         <Submenu

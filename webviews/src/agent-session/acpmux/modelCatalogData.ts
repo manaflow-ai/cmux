@@ -86,6 +86,8 @@ export type PickerModel = {
   family?: string;
   providerName?: string;
   efforts: EffortValue[];
+  /** Whether the source declared efforts; an omitted capability may use live session choices. */
+  effortsDeclared?: boolean;
   defaultEffort?: EffortValue;
   fast: boolean;
   inlineFast?: boolean;
@@ -677,6 +679,7 @@ function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog,
     ...(model.family ? { family: model.family } : {}),
     ...(providerName ? { providerName } : {}),
     efforts: model.efforts ?? [],
+    effortsDeclared: model.efforts !== undefined || Boolean(model.own?.efforts),
     ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}),
     fast: model.fast === true,
     ...(model.inlineFast === true ? { inlineFast: true } : {}),

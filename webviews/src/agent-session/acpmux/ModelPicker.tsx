@@ -52,6 +52,7 @@ type HarnessChoice = {
     family?: string;
     unavailable?: string;
     efforts?: string[];
+    effortsDeclared?: boolean;
     fast?: boolean;
     inlineFast?: boolean;
     release?: string;
@@ -73,6 +74,7 @@ type ModelChoice = {
   family?: string;
   unavailable?: string;
   efforts?: string[];
+  effortsDeclared?: boolean;
   fast?: boolean;
   /** The catalog release an alias row stands for, which the curated list names. */
   release?: string;
@@ -134,7 +136,10 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
         name: model.shortName || model.name || model.id,
         ...(model.family ? { family: model.family } : {}),
         unavailable: model.unavailable,
-        efforts: model.efforts,
+        ...((model.efforts?.length ?? 0) > 0 || (model.effortsDeclared !== false && model.efforts !== undefined)
+          ? { efforts: model.efforts }
+          : {}),
+        ...(model.effortsDeclared !== undefined ? { effortsDeclared: model.effortsDeclared } : {}),
         fast: model.fast,
         ...(model.release ? { release: model.release } : {}),
       },
@@ -247,7 +252,9 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
     id: model.id,
     name: model.name,
     family,
-    ...(model.efforts !== undefined ? { efforts: model.efforts } : {}),
+    ...((model.efforts?.length ?? 0) > 0 || (model.effortsDeclared !== false && model.efforts !== undefined)
+      ? { efforts: model.efforts }
+      : {}),
     ...(model.unavailable ? { disabled: true } : {}),
     ...(model.tag ? { tag: model.tag } : {}),
     ...(model.provider ? { provider: model.provider } : {}),
