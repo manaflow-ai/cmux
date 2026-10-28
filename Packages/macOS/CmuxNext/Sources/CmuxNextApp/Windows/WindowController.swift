@@ -94,6 +94,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             _ = registry?.perform("energy.saver.turnOffForNow", invocation: ActionInvocation(origin: .user))
         }
         root = WindowRootView(sidebar: sidebar.container, revealDeadlines: services.mainDeadlines, signals: services.appearance, slideHoldsContent: WindowRootView.slideHoldsContent(in: services.features))
+        root.contentHost.hiddenDetach = services.makeHiddenWorkspaceDetach()
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
@@ -126,6 +127,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.crashKeys = services.crashKeys
         focus.keyInput = services.keyRouter.keyInput
         focus.inputDispatch = services.inputDispatch
+        focus.personIntent = { [weak services, weak window] input in
+            services?.keyRouter.creationInputCoordinator.personActed(in: window, event: input)
+        }
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeRoom()
@@ -144,6 +148,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func teardown() {
         tornDown = true
+        services.keyRouter.creationInputCoordinator.windowClosed(window)
         stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()

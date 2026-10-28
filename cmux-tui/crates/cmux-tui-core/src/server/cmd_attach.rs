@@ -383,7 +383,9 @@ fn attach_view(
             let mux = worker_mux;
             let lifecycle = worker_lifecycle;
             let outbound_stream = worker_stream;
-            if waits::recv(&worker_committed).is_err() {
+            // The writer's first item is the attach's go: until the attach
+            // commits it is idle and holds no one's work (p02-threads 308).
+            if waits::idle_recv(&worker_committed).is_err() {
                 return;
             }
             let mut state = RenderClientState::new(writer.render_service.clone(), &attach.initial);
@@ -521,7 +523,9 @@ fn attach_view(
             let mux = worker_mux;
             let lifecycle = worker_lifecycle;
             let outbound_stream = worker_stream;
-            if waits::recv(&worker_committed).is_err() {
+            // The writer's first item is the attach's go: until the attach
+            // commits it is idle and holds no one's work (p02-threads 308).
+            if waits::idle_recv(&worker_committed).is_err() {
                 return;
             }
             let hangs = mux.echo_watch();
@@ -667,7 +671,9 @@ fn attach_view(
         let writer = worker_writer;
         let mux = worker_mux;
         let outbound_stream = worker_stream;
-        if waits::recv(&worker_committed).is_err() {
+        // The writer's first item is the attach's go: until the attach
+        // commits it is idle and holds no one's work (p02-threads 308).
+        if waits::idle_recv(&worker_committed).is_err() {
             return;
         }
         let hangs = mux.echo_watch();
