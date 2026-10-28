@@ -49,12 +49,13 @@ const clip = { mimeType: "audio/wav", data: "UklGRg==" };
 
 /// A composer field and the dictation hook on it; returns what the host was asked, what was
 /// attached, and the field's text at each attach.
-async function mount(accepts: boolean) {
+async function mount(accepts: boolean, chat?: () => string | undefined) {
   const { createRoot } = await import("react-dom/client");
   const { useDictation } = await import("../src/agent-session/acpmux/dictation");
   const calls: [string, unknown][] = [];
   const attached: { audio: DictationRecording; textThen: string }[] = [];
   const omitted: string[] = [];
+  const elsewhere: { audio: DictationRecording; session: string }[] = [];
   let text = "";
   const field: DictationField = {
     focus() {},
@@ -78,6 +79,9 @@ async function mount(accepts: boolean) {
     accepts,
     attach: (a) => attached.push({ audio: a, textThen: text }),
     omitted: (reason) => omitted.push(reason),
+    ...(chat
+      ? { chat, elsewhere: (a: DictationRecording, session: string) => elsewhere.push({ audio: a, session }) }
+      : {}),
   };
   const container = document.createElement("div");
   host.append(container);
@@ -87,6 +91,7 @@ async function mount(accepts: boolean) {
     calls,
     attached,
     omitted,
+    elsewhere,
     text: () => text,
     rerender: (next: boolean) => act(async () => root!.render(<Pane audio={{ ...audio, accepts: next }} />)),
   };
@@ -105,6 +110,41 @@ test("a harness that takes audio gets the recording before the words, and the ho
   // Switching to a harness without audio tells the host, so the next start records nothing.
   await pane.rerender(false);
   expect(pane.calls.at(-1)).toEqual(["dictation.audio", { enabled: false }]);
+  act(() => root?.unmount());
+  root = undefined;
+});
+
+// Review of #27012 (P2): the pane moved from chat A to a local chat B (its harness takes audio)
+// while A's recording closed. The last update attached A's file to B's composer, and auto-send could
+// send A's recording to B. The update now names the recording's chat, and the pane attaches it only
+// there; one made in another chat is handed to `elsewhere` (App.tsx keeps an inline one with that
+// chat's draft and says it was not attached here).
+test("a recording made in another chat is not attached to the one the pane shows now", async () => {
+  const { deliverDictation } = await import("../src/agent-session/acpmux/dictation");
+  let showing = "chat-b";
+  const pane = await mount(true, () => showing);
+  const fromA = {
+    mimeType: "audio/wav",
+    path: "/tmp/cmux-dictation/a/Recording.wav",
+    byteCount: 9_600_044,
+    session: "chat-a",
+  };
+  await act(async () => {
+    deliverDictation({ state: "listening", text: "for a", level: 0.4, cancelled: false });
+    deliverDictation({ state: "idle", text: "for a", level: 0, cancelled: false, audio: fromA });
+  });
+  expect(pane.attached).toEqual([]);
+  expect(pane.elsewhere).toEqual([{ audio: fromA, session: "chat-a" }]);
+  // One made in the chat the pane shows is attached; so is one from a host that names no chat.
+  showing = "chat-a";
+  await act(async () => {
+    deliverDictation({ state: "listening", text: "again", level: 0.4, cancelled: false });
+    deliverDictation({ state: "idle", text: "again", level: 0, cancelled: false, audio: fromA });
+    deliverDictation({ state: "listening", text: "old host", level: 0.4, cancelled: false });
+    deliverDictation({ state: "idle", text: "old host", level: 0, cancelled: false, audio: clip });
+  });
+  expect(pane.attached.map((entry) => entry.audio)).toEqual([fromA, clip]);
+  expect(pane.elsewhere).toHaveLength(1);
   act(() => root?.unmount());
   root = undefined;
 });

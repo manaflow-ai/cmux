@@ -292,6 +292,7 @@ final class AgentPaneDictation {
             var sent: [String: any Sendable] = ["mimeType": "audio/wav", "byteCount": audio.byteCount]
             if let data = audio.data { sent["data"] = data.base64EncodedString() }
             if let file = audio.file { sent["path"] = file.path }
+            if let chat = audio.chat { sent["session"] = chat }
             value["audio"] = sent
         }
         if let omitted = update.audioOmitted {

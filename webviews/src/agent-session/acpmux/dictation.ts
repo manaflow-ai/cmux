@@ -93,6 +93,10 @@ export type DictationAudio = {
   accepts: boolean;
   attach(audio: DictationRecording): void;
   omitted(reason: NonNullable<DictationUpdate["audioOmitted"]>): void;
+  /// The chat the pane shows now (undefined: none, the New Tab page).
+  chat?(): string | undefined;
+  /// A recording made in chat `session`, which the pane no longer shows: it is not attached here.
+  elsewhere?(audio: DictationRecording, session: string): void;
 };
 
 /// Dictation into the composer's prompt, which `prompt` holds once the composer mounts.

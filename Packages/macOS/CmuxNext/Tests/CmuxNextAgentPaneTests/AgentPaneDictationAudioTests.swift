@@ -351,6 +351,24 @@ struct AgentPaneDictationAudioTests {
         #expect(dictation.takeRecording(file.path, session: "chat-a") == file, "chat A can still take its recording")
     }
 
+    /// Review of #27012 (P2): the session's last update did not say which chat its recording was
+    /// made in, so the page attached a recording made in chat A to chat B's composer when the pane
+    /// had moved meanwhile (a local chat's saved file needs no upload, so no host check ran). The
+    /// recording now names its chat on the wire (`audio.session`), inline or as its file.
+    @Test func theLastUpdateNamesTheChatItsRecordingWasMadeIn() throws {
+        let updates = Updates()
+        let dictation = AgentPaneDictation(send: { updates.all.append($0) }, microphone: DictationMicrophone())
+        dictation.chatSession = { "chat-b" }
+        let file = URL(filePath: "/tmp/cmux-dictation/one/Recording.wav")
+        dictation.deliver(DictationUpdate(phase: .idle, text: "long", audio: DictationAudio(file: file, byteCount: 9_600_044)), recordedIn: "chat-a")
+        dictation.deliver(DictationUpdate(phase: .idle, text: "short", audio: DictationAudio(byteCount: 4, data: Data("RIFF".utf8))), recordedIn: "chat-a")
+        dictation.deliver(DictationUpdate(phase: .idle, text: "none", audio: DictationAudio(byteCount: 4, data: Data("RIFF".utf8))), recordedIn: nil)
+        #expect(updates.all.map { $0.audio?.chat } == ["chat-a", "chat-a", nil])
+        let sent = updates.all.map { AgentPaneDictation.payload($0)["audio"] as? [String: any Sendable] }
+        #expect(sent.map { $0?["session"] as? String } == ["chat-a", "chat-a", nil])
+        #expect(sent[0]?["path"] as? String == file.path)
+    }
+
     /// The chat a test pane shows.
     private final class Chat {
         var shown: String? = "chat-a"
