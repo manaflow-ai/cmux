@@ -47,7 +47,7 @@
   "terminal-io": {
    "id": 3,
    "description": "Terminal input, output streams, screen reads and terminal requests to the frontend.",
-   "next_ordinal": 27
+   "next_ordinal": 28
   },
   "terminals": {
    "id": 4,
@@ -13320,6 +13320,31 @@
     }
    },
    "additional_properties": false
+  },
+  "SetStreamPriorityResult": {
+   "kind": "object",
+   "fields": {
+    "stream": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "outcome": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "applied",
+       "ended"
+      ]
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -21080,6 +21105,58 @@
    "priority": "control",
    "durability": "memory",
    "clients": [
+    "sdk"
+   ]
+  },
+  "set-stream-priority": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": "attach-streams-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "priority": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "focused",
+        "visible",
+        "hidden"
+       ]
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "focused: the stream's items ride the input lane and its view drains at input priority.",
+       "visible: the bulk lane, and its view drains at utility priority.",
+       "hidden: a snapshot view gets no output; the terminal still parses it, and the view gets one READY snapshot when it shows again if anything changed meanwhile. Any other view rides the background lane at background priority."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "SetStreamPriorityResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Sets the priority of one attach stream of this connection (stream visibility, p05-ipc-142); a stream never set keeps the bulk lane and input priority it opened with.",
+    "Idempotent: an id with no open stream answers outcome:ended and changes nothing."
+   ],
+   "method_id": 795,
+   "priority": "input",
+   "durability": "memory",
+   "clients": [
+    "macos",
     "sdk"
    ]
   },

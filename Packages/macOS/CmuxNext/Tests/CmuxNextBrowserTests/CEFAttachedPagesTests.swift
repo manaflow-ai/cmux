@@ -64,7 +64,7 @@ import Testing
         let turn = turn
         let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { turn.add($0) },
                                       makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) })
-        return CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), pageUpdateCenter: NotificationCenter(), layerHosting: hosting)
+        return CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), layerHosting: hosting)
     }
 
     func attached(_ host: CEFHostView, _ browser: Int32) -> FakeChromiumView? {
