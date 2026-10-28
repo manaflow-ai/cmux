@@ -3,7 +3,7 @@ public import Foundation
 import CmuxNextCompat
 
 /// Holds events that arrive before the handshake finishes, then releases
-/// them after the `.connected` marker. Runs on the reader thread.
+/// them after the `.connected` marker. Runs on the connection's decode lane.
 ///
 /// Bounded (p05-ipc-093): they wait in an ``EventInbox`` that holds at most
 /// its limit of every kind (``EventInbox/Retention/upToLimit``), so a flood

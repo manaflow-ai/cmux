@@ -175,6 +175,7 @@ impl Drop for ClientCleanupGuard {
         let workspace = self.workspace.clone();
         let scope = self.scope.clone();
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            // supervise-allow: Drop cannot await; one client's close, and a panic loses only that client's cleanup.
             runtime.spawn(async move {
                 let _ = connection.close().await;
                 workspace.close_client(&scope).await;
@@ -211,6 +212,7 @@ impl Drop for ProcessReservationCleanup {
         let scope = self.scope.clone();
         let process = self.process;
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            // supervise-allow: Drop cannot await; one reservation release, and a panic loses only that reservation.
             runtime.spawn(async move {
                 workspace.release_process_reservation(&scope, process).await;
             });

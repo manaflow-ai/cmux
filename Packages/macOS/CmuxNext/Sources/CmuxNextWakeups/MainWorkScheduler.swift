@@ -74,6 +74,9 @@ public final class MainWorkScheduler {
     public nonisolated let wakeUps: MainWakeUpQueue
     /// The idle class's periods and queue (``postIdle(owner:maxDelay:node:file:line:_:)``).
     public let idle: IdleScheduler
+    /// A layout plan applied in this run loop turn and not committed yet (``PlanApplyTurn``): the layout
+    /// notes it, the in-process CEF pump starts no slice inside it.
+    public let planApplies: PlanApplyTurn
     /// The CPU-time budget of hidden nodes' work, on the budget's clock: every ``MainTaskQueue`` and
     /// ``MainDeadline`` on this scheduler charges its hidden runs to this one pool.
     public let hiddenBudget: CPUTimeBudgetPool
@@ -115,10 +118,14 @@ public final class MainWorkScheduler {
     ///   - startup: The launch's phases. The app's composition root passes a launching phase
     ///     (``StartupPhase/init(clock:ledger:timing:onHeldAwait:)``) with its reveal and references
     ///     wired; the default is settled, so a scheduler made after launch holds nothing.
-    public convenience init(budget: MainFrameBudget, displays: DisplayClock, startup: StartupPhase = .settled()) {
+    ///   - wakeUps: The main thread's one deadline queue, when the composition root made it first (the app's
+    ///     `main()` makes it before the main-thread watchdog, whose busy windows end on it); its energy source is
+    ///     this scheduler's ``energy``. Nil makes one on a new source.
+    public convenience init(budget: MainFrameBudget, displays: DisplayClock, startup: StartupPhase = .settled(),
+                            wakeUps: MainWakeUpQueue? = nil) {
         self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, displays: displays, budget: budget),
                   startup: startup, idleTimer: MainRunLoopPreciseTimer(), ledger: .shared, otherLinks: displays.unbudgetedLinks,
-                  measuresRenderPasses: true)
+                  measuresRenderPasses: true, sharedWakeUps: wakeUps)
     }
 
     /// A scheduler on a display clock of its own (tests and fixtures; the app passes its one clock),
@@ -128,15 +135,17 @@ public final class MainWorkScheduler {
     }
 
     private init(budget: MainFrameBudget, frames: FrameScheduler, startup: StartupPhase, idleTimer: any IdlePeriodTimer,
-                 ledger: WakeupLedger, otherLinks: any OtherFrameLinks, measuresRenderPasses: Bool) {
+                 ledger: WakeupLedger, otherLinks: any OtherFrameLinks, measuresRenderPasses: Bool, sharedWakeUps: MainWakeUpQueue? = nil) {
         self.budget = budget
         board = budget.board
         self.frames = frames
         self.startup = startup
         causes = ObservationCauses(budget: budget)
-        let energy = EnergyPolicySource()
+        planApplies = PlanApplyTurn(turns: budget.turns)
+        let wakeUps = sharedWakeUps ?? MainWakeUpQueue(energy: EnergyPolicySource())
+        let energy = wakeUps.energy
         self.energy = energy
-        wakeUps = MainWakeUpQueue(energy: energy)
+        self.wakeUps = wakeUps
         otherLinksRunning = otherLinks.anyRunning
         idle = IdleScheduler(budget: budget, timer: idleTimer, ledger: ledger, otherLinksRunning: otherLinks.anyRunning)
         hiddenBudget = CPUTimeBudgetPool(uptimeNanos: budget.uptimeNanos)

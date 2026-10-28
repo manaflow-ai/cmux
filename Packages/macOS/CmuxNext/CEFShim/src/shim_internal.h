@@ -93,7 +93,8 @@ struct ForkApi {
   int (*browser_attach_view)(int, void*) = nullptr;
   // API version 37: a tab's visibility and capture from the app.
   int (*tab_set_visibility)(int, int, int) = nullptr;
-  // API version 39: a string to a cmux-page document's receiver (the page push channel).
+  // API version 43 (the fork train p13-webui-086's number for p13-webui-079): a
+  // string to a cmux-page document's receiver (the page push channel).
   int (*tab_page_push)(int, const char*, size_t) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
@@ -185,7 +186,7 @@ struct ForkApi {
   int (*browser_ime_finish_composing)(int) = nullptr;
   int (*browser_ime_cancel)(int) = nullptr;
   int (*browser_composition_bounds_watch)(int, void (*)(void*, int, const void*), void*) = nullptr;
-  // No API number yet (p13-webui-017; the fork train numbers it): its
+  // API 38 (p13-webui-017, numbered by the fork train p13-webui-086): its
   // presence says the fork honors CMUX_EXTRA_INFO_NO_RENDERER.
   int (*tab_renderer_state)(int) = nullptr;
   // No API number yet (p14-energy-046; the fork bundle p14-energy-136 numbers
@@ -200,6 +201,9 @@ struct ForkApi {
   // No API number yet (p07-memory-051; the fork train p07-memory-074 numbers
   // it): cmux's voter in Chromium's MultiSourceMemoryPressureMonitor.
   int (*memory_pressure_vote)(int) = nullptr;
+  // No API number yet (p03-rendering-116; the fork train numbers it): the
+  // slice of the next CefDoMessageLoopWork call only, in microseconds.
+  void (*set_message_loop_time_slice)(int64_t) = nullptr;
 };
 
 // The fork API that has the detached-page IME calls (task p01-process-170).

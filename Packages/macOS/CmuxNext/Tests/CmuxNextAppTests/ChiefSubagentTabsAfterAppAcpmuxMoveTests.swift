@@ -3,6 +3,7 @@ import Testing
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextHomeEngine
+import CmuxNextWakeups
 
 /// Lawrence, 2026-10-21: "i keep seeing this issue" ("This chat isn't available. It was deleted,
 /// or it's on a machine that isn't connected."). #22900 moved NIGHTLY's Chief onto the app's
@@ -45,7 +46,7 @@ struct ChiefSubagentTabsAfterAppAcpmuxMoveTests {
         let old = "01a1201b-d3c3-7be1-8c40-1f1cbc87b8dc"
         try FileManager.default.createDirectory(at: home.acpmuxHome.appendingPathComponent("sessions/\(old)", isDirectory: true),
                                                 withIntermediateDirectories: true)
-        let chief = ChiefHomeAcpmux(home: home, local: NamedHost(name: "app"), ensureHost: {},
+        let chief = ChiefHomeAcpmux(home: home, local: NamedHost(name: "app"), work: BackgroundWork(label: "test.chief-tabs"), ensureHost: {},
                                     ownHost: { _ in NamedHost(name: "chief-own") })
 
         #expect(await reached(chief.paneHost, session: old) == "chief-own")

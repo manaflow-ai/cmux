@@ -43,15 +43,33 @@ Modes (each prints `WEBUI-ROW` lines, one per row, and writes OUT/webui-<mode>.j
             settle. The override is cleared (`none`) at the end.
   priority  D12. Page renderers (or WebContent processes) with every page hidden: backgrounded (`ps` priority <= 4,
             darwinbg) within --priority-wait s.
+  priority-roles
+            D12 in depth (task 083, bench_webui_priority.py, its own launch and options): per engine, the scheduling
+            role (thread base priority and ceiling), the QoS class that ran the CPU, footprint, CPU and wakeups of
+            every process kind while pages are parked, one shown and all hidden; the p50 to max time from a switch
+            to each page renderer backgrounded and back; with --purge-arm, Blink's MemoryPurgeOnFreeze arm and its
+            page renderer footprint gain. Prints PERF-WEBUI-PRIORITY(-OVER) and PERF-WEBUI-PURGE; --out is a file.
   delivery  D3's delivery rows alone: events and native pushes to frozen pages over --measure s while
             `debug.webui publish` drives one stream per page at 10 Hz and the appearance toggles every second.
-  push      Task 079's A/B (the page push channel, feature `pagePushChannel`, fork API 39): the ten pages open,
+  push      Task 079's A/B (the page push channel, feature `pagePushChannel`, fork API 43): the ten pages open,
             and over --measure s each gets --push-hz host calls a second (`debug.page ping`, answered
             `unknown_op`). Rows: the call's round trip (p50 to p99, the delivery into the page plus the same reply
             path in both arms), page renderer CPU per 1,000 deliveries, and the deliveries the census counted as
             scripts and as data. Run it with and without `--enable-feature pagePushChannel` on one host and one
             build; the push channel lands only with a gain beyond the off arm's spread. The run turns
             `browser.freezeHiddenTabs` off: a frozen page would thaw at each call.
+  park      Spike 090, light or STRESS, one variant per run (--park frozen or rendered, set through the debug
+            tunable webui.preloadPark): the census must show the New Tab preload parked as asked (frozen: census
+            state `frozen`; rendered: `hidden` with `engine_visible` false), else every row is `unscored`. Then the
+            preload's renderer (WebContent with --engine webkit) wakeups/s over --measure 1 s windows, its
+            `debug.wakeups` owners, and --runs Cmd-T opens, each from a preload parked as asked: key turn, key to the
+            cover frame (`visible_ms`), key to the live frame (`live_ms`: the first frame the page painted after
+            its show, when the cover goes) and the display refresh (the targets are 120 Hz frames).
+
+Spike 090's table (plans/cmux-next/webui-DESIGN.md section 5) comes from the park runs' reports, on any machine:
+  python3 scripts/cmux-next/bench-webui.py park-table --run JOB_ID OUT/park/webui-park.json [--run JOB_ID FILE ...]
+It prints one Markdown row per report (p50/p95/p99/max of cover, live and parked wakeups, sha, host, job id), then
+the park state the decision rule picks and the D4 live-frame targets written from it (``park_decision``).
 
 The page census is `debug.webui` (task 001). A build without it (the base of the program) gets `unscored` for the
 census rows and still measures the process rows. Keys read, per row of its `rows` list: `row` (page, spare or
@@ -93,7 +111,14 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-MODES = ("home", "pages10", "open", "crash", "pressure", "priority", "delivery", "push")
+MODES = ("home", "pages10", "open", "crash", "pressure", "priority", "delivery", "push", "park")
+# Modes with their own module, launch path and options: {mode: module file in HERE}.
+MODULE_MODES = {"priority-roles": "bench_webui_priority"}
+# Spike 090: the preload's park state, chosen per run through this debug tunable (the preload owner reads it).
+PARK_STATES = ("frozen", "rendered")
+PARK_TUNABLE = "webui.preloadPark"
+FRAME_120HZ_MS = 1000 / 120  # the spike's unit: D4 targets are whole frames of a 120 Hz display
+LIVE_CEILING_MS = 50  # D4: the live-frame target is never worse than this p95, whatever the spike measures
 # D3's ten pages: (page id, the action that opens it, its arguments; "{md}" and "{txt}" are scratch files).
 PAGES10 = [("cmux.settings", "openSettings", {}), ("cmux.history", "history.show", {}),
            ("cmux.cloud", "palette.openCloudPane", {}), ("cmux.apps", "appStore.show", {}),
@@ -107,7 +132,7 @@ HIDDEN_WAKEUPS_PER_S = 0.2  # MQ5's bound for a hidden page's renderer and the G
 BACKGROUND_PRI = 4  # `ps -o pri` of a darwinbg task: Chrome backgrounds a hidden renderer so (base/process/process_mac.cc)
 GROUP_CAP = 3  # crash budget per group in 600 s (section 3.C)
 PUSH_FEATURE = "pagePushChannel"  # task 079's default-off feature
-PUSH_FORK_API = 39  # CEFForkFeatures.pagePushForkAPI
+PUSH_FORK_API = 43  # CEFForkFeatures.pagePushForkAPI
 LATENCY_STEP = 0.005  # s between polls of a timed wait (bench-pages.py polls at 10 ms); setup waits poll at 50 ms
 # s after a Cmd-W's start that count as its turn and frames for engine page closes; PageRetirer.delay (500 ms) is later.
 CLOSE_TURN_WINDOW = 0.25
@@ -229,7 +254,8 @@ class Census:
             pid = next(iter(page.get("renderer_pids") or []), None)
             if page.get("spare"):
                 rows.append({"row": "spare", "spare_kind": "preload" if page["spare"] == "new_tab" else page["spare"],
-                             "state": page.get("state"), "renderer_pid": pid, "webkit_pid": page.get("webkit_pid")})
+                             "state": page.get("state"), "engine_visible": page.get("engine_visible"),
+                             "renderer_pid": pid, "webkit_pid": page.get("webkit_pid")})
                 continue
             rows.append({"row": "page", "page": page.get("page"), "engine": page.get("engine"), "group": page.get("group"),
                          "state": "active" if page.get("state") == "visible" else page.get("state"),
@@ -277,6 +303,19 @@ class Census:
         """{page id: events delivered + native pushes while hidden} of the frozen pages."""
         return {p.get("page"): int(p.get("hidden_deliveries") or 0) + int(p.get("hidden_pushes") or 0)
                 for p in self.pages("frozen")}
+
+
+def park_state(spare):
+    """How a preload row is parked: `frozen` (frozen-hidden), `rendered` (rendered-parked: the engine was told it is
+    hidden, so its JS sees `visibilitychange` and pauses, and it keeps its rendered frame), `visible` (its engine
+    still thinks it is shown, as NewTabSparePool's spare at the program's base), or None when the row does not say."""
+    if spare.get("state") == "frozen":
+        return "frozen"
+    if spare.get("engine_visible") is True:
+        return "visible"
+    if spare.get("engine_visible") is False and spare.get("state") == "hidden":
+        return "rendered"
+    return None
 
 
 # ---------------------------------------------------------------- shapes
@@ -489,21 +528,25 @@ class Bench:
                          tier="pinned", note="WebContent processes only"),
                      row("web_helper_wakeups_per_s", round(total("wakeups_per_s", web), 2), unit="/s",
                          note="info: every WebKit and CEF helper"))
-        reply = self.rpc("debug.wakeups", timeout=30)
-        ledger = reply.get("ledger") if isinstance(reply, dict) and not reply.get("error") else None
-        if not isinstance(ledger, list):
-            self.add(row("page_preload_spare_wakeups_per_s", None, ("==", 0), "/s", tier="train",
-                         note=f"debug.wakeups gave no ledger: {json.dumps(reply)[:120]}"))
-        else:
-            owners = [e for e in ledger if isinstance(e, dict)
-                      and any(word in str(e.get("owner", "")).lower() for word in ("page", "preload", "spare"))]
-            self.add(row("page_preload_spare_wakeups_per_s", round(sum(e.get("per_second", 0) for e in owners), 2), ("==", 0), "/s",
-                         tier="train", note=", ".join(f"{e.get('owner')}:{e.get('reason')}" for e in owners[:6])))
+        self.add(self.page_wakeups_row("page_preload_spare_wakeups_per_s"))
         preload = census.spares("preload") if census is not None else []
-        self.add(row("preload_frozen", int(all(s.get("state") == "frozen" for s in preload)) if preload else None, ("==", 1),
+        park = self.opts.park or "frozen"  # the park state the run asked for (spike 090), frozen by default
+        self.add(row(f"preload_{park}", int(all(park_state(s) == park for s in preload)) if preload else None, ("==", 1),
                      tier="pinned" if chromium else "",
                      note="" if preload else "no preload row" if census else "no debug.webui in this build"))
         self.facts.update(window=window, memory=memory)
+
+    def page_wakeups_row(self, name):
+        """The app's wakeups/s owned by pages, the preload and spares (`debug.wakeups` ledger); unscored, never 0,
+        when the ledger cannot be read."""
+        reply = self.rpc("debug.wakeups", timeout=30)
+        ledger = reply.get("ledger") if isinstance(reply, dict) and not reply.get("error") else None
+        if not isinstance(ledger, list):
+            return row(name, None, ("==", 0), "/s", tier="train", note=f"debug.wakeups gave no ledger: {json.dumps(reply)[:120]}")
+        owners = [e for e in ledger if isinstance(e, dict)
+                  and any(word in str(e.get("owner", "")).lower() for word in ("page", "preload", "spare"))]
+        return row(name, round(sum(e.get("per_second", 0) for e in owners), 2), ("==", 0), "/s", tier="train",
+                   note=", ".join(f"{e.get('owner')}:{e.get('reason')}" for e in owners[:6]))
 
     def pages10(self, discard=True):
         if self.opts.every_page_hidden:
@@ -798,13 +841,14 @@ class Bench:
         """Cmd-T into the preloaded New Tab page and its Cmd-W (`debug.new_tab bench_open` / `bench_close`). The
         cover frame is `visible_ms`: the first display frame on which the pane shows the New Tab page and its strip
         the tab. `frames.first_tick_ms` is the first display-link tick after the key whatever it shows (info)."""
-        key_ms, visible_ms, first_tick, closes, spare = [], [], [], [], 0
+        key_ms, visible_ms, live_ms, first_tick, closes, spare = [], [], [], [], [], 0
         for _ in range(self.opts.runs):
             self.until(lambda: any(s.get("ready") for s in (self.rpc("debug.new_tab", {"action": "state"}) or {}).get("spares") or []),
                        self.opts.open_timeout)
             opened = self.rpc("debug.new_tab", {"action": "bench_open"}, timeout=20) or {}
             key_ms.append(opened.get("key_ms"))
             visible_ms.append(opened.get("visible_ms"))
+            live_ms.append(opened.get("live_ms"))
             first_tick.append((opened.get("frames") or {}).get("first_tick_ms"))
             spare += int(bool((opened.get("opening") or {}).get("spare")))
             closes.append((self.rpc("debug.new_tab", {"action": "bench_close"}, timeout=20) or {}).get("key_ms"))
@@ -812,9 +856,83 @@ class Bench:
                  series("new_tab.cover_frame_ms", visible_ms, ("p50", "<=", 8.3), note="key to the frame that shows the page"),
                  series("new_tab.cover_frame_p99_ms", visible_ms, ("p99", "<=", 16.7)),
                  series("new_tab.first_tick_ms", first_tick, note="info: the first display-link tick after the key"),
-                 row("new_tab.live_ms", None, ("p95", "<=", 50), "ms", note="no live-page frame signal for the New Tab page yet"),
+                 self.live_row("new_tab.live_ms", live_ms),
                  row("new_tab.from_spare", spare, ("==", self.opts.runs)),
                  series("new_tab.cmd_w_key_turn_ms", closes, ("p99", "<=", 4)))
+
+    def live_row(self, name, live_ms):
+        """Key to the live frame (`debug.new_tab bench_open` `live_ms`), with D4's ceiling as its target until spike
+        090 writes one; unscored on a build that reports no live frame."""
+        if all(value is None for value in live_ms):
+            return row(name, None, ("p95", "<=", LIVE_CEILING_MS), "ms", note="debug.new_tab bench_open reports no live_ms")
+        return series(name, live_ms, ("p95", "<=", LIVE_CEILING_MS), note="key to the first frame the page painted after its show")
+
+    # Spike 090: the preload's park state.
+
+    PARK_ROWS = ("park.renderer_wakeups_per_s", "park.page_wakeups_per_s", "park.key_turn_ms", "park.cover_frame_ms",
+                 "park.cover_frame_p99_ms", "park.live_frame_ms", "park.refresh_hz")
+
+    def parked(self):
+        """The preload row parked as --park asks, or None."""
+        census = self.census()
+        return next((s for s in census.spares("preload") if park_state(s) == self.opts.park), None) if census else None
+
+    def park_wait(self):
+        """How long a park may take: the preload loads, paints, hides and (frozen) freezes."""
+        return self.opts.hide_settle + self.opts.open_timeout
+
+    def park(self):
+        census = self.census()
+        spare = self.until(self.parked, self.park_wait()) if census is not None else None
+        if spare is None:
+            seen = sorted({str(park_state(s)) for s in (self.census() or Census([])).spares("preload")})
+            note = ("no debug.webui in this build" if census is None else
+                    f"the preload is parked as {', '.join(seen) or 'nothing'}, not {self.opts.park}: "
+                    f"the build does not honor {PARK_TUNABLE}")
+            self.add(row("park.state_as_asked", None, ("==", 1), note=note), *(row(name, None, note=note) for name in self.PARK_ROWS))
+            return
+        self.add(row("park.state_as_asked", 1, ("==", 1), note=f"{self.opts.park}, engine {self.opts.engine}"))
+        self.park_wakeups(spare)
+        self.park_opens()
+
+    def park_wakeups(self, spare):
+        """Wakeups/s of the parked preload's process in 1 s windows over --measure s. A window after which the
+        preload is no longer parked as asked in the same process, or whose process was not read, is a missed sample."""
+        pid = Census.pid(spare)
+        samples = []
+        for _ in range(max(1, round(self.opts.measure))):
+            window = self.instance.window(1, per_pid=True)
+            entry = next((p for p in window.get("pids") or [] if p.get("pid") == pid), None)
+            still = self.parked()
+            samples.append(entry.get("wakeups_per_s") if entry and still and Census.pid(still) == pid else None)
+        kind = "WebContent" if self.opts.engine == "webkit" else "renderer"
+        self.add(series("park.renderer_wakeups_per_s", samples, unit="/s", note=f"the preload's {kind}, pid {pid}, 1 s windows"),
+                 self.page_wakeups_row("park.page_wakeups_per_s"))
+
+    def park_opens(self):
+        """--runs Cmd-T opens, each from a preload parked as asked and closed with Cmd-W. A run whose preload did not
+        park again in time is a missed sample."""
+        key_ms, cover_ms, live_ms, refresh_ms = [], [], [], []
+        for _ in range(self.opts.runs):
+            if not self.until(self.parked, self.park_wait()):
+                for samples in (key_ms, cover_ms, live_ms):
+                    samples.append(None)
+                continue
+            opened = self.rpc("debug.new_tab", {"action": "bench_open"}, timeout=20) or {}
+            key_ms.append(opened.get("key_ms"))
+            cover_ms.append(opened.get("visible_ms"))
+            live_ms.append(opened.get("live_ms"))
+            refresh = (opened.get("frames") or {}).get("refresh_ms")
+            if isinstance(refresh, (int, float)) and refresh > 0:
+                refresh_ms.append(refresh)
+            self.rpc("debug.new_tab", {"action": "bench_close"}, timeout=20)
+        refresh = stats.summary(refresh_ms).get("p50") if refresh_ms else None
+        self.add(series("park.key_turn_ms", key_ms, ("p99", "<=", 4)),
+                 series("park.cover_frame_ms", cover_ms, ("p50", "<=", 8.3), note="key to the frame that shows the cover"),
+                 series("park.cover_frame_p99_ms", cover_ms, ("p99", "<=", 16.7)),
+                 self.live_row("park.live_frame_ms", live_ms),
+                 row("park.refresh_hz", round(1000 / refresh, 1) if refresh else None, (">=", 119), "Hz",
+                     note="" if refresh else "debug.new_tab bench_open reports no frames.refresh_ms"))
 
     def settings_open(self, view):
         """One Cmd-, : {"ms": key to the page's first painted frame, or None when it never answered; "preloaded":
@@ -1142,7 +1260,8 @@ class Bench:
             self.code_cache_row()
         if not self.alive():
             self.add(row("app_alive_at_end", 0, ("==", 1)))
-        return {"mode": mode, "engine": self.opts.engine, "session": self.opts.session, "rows": self.rows, "facts": self.facts}
+        return {"mode": mode, "engine": self.opts.engine, "session": self.opts.session, "park": self.opts.park,
+                "rows": self.rows, "facts": self.facts}
 
 
 class _Envelope:
@@ -1153,6 +1272,117 @@ class _Envelope:
 
     def call(self, method, params=None):
         return {"result": self.rpc(method, params)}
+
+
+# ---------------------------------------------------------------- spike 090's table and decision
+
+TABLE_COLUMNS = (("Key to cover (ms)", "park.cover_frame_ms"), ("Key to live (ms)", "park.live_frame_ms"),
+                 ("Parked wakeups/s", "park.renderer_wakeups_per_s"))
+
+
+def park_rows(report):
+    """{row name: row} of a park report, or None when it is not a measured park run."""
+    if report.get("mode") != "park" or report.get("park") not in PARK_STATES or report.get("refused"):
+        return None
+    named = {entry.get("name"): entry for entry in report.get("rows") or [] if isinstance(entry, dict)}
+    return named if (named.get("park.state_as_asked") or {}).get("value") == 1 else None
+
+
+def _stat(entry, key):
+    value = (entry or {}).get("value")
+    return value.get(key) if isinstance(value, dict) else None
+
+
+def _cell(entry):
+    if not isinstance((entry or {}).get("value"), dict):
+        return "not measured"
+    return " / ".join(_fmt(_stat(entry, key)) for key in ("p50", "p95", "p99", "max")) + (
+        f" ({_stat(entry, 'missed')} missed)" if _stat(entry, "missed") else "")
+
+
+def park_table(runs):
+    """Markdown lines of spike 090's table: one row per (job id, report), the variants that did not measure as asked
+    included with their reason."""
+    head = ["Park", "Engine", "Session", *(title + " p50 / p95 / p99 / max" for title, _ in TABLE_COLUMNS), "sha", "host", "job"]
+    lines = ["| " + " | ".join(head) + " |", "|" + " --- |" * len(head)]
+    for job, report in runs:
+        named = park_rows(report)
+        if named is None:
+            why = report.get("refused") or next((e.get("note") for e in report.get("rows") or []
+                                                 if e.get("name") == "park.state_as_asked" and e.get("note")), "not a park run")
+            cells = [f"not measured: {why}"] * len(TABLE_COLUMNS)
+        else:
+            cells = [_cell(named.get(name)) for _, name in TABLE_COLUMNS]
+        sha = (report.get("sha") or "-")[:12]
+        lines.append("| " + " | ".join([str(report.get("park") or "-"), str(report.get("engine") or "-"),
+                                         str(report.get("session") or "-"), *cells, sha, str(report.get("host") or "-"),
+                                         str(job)]) + " |")
+    return lines
+
+
+def whole_frames(ms):
+    """`ms` rounded up to whole 120 Hz frames."""
+    return round(-(-ms // FRAME_120HZ_MS) * FRAME_120HZ_MS, 1)
+
+
+def park_decision(reports):
+    """Spike 090's rule (webui-DESIGN.md section 5): {"park", "targets", "why"}, or {"park": None, "why"} when the
+    reports do not cover both park states on both engines for each session measured.
+
+    Chrome never freezes its preloaded WebUI (chrome/browser/ui/webui/top_chrome/webui_contents_preload_manager.cc;
+    CannotFreezeReason::kWebUI), so rendered is the default and frozen must earn its place: frozen wins only if, for
+    every engine and session, its live p95 is no worse than rendered's by more than one 120 Hz frame and no worse than
+    the D4 ceiling, and its parked renderer wakes less (p50). The D4 live-frame target of each session is the chosen
+    state's worst engine p95, rounded up to whole 120 Hz frames and capped at the ceiling."""
+    measured = {}
+    for report in reports:
+        named = park_rows(report)
+        if named is not None:
+            measured[(report["park"], report.get("engine"), report.get("session"))] = named
+    sessions = sorted({session for _, _, session in measured})
+    pairs = [(engine, session) for engine in ("chromium", "webkit") for session in sessions]
+    missing = [f"{park} {engine} {session}" for engine, session in pairs or [("chromium", "light"), ("webkit", "light")]
+               for park in PARK_STATES if (park, engine, session) not in measured]
+    live = {key: _stat(named.get("park.live_frame_ms"), "p95") for key, named in measured.items()}
+    wakeups = {key: _stat(named.get("park.renderer_wakeups_per_s"), "p50") for key, named in measured.items()}
+    missing += [" ".join(map(str, key)) + " has no live p95 or parked wakeups" for key in measured
+                if live[key] is None or wakeups[key] is None]
+    if missing:
+        return {"park": None, "why": "not measured: " + ", ".join(missing)}
+    losses = []
+    for engine, session in pairs:
+        frozen, rendered = ("frozen", engine, session), ("rendered", engine, session)
+        if live[frozen] > live[rendered] + FRAME_120HZ_MS:
+            losses.append(f"{engine} {session}: frozen live p95 {live[frozen]:g} ms > rendered {live[rendered]:g} ms + 1 frame")
+        if live[frozen] > LIVE_CEILING_MS:
+            losses.append(f"{engine} {session}: frozen live p95 {live[frozen]:g} ms > {LIVE_CEILING_MS} ms")
+        if wakeups[frozen] >= wakeups[rendered]:
+            losses.append(f"{engine} {session}: frozen wakes {wakeups[frozen]:g}/s, rendered {wakeups[rendered]:g}/s")
+    park = "rendered" if losses else "frozen"
+    targets = {session: min(whole_frames(max(live[(park, engine, session)] for engine in ("chromium", "webkit"))), LIVE_CEILING_MS)
+               for session in sessions}
+    return {"park": park, "targets": targets, "why": "; ".join(losses) or "frozen costs at most one frame and wakes less"}
+
+
+def park_table_main(argv):
+    parser = argparse.ArgumentParser(prog="bench-webui.py park-table", description="Spike 090's table from park reports.")
+    parser.add_argument("--run", nargs=2, action="append", required=True, metavar=("JOB_ID", "REPORT"),
+                        help="a cmux-ci job id and the webui-park.json it wrote")
+    opts = parser.parse_args(argv)
+    runs = []
+    for job, path in opts.run:
+        with open(path) as handle:
+            runs.append((job, json.load(handle)))
+    for text in park_table(runs):
+        print(text)
+    decision = park_decision([report for _, report in runs])
+    print()
+    if decision["park"] is None:
+        print(f"Decision: none ({decision['why']}).")
+    else:
+        targets = ", ".join(f"{session} <= {ms:g} ms p95" for session, ms in decision["targets"].items())
+        print(f"Decision: {decision['park']} ({decision['why']}). D4 key to live frame: {targets}.")
+    return 0
 
 
 # ---------------------------------------------------------------- command line
@@ -1190,6 +1420,8 @@ def parse(argv):
                         help="task 052's A/B: Chromium with the code cache spike's switches (Debug development bundles)")
     parser.add_argument("--enable-feature", action="append", default=[], metavar="NAME",
                         help="a feature to turn on for the run (CMUX_ENABLE_FEATURES), repeatable: an off feature's arm")
+    parser.add_argument("--park", choices=PARK_STATES,
+                        help=f"the preload's park state ({PARK_TUNABLE}; required by park, spike 090)")
     parser.add_argument("--out")
     opts = parser.parse_args(argv)
     for name in ("settle", "measure", "hide_settle", "discard_settle", "open_timeout", "priority_wait"):
@@ -1203,7 +1435,18 @@ def parse(argv):
         parser.error("--every-page-hidden is a pages10 option")
     if opts.page_code_cache and opts.engine != "chromium":
         parser.error("--page-code-cache needs --engine chromium")
+    if opts.mode == "park" and not opts.park:
+        parser.error("park needs --park frozen or --park rendered (one variant per run)")
     return opts
+
+
+def checkout_sha():
+    """The commit of this checkout (the fleet step's --ref), or None outside a git checkout."""
+    try:
+        done = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return (done.stdout.strip() or None) if done.returncode == 0 else None
 
 
 def launch_env(opts, tunables):
@@ -1217,8 +1460,31 @@ def launch_env(opts, tunables):
     return env
 
 
+def module_mode(mode):
+    """The module of a MODULE_MODES mode (it imports its siblings by name, so HERE goes on sys.path)."""
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    name = MODULE_MODES[mode]
+    return load(name, os.path.join(HERE, name + ".py"))
+
+
+def module_parser(mode):
+    """The command line of a MODULE_MODES mode: its module's options, `mode` set to the mode."""
+    module = module_mode(mode)
+    parser = argparse.ArgumentParser(prog=f"bench-webui.py {mode}", description=module.__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.set_defaults(mode=mode)
+    module.add_arguments(parser)
+    return parser
+
+
 def main(argv=None):
-    opts = parse(sys.argv[1:] if argv is None else argv)
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["park-table"]:
+        return park_table_main(argv[1:])
+    if argv and argv[0] in MODULE_MODES:
+        return module_mode(argv[0]).main(module_parser(argv[0]).parse_args(argv[1:]))
+    opts = parse(argv)
     if sys.platform != "darwin":
         raise SystemExit("bench-webui: macOS only (a fleet GUI mini, never a laptop)")
     launch = load("bench_launch", os.path.join(HERE, "bench_launch.py"))
@@ -1228,11 +1494,15 @@ def main(argv=None):
     out = os.path.abspath(opts.out or tempfile.mkdtemp(prefix="bench-webui-"))
     os.makedirs(out, exist_ok=True)
     tunables = os.path.join(out, "debug-tunables.json")
-    with open(tunables, "w") as handle:  # the React History and App Store pages (bench-pages.py's PAGES tunables)
-        json.dump({"version": 1, "values": {"history.surface": "web", pages.PAGES["apps"]["tunable"]: "web"}}, handle)
+    # The React History and App Store pages (bench-pages.py's PAGES tunables) and the preload's park state.
+    values = {"history.surface": "web", pages.PAGES["apps"]["tunable"]: "web"}
+    if opts.park:
+        values[PARK_TUNABLE] = opts.park
+    with open(tunables, "w") as handle:
+        json.dump({"version": 1, "values": values}, handle)
     app = launch.BenchApp(opts.app, out=out, config=launch_config(opts), env=launch_env(opts, tunables))
     status = 0
-    report = {"mode": opts.mode, "rows": []}
+    report = {"mode": opts.mode, "engine": opts.engine, "session": opts.session, "park": opts.park, "rows": []}
     try:
         app.launch()
         instance = procs.Instance(app.app, app.process.pid)
@@ -1249,7 +1519,7 @@ def main(argv=None):
         status = 2
     finally:
         app.stop()
-    report.update(host=os.uname().nodename, load_average=os.getloadavg(), app=opts.app,
+    report.update(host=os.uname().nodename, sha=checkout_sha(), load_average=os.getloadavg(), app=opts.app,
                   options={k: v for k, v in vars(opts).items() if k != "app"})
     for entry in report["rows"]:
         print(line(opts.mode, entry), flush=True)

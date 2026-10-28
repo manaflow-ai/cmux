@@ -34,6 +34,7 @@ use crate::server::{
     report_attach_overflow,
 };
 use crate::stream_interrupt::StreamInterrupt;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::surface::snapshot_attach::{
     LocalReadySnapshot, SNAPSHOT_DIGEST_IDLE, SnapshotRequestGate,
 };
@@ -284,9 +285,11 @@ pub(super) fn start(worker: SnapshotWorker, commit: AttachCommit) -> anyhow::Res
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     // A control stream, not an echo-path thread: it waits for the attach to
     // commit, and echo-path threads disallow blocking.
-    let spawned = cmux_threads::spawn(
+    let spawned = supervised::spawn_at(
         "mux-snapshot-attach-out",
         crate::thread_qos::ThreadType::Interactive.qos(),
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             if waits::recv(&worker_committed).is_ok() {
                 worker.run();

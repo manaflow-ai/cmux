@@ -29,22 +29,6 @@ enum AgentChatJump: Equatable {
     }
 
     /// What an ``openInWorkspace(workspaceID:session:)`` jump does when its window shows the
-    /// workspace before any of that workspace's panes has mounted.
-    enum PaneWait: Equatable, Sendable {
-        /// A pane mounted: open the chat there.
-        case open
-        /// None yet: wait for the next mount.
-        case wait
-        /// The window closed or shows another workspace: the jump is over.
-        case stop
-
-        /// - Parameters:
-        ///   - showing: The workspace the jump's window shows now, nil once it closed.
-        ///   - workspaceID: The workspace the jump went to.
-        ///   - hasPane: Whether that window has a pane yet.
-        static func decide(showing: String?, workspaceID: String, hasPane: Bool) -> PaneWait {
-            guard showing == workspaceID else { return .stop }
-            return hasPane ? .open : .wait
-        }
-    }
+    /// workspace before any of that workspace's panes has mounted (``AgentChatPaneWait``).
+    typealias PaneWait = AgentChatPaneWait.Decision
 }
