@@ -11,15 +11,32 @@ import type { PlayContext } from "../../gallery/play";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
 import { setComposerLook, type ComposerLook } from "./composerLook";
 
-/// A started Claude Code chat in a project: the transcript over the composer.
-const startedChat = () =>
-  chat([
+/// A started Claude Code chat in a project: the transcript over the composer. A connected chat
+/// reports its harness modes, which is what mounts the permission capsule the look plays hover.
+const startedChat = () => {
+  const snapshot = chat([
     user("Add retries to the fetch helper, with a backoff.", 12),
     assistant(
       "Added `withRetry` to `fetchJson`: three tries with jittered backoff, and only for network errors and 5xx answers. The tests cover a 503 that recovers and a 404 that does not retry.",
       11,
     ),
   ]);
+  return {
+    ...snapshot,
+    summary: {
+      ...snapshot.summary!,
+      modes: {
+        currentModeId: "auto",
+        availableModes: [
+          { id: "ask", name: "Supervised", description: "Ask before changing files or running commands" },
+          { id: "edit", name: "Auto-accept edits", description: "Apply file edits without asking" },
+          { id: "auto", name: "Auto", description: "Choose the safest approval level for each action" },
+          { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+        ],
+      },
+    },
+  };
+};
 
 /// A new chat before its first send: the folder and computer strip heads the composer.
 const newChat = () => noChat(manySessions(4), { summary: { sessionId: "", cwd: CWD, harness: "codex" } });
@@ -195,7 +212,7 @@ export default agentPaneEntry({
       },
     },
     "permission-pill-codex": {
-      note: "Codex's permission capsule hovered: the same dimensions, 16px after the + glyph.",
+      note: "Codex's permission capsule hovered: the same dimensions, with its shield aligned to the + column.",
       snapshot: startedChat(),
       play: async (ctx) => {
         await look(ctx, "codex");

@@ -47,7 +47,16 @@ await requireBrowserLane("composer-permission-pill.test.ts", async () => {
             paddingStart: Number.parseFloat(css.paddingInlineStart),
             paddingEnd: Number.parseFloat(css.paddingInlineEnd),
             radius: Number.parseFloat(css.borderTopLeftRadius),
-            plusGap: pill.getBoundingClientRect().left - plus.getBoundingClientRect().right,
+            plusCenter: plus.getBoundingClientRect().left + plus.getBoundingClientRect().width / 2,
+            shieldCenter: (() => {
+              const shield = pill.querySelector("[data-shield]")!;
+              const rect = shield.getBoundingClientRect();
+              return rect.left + rect.width / 2;
+            })(),
+            shieldSize: Number.parseFloat(getComputedStyle(pill.querySelector("[data-shield]")!).width),
+            tokenIconSize: Number.parseFloat(
+              getComputedStyle(pill).getPropertyValue("--acpmux-permission-pill-icon-size"),
+            ),
           };
         });
       const normal = await measure();
@@ -55,7 +64,8 @@ await requireBrowserLane("composer-permission-pill.test.ts", async () => {
       expect(normal.paddingStart).toBe(8);
       expect(normal.paddingEnd).toBe(8);
       expect(normal.radius).toBeGreaterThanOrEqual(normal.height / 2);
-      if (look === "codex") expect(normal.plusGap).toBe(16);
+      expect(normal.shieldSize).toBe(normal.tokenIconSize);
+      expect(Math.abs(normal.plusCenter - normal.shieldCenter)).toBeLessThanOrEqual(1);
       await page.hover(".acpmux-access-trigger");
       expect(await measure()).toEqual(normal);
       await page.close();

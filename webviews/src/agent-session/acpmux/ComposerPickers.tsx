@@ -1797,13 +1797,16 @@ function Icon({
   shield?: string;
   modeIcon?: ModeIconName;
 }) {
+  // Permission shields share the capsule's CSS token so the alignment equation and the painted
+  // glyph cannot drift apart when the icon footprint changes.
+  const renderedSize = shield ? "var(--acpmux-permission-pill-icon-size, 18px)" : size;
   return (
     <svg
       className="acpmux-icon"
       data-shield={shield}
       data-mode-icon={modeIcon}
-      width={size}
-      height={size}
+      width={renderedSize}
+      height={renderedSize}
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"

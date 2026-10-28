@@ -9,6 +9,13 @@
   --acpmux-permission-pill-inset: 8px;
   --acpmux-permission-pill-radius: 999px;
   --acpmux-permission-pill-gap: 16px;
+  --acpmux-permission-pill-icon-size: 18px;
+  --acpmux-permission-column-control-size: 28px;
+  /* The footer's shield center shares the leading 28px control's column in Codex's look. */
+  --acpmux-permission-column-offset: calc(
+    var(--acpmux-permission-column-control-size) / 2 - var(--acpmux-permission-pill-inset) -
+      var(--acpmux-permission-pill-icon-size) / 2
+  );
 }
 
 /* Codex's composer-permission-mode-picker.png: the capsule keeps its own inset in either look,
@@ -25,6 +32,12 @@
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > .acpmux-access {
   padding-inline-start: 0;
   margin-inline-start: calc(var(--acpmux-permission-pill-gap) - var(--acpmux-row-group-gap, 10px) - var(--acpmux-row-inset, 6px));
+}
+
+/* ComposerBox keeps the chips in ComposerFoot for both looks (#26551), while Codex's + remains in
+   the box above. Anchor the footer shield to that leading control's shared center column. */
+.acpmux-composer[data-composer-look="codex"] .acpmux-composer-foot .acpmux-chips > .acpmux-access {
+  margin-inline-start: var(--acpmux-permission-column-offset);
 }
 
 .acpmux-context-ring {
