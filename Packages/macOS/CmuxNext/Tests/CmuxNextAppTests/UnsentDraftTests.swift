@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -20,7 +21,8 @@ struct UnsentDraftTests {
         let file = directory.appending(path: AgentUnsentDrafts.fileName)
 
         // This run's drafts, held as the tab store holds them.
-        let drafts = AgentUnsentDrafts(file: file)
+        let work = BackgroundWork()
+        let drafts = AgentUnsentDrafts(file: file, work: work)
         let model = AgentPaneModel(host: MockAgentPaneHost())
         drafts.wire(model) { "tab-1" }
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "compare the two retry policies"]))
@@ -35,7 +37,7 @@ struct UnsentDraftTests {
 
         // The first prompt starts the chat's session: the tab's copy goes, and later text is acpmux's.
         _ = await model.respond(to: Self.request("chat.persistSession", ["sessionId": "s-1"]))
-        await drafts.flush()
+        await work.shutdown()
         #expect(AgentUnsentDrafts(file: file).seed(for: "tab-1", session: nil) == nil)
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "later"]))
         await drafts.flush()
