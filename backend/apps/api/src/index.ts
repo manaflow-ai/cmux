@@ -299,7 +299,7 @@ export default {
     return apiHandler(request)
   },
   // Cron (wrangler triggers): every 5 minutes the Cloud Home health probe (home-health.ts), the feed text sweep (feed-sweep.ts), and every 15 minutes the
-  // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts).
+  // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts) and the shadow-read probe (shadow-read-probe.ts).
   // Awaited, not waitUntil: the run gets the cron limit, and a throw shows as a failed run.
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     // Cloud Home health (home-health.ts): a probe round trip and a Sentry Cron check-in; it never throws.
@@ -309,7 +309,13 @@ export default {
     }
     if (controller.cron === PROJECTION_COMPARE_CRON) {
       // The usage sync (cx-y79zh S4) runs beside the projection compare; a failure of one does not stop the other.
-      const [compare, usage] = await Promise.allSettled([(async () => (await import("./projection-compare-cron.ts")).compareFromEnv(env))(), env.STRIPE_USAGE_KEY ? (async () => (await import("./billing-usage-sync.ts")).syncUsage(env))() : Promise.resolve(null)])
+      const [compare, usage, probe] = await Promise.allSettled([
+        (async () => (await import("./projection-compare-cron.ts")).compareFromEnv(env))(),
+        env.STRIPE_USAGE_KEY ? (async () => (await import("./billing-usage-sync.ts")).syncUsage(env))() : Promise.resolve(null),
+        // Shadow-read soak traffic (shadow-read-probe.ts): every user id through the feed.users shadow read.
+        (async () => (await import("./shadow-read-probe.ts")).shadowReadProbe(env, sweepDeps(env).listUsers))()
+      ])
+      if (probe.status === "rejected") console.error(JSON.stringify({ msg: "projection.read.probe_failed", error: String(probe.reason).slice(0, 200) }))
       if (usage.status === "rejected") console.error(JSON.stringify({ msg: "billing.usage_sync.run_failed", error: String(usage.reason).slice(0, 200) }))
       if (compare.status === "rejected") throw compare.reason
       return

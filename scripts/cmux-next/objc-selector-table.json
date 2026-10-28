@@ -628,6 +628,9 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSTextFieldCell call:drawInterior/2:in": {
+   "27.0.1": true
+  },
   "NSTextView call:copy/1": {
    "26.5.2": true,
    "26.7": true,
@@ -758,6 +761,9 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSView call:flagsChanged/1": {
    "27.0.1": true
   },
   "NSView call:hitTest/1": {

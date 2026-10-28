@@ -143,7 +143,7 @@ extension CloudHandlers {
                     try await cloud.codexBroker.run(machineID: session.machineID,
                         scope: .init(userID: userID, teamID: teamID), confirmed: true,
                         presentDeviceCode: { prompt in
-                            await CloudPresenter.presentCodexDeviceCode(prompt, in: originalWindow)
+                            await CloudPresenter.presentCodexDeviceCode(prompt, in: .window(originalWindow))
                         })
                     return
                 }

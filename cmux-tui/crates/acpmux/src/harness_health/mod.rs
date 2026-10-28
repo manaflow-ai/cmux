@@ -41,6 +41,7 @@ const LATEST_TTL_MS: u64 = (6 * 3600 - 600) * 1000;
 pub enum Auth {
     SignedIn,
     SignedOut,
+    Expired,
     Unknown,
 }
 
@@ -296,6 +297,20 @@ pub fn keychain_sign_in(id: &str, profile: &crate::config::HarnessProfile) -> Op
         .then_some("Codex's `cli_auth_credentials_store` does not keep its login in a file")
 }
 
+/// A failed auth check is expired only when its own output says a credential expired
+/// (`claude_auth::is_expired_credential`, the matcher a failed turn uses too), and unknown
+/// when it says the provider had no capacity or the connection dropped: a transport error is
+/// never a sign-in state (`turn_errors::says_unreachable`, as `recovery::auth_kind`).
+fn auth_failure(output: &str) -> Auth {
+    if crate::hub::turn_errors::says_unreachable(output) {
+        Auth::Unknown
+    } else if crate::claude_auth::is_expired_credential(output) {
+        Auth::Expired
+    } else {
+        Auth::SignedOut
+    }
+}
+
 static SIGN_IN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
     regex::Regex::new(r"(?i)\b(not (logged|signed) in|log ?in|sign ?in|unauthenticated|authentication required|auth required|unauthorized)\b")
         .expect("sign-in pattern") // crash-allow: constant pattern
@@ -480,15 +495,27 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
     let (auth, auth_detail) = match &s.probe_error {
         _ if !s.check.is_empty() && found.is_some() => {
             match probe::auth_check(&s.check, &s.env, &s.family) {
-                Ok(true) => (Auth::SignedIn, Some(format!("`{}` passed", s.check.join(" ")))),
-                Ok(false) => (Auth::SignedOut, Some(format!("`{}` failed", s.check.join(" ")))),
+                Ok((true, _)) => (Auth::SignedIn, Some(format!("`{}` passed", s.check.join(" ")))),
+                Ok((false, output)) => {
+                    let auth = auth_failure(&output);
+                    let detail = match auth {
+                        Auth::Expired => "credential expired".to_owned(),
+                        Auth::Unknown => {
+                            format!("`{}` could not reach its provider", s.check.join(" "))
+                        }
+                        _ => format!("`{}` failed", s.check.join(" ")),
+                    };
+                    (auth, Some(detail))
+                }
                 Err(e) => (Auth::Unknown, Some(e)),
             }
         }
         _ if builtin.as_ref().is_some_and(|(auth, _)| *auth != Auth::SignedOut) => {
             builtin.unwrap_or((Auth::Unknown, None))
         }
-        Some(e) if SIGN_IN.is_match(e) => (Auth::SignedOut, Some(e.clone())),
+        Some(e) if SIGN_IN.is_match(e) || auth_failure(e) == Auth::Expired => {
+            (auth_failure(e), Some(e.clone()))
+        }
         _ => builtin.unwrap_or((Auth::Unknown, None)),
     };
     HarnessHealth {
@@ -514,9 +541,31 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
 
 #[cfg(test)]
 mod tests {
-    use super::codex_login_in_file;
+    use super::{Auth, auth_failure, codex_login_in_file};
     use serde_json::json;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn expired_login_probe_is_not_just_signed_out() {
+        assert_eq!(auth_failure("OAuth token has expired"), Auth::Expired);
+        assert_eq!(auth_failure("Not logged in"), Auth::SignedOut);
+        assert_eq!(auth_failure("check failed"), Auth::SignedOut);
+        assert_eq!(auth_failure("HTTP 503"), Auth::Unknown);
+        assert_eq!(auth_failure("HTTP 502: authentication_failed"), Auth::Unknown);
+        assert_eq!(auth_failure("Not logged in? HTTP 503: authentication_failed"), Auth::Unknown);
+        assert_eq!(auth_failure("token expired? connection refused"), Auth::Unknown);
+        assert_eq!(auth_failure("Your refresh token has expired; run codex login"), Auth::Expired);
+        assert_eq!(auth_failure("the MCP session expired"), Auth::SignedOut);
+        assert_eq!(auth_failure("Provided authentication token is expired."), Auth::Expired);
+        assert_eq!(auth_failure("credential expired"), Auth::Expired);
+        // Only a statement that a credential expired: not its expiry field, not a future one.
+        assert_eq!(auth_failure("HTTP 400: invalid token expiry value"), Auth::SignedOut);
+        assert_eq!(
+            auth_failure("Not logged in; the credential expires in 30 days"),
+            Auth::SignedOut
+        );
+        assert_eq!(serde_json::to_value(Auth::Expired).unwrap(), json!("expired"));
+    }
 
     fn home_with(n: usize, config: Option<&str>) -> (std::path::PathBuf, BTreeMap<String, String>) {
         let dir = std::env::temp_dir().join(format!("amx-codex-store-{}-{n}", std::process::id()));

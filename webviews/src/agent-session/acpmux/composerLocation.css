@@ -1026,9 +1026,9 @@
   display: block;
   box-sizing: border-box;
   width: 100%;
-  height: 30px;
+  height: var(--ui-row-height);
   margin: 0 0 4px;
-  padding: 0 8px;
+  padding: 0 var(--ui-row-padding-inline);
   border: 0;
   border-bottom: .5px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
   border-radius: 0;
@@ -1206,6 +1206,10 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: end;
+  --acpmux-prompt-inset: calc(11px * var(--cmux-interface-scale, 1));
+  /* Keep the controls centered on the last content line as its size changes. The system
+     font's ink sits 1px above the line-box center, so its optical center gets the same lift. */
+  --acpmux-prompt-control-bottom: max(0px, calc(var(--acpmux-prompt-inset) + var(--text-content--line-height) / 2 - 14px + 1px));
 }
 /* The strip and the queue over the box take its corners. */
 .acpmux-composer:has(.acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-inner) {
@@ -1231,12 +1235,12 @@
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
   grid-row: 2;
-  margin: 0 0 8px 8px;
+  margin: 0 0 var(--acpmux-prompt-control-bottom) 8px;
 }
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
   grid-row: 2;
-  margin: 0 8px 8px 0;
+  margin: 0 8px var(--acpmux-prompt-control-bottom) 0;
 }
 /* The right inset less the minimal scroller's reserved lane (markdownField.css). */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-field {
