@@ -15,7 +15,13 @@ that already had the build. `0` halts. An item with no element reaches every ins
 is not a number from 0 through 100 holds the build.
 
 A check that the person starts (Check for Updates) is never held, the same as Sparkle's own phased
-rollout. To stop those installs too, pull the build (below).
+rollout. To stop those installs too, pull the build (below). cmux's own reads of the feed (the update
+circle, the update sheet, and the swap of a waiting update for a newer one) follow the same stage, so
+an install outside it is not shown the build.
+
+The stage applies to the newest item. If a feed lists an older item for everyone and a newer item at
+a stage, an install outside the stage stays where it is until the newer item reaches it; Sparkle does
+not fall back to the older item. The stable feed lists one item, so this does not apply to it.
 
 Only builds that contain `StagedRollout` read the element. An install on an older build (classic
 cmux, or cmux NEXT from before the staged-rollout change) takes the item at its next check, whatever

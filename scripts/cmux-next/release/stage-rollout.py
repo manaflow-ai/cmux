@@ -119,6 +119,13 @@ def declare_namespace(feed: str) -> str:
     return feed[:opening.start()] + tag[:-1].rstrip() + f' xmlns:cmux="{NAMESPACE}">' + feed[opening.end():]
 
 
+def parse_time(raw: str) -> datetime.datetime:
+    try:
+        return utc(datetime.datetime.fromisoformat(raw.strip().replace("Z", "+00:00")))
+    except ValueError:
+        raise RolloutError(f"{raw!r} is not an ISO time") from None
+
+
 def parse_percent(raw: str) -> float:
     """StagedRollout.percent: 0 through 100, an optional % sign."""
     text = raw.strip().removesuffix("%")
@@ -147,8 +154,11 @@ def stage_feed(feed: str, build: str, percent: float, now: datetime.datetime) ->
         if build not in item_versions(item):
             return item
         hits += 1
+        raw = element_value(item, PERCENT)
+        same = raw is not None and parse_percent(raw) == percent and element_value(item, STAGED_AT) is not None
         item = set_element(item, PERCENT, format_percent(percent))
-        return set_element(item, STAGED_AT, now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        # Writing the same stage again (a re-upload) keeps its start, so its bake does not restart.
+        return item if same else set_element(item, STAGED_AT, now.strftime("%Y-%m-%dT%H:%M:%SZ"))
 
     changed = ITEM.sub(edit, feed)
     if hits == 0:
@@ -195,7 +205,7 @@ def current_stage(feed: str, build: str) -> Stage:
         raw = element_value(item, PERCENT)
         staged = element_value(item, STAGED_AT)
         stages.add((None if raw is None else parse_percent(raw),
-                    None if staged is None else datetime.datetime.fromisoformat(staged.replace("Z", "+00:00"))))
+                    None if staged is None else parse_time(staged)))
     if not stages:
         raise RolloutError(f"no item of build {build} in the feed")
     if len(stages) != 1:
@@ -346,7 +356,7 @@ def main(argv: list[str] | None = None, now: Callable[[], datetime.datetime] | N
                 return 2
             fetch = health.http_fetch(os.environ.get(health.BASE_URL_ENV, health.DEFAULT_BASE_URL), token)
         if args.command == "gate":
-            since = None if args.since is None else datetime.datetime.fromisoformat(args.since.replace("Z", "+00:00"))
+            since = None if args.since is None else parse_time(args.since)
             stage = args.stage
         else:
             stages = {current_stage(read(path), args.build) for path in args.feeds}

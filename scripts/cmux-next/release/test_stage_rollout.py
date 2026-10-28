@@ -74,6 +74,18 @@ class StageFeedTests(unittest.TestCase):
         self.assertEqual(twice.count("<cmux:rolloutPercent>"), 1)
         self.assertEqual(tool.current_stage(twice, "300").percent, 20)
 
+    def test_writing_the_same_stage_again_keeps_its_start(self):
+        once = tool.stage_feed(FEED, "300", 5, NOW)
+        again = tool.stage_feed(once, "300", 5, NOW + datetime.timedelta(hours=20))
+        self.assertEqual(tool.current_stage(again, "300").staged_at, NOW)
+        raised = tool.stage_feed(once, "300", 20, NOW + datetime.timedelta(hours=30))
+        self.assertEqual(tool.current_stage(raised, "300").staged_at, NOW + datetime.timedelta(hours=30))
+
+    def test_a_bad_staged_time_is_a_feed_error(self):
+        bad = tool.stage_feed(FEED, "300", 5, NOW).replace("2026-11-02T12:00:00Z", "yesterday")
+        with self.assertRaises(tool.RolloutError):
+            tool.current_stage(bad, "300")
+
     def test_the_enclosure_attribute_names_the_build_too(self):
         out = tool.stage_feed(FEED, "200", 0, NOW)
         self.assertEqual(tool.current_stage(out, "200").percent, 0)
