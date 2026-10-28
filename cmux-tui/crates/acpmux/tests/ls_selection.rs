@@ -22,11 +22,14 @@ fn scratch() -> PathBuf {
 }
 
 fn write_sessions(home: &Path, count: usize) {
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as u64;
     for i in 0..count {
         let id = format!("01a16c00-0000-7000-8000-{i:012x}");
         let dir = home.join("sessions").join(&id);
         fs::create_dir_all(&dir).unwrap();
-        let at = 1_792_000_000_000 + i as u64;
+        let at = if i + 1 == count { now } else { now.saturating_sub(2 * 86_400_000) + i as u64 };
         let row = json!({
             "schema": "acpmux.session.v1", "id": id, "name": format!("lane-{i}"),
             "harness": "claude", "model": "sonnet", "cwd": "/tmp", "status": "idle",
@@ -122,10 +125,11 @@ fn selected_listing_is_bounded_and_newest_first_for_a_large_store() {
     let value: Value = serde_json::from_slice(&selected.stdout).unwrap();
     let rows = value["sessions"].as_array().unwrap();
     assert_eq!(rows.len(), 20);
-    assert_eq!(
-        rows[0].as_object().unwrap().keys().collect::<Vec<_>>(),
-        ["cwd", "harness", "model", "name", "status"]
-    );
+    let fields = rows[0].as_object().unwrap();
+    assert_eq!(fields.len(), 5);
+    for field in ["cwd", "harness", "model", "name", "status"] {
+        assert!(fields.contains_key(field), "missing {field}: {fields:?}");
+    }
     assert_eq!(rows[0]["name"], "lane-2999");
     assert_eq!(rows[19]["name"], "lane-2980");
 
@@ -145,4 +149,9 @@ fn selected_listing_is_bounded_and_newest_first_for_a_large_store() {
     assert!(filtered.status.success(), "combined filters failed: {filtered:?}");
     let filtered: Value = serde_json::from_slice(&filtered.stdout).unwrap();
     assert_eq!(filtered["sessions"].as_array().map(Vec::len), Some(3));
+
+    let (recent, _) = run(&root, &["--json", "ls", "--since", "1h"]);
+    assert!(recent.status.success(), "since filter failed: {recent:?}");
+    let recent: Value = serde_json::from_slice(&recent.stdout).unwrap();
+    assert_eq!(recent["sessions"].as_array().map(Vec::len), Some(1));
 }
