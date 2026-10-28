@@ -485,8 +485,7 @@ export async function POST(request: Request): Promise<Response> {
       if (!run.ok) return run.response;
       const created = run.value;
       setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
-      // Only a machine that boots at the picked shape is a run of the pick.
-      if (imageSelection.size?.name === memory.pick?.pick) recordMeasuredRun(memory.tag, user.id, created.providerVmId);
+      recordMeasuredRun(memory, imageSelection.size, user.id, created.providerVmId);
       const attach = createAttachBlock({
         entry: created,
         manifestEntry: findVmImageManifestEntry(created.provider, created.image, imageSelection.kind),
@@ -593,8 +592,15 @@ async function resolveCreateSize(
  * Tags the new machine as a measured run of its pick after the answer, so its
  * peaks count for the next pick.
  */
-function recordMeasuredRun(tag: AutosizeTag | null, userId: string, providerVmId: string): void {
-  if (!tag) return;
+function recordMeasuredRun(
+  sized: { readonly pick: AutosizePick | null; readonly tag: AutosizeTag | null },
+  booted: { readonly name: string } | null | undefined,
+  userId: string,
+  providerVmId: string,
+): void {
+  // Only a machine that boots at the picked shape is a run of the pick.
+  const tag = sized.tag;
+  if (!tag || !sized.pick || booted?.name !== sized.pick.pick) return;
   runAfterResponse(() => runVmWorkflow(tagMeasuredRun({ userId, providerVmId, tag })).then(() => undefined));
 }
 
