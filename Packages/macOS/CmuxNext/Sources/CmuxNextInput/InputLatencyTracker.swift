@@ -276,9 +276,13 @@ public final class InputLatencyTracker {
     private func turnEnded(_ outcome: CommitBoundary.Outcome) {
         let commitEnd = now()
         // By index over the slots opened before this boundary: a slot a callee opens meanwhile waits for the next one.
+        // An index loop, never `for ... in`, on every per-input path: a Debug build's unspecialized
+        // `IndexingIterator.next()` allocates for each element (InputLatencySlotTable.storeStageTags).
         let count = pending.count
-        for index in 0..<count {
+        var index = 0
+        while index < count {
             let entry = pending[index]
+            index += 1
             if outcome == .committed {
                 table.mark(entry.token, .mainCommit, at: commitEnd)
                 // A commit before the slot's dispatch returned ran inside that dispatch: its input produced the frame.
@@ -313,8 +317,11 @@ public final class InputLatencyTracker {
     /// longer than ``contentDeadlineNanos`` (no echo) or whose producer stamped `presented` itself.
     private func checkWaiting(at time: UInt64) {
         var kept = 0
-        for index in waiting.indices {
+        let count = waiting.count
+        var index = 0
+        while index < count {
             let entry = waiting[index]
+            index += 1
             if table.time(entry.token, .presented) != nil {
                 close(entry.token, presented: nil)
             } else if let submitted = table.time(entry.token, .contentSubmitted) {
@@ -344,7 +351,11 @@ public final class InputLatencyTracker {
     /// The estimate queue of `window`, made at its first use (one per window, not per input). A queue whose window
     /// closed is dropped then, and its slots close with no presented time.
     private func presentedQueue(for window: NSWindow?) -> InputPresentedQueue {
-        for queue in queues where queue.serves(window) { return queue }
+        var found = 0
+        while found < queues.count {
+            if queues[found].serves(window) { return queues[found] }
+            found += 1
+        }
         var index = queues.count
         while index > 0 {
             index -= 1

@@ -122,8 +122,11 @@ public final class InputLatencySlotTable: Sendable {
                       generated: UInt64, keyCode: UInt16 = 0) -> InputLatencyToken? {
         guard generated != 0 else { return nil }
         let start = cursor.wrappingAdd(1, ordering: .relaxed).oldValue
-        for probe in 0..<capacity {
+        // Index loops here and below, never `for ... in`: see ``storeStageTags(_:tag:)``.
+        var probe = 0
+        while probe < capacity {
             let index = Int(truncatingIfNeeded: (start &+ UInt(probe)) % UInt(capacity))
+            probe += 1
             let state = atomic(index, Self.stateWord)
             let current = state.load(ordering: .relaxed)
             guard current & 0xFF == Phase.free.rawValue else { continue }
@@ -135,9 +138,7 @@ public final class InputLatencySlotTable: Sendable {
             atomic(index, Self.baseWord).store(generated, ordering: .relaxed)
             atomic(index, Self.keyCodeWord).store(UInt64(keyCode), ordering: .relaxed)
             atomic(index, Self.metaWord).store(tag | Self.meta(kind: kind, target: target, entrypoint: entrypoint), ordering: .relaxed)
-            for offset in 0..<Self.stageCount {
-                atomic(index, Self.firstStageWord + offset).store(tag, ordering: .relaxed)
-            }
+            storeStageTags(index, tag: tag)
             atomic(index, Self.firstStageWord + Int(InputStage.generated.rawValue)).store(tag | 1, ordering: .relaxed)
             state.store(generation << 8 | Phase.open.rawValue, ordering: .releasing)
             return InputLatencyToken(index: index, generation: generation)
@@ -250,18 +251,36 @@ public final class InputLatencySlotTable: Sendable {
             coalescedCount: UInt16(truncatingIfNeeded: meta >> 24),
             keyCode: UInt16(truncatingIfNeeded: atomic(index, Self.keyCodeWord).load(ordering: .relaxed))
         )
-        for offset in 0..<Self.stageCount {
+        var offset = 0
+        while offset < Self.stageCount {
             let word = atomic(index, Self.firstStageWord + offset).load(ordering: .relaxed)
             let stamped = word & Self.deltaMask
-            guard word >> Self.deltaBits == generation, stamped != 0,
-                  let stage = InputStage(rawValue: UInt8(truncatingIfNeeded: offset)) else { continue }
-            slot[stage] = base &+ (stamped - 1)
+            if word >> Self.deltaBits == generation, stamped != 0,
+               let stage = InputStage(rawValue: UInt8(truncatingIfNeeded: offset)) {
+                slot[stage] = base &+ (stamped - 1)
+            }
+            offset += 1
         }
         state.store(generation << 8 | Phase.free.rawValue, ordering: .releasing)
         return slot
     }
 
     // MARK: words
+
+    /// Resets every stage word of entry `index` to `tag` (this generation, not stamped).
+    ///
+    /// The per-input paths loop by index, never `for ... in`: a `for` over a range or an array calls
+    /// `IndexingIterator.next()`, which a Debug build runs unspecialized, through the collection's
+    /// `subscript.read` witness, and that coroutine allocates its frame for every element (Swift 6.3).
+    /// Release specializes it away; the per-event allocation test runs in Debug.
+    @inline(__always)
+    private func storeStageTags(_ index: Int, tag: UInt64) {
+        var offset = 0
+        while offset < Self.stageCount {
+            atomic(index, Self.firstStageWord + offset).store(tag, ordering: .relaxed)
+            offset += 1
+        }
+    }
 
     @inline(__always)
     private func atomic(_ index: Int, _ word: Int) -> UnsafeAtomic<UInt64> {

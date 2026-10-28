@@ -259,7 +259,14 @@ public final class PresentationClock {
         private func resolvePending(_ estimate: (UInt64) -> PresentedEstimate) {
             guard !pending.isEmpty else { return }
             swap(&pending, &resolving)
-            for commit in resolving { commit.resolve(estimate(commit.commitEndNanos)) }
+            // An index loop: a Debug build's unspecialized `for ... in` over an array allocates for each element
+            // (Swift 6.3), and this runs for every input the hold resolves.
+            var index = 0
+            while index < resolving.count {
+                let commit = resolving[index]
+                commit.resolve(estimate(commit.commitEndNanos))
+                index += 1
+            }
             resolving.removeAll(keepingCapacity: true)
         }
     }

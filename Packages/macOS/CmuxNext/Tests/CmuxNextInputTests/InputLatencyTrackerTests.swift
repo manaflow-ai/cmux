@@ -541,7 +541,10 @@ import Testing
         /// One turn of typing: half the keys to a view, half to a terminal whose frame came in the same turn, then
         /// the turn's commit and the held link's next frame.
         func trackedTurn() {
-            for index in 0..<Self.eventsPerTurn {
+            // An index loop: a Debug build's `for ... in` over a range allocates for each element (Swift 6.3).
+            var index = 0
+            while index < Self.eventsPerTurn {
+                defer { index += 1 }
                 let target: InputTarget = index.isMultiple(of: 2) ? .textView : .terminal
                 guard let token = tracker.begin(kind: .keyPress, target: target, entrypoint: .person,
                                                 eventTimestamp: timestamp, window: window) else { continue }
