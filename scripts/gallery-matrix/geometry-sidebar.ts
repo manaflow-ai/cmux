@@ -87,8 +87,7 @@ export function sidebarArtifact(state: SidebarState, revision: GeometryArtifact[
     const rowId = row.identifier;
     if (row.marks.length) add(`${rowId}:marks`, "marked-rows", mapped(row.listFrame));
     if (row.hovered) add(`${rowId}:hover`, "hovered-rows", mapped(row.listFrame));
-    const endControls = row.controls.filter((control) => contract.endSpotControls.includes(control.what));
-    if (endControls.length) add(`${rowId}:controls`, "control-rows", mapped(row.listFrame));
+    if (row.controls.length) add(`${rowId}:controls`, "control-rows", mapped(row.listFrame));
     row.marks.forEach((mark, index) => {
       // The exporter records centers only: zero-area points avoid inventing icon bounds.
       const rect = mapped([mark.centerX, row.listFrame[1] + row.listFrame[3] / 2 + mark.dyFromRowCenter, 0, 0]);
@@ -100,8 +99,8 @@ export function sidebarArtifact(state: SidebarState, revision: GeometryArtifact[
       const rect = mapped(control.listFrame);
       if (contract.endSpotControls.includes(control.what)) {
         add(`${rowId}:end:${control.what}`, "trailing", rect, "column");
-        add(`${rowId}:control:${control.what}`, "control-centers", rect, `${rowId}:controls`);
       }
+      add(`${rowId}:control:${control.what}`, "control-centers", rect, `${rowId}:controls`);
       if (row.hovered) add(`${rowId}:hover:${control.what}`, "hover-parts", rect, `${rowId}:hover`, "control");
     });
   }
@@ -114,7 +113,7 @@ export function sidebarConfig(states: SidebarState[], revision: GeometryArtifact
     const common = { tolerancePx: contract.tolerancePoints * state.backingScale, source: "view-frame" as const, appliesTo: [caseId(state)], minCount: 1 };
     rules.push({ ...common, id: `${caseId(state)}-column`, kind: "container-center", group: "trailing", containerGroup: "column", axis: "x" }, { ...common, id: `${caseId(state)}-mark-center`, kind: "container-center", group: "mark-centers", containerGroup: "marked-rows", axis: "y" });
     if (state.rows.some((row) => row.hovered)) rules.push({ ...common, id: `${caseId(state)}-hover`, kind: "exclusive-parts", group: "hover-parts", containerGroup: "hovered-rows", parts: ["activity", "control"] });
-    if (state.rows.some((row) => row.controls.some((control) => contract.endSpotControls.includes(control.what)))) rules.push({ ...common, id: `${caseId(state)}-control-center`, kind: "container-center", group: "control-centers", containerGroup: "control-rows", axis: "y" });
+    if (state.rows.some((row) => row.controls.length)) rules.push({ ...common, id: `${caseId(state)}-control-center`, kind: "container-center", group: "control-centers", containerGroup: "control-rows", axis: "y" });
   }
   return { schemaVersion: 1, revision, required: states.map((state) => ({ caseId: caseId(state), engine: "appkit", theme: "unspecified" })), rules, coverageGaps: ["Native evidence contains view frames and measured centers, not AX frames or visible ink bounds.", "The native fixture does not export a theme identity; light/dark coverage is unspecified."] };
 }

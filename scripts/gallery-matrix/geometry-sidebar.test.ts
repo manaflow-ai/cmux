@@ -50,6 +50,17 @@ test("a new deeper row is checked and every activity mark conflicts with hover c
   expect((await check(shifted)).findings.some((finding) => finding.rule.endsWith("-mark-center"))).toBe(true);
 });
 
+test("every captured control shares its row center, including non-end-slot controls", async () => {
+  for (const what of ["close", "more", "disclosure"] as const) {
+    const states = fresh();
+    const state = states.find((state) => state.rows.some((row) => row.controls.some((control) => control.what === what)))!;
+    const row = state.rows.find((row) => row.controls.some((control) => control.what === what))!;
+    row.controls.find((control) => control.what === what)!.listFrame[1] += 20;
+    const report = await check(states);
+    expect(report.findings.some((finding) => finding.rule.endsWith("-control-center") && finding.deltaPx === 20)).toBe(true);
+  }
+});
+
 test("missing states, rows, mapping, hover controls and misleading AX cannot pass", async () => {
   const mutations = [
     (states: SidebarState[]) => { states.pop(); },
