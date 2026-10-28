@@ -50,7 +50,6 @@ export function ScrollArea({
         <BaseScrollArea.Content style={horizontal ? undefined : { minWidth: 0 }}>{children}</BaseScrollArea.Content>
       </BaseScrollArea.Viewport>
       <BaseScrollArea.Scrollbar
-        onMouseDown={(event) => event.preventDefault()}
         orientation="vertical"
         className={cx("cmux-scrollbar", scrollbar, "absolute top-0 right-0 h-full w-1.5 justify-center")}
       >
@@ -58,8 +57,7 @@ export function ScrollArea({
       </BaseScrollArea.Scrollbar>
       {horizontal && (
         <BaseScrollArea.Scrollbar
-          onMouseDown={(event) => event.preventDefault()}
-          orientation="horizontal"
+            orientation="horizontal"
           className={cx("cmux-scrollbar", scrollbar, "absolute bottom-0 left-0 h-1.5 w-full flex-col justify-center")}
         >
           <BaseScrollArea.Thumb className={cx("cmux-scrollbar-thumb", thumb, "h-full")} />
