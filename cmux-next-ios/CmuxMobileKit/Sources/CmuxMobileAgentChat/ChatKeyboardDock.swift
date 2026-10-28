@@ -721,8 +721,8 @@ private final class DragLinkTarget: NSObject {
 /// remote keyboard in the app's text effects window (presentation layers),
 /// window coordinates. Read-only; nil when it cannot be found.
 @MainActor
-enum KeyboardProbe {
-    static func drawnTop(in window: UIWindow?) -> CGFloat? {
+package enum KeyboardProbe {
+    package static func drawnTop(in window: UIWindow?) -> CGFloat? {
         guard let window, let scene = window.windowScene else { return nil }
         for w in scene.windows where NSStringFromClass(type(of: w)).contains("TextEffects") {
             guard let host = find(in: w, where: { NSStringFromClass(type(of: $0)).contains("RemoteKeyboardPlaceholder") }) else { continue }
@@ -734,7 +734,7 @@ enum KeyboardProbe {
 
     /// A view's frame in its window as drawn this frame: the presentation
     /// layers' geometry all the way up.
-    static func onScreen(_ view: UIView, in window: UIView) -> CGRect {
+    package static func onScreen(_ view: UIView, in window: UIView) -> CGRect {
         var layer: CALayer? = view.layer
         var rect = (view.layer.presentation() ?? view.layer).bounds
         while let current = layer, current !== window.layer {
@@ -747,7 +747,7 @@ enum KeyboardProbe {
         return rect
     }
 
-    static func find(in view: UIView, where match: (UIView) -> Bool) -> UIView? {
+    package static func find(in view: UIView, where match: (UIView) -> Bool) -> UIView? {
         if match(view) { return view }
         for sub in view.subviews { if let found = find(in: sub, where: match) { return found } }
         return nil

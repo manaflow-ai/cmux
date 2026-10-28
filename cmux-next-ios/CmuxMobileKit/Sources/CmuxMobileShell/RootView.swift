@@ -511,6 +511,7 @@ struct ShellView: View {
         .task {
             #if DEBUG
             if CommandLine.arguments.contains("-cmux-mobile-team-transparent") { DemoDriver(shell: shell).seedTransparentTeams() }
+            KeyboardPinTrace.startIfRequested()
             #endif
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
