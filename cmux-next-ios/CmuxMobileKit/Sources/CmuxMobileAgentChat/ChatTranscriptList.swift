@@ -652,6 +652,64 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         }
         loaded = true
         if !missing.isEmpty { prepare(missing, urgent: false) }
+        queueWarmUp(ids)
+    }
+
+    // MARK: Warm-up
+
+    /// Row kinds whose first draw happened (or was warmed): a kind's first cell made its labels'
+    /// GPU text path and glyph caches on the frame it scrolled in (a 250-280 ms frame with the
+    /// main thread idle, early in a first scroll). One off-screen cell per kind, drawn while the
+    /// list rests, takes that cost before anyone scrolls (as the Feed's warm-up does).
+    private var warmedKinds: Set<String> = []
+    private var warmQueue: [String] = []
+    private var warmScheduled = false
+    private lazy var warmCell = ChatNativeRowCell(frame: .zero)
+    /// Set once the screen has appeared: warming during the push competes with its frames.
+    private var warmUpAllowed = false
+
+    func allowWarmUp() {
+        warmUpAllowed = true
+        pumpWarmUp()
+    }
+
+    private func queueWarmUp(_ ids: [String]) {
+        for id in ids where lookup.isNativeCandidate(id) {
+            guard let key = lookup.rows[id]?.nativeReuseKey, warmedKinds.insert(key).inserted else { continue }
+            warmQueue.append(id)
+        }
+        pumpWarmUp()
+    }
+
+    private func pumpWarmUp() {
+        guard warmUpAllowed, !warmScheduled, !warmQueue.isEmpty else { return }
+        warmScheduled = true
+        RunLoop.main.perform(inModes: [.default]) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.warmScheduled = false
+                // Not while the list moves: a warm-up draw is the cost it saves a later frame.
+                if self.collectionView.isTracking || self.collectionView.isDecelerating {
+                    Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .milliseconds(200))
+                        self?.pumpWarmUp()
+                    }
+                    return
+                }
+                let id = self.warmQueue.removeFirst()
+                if self.lookup.rows[id] != nil, self.lookup.isNative(id) {
+                    let cell = self.warmCell
+                    let width = self.collectionView.bounds.width
+                    cell.frame = CGRect(x: 0, y: 0, width: width, height: max(self.layout.knownHeight(of: id)?.height ?? 120, 44))
+                    cell.overrideUserInterfaceStyle = self.collectionView.traitCollection.userInterfaceStyle
+                    self.lookup.configureNative(cell, id: id)
+                    cell.layoutIfNeeded()
+                    let renderer = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64))
+                    _ = renderer.image { context in cell.layer.render(in: context.cgContext) }
+                }
+                self.pumpWarmUp()
+            }
+        }
     }
 
     /// The id the store marks replayed for this row (`TurnRow.id`, or the turn's).

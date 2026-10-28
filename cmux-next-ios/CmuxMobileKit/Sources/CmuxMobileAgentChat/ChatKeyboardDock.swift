@@ -325,6 +325,12 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         return frame.width >= view.bounds.width - 1 && frame.maxY >= view.bounds.maxY - 1
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // The push has landed: warm the rows' first draws now, not under the push animation.
+        list.allowWarmUp()
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         list.boundsMayHaveChanged()
