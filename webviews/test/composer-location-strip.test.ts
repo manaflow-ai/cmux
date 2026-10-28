@@ -539,6 +539,35 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(after.edge).toBe(before.edge);
     expect(after.rect).toEqual(before.rect);
   });
+  test("long environment menu scrolls to its last machine", async () => {
+    const page = await open("agent-pane.composer-context", "environment-picker-fleet", 720);
+    const list = page.locator(".acpmux-env-popover .acpmux-location-folders");
+    const before = await list.evaluate((node) => ({ height: node.clientHeight, total: node.scrollHeight }));
+    expect(before.total).toBeGreaterThan(before.height);
+    await list.hover();
+    await page.mouse.wheel(0, 3000);
+    await page.waitForTimeout(150);
+    expect(await list.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+    const last = list.locator("[role=option]").last();
+    expect(await last.isVisible()).toBe(true);
+    expect(await last.evaluate((node) => {
+      const list = node.closest(".acpmux-location-folders")!.getBoundingClientRect();
+      const row = node.getBoundingClientRect();
+      return row.bottom <= list.bottom && row.top >= list.top;
+    })).toBe(true);
+    await page.close();
+  });
+
+  test("Escape from a pinned project action closes and restores trigger focus", async () => {
+    const page = await open("agent-pane.composer-context", "folder-long-list", 720);
+    const popup = page.locator(".acpmux-folder-popover");
+    await popup.locator(".ui-combobox-pinned button").first().focus();
+    await page.keyboard.press("Escape");
+    await popup.waitFor({ state: "detached" });
+    expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Folder");
+    await page.close();
+  });
+
   test("project actions stay pinned while the inside thumb scrolls without dismissing", async () => {
     const page = await open("agent-pane.composer-context", "folder-long-list", 720);
     const popup = page.locator(".acpmux-folder-popover");
