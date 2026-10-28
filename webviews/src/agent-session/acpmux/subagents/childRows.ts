@@ -39,7 +39,14 @@ export function childRows(
     }
     const kind = update?.sessionUpdate;
     const text = textFromContent(update?.content);
-    if (kind === "agent_message_chunk" && text) {
+    if (kind === "user_message_chunk" && text) {
+      rows.set(`${id}:user-${event.seq}`, {
+        id: `${id}:user-${event.seq}`, version, at: event.at, kind: "user", text,
+      });
+      reply = undefined;
+      activity = undefined;
+      group = undefined;
+    } else if (kind === "agent_message_chunk" && text) {
       const rowId = reply ?? `${id}:assistant-${event.seq}`;
       const existing = rows.get(rowId);
       rows.set(rowId, {

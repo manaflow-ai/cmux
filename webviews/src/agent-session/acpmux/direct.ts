@@ -2758,6 +2758,12 @@ export class AcpmuxDirectClient {
     return this.request(MCP_RECONNECT_METHOD, { sessionId, server }, 35_000);
   }
 
+  /// Reads only this pane's selected chat; the native relay enforces the same scope.
+  readWorkflowAgent(params: { sessionId: string; runId: string; agentId: string; before?: number; after?: number }): Promise<unknown> {
+    if (params.sessionId !== this.selectedSessionId) return Promise.reject(new Error("Session changed"));
+    return this.request("_acpmux/subagent_transcript", params, 15_000);
+  }
+
   /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux
   /// sends Claude's stop_task and answers with Claude's answer, and the subagent ends as cancelled
   /// when Claude stops it. A Claude that never answers fails it after 10 s.
