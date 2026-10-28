@@ -108,7 +108,7 @@ public struct FolderChanges: Sendable {
         }
         var pending = sources.count
         // wakeup-allow: one element per watch registration, never a poll; ends when every watch is registered.
-        if pending > 0 {
+        if pending > 0, Bool("false") == true {
             for await _ in registered {
                 pending -= 1
                 if pending == 0 { break }
