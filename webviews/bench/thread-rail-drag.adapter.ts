@@ -4,10 +4,7 @@ import type { Page } from "playwright";
 
 declare global {
   interface Window {
-    cmuxAfterPaint: (
-      read: (frame: number) => boolean | void,
-      drive?: (frame: number) => void,
-    ) => () => void;
+    cmuxAfterPaint: (read: (frame: number) => boolean | void, drive?: (frame: number) => void) => () => void;
     __railDragSampler?: { done: Promise<RailDragInPageResult>; stop: () => void };
   }
 }
@@ -56,10 +53,7 @@ export type RailDragResult = {
   unsupported: string[];
 };
 
-type RailDragInPageResult = Omit<
-  RailDragResult,
-  "id" | "metric" | "unsupported" | "droppedFrames"
-> & {
+type RailDragInPageResult = Omit<RailDragResult, "id" | "metric" | "unsupported" | "droppedFrames"> & {
   droppedFrames: number;
 };
 
@@ -78,8 +72,12 @@ export async function railDragTargetPainted(page: Page, targetRowId: string): Pr
         box.height > 0 &&
         box.bottom > viewport.top &&
         box.top < viewport.bottom &&
+        box.right > viewport.left &&
+        box.left < viewport.right &&
         box.bottom > 0 &&
-        box.top < window.innerHeight
+        box.top < window.innerHeight &&
+        box.right > 0 &&
+        box.left < window.innerWidth
       );
     },
     {
@@ -91,10 +89,7 @@ export async function railDragTargetPainted(page: Page, targetRowId: string): Pr
 }
 
 /** Runs one real pointer drag with capture-phase input timestamps and continuous painted sampling. */
-export async function measureRailDrag(
-  page: Page,
-  options: RailDragOptions,
-): Promise<RailDragResult> {
+export async function measureRailDrag(page: Page, options: RailDragOptions): Promise<RailDragResult> {
   const frameMs = options.frameMs ?? 16.7;
   const timeoutMs = options.timeoutMs ?? 10_000;
   const list = page.locator(RAIL_DRAG_CASE.selectors.list);
@@ -127,7 +122,7 @@ export async function measureRailDrag(
       type Pending = RailDragSample & { state: "pending" | "painted" | "superseded" | "deadline" };
       const samples: Pending[] = [];
       const frameGaps: number[] = [];
-      let previousFrame = performance.now();
+      let previousFrame: number | undefined;
       let releaseAt: number | null = null;
       let releasePaintAt: number | null = null;
       let startedAt = performance.now();
@@ -146,8 +141,12 @@ export async function measureRailDrag(
           box.height > 0 &&
           box.bottom > viewport.top &&
           box.top < viewport.bottom &&
+          box.right > viewport.left &&
+          box.left < viewport.right &&
           box.bottom > 0 &&
-          box.top < window.innerHeight
+          box.top < window.innerHeight &&
+          box.right > 0 &&
+          box.left < window.innerWidth
         );
       };
       const finish = () => {
@@ -163,8 +162,7 @@ export async function measureRailDrag(
           release: {
             inputAt: releaseAt,
             firstPaintAt: releasePaintAt,
-            latencyMs:
-              releasePaintAt === null || releaseAt === null ? null : releasePaintAt - releaseAt,
+            latencyMs: releasePaintAt === null || releaseAt === null ? null : releasePaintAt - releaseAt,
             alreadyPaintedBeforeRelease: samples.some(
               (sample) =>
                 sample.status === "painted" &&
@@ -174,10 +172,7 @@ export async function measureRailDrag(
             ),
           },
           frameGaps,
-          droppedFrames: frameGaps.reduce(
-            (sum, gap) => sum + Math.max(0, Math.round(gap / frameMs) - 1),
-            0,
-          ),
+          droppedFrames: frameGaps.reduce((sum, gap) => sum + Math.max(0, Math.round(gap / frameMs) - 1), 0),
         });
       };
       const onMove = (event: PointerEvent) => {
@@ -191,9 +186,7 @@ export async function measureRailDrag(
         const tick = Math.max(
           0,
           Math.min(
-            Number(
-              list.querySelector("[aria-setsize]")?.getAttribute("aria-setsize") ?? targetIndex + 1,
-            ) - 1,
+            Number(list.querySelector("[aria-setsize]")?.getAttribute("aria-setsize") ?? targetIndex + 1) - 1,
             Math.floor((event.clientY - rect.top + list.scrollTop) / 10),
           ),
         );
@@ -214,7 +207,7 @@ export async function measureRailDrag(
       };
       const stopPaint = window.cmuxAfterPaint((frame) => {
         if (finished) return false;
-        frameGaps.push(frame - previousFrame);
+        if (previousFrame !== undefined) frameGaps.push(frame - previousFrame);
         previousFrame = frame;
         const paintAt = performance.now();
         for (const sample of samples)
@@ -224,8 +217,7 @@ export async function measureRailDrag(
             sample.firstPaintAt = paintAt;
             sample.latencyMs = paintAt - sample.inputAt;
           }
-        if (releaseAt !== null && releasePaintAt === null && painted(targetRowId))
-          releasePaintAt = paintAt;
+        if (releaseAt !== null && releasePaintAt === null && painted(targetRowId)) releasePaintAt = paintAt;
         if (releaseAt !== null && releasePaintAt !== null) {
           finish();
           return false;
@@ -276,8 +268,6 @@ export async function measureRailDrag(
     id: RAIL_DRAG_CASE.id,
     metric: RAIL_DRAG_CASE.metric,
     ...result!,
-    unsupported: [
-      "EventTiming interactionId, long tasks, React commits, paint duration, idle wakeups",
-    ],
+    unsupported: ["EventTiming interactionId, long tasks, React commits, paint duration, idle wakeups"],
   };
 }
