@@ -1,4 +1,4 @@
-/** Home attachments: the backend lead's review and re-check fixes, presigned large uploads. Helpers: home-attachments-support.ts. */
+/** Home attachments: the backend lead's review and re-check fixes, multipart and legacy presigned large uploads. Helpers: home-attachments-support.ts. */
 import { describe, expect, it } from "vitest"
 
 import { createHash } from "node:crypto"
@@ -169,7 +169,8 @@ describe("Home attachments: review fixes (P2/P3)", { timeout: 120_000 }, () => {
   })
 })
 
-describe("Home attachments: presigned R2 PUT for 32-100 MB", { timeout: 120_000 }, () => {
+// A client that does not send `multipart: true` (older builds) still gets the presigned PUT; current clients use multipart.
+describe("Home attachments: legacy presigned R2 PUT (an intent without multipart)", { timeout: 120_000 }, () => {
 
   it("a large file gets a presigned PUT that signs length and checksum; commit HEADs size and checksum before it is referenceable", async () => {
     const alice = await signIn("att-big-alice")
@@ -396,18 +397,28 @@ describe("Home attachments: re-check blockers (sweep cursor, orphan slots, requi
     expect(await testEnv.HOME_ATTACHMENTS.head(key)).toBeNull()
   })
 
-  it("files over 32 MB answer 503 attachment.large_unavailable without the S3 settings", async () => {
+  it("without the S3 settings a large file still uploads as multipart; only a legacy intent answers 503 attachment.large_unavailable", async () => {
     const alice = await signIn("att-nos3-alice")
     const g = await group(alice)
     const { handleAttachmentIntent } = await import("../src/home-attachments.ts")
     const noS3 = { ...testEnv, HOME_ATTACHMENTS_S3_ENDPOINT: undefined } as Env
-    const req = new Request("https://api.test/v1/home/attachments/intent", {
-      method: "POST",
-      headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ conversation: g.id, sha256: "a".repeat(64), byte_count: 40_000_000, mime_type: "video/mp4", name: "v.mp4" })
-    })
-    const res = await handleAttachmentIntent(req, noS3)
-    expect(res.status).toBe(503)
-    expect(((await res.json()) as any).error.code).toBe("attachment.large_unavailable")
+    const ask = (over: Record<string, unknown>) =>
+      handleAttachmentIntent(
+        new Request("https://api.test/v1/home/attachments/intent", {
+          method: "POST",
+          headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/json" },
+          body: JSON.stringify({ conversation: g.id, sha256: "a".repeat(64), byte_count: 40_000_000, mime_type: "video/mp4", name: "v.mp4", ...over })
+        }),
+        noS3
+      )
+    const legacy = await ask({})
+    expect(legacy.status).toBe(503)
+    expect(((await legacy.json()) as any).error.code).toBe("attachment.large_unavailable")
+    const multipart = await ask({ multipart: true, sha256: "c".repeat(64) })
+    expect(multipart.status).toBe(200)
+    const value = ((await multipart.json()) as any).value
+    expect(value).toMatchObject({ state: "upload", mode: "multipart", method: "PUT", part_size: 32 * 1024 * 1024, part_count: 2 })
+    expect(new URL(value.upload_url).pathname).toMatch(/^\/v1\/home\/attachments\/multipart\//)
+    expect(value.upload_url).not.toContain("X-Amz-")
   })
 })
