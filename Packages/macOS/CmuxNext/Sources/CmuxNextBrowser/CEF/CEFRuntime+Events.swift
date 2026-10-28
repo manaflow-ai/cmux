@@ -363,6 +363,13 @@ extension CEFRuntime {
     func devTools(_ browser: Int32, method: String, params: [String: Any] = [:],
                   timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {
         guard let sent = sendDevTools(browser, method: method, params: params) else { throw BrowserTabError.closed }
+        return try await result(of: sent, method: method, timeout: timeout)
+    }
+
+    /// The JSON result of a DevTools method ``sendDevTools(_:method:params:)`` sent: the answer Chromium gave inside
+    /// the call, else the one it gives later. Throws `timedOut` when none comes within `timeout`, and `closed` when
+    /// the browser closes or the engine stops first (its late answer is then dropped).
+    func result(of sent: CEFDevToolsSend, method: String, timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {
         if let result = sent.answered { return try result.get() }
         return try await devToolsCalls.reply(for: sent.key, timeout: timeout) {
             BrowserTabError.timedOut("DevTools \(method) (\(timeout))")

@@ -842,11 +842,11 @@ final class BrowserHibernation {
     }
 
     /// Takes a hidden page's picture (a seam for tests): the frame a page past its hidden grace holds
-    /// (`BrowserHiddenPagePicture`, p03-rendering-055; a screenshot would make it draw again), else a screenshot.
+    /// (`BrowserHiddenPagePicture`, p03-rendering-055; a screenshot would make it draw again), else a thumbnail (none from Chromium: P0 #1).
     var capture: (any BrowserTab) async -> CGImage? = { tab in
         if let held = await (tab as? any BrowserHiddenPagePicture)?.hiddenPagePicture() { return held }
         return try? await ControlDeadline.shared.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
-            try await tab.snapshot()
+            try await tab.thumbnail()
         }
     }
 
