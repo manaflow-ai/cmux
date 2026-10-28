@@ -86,7 +86,9 @@ export class ChildRowView {
         const callId = String(update.toolCallId ?? `tool-${event.seq}`);
         // Plumbing (Claude Code's ToolSearch) draws no row here either (hiddenTools.ts).
         if (hiddenCall(hidden, callId, update)) continue;
-        const known = tools.get(callId);
+        // A fresh start belongs to its current segment; delayed updates keep their recorded row.
+        const recorded = tools.get(callId);
+        const known = kind === "tool_call" && recorded !== activity ? undefined : recorded;
         // An update to a call whose start this view never saw, with no title, names nothing but the
         // call's raw id (Leo's subagent view opened on "toolu_01Rq…"): it draws no row.
         if (kind === "tool_call_update" && !known && !update.title) continue;
