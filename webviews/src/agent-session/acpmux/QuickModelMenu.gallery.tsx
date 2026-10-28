@@ -13,6 +13,7 @@ type Props = {
   chat?: boolean;
   fast?: boolean;
   many?: boolean;
+  harnessCount?: number;
   placement?: "left" | "top" | "compact";
   stress?: boolean;
   anchorTop?: boolean;
@@ -85,6 +86,7 @@ export default componentEntry<Props>({
           chat,
           fast = false,
           many,
+          harnessCount,
           anchorTop,
           anchorMiddle,
           placement = "left",
@@ -96,10 +98,13 @@ export default componentEntry<Props>({
           const [selection, setSelection] = useState("");
           const available = many
             ? [
-                ...families,
+                ...families.slice(0, Math.min(families.length, harnessCount ?? families.length)),
                 ...(stress
-                  ? Array.from({ length: 36 }, (_, index) => `Harness ${index + 5}`)
-                  : ["Cursor", "Gemini", "Copilot", "Amp", "Aider", "Goose"]
+                  ? Array.from({ length: harnessCount ?? 36 }, (_, index) => `Harness ${index + 5}`)
+                  : ["Cursor", "Gemini", "Copilot", "Amp", "Aider", "Goose"].slice(
+                      0,
+                      Math.max(0, (harnessCount ?? 8) - families.length),
+                    )
                 ).map((name) => ({
                   id: name.toLowerCase(),
                   mark: name.toLowerCase(),
@@ -176,6 +181,9 @@ export default componentEntry<Props>({
     "harness-top": { props: { placement: "top" }, play: open },
     "harness-compact": { props: { placement: "compact" }, play: open },
     "harness-stress": { props: { many: true, stress: true }, play: open },
+    "harnesses-3": { props: { many: true, harnessCount: 3 }, play: open },
+    "harnesses-8": { props: { many: true, harnessCount: 8 }, play: open },
+    "harnesses-15": { props: { many: true, harnessCount: 15 }, play: open },
     claude: { props: {}, play: open },
     "claude-more-models": {
       props: {},
