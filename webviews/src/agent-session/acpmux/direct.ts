@@ -318,6 +318,9 @@ const OLDER_PAGES_PER_ASK = 8;
 const SESSION_REREAD_MS = 2000;
 /// How often the pane reads the peers again while a missing chat's machine is still connecting.
 const MISSING_RECHECK_MS = 2000;
+/// How long a send waits for a down peer it reconnects: acpmux's own settle budget (30 s, hub
+/// peers.rs PEER_SETTLE_BUDGET) and a little for the reply.
+const PEER_RECONNECT_WAIT_MS = 35_000;
 
 /// The machine a chat ran on, from its kept summary (this page's, or the app host's). A summary
 /// with no `peer` says nothing: the attach of a peer's chat gives that daemon's own detail, which
@@ -6003,6 +6006,9 @@ export class AcpmuxDirectClient {
     noProject = false,
     model?: string,
   ): Promise<string | undefined> {
+    // A new chat on a peer that is down: reconnect it and wait for its handshake first, so the
+    // first send goes out once the machine is back (Leo, 2026-10-28), with no Reconnect click.
+    if (peer && this.peerDown(peer)) await this.reconnectPeer(peer, true);
     const result = await this.newSession(
       newSessionParams(newSessionHost(this.host, cwd, peer, noProject), harness, noProject, model),
       again,
@@ -6514,6 +6520,28 @@ export class AcpmuxDirectClient {
     this.readPeers(status);
     // A held snapshot (a chat being switched or reattached) draws the peers when it is released;
     // emitting now would record "connected" on the hold before setup says so.
+    if (!this.snapshotHold) this.emit();
+  }
+  /// Whether acpmux lists `peer` and says its link has not finished its handshake.
+  private peerDown(peer: string): boolean {
+    if (!this.peers.includes(peer)) return false;
+    const state = this.peerStates[peer];
+    return state !== undefined ? state !== "connected" : this.peerConnected[peer] === false;
+  }
+  /// Reconnects peer `name` now (`_acpmux/peer_reconnect`, which only retries a configured peer):
+  /// a down machine the person picked or sends to. Its row shows connecting at once; acpmux's
+  /// listing replaces that when it answers. `wait`: answer once the link settled (acpmux waits up
+  /// to 30 s), so a send can follow it. A refusal leaves the listing as it was.
+  async reconnectPeer(name: string, wait = false): Promise<void> {
+    if (this.peerDown(name)) {
+      this.peerStates = { ...this.peerStates, [name]: "connecting" };
+      if (!this.snapshotHold) this.emit();
+    }
+    const reply = await this.request("_acpmux/peer_reconnect", { name, wait }, wait ? PEER_RECONNECT_WAIT_MS : undefined).catch(
+      () => undefined,
+    );
+    if (reply === undefined) return this.refreshPeers();
+    this.readPeers(reply);
     if (!this.snapshotHold) this.emit();
   }
   private readPeers(status: any): void {

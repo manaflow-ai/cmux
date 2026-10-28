@@ -15,6 +15,7 @@ import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
+import { setMachineLink } from "./machineLink";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
 import { setSessionStatus } from "./sessionStatus";
@@ -128,6 +129,9 @@ export function applyHostEvent(event: HostEvent): void {
       return setHeaderState(event.value);
     case "tabRow":
       return setTabRow(event.value);
+    case "machineLink":
+      // Direct, like tabRow: a push before the composer mounts is kept (machineLink.tsx).
+      return setMachineLink(event.value);
     case "floatingState":
       return setFloatingState(event.value);
     case "dictation":

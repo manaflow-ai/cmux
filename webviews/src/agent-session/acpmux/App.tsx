@@ -355,6 +355,7 @@ import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderSta
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
+import { setMachineLink } from "./machineLink";
 import { PullRequestDock } from "./summary/PullRequestDock";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
@@ -546,6 +547,8 @@ declare global {
       applyHeaderState?(state: unknown): void;
       /// The pane's tab row the header's tools may sit in (header/tabRow.ts).
       applyTabRow?(row: unknown): void;
+      /// The link of the machine this chat runs on, for the composer strip's dot (machineLink.tsx).
+      applyMachineLink?(link: unknown): void;
       /// Start Agent's floating chat (floatingState.ts, cx-b9qi).
       applyFloatingState?(state: unknown): void;
       /// The newest device chats for the New Tab cards (newtab/deviceChats.ts).
@@ -7025,6 +7028,9 @@ function AcpmuxPane() {
       applyTabRow(row) {
         setTabRow(row);
       },
+      applyMachineLink(link) {
+        setMachineLink(link);
+      },
       applyFloatingState(state) {
         setFloatingState(state);
       },
@@ -9536,6 +9542,13 @@ function AcpmuxPane() {
             onRefreshMachines={() => {
               void directClient.current?.refreshPeers();
               refreshTabState();
+            }}
+            // A down machine picked (Leo, 2026-10-28: "as if you were working on your own computer"):
+            // the chat's own machine through the host's Reconnect (the host names the machine), a
+            // peer through acpmux. The pick goes on; a send waits for the link (direct.ts startSession).
+            onReconnectMachine={(id) => {
+              if (id === "local") void callNative("action.run", { id: "machine.reconnect" }).catch(() => undefined);
+              else void directClient.current?.reconnectPeer(id);
             }}
             // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
             // panel lists them before its first prompt (cx-hkat).

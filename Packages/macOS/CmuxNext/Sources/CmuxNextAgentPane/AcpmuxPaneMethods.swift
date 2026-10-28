@@ -44,6 +44,12 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch_take_over",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/draft_get",
+        // Reconnect a down machine the person picked or sends to (direct.ts reconnectPeer; Leo,
+        // 2026-10-28): acpmux only retries a configured peer (server/remote_guard.rs), adding or
+        // removing none. Only `name` and `wait` (``knownParams``); no gesture, since it grants
+        // nothing and the reconnect acpmux runs on its own anyway. Its reply is ``replyShapes``'s
+        // peer list, filtered like `_acpmux/status`'s.
+        "_acpmux/peer_reconnect",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
         // The thread minimap's prompt bookmarks of a chat in the pane's scope (direct.ts
