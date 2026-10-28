@@ -175,6 +175,13 @@ jobs:
           set -euo pipefail
           dir="$RUNNER_TEMP/launch-smoke"
           mkdir -p "$dir"
+          # Until the tooling has landed on TOOLING_REF (a pull request into main runs
+          # before it does), there is nothing to judge with: no verdict, so nothing
+          # rolls back and nothing is cached, and the build is smoked once it lands.
+          if [ ! -f scripts/ci/nightly_next_launch_smoke.py ]; then
+            echo "::notice title=nightly-next launch smoke::$TOOLING_REF has no scripts/ci/nightly_next_launch_smoke.py yet; build $BUILD is not judged"
+            exit 0
+          fi
           verdict="$(python3 scripts/ci/nightly_next_launch_smoke.py verdict --dir "$dir")"
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
           last=""
