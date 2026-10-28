@@ -10,8 +10,13 @@ import { ALLOWED_USERS, cloudTestUser, SHARED_TEAM } from "./setup/cloud-teams.t
 /** PlatformMachines (platform-machines.ts): the service-binding entrypoint for the platform Worker's environment setups. */
 type Reply = { ok: boolean; value?: any; code?: string; message?: string; retryable?: boolean }
 interface Rpc {
-  boot(c: unknown, name: string, snapshot?: string | null): Promise<Reply>
+  boot(c: unknown, name: string, snapshot?: string | null, shape?: { vcpu: number; memGiB: number; diskGiB: number }): Promise<Reply>
   find(c: unknown, name: string): Promise<Reply>
+  get(c: unknown, machine: string): Promise<Reply>
+  shape(c: unknown, machine: string): Promise<Reply>
+  pause(c: unknown, machine: string): Promise<Reply>
+  resume(c: unknown, machine: string): Promise<Reply>
+  fork(c: unknown, machine: string, name: string): Promise<Reply>
   exec(c: unknown, machine: string, command: string, stdin: string | null, timeoutMs: number): Promise<Reply>
   snapshot(c: unknown, machine: string, name: string): Promise<Reply>
   destroy(c: unknown, machine: string): Promise<Reply>
@@ -52,6 +57,8 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect((ctl as any).creates).toBe(1)
     expect(await rpc.find(c, name)).toEqual({ ok: true, value: { id: a.value.id } })
     expect(await rpc.find(c, nameOf())).toEqual({ ok: true, value: null })
+    expect(await rpc.get(c, a.value.id)).toMatchObject({ ok: true, value: { id: a.value.id, state: "provisioning", region: "global" } })
+    expect(await rpc.shape(c, a.value.id)).toMatchObject({ ok: true, value: { vcpu: expect.any(Number), memGiB: expect.any(Number), diskGiB: expect.any(Number) } })
     // The team sees it like any machine of theirs, labelled; the platform flag stays private.
     const listed = await cloudStub(c.team).readOp(c.team, { identity: `user:${c.user}`, kind: "session", user: c.user, team: c.team }, "cloud.machine.list", {})
     const row = listed.value.machines.find((m: { id: string }) => m.id === a.value.id)
@@ -168,6 +175,11 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await (rpc.boot as (...a: Array<unknown>) => Promise<Reply>)(c)).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(await rpc.boot(c, { toString: null } as never)).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(await rpc.exec(c, `vm_${"a".repeat(20)}`, "true", null, "5" as never)).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await rpc.get(c, "vm_x")).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await rpc.pause(c, "vm_x")).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await rpc.resume(c, "vm_x")).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await rpc.fork(c, "vm_x", nameOf())).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await rpc.boot(c, nameOf(), null, { vcpu: 0, memGiB: 4, diskGiB: 16 })).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(((await cloudStub(c.team).fakeControl({})) as any).creates).toBe(0)
   })
 
