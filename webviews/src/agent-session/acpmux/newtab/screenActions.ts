@@ -36,8 +36,10 @@ export function newTabScreenActions(deps: {
     onAsk(harness, text, picked, model, noProject, attachments, saved, mode) {
       const peer = saved?.peer;
       remember(harness);
-      // A + Plan/Build pick for a chat that starts fresh (another machine, no project): the started
-      // chat takes it before the prompt. A refused mode sends nothing, as a refused start does.
+      // The page's + Plan/Build pick for this harness goes with every start. On this Mac `chat.new` is
+      // the harness switch, which holds a mode sent in the same turn until its chat starts (as the
+      // page's mode chip sends it). On another machine or in no project `chat.new` creates the chat
+      // itself, so the mode waits for it, and a refused mode sends nothing, as a refused start does.
       const inMode = (started: unknown) =>
         started && mode ? callNative("chat.mode", { modeId: mode }).then(() => started) : started;
       const send = () =>
@@ -91,6 +93,7 @@ export function newTabScreenActions(deps: {
             if (started && remembers) rememberStartedProject(folder, callNative);
           }),
         );
+        if (mode) ignore(callNative("chat.mode", { modeId: mode }));
         // Attachments pasted or dropped on the page go with the first prompt, or alone.
         if (attachments?.length) ignore(callNative("chat.send", { text, attachments }));
         else if (text) ignore(callNative("chat.send", { text }));

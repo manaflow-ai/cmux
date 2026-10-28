@@ -482,9 +482,9 @@ export function NewTabScreen(props: Props) {
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
   /// and the prompt stays.
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
-  /// The last + Plan/Build pick the host took, for its harness. A send to this Mac's project
-  /// continues the deferred chat that holds it; a send that starts a fresh chat names it (`onAsk`).
-  const [plusMode, setPlusMode] = useState<{ harness: string; modeId: string }>();
+  /// Each harness's last + Plan/Build pick the host took. Every send names it (`onAsk`): a send to
+  /// another place starts a fresh chat, which the deferred chat holding the pick does not become.
+  const [plusModes, setPlusModes] = useState<Readonly<Record<string, string>>>({});
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
@@ -492,8 +492,8 @@ export function NewTabScreen(props: Props) {
       setSandboxRefusal(typeof started === "string" ? started : undefined);
       return started === true;
     }
-    // The + pick, for a send that starts a fresh chat (another machine, no project).
-    const mode = plusMode?.harness === agent ? plusMode.modeId : undefined;
+    // This harness's + pick goes with every send: its chat may start fresh in the place picked since.
+    const mode = plusModes[agent];
     if (environment) return askInEnvironment(environment, agent, prompt, model, mode);
     if (machine)
       return props.onAsk(
@@ -508,10 +508,16 @@ export function NewTabScreen(props: Props) {
         },
         mode,
       );
-    if (none && mode)
-      return props.onAsk(agent, prompt, cwd, model, true, attachments.length ? attachments : undefined, {}, mode);
-    if (attachments.length > 0) return props.onAsk(agent, prompt, cwd, model, none || undefined, attachments);
-    return none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
+    return props.onAsk(
+      agent,
+      prompt,
+      cwd,
+      model,
+      none || undefined,
+      attachments.length ? attachments : undefined,
+      undefined,
+      mode,
+    );
   };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   const remembered = useLastPick(chatFolder);
@@ -1090,7 +1096,7 @@ export function NewTabScreen(props: Props) {
     if (picked.kind === "ssh")
       return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host }, mode);
     if (!picked.worktree || !picked.folder || !props.onNewWorktree)
-      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {});
+      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {}, mode);
     if (worktreePending.current) return;
     worktreePending.current = true;
     setWorktreeError(undefined);
@@ -1103,7 +1109,7 @@ export function NewTabScreen(props: Props) {
       (folder) => {
         if (!folder) return unstarted();
         worktreePending.current = false;
-        props.onAsk(agent, prompt, folder, model, undefined, extra, {});
+        props.onAsk(agent, prompt, folder, model, undefined, extra, {}, mode);
       },
       (error: unknown) => {
         unstarted();
@@ -1199,7 +1205,8 @@ export function NewTabScreen(props: Props) {
       if (folder && choice === projectChoice.current) pickProject(folder);
     } else if (action.id === "composer.planMode" && action.modeId && plusTarget && props.onPlusMode) {
       await props.onPlusMode({ ...plusTarget, modeId: action.modeId });
-      setPlusMode({ harness: plusTarget.harness, modeId: action.modeId });
+      const { harness: picked } = plusTarget;
+      setPlusModes((modes) => ({ ...modes, [picked]: action.modeId! }));
     } else return "keep";
   };
   const attachmentPicker = (
