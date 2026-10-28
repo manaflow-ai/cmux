@@ -187,7 +187,7 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
   return Response.json({ ok: true, value: reply.value })
 }
 
-/** The projection compare's cron expression (wrangler.jsonc staging and development triggers). */
+/** The projection compare's cron expression (wrangler.jsonc triggers of every environment). */
 const PROJECTION_COMPARE_CRON = "*/15 * * * *"
 
 export default {
@@ -309,7 +309,10 @@ export default {
     }
     if (controller.cron === PROJECTION_COMPARE_CRON) {
       // The usage sync (cx-y79zh S4) runs beside the projection compare; a failure of one does not stop the other.
-      const [compare, usage] = await Promise.allSettled([(async () => (await import("./projection-compare-cron.ts")).compareFromEnv(env))(), env.STRIPE_USAGE_KEY ? (async () => (await import("./billing-usage-sync.ts")).syncUsage(env))() : Promise.resolve(null)])
+      // Never in production yet: production runs this cron for the Vitess cutover, and the usage sync's live switch is its
+      // own reviewed change with the live key (plans/cmux-next/usage-billing.md section 10), which removes this condition.
+      const usageSync = env.STRIPE_USAGE_KEY && env.ENVIRONMENT !== "production"
+      const [compare, usage] = await Promise.allSettled([(async () => (await import("./projection-compare-cron.ts")).compareFromEnv(env))(), usageSync ? (async () => (await import("./billing-usage-sync.ts")).syncUsage(env))() : Promise.resolve(null)])
       if (usage.status === "rejected") console.error(JSON.stringify({ msg: "billing.usage_sync.run_failed", error: String(usage.reason).slice(0, 200) }))
       if (compare.status === "rejected") throw compare.reason
       return
