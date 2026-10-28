@@ -454,7 +454,8 @@ import Testing
 
         // A request whose connection closed before its sheet opened shows it for no one.
         f.approver.hangs.withLock { $0 = true }
-        let gone = ControlConnectionID(rawValue: 34)
+        // ControlConnectionClosures is process-wide and remembers closed ids: one no other test uses.
+        let gone = ControlConnectionID(rawValue: 9_034)
         ControlConnectionClosures.shared.closed(gone)
         #expect(error(await call(f, "vault.remove", ["name": "PROD_DB"], connection: gone))?.code == "vault.not_approved")
         f.approver.hangs.withLock { $0 = false }

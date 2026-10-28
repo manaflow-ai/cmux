@@ -42,7 +42,7 @@ struct CmuxDialogClickOnlyTests {
         let space = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
                                                   context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49))
         allow.keyDown(with: space)
-        #expect(pressed.isEmpty, "Space does not press it")
+        #expect(!pressed.contains("allow"), "Space does not press it (the key goes on to the dialog, whose keyboard is on Cancel)")
 
         let shown = try #require(allow.shownAt, "armed from when it came on screen")
         #expect(!allow.takesClick(at: shown + 0.1), "a click aimed at what was there before does not land")
