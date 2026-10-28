@@ -109,7 +109,6 @@ final class AppControl {
         // diagnostics mode also records tasks past their class budget, with a stack (debug.hangs
         // over_budget). It perturbs what it measures, so it is off unless asked for.
         watchdog.attach(board: mainWork.budget.board, recordTaskBudgets: recordsTaskBudgets)
-        watchdog.busy.setHelperSource { AppProcesses.chromiumHelpers() }
         // Input explains CPU use to the busy watchdog (one atomic add per event) and, while the app is inactive,
         // ends an idle-wakeups period at that input.
         inputSubscription = input.observe(types: Self.activityInput) { [weak self] _ in
@@ -140,6 +139,11 @@ final class AppControl {
         // A busy renderer's record names the Chromium tabs it serves (p14-energy-124), from the snapshot
         // the cache publishes: the watchdog reads it off the main thread.
         watchdog.busy.setTabSource { [directory = services.cache.tabRenderers] in directory.snapshot() }
+        // Its helpers are the children of the Chromium helpers' parent (the app, or the Chromium Host in host mode),
+        // read on the watchdog's thread.
+        watchdog.busy.setHelperSource { [parent = services.cache.chromium.source.helperParent] in
+            AppProcesses.chromiumHelpers(helperParent: parent.pid)
+        }
         registerSyncBarrier(service.router, daemon: services.daemon)
         registerOracleSettle(service.router, services: services)
     }
@@ -338,9 +342,11 @@ extension AppControl {
             .mainActor("debug.chromium_host") { [weak services] call in
                 let controller = services?.windows.controllers.first
                 let pane = (call.params["pane"]?.stringValue ?? controller?.focus.state.pane).flatMap { controller?.content?.paneController(key: $0) }
-                let fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
+                var fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
                                                  over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue == true,
                                                  idleExitSeconds: call.params["idle_exit_s"]?.doubleValue)
+                // Host mode's input route (feature chromiumHostInputRing, p01-process-042), without building the engine.
+                if let route = services?.cache.chromium.built?.hostInputReport { fields["input_route"] = route }
                 return .value(JSONValue(foundation: fields) ?? .null)
             },
             .async("debug.chromium_host.measure") { call in

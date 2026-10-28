@@ -15,7 +15,7 @@ import Testing
 
     static func read(caches: URL, work: BackgroundWork, _ body: @escaping @Sendable () -> HomeListLaunchRead.Value) -> HomeListLaunchRead {
         HomeListLaunchRead(owner: owner, caches: caches, conversations: HomeCache.standard(owner: owner, caches: caches),
-                           sidebar: HomeSidebarLaunchCache.standard(owner: owner, caches: caches), on: work, body)
+                           sidebar: HomeSidebarLaunchCache.standard(owner: owner, caches: caches, files: work), on: work, body)
     }
 
     static func launch(_ read: HomeListLaunchRead?, owner: String = owner, caches: URL, work: BackgroundWork) -> HomeListLaunch {
@@ -62,7 +62,7 @@ import Testing
     /// A Home of its own new caches folder (a test's AppServices) has nothing to read: it lands in the asking turn.
     @Test func aFolderWithNothingToReadLandsInItsTurn() {
         let caches = Self.caches(), work = BackgroundWork()
-        let launch = Self.launch(HomeListLaunchRead.nothingToRead(owner: Self.owner, caches: caches), caches: caches, work: work)
+        let launch = Self.launch(HomeListLaunchRead.nothingToRead(owner: Self.owner, caches: caches, on: work), caches: caches, work: work)
         var seeded: HomeListLaunchRead.Value?
         launch.whenRead { seeded = $0 }
         #expect(seeded != nil && seeded?.conversations == nil && seeded?.sidebar == nil)

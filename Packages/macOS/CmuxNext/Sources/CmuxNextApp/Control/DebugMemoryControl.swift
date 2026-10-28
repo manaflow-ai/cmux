@@ -19,6 +19,18 @@ import CmuxNextSettings
 /// It owns the pressure history, so `debug.hibernation.pressure` records its overrides in the same one.
 /// A read records nothing: the histograms' footprints come from ``MemoryFootprintEmitter``, as a
 /// `chrome://memory-internals` read adds no sample to Chrome's memory histograms.
+///
+/// Socket policy of the memory diagnostics (`debug.memory`, ``DebugHibernationControl``'s
+/// `debug.discards`; p07-memory-076):
+/// - Lane: one short main-actor copy in the automation class, after the person's input; parsing,
+///   sampling and encoding run off the main actor. Not an input method (``ControlMethod/injectingInput()``).
+/// - Focus: none. It changes nothing: no selection, window, activation or pressure change.
+/// - Who: the control socket admits only the local owner (same uid, ``ControlAccessMode``); no relay
+///   forwards it (`RemoteRelayPolicy` never allowlists a `debug`, `memory` or `discards` method), and
+///   the daemon's `memory-report` refuses every client off its trusted local socket.
+/// - Release: IDs and names go through ``MemoryDiagnosticsReport/opaqueToken(_:)``, so the answer has
+///   no URL, title or path, as Chrome's background memory dumps keep only allowlisted names
+///   (`base/trace_event/memory_infra_background_allowlist.cc`).
 @MainActor
 final class DebugMemoryControl {
     /// Reads the footprints of a snapshot's processes, off the main actor.
@@ -36,12 +48,14 @@ final class DebugMemoryControl {
     /// - Parameters:
     ///   - services: The app's services, held weakly.
     ///   - budget: The budgets the report shows: the app passes this Mac's, sized for the terminal GPU release when it has one.
-    ///   - sample: Reads the footprints; the app's processes by default, with the renderers that host a frame.
+    ///   - sample: Reads the footprints; nil: the app's processes and the Chromium helpers of its helper parent, with
+    ///     the renderers that host a frame.
     init(services: AppServices, budget: SubsystemBudget = .forThisMac(gpuResidentAvailable: false), sample: Sampler? = nil) {
         self.services = services
         self.budget = budget
+        let parent = services.cache.chromium.source.helperParent
         let framed: @MainActor @Sendable () -> Set<Int32>? = { [weak services] in AppMemoryModel.rendererClientsWithFrames(services) }
-        let appSample: Sampler = { await AppMemoryModel.processes($0, rendererClientsWithFrames: framed) }
+        let appSample: Sampler = { await AppMemoryModel.processes($0, helperParent: parent.pid, rendererClientsWithFrames: framed) }
         self.sample = sample ?? appSample
         history = MemoryPressureHistory(pressure: services.memoryPressure)
         histograms = services.memoryHistograms

@@ -436,7 +436,9 @@ impl PtySurface {
                 return Ok(false);
             }
         }
-        self.commit_geometry(&mut geometry, next, true)
+        // A caller here may hold `Mux::state`: the event-bus side of a
+        // viewport move is left to the PTY reader (see `GeometryCommit`).
+        Ok(self.commit_geometry(&mut geometry, next, true)?.changed)
     }
 
     pub(super) fn set_cell_pixel_size(
@@ -499,7 +501,21 @@ impl PtySurface {
         }
         let mut geometry = self.geometry.lock().recover_poison();
         let next = PtyGeometry { cell_width: requested.0, cell_height: requested.1, ..*geometry };
-        self.commit_geometry(&mut geometry, next, false)
+        // As in `resize`, the caller may hold `Mux::state`.
+        Ok(self.commit_geometry(&mut geometry, next, false)?.changed)
+    }
+
+    /// Announce on the event bus the viewport move a geometry commit made.
+    /// Only for a caller that holds neither the geometry lock nor
+    /// `Mux::state` (mux events take it). Render taps already got the move,
+    /// ordered before the frame. Returns whether the geometry changed.
+    pub(super) fn publish_geometry_commit(&self, commit: GeometryCommit) -> bool {
+        if let Some((offset, at_bottom)) = commit.scroll
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.emit_terminal_scroll(self.event_surface_id, offset, at_bottom);
+        }
+        commit.changed
     }
 
     /// Commit the PTY ioctl or hosted mirror metrics, Ghostty geometry, and
@@ -509,7 +525,7 @@ impl PtySurface {
         geometry: &mut PtyGeometry,
         next: PtyGeometry,
         refresh_attach_colors: bool,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<GeometryCommit> {
         self.commit_geometry_for_runtime(geometry, next, refresh_attach_colors, false)
     }
 
@@ -519,7 +535,7 @@ impl PtySurface {
         geometry: &mut PtyGeometry,
         next: PtyGeometry,
         refresh_attach_colors: bool,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<GeometryCommit> {
         // The authoritative host has already resized its PTY. Avoid taking
         // the attachment lock while applying its ordered mirror transition:
         // a control caller can be holding that lock while it waits for the
@@ -533,9 +549,9 @@ impl PtySurface {
         next: PtyGeometry,
         refresh_attach_colors: bool,
         hosted_mirror: bool,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<GeometryCommit> {
         if *geometry == next {
-            return Ok(false);
+            return Ok(GeometryCommit::default());
         }
         let grid_changed = (geometry.cols, geometry.rows) != (next.cols, next.rows);
         let previous = *geometry;
@@ -555,13 +571,16 @@ impl PtySurface {
             output.drain(self)?;
         }
         let mut term = self.term.lock().recover_poison();
+        // Reflow can move the viewport: the live bottom's offset follows the
+        // row count, and a scrolled-back viewport keeps its rows.
+        let position_before = terminal_scroll_position(&term);
         let runtime = (!hosted_mirror).then(|| self.runtime.lock().recover_poison());
         let master = match runtime.as_deref() {
             Some(PtyRuntime::Local { master, .. }) => master.as_deref(),
             #[cfg(any(unix, windows))]
             Some(PtyRuntime::Hosted(_)) => None,
             #[cfg(any(unix, windows))]
-            Some(PtyRuntime::ExitedHosted) => return Ok(false),
+            Some(PtyRuntime::ExitedHosted) => return Ok(GeometryCommit::default()),
             None => None,
         };
         // Replay viewers need a replay of the new grid; snapshot viewers get
@@ -657,8 +676,24 @@ impl PtySurface {
         } else {
             PtyGeometryTestStep::CellPixelCommitBoundary
         });
+        // A moved viewport is announced to render attaches before the frame
+        // with the reflowed rows (spec/render.md "Stream Ordering").
+        let position_after = terminal_scroll_position(&term);
+        #[cfg_attr(not(unix), allow(unused_mut))]
+        let mut scroll = (position_after != position_before).then(|| {
+            broadcast_render_scroll_locked(self, position_after);
+            position_after
+        });
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
+        // A direct PTY's reader publishes the bus event, in order with the
+        // output events it publishes: this caller may hold `Mux::state`.
+        #[cfg(unix)]
+        if let Some(output) = local_output.as_mut()
+            && let Some(position) = scroll.take()
+        {
+            output.queue_scroll_changed(generation, position);
+        }
         if let Some(replay) = replay {
             let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
             let colors = Box::new(self.terminal_colors_locked(&term, defaults));
@@ -694,6 +729,24 @@ impl PtySurface {
         // revision before releasing the parser lock so screen snapshots have
         // one consistent boundary for text and dimensions.
         self.stream_progress.notify();
-        Ok(true)
+        Ok(GeometryCommit { changed: true, scroll })
     }
+}
+
+/// What one [`PtySurface::commit_geometry_for_runtime`] changed.
+///
+/// Render taps always get a viewport move under the terminal lock, before the
+/// resized frame. The event-bus `scroll-changed` cannot be sent there, because
+/// a resize caller may hold `Mux::state`. A direct PTY queues it on its reader,
+/// which publishes it in order with output events. Otherwise it is returned in
+/// `scroll`, and a caller that holds no mux lock (the hosted reader, the
+/// deferred cell-pixel acknowledgement) passes it to
+/// [`PtySurface::publish_geometry_commit`].
+#[derive(Clone, Copy, Debug, Default)]
+#[must_use]
+pub(super) struct GeometryCommit {
+    pub(super) changed: bool,
+    /// The viewport position the resize moved to, if it moved and the bus
+    /// event was not queued on a direct PTY's reader.
+    pub(super) scroll: Option<(u64, bool)>,
 }

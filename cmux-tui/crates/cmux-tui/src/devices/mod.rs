@@ -179,7 +179,7 @@ fn read_sources(notes: &mut Vec<String>) -> Sources {
     };
     let peers = read(&["acp", "host", "ls", "--json"], "agent peers");
     let pairing = read(&["acp", "host", "ticket", "ls", "--json"], "paired devices");
-    let remote = match host_config::path().map(|p| p.exists()) {
+    let remote = match host_config::path().map(|p| cmux_blocking::fs::metadata(&p).is_ok()) {
         Ok(true) => match host_config::load() {
             Ok(c) => serde_json::to_value(&c).unwrap_or(Value::Null),
             Err(e) => {
@@ -483,7 +483,7 @@ fn show_audit(args: &[String]) -> anyhow::Result<()> {
         None => 50,
     };
     let path = audit_path()?;
-    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let text = cmux_blocking::fs::read_to_string(&path).unwrap_or_default();
     let entries: Vec<Value> = text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
     let start = entries.len().saturating_sub(limit);
     let recent: Vec<Value> = entries[start..].iter().rev().cloned().collect();

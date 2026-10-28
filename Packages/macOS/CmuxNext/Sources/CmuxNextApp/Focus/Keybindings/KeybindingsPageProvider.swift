@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import CmuxNextDesign
 import UniformTypeIdentifiers
 import class CmuxSafeConcurrency.OnceContinuation
@@ -97,7 +98,9 @@ final class KeybindingsPageProvider: PageProvider {
     /// the settings owner writes or imports the `shortcuts` object. Returns
     /// `{path}`, or `{cancelled: true}` when the person closed the panel.
     private func keymapFile(export: Bool) async throws -> JSONValue {
-        guard let settings = services?.settings else {
+        // The file is read or written on the app's blocking-work lanes, never the main thread. Only these two are
+        // kept across the panel, never the services that own this provider.
+        guard let settings = services?.settings, let runner = services?.work else {
             throw PageError(code: "cmux.keybindings.keymap_failed", message: KeybindingStrings.editingUnsupported)
         }
         // A panel that drops its reply chose nothing.
@@ -117,9 +120,9 @@ final class KeybindingsPageProvider: PageProvider {
         guard let url else { return ["cancelled": true] }
         do {
             if export {
-                try await settings.exportShortcutKeymap(to: url)
+                try await settings.exportShortcutKeymap(to: url, runner: runner)
             } else {
-                try await settings.importShortcutKeymap(from: url)
+                try await settings.importShortcutKeymap(from: url, runner: runner)
                 for listener in changedListeners.values { listener([:]) }
             }
         } catch {

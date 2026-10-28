@@ -210,7 +210,7 @@ fn every_role_runs_at_its_class_in_its_body() {
             |probe| {
                 crate::request_qos::RequestQosGate::default()
                     .snapshot()
-                    .spawn_helper("mux-role-request-helper", None, probe)
+                    .spawn_helper("mux-role-request-helper", probe)
                     .expect("spawn")
                     .join()
                     .expect("join")

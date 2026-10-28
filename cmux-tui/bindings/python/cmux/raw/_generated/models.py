@@ -823,6 +823,12 @@ class BookmarkImportNode:
 
 
 @dataclass(frozen=True)
+class BridgeHelloResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BridgeHelloResult'
+    features: List[str]
+
+
+@dataclass(frozen=True)
 class BrowserFrame:
     __cmux_schema_path__: ClassVar[str] = 'types/BrowserFrame'
     data: Base64
@@ -2426,6 +2432,13 @@ class SetSizePolicyResult:
 
 
 @dataclass(frozen=True)
+class SetStreamPriorityResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetStreamPriorityResult'
+    outcome: Literal['applied', 'ended']
+    stream: int
+
+
+@dataclass(frozen=True)
 class SetTerminalIdlePolicyResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SetTerminalIdlePolicyResult'
     terminal_id: str
@@ -3591,6 +3604,12 @@ class BindConversationTabSessionResult:
     surface: Id
     conversation: ConversationTabRecord
     replayed: bool
+
+
+@dataclass(frozen=True)
+class BridgeHelloRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/bridge-hello/request'
+    features: List[str]
 
 
 @dataclass(frozen=True)
@@ -5180,6 +5199,12 @@ class MarkWorkspacesProviderManagedRequest:
 
 
 @dataclass(frozen=True)
+class MemoryReportRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/memory-report/request'
+    pass
+
+
+@dataclass(frozen=True)
 class MintTerminalRendererRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/mint-terminal-renderer/request'
     surface: Id
@@ -6180,6 +6205,13 @@ class SetSplitRatioRequest:
     split: Id
     ratio: float
     transaction: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetStreamPriorityRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-stream-priority/request'
+    priority: Literal['focused', 'visible', 'hidden']
+    stream: int
 
 
 @dataclass(frozen=True)
@@ -7812,6 +7844,7 @@ __all__ = [
     'Bookmark',
     'BookmarkChangeResult',
     'BookmarkImportNode',
+    'BridgeHelloResult',
     'BrowserFrame',
     'BrowserHostProviderResult',
     'BrowserProviderSnapshot',
@@ -7974,6 +8007,7 @@ __all__ = [
     'SetHostSizePolicyResult',
     'SetSizeCountsResult',
     'SetSizePolicyResult',
+    'SetStreamPriorityResult',
     'SetTerminalIdlePolicyResult',
     'SetTerminalKeepResult',
     'ShownProgramStatus',
@@ -8109,6 +8143,7 @@ __all__ = [
     'AttachSurfaceRequest',
     'BindConversationTabSessionRequest',
     'BindConversationTabSessionResult',
+    'BridgeHelloRequest',
     'BrowserActivateRequest',
     'BrowserBackRequest',
     'BrowserForwardRequest',
@@ -8309,6 +8344,7 @@ __all__ = [
     'MachineListeningTcpRequest',
     'MachineUsageRequest',
     'MarkWorkspacesProviderManagedRequest',
+    'MemoryReportRequest',
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
     'MoveBookmarkRequest',
@@ -8421,6 +8457,7 @@ __all__ = [
     'SetSizeCountsRequest',
     'SetSizePolicyRequest',
     'SetSplitRatioRequest',
+    'SetStreamPriorityRequest',
     'SetTabPinnedRequest',
     'SetTerminalCommandHistoryRequest',
     'SetTerminalIdlePolicyRequest',

@@ -158,3 +158,53 @@ mod queue {
         assert!(read.ends_with(b"x\x1b[A"));
     }
 }
+
+#[cfg(unix)]
+mod queued {
+    use super::*;
+    use crate::pty_write::{InputLane, PtyInputQueue, PtyWriter};
+    use std::os::fd::{FromRawFd, OwnedFd};
+    use std::time::{Duration, Instant};
+
+    const WHEEL: &[u8] = b"\x1b[<65;27;20M";
+
+    /// A PTY master on `writer` whose program (the returned slave) never
+    /// reads.
+    fn stalled_queue(writer: &PtyWriter) -> (PtyInputQueue, OwnedFd) {
+        let (mut master, mut slave) = (-1, -1);
+        // SAFETY: out-pointers to live locals; null name, termios and size
+        // are documented as allowed.
+        let opened = unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        assert_eq!(opened, 0, "openpty: {}", io::Error::last_os_error());
+        // SAFETY: openpty returned two fresh descriptors this test owns.
+        let (master, slave) =
+            unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) };
+        (writer.register(master).unwrap(), slave)
+    }
+
+    /// Wheel reports behind input the program has not read are dropped, as
+    /// with a full PTY queue; keys still go in, in the key lane.
+    #[test]
+    fn a_wheel_report_behind_queued_input_is_dropped_but_a_key_is_queued() {
+        let writer = PtyWriter::start().unwrap();
+        let (queue, _program) = stalled_queue(&writer);
+        assert!(queue_input(None, &queue, WHEEL).unwrap(), "an idle queue takes the wheel");
+        let paste = vec![b'x'; 1024 * 1024];
+        queue.send(&paste, InputLane::Bulk).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while queue.pending() >= paste.len() && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert!(queue.pending() > 0, "the program reads nothing, so the paste waits");
+        assert!(!queue_input(None, &queue, WHEEL).unwrap(), "a wheel report grew the backlog");
+        assert!(queue_input(None, &queue, b"\x1b[A").unwrap(), "a key was dropped");
+    }
+}

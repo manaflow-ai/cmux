@@ -10,6 +10,7 @@ import CmuxNextFeatures
 import CmuxNextHomeEngine
 import CmuxNextLaunch
 import CmuxNextTerminal
+import CmuxNextWakeups
 import CmuxNextWebUpdates
 import Foundation
 

@@ -743,7 +743,7 @@ count grows by at most four a second (plus one) under any request pattern.
 The same thread is the daemon's one hang watcher: it also watches each batch
 commit of the journal writer, each frame a holder link routes and each item of
 the key echo path threads' work (a `mux-line-out` write, a `mux-pty-input`
-write, a `mux-attach-out` or `mux-render-attach-out` frame encode; never their
+write, a `mux-attach-out` or `mux-render-attach-out` item of a view's drain; never their
 wait for the next one), and writes a scope busy past its hang tier (`hang_ms`,
 2000, for a request or a journal commit; 1 s for a holder-link frame; 100 ms for
 an echo item, scope named after its thread) once to the owner's hang log
@@ -777,15 +777,17 @@ creates and splits are `create`). A request a worker answers later
 (`url-open`, `chief-inspect`, the cloud commands) counts when the worker's
 reply is queued. The time a reply then waits for the writer thread's socket
 write is not counted. `dispatch_queue_us` is the time from a request's parse
-to its handler's start: the wait in the connection's request queue (0 for a
-line answered inline).
+to its handler's start: the wait in the connection's control sequence, which
+every request line joins in arrival order (0 for a line refused on the
+reader).
 
 `ipc` counts the IPC layer since daemon start, over the connections of every
 transport: the local socket, the remote entry and WebSocket. `streams`
 counts each connection's stream 0 (`open` now, `peak`, `opened` in total);
 no connection opens a second stream yet, so `open` is the open connections.
 `sequence_depth` samples the requests in a connection's sequence as each
-`cmd` request arrives at it, itself included, also when the full sequence
+request line (a `cmd` command, a `cmux.protocol/2` request or a feature
+route's line) arrives at it, itself included, also when the full sequence
 refuses it. `received` and `sent` list messages and bytes by kind, only kinds
 seen at least once: `line` (a JSON line, bytes counting its delimiter, or a
 WebSocket text message) first, then frame kinds by name in wire order (a
@@ -1266,6 +1268,73 @@ Errors: `trace control requires a trusted local connection`, `another trace
 control call is running`, `this session has no state root to record into (it is
 ephemeral)`, `unknown trace category ...`, `the key category records per-key
 records: ask for it with keys: true`.
+
+### memory-report
+
+| Field | Value |
+| --- | --- |
+| name | `memory-report` |
+| status | implemented |
+| since | protocol 12 |
+
+Where this daemon's memory goes, read when the request arrives (no sampler,
+cache or timer; like Chrome's memory-infra dump, which asks each provider for
+its size only when a dump is requested). Read only and owner only: a client
+that is not on the trusted local socket gets `memory report requires a trusted
+local connection` before anything is read, and a remote relay client is
+refused earlier by its frame gate (`remote_denied`). The reply names no title,
+path, URL or command.
+
+Per PTY terminal, from the daemon's libghostty-vt terminal (for a hosted
+terminal this is the daemon's mirror; the host process's own memory is in
+`terminal-resources`): primary-screen pages (`scrollback`; `live_bytes` are
+the resident bytes of pages that are not compressed, `compressed_bytes` the
+compressed page data), the alternate screen's resident bytes, Kitty image
+bytes of both screens, and for a holder terminal the size of the ring segment
+the daemon keeps a copy of. A field libghostty-vt cannot report is `null`.
+`state` is `cold` for a terminal the cold-scrollback codec compressed whole:
+the report reads its size without restoring it, `cold` gives the bytes it
+holds (`held_bytes`: compressed snapshot and Kitty replay) and the snapshot's
+size before compression, and the libghostty fields are `null`. `unknown` is a
+terminal moving between the two states. `totals` sums the terminal rows.
+`consumers` lists the daemon's memory registry (cmux-memory) in registration
+order; `bytes` is `null` when the consumer's memory is held in another
+process. `process` is the daemon's private footprint (macOS `phys_footprint`;
+Linux `RssAnon + VmSwap`) and resident set, `null` where the platform does not
+report it.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  schema:1,
+  pid:uint32,
+  process:object{private_footprint_bytes:uint64, resident_bytes:uint64}|null,
+  pressure:"normal"|"warning"|"critical",
+  terminals:array<object{
+    surface:SurfaceId,
+    terminal_id:string|null,
+    home:"daemon"|"holder"|"host"|"exited",
+    state:"hot"|"cold"|"unknown",
+    cold:object{held_bytes:uint64, snapshot_bytes:uint64}|null,
+    scrollback:object{live_bytes:uint64, compressed_bytes:uint64,
+      virtual_bytes:uint64, pages:uint64, compressed_pages:uint64}|null,
+    compression_supported:bool|null,
+    alternate_screen_bytes:uint64|null,
+    kitty_image_bytes:uint64|null,
+    holder_ring_bytes:uint64|null
+  }>,
+  totals:object{terminals:uint64, cold_terminals:uint64, cold_held_bytes:uint64,
+    scrollback_live_bytes:uint64,
+    scrollback_compressed_bytes:uint64, alternate_screen_bytes:uint64,
+    kitty_image_bytes:uint64, holder_ring_bytes:uint64},
+  consumers:array<object{name:string, retention:"lossless"|"lossy", bytes:uint64|null}>
+}
+```
+
+Errors: `memory report requires a trusted local connection`.
 
 ### browser-host-provider
 
@@ -2150,7 +2219,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Returns the current plain-text viewport of a PTY surface. The text is produced by the Ghostty VT terminal state and does not include prior scrollback beyond the current screen.
+Returns the current plain-text screen of a PTY surface: the live screen that output writes to, even while a render viewport is scrolled back with `scroll-surface`. The text is produced by the Ghostty VT terminal state and does not include prior scrollback beyond the current screen.
 
 Params:
 
@@ -8776,7 +8845,7 @@ character boundary and answers `truncated: true`. Errors: `range_evicted`,
 | status | implemented |
 | since | protocol 5 |
 
-Scrolls a PTY surface viewport by row delta. Negative values scroll up. Positive values scroll down. This changes the terminal viewport state used by `read-screen` and renderers.
+Scrolls a PTY surface viewport by row delta. Negative values scroll up. Positive values scroll down. This moves the terminal's render viewport, which every render attach of the terminal shows ([render.md](render.md#stream-ordering)), and the named placement's in-process frontend view. It does not change what `read-screen`, `wait-for`, `copy` mode `screen`, `terminal.screen.read` or `terminal.wait` read: they read the live screen. A move emits `scroll-changed` to subscribers and to the attach streams of the surface, including render attaches on other connections; a render attach receives it before the `render-delta` that shows the moved rows.
 
 Params:
 
@@ -9381,7 +9450,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Extracts text from a surface. `screen` returns the current plain-text viewport. `selection` returns the current mux-owned selection. `scrollback` returns available scrollback followed by the current viewport.
+Extracts text from a surface. `screen` returns the current plain-text live screen, as `read-screen` does. `selection` returns the current mux-owned selection. `scrollback` returns available scrollback followed by the current viewport.
 
 Params:
 
@@ -10945,6 +11014,43 @@ the reply. Idempotent: an id with no open stream (it ended already, or was
 never opened) answers `outcome:"ended"` and changes nothing.
 
 Params: required `stream:uint16`.
+
+Result:
+
+```text
+object{stream:uint16,outcome:"applied"|"ended"}
+```
+
+### set-stream-priority
+
+| Field | Value |
+| --- | --- |
+| name | `set-stream-priority` |
+| status | implemented |
+| since | protocol 12, capability `attach-streams-v1` |
+
+Sets how one client-minted attach stream of this connection competes with the
+others (stream visibility, p05-ipc-142), as Chrome ranks a renderer by its
+widgets' visibility (`RenderWidgetHostImpl::WasShown`/`WasHidden`) and moves its
+task runners with `UpdateableSequencedTaskRunner::UpdatePriority`:
+
+- `focused`: the stream's items ride the input lane, ahead of control replies,
+  and its view drains on the input workers. The view the person types into.
+- `visible`: the bulk lane, and the view drains on the utility workers, so a
+  flooding visible terminal never delays a focused echo.
+- `hidden`: a snapshot view (`terminal-snapshot-v1`) gets no output and no
+  digest; the daemon still parses the terminal's output and marks the view
+  dirty. When the stream is set `focused` or `visible` again, a dirty view gets
+  one READY snapshot (with its history) before any new output; a clean one
+  continues where it was. Any other view rides the background lane at
+  background priority.
+
+A stream never set keeps what it opened with: the bulk lane and input
+priority. Idempotent: an id with no open stream answers `outcome:"ended"` and
+changes nothing; the same priority again is `applied` and changes nothing.
+
+Params: required `stream:uint16`, required
+`priority:"focused"|"visible"|"hidden"`.
 
 Result:
 

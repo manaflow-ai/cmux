@@ -59,7 +59,7 @@ final class AppServices {
     /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
     let themeStore = ThemeScope.app.store
     /// The recovery-draft backstop of unsaved documents (R96).
-    private(set) lazy var recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory, deadlines: mainDeadlines)
+    private(set) lazy var recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory, deadlines: mainDeadlines, work: work)
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
     private(set) lazy var quitUnsaved = QuitUnsavedRegistry(deadlines: .on(mainDeadlines), drafts: recoveryDrafts)  // each save's limit is a userBlocking deadline
     /// The open files' quit documents, shared by the markdown and editor pages.
@@ -216,7 +216,7 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, deadlines: mainDeadlines, appEvents: appEvents, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches), purgeable: features.isEnabled(.purgeableImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency(deadlines: mainDeadlines) : nil, webKitProcessReuse: AppMemoryConsumers(services: self).webKitProcessReuse, terminalExternalCursor: features.isEnabled(.terminalCursorLayer))  // first read in init (no IUO); its Chromium engine at its first read
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, deadlines: mainDeadlines, appEvents: appEvents, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches), purgeable: features.isEnabled(.purgeableImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency(deadlines: mainDeadlines) : nil, webKitProcessReuse: AppMemoryConsumers(services: self).webKitProcessReuse, terminalExternalCursor: features.isEnabled(.terminalCursorLayer), streamFocus: features.isEnabled(.terminalStreamPriority) ? TerminalStreamFocus() : nil)  // first read in init (no IUO); its Chromium engine at its first read
     /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
     /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out)
     /// while `sidebar.nowPlaying.otherApps` is on (off by default: only what plays in cmux). Its
@@ -264,7 +264,12 @@ final class AppServices {
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
-    lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")  // Find Work's `gh` reads; tests replace it
+    /// Find Work's GitHub reads, with the user's `gh` login (``FindWorkPalettePage``); tests replace it.
+    /// `env` finds gh on the PATH of gh's environment when it starts (the App's PATH, then gh's install folders),
+    /// so opening Find Work checks no file on the main thread.
+    lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(
+        executable: "/usr/bin/env", environment: ProcessInfo.processInfo.environment.merging(
+            ["PATH": AgentChatPullRequestReader.searchPath(ProcessInfo.processInfo.environment)]) { $1 })
     private(set) lazy var pullRequests = AgentPullRequestReads(mainWork: mainWork)  // every pull request read with the user's `gh`: two at once, app-wide (cx-mb1e0)
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
@@ -455,7 +460,8 @@ final class AppServices {
     /// Samples the footprints into `memoryHistograms` once an hour (startHibernationMeasurements starts it).
     private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
-        sample: { await AppMemoryModel.processes(webContentPIDs: $0) }, deadlines: mainDeadlines)
+        sample: { [parent = cache.chromium.source.helperParent] in await AppMemoryModel.processes(webContentPIDs: $0, helperParent: parent.pid) },
+        deadlines: mainDeadlines)
     /// The New Tab page on the app's one preload slot, which it installs on `webUI` (instant open, p13-webui-044).
     private(set) lazy var newTabSpares = NewTabPreload.app(self)
     /// The app's one preload slot (p13-webui.md 3.D), made here only and installed on `webUI`: New Tab and
@@ -584,8 +590,9 @@ final class AppServices {
     let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
     /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
     private(set) lazy var debugSettings = DebugSettingsService(services: self)
-    /// Debug menu > Toggle Action Latency HUD (DEV and NIGHTLY): the newest runs of `actionBudget`.
-    private(set) lazy var actionLatencyHUD = ActionLatencyHUD(monitor: actionBudget)
+    let inputLatencyFeed = InputLatencySlotFeed()  // each closed input slot: the latency tracker publishes (p04-input-005), the HUD reads
+    /// Debug menu > Toggle Action Latency HUD (DEV and NIGHTLY): the newest runs of `actionBudget` and inputs.
+    private(set) lazy var actionLatencyHUD = ActionLatencyHUD(monitor: actionBudget, inputs: inputLatencyFeed)
     /// Quit: origin, the keep-or-end sheet and the end of the local sessions.
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// Background mode (cx-ghagp): no window open means no Dock icon or Cmd-Tab entry, and a menu bar item instead.
@@ -612,7 +619,7 @@ final class AppServices {
     private(set) lazy var terminalColors = TerminalColorSync(machines: machines, on: mainWork) {  // first read by the daemon start (`startLocalDaemon`), before it connects
         GhosttyRuntime.shared.themeColors.map(TerminalDefaultColors.init)
     }
-    private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // room, workspace and terminal themes; built by its start (`Themes.start`)
+    private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID, runner: work))  // room, workspace and terminal themes; built by its start (`Themes.start`)
     /// Browser tabs of remote machines reach that machine's localhost.
     var remoteLocalhost: RemoteLocalhostService { madeRemoteLocalhost ?? RemoteLocalhostService.made(for: self) }  // on first use
     var madeRemoteLocalhost: RemoteLocalhostService?
@@ -763,6 +770,7 @@ final class AppServices {
          crashKeys: CrashKeySlots? = nil, watchdog: MainThreadWatchdog? = nil,
          appearance: AppearanceSignals = DesignSettings.shared.signals, features: FeatureList? = nil) {
         self.appearance = appearance
+        ThemeScope.app.store.repaint(following: appearance)
         let work = work ?? BackgroundWork(hangs: hangWatch, inputTurns: mainWork.budget.board)
         self.work = work
         linkHints = LinkHintController(work: work)

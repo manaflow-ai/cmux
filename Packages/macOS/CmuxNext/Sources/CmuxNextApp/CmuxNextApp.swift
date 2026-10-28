@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextChromiumRuntime
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextCrashReporting
@@ -10,6 +11,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHomeEngine
+import CmuxNextIcons
 import CmuxNextInput
 import CmuxNextIPC
 import CmuxNextLaunch
@@ -48,7 +50,10 @@ public struct CmuxNextApp {
         // swaps zones without a moment where no zone owns system memory.
         // Without this, a free() on another thread in that moment crashed
         // with "No zone found" (browser-isolation.md, allocator zone race).
-        _ = cmux_early_malloc_zone_registration()
+        // A sanitizer build keeps Chromium unloaded, so it needs no such zone (SanitizerRuntime).
+        if SanitizerRuntime.detect(environment: ProcessInfo.processInfo.environment).loadsChromium {
+            _ = cmux_early_malloc_zone_registration()
+        }
         #if DEBUG || CMUX_BENCH_HOOKS
         // CMUX_NEXT_MAIN_JOB_CENSUS=1 (startup-queue.py mainjobs): every main job and turn until startup completes
         // (p08-startup-080). Its hook goes in while the process still has one thread, before any main-actor job.
@@ -81,7 +86,8 @@ public struct CmuxNextApp {
         // Pure launch work (action catalog, symbols, displays, icons) overlaps AppKit's start; the registry takes the catalog.
         watchdog.startupStep("main.warmup")
         let actionCatalog = ActionCatalogLaunch()
-        LaunchWarmup().start(catalog: actionCatalog)
+        LaunchWarmup(work: { if actionCatalog.build() { DebugTimings.markLaunch("action_catalog_built") } },
+                     decodeIcons: { IconPack.decodeBundledInBackground(then: $0) }, markLaunch: { DebugTimings.markLaunch($0) }).start()
         DebugTimings.markLaunch("main.warmup_started")
         watchdog.startupStep("main.lanes")
         // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
@@ -265,7 +271,11 @@ public struct CmuxNextApp {
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
         watchdog.startupStep("main.launch_order")
-        let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap, startupTag: startupTag, wakeUps: mainWakeUps) { DebugTimings.markLaunch($0) }
+        let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap, startupTag: startupTag, wakeUps: mainWakeUps,
+                                budgetPlacement: features.isEnabled(.mainBudgetTurn) ? .afterCommit : .inTick) { DebugTimings.markLaunch($0) }
+        // Main-actor jobs by task priority (p06-scheduler-202, decision-gated; feature mainExecutorHook, default off).
+        order.mainWork.installMainExecutorHook(requested: MainExecutorHook.isRequested(feature: features.isEnabled(.mainExecutorHook),
+                                                                                      environment: ProcessInfo.processInfo.environment))
         // Main-actor jobs wait behind pending input (p04-input-076); installed as `debug.mainJobGate` says (AppServices.settings).
         // Classed main work (post(class:), MainNotificationObserver) waits behind the same input (p04-input-080).
         if features.isEnabled(.mainJobGate), let pending = order.mainWork.budget.pendingInput as? SessionInputPending {

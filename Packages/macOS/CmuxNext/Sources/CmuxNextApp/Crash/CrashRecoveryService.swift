@@ -5,6 +5,8 @@ import os
 import CmuxNextCompat
 import CmuxNextCrashReporting
 import CmuxNextDesign
+import CmuxNextFeatures
+import CmuxNextLaunch
 import CmuxNextMetrics
 import CmuxNextWakeups
 
@@ -47,6 +49,13 @@ final class CrashRecoveryService {
     /// (`MetricsStore.startApp`).
     var stabilityLaunch: StabilityCounters.Launch? {
         marker.map { StabilityCounters.Launch(previousExit: $0.previousExit) }
+    }
+
+    /// This launch's one reattach decision (p01-process-152), from the run marker and feature `relaunchReattach`, which
+    /// do not change while the app runs: the terminal frames' discard (`AppDelegate`) and the window picture's refusal
+    /// (`LaunchSnapshotWindow`) both take it from here.
+    func relaunchReattach(features: FeatureList) -> RelaunchReattach {
+        RelaunchReattach(previousEnd: RelaunchReattach.PreviousEnd(marker?.previousExit), enabled: features.isEnabled(.relaunchReattach))
     }
 
     /// `runMarker` is the run marker's launch read (``AppRunMarker/startLaunchRead(directory:in:now:bootSession:)``),
@@ -263,5 +272,17 @@ final class CrashRecoveryService {
             .map { ($0, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
             .filter { $0.1 >= date }
             .max { $0.1 < $1.1 }?.0
+    }
+}
+
+extension RelaunchReattach.PreviousEnd {
+    /// The run marker's unclean exit (`AppRunMarker.previousExit`; nil after a quit as asked or on a first launch).
+    init(_ exit: HistogramID.UncleanExit?) {
+        switch exit {
+        case nil: self = .quit
+        case .crash?: self = .crashed
+        case .systemShutdown?: self = .systemShutdown
+        case .killed?, .fatalHang?: self = .killed
+        }
     }
 }

@@ -28,6 +28,7 @@ use std::fmt;
 use cmux_ipc::{BadMessage, Frame, FrameKind, FrameReader, Message, ReaderLimits};
 
 use crate::diagnostics::{IpcTransport, JsonParseScope};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 use super::connection_scheduler::connection_qos::ReaderClass;
 use super::*;
@@ -78,19 +79,25 @@ pub(super) fn spawn_connection_reader<S: 'static>(
     name: &str,
     setup: impl FnOnce() -> S + Send + 'static,
     serve: impl FnOnce(S) + Send + 'static,
-) -> std::io::Result<JoinHandle<()>> {
-    cmux_threads::spawn(name, CONNECTION_READER_QOS, move || {
-        let accepted = setup();
-        // Each frame it reads is one hang-watch scope (connection_frame.rs);
-        // the read itself is outside every scope.
-        let thread = std::thread::current();
-        let _hang_watch = cmux_hang_watch::register_thread(
-            cmux_hang_watch::ThreadKind::Io,
-            thread.name().unwrap_or("mux-conn"),
-        );
-        cmux_threads::disallow_blocking();
-        serve(accepted);
-    })
+) -> std::io::Result<supervised::SupervisedThread<()>> {
+    supervised::spawn_at(
+        name,
+        CONNECTION_READER_QOS,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let accepted = setup();
+            // Each frame it reads is one hang-watch scope (connection_frame.rs);
+            // the read itself is outside every scope.
+            let thread = std::thread::current();
+            let _hang_watch = cmux_hang_watch::register_thread(
+                cmux_hang_watch::ThreadKind::Io,
+                thread.name().unwrap_or("mux-conn"),
+            );
+            cmux_threads::disallow_blocking();
+            serve(accepted);
+        },
+    )
 }
 
 /// One JSON line per message, and frames once granted. `admission` sees
@@ -221,7 +228,12 @@ pub(super) fn serve_connection(
     if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
         return ConnectionEnd::Dropped;
     }
-    let outbound = Arc::new(BoundedOutbound::with_chunk_bytes(mux.bulk_frame_max()));
+    // Producers write inline to their own handle of the socket while nothing
+    // waits for the writer thread (p05-ipc-140); none when it cannot be cloned.
+    let inline = stream.try_clone_box().ok().and_then(|socket| {
+        InlineSocket::new(socket, mux.bulk_frame_max(), mux.ipc_stats().clone())
+    });
+    let outbound = Arc::new(BoundedOutbound::with_inline(mux.bulk_frame_max(), inline));
     let writer = MessageWriter::new_with_render_service(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
         render_service,
@@ -241,16 +253,20 @@ pub(super) fn serve_connection(
         let _end = WriterEnd { writer: writer_close, socket: writer_socket };
         let _hang_watch =
             cmux_hang_watch::register_thread(cmux_hang_watch::ThreadKind::Io, "mux-line-out");
-        // Every ready item up to 256 KiB leaves in one writev (p05-ipc-088).
+        // Every ready item up to 256 KiB leaves in one writev (p05-ipc-088);
+        // on an idle connection producers write inline instead (p05-ipc-140).
         let mut batch = Vec::new();
-        // mq14-allow: the writer's idle wait for its own queue (BoundedOutbound::recv_batch).
-        while writer_outbound.recv_batch(&mut batch) {
+        // mq14-allow: the writer's idle wait for its own queue (BoundedOutbound::recv_turn).
+        while let Some(mut turn) = writer_outbound.recv_turn(&mut batch) {
             // Each batch's write is a 100 ms hang scope; the wait above is not.
             let _batch = writer_hangs.item(WatchKind::LineOut);
             // One scope per write, as long as the socket's write timeout:
             // the queue wait above is outside it.
             let write = cmux_hang_watch::watch(STREAM_WRITE_TIMEOUT);
-            let written = write_counted_batch(&mut *write_half, &writer_ipc, &batch);
+            // What an inline write left goes first (p05-ipc-140).
+            let rest = turn.rest.take();
+            let written =
+                write_counted_turn(&mut *write_half, &writer_ipc, rest.as_deref(), &batch);
             drop(write);
             // The written texts go now, not when the next item arrives.
             batch.clear();

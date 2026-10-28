@@ -1,4 +1,5 @@
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::sync as waits;
 use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(all(test, target_os = "linux"))]
@@ -270,7 +271,7 @@ struct DeliveryWorkers {
     sender: mpsc::Sender<DeliveryJob>,
     completions: mpsc::Receiver<DeliveryCompletion>,
     capacity: usize,
-    handles: Vec<std::thread::JoinHandle<()>>,
+    handles: Vec<supervised::SupervisedThread<()>>,
 }
 
 struct CompiledHook {
@@ -320,9 +321,11 @@ pub(crate) fn start(mux: &Arc<Mux>) -> anyhow::Result<()> {
     }
     let weak = Arc::downgrade(mux);
     let thread_runtime = runtime.clone();
-    let spawned = cmux_threads::spawn(
+    let spawned = supervised::spawn_at(
         "mux-session-journal-hooks",
         cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             let _runtime_guard = JournalHookRuntimeGuard(thread_runtime.clone());
             let mut claim = DispatcherClaim::new(weak.clone());
@@ -389,9 +392,11 @@ fn start_delivery_workers(
         let completions = completion_tx.clone();
         let journal = journal.clone();
         let runtime = runtime.clone();
-        let spawned = cmux_threads::spawn(
+        let spawned = supervised::spawn_at(
             format!("journal-hook-worker-{index}"),
             cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
             move || {
                 run_delivery_worker(&jobs, &completions, &journal, &runtime);
             },
@@ -619,7 +624,7 @@ impl DeliveryWorkers {
         let sender = std::mem::replace(&mut self.sender, closed);
         drop(sender);
         for handle in self.handles.drain(..) {
-            if waits::join(handle).is_err() {
+            if handle.join().is_err() {
                 eprintln!("cmux-tui: journal hook worker panicked during shutdown");
             }
         }
@@ -1173,9 +1178,11 @@ fn execute_hook_child_portable(
     let deadline = Instant::now() + timeout;
     let input = input.to_vec();
     let (write_result_sender, write_result_receiver) = mpsc::sync_channel(1);
-    let writer = match cmux_threads::spawn(
+    let writer = match supervised::spawn_at(
         "journal-hook-stdin",
-        cmux_threads::ThreadQos::Utility,
+        cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             let result = stdin.write_all(&input);
             drop(stdin);

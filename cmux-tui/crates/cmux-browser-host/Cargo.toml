@@ -19,6 +19,8 @@ revision = 1
 workspace = true
 
 [dependencies]
+# Named threads at a declared QoS (plans/cmux-next/chrome-parity/p02-threads.md).
+cmux-threads.workspace = true
 serde.workspace = true
 # raw_value only (a9): script values keep the page's key order. Never
 # preserve_order, which would change every map in the crate.
@@ -32,6 +34,8 @@ sha1 = "0.10"
 rquickjs = "0.14"
 
 [target.'cfg(unix)'.dependencies]
+# `serve --panic-log` (src/bin/cmux-browser-host.rs).
+cmux-panic-log.workspace = true
 libc.workspace = true
 # The host's black box (src/bin/cmux-browser-host.rs); std and libc only.
 cmux-trace.workspace = true

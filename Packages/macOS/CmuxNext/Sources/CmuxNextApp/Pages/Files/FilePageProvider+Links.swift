@@ -26,13 +26,14 @@ extension FilePageProvider {
     func listFiles(_ params: JSONValue) async throws -> JSONValue {
         let from = try path(params["from"])
         let prefix = params["prefix"]?.stringValue ?? ""
-        let entries = try await Self.listEntries(from: from, file: file, prefix: prefix)
+        let file = file
+        let entries = try await work.runFiles(.userBlocking) { try Self.listEntries(from: from, file: file, prefix: prefix) }
         return ["entries": .array(entries.map(JSONValue.string))]
     }
 
     /// The `[[` completion entries under `prefix`: folders first, then names in Finder order, at
-    /// most `listLimit`.
-    @concurrent nonisolated static func listEntries(from: URL, file: URL?, prefix: String) async throws -> [String] {
+    /// most `listLimit`. Blocking file calls: the files lane only.
+    nonisolated static func listEntries(from: URL, file: URL?, prefix: String) throws -> [String] {
         let base = try linkBase(from: from, file: file)
         guard !prefix.hasPrefix("/"), !prefix.split(separator: "/").contains("..") else { return [] }
         let folderPart = prefix.lastIndex(of: "/").map { String(prefix[...$0]) } ?? ""
@@ -59,9 +60,9 @@ extension FilePageProvider {
     }
 
     /// What `resolveLinks` found for each relative path, and the real paths of the Markdown files
-    /// among them (the caller grants those inside a granted folder).
-    @concurrent nonisolated static func resolve(_ relatives: [String], from: URL, file: URL?,
-                                                roots: FileWorkspaceRoots?) async throws -> (links: [String: JSONValue], markdown: [String]) {
+    /// among them (the caller grants those inside a granted folder). Blocking file calls: the files lane only.
+    nonisolated static func resolve(_ relatives: [String], from: URL, file: URL?,
+                                    roots: FileWorkspaceRoots?) throws -> (links: [String: JSONValue], markdown: [String]) {
         let base = try linkBase(from: from, file: file)
         var links: [String: JSONValue] = [:]
         var markdown: [String] = []

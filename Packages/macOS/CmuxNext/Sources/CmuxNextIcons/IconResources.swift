@@ -3,7 +3,7 @@ import os
 
 /// Finds this target's resource bundle without `Bundle.module`, which traps
 /// when the bundle is missing (the app's folder deleted while it runs). The
-/// search matches CmuxNextDesign's `ModuleResourceBundle`; this leaf target
+/// search matches CmuxNextAppearance's `ModuleResourceBundle`; this leaf target
 /// cannot import it.
 nonisolated enum IconResources {
     static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "icons")

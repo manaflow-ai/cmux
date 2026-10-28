@@ -383,3 +383,25 @@ fn refuses_mask_fan_out_past_the_draw_budget() {
     assert!(refused(fan_out(127, 129).as_bytes()).contains("draw more"));
     assert!(refused(fan_out(1000, 1000).as_bytes()).contains("draw more"));
 }
+
+/// The attribute value scan rewrites `url(#id)` and keeps every other allowed
+/// function as written, with the text between them.
+#[test]
+fn attribute_value_scan_keeps_functions_and_rewrites_urls() {
+    assert_eq!(
+        canonical_attribute_value("translate(1 2) scale(0.5)"),
+        Some(("translate(1 2) scale(0.5)".to_string(), Vec::new()))
+    );
+    assert_eq!(
+        canonical_attribute_value("url( #g ) none"),
+        Some(("url(#cmux-icon-g) none".to_string(), vec!["cmux-icon-g".to_string()]))
+    );
+    assert_eq!(
+        canonical_attribute_value("rotate(3)url(#a)"),
+        Some(("rotate(3)url(#cmux-icon-a)".to_string(), vec!["cmux-icon-a".to_string()]))
+    );
+    assert_eq!(canonical_attribute_value("no functions"), Some(("no functions".into(), vec![])));
+    for refused in ["(1)", "url(#a", "url(#a))(", "evil(1)", "url(#a(b))", "url(https://x)"] {
+        assert_eq!(canonical_attribute_value(refused), None, "{refused}");
+    }
+}

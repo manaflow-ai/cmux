@@ -72,7 +72,7 @@ extension ChromiumHostPageView {
             frame.unmod = ChromiumHostTextInput.keyCharacter(event.charactersIgnoringModifiers)
         }
         guard phase == 0 else {
-            _ = sink?(frame)
+            sendInput(frame)
             return
         }
         let receipt = textInputKeyDown(event, key: frame)

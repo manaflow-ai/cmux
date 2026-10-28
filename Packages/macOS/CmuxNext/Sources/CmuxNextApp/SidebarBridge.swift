@@ -75,7 +75,8 @@ final class SidebarBridge {
         rowFeed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, work in frames.queue.enqueue(cause: cause, work) },
                                  observations: services.mainWork.observationOwner("SidebarRows"))
         container = SidebarContainerView(model: model, deadlines: services.mainDeadlines, appEvents: services.appEvents,
-                                         newRows: PendingWorkspaceRows.shared.newRows)
+                                         newRows: PendingWorkspaceRows.shared.newRows,
+                                         responsiveScrolling: services.features.isEnabled(.responsiveScrolling))
         // Only the rows the clip shows get views until startup completes (p08-startup-064); the counts go to `debug.startup` and the bench.
         container.sidebarView.followLaunch(services.launchStartup) { [values = services.launchValues] in values.recordSidebarLaunchRows(built: $0.built, visible: $0.visible) }
         container.resizeFrameInput = services.dragFrameInput // the resize edge, once per frame (`pointerFrameDrags`)
@@ -92,7 +93,7 @@ final class SidebarBridge {
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
-        container.sidebarView.resourceSource = services.resources
+        container.sidebarView.setResourceSource(services.resources, deadlines: services.mainDeadlines)
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.inputTap = services.inputTap
         // Energy Saver's leaf follows the app's one energy policy (p14-energy-026).

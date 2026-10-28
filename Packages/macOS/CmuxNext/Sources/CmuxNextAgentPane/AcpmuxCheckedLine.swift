@@ -1,4 +1,3 @@
-import CmuxNextCompat
 import Darwin
 public import Foundation
 
@@ -6,13 +5,11 @@ public import Foundation
 /// own descriptor before the first byte is written (cx-fcaq, cx-aocz review P1): the app's
 /// person proof goes only to the acpmux this app runs, never to a listener that took the socket
 /// path after an earlier probe. All state lives on one serial queue; callbacks run there and
-/// callers hop to their own actor. Only whether the peer is checked is also kept under a lock, so
-/// ``personProof(nonce:connection:)`` answers without waiting for the queue.
-public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash-allow: every mutable field except `peerChecked` (a Mutex) is read and written only on `queue` (one serial queue)
+/// callers hop to their own actor. The person proof is made and sent on that queue too
+/// (``sendPersonProof(nonce:connection:request:refused:)``), so no caller waits for it.
+public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash-allow: every mutable field is read and written only on `queue` (one serial queue)
     private let queue = DispatchQueue(label: "cmux.acpmux.checked-line", qos: .userInitiated)
     private let environment: AcpmuxEnvironment
-    /// The server peer passed its check and the connection has not closed: set on `queue`.
-    private let peerChecked = Mutex(false)
     private var descriptor: Int32 = -1
     private var source: (any DispatchSourceRead)?
     private var buffer = Data()
@@ -38,7 +35,6 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
             } catch {
                 return finish()
             }
-            peerChecked.withLock { $0 = true }
             let fd = descriptor
             let reader = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
             reader.setEventHandler { [weak self] in self?.readable() }
@@ -49,14 +45,20 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
         }
     }
 
-    /// The person proof for this connection's challenge (acpmux `hub/person.rs`, transport unix),
-    /// made only here so a proof exists only for a connection whose server peer was checked.
-    /// Nil before the check passed, or when this app holds no key for this daemon. The key itself
-    /// never leaves this process.
-    public func personProof(nonce: String, connection: String) -> String? {
-        guard peerChecked.withLock({ $0 }) else { return nil }
-        return AcpmuxPersonKey.proof(socketPath: environment.socketPath, transport: .unix, nonce: nonce,
-                                     connection: connection)
+    /// Sends the person proof for this connection's challenge (acpmux `hub/person.rs`, transport unix)
+    /// as the request `request` makes of it. The proof is made only on the line's queue, so a proof
+    /// exists only for a connection whose server peer was checked, and it goes out before any request
+    /// sent after this call. `refused` runs on the line's queue instead before the check passed, after
+    /// the line closed, or when this app holds no key for this daemon. The caller never waits for the
+    /// queue (a write there can wait for the socket), and the key itself never leaves this process.
+    public func sendPersonProof(nonce: String, connection: String, request: @escaping @Sendable (String) -> Data,
+                                refused: @escaping @Sendable () -> Void) {
+        queue.async { [self] in
+            guard descriptor >= 0, !closed,
+                  let proof = AcpmuxPersonKey.proof(socketPath: environment.socketPath, transport: .unix, nonce: nonce,
+                                                    connection: connection) else { return refused() }
+            write(request(proof))
+        }
     }
 
     /// Sends another request on the live connection.
@@ -106,7 +108,6 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
     private func finish() {
         guard !closed else { return }
         closed = true
-        peerChecked.withLock { $0 = false }
         // The read source closes the descriptor in its cancel handler, after
         // the source let go of it: closing here could close a descriptor
         // number that another connection already reused. Without a source

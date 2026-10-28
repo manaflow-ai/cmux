@@ -109,12 +109,13 @@ cmux.33 line `c382c63b`). Nobody has built it or run its test, so 077 is not don
   (`CefBrowserHost::SendMouseClickEvent`, view points, `CEFTab.sendClick`, host op `kOpTabSendClick`). Debug hovers
   use a move with no button, `cmux_shim_tab_send_mouse_move(browser_id, x, y, modifiers)`
   (`CefBrowserHost::SendMouseMoveEvent`, view points, `CEFTab.sendMouseMove`, host op `kOpTabSendMouseMove`): a
-  `post` optional export with `fork_api` 38, which 077's fork line adds next to the capture and the train (086)
-  numbers with it. A drag (a move with a button held) has no native path, so 078 keeps DevTools input for it.
+  `post` optional export with `fork_api` 40, the capture's number in the fork train (086), which gates it with the
+  capture. A drag (a move with a button held) has no native path, so 078 keeps DevTools input for it.
 - Binding (078, as built). The shim wraps the capture export as
   `cmux_shim_tab_copy_surface(browser_id, reply, max_width, max_height, format, jpeg_quality)`, an `async` entry in
-  `optional_exports` of [chromium-host-ops.json](chromium-host-ops.json) with `fork_api` 38: the app's claimed numbers
-  end at 37 (`CEFForkFeatures.tabVisibilityForkAPI`), and 086 confirms 38 or moves `surfaceCopyForkAPI` with the pin.
+  `optional_exports` of [chromium-host-ops.json](chromium-host-ops.json) with `fork_api` 40: the fork train (086,
+  manaflow-ai/cef `cp/p13-webui-086`) numbers the capture 40 (`CEFForkFeatures.surfaceCopyForkAPI`); that line lacks
+  API 28 and 29, so 40 alone does not mean the API 29 click.
   Its answer is a `CMUX_SHIM_REPLY` under the caller's reply id, as `cmux_shim_download_favicon` answers its image:
   value = width | height << 32 in pixels (0: no picture), json = the image in base64. The site-reply path already
   carries that event through the generated host wire, so no new event kind is needed. `CEFTab.copySurface` sends
@@ -125,12 +126,12 @@ cmux.33 line `c382c63b`). Nobody has built it or run its test, so 077 is not don
   (services/data_decoder/public/cpp/decode_image.h).
   Its answer comes in a synchronous turn (`CEFSurfaceCopies`, as the built-in extension loads: the reply, a refused
   start, a deadline on the main deadline queue, or the browser's close), with no task waiting. It gates on
-  `CEFForkFeatures.surfaceCopy` (the fork API at least 38, plus the shim export), never on a raw dlsym of the fork.
+  `CEFForkFeatures.surfaceCopy` (the fork API at least 40, plus the shim export), never on a raw dlsym of the fork.
 - The page host's DevTools sites (MQ3, 078). Window image, cover snapshot and debug snapshot use the surface copy
   (`PageWebView.chromiumPictureData`); the debug press uses the native click and the debug hover the native move,
   and both report the path in `delivered` (`native` or `devtools`); the menu's Copy sends `execCommand('copy')`
   through `tabEvaluate` with a user gesture and no waiter (`CEFTab.perform`); the selected text goes through
-  `evaluate`. DevTools stays only in the fallback of a fork without the path (pictures and hovers below API 38,
+  `evaluate`. DevTools stays only in the fallback of a fork without the path (pictures and hovers below API 40,
   clicks and Copy below 29).
 - Gate. A fork build must pass `ceftests --gtest_filter=CmuxTabSurfaceTest.*` in its own process, in order. Every
   page test fails at once if the ever-attached flag is already set when its page draws. The capture test then checks
@@ -141,7 +142,15 @@ cmux.33 line `c382c63b`). Nobody has built it or run its test, so 077 is not don
   without DevTools. Sharing is measured by 011's `CmuxPageProcessTest` and 012's pages10 renderer count.
 
 WebKit mechanism. One non-persistent data store per group, every view in the host's process pool,
-`_setRelatedWebView:` per group, 8 pages per process, every SPI gated with `responds(to:)`.
+`_setRelatedWebView:` per group, 8 pages per process, every SPI gated with `responds(to:)`
+(`WebProcessGroups`, owned by `WebUIHost`; p07-memory-087 built the groups, task 015 the store per group).
+Each membership (`.group(PageProcessGroup)`, or `.page(id)` for a `solo` page that asks) has one in-memory store,
+made at its first page and kept for the app's life (`WebProcessGroups.dataStore(for:)`): two pages of one group
+share localStorage, IndexedDB and storage events, and pages of different groups never do. Agent pages (the New
+Tab page and chats) always share the agent store and their processes; the WebKit warm-up view takes the agent
+store. With `webKitPageProcessGroups` every page of a sharing group joins it; without it only pages that ask
+(`sharesWebKitProcess`) do, and every other page has a store of its own, freed when the page closes. A page that
+shows in Chromium joins no WebKit group, and a `secrets` page never does.
 
 Fork implementation, proposed (task 011, manaflow-ai/cef `cp/p13-webui-011` at `17a7f8ff`, on spike 091's branch).
 Nobody has built or run it: the mechanism comes from reading Chromium 154.0.8037.98, not from a measurement. Do not
@@ -166,9 +175,9 @@ passes `ceftests --gtest_filter=CmuxPageProcessTest.*` and `ceftests --cmux-page
   moves off a full renderer.
 - Without a registered group, a host the switch names shares only with its own host (085's agent page). A one-label
   host (`passwords`, `diff`) never shares. cmux-page never uses process-per-site.
-- API number: none yet. This ref keeps `CMUX_CEF_API_VERSION` 27, because it has none of API 28-30. The fork train
-  (086) numbers the export on a line that has 28-30; no ref has that number yet. The app finds the export with
-  dlsym (012).
+- API 42, from the fork train (086, manaflow-ai/cef `cp/p13-webui-086`, on the API 31 line, which lacks 28 and 29).
+  The app finds the export with dlsym (012); the switch goes only to a fork at 42 or later
+  (`CEFForkFeatures.pageSiteSharingForkAPI`).
 - What the WebUI scheme changes, which the fork build must show to be harmless (`content/browser/loader/
   navigation_url_loader_impl.cc` `Start`, `render_frame_host_impl.cc` subresource factories): a cmux-page
   navigation skips the navigation interceptors (service worker, DevTools network), and its terminal loader is
@@ -205,8 +214,8 @@ passes `ceftests --gtest_filter=CmuxPageProcessTest.*` and `ceftests --cmux-page
 - A renderer crash marks every page of its group: shown pages reload once, hidden pages reload when shown, with a
   crash budget of 3 per 600 s per group.
 
-Fork in-place discard (task 018, manaflow-ai/cef `cp/p13-webui-018` at `f844f729`; not built or run yet; no API
-number until the train, 086, so the app finds the exports with dlsym). `cmux_tab_discard(browser_id)` does what
+Fork in-place discard (task 018, manaflow-ai/cef `cp/p13-webui-018` at `f844f729`; not built or run yet; API 39
+in the fork train, 086; the app finds the exports with dlsym). `cmux_tab_discard(browser_id)` does what
 Chrome does with `WebContentsDiscard` (`chrome/browser/resource_coordinator/tab_lifecycle_unit.cc`
 `FinishDiscardAndPreserveWebContents`): `AttemptFastKillForDiscard`, then `WebContents::Discard`. The fast kill ends
 the renderer only when `RenderProcessHostImpl::FastShutdownIfPossible` allows it: no other page in the process, and
@@ -273,7 +282,7 @@ insertion, so in a tabbed embedder window it owns the window's BrowserView, and 
 plain tabs that load as before. `CefBrowserHostBase::Create` removes the key from extra_info in both runtime styles, so
 no renderer sees it. `cmux_tab_renderer_state(browser_id)` reports whether the main frame's own RenderFrame is live
 (`RenderFrameHost::IsRenderFrameLive`): a placeholder whose frame Chromium put in a shared live process above the
-renderer process limit still reports 0. No API number yet (the train, 086, gives one); the app honors the key only
+renderer process limit still reports 0. API 38 in the fork train (086); the app honors the key only
 when it finds `cmux_tab_renderer_state` with dlsym (019, which also passes the key from the shim's window create).
 On a fork build, `ceftests --gtest_filter=CmuxPlaceholderTest.*` (a regular Chrome window, the key in both styles)
 and `scripts/test-cmux-embedder.sh <cef> placeholder placeholder-shared` (the tabbed embedder window the spare
@@ -412,6 +421,60 @@ process (p13-webui.md risk 2). Run: `cmux-ci build cef --ref 976745836370f6b40e2
 then `ceftests --gtest_filter=CmuxPageProcessTest.*` three times (no switch, `--cmux-page-process-lock=effective-url`,
 `--cmux-page-process-lock=webui-scheme`). Put the job id, the counts, the logged locks and the kills in the Measured
 column.
+
+### 5.2 Preload park state (task 090): open, not run
+
+Status 2026-10-26: the bench is ready, the run is not. The table below is what the spike
+fills; no cell is measured yet.
+
+| Park | Engine | Session | Key to cover (ms) p50 / p95 / p99 / max | Key to live (ms) p50 / p95 / p99 / max | Parked wakeups/s p50 / p95 / p99 / max | sha | host | job |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| frozen | chromium | light | not run | not run | not run | - | - | - |
+| rendered | chromium | light | not run | not run | not run | - | - | - |
+| frozen | webkit | light | not run | not run | not run | - | - | - |
+| rendered | webkit | light | not run | not run | not run | - | - | - |
+| frozen | chromium | stress | not run | not run | not run | - | - | - |
+| rendered | chromium | stress | not run | not run | not run | - | - | - |
+| frozen | webkit | stress | not run | not run | not run | - | - | - |
+| rendered | webkit | stress | not run | not run | not run | - | - | - |
+
+The variants. Frozen-hidden: the preload is hidden to its engine, then frozen (Chromium SetPageFrozen; WebKit hidden
+in its window with the throttling SPI, task 028); the census reports it `frozen`. Rendered-parked: the preload is
+hidden to its engine and not frozen, so its JS sees `visibilitychange`, pauses its own work, and the engine keeps its
+rendered frame; the census reports it `hidden` with `engine_visible` false. Chrome parks its preloaded WebUI the
+rendered way and never freezes it (`chrome/browser/ui/webui/top_chrome/webui_contents_preload_manager.cc`,
+`CannotFreezeReason::kWebUI`), so rendered is the default and frozen must earn its place.
+
+How it runs: `scripts/cmux-next/bench-webui.py park --park frozen|rendered` (one variant per run; the bench sets the
+debug tunable `webui.preloadPark`), 120 Hz host, light and `--session stress`, `--engine chromium` and `webkit`:
+8 runs, each through the fleet entry
+`cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/webui-bench.sh --ref <sha>
+--artifact artifacts/webui-bench --arg=--modes=park,home --arg=--park=<state> --arg=--engine=<engine>
+[--arg=--session=stress]`. Each run measures, from a preload parked as asked: the preload process's wakeups/s in
+1 s windows over `--measure` s, Cmd-T key to the cover frame, key to the live frame (the first frame the page
+painted after its show, when the cover goes), and the key's turn. A run whose build does not park as asked prints
+every row `unscored` and is never a sample. Then, anywhere:
+`python3 scripts/cmux-next/bench-webui.py park-table --run <job id> <artifact>/park/webui-park.json ...` prints the
+rows above with sha, host and job id, and the decision with its targets.
+
+The decision rule (`park_decision` in the bench): frozen wins only if, for every engine and session, its key to live
+p95 is at most one 120 Hz frame (8.3 ms) worse than rendered's and at most 50 ms, and its parked process wakes less
+(p50). Otherwise rendered. The D4 key to live frame target of each session is the chosen state's worst engine p95,
+rounded up to whole 120 Hz frames, never above 50 ms.
+
+D4 key to live frame target, until the run: <= 50 ms p95, light and STRESS (the ceiling in p13-webui.md D4). The
+run replaces this line with the target the rule writes.
+
+What the run needs first, read on perf/chrome-parity after 028 and 043 landed:
+
+- Freeze and thaw on both engines (028): on the tip (`PageWebViewLifecycle.freeze()` asks the page view to freeze).
+- A preload owner that reads `webui.preloadPark` and parks as asked: not on the tip. 043 (PagePreloadSlot,
+  NewTabPreload) landed with one switch, feature `newTabParksHidden` (park hidden with the slot's cover, or render
+  as the spare always did), and reads no tunable. Until the slot reads `webui.preloadPark` (or the bench selects
+  the park through that feature), the census never shows the park asked and both variants print `unscored`. The
+  default then follows the decision.
+- `debug.new_tab bench_open` reporting `live_ms`: not on the tip. It reports the cover frame only (`visible_ms`),
+  so key to live prints `unscored` (in the `open` mode too).
 
 ### 5.4 Code cache for cmux pages (task 052): open, not run
 

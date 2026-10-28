@@ -4,6 +4,9 @@
 //! wire message, and serves the standard ACP protocol plus a small
 //! `_acpmux/*` extension to any number of attached clients.
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 // Imported from manaflow-ai/acpmux with these structural lints already
 // violated in many render and RPC signatures. Refactoring them is separate
 // work from moving the crate into the cmux-tui workspace.
@@ -109,6 +112,7 @@ pub mod subagents;
 pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_worktree;
+pub mod supervised;
 pub mod tailnet;
 mod trace_control;
 pub mod trace_layer;

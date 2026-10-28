@@ -280,6 +280,13 @@ typedef enum {
   // source pane's, else the normalized profile directory). An INSERT's tab
   // comes in its own AFTER_CREATED, which names it by that minted id.
   CMUX_SHIM_WINDOW_REQUEST_RESULT = 66,
+  // The renderer processes that host browser_id's frames changed: a frame
+  // attached to its renderer, left it or became the main frame
+  // (CefFrameHandler), as an iframe added after the load, an out-of-process
+  // iframe's swap or its renderer's end do. Sent once after a task's
+  // changes, and only when the set of the frames' renderer client ids
+  // (cmux_shim_renderer_client_ids) differs from the one it last reported.
+  CMUX_SHIM_FRAME_RENDERERS = 67,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -688,6 +695,24 @@ typedef struct {
 } cmux_shim_restore_entry;
 CMUX_SHIM_EXPORT int cmux_shim_tab_restore_entries(int browser_id, const cmux_shim_restore_entry* entries, int count,
                                                    int current);
+// Fork API 31 (task p01-process-170): a detached page's IME. The four ops
+// the page view's NSTextInputClient makes (Chrome's RenderWidgetHostViewCocoa
+// calls on its RenderWidgetHostNSViewHost) are the shim's optional exports
+// cmux_shim_browser_ime_set_composition, _commit_text, _finish_composing and
+// _cancel_composition (plans/cmux-next/chromium-host-ops.json
+// optional_exports, task p04-input-064's kIme layout: UTF-16LE text, 16-byte
+// clauses); shim_helper_host.mm runs them on the fork's cmux_browser_ime_*.
+//
+// Watches the page's composition bounds for firstRectForCharacterRange:.
+// `bounds` points at the fork's cmux_composition_bounds_t (include/cef_cmux.h:
+// size, kind 1 range changed or 2 cancelled (discard the marked text), the
+// composition range, one rect x, y, width, height per character in the page
+// view's points, top left origin), valid only during the call. fn NULL stops
+// the watch. Returns 0 when the fork is older than API 31.
+CMUX_SHIM_EXPORT int cmux_shim_browser_composition_bounds_watch(int browser_id,
+                                                                void (*fn)(void* context, int browser_id,
+                                                                           const void* bounds),
+                                                                void* context);
 // The page chrome://newtab shows when no extension overrides the New Tab
 // page (fork API 12); NULL or "" keeps Chromium's. Any time, also before
 // cmux_shim_initialize. The ADDRESS event reports "chrome://newtab/" for a
@@ -1461,6 +1486,14 @@ CMUX_SHIM_EXPORT int cmux_cef_end_tracing(const char* path, cmux_cef_trace_writt
 // is mach_absolute_time on macOS, the CLOCK_UPTIME_RAW clock). Any thread, after cmux_shim_load.
 // The trace's "ts" values use this clock; sample it next to the caller's clock for the offset.
 CMUX_SHIM_EXPORT int64_t cmux_cef_now_trace_us(void);
+
+// The time slice of the next cmux_shim_do_work only, in microseconds (fork
+// cmux_set_message_loop_time_slice, p03-rendering-116): that pass runs ready
+// work for at most this long, clamped to 100 us and to the
+// --cmux-pump-time-slice-us slice; 0 or less: the switch's slice. Main thread,
+// in process only. Returns 1 when the fork has the call, 0 otherwise (every
+// pass keeps the switch's slice).
+CMUX_SHIM_EXPORT int cmux_shim_set_pump_time_slice(int64_t slice_us);
 
 #ifdef __cplusplus
 }

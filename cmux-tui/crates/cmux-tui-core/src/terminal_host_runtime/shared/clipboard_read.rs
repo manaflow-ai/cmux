@@ -31,9 +31,9 @@
 //! reports every change to the broker handler as a [`ClipboardReadSignal`]:
 //! a request, or a cancel when the host withdrew it or the connection ended.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use ghostty_vt::Terminal;
@@ -228,7 +228,13 @@ impl ClipboardClock for SystemClock {
         state: MutexGuard<'a, ClipboardReadState>,
         timeout: Duration,
     ) -> MutexGuard<'a, ClipboardReadState> {
-        changed.wait_timeout(state, timeout).unwrap_or_else(PoisonError::into_inner).0
+        // The wake goes on wake::deadline's grid, never before the timeout, so it can share a wake
+        // with others; run_timer reads the clock again and refuses the read only once it is due.
+        let now = crate::wake::Ticks::now();
+        let wait = crate::wake::deadline(now, timeout, crate::wake::Policy::FlexibleNoSooner)
+            .wait_from(now);
+        // wakeup-allow: deadline the caller's one timeout, aligned by wake::deadline; a notify ends it first
+        changed.wait_timeout(state, wait).unwrap_or_else(PoisonError::into_inner).0
     }
 }
 
@@ -515,10 +521,16 @@ impl ClipboardReads {
     pub(crate) fn start_timer(&self, host: &Arc<HostShared>) -> std::io::Result<()> {
         let shared = self.shared.clone();
         let host = Arc::downgrade(host);
-        thread::Builder::new()
-            .name("terminal-host-clipboard".into())
-            .spawn(move || shared.run_timer(&host))
-            .map(drop)
+        supervised::spawn_at(
+            "terminal-host-clipboard",
+            cmux_threads::ThreadQos::UserInitiated,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                shared.run_timer(&host);
+            },
+        )
+        .map(drop)
     }
 }
 
@@ -535,6 +547,7 @@ impl ClipboardReadsShared {
             };
             let now = self.clock.now();
             if now < deadline {
+                // wakeup-allow: deadline the open read's one deadline; with no read open the timer waits in clock.wait
                 state = self.clock.wait_timeout(&self.changed, state, deadline - now);
                 continue;
             }

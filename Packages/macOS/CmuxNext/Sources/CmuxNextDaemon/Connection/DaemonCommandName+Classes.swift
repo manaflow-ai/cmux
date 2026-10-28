@@ -296,10 +296,12 @@ extension DaemonCommandName {
         case 285: return 7
         case 286: return 7
         case 287: return 1
-        case 288: return 7
-        case 289: return 1
+        case 288: return 1
+        case 289: return 7
         case 290: return 1
         case 291: return 1
+        case 292: return 1
+        case 293: return 3
         case 16384: return 3
         case 16385: return 3
         case 16386: return 3

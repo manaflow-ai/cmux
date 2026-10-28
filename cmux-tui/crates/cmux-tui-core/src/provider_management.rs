@@ -17,6 +17,8 @@ use zeroize::Zeroize;
 #[cfg(target_os = "linux")]
 use zeroize::Zeroizing;
 
+#[cfg(target_os = "linux")]
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::{
     Mux, ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
     ProviderWorkspaceAuthorityUpdateError,
@@ -207,50 +209,63 @@ fn peer_uid(stream: &std::os::unix::net::UnixStream) -> io::Result<u32> {
 pub fn serve(
     listener: std::os::unix::net::UnixListener,
     mux: Arc<Mux>,
-) -> io::Result<std::thread::JoinHandle<()>> {
+) -> io::Result<supervised::SupervisedThread<()>> {
     // SAFETY: PR_SET_DUMPABLE takes only integer arguments and touches no memory.
     let result = unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
     if result != 0 {
         return Err(io::Error::last_os_error());
     }
-    std::thread::Builder::new().name("provider-management".into()).spawn(move || {
-        // Descriptor exhaustion persists across accepts; an immediate retry
-        // spun this thread at 100% CPU.
-        let mut backoff =
-            crate::backoff::Backoff::new(Duration::from_millis(10), Duration::from_secs(1));
-        for connection in listener.incoming() {
-            let stream = match connection {
-                Ok(stream) => {
-                    backoff.reset();
-                    stream
-                }
-                Err(error) => {
-                    if crate::backoff::accept_error_needs_backoff(&error) {
-                        backoff.sleep();
+    supervised::spawn_at(
+        "provider-management",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            // Descriptor exhaustion persists across accepts; an immediate retry
+            // spun this thread at 100% CPU.
+            let mut backoff =
+                crate::backoff::Backoff::new(Duration::from_millis(10), Duration::from_secs(1));
+            for connection in listener.incoming() {
+                let stream = match connection {
+                    Ok(stream) => {
+                        backoff.reset();
+                        stream
                     }
-                    continue;
-                }
-            };
-            let mux = mux.clone();
-            let _ = std::thread::Builder::new().name("provider-management-peer".into()).spawn(
-                move || {
-                    let Ok(uid) = peer_uid(&stream) else { return };
-                    if uid != 0 {
-                        let _ = write_response(
-                            &stream,
-                            &Response::error("access_denied", "provider management requires root"),
-                        );
-                        return;
+                    Err(error) => {
+                        if crate::backoff::accept_error_needs_backoff(&error) {
+                            backoff.sleep();
+                        }
+                        continue;
                     }
-                    let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
-                    let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
-                    let Ok(bytes) = read_message(&stream) else { return };
-                    let response = handle_request(&mux, uid, &bytes.0);
-                    let _ = write_response(&stream, &response);
-                },
-            );
-        }
-    })
+                };
+                let mux = mux.clone();
+                let _ = supervised::spawn_at(
+                    "provider-management-peer",
+                    cmux_threads::ThreadQos::Utility,
+                    Fatal,
+                    ShutdownBehavior::Continue,
+                    move || {
+                        let Ok(uid) = peer_uid(&stream) else { return };
+                        if uid != 0 {
+                            let _ = write_response(
+                                &stream,
+                                &Response::error(
+                                    "access_denied",
+                                    "provider management requires root",
+                                ),
+                            );
+                            return;
+                        }
+                        let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
+                        let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
+                        let Ok(bytes) = read_message(&stream) else { return };
+                        let response = handle_request(&mux, uid, &bytes.0);
+                        let _ = write_response(&stream, &response);
+                    },
+                );
+            }
+        },
+    )
 }
 
 #[derive(Debug)]

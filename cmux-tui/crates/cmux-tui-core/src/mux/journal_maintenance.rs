@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 const JOURNAL_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
 const JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS: u64 = 4_096;
@@ -77,7 +78,7 @@ struct JournalMaintenanceControl {
 /// free pages.
 pub(super) struct JournalMaintenance {
     control: Arc<JournalMaintenanceControl>,
-    thread: Option<std::thread::JoinHandle<()>>,
+    thread: Option<supervised::SupervisedThread<()>>,
 }
 
 impl JournalMaintenance {
@@ -90,9 +91,11 @@ impl JournalMaintenance {
         let worker_control = control.clone();
         let weak_mux = Arc::downgrade(mux);
         let interval = journal_maintenance_interval();
-        let thread = cmux_threads::spawn(
+        let thread = supervised::spawn_at(
             "cmux-journal-maintenance",
             crate::request_qos::UPKEEP_THREAD_QOS,
+            Fatal,
+            ShutdownBehavior::Continue,
             move || {
                 let mut ledgers = ledger_maintenance::LedgerMaintenance::default();
                 loop {
@@ -130,8 +133,8 @@ impl JournalMaintenance {
         if let Some(thread) = self.thread.take() {
             // The last `Arc<Mux>` can drop on the worker itself; it must not
             // join its own thread.
-            if thread.thread().id() != std::thread::current().id() {
-                let _ = cmux_threads::checked::sync::join(thread);
+            if !thread.is_current() {
+                let _ = thread.join();
             }
         }
     }

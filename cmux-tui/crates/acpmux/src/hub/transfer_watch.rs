@@ -116,7 +116,9 @@ impl Hub {
             return;
         }
         let (hub, session, transfer_id) = (self.clone(), session.clone(), transfer_id.to_owned());
-        tokio::spawn(async move { hub.transfer_watch(&session, &transfer_id).await });
+        self.supervise("hub.transfer-watch", Fatal, ShutdownBehavior::Skip, async move {
+            hub.transfer_watch(&session, &transfer_id).await
+        });
     }
 
     /// Every move a chat here is in, once the daemon starts.

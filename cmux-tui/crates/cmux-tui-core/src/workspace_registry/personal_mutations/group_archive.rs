@@ -15,7 +15,7 @@ use super::super::personal_store::{
     DEFAULT_PROFILE_ID, commit_personal, read_group, read_groups, read_profile, subject,
     write_order,
 };
-use super::room_archive::{insert_rows, reinsert, rows};
+use super::room_archive::{column_fields, insert_rows, reinsert, rows};
 
 /// The record of `group` before its delete: its row, its place in the
 /// group order and its members in personal order.
@@ -28,7 +28,7 @@ pub(crate) fn snapshot_group(connection: &Connection, group: &str) -> anyhow::Re
         &[&group],
     )?
     .into_iter()
-    .map(|row| json!({"session_id": row["session_id"], "workspace_key": row["workspace_key"]}))
+    .map(|row| Value::Object(column_fields(&row, &["session_id", "workspace_key"])))
     .collect::<Vec<_>>();
     Ok(json!({
         "id": group,
@@ -40,8 +40,11 @@ pub(crate) fn snapshot_group(connection: &Connection, group: &str) -> anyhow::Re
 
 /// The public summary of a group record (`ClosedItemSnapshot.group`).
 pub(crate) fn public_group(archive: &Value) -> Value {
-    let row = &archive["row"][0];
-    json!({"id": archive["id"], "name": row["name"], "color": row["color"], "icon": row["icon"]})
+    let missing = Value::Null;
+    let row = archive.get("row").and_then(|rows| rows.get(0)).unwrap_or(&missing);
+    let mut summary = column_fields(row, &["name", "color", "icon"]);
+    summary.insert("id".into(), archive.get("id").cloned().unwrap_or_default());
+    Value::Object(summary)
 }
 
 /// Restore the group of `archive` when it is gone. Members of `session`
@@ -65,7 +68,11 @@ pub(crate) fn restore_group(
     anyhow::ensure!(!row.is_empty(), "the closed group {group} has no row");
     insert_rows(transaction, "personal_groups", row)?;
     // A group of a room deleted since then shows in the default room.
-    let room = row[0]["profile_id"].as_str().unwrap_or(DEFAULT_PROFILE_ID);
+    let room = row
+        .first()
+        .and_then(|row| row.get("profile_id"))
+        .and_then(Value::as_str)
+        .unwrap_or(DEFAULT_PROFILE_ID);
     if read_profile(transaction, room)?.is_none() {
         transaction.execute(
             "UPDATE personal_groups SET profile_id = ?2 WHERE group_id = ?1",

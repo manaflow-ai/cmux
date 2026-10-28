@@ -256,7 +256,7 @@ impl StreamLanes {
     /// Queues `message` on its stream's FIFO; returns the lane when it was
     /// empty before (a lane that may have become ready).
     pub(super) fn push(&mut self, message: RegularOutbound) -> Option<Lane> {
-        let (id, lane) = (message.stream.id, message.stream.lane);
+        let (id, lane) = (message.stream.id, message.stream.lane());
         let fifo = self.streams.entry(id).or_default();
         let was_empty = fifo.is_empty();
         fifo.push_back(message);
@@ -267,6 +267,25 @@ impl StreamLanes {
         let lane_was_empty = ring.order.is_empty();
         ring.order.push_back(id);
         lane_was_empty.then_some(lane.lane())
+    }
+
+    /// Moves `stream`'s place in turn from `from`'s ring to the back of
+    /// `to`'s; its FIFO stays as it is. Returns `to`'s lane when it got its
+    /// first ready stream.
+    pub(super) fn move_stream(
+        &mut self,
+        stream: u64,
+        from: StreamLane,
+        to: StreamLane,
+    ) -> Option<Lane> {
+        if from == to || !self.ring(from).order.contains(&stream) {
+            return None;
+        }
+        self.ring(from).remove(stream);
+        let ring = self.ring(to);
+        let was_empty = ring.order.is_empty();
+        ring.order.push_back(stream);
+        was_empty.then_some(to.lane())
     }
 
     /// Drops what `stream` has queued.
@@ -417,6 +436,7 @@ impl BoundedOutboundState {
             stream_items: 0,
             regular_bytes: 0,
             closed: false,
+            writer: Default::default(),
             client_streams: ClientStreams::default(),
             space_woken: SpaceWoken::default(),
             room_waiters: Vec::new(),

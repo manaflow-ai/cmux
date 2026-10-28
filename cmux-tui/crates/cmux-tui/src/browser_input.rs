@@ -40,9 +40,10 @@ use std::mem::{size_of, size_of_val};
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use cmux_threads::sync::Condvar;
 use cmux_tui_core::SurfaceId;
 
 use crate::session::SurfaceHandle;

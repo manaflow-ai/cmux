@@ -78,11 +78,18 @@ impl Surface {
         let pty = self.as_pty().expect("test reader requires a PTY surface");
         pty.reader_completion.reset();
         let completion = pty.reader_completion.clone();
-        let reader = std::thread::spawn(move || {
-            let result = reader.join();
-            completion.complete();
-            result.expect("installed test terminal reader panicked");
-        });
+        let reader = supervised::spawn_at(
+            "test-terminal-reader",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                let result = reader.join();
+                completion.complete();
+                result.expect("installed test terminal reader panicked");
+            },
+        )
+        .expect("test reader thread starts");
         let previous = pty.reader_thread.lock().unwrap().replace(TerminalReader::Thread(reader));
         assert!(previous.is_none(), "test PTY already owns a reader thread");
     }

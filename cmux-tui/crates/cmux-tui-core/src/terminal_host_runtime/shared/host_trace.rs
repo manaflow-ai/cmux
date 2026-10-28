@@ -22,6 +22,7 @@ use super::host_shared::HostShared;
 use super::host_state::HostTap;
 use crate::panic_free::RecoverPoison;
 use crate::process_trace::{TraceReport, TracedState};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::terminal_host_protocol::{wire_u32, wire_u64};
 
 const OP_START: u8 = 1;
@@ -171,16 +172,20 @@ impl HostTraceQueue {
         }
         let (sender, receiver) = sync_channel::<TraceJob>(TRACE_QUEUE_CAPACITY);
         let apply = self.apply;
-        std::thread::Builder::new()
-            .name("cmux-host-trace".into())
-            .spawn(move || {
+        supervised::spawn_at(
+            "cmux-host-trace",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
                 // Ends when the host drops its queue.
                 for job in receiver {
                     let outcome = apply(job.op, &job.dir, Role::TerminalHost);
                     (job.reply)(TraceReport::of_this_process(outcome));
                 }
-            })
-            .ok()?;
+            },
+        )
+        .ok()?;
         // Two connections that race here both use the winner's thread; the
         // loser's ends with its sender.
         let _ = self.jobs.set(sender);

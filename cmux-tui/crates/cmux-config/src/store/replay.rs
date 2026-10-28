@@ -62,7 +62,7 @@ impl ReplayLog {
 fn committed_operation(fingerprint: &str) -> String {
     let name = serde_json::from_str::<serde_json::Value>(fingerprint)
         .ok()
-        .and_then(|value| value["op"].as_str().map(str::to_string))
+        .and_then(|value| value.get("op").and_then(serde_json::Value::as_str).map(str::to_string))
         .unwrap_or_default();
     format!("settings.{name}")
 }

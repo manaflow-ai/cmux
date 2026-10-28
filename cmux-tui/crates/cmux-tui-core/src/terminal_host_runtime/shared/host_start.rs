@@ -5,13 +5,13 @@
 //! waker and the PTY readiness wait.
 
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel as mpsc_channel, sync_channel};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread;
 
 use cmux_kitty_media::KittyMediaRewriter;
 use cmux_pty::MasterPty;
@@ -224,52 +224,63 @@ pub(crate) fn start_host_runtime(
         },
     )?;
     let child_host = shared.clone();
-    thread::Builder::new().name("terminal-host-child".into()).spawn(move || {
-        let observed_without_reaping = child.wait_exit_observed();
-        if observed_without_reaping {
-            child_host.mark_child_waitable();
-            let mut drain = exited_drain::ExitedDrain::start();
-            loop {
-                let signal = child_host.child_signal_lock.lock().recover_poison();
-                let escalation_complete =
-                    child_host.group_escalation_complete.load(Ordering::Acquire);
-                #[cfg(unix)]
-                let escalation_failed = child_host.group_escalation_failed.load(Ordering::Acquire);
-                #[cfg(not(unix))]
-                let escalation_failed = false;
-                let termination_started = child_host.termination_started.load(Ordering::Acquire);
-                let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
-                if escalation_complete || escalation_failed || (!termination_started && pty_drained)
-                {
-                    let mut exit = child.wait_and_disarm();
+    supervised::spawn_at(
+        "terminal-host-child",
+        cmux_threads::ThreadQos::UserInitiated,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let observed_without_reaping = child.wait_exit_observed();
+            if observed_without_reaping {
+                child_host.mark_child_waitable();
+                let mut drain = exited_drain::ExitedDrain::start();
+                loop {
+                    let signal = child_host.child_signal_lock.lock().recover_poison();
+                    let escalation_complete =
+                        child_host.group_escalation_complete.load(Ordering::Acquire);
                     #[cfg(unix)]
-                    if escalation_failed {
-                        exit =
-                            TerminalExit::unknown(session_cleanup::SESSION_CLEANUP_FAILED_REASON);
+                    let escalation_failed =
+                        child_host.group_escalation_failed.load(Ordering::Acquire);
+                    #[cfg(not(unix))]
+                    let escalation_failed = false;
+                    let termination_started =
+                        child_host.termination_started.load(Ordering::Acquire);
+                    let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
+                    if escalation_complete
+                        || escalation_failed
+                        || (!termination_started && pty_drained)
+                    {
+                        let mut exit = child.wait_and_disarm();
+                        #[cfg(unix)]
+                        if escalation_failed {
+                            exit = TerminalExit::unknown(
+                                session_cleanup::SESSION_CLEANUP_FAILED_REASON,
+                            );
+                        }
+                        child_host.child_reaped.store(true, Ordering::Release);
+                        drop(signal);
+                        *child_host.child_exit.0.lock().recover_poison() = Some(exit);
+                        break;
                     }
-                    child_host.child_reaped.store(true, Ordering::Release);
                     drop(signal);
-                    *child_host.child_exit.0.lock().recover_poison() = Some(exit);
-                    break;
+                    let state = child_host.child_exit.0.lock().recover_poison();
+                    drain.wait(&child_host, state);
                 }
-                drop(signal);
-                let state = child_host.child_exit.0.lock().recover_poison();
-                drain.wait(&child_host, state);
+                child_host.child_exit.1.notify_all();
+                child_host.publish_exit_if_drained();
+            } else {
+                // Native Unix PTYs always expose a PID and support waitid;
+                // retain a conservative fallback for alternate backends.
+                let exit = child.wait_and_disarm();
+                child_host.child_reaped.store(true, Ordering::Release);
+                child_host.mark_child_waitable();
+                let mut exited = child_host.child_exit.0.lock().recover_poison();
+                *exited = Some(exit);
+                child_host.child_exit.1.notify_all();
+                child_host.publish_exit_if_drained();
             }
-            child_host.child_exit.1.notify_all();
-            child_host.publish_exit_if_drained();
-        } else {
-            // Native Unix PTYs always expose a PID and support waitid;
-            // retain a conservative fallback for alternate backends.
-            let exit = child.wait_and_disarm();
-            child_host.child_reaped.store(true, Ordering::Release);
-            child_host.mark_child_waitable();
-            let mut exited = child_host.child_exit.0.lock().recover_poison();
-            *exited = Some(exit);
-            child_host.child_exit.1.notify_all();
-            child_host.publish_exit_if_drained();
-        }
-    })?;
+        },
+    )?;
     Ok(shared)
 }
 

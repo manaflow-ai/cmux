@@ -2,6 +2,7 @@ public import AppKit
 import QuartzCore
 import CmuxNextCompat
 import CmuxNextWakeups
+public import CmuxNextDesignTokens
 
 /// The custom color dot after a group editor's palette dots (cx-25az, tab groups cx-wqn5):
 /// icon-only, it opens the system color panel (wheel, sliders and a hex field). Once a group has

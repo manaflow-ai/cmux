@@ -22,7 +22,7 @@ static STARTED: AtomicBool = AtomicBool::new(false);
 
 /// Start the watcher once per process, on the tokio runtime of the caller
 /// (the refresh runs the shell there). It lives as long as the process.
-pub fn start() {
+pub fn start(supervisor: &crate::supervised::Supervisor) {
     let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
     if STARTED.swap(true, Ordering::SeqCst) {
         return;
@@ -52,12 +52,20 @@ pub fn start() {
     if !any {
         return;
     }
-    let spawned =
-        std::thread::Builder::new().name("acpmux-login-env-watch".into()).spawn(move || {
+    // It keeps the daemon's login environment current: a panic in it is fatal. Its
+    // events stop only with the process, so shutdown does not wait for it.
+    let spawned = crate::supervised::thread(
+        supervisor,
+        "acpmux-login-env-watch",
+        cmux_threads::ThreadQos::Utility,
+        crate::supervised::Fatal,
+        crate::supervised::ShutdownBehavior::Continue,
+        move |_stop| {
             // The thread owns the watcher: its events stop only with the process.
             let _watcher = watcher;
             run(&rx, &files, &rt);
-        });
+        },
+    );
     if let Err(e) = spawned {
         tracing::warn!("login env: the startup-file watcher thread cannot start: {e}");
     }

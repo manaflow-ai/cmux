@@ -11,6 +11,7 @@
 //! re-classifies an unsettled receipt at startup against the recorded
 //! shutdown window, with the same result.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::sync::{Condvar, Mutex};
 use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
@@ -158,10 +159,13 @@ impl Mux {
         state.worker_running = true;
         drop(state);
         let worker = Arc::clone(timer);
-        if let Err(error) = std::thread::Builder::new()
-            .name("terminal-exit-settle".to_string())
-            .spawn(move || worker.run_worker(mux))
-        {
+        if let Err(error) = supervised::spawn_at(
+            "terminal-exit-settle",
+            cmux_threads::ThreadQos::UserInitiated,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || worker.run_worker(mux),
+        ) {
             timer.state.lock().recover_poison().worker_running = false;
             eprintln!("cmux-tui: could not start the terminal exit settle worker: {error:#}");
         }

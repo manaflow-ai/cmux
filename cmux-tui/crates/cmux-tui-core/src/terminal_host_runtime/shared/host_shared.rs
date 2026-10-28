@@ -12,7 +12,6 @@ use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -251,6 +250,7 @@ impl HostShared {
                 );
             }
             let observed = *generation;
+            // wakeup-allow: deadline the snapshot's one boundary deadline; parser progress ends each wait first
             let (next, wait) = self
                 .parser_progress
                 .1

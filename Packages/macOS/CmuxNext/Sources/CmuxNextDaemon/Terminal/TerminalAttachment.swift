@@ -5,9 +5,11 @@ import CmuxNextWakeups
 import os
 
 /// One attached terminal view: on a connection of its own, or as a client-minted stream on the app's control
-/// connection when that connection streams terminals (TerminalAttachment+Stream.swift, p05-ipc-095). Events
-/// flow through a bounded `TerminalEventQueue`; live output goes from the reader thread straight to the view's
-/// lane once one is set (``setOutputSink(_:)``, ``TerminalEchoRouter``). After the attach every command here is
+/// connection when that connection streams terminals (TerminalAttachment+Stream.swift, p05-ipc-095). Streams
+/// are the default in DEV and NIGHTLY (feature `terminalStreams`, p05-ipc-094; Release after its benches); for
+/// one release `CMUX_DISABLE_FEATURES=terminalStreams` keeps a connection per view, then that path goes (app-daemon-connection-DESIGN.md section 6). Events flow
+/// through a bounded `TerminalEventQueue`; live output goes from the reader thread straight to the view's lane
+/// once one is set (``setOutputSink(_:)``, ``TerminalEchoRouter``). After the attach every command here is
 /// fire-and-forget, so a consumer that stops draining can never deadlock against a blocked reader.
 public actor TerminalAttachment: TerminalByteChannel {
     public struct Target: Sendable, Hashable {
@@ -77,6 +79,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         /// the participant (held: without it the view cannot tell whether it owns the grid).
         var sizeGeneration: UInt64?
         var heldSizeState: TerminalSizeState?
+        /// The view's last ``TerminalStreamPriority`` (``setStreamPriority(_:)``).
+        var streamPriority: TerminalStreamPriority?
     }
 
     /// A class box, so the reader thread's closure can share the mutex (a `Mutex` cannot be copied).
@@ -349,6 +353,21 @@ public actor TerminalAttachment: TerminalByteChannel {
         } else {
             claimGeometry(reporting: nil)
         }
+    }
+
+    /// Ranks this view's stream against the other views of its connection (`set-stream-priority`,
+    /// p05-ipc-142): focused output rides the input lane, a hidden snapshot view gets no output until it shows.
+    /// Latest wins; the same priority again, or any after ``detachNow()``, sends nothing. A view on a connection
+    /// of its own has no stream to rank (``stream`` is nil, p05-ipc-095): its connection is its own lane.
+    public nonisolated func setStreamPriority(_ priority: TerminalStreamPriority) {
+        guard let stream else { return }
+        let changed = control.value.withLock { control -> Bool in
+            guard control.streamPriority != priority, !control.detached else { return false }
+            control.streamPriority = priority
+            return true
+        }
+        guard changed else { return }
+        fireAndForget(SetStreamPriorityRequest(stream: stream.id, priority: priority))
     }
 
     /// Idempotent: the first call detaches and closes the connection, or cancels the view's stream, which ends

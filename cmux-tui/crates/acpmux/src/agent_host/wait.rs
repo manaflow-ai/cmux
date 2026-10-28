@@ -74,6 +74,14 @@ struct DeathWatch {
     ended: tokio::sync::watch::Sender<Watch>,
 }
 
+impl DeathWatch {
+    fn end(&self, end: Watch) {
+        *self.state.lock_or_recover() = end;
+        self.changed.notify_all();
+        self.ended.send_replace(end);
+    }
+}
+
 fn watches() -> &'static StdMutex<HashMap<PathBuf, Arc<DeathWatch>>> {
     static WATCHES: OnceLock<StdMutex<HashMap<PathBuf, Arc<DeathWatch>>>> = OnceLock::new();
     WATCHES.get_or_init(Default::default)
@@ -104,13 +112,21 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
     });
     map.insert(path.to_owned(), w.clone());
     let (key, watch) = (path.to_owned(), w.clone());
-    std::thread::spawn(move || {
-        let end = take_death_lock(file);
-        watches().lock_or_recover().remove(&key);
-        *watch.state.lock_or_recover() = end;
-        watch.changed.notify_all();
-        watch.ended.send_replace(end);
-    });
+    // Scoped to this one incarnation: it owns the descriptor and ends its own entry.
+    let started = crate::supervised::scoped_thread(
+        "acpmux-death-watch",
+        cmux_threads::ThreadQos::Utility,
+        move || {
+            let end = take_death_lock(file);
+            watches().lock_or_recover().remove(&key);
+            watch.end(end);
+        },
+    );
+    if started.is_err() {
+        // No thread, no proof either way.
+        map.remove(path);
+        w.end(Watch::Failed);
+    }
     Some(w)
 }
 

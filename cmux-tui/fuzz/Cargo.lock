@@ -24,7 +24,9 @@ dependencies = [
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-server-core",
+ "cmux-threads",
  "cmux-trace",
+ "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-wake",
  "cmux-worktree-care",
@@ -821,6 +823,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-server",
  "cmux-server-core",
+ "cmux-threads",
  "libc",
  "serde",
  "serde_json",
@@ -957,6 +960,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-blocking",
+ "cmux-ipc",
  "cmux-link",
  "cmux-panic-log",
  "cmux-pty",
@@ -1161,6 +1165,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-threads",
  "serde_json",
  "tungstenite",
 ]
@@ -1222,6 +1227,7 @@ dependencies = [
  "cmux-tui-remote-access",
  "cmux-tui-util",
  "cmux-unix-socket",
+ "cmux-vt-stream",
  "cmux-wake",
  "flate2",
  "fs4",
@@ -1380,6 +1386,13 @@ name = "cmux-unix-socket"
 version = "0.1.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "cmux-vt-stream"
+version = "0.1.0"
+dependencies = [
+ "ghostty-vt",
 ]
 
 [[package]]

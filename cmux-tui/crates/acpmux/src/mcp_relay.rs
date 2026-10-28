@@ -292,9 +292,16 @@ mod relay {
             }
             let open = Open::default();
             let (owed, out) = (open.clone(), Arc::clone(out));
-            std::thread::Builder::new().name("mcp-relay-out".to_owned()).spawn(move || {
-                let _ = drain_connection(&mut reader, &*out, &owed);
-            })?;
+            // Scoped to this connection: it owns only the read half, and a panic drops it,
+            // which ends the relay's connection. cmux_threads directly: this file is also the
+            // relay program's root module, linked without the acpmux library.
+            cmux_threads::spawn(
+                "mcp-relay-out",
+                cmux_threads::ThreadQos::UserInitiated,
+                move || {
+                    let _ = drain_connection(&mut reader, &*out, &owed);
+                },
+            )?;
             Ok(Conn { writer, open })
         }
     }

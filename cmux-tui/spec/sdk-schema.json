@@ -37,17 +37,17 @@
   "daemon": {
    "id": 1,
    "description": "Daemon identity, liveness, configuration and machine state.",
-   "next_ordinal": 21
+   "next_ordinal": 22
   },
   "clients": {
    "id": 2,
    "description": "Connected clients and their focus.",
-   "next_ordinal": 6
+   "next_ordinal": 7
   },
   "terminal-io": {
    "id": 3,
    "description": "Terminal input, output streams, screen reads and terminal requests to the frontend.",
-   "next_ordinal": 27
+   "next_ordinal": 28
   },
   "terminals": {
    "id": 4,
@@ -12942,6 +12942,26 @@
    },
    "additional_properties": false
   },
+  "BridgeHelloResult": {
+   "kind": "object",
+   "fields": {
+    "features": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The features the daemon took: bridge-frames-v1 when the connection may get frames."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
   "ClientHelloResult": {
    "kind": "object",
    "fields": {
@@ -13297,6 +13317,31 @@
    "additional_properties": false
   },
   "CancelStreamResult": {
+   "kind": "object",
+   "fields": {
+    "stream": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "outcome": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "applied",
+       "ended"
+      ]
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "SetStreamPriorityResult": {
    "kind": "object",
    "fields": {
     "stream": {
@@ -21083,6 +21128,58 @@
     "sdk"
    ]
   },
+  "set-stream-priority": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": "attach-streams-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "priority": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "focused",
+        "visible",
+        "hidden"
+       ]
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "focused: the stream's items ride the input lane and its view drains at input priority.",
+       "visible: the bulk lane, and its view drains at utility priority.",
+       "hidden: a snapshot view gets no output; the terminal still parses it, and the view gets one READY snapshot when it shows again if anything changed meanwhile. Any other view rides the background lane at background priority."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "SetStreamPriorityResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Sets the priority of one attach stream of this connection (stream visibility, p05-ipc-142); a stream never set keeps the bulk lane and input priority it opened with.",
+    "Idempotent: an id with no open stream answers outcome:ended and changes nothing."
+   ],
+   "method_id": 795,
+   "priority": "input",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
   "register-browser-provider": {
    "authority": "local-admin",
    "since": 10,
@@ -21754,6 +21851,31 @@
    ],
    "method_id": 272,
    "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "memory-report": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "A diagnostic report whose per-terminal rows follow libghostty-vt's memory usage struct and whose consumer rows follow the daemon's memory registry; see spec/commands.md memory-report."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only (trusted local connection); a WebSocket or remote relay client is refused before anything is read.",
+    "Read only, never journaled; names no title, path, URL or command."
+   ],
+   "method_id": 277,
+   "priority": "background",
    "durability": "read_only",
    "clients": [
     "sdk"
@@ -36119,6 +36241,47 @@
    "method_id": 5125,
    "priority": "control",
    "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "bridge-hello": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "bridge-hello-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "features": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "At most 16 names of at most 128 characters (bridge_hello.bad_request {field: features} otherwise). bridge-frames-v1: the bridge reads each 0xFF message by its frame header; unknown names are ignored."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "BridgeHelloResult"
+   },
+   "stream": null,
+   "constraints": [
+    "A byte bridge's first line only (bridge_hello.window_closed otherwise); the far client's client-hello window stays open behind it.",
+    "Local (Unix) connections only (bridge_hello.local_only).",
+    "With bridge-frames-v1, a connection whose kernel peer is of the daemon's user and has no role may be granted ipc-frames-v2 and attach-frames-v1, never terminal-output-ring-v1."
+   ],
+   "method_id": 518,
+   "priority": "control",
+   "durability": "memory",
    "clients": [
     "sdk"
    ]

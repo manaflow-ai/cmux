@@ -774,7 +774,7 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
 | 043 | Settings broadcasts → AppearanceSignals | M | 021, 025 | Q4 |
 | 044 | Ghostty configRevision (PL-ghostty) | S | 025 | Q4 |
 | 045 | Sidebar doc and favicon broadcasts → direct (a590) | S | — | Q4 |
-| 046 | Child-page geometry registry (PL-motion-cef; skip if F1 removed it) | M | — | Q4 |
+| 046 | Child-page geometry registry (PL-motion-cef; skip if F1 removed it) [partial] | M | — | Q4 |
 | 047 | Hidden windows stop visibleOnly frame clients | S | 022 | — |
 | 048 | CEF pump on the board, attribution only, never deferred while focused | S | 009 | — |
 | 049 | Launch: classify the AppServices/AppDelegate starts | M | 007, 026 | — |
@@ -1476,6 +1476,13 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
   dirty-set registry. Skip if F1 layer hosting has already deleted the child windows.
 - Acceptance: 2 fewer names; moving 1 of 10 hosts → 1 post.
 - Test phase: fleet CEF host tests; pane-perf.sh.
+- Status: partial (cp/p06-scheduler-046). The per-window `ChildPageGeometryRegistry` replaced
+  `browserChildWindowPagesNeedUpdate` (by then the `BrowserPageUpdates` notification): one registry per window, kept
+  on the window as `WindowEvents` is, reached through `NSWindow.updateBrowserPageGeometry(force:)`; moving 1 of 10
+  hosts gives 1 post. `geometryDidChange` stays: the fork's
+  `CmuxParentViewTracker` observes it, so p11-codebase-051 needs a fork call first. No dirty set: every request
+  visits every page of the window, since a pane move does not reach the views in it and the layout does not name
+  the panes it moved.
 
 **p06-scheduler-047: Hidden windows stop non-essential frame clients.**
 - Files: `CmuxNextWakeups/FrameClient.swift`, `FrameScheduler.swift`,

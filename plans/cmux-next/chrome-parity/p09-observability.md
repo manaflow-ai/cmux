@@ -2003,8 +2003,8 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
   acpmux, so the app never sees their exit status (the crash matrix reports their counter as
   NOT-MEASURABLE). The reaping process counts `stability.child_exit.<kind>` in its own metrics file
   (cmux-tui-core `DAEMON_CATALOG`, an acpmux catalog), and `DaemonMetricsFold` folds those
-  histograms into the app's. Chromium helpers of host mode are the Chromium host's children: the
-  host counts them the same way.
+  histograms into the app's. Chromium helpers of host mode are counted in 109: the host sends each
+  end as HELPER_EXIT (p01-process-225), which reaches the same `CEFRuntime.childExited`.
 
 ### 110 Fatal-hang report at the next launch
 - Files: S/CmuxNextControl/Diagnostics/MainThreadWatchdog.swift, S/CmuxNextApp/Crash/{RunMarkerFile.swift, CrashReporter+Launch.swift}, S/CmuxNextTrace/CrashKeys.swift.

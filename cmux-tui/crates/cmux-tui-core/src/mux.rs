@@ -230,6 +230,7 @@ mod oracle;
 mod pinned_columns;
 mod power_source;
 mod sqlite_trim;
+mod viewport_scroll;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -289,7 +290,11 @@ mod rows;
 mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
+mod state_slots;
 pub(crate) use signaled_mutex::SignaledMutex;
+pub(crate) use state_slots::{StaleTopology, committed_tree_entity};
+mod value_fields;
+pub(crate) use value_fields::{set_field, set_named_field};
 mod command_history;
 pub(crate) mod keybindings;
 mod new_terminal_cwd;
@@ -996,23 +1001,6 @@ impl Mux {
 
     pub fn active_surface(&self) -> Option<SurfaceId> {
         self.with_state(Self::active_surface_in_state)
-    }
-
-    /// Scroll one backend-owned view without mutating the terminal runtime
-    /// shared by the terminal's other placements.
-    pub fn scroll_surface_viewport(&self, surface: &Surface, delta: isize) -> anyhow::Result<()> {
-        let before = surface.view_scrollbar();
-        let after = surface.view_scroll_delta(delta)?;
-        if after != before
-            && let Some(scrollbar) = after
-        {
-            self.emit(MuxEvent::ScrollChanged {
-                surface: surface.id,
-                offset: scrollbar.offset,
-                at_bottom: !scrollbar.scrolled_back(),
-            });
-        }
-        Ok(())
     }
 
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {
