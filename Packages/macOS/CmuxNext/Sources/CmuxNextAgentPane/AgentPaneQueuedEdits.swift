@@ -81,6 +81,9 @@ public final class AgentPaneQueuedEdits {
 
     private nonisolated static func save(_ saved: [String: [String: Draft]], _ file: URL?) throws {
         guard let file else { return }
+        // Claim this artifact before a clear can remove it. Migration retries then preserve the
+        // current writer's empty result instead of copying a stale legacy queue back into place.
+        try DraftStateMigration.markCurrent([Self.fileName], in: file.deletingLastPathComponent())
         let manager = FileManager.checked
         if saved.isEmpty {
             if manager.fileExists(atPath: file.path) { try manager.removeItem(at: file) }
