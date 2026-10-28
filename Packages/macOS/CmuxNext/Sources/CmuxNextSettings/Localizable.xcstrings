@@ -8087,6 +8087,268 @@
         }
       }
     },
+    "settings.browser.openSignInPages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Sign-In Pages in cmux Browser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح صفحات تسجيل الدخول في متصفح cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvaraj stranice za prijavu u cmux pregledniku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn login-sider i cmux-browser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anmeldeseiten im cmux-Browser öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir páginas de inicio de sesión en el navegador de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir les pages de connexion dans le navigateur cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri le pagine di accesso nel browser cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サインインページをcmuxブラウザで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកទំព័រចូលក្នុងកម្មវិធីរុករក cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로그인 페이지를 cmux 브라우저에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne påloggingssider i cmux-nettleseren"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwieraj strony logowania w przeglądarce cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir páginas de login no navegador do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открывать страницы входа в браузере cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดหน้าลงชื่อเข้าใช้ในเบราว์เซอร์ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturum açma sayfalarını cmux tarayıcısında aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкривати сторінки входу в браузері cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở trang đăng nhập trong trình duyệt cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 浏览器中打开登录页面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 瀏覽器中開啟登入頁面"
+          }
+        }
+      }
+    },
+    "settings.browser.openSignInPages.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تُفتح صفحات تسجيل الدخول ورموز الأجهزة، مثل صفحة الأجهزة في GitHub أو صفحة يفتحها gh أو aws أو وكيل لتسجيل الدخول، في علامة تبويب متصفح cmux حتى عندما تُفتح الروابط الأخرى في متصفحك الافتراضي. تظل الأولوية لعناوين URL التي تُفتح دائمًا خارجيًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stranice za prijavu i kodove uređaja, kao što je GitHubova stranica za uređaje ili stranica koju gh, aws ili agent otvori za prijavu, otvaraju se u kartici cmux preglednika čak i kada se ostali linkovi otvaraju u vašem zadanom pregledniku. URL-ovi koji se uvijek otvaraju vanjski i dalje imaju prednost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login- og enhedskodesider, såsom GitHubs enhedsside eller en side, som gh, aws eller en agent åbner for at logge ind, åbnes i en cmux-browserfane, selv når andre links åbnes i din standardbrowser. URL'er, der altid åbnes eksternt, vinder stadig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anmelde- und Gerätecode-Seiten, etwa die Geräteseite von GitHub oder eine Seite, die gh, aws oder ein Agent zur Anmeldung öffnet, öffnen sich in einem cmux-Browser-Tab, auch wenn andere Links in deinem Standardbrowser geöffnet werden. „Immer extern zu öffnende URLs“ haben weiterhin Vorrang."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las páginas de inicio de sesión y de código de dispositivo, como la página de dispositivos de GitHub o una página que gh, aws o un agente abre para iniciar sesión, se abren en una pestaña del navegador de cmux aunque los demás enlaces se abran en tu navegador predeterminado. Las URL que siempre se abren externamente siguen teniendo prioridad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les pages de connexion et de code d'appareil, comme la page d'appareil de GitHub ou une page que gh, aws ou un agent ouvre pour se connecter, s'ouvrent dans un onglet du navigateur cmux même lorsque les autres liens s'ouvrent dans votre navigateur par défaut. Les URL à toujours ouvrir à l'extérieur restent prioritaires."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le pagine di accesso e dei codici dispositivo, come la pagina dei dispositivi di GitHub o una pagina che gh, aws o un agente apre per accedere, si aprono in una scheda del browser cmux anche quando gli altri link si aprono nel browser predefinito. Gli URL da aprire sempre esternamente hanno comunque la precedenza."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHubのデバイスページや、gh・aws・エージェントがサインインのために開くページなどのサインインページやデバイスコードページは、ほかのリンクがデフォルトブラウザで開く設定でもcmuxブラウザのタブで開きます。「常に外部で開くURL」は引き続き優先されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រចូល និងទំព័រកូដឧបករណ៍ ដូចជាទំព័រឧបករណ៍របស់ GitHub ឬទំព័រដែល gh, aws ឬភ្នាក់ងារបើកដើម្បីចូល នឹងបើកក្នុងផ្ទាំងកម្មវិធីរុករក cmux ទោះបីតំណផ្សេងទៀតបើកក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នកក៏ដោយ។ URL ដែលបើកខាងក្រៅជានិច្ចនៅតែមានអាទិភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub 기기 페이지나 gh, aws, 에이전트가 로그인하려고 여는 페이지 같은 로그인 및 기기 코드 페이지는 다른 링크가 기본 브라우저에서 열리더라도 cmux 브라우저 탭에서 열립니다. 항상 외부에서 열 URL이 여전히 우선합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Påloggings- og enhetskodesider, som GitHubs enhetsside eller en side gh, aws eller en agent åpner for å logge på, åpnes i en cmux-nettleserfane selv når andre lenker åpnes i standardnettleseren din. URL-er som alltid åpnes eksternt, vinner fortsatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strony logowania i kodów urządzeń, takie jak strona urządzeń GitHuba lub strona, którą gh, aws albo agent otwiera do logowania, otwierają się w karcie przeglądarki cmux, nawet gdy inne linki otwierają się w domyślnej przeglądarce. Adresy URL zawsze otwierane zewnętrznie nadal mają pierwszeństwo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Páginas de login e de código de dispositivo, como a página de dispositivos do GitHub ou uma página que gh, aws ou um agente abre para entrar, abrem em uma aba do navegador do cmux mesmo quando outros links abrem no seu navegador padrão. URLs para sempre abrir externamente continuam tendo prioridade."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Страницы входа и кодов устройств, например страница устройств GitHub или страница, которую gh, aws или агент открывает для входа, открываются во вкладке браузера cmux, даже если другие ссылки открываются в браузере по умолчанию. Адреса из списка «Всегда открывать во внешнем браузере» по-прежнему имеют приоритет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าลงชื่อเข้าใช้และหน้ารหัสอุปกรณ์ เช่น หน้าอุปกรณ์ของ GitHub หรือหน้าที่ gh, aws หรือเอเจนต์เปิดเพื่อลงชื่อเข้าใช้ จะเปิดในแท็บเบราว์เซอร์ cmux แม้ลิงก์อื่นจะเปิดในเบราว์เซอร์เริ่มต้นของคุณ URL ที่เปิดภายนอกเสมอยังคงมีสิทธิ์เหนือกว่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub'ın cihaz sayfası ya da gh, aws veya bir ajanın oturum açmak için açtığı sayfa gibi oturum açma ve cihaz kodu sayfaları, diğer bağlantılar varsayılan tarayıcınızda açılsa bile bir cmux tarayıcı sekmesinde açılır. Her Zaman Harici Açılacak URL'ler yine önceliklidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сторінки входу та кодів пристроїв, як-от сторінка пристроїв GitHub або сторінка, яку gh, aws чи агент відкриває для входу, відкриваються у вкладці браузера cmux, навіть коли інші посилання відкриваються в браузері за замовчуванням. Адреси зі списку «Завжди відкривати зовні» й надалі мають пріоритет."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang đăng nhập và trang mã thiết bị, chẳng hạn trang thiết bị của GitHub hoặc trang mà gh, aws hay một tác tử mở để đăng nhập, sẽ mở trong một thẻ trình duyệt cmux ngay cả khi các liên kết khác mở trong trình duyệt mặc định của bạn. Các URL luôn mở bên ngoài vẫn được ưu tiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登录页面和设备代码页面（例如 GitHub 的设备页面，或 gh、aws、智能体为登录而打开的页面）会在 cmux 浏览器标签页中打开，即使其他链接在默认浏览器中打开。“始终在外部打开的 URL”仍然优先。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登入頁面和裝置代碼頁面（例如 GitHub 的裝置頁面，或 gh、aws、代理程式為登入而開啟的頁面）會在 cmux 瀏覽器分頁中開啟，即使其他連結在預設瀏覽器中開啟。「一律在外部開啟的 URL」仍然優先。"
+          }
+        }
+      }
+    },
     "settings.browser.openLinks": {
       "extractionState": "manual",
       "localizations": {

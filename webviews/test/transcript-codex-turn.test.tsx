@@ -41,6 +41,16 @@ const words = (html: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+test("folded thoughts use the shared trailing chevron grid", async () => {
+  const css = await Bun.file(
+    new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
+  ).text();
+  expect(
+    /\.cv-thought\.is-toggle \{\s*display: grid;\s*grid-template-columns: auto minmax\(0, 1fr\) auto auto;/.test(css),
+  ).toBe(true);
+  expect(css).toMatch(/\.cv-tool__chevron \{\s*grid-column: 4;\s*justify-self: end;/);
+});
+
 test("a finished run that is one group folds to its closed line", () => {
   resetTranscriptDisclosure();
   const items = [shell("a"), shell("b"), shell("c")];
@@ -133,12 +143,4 @@ test("the hover check and time fade as a message's hover row does", async () => 
   expect(css).toMatch(
     /\.cv-tool:hover :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: opacity var\(--cv-actions-in\) var\(--cv-actions-ease\) var\(--cv-actions-in-delay\)/,
   );
-});
-
-test("a floating row Copy reserves the tool chevron slot", async () => {
-  const css = await Bun.file(
-    new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
-  ).text();
-  expect(css).toContain('.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool');
-  expect(css).toMatch(/\.acpmux-row\[data-floating-copy="true"\] > \.acpmux-row__copy \{\s*right: 24px;/);
 });

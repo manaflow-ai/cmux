@@ -15,7 +15,7 @@
  * is deleted afterwards.
  *
  *   bun backend/scripts/chief-durable-evals.ts [--env staging|development] [--brains pi,durable] [--model claude-opus-5-5] [--only PREFIX]
- *       [--repeat 1] [--jobs 4] [--report PATH] [--judge-url http://100.89.225.106:31415]
+ *       [--repeat 1] [--jobs 4] [--report PATH] [--judge gateway|subrouter] [--judge-url http://100.89.225.106:31415]
  *
  * Reads ~/.secrets/cmuxterm-dev.env (Stack project) and ~/.secrets/cmux-next-e2e-cloudchief-staging.env (the
  * throwaway e2e account). Never prints a token. Staging (default) or development only; development runs the free
@@ -107,12 +107,33 @@ const rawIds = (text: string): Array<string> => {
     }
   return out
 }
+/**
+ * The judge: the same prompt as chief_eval.rs. Route: the Vercel AI Gateway when ~/.secrets/cmux-ai-gateway.env has
+ * AI_GATEWAY_API_KEY (--judge gateway, the default then; model anthropic/<--judge-model>), else the team subrouter
+ * (--judge-url, Claude Code shaped). The subrouter's Claude path was down on Oct 28 ("upstream request failed").
+ */
+const gatewayKey = (() => {
+  try {
+    return envFile("cmux-ai-gateway.env").AI_GATEWAY_API_KEY
+  } catch {
+    return undefined
+  }
+})()
+const JUDGE_ROUTE = arg("--judge", gatewayKey ? "gateway" : "subrouter")
+const judgeCall = async (prompt: string): Promise<string> => {
+  if (JUDGE_ROUTE === "gateway") {
+    const res = await fetch("https://ai-gateway.vercel.sh/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${gatewayKey}` }, body: JSON.stringify({ model: `anthropic/${JUDGE_MODEL}`, max_tokens: 400, messages: [{ role: "user", content: prompt }] }) }).catch(() => null)
+    const j = res ? ((await res.json().catch(() => null)) as { choices?: Array<{ message?: { content?: string } }> } | null) : null
+    return (j?.choices?.[0]?.message?.content ?? "").trim()
+  }
+  const res = await fetch(`${JUDGE_URL}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", "x-api-key": "unused", "anthropic-version": "2023-06-01", "user-agent": "claude-cli/2.1.300 (external, cli)" }, body: JSON.stringify({ model: JUDGE_MODEL, max_tokens: 400, system: [{ type: "text", text: "You are Claude Code, Anthropic's official CLI for Claude." }], messages: [{ role: "user", content: prompt }] }) }).catch(() => null)
+  const j = res ? ((await res.json().catch(() => null)) as { content?: Array<{ text?: string }> } | null) : null
+  return (j?.content ?? []).map((b) => b.text ?? "").join("").trim()
+}
 const judge = async (rubric: string, history: string, message: string, posted: Array<string>): Promise<[boolean, string]> => {
   const prompt = `You grade one turn of an AI assistant ("Chief") that works for one person.\nRubric: ${rubric}\n\n<history>\n${history}\n</history>\n\n<new_message>\n${message}\n</new_message>\n\n<tool_calls>\n\n</tool_calls>\n\n<posted_replies>\n${posted.join("\n---\n")}\n</posted_replies>\n\nAnswer with exactly one line: PASS or FAIL, a colon, and one short reason.`
   for (let i = 0; i < 3; i++) {
-    const res = await fetch(`${JUDGE_URL}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", "x-api-key": "unused", "anthropic-version": "2023-06-01", "user-agent": "claude-cli/2.1.300 (external, cli)" }, body: JSON.stringify({ model: JUDGE_MODEL, max_tokens: 400, system: [{ type: "text", text: "You are Claude Code, Anthropic's official CLI for Claude." }], messages: [{ role: "user", content: prompt }] }) }).catch(() => null)
-    const j = res ? ((await res.json().catch(() => null)) as { content?: Array<{ text?: string }> } | null) : null
-    const t = (j?.content ?? []).map((b) => b.text ?? "").join("").trim()
+    const t = await judgeCall(prompt)
     if (t.startsWith("PASS") || t.startsWith("FAIL")) return [t.startsWith("PASS"), t]
     await sleep(2000)
   }
@@ -204,7 +225,7 @@ const runCase = async (c: Case, brain: "pi" | "durable", rep: number): Promise<R
 // ---------------------------------------------------------------- main
 
 await signIn()
-console.log(`${cases.length} cases a Cloud Chief can answer; brains ${BRAINS.join(", ")}; model ${MODEL}; repeat ${REPEAT}; run ${runTag}`)
+console.log(`${cases.length} cases a Cloud Chief can answer; brains ${BRAINS.join(", ")}; model ${MODEL}; judge ${JUDGE_ROUTE} ${JUDGE_MODEL}; repeat ${REPEAT}; run ${runTag}`)
 const jobs = cases.flatMap((c) => BRAINS.flatMap((b) => Array.from({ length: REPEAT }, (_, rep) => ({ c, b, rep }))))
 const results: Array<Result> = []
 let next = 0
@@ -228,4 +249,4 @@ const summary = BRAINS.map((b) => {
   return { brain: b, cases: rs.length, passed: rs.filter((r) => r.pass).length, errors: rs.filter((r) => r.error).length, checks: checks.length, checks_passed: checks.filter((k) => k.pass).length, reply_p50_s: median(rs.flatMap((r) => (r.reply_ms === undefined ? [] : [r.reply_ms / 1000]))), cost_usd: Number(cost.toFixed(4)) }
 })
 for (const s of summary) console.log(`${s.brain}: ${s.passed}/${s.cases} cases (${pct(s.passed, s.cases)}), ${s.checks_passed}/${s.checks} checks (${pct(s.checks_passed, s.checks)}), ${s.errors} errors, reply p50 ${s.reply_p50_s.toFixed(1)} s, model cost $${s.cost_usd}`)
-if (REPORT) writeFileSync(REPORT, `${JSON.stringify({ run: runTag, api: API, model: MODEL, at: new Date().toISOString(), summary, results }, null, 2)}\n`)
+if (REPORT) writeFileSync(REPORT, `${JSON.stringify({ run: runTag, api: API, model: MODEL, judge: `${JUDGE_ROUTE}:${JUDGE_MODEL}`, at: new Date().toISOString(), summary, results }, null, 2)}\n`)
