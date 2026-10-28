@@ -80,6 +80,19 @@ fn a_relative_launch_directory_is_not_recorded() {
     assert_eq!(record.cwd, None);
 }
 
+/// A reopened terminal gets the TERM new terminals get now (the standard
+/// xterm-256color unless the person chose another), never the one an older
+/// build recorded: xterm-ghostty from a Mac with Ghostty's terminfo
+/// installed broke ssh and older tools (Lawrence 2026-10-28).
+#[test]
+fn replay_never_restores_a_recorded_term() {
+    let tab = json!({"cwd": "/tmp", "relaunch": {"env": {
+        "TERM": "xterm-ghostty", "COLORTERM": "truecolor",
+    }}});
+    let (_, env) = replay(&tab);
+    assert_eq!(env, vec![("COLORTERM".to_string(), "truecolor".to_string())]);
+}
+
 #[test]
 fn replay_drops_a_gone_directory_and_a_term_without_its_terminfo() {
     let tab = json!({

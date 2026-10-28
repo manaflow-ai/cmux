@@ -45,18 +45,15 @@ fn local_surface_retains_real_status_after_final_pty_bytes() {
     );
 }
 
-/// The selection rule: pass xterm-ghostty through only when the outer
-/// terminal already advertised it. Prompts that sniff the TERM name
-/// then take the same branch inside cmux-tui as in the host terminal
-/// (colors match), and children never get a less compatible TERM than
-/// the host terminal gave the user.
+/// Lawrence 2026-10-28: children get the standard TERM that every tool and
+/// every ssh host knows, even when the outer terminal is Ghostty
+/// (TERM=xterm-ghostty). CMUX_TUI_TERM, CMUX_MUX_TERM and --term still
+/// choose another.
 #[test]
-fn child_term_passes_ghostty_through_and_nothing_else() {
-    assert_eq!(child_term_for(Some("xterm-ghostty")), "xterm-ghostty");
+fn child_term_is_the_standard_one_whatever_the_outer_terminal() {
+    assert_eq!(child_term_for(Some("xterm-ghostty")), "xterm-256color");
     assert_eq!(child_term_for(Some("xterm-256color")), "xterm-256color");
     assert_eq!(child_term_for(Some("screen")), "xterm-256color");
-    assert_eq!(child_term_for(Some("alacritty")), "xterm-256color");
-    assert_eq!(child_term_for(Some("")), "xterm-256color");
     assert_eq!(child_term_for(None), "xterm-256color");
 }
 

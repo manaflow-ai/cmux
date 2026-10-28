@@ -196,6 +196,17 @@ mod tests {
         assert!(!quiet.windows(4).any(|window| window == b"\x1b[2m"), "no marker line");
     }
 
+    /// A respawned shell gets the TERM new terminals get now, never the
+    /// recorded one (Lawrence 2026-10-28: the standard xterm-256color).
+    #[test]
+    fn a_recorded_term_is_not_replayed() {
+        let env = vec![
+            ("TERM".to_string(), "xterm-ghostty".to_string()),
+            ("COLORTERM".to_string(), "truecolor".to_string()),
+        ];
+        assert_eq!(usable_env(&env), vec![("COLORTERM".to_string(), "truecolor".to_string())]);
+    }
+
     #[test]
     fn a_stale_terminfo_drops_term() {
         let env = vec![

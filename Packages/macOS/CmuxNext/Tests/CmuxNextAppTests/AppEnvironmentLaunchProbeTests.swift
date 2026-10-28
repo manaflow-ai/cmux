@@ -47,6 +47,24 @@ struct AppEnvironmentLaunchProbeTests {
         #expect(await environment.resolvedTerminalEnvironment()?() == ["TERM": "xterm-ghostty", "GHOSTTY_RESOURCES_DIR": "/probe/Resources/ghostty"])
     }
 
+    /// Lawrence 2026-10-28: "default echo $TERM should not use the ghostty one but should use the standard one
+    /// that every tool recognizes, for all cmux". On a Mac with Ghostty's terminfo installed (Ghostty.app), new
+    /// terminals and the daemon's own environment got xterm-ghostty, which ssh targets, VMs and containers lack.
+    @Test("A Ghostty terminfo on disk keeps the standard TERM for shells and the daemon")
+    func aGhosttyTerminfoOnDiskKeepsTheStandardTerm() async {
+        var environment = AppEnvironment.current([:])
+        let probe = GhosttyLaunchProbe.look(environment: [:], fileExists: { $0.hasSuffix("/xterm-ghostty") }, isExecutable: { _ in false })
+        environment.ghosttyProbe = GhosttyLaunchProbe.start(on: Self.work) { probe }
+        let env = await environment.terminalEnvironmentProvider(login: Self.login, settings: { nil })()
+        #expect(env["TERM"] == "xterm-256color")
+        // Programs still detect Ghostty's features without its TERM.
+        #expect(env["COLORTERM"] == "truecolor")
+        #expect(env["TERM_PROGRAM"] == "ghostty")
+        #expect(environment.terminalEnvironment["TERM"] == "xterm-256color")
+        let daemonKeys = await environment.resolvedTerminalEnvironment()?() ?? [:]
+        #expect(daemonKeys["TERM"] == nil || daemonKeys["TERM"] == "xterm-256color")
+    }
+
     @Test("Without a launch read a shell gets xterm-256color and no Ghostty folder or helper")
     func withoutALaunchRead() async {
         let environment = AppEnvironment.current([:])
