@@ -7,7 +7,8 @@ import Foundation
 /// `ConversationBackend` for `services/conversation-sim` (see its PROTOCOL.md):
 /// JSON-RPC 2.0 over a WebSocket, media over HTTP. Reconnects with capped
 /// backoff and resumes from the last delivered event.
-public final class ConversationSimBackend: ConversationBackend, @unchecked Sendable {
+public final class ConversationSimBackend: ConversationBackend {
+    /// All mutable state lives in this actor, so the backend is checked Sendable.
     let core: Core
 
     /// `endpoint` is the WebSocket URL, e.g. `ws://127.0.0.1:4870/ws?conversation=group`.
@@ -268,7 +269,8 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
             }
         }
 
-        private func handle(_ object: [String: Any]) {
+        /// `object` comes `sending` so a reply's result can leave in a `JSONBox`.
+        private func handle(_ object: sending [String: Any]) {
             if let id = object["id"] as? Int, let waiter = pending.removeValue(forKey: id) {
                 if let error = object["error"] as? [String: Any] {
                     waiter.resume(throwing: ConversationBackendError(
@@ -382,10 +384,15 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
     }
 }
 
-/// JSON from `JSONSerialization` is immutable once parsed; this box lets it cross actors.
+/// A JSON object crossing into or out of `Core`: a request's params, a reply's result.
+/// The box takes its dictionary `sending`, so whoever built it keeps no reference, and
+/// `value` is a `let` that every holder only reads. Its leaves are JSON values (strings,
+/// numbers, booleans, NSNull); its nested containers are built fresh for the request or
+/// come from JSONSerialization without `.mutableContainers`, so they are immutable.
+// crash-allow: sent once, then only read; every container in it is immutable (see above).
 struct JSONBox: @unchecked Sendable {
     let value: [String: Any]
-    init(_ value: [String: Any]) { self.value = value }
+    init(_ value: sending [String: Any]) { self.value = value }
 }
 
 enum WireDecoding {
