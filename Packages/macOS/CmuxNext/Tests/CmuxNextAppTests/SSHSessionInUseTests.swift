@@ -61,6 +61,14 @@ import Testing
         #expect(machine.mayAttempt)
     }
 
+    @Test func anAutomaticAttemptReopensTheGateAfterTransportFailure() {
+        var machine = SSHConnectionMachine()
+        machine.handle(.connect)
+        machine.handle(.failed(.unreachable("nohost.invalid")))
+        machine.handle(.attemptStarted)
+        #expect(machine.status == .connecting)
+    }
+
     @Test func userRetryLeavesARecoverableFailureForTheNewAttempt() {
         var machine = SSHConnectionMachine()
         machine.handle(.connect)

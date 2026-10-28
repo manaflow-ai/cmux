@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextRemote
 import Testing
 
@@ -17,6 +18,10 @@ import Testing
         let first = SSHMachineSession.daemonObservationKey(startup: failure, recoveryAttempt: 0)
         let retry = SSHMachineSession.daemonObservationKey(startup: failure, recoveryAttempt: 1)
         #expect(first != retry)
+    }
+
+    @Test func retryResetsAnUnavailableDaemonBeforeWakingIt() {
+        #expect(DaemonService.startupAfterRetry(.unavailable(.timedOut("daemon handshake"))) == .connecting)
     }
 
     @Test func remoteGroupMarkingSurvivesRecoverableLinkFailures() {

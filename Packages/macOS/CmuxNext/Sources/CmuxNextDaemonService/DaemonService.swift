@@ -128,6 +128,17 @@ public final class DaemonService {
     @ObservationIgnored public private(set) var retryWake: RetryWake
     @ObservationIgnored private var activationObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
+
+    static func startupAfterRetry(_ startup: DaemonStartupState) -> DaemonStartupState {
+        startup
+    }
+
+    /// Clears the previous first-connect failure before a user retry wakes the
+    /// existing daemon loop, so an identical unavailable value is not replayed.
+    func prepareForRetry() {
+        startup = Self.startupAfterRetry(startup)
+        lastStartupError = nil
+    }
     /// How the connections reach this app's daemon (the page relay opens its own with it).
     @ObservationIgnored public private(set) var endpointProvider: DaemonConnection.EndpointProvider?
     /// A remote machine's route (`start(remote:)`), for a second connection to its daemon (an
