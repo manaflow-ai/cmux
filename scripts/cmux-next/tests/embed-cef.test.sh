@@ -66,5 +66,58 @@ STUB
   if grep -v 'radr://5614542' <<<"$syms" | grep -qE ' - |hidden_helper'; then
     printf 'embedded CEF library keeps local symbols or debug stabs:\n%s\n' "$syms" >&2; exit 1
   fi
+
+  # The framework binary itself: the fork's framework is not an official build,
+  # so it carries Chromium's whole symbol table (210 MiB of the 468 MiB arm64
+  # slice of stage c8953bc613cd). A Release build that keeps the framework's
+  # dSYM for Sentry (CEF-dSYMs/<arch>) ships it with strip -S -x: exported
+  # symbols stay, locals and debug-map stabs go. Debug and bench builds name
+  # Chromium frames of local dumps with atos on the framework, and a build
+  # without the dSYM has nothing else to name them with: those keep them.
+  printf 'static int chromium_local(int x) { return x * 5; }\nint cef_api_hash(int x) { return chromium_local(x); }\n' > "$TMP/fw.c"
+  if [[ "$(uname)" == Darwin ]]; then
+    cc -g -dynamiclib -o "$fw/Chromium Embedded Framework" "$TMP/fw.c"
+  else
+    cc -g -O0 -shared -fPIC -o "$fw/Chromium Embedded Framework" "$TMP/fw.c"
+  fi
+  mkdir -p "$TMP/dsym-src/Chromium Embedded Framework.dSYM/Contents/Resources/DWARF"
+  : > "$TMP/dsym-src/Chromium Embedded Framework.dSYM/Contents/Resources/DWARF/Chromium Embedded Framework"
+  tar -cf "$dist/fw.dSYM.tar" -C "$TMP/dsym-src" .
+  with_dsym='{"chromium": "1.0", "debug_symbols": "fw.dSYM.tar"}'
+  embed() { # <case> <configuration> <manifest JSON> [OTHER_SWIFT_FLAGS]
+    printf '%s\n' "$3" > "$TMP/scripts/cef-manifest.json"
+    env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" ARCHS=arm64 TARGET_BUILD_DIR="$TMP/$1/Products/$2" \
+      WRAPPER_NAME=app.app PRODUCT_NAME=app PRODUCT_BUNDLE_IDENTIFIER=test.app DERIVED_FILE_DIR="$TMP/$1/derived" \
+      CONFIGURATION="$2" OTHER_SWIFT_FLAGS="${4:-}" CMUX_NEXT_SKIP_UBLOCK=1 \
+      /bin/bash "$TMP/scripts/embed-cef.sh" > "$TMP/$1.log" 2>&1 ||
+      { printf 'embed-cef.sh failed (%s):\n' "$1" >&2; cat "$TMP/$1.log" >&2; exit 1; }
+  }
+  framework_symbols() { # <case> <configuration>
+    nm -a "$TMP/$1/Products/$2/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Chromium Embedded Framework"
+  }
+  expect_framework() { # <case> <configuration> stripped|kept
+    local syms; syms=$(framework_symbols "$1" "$2")
+    grep -qE ' T _?cef_api_hash$' <<<"$syms" || { printf '%s: the exported symbol is gone:\n%s\n' "$1" "$syms" >&2; exit 1; }
+    if [[ "$3" == stripped ]] && grep -q chromium_local <<<"$syms"; then
+      printf '%s: the Release framework keeps its local symbols although its dSYM is kept:\n%s\n' "$1" "$syms" >&2; exit 1
+    fi
+    if [[ "$3" == kept ]] && ! grep -q chromium_local <<<"$syms"; then
+      printf '%s: the framework lost its local symbols in a build that needs them:\n%s\n' "$1" "$syms" >&2; exit 1
+    fi
+  }
+  embed release Release "$with_dsym"
+  [[ -d "$TMP/release/Products/CEF-dSYMs/arm64" ]] || { echo 'release: the Chromium dSYM was not kept' >&2; cat "$TMP/release.log" >&2; exit 1; }
+  expect_framework release Release stripped
+  embed bench Release "$with_dsym" '-O -DCMUX_BENCH_HOOKS'
+  expect_framework bench Release kept
+  embed nodsym Release '{"chromium": "1.0"}'
+  expect_framework nodsym Release kept
+  # An unstripped embed from an earlier build is redone, not reused from the stamp.
+  embed reuse Debug "$with_dsym"
+  expect_framework reuse Debug kept
+  mkdir -p "$TMP/reuse/Products/Release"
+  cp -R "$TMP/reuse/Products/Debug/app.app" "$TMP/reuse/Products/Release/app.app"
+  embed reuse Release "$with_dsym"
+  expect_framework reuse Release stripped
 fi
 printf 'embed-cef tests: ok\n'
