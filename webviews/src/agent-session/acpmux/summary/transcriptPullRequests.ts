@@ -245,7 +245,7 @@ function toolFindings(tool: Tool): Finding[] {
         number: Number(match[2]),
         ...(text ? { title: text } : {}),
       });
-    return found;
+    // Continue scanning the same successful shell for later commands separated by &&/;.
   }
   let issueCall = false;
   for (const match of calls.matchAll(ISSUE_CALL)) {
@@ -304,15 +304,15 @@ function toolFindings(tool: Tool): Finding[] {
     if (state)
       found.push({ how: "settle", ref: target.ref, number: target.number, state, at: tool.endedAt ?? tool.startedAt });
   }
-  for (const match of plain.matchAll(PR_URL))
+  for (const match of calls.matchAll(PR_URL))
     found.push({ how: "touched", ref: { kind: "full", repo: match[1]! }, number: Number(match[2]) });
-  for (const match of plain.matchAll(REPO_REF))
+  for (const match of calls.matchAll(REPO_REF))
     found.push({
       how: "mentioned",
       ref: { kind: "full", repo: `${match[1]}/${match[2]}` },
       number: Number(match[3]),
     });
-  for (const match of plain.matchAll(ISSUE_URL))
+  for (const match of calls.matchAll(ISSUE_URL))
     found.push({ how: "mentioned", ref: { kind: "full", repo: match[1]! }, number: Number(match[2]), kind: "issue" });
   return found;
 }
