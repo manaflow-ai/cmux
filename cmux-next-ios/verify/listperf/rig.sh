@@ -6,7 +6,11 @@
 #   rig.sh sync                xcodegen here, rsync sources to $HOST:$DIR (the Rust xcframework is built there once:
 #                              `bash $DIR/cmux-next-ios/rust/scripts/build-xcframework.sh`)
 #   rig.sh seed-xcf            copy the Rust xcframework into $DIR from FROM=host:dir (default aws-m4pro-6:smooth-lists)
-#   rig.sh sim                 create + boot $SIM_NAME (iPhone 17 Pro, iOS 26.5) on $HOST
+#   rig.sh sim                 create + boot $SIM_NAME ($DEVICE, default iPhone 17 Pro, iOS 26.5) on $HOST
+#   rig.sh shot LABEL SCREEN SECS [K=V..]
+#                              install and launch as `run` does (no passes: LIST_PASSES=0), wait for the rig's
+#                              "holding" line, take LABEL.png SECS seconds later, then terminate the app
+#                              (ARGS: extra launch arguments, e.g. `-cmuxMobile.settings.wrapCode YES`)
 #   rig.sh build               Demo simulator build on $HOST (arm64 only)
 #   rig.sh run LABEL SCREEN [K=V..]
 #                              install, launch with CMUX_MOBILE_LIST_SCREEN=SCREEN and CMUX_MOBILE_<K>=V,
@@ -16,7 +20,8 @@
 #                              TRACE=<template> records LABEL.trace with xctrace (can hang over SSH).
 #
 # Environment: HOST (default aws-m4pro-6 (it has the iOS 26.5 simulator), reached with Tailscale SSH as ec2-user), DIR (default smooth-lists),
-# SIM_NAME (default cmux-listperf-1), WAIT (seconds, default 240).
+# SIM_NAME (default cmux-listperf-1), WAIT (seconds, default 240), FAMILY (build: TARGETED_DEVICE_FAMILY, e.g. 1,2 for an
+# iPad simulator) and PRODUCTS (build/run/shot: derived data folder, default build/demo; give an iPad build its own).
 set -euo pipefail
 HOST=${HOST:-aws-m4pro-6}
 DIR=${DIR:-smooth-lists}
@@ -52,12 +57,12 @@ case "${1:-}" in
     ;;
   sim)
     remote "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
-      if [[ -z \$udid ]]; then udid=\$(xcrun simctl create '$SIM_NAME' 'iPhone 17 Pro' com.apple.CoreSimulator.SimRuntime.iOS-26-5); fi; \
+      if [[ -z \$udid ]]; then udid=\$(xcrun simctl create '$SIM_NAME' '${DEVICE:-iPhone 17 Pro}' com.apple.CoreSimulator.SimRuntime.iOS-26-5); fi; \
       xcrun simctl boot \$udid 2>/dev/null; xcrun simctl bootstatus \$udid -b >/dev/null; echo \$udid"
     ;;
   build)
     remote "$remote_env cd $DIR/cmux-next-ios && xcodebuild -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
-      -destination 'generic/platform=iOS Simulator' -derivedDataPath build/demo -jobs 6 ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+      -destination 'generic/platform=iOS Simulator' -derivedDataPath ${PRODUCTS:-build/demo} -jobs 6 ${FAMILY:+TARGETED_DEVICE_FAMILY=$FAMILY} ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
       CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CMUX_MOBILE_TAG=.listperf 'CMUX_MOBILE_DISPLAY_NAME=mobile listperf' \
       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=\$(inherited) DEBUG CMUX_MOBILE_DEMO' build > build-demo.log 2>&1; rc=\$?; \
       grep -E 'error:|BUILD (SUCCEEDED|FAILED)' build-demo.log | sort -u | head -30; exit \$rc"
@@ -87,14 +92,14 @@ case "${1:-}" in
           --output $DIR/$label.trace >$DIR/$label.xctrace.log 2>&1 || true"
     fi
     remote "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
-      app=\$(ls -d $DIR/cmux-next-ios/build/demo/Build/Products/Demo-iphonesimulator/*.app | head -1); \
+      app=\$(ls -d $DIR/cmux-next-ios/${PRODUCTS:-build/demo}/Build/Products/Demo-iphonesimulator/*.app | head -1); \
       bid=\$(plutil -extract CFBundleIdentifier raw \$app/Info.plist); \
       xcrun simctl terminate \$udid \$bid 2>/dev/null; xcrun simctl install \$udid \$app; \
       caches=\$(xcrun simctl get_app_container \$udid \$bid data)/Library/Caches; rm -f \$caches/framelog.jsonl; \
       $rec_start; $launch; $rec_stop; \
       cat \$caches/framelog.jsonl; \
       xcrun simctl spawn \$udid log show --last 6m --predicate 'subsystem == \"dev.cmux.mobile\" AND category == \"frames\"' --style compact 2>/dev/null \
-        | grep -E 'list-stress (memory|pass)' | sed 's/^/# /'" > "$out/$label.jsonl"
+        | grep -E 'list-stress (memory|pass|tabs|rowcost)' | sed 's/^/# /'" > "$out/$label.jsonl"
     [[ -n "${SAMPLE:-}" ]] && remote "cat $DIR/$label.sample.txt" > "$out/$label.sample.txt" && echo "sample: $out/$label.sample.txt"
     [[ -n "${VIDEO:-}" ]] && remote "cat $DIR/$label.mp4" > "$out/$label.mp4" && echo "video: $out/$label.mp4"
     if [[ -n "${TRACE:-}" ]]; then
@@ -103,5 +108,20 @@ case "${1:-}" in
     fi
     python3 "$mobile/verify/feedperf/summarize.py" "$out/$label.jsonl"
     ;;
-  *) sed -n '2,17p' "$0"; exit 2 ;;
+  shot)
+    label=${2:?label} screen=${3:?screen} secs=${4:?seconds}; shift 4
+    envs="SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1 SIMCTL_CHILD_CMUX_MOBILE_LIST_SCREEN=$screen SIMCTL_CHILD_CMUX_MOBILE_LIST_PASSES=0"
+    for kv in "$@"; do envs+=" SIMCTL_CHILD_CMUX_MOBILE_$kv"; done
+    out="$mobile/verify/evidence/listperf"; mkdir -p "$out"
+    remote "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
+      app=\$(ls -d $DIR/cmux-next-ios/${PRODUCTS:-build/demo}/Build/Products/Demo-iphonesimulator/*.app | head -1); \
+      bid=\$(plutil -extract CFBundleIdentifier raw \$app/Info.plist); \
+      xcrun simctl terminate \$udid \$bid 2>/dev/null; xcrun simctl install \$udid \$app; \
+      pid=\$($envs xcrun simctl launch --terminate-running-process \$udid \$bid -cmuxMobile.setupComplete YES -cmux-mobile-no-restore ${ARGS:-} | awk '{print \$NF}'); \
+      for i in \$(seq 1 60); do xcrun simctl spawn \$udid log show --last 30s --predicate 'subsystem == \"dev.cmux.mobile\"' --style compact 2>/dev/null \
+        | grep \"\\[\$pid:\" | grep -q 'list-stress holding' && break; sleep 3; done; sleep $secs; rm -f $DIR/$label.png; xcrun simctl io \$udid screenshot $DIR/$label.png >/dev/null 2>&1; \
+      xcrun simctl terminate \$udid \$bid 2>/dev/null; true"
+    remote "cat $DIR/$label.png" > "$out/$label.png" && echo "shot: $out/$label.png"
+    ;;
+  *) sed -n '2,20p' "$0"; exit 2 ;;
 esac

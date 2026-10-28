@@ -49,11 +49,12 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     var topInset: CGFloat? { didSet { if oldValue != topInset { view.setNeedsLayout() } } }
     var onUserScroll: ((CGFloat) -> Void)?
 
-    private let scrollView = UIScrollView()
+    /// The transcript: a collection view of reused rows (`ChatTranscriptList`).
+    private let list: ChatTranscriptList
+    private var scrollView: UICollectionView { list.collectionView }
     /// The soft top edge: text fades out under the status bar (a workspace tab, no bar)
     /// or the navigation bar (pushed), as in the ChatGPT and Claude apps.
     private let topFade = TopFadeView()
-    private let contentHost: UIHostingController<AnyView>
     private let emptyHost: UIHostingController<AnyView>
     private var dockHost: UIHostingController<AnyView>?
     private var dockContainer: PassthroughView?
@@ -66,7 +67,6 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private let dockGuide = UILayoutGuide()
     private let openArea = UILayoutGuide()
     private var openAreaTop: NSLayoutConstraint?
-    private var contentHeightConstraint: NSLayoutConstraint?
     private var dockHeightConstraint: NSLayoutConstraint?
     private var externalRestBottom: NSLayoutConstraint?
     private var externalRestBottomMax: NSLayoutConstraint?
@@ -107,17 +107,18 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// Space between the last turn and the stack.
     static let contentGap: CGFloat = 8
 
-    init(placement: ChatDockPlacement, surface: AgentChatSurface,
-         content: AnyView, empty: AnyView, dock: AnyView?, jump: AnyView?) {
+    init(placement: ChatDockPlacement, surface: AgentChatSurface, store: AgentChatStore,
+         empty: AnyView, dock: AnyView?, jump: AnyView?) {
         self.placement = placement
         self.surface = surface
-        contentHost = UIHostingController(rootView: AnyView(EmptyView()))
+        list = ChatTranscriptList(store: store, surface: surface)
         emptyHost = UIHostingController(rootView: empty)
         if dock != nil { dockHost = UIHostingController(rootView: AnyView(EmptyView())) }
         if let jump { jumpHost = UIHostingController(rootView: jump) }
         jumpVisibility = JumpToBottomVisibility(isShown: surface.showJump)
+        shownIdentity = ObjectIdentifier(store)
         super.init(nibName: nil, bundle: nil)
-        contentHost.rootView = Self.measuring(content, alignment: .top) { [weak self] in self?.contentHeightChanged($0) }
+        list.collectionView.didLayout = { [weak self] in self?.transcriptLaidOut() }
         if let dock {
             dockHost?.rootView = Self.measuring(dock, alignment: .bottom) { _ in }
         }
@@ -146,15 +147,19 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         )
     }
 
+    /// The rows' environment (open a diff or a file, attachments, links).
+    var rowContext: ChatRowContext { list.context }
+
     /// The hosted views observe the store and the surface themselves, so
     /// their roots are set once: replacing a root on every update put each
     /// change in a fresh, unanimated transaction (the composer's collapse
     /// snapped instead of animating).
-    /// `identity`: the store the roots show. A different store (the tab's
-    /// session was replaced) sets them again.
-    func update(identity: ObjectIdentifier, content: AnyView, empty: AnyView, dock: AnyView?, jump: AnyView?) {
+    /// `store`: the store the transcript shows. A different store (the tab's
+    /// session was replaced) sets the roots again.
+    func update(store: AgentChatStore, empty: AnyView, dock: AnyView?, jump: AnyView?) {
+        let identity = ObjectIdentifier(store)
         if let shown = shownIdentity, shown != identity {
-            contentHost.rootView = Self.measuring(content, alignment: .top) { [weak self] in self?.contentHeightChanged($0) }
+            list.show(store: store)
             emptyHost.rootView = empty
             if let dock {
                 dockHost?.rootView = Self.measuring(dock, alignment: .bottom) { _ in }
@@ -184,13 +189,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.keyboardDismissMode = .interactive
         scrollView.alwaysBounceVertical = true
         scrollView.backgroundColor = .clear
-        scrollView.delegate = self
+        list.scrollDelegate = self
         view.addSubview(scrollView)
         topFade.isUserInteractionEnabled = false
         topFade.isAccessibilityElement = false
         view.addSubview(topFade)
 
-        for host in [contentHost, emptyHost] + [dockHost, jumpHost].compactMap({ $0 }) {
+        for host in [emptyHost] + [dockHost, jumpHost].compactMap({ $0 }) {
             addChild(host)
             host.safeAreaRegions = []
             host.view.backgroundColor = .clear
@@ -198,13 +203,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         }
         emptyHost.sizingOptions = [.intrinsicContentSize]
 
-        scrollView.addSubview(contentHost.view)
         view.addSubview(emptyHost.view)
         emptyHost.view.isUserInteractionEnabled = false
 
-        let content = contentHost.view!
-        let contentHeight = content.heightAnchor.constraint(equalToConstant: 0)
-        contentHeightConstraint = contentHeight
         let openTop = openArea.topAnchor.constraint(equalTo: view.topAnchor)
         openAreaTop = openTop
         NSLayoutConstraint.activate([
@@ -212,12 +213,6 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            content.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
-            content.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-            content.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
-            content.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor),
-            contentHeight,
             dockGuide.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             dockGuide.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             openTop,
@@ -309,7 +304,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                 jump.heightAnchor.constraint(equalToConstant: Self.jumpHostSize),
             ])
         }
-        for host in [contentHost, emptyHost] + [dockHost, jumpHost].compactMap({ $0 }) { host.didMove(toParent: self) }
+        for host in [emptyHost] + [dockHost, jumpHost].compactMap({ $0 }) { host.didMove(toParent: self) }
 
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(keyboardWillChangeFrame(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
@@ -439,14 +434,14 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
     private var surfaceIsEmpty: Bool { isEmpty }
 
-    private func contentHeightChanged(_ height: CGFloat) {
+    /// After each layout pass of the transcript: rows it measured may have changed the
+    /// content height, so the content is placed against the stack again in the same pass
+    /// (a following reader stays on the newest row while it streams).
+    private func transcriptLaidOut() {
+        let height = list.layout.contentHeight
         guard abs(height - contentHeight) > 0.25 else { return }
         contentHeight = height
-        contentHeightConstraint?.constant = height
-        view.setNeedsLayout()
-        if view.window != nil, !scrollView.isTracking {
-            UIView.performWithoutAnimation { view.layoutIfNeeded() }
-        }
+        UIView.performWithoutAnimation { updateInsets() }
     }
 
     /// The stack's height as drawn this frame, from the stack itself
@@ -611,11 +606,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                 // composer for one frame); it fades back in with the final animation.
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
-                contentHost.view.alpha = 0
                 scrollView.contentOffset = CGPoint(x: 0, y: target.y - (distance > 0 ? screen : -screen))
                 scrollView.layoutIfNeeded()
                 CATransaction.commit()
-                UIView.animate(withDuration: 0.15, delay: 0.05) { self.contentHost.view.alpha = 1 }
             }
             UIView.animate(springDuration: 0.4, bounce: 0) { self.scrollView.contentOffset = target }
         } else {
@@ -638,8 +631,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let scrollPres = scrollView.layer.presentation() ?? scrollView.layer
         let scrollBoundsY = scrollPres.bounds.origin.y
         let scrollFrame = pres(scrollView) ?? .zero
-        let contentFrame = contentHost.view.layer.presentation()?.frame ?? contentHost.view.frame
-        let contentBottom = scrollFrame.minY + contentFrame.minY + contentHeight - scrollBoundsY
+        let contentBottom = scrollFrame.minY + contentHeight - scrollBoundsY
         // The guide as laid out this frame: its bottom is the host's
         // presentation bottom (owned), its height the model height.
         let guideDock = window.map { view.convert(dockGuide.layoutFrame, to: $0) }
@@ -768,18 +760,20 @@ struct ChatTranscriptRepresentable: UIViewControllerRepresentable {
     var onUserScroll: ((CGFloat) -> Void)?
     var isEmpty: Bool
     /// The store shown (see `ChatTranscriptController.update`).
-    let identity: ObjectIdentifier
-    let content: AnyView
+    let store: AgentChatStore
+    /// Sets the rows' environment (open a diff or a file, attachments, links).
+    let configureRows: (ChatRowContext) -> Void
     let empty: AnyView
     let dock: AnyView?
     let jump: AnyView?
 
     func makeUIViewController(context: Context) -> ChatTranscriptController {
-        let controller = ChatTranscriptController(placement: placement, surface: surface, content: content, empty: empty, dock: dock, jump: jump)
+        let controller = ChatTranscriptController(placement: placement, surface: surface, store: store, empty: empty, dock: dock, jump: jump)
         controller.topInset = topInset
         controller.onUserScroll = onUserScroll
         controller.isEmpty = isEmpty
-        controller.update(identity: identity, content: content, empty: empty, dock: dock, jump: jump)
+        controller.update(store: store, empty: empty, dock: dock, jump: jump)
+        configureRows(controller.rowContext)
         return controller
     }
 
@@ -789,7 +783,8 @@ struct ChatTranscriptRepresentable: UIViewControllerRepresentable {
         // Read here so SwiftUI calls update when they change.
         _ = (surface.stackHeight, surface.stackMaxY, surface.composerFocused, surface.showJump)
         controller.isEmpty = isEmpty
-        controller.update(identity: identity, content: content, empty: empty, dock: dock, jump: jump)
+        controller.update(store: store, empty: empty, dock: dock, jump: jump)
+        configureRows(controller.rowContext)
     }
 }
 

@@ -236,7 +236,9 @@ public final class MockAgentSession: AgentSessionSource {
                 content: [.content(.text(MockStressContent.testOutput(index)))],
                 rawInput: .object(["command": .string("swift test --filter Link")])
             ))))
-            emit(.update(.agentMessageChunk(text: MockStressContent.answer(index), messageId: "\(turnID)-m")))
+            let answer = MockStressContent.answer(index)
+                + (ListStressSettings.shared.screen == "artifacts" ? "\n\n" + MockStressContent.artifacts(index) : "")
+            emit(.update(.agentMessageChunk(text: answer, messageId: "\(turnID)-m")))
             emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: at.addingTimeInterval(1)))
         }
     }

@@ -17,6 +17,8 @@ runs=(
   "tabs-30         tabs        LIST_COUNT=30"
   "tabs-30-stream  tabs        LIST_COUNT=30 LIST_STREAM=1"
   "diff-2400       diff        LIST_COUNT=3"
+  "diff-2400-pan   diff        LIST_COUNT=3 LIST_PAN=1 LIST_PASSES=4 LIST_SPEED=800"
+  "artifacts-40    artifacts   LIST_COUNT=40"
 )
 for rep in $(seq 1 "$reps"); do
   for line in "${runs[@]}"; do

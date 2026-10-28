@@ -185,6 +185,8 @@ struct ChiefLiveDetailRow: View {
 struct ChiefShimmerText: View {
     let text: String
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The band's sweep, a repeating animation (no body per display frame).
+    @State private var swept = false
 
     var body: some View {
         let label = Text(text)
@@ -195,49 +197,52 @@ struct ChiefShimmerText: View {
         if reduceMotion {
             label
         } else {
-            TimelineView(.animation) { context in
-                // -0.25...1.25: the band enters and leaves fully off the text.
-                let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6 * 1.5 - 0.25
-                label.overlay {
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: phase - 0.25),
-                            .init(color: .white.opacity(0.7), location: phase),
-                            .init(color: .clear, location: phase + 0.25),
-                        ],
-                        startPoint: .leading, endPoint: .trailing
-                    )
-                    .mask(label)
-                    .blendMode(.plusLighter)
+            label.overlay {
+                // A band half the text wide whose middle runs from -0.25 to 1.25 of the width:
+                // it enters and leaves fully off the text.
+                GeometryReader { proxy in
+                    let width = proxy.size.width
+                    LinearGradient(colors: [.clear, .white.opacity(0.7), .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: width * 0.5)
+                        .offset(x: swept ? width : -width * 0.5)
                 }
+                .mask(label)
+                .blendMode(.plusLighter)
+            }
+            .onAppear {
+                swept = false
+                withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) { swept = true }
             }
         }
     }
 }
 
-/// The three-dot typing indicator of the status line.
+/// The three-dot typing indicator of the status line: each dot pulses on a repeating
+/// animation, one after another (no body per display frame).
 struct ChiefTypingDots: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var lit = false
 
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            HStack(spacing: 3) {
-                ForEach(0..<3) { index in
-                    Circle()
-                        .fill(Color.secondary)
-                        .frame(width: 6, height: 6)
-                        .opacity(reduceMotion ? 0.7 : 0.35 + 0.65 * max(0, sin((t * 4) - Double(index) * 0.8)))
-                }
+        HStack(spacing: 3) {
+            ForEach(0..<3) { index in
+                Circle()
+                    .fill(Color.secondary)
+                    .frame(width: 6, height: 6)
+                    .opacity(reduceMotion ? 0.7 : (lit ? 1 : 0.35))
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.39).repeatForever(autoreverses: true).delay(Double(index) * 0.2),
+                               value: lit)
             }
-            .padding(.horizontal, 8)
-            .frame(height: 22)
-            .background(Color(uiColor: .systemGray5), in: .capsule)
         }
+        .padding(.horizontal, 8)
+        .frame(height: 22)
+        .background(Color(uiColor: .systemGray5), in: .capsule)
+        .onAppear { lit = true }
         .accessibilityHidden(true)
         .accessibilityIdentifier("chief.live.typing")
     }
 }
+
 /// The window frame of the live status line and its details (the only
 /// part of the overlay that takes touches).
 @MainActor
