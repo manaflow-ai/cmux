@@ -162,9 +162,9 @@ function callTarget(rest: string): { ref: Ref; number: number } | undefined {
       if (!word.includes("=") && !SWITCHES.has(word)) index++;
       continue;
     }
-    const url = new RegExp(`^${PR_URL.source}(?:/\\S*)?$`).exec(word);
+    const url = new RegExp(`^${PR_URL.source}(?:[/?#]\\S*)?$`).exec(word);
     if (url) return { ref: { kind: "full", repo: url[1]! }, number: Number(url[2]) };
-    const issue = new RegExp(`^${ISSUE_URL.source}$`).exec(word);
+    const issue = new RegExp(`^${ISSUE_URL.source}(?:[/?#]\\S*)?$`).exec(word);
     if (issue) return { ref: { kind: "full", repo: issue[1]! }, number: Number(issue[2]) };
     const ref = OWNER_REPO_REF.exec(word);
     if (ref) return { ref: { kind: "full", repo: `${ref[1]}/${ref[2]}` }, number: Number(ref[3]) };
@@ -410,8 +410,16 @@ export function transcriptPullRequests(
     if (number <= 0) return;
     const prUrl = urlOf(repo, number),
       issueUrl = issueUrlOf(repo, number);
-    // GitHub issues and PRs share a number space; /issues/N may redirect to a proven PR.
-    if ((!kind && how !== "mentioned") || found.get(prUrl)?.kind === "pullRequest") kind = "pullRequest";
+    // GitHub issues and PRs share a number space; /issues/N may redirect to a proven PR. Once a
+    // record has been proven as a PR, later issue evidence (including comment fragments) reuses it.
+    const priorPullRequest = found.get(prUrl);
+    if (
+      (!kind && how !== "mentioned") ||
+      priorPullRequest?.kind === "pullRequest" ||
+      priorPullRequest?.changed ||
+      priorPullRequest?.opened
+    )
+      kind = "pullRequest";
     if (!kind && how === "mentioned" && found.has(issueUrl)) kind = "issue";
     const priorIssue = kind === "pullRequest" ? found.get(issueUrl) : undefined;
     if (kind === "pullRequest") found.delete(issueUrl);

@@ -471,7 +471,7 @@ test("brokered PR lifecycle writes settle the same record", () => {
 });
 
 test("PR evidence canonicalizes issue URLs in either order without stale Sources", () => {
-  const issue = assistant("See https://github.com/acme/app/issues/7", 1);
+  const issue = assistant("See https://github.com/acme/app/issues/7#issuecomment-123", 1);
   const pr = activity([shell("gh pr view 7 -R acme/app")], 2);
   for (const rows of [
     [issue, pr],
@@ -492,5 +492,13 @@ test("mutated PR URLs with fragments stay out of Sources", () => {
   expect(transcriptPullRequests(rows, { folder: "acme/app" })).toMatchObject([
     { number: 41, changed: true, kind: "pullRequest" },
   ]);
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
+});
+
+test("a PR mutation target with a comment fragment is marked changed", () => {
+  const rows = [
+    activity([shell("gh pr comment https://github.com/acme/app/pull/41#issuecomment-123 --body x")], 1),
+  ];
+  expect(transcriptPullRequests(rows)).toMatchObject([{ number: 41, changed: true, kind: "pullRequest" }]);
   expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
 });
