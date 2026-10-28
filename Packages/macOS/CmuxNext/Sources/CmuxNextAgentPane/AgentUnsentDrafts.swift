@@ -13,6 +13,7 @@ public final class AgentUnsentDrafts {
     let file: URL?
     private var drafts: [String: String]
     private let work: BackgroundWork
+    private var acceptsWrites = true
 
     public init(file: URL?, work: BackgroundWork = BackgroundWork()) {
         self.file = file
@@ -32,6 +33,12 @@ public final class AgentUnsentDrafts {
         await withCheckedContinuation { continuation in
             work.post(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { continuation.resume() }
         }
+    }
+
+    /// Called only after quit is committed: stop page writes before draining their ordered saves.
+    public func finalizeForQuit() async {
+        acceptsWrites = false
+        await flush()
     }
 
     /// Tab `key`'s kept text as a new chat's seed; nil for a tab whose chat has a session, or
@@ -57,6 +64,7 @@ public final class AgentUnsentDrafts {
 
     /// Keeps `text` as tab `key`'s draft; blank text keeps a clear tombstone for migration.
     public func set(_ text: String, for key: String) {
+        guard acceptsWrites else { return }
         let keep = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.count <= Self.maximumCharacters
         let value = keep ? text : ""
         guard drafts[key] != value else { return }
@@ -66,7 +74,7 @@ public final class AgentUnsentDrafts {
 
     /// The store gave provisional tab `key` its id `real`.
     public func move(_ key: String, to real: String) {
-        guard key != real, let text = drafts[key], !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard acceptsWrites, key != real, let text = drafts[key], !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         drafts[key] = ""
         drafts[real] = text
         save()
