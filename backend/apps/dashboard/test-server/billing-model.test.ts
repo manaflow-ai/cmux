@@ -69,3 +69,24 @@ test("no top-up amounts: no top-up button", () => {
   const m = billingModel({ ...base, credits: { ...base.credits!, topup_amounts_usd: [] } })
   expect(m.canTopUp).toBe(false)
 })
+
+import { autoReloadError, topupError } from "../src/lib/billing-model"
+
+test("a custom top-up amount must be whole cents inside the range", () => {
+  expect(topupError("37.50", 5, 2500)).toBeNull()
+  expect(topupError("5", 5, 2500)).toBeNull()
+  expect(topupError("4.99", 5, 2500)).toBe("range")
+  expect(topupError("2500.01", 5, 2500)).toBe("range")
+  expect(topupError("10.001", 5, 2500)).toBe("cents")
+  expect(topupError("abc", 5, 2500)).toBe("number")
+  expect(topupError("", 5, 2500)).toBe("number")
+})
+
+test("auto-reload settings: a reload amount in range, a threshold of 0 or more, a cap of at least one reload", () => {
+  const ok = { enabled: true, threshold: "10", amount: "20", cap: "100" }
+  expect(autoReloadError(ok, 5, 2500)).toBeNull()
+  expect(autoReloadError({ ...ok, amount: "2" }, 5, 2500)).toBe("amount")
+  expect(autoReloadError({ ...ok, threshold: "-1" }, 5, 2500)).toBe("threshold")
+  expect(autoReloadError({ ...ok, cap: "10" }, 5, 2500)).toBe("cap")
+  expect(autoReloadError({ ...ok, enabled: false, amount: "2" }, 5, 2500)).toBeNull()
+})
