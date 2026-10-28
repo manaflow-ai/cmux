@@ -12,6 +12,7 @@ type Props = {
   icon: ReactNode;
   onPick(cwd: string): void;
   onBrowse?(): void;
+  galleryVariant?: "aligned" | "airy" | "quiet";
 };
 
 const icon = createElement(
