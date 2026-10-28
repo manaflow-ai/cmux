@@ -37,9 +37,9 @@ extension FileHandle {
     ///
     /// Stop condition: the stream ends at end of file or a failed read, or when a consumer falls
     /// more than ``readyChunksLimit`` chunks behind (bytes are never dropped from the middle).
-    /// Cleanup: the handler is cleared when the stream ends, when its consumer stops reading (its
-    /// task is cancelled or it breaks out), and on `stop()`, which ends the stream for an owner
-    /// that goes away before its end of file.
+    /// Cleanup: the handler is cleared whenever the stream ends: at end of file, when its consumer's
+    /// task is cancelled, when the stream is released (a consumer that breaks out and drops it),
+    /// and on `stop()`, for an owner that goes away before its end of file.
     public nonisolated func readyChunks() -> (chunks: AsyncStream<Data>, stop: @Sendable () -> Void) {
         let (chunks, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingOldest(Self.readyChunksLimit))
         continuation.onTermination = { [weak self] _ in self?.readabilityHandler = nil }
