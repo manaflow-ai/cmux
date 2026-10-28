@@ -237,7 +237,9 @@ public nonisolated final class AcpmuxPendingQuestions: Sendable {
         for (permission, entry) in session.pending where entry.seq <= seq && !present.contains(permission) {
             session.pending[permission] = nil
         }
-        let repeated = session.snapshotSeq == seq
+        // A suspended recovery has no retained membership to compare. Its fresh native
+        // read may restore current identities at the same watermark; retirement floors still apply.
+        let repeated = !session.suspended && session.snapshotSeq == seq
         session.snapshotSeq = seq
         session.suspended = false
         session.retired = session.retired.filter { $0.value >= seq }
