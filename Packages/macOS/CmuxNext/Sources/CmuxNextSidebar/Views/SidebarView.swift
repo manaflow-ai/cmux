@@ -307,8 +307,7 @@ public final class SidebarView: NSView {
         newWorkspaceOptionsButton.frame = NSRect(x: newButton.frame.minX - Metrics.space1 - button,
                                                   y: newButton.frame.minY, width: button, height: button)
         let x = headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
-        let titlebarButtonsMinX = layoutUpdateAvailableButton(before: newWorkspaceOptionsButton.frame,
-                                                              minX: layoutPriorityButton(before: newWorkspaceOptionsButton.frame), leading: x)
+        let titlebarButtonsMinX = layoutPriorityButton(before: newWorkspaceOptionsButton.frame)
         if let accessory = titlebarAccessory {
             let size = accessory.fittingSize
             let width = max(0, min(size.width, titlebarButtonsMinX - Metrics.space2 - x))
@@ -390,7 +389,7 @@ extension SidebarView: TitlebarPressDeciding {
     public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
         let point = convert(windowPoint, from: nil)
         guard point.y < titlebarHeight else { return .staysPut }
-        let controls = [newButton as NSView?, newWorkspaceOptionsButton, priorityButton, updateAvailableButton, titlebarAccessory].compactMap { $0 }.filter { !$0.isHidden }
+        let controls = [newButton as NSView?, newWorkspaceOptionsButton, priorityButton, titlebarAccessory].compactMap { $0 }.filter { !$0.isHidden }
         return controls.contains { $0.frame.contains(point) } ? .staysPut : .movesWindow
     }
 }

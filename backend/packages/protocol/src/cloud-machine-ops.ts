@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
 import { HostId, Revision, TeamId, UserId } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * cmux-next Cloud machines (plans/cmux-next/cloud-client-contract.md 1.2, 1.3 and 1.7;
@@ -11,11 +12,11 @@ import { HostId, Revision, TeamId, UserId } from "./schemas.ts"
  * The shared vectors are backend/catalog/cloud-vectors.json.
  */
 
-export const MachineId = Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/)).annotate({ identifier: "MachineId", description: "A Cloud machine." })
-export const SnapshotId = Schema.String.check(Schema.isPattern(/^snap_[a-z0-9]{20}$/)).annotate({ identifier: "SnapshotId", description: "A Cloud machine snapshot." })
-const PlanId = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9_-]{0,63}$/))
+export const MachineId = Schema.String.check(isPattern(/^vm_[a-z0-9]{20}$/)).annotate({ identifier: "MachineId", description: "A Cloud machine." })
+export const SnapshotId = Schema.String.check(isPattern(/^snap_[a-z0-9]{20}$/)).annotate({ identifier: "SnapshotId", description: "A Cloud machine snapshot." })
+const PlanId = Schema.String.check(isPattern(/^[a-z0-9][a-z0-9_-]{0,63}$/))
 const ImageId = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128))
-const MachineName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80))
+export const MachineName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80))
 const Millis = Schema.Int
 
 export const CloudMachineStatus = Schema.Literals(["provisioning", "starting", "running", "pausing", "paused", "deleting", "failed"]).annotate({ identifier: "CloudMachineStatus" })
@@ -97,7 +98,7 @@ export const CloudConnectInfo = Schema.Struct({
   revision: Revision
 }).annotate({ identifier: "CloudConnectInfo" })
 
-const MachineResult = Schema.Struct({ machine: CloudMachine })
+export const MachineResult = Schema.Struct({ machine: CloudMachine })
 const Deleted = Schema.Struct({ deleted: Schema.Literal(true) })
 const MachineParams = Schema.Struct({ machine: MachineId })
 
@@ -106,23 +107,23 @@ const GATES = ["auth.sso_required", "client.too_old", "owner.unreachable"]
 const READ = ["auth.forbidden", "auth.unauthenticated", "selector.not_found", "validation.invalid", ...GATES]
 const MUTATION = [...mutationErrors, ...GATES]
 /** A provider call can fail for now or be cut off; the caller retries the same key after mutation.indeterminate. */
-const PROVIDER = ["cloud.provider.unavailable", "mutation.indeterminate"]
+export const PROVIDER = ["cloud.provider.unavailable", "mutation.indeterminate"]
 /** Create and delete are limited per team (CLOUD_MUTATION_LIMIT); retryable, retry after a minute. */
-const LIMITED = ["cloud.rate_limited"]
-const KEY = " After mutation.indeterminate, retry with the same idempotency key."
+export const LIMITED = ["cloud.rate_limited"]
+export const KEY = " After mutation.indeterminate, retry with the same idempotency key."
 /**
  * The G8 approval path (cx-wb5.65, domains/cloud.ts CLOUD_APPROVAL_OPS): a non-agent install
  * never runs these ops itself; the person approves each request in the feed with their own session.
  */
-const APPROVAL = ["approval.pending", "approval.denied", "approval.expired", "approval.too_many_pending"]
-const APPROVAL_DOC =
+export const APPROVAL = ["approval.pending", "approval.denied", "approval.expired", "approval.too_many_pending"]
+export const APPROVAL_DOC =
   " From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team."
 const PERSON = " Agent principals are refused; the client asks a person first."
 
-const cloudRead = <P extends Schema.Top, R extends Schema.Top>(name: string, params: P, result: R, errors: Array<string>, docs: string, cli: string) =>
+export const cloudRead = <P extends Schema.Top, R extends Schema.Top>(name: string, params: P, result: R, errors: Array<string>, docs: string, cli: string) =>
   def({ name, owner: "cloud:CloudDO", class: "read", risk: "read", target: "team", principals: ["session", "install"], params, result, errors: [...READ, ...errors], docs, cli: { path: cli, visible: true }, mcp: { expose: "default", group: "cloud" } })
 
-const cloudMutation = <P extends Schema.Top, R extends Schema.Top>(
+export const cloudMutation = <P extends Schema.Top, R extends Schema.Top>(
   name: string,
   risk: "mutate-own" | "mutate-shared" | "execute" | "money" | "destructive",
   params: P,
@@ -289,7 +290,7 @@ export const CloudBillingCheckout = cloudMutation(
   "cloud.billing.checkout",
   "money",
   Schema.Struct({ plan: PlanId }),
-  Schema.Struct({ url: Schema.String.check(Schema.isPattern(/^https:\/\//)) }),
+  Schema.Struct({ url: Schema.String.check(isPattern(/^https:\/\//)) }),
   [],
   "Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux.",
   "cloud billing checkout",
