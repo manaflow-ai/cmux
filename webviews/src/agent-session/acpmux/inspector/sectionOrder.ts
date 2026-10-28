@@ -18,9 +18,7 @@ export const INSPECTOR_ORDER_SETTING_KEY = "agentPane.display.inspector.order";
 
 let nativeOrder: InspectorOrder | undefined;
 let nativeWrite: ((value: InspectorOrder) => Promise<unknown>) | undefined;
-let nativeConfirmed = false;
 let nativePresent = false;
-let pendingWrite = false;
 let writeVersion = 0;
 type InspectorOrderStorage = Pick<Storage, "getItem" | "setItem"> & Partial<Pick<Storage, "removeItem">>;
 
@@ -44,21 +42,17 @@ export function applyInspectorOrder(value: unknown): void {
   // observed key is a reset; registering a writer is not a capability acknowledgement.
   if (value === undefined && nativeOrder === undefined) return;
   const next = normalize(value);
-  const changed =
-    nativeOrder !== undefined &&
-    ((nativePresent && value === undefined) || !nativeOrder.every((id, index) => id === next[index]));
+  const reset = nativePresent && value === undefined;
   nativePresent = value !== undefined;
   nativeOrder = next;
-  if (changed && !pendingWrite) nativeConfirmed = true;
-  order.applyExternal();
+  if (reset) writeVersion++;
+  order.applyExternal(reset);
 }
 
 export function registerInspectorOrderHost(write: ((value: InspectorOrder) => Promise<unknown>) | undefined): void {
   nativeWrite = write;
   nativeOrder = undefined;
   nativePresent = false;
-  nativeConfirmed = false;
-  pendingWrite = false;
   writeVersion++;
 }
 
@@ -70,10 +64,6 @@ export function createInspectorOrderStore(storage: () => InspectorOrderStorage =
   const read = () => {
     if (unsaved && state) return state;
     try {
-      if (nativeConfirmed) {
-        storage().removeItem?.(INSPECTOR_ORDER_KEY);
-        return nativeOrder ?? DEFAULT_INSPECTOR_ORDER;
-      }
       const saved = storage().getItem(INSPECTOR_ORDER_KEY);
       return saved === null ? (nativeOrder ?? DEFAULT_INSPECTOR_ORDER) : normalize(JSON.parse(saved));
     } catch {
@@ -104,37 +94,41 @@ export function createInspectorOrderStore(storage: () => InspectorOrderStorage =
     },
     async set(value: InspectorOrder) {
       const next = normalize(value);
+      const saved = JSON.stringify(next);
       const version = ++writeVersion;
       const write = nativeWrite;
-      nativeConfirmed = false;
       try {
         // Retain a fallback until this exact native write is acknowledged.
-        storage().setItem(INSPECTOR_ORDER_KEY, JSON.stringify(next));
+        storage().setItem(INSPECTOR_ORDER_KEY, saved);
         unsaved = false;
       } catch {
         unsaved = true;
       }
       update(next);
       if (!write) return;
-      pendingWrite = true;
       try {
         await write(next);
         if (version !== writeVersion) return;
         nativeOrder = next;
         nativePresent = true;
-        nativeConfirmed = true;
         try {
-          storage().removeItem?.(INSPECTOR_ORDER_KEY);
+          if (storage().getItem(INSPECTOR_ORDER_KEY) === saved) storage().removeItem?.(INSPECTOR_ORDER_KEY);
         } catch {
           // Keep the in-memory order if browser storage is unavailable.
         }
       } catch {
         // Unsupported, rejected and managed settings retain the local fallback.
-      } finally {
-        if (version === writeVersion) pendingWrite = false;
       }
     },
-    applyExternal() {
+    applyExternal(reset = false) {
+      if (reset) {
+        try {
+          storage().removeItem?.(INSPECTOR_ORDER_KEY);
+        } catch {
+          // Reset still restores this pane when browser storage is unavailable.
+        }
+        update(DEFAULT_INSPECTOR_ORDER);
+      }
       unsaved = false;
       update(read());
     },

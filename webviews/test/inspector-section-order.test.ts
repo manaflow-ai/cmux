@@ -19,6 +19,15 @@ function memory(raw: string | null = null) {
   };
 }
 
+function useStorage(storage: ReturnType<typeof memory>) {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
+  return () => {
+    if (previous) Object.defineProperty(globalThis, "localStorage", previous);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  };
+}
+
 test("Changes above Context writes through the native preference and survives a relaunch", async () => {
   const native: unknown[] = [];
   registerInspectorOrderHost(async (value) => {
@@ -41,6 +50,7 @@ test("Changes above Context writes through the native preference and survives a 
 
 test("resetting native settings clears the fallback and restores the default after relaunch", () => {
   const storage = memory();
+  const restoreStorage = useStorage(storage);
   const native = moveSection(DEFAULT_INSPECTOR_ORDER, "changes", "context");
   registerInspectorOrderHost(async () => undefined);
   try {
@@ -52,6 +62,7 @@ test("resetting native settings clears the fallback and restores the default aft
     expect(storage.getItem(INSPECTOR_ORDER_KEY)).toBeNull();
   } finally {
     registerInspectorOrderHost(undefined);
+    restoreStorage();
   }
 });
 
@@ -77,6 +88,7 @@ test.each([false, true])("rejected native writes survive reload (host advertises
 
 test("Reset removes a rejected fallback as well as the native setting", async () => {
   const storage = memory();
+  const restoreStorage = useStorage(storage);
   registerInspectorOrderHost(async () => {
     throw new Error("write rejected");
   });
@@ -93,6 +105,7 @@ test("Reset removes a rejected fallback as well as the native setting", async ()
     expect(createInspectorOrderStore(() => storage).current()).toEqual(DEFAULT_INSPECTOR_ORDER);
   } finally {
     registerInspectorOrderHost(undefined);
+    restoreStorage();
   }
 });
 
@@ -119,6 +132,60 @@ test("native acknowledgement clears the fallback only after resolution", async (
     registerInspectorOrderHost(undefined);
   }
 });
+
+test.each([false, true])(
+  "another pane's rejected fallback survives an earlier confirmation (late=%s)",
+  async (late) => {
+    // Separate module instances model independent webviews; only their storage is shared.
+    const modulePath = "../src/agent-session/acpmux/inspector/sectionOrder.ts";
+    type Pane = typeof import("../src/agent-session/acpmux/inspector/sectionOrder");
+    const paneA = (await import(`${modulePath}?pane-a-${late}`)) as Pane;
+    const paneB = (await import(`${modulePath}?pane-b-${late}`)) as Pane;
+    const storage = memory();
+    const a = paneA.createInspectorOrderStore(() => storage);
+    const b = paneB.createInspectorOrderStore(() => storage);
+    let confirm!: () => void;
+    paneA.registerInspectorOrderHost(
+      () =>
+        new Promise<void>((resolve) => {
+          confirm = resolve;
+        }),
+    );
+    paneB.registerInspectorOrderHost(async () => {
+      throw new Error("managed setting");
+    });
+    const unsubscribeA = a.subscribe(() => {});
+    const unsubscribeB = b.subscribe(() => {});
+    try {
+      const savedA = moveSection(DEFAULT_INSPECTOR_ORDER, "changes", "context");
+      const savedB = moveSection(DEFAULT_INSPECTOR_ORDER, "outputs", "environment");
+      const writing = a.set(savedA);
+      if (!late) {
+        confirm();
+        await writing;
+      }
+      await b.set(savedB);
+      if (late) {
+        confirm();
+        await writing;
+      }
+      globalThis.dispatchEvent(Object.assign(new Event("storage"), { key: INSPECTOR_ORDER_KEY }));
+      expect(JSON.parse(storage.getItem(INSPECTOR_ORDER_KEY)!)).toEqual(savedB);
+      expect(a.current()).toEqual(savedB);
+      expect(b.current()).toEqual(savedB);
+      paneB.registerInspectorOrderHost(async () => {
+        throw new Error("managed setting");
+      });
+      paneB.applyInspectorOrder(savedA); // Reload receives the last accepted native value.
+      expect(paneB.createInspectorOrderStore(() => storage).current()).toEqual(savedB);
+    } finally {
+      unsubscribeA();
+      unsubscribeB();
+      paneA.registerInspectorOrderHost(undefined);
+      paneB.registerInspectorOrderHost(undefined);
+    }
+  },
+);
 
 test("old or malformed storage keeps known order and appends missing sections", () => {
   for (const raw of ["oops", "{}", "null"]) {
