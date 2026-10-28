@@ -271,7 +271,7 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
 /// The rail's Starred tab (never a harness id).
 const STARRED = "\u0000starred";
 
-/// Global launch configurations are distinct harness entries, never a Profile submenu.
+/// Build launch entries before folding Claude/Codex variants into their canonical harness tab.
 /// Their model catalogs refresh after selection; do not borrow another account's models.
 function railByHarness(
   list: QuickFamily[],

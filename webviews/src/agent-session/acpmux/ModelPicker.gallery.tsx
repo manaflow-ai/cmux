@@ -212,6 +212,18 @@ const startedFork: ModelPickerProps = {
   fork: { to: () => undefined, ready: true },
 };
 
+const canonicalVariants: ModelPickerProps = {
+  ...startedFork,
+  catalog: [
+    ...startedFork.catalog,
+    {
+      ...curated.catalog.find((entry) => entry.id === "codex")!,
+      id: "codex-work",
+      name: "Codex (work)",
+    },
+  ],
+};
+
 /// A short New Tab/chat pane with 48 installed accounts: the menu must cap to its window and
 /// let the Account list scroll to its last row without an empty spacer.
 const manyProfiles: ModelPickerProps = {
@@ -470,11 +482,11 @@ export default componentEntry<GalleryProps>({
     },
     // Its Account row contains signed-in routes, separate from named launch harnesses.
     "canonical-harnesses-chat": {
-      props: startedFork,
+      props: canonicalVariants,
       play: openQuick,
     },
     "canonical-harnesses-new-chat": {
-      props: { ...startedFork, harnessFixed: false, fork: undefined, onHarness: () => undefined },
+      props: { ...canonicalVariants, harnessFixed: false, fork: undefined, onHarness: () => undefined },
       play: openQuick,
     },
     "started-chat-accounts": {

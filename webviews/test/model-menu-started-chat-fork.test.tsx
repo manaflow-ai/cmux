@@ -294,10 +294,11 @@ for (const [id, name, family] of [
     expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).toEqual(["Claude Code"]);
     expect(forked).toEqual([]);
     expect(itemsOf(menu()!).map(labelOf)).toContain(`Fork to ${name}`);
+    const variant = itemsOf(menu()!).find((item) => labelOf(item) === `Fork to ${name}`)!;
+    await act(async () => variant.focus());
+    expect(doc().activeElement).toBe(variant);
     await act(async () =>
-      itemsOf(menu()!)
-        .find((item) => labelOf(item) === `Fork to ${name}`)!
-        .click(),
+      variant.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
     );
     await settle();
     expect(forked).toEqual([id!]);

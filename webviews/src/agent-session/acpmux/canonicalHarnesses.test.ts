@@ -52,3 +52,10 @@ test("unknown harnesses and Starred keep their identity and order", () => {
   ];
   expect(canonicalHarnesses(input, "private")).toEqual(input);
 });
+
+test("a harness with only a named launch configuration keeps that launch reachable", () => {
+  const configured = { ...family("claude-work", "Work", "claude"), launch: true };
+  const rows = canonicalHarnesses([configured], "codex");
+  expect(rows.map((row) => row.name)).toEqual(["Claude Code"]);
+  expect(rows[0]?.variants?.map((row) => row.id)).toEqual(["claude-work"]);
+});

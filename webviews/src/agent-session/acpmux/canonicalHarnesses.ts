@@ -31,7 +31,7 @@ export function canonicalHarnesses(list: QuickFamily[], running?: string): Quick
         name: agentDisplayName(brand),
         mark: brand,
         launch: false,
-        variants: members.filter((candidate) => candidate.id !== selected.id),
+        variants: members.filter((candidate) => candidate.id !== selected.id || selected.launch),
       },
     ];
   });
