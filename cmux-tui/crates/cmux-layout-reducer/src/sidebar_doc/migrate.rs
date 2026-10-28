@@ -435,9 +435,12 @@ pub fn migrate(input: &LegacyInput) -> Doc {
     for (index, item) in items.iter().enumerate() {
         lists.entry((item.section.clone(), item.parent.clone())).or_default().push(index);
     }
+    // The indexes come from enumerating `items`, so every lookup finds its item.
     for indexes in lists.values() {
         for (&index, key) in indexes.iter().zip(order_key::spread(indexes.len())) {
-            items[index].order = key;
+            if let Some(item) = items.get_mut(index) {
+                item.order = key;
+            }
         }
     }
     let mut doc = Doc::from_parts(0, sections, items);

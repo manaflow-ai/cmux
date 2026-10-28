@@ -373,6 +373,7 @@ impl Host {
         // Forward masked driver events into the VM from one thread per session.
         let (tx, rx) = std::sync::mpsc::channel::<DriverEvent>();
         let events_vm = vm.events();
+        // supervise-allow: one session's event forwarder, ending when the session drops its sender; it only queues into that session's VM, and a panic ends that session's events only.
         std::thread::Builder::new()
             .name(format!("cmux-browser-host-events-{name}"))
             .spawn(move || {
@@ -531,6 +532,7 @@ fn watch_idle(
     reaped: ReapedSink,
     changed: ChangedSink,
 ) {
+    // supervise-allow: one session's idle timer holding a weak map; a panic keeps that session until browser.repl.close or host exit, and the session map lock is poison-tolerant.
     let spawned = std::thread::Builder::new().name(format!("cmux-browser-host-idle-{name}")).spawn(
         move || {
             while idle.wait_expired() {

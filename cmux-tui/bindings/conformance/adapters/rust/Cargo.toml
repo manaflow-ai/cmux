@@ -15,3 +15,4 @@ serde_json = "1"
 [lints.clippy]
 # cmux-tui/clippy.toml disallows std thread spawns and sleep; this package has not opted in.
 disallowed_methods = "allow"
+disallowed_types = "allow"

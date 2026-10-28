@@ -113,6 +113,7 @@ public:
     [[nodiscard]] Result<EmptyResult> browser_wheel(const BrowserWheelRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel_guarded(const BrowserWheelGuardedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> cancel_request(const CancelRequestRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<CancelStreamResult> cancel_stream(const CancelStreamRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ChiefInspectResult> chief_inspect(const ChiefInspectRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_history(const ClearHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_window_title(const ClearWindowTitleRequest& request = {}, RequestOptions options = {});
@@ -252,6 +253,7 @@ public:
     [[nodiscard]] Result<MachineListeningTcpResult> machine_listening_tcp(const MachineListeningTcpRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<MachineUsageResult> machine_usage(const MachineUsageRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> mark_workspaces_provider_managed(const MarkWorkspacesProviderManagedRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<MemoryReportResult> memory_report(const MemoryReportRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer(const MintTerminalRendererRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer_by_terminal(const MintTerminalRendererByTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<BookmarkChangeResult> move_bookmark(const MoveBookmarkRequest& request, RequestOptions options = {});
@@ -333,7 +335,9 @@ public:
     [[nodiscard]] Result<EmptyResult> select_workspace(const SelectWorkspaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SendResult> send(const SendRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> send_key(const SendKeyRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ServerBlockingResult> server_blocking(const ServerBlockingRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ServerStatsResult> server_stats(const ServerStatsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<ServerThreadsResult> server_threads(const ServerThreadsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SetCellPixelsResult> set_cell_pixels(const SetCellPixelsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_client_info(const SetClientInfoRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_client_sizing(const SetClientSizingRequest& request, RequestOptions options = {});

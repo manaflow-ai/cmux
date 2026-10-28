@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// The panel's window: a borderless child panel of the shell window (so it
 /// stays above Chromium page windows and moves with the window). It takes
@@ -69,9 +70,12 @@ final class NotificationsPanelView: NSView {
     private var tinted: [(ChromeLabel, NotificationRowView.Tone)] = []
     private(set) var rowViews: [NotificationRowView] = []
     private var scrollerStyleObserver: MainActorObservation?
+    /// The panel's node: an appearance change while the panel is closed recolors it when it shows.
+    let node: VisibilityNode
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
+    init(node: VisibilityNode) {
+        self.node = node
+        super.init(frame: .zero)
         background.wantsLayer = true
         background.translatesAutoresizingMaskIntoConstraints = false
         body.translatesAutoresizingMaskIntoConstraints = false
@@ -191,9 +195,11 @@ final class NotificationsPanelView: NSView {
         empty.isHidden = !rows.isEmpty || !loaded
         markAllRead.isEnabled = rows.contains { $0.row.unread }
         clearAll.isEnabled = !rows.isEmpty
+        // sync-layout: the rows wrap at the list's width; the list's fitting height below reads them.
         list.layoutSubtreeIfNeeded()
         let content = rows.isEmpty ? (loaded ? empty.fittingSize.height : 0) : list.fittingSize.height
         listHeight?.constant = min(ceil(content), Self.maxListHeight)
+        // sync-layout: the caller's `select` scrolls a row into view in the document laid out at this height.
         layoutSubtreeIfNeeded()
         return fittingSize.height
     }
@@ -210,7 +216,7 @@ final class NotificationsPanelView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        applyColors()
+        node.deferUntilVisible(key: "notifications.panel.colors") { [weak self] in self?.applyColors() }
     }
 
     private func applyColors() {

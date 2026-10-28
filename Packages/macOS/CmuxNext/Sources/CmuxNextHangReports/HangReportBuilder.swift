@@ -29,10 +29,12 @@ public nonisolated struct HangReportBuilder: Sendable {
         public var hardware: HardwareClass
         /// Rounded counts of what was open.
         public var counts: CoarseCounts
+        /// This launch's features; nil where the app passed none.
+        public var features: HangReport.FeatureState?
 
         /// Makes the value from its parts.
         public init(reportId: String, installId: String, day: String, app: HangReport.App, os: HangReport.OS,
-                    hardware: HardwareClass, counts: CoarseCounts) {
+                    hardware: HardwareClass, counts: CoarseCounts, features: HangReport.FeatureState? = nil) {
             self.reportId = reportId
             self.installId = installId
             self.day = day
@@ -40,6 +42,7 @@ public nonisolated struct HangReportBuilder: Sendable {
             self.os = os
             self.hardware = hardware
             self.counts = counts
+            self.features = features
         }
     }
 
@@ -64,9 +67,12 @@ public nonisolated struct HangReportBuilder: Sendable {
     /// The report of `watchdog`'s findings, the MetricKit deliveries and the input latency since
     /// the last report. `inputLatency` (the field ledger's counts, ``HangReportInputLatencySource``)
     /// and `mainThread` (active seconds and the main-turn and input-queueing histograms,
-    /// ``MainThreadInput``) go in only when ``wireSchema`` carries them.
+    /// ``MainThreadInput``) go in only when ``wireSchema`` carries them, and so does `fieldData` (the catalog
+    /// histograms, stability counts, earlier launches and black box, ``FieldDataInput``), and `blockingSites` (the
+    /// main thread's blocking call counts since the last report, ``BlockingSiteLedger/take()``).
     public func build(context: Context, watchdog: StallAggregate, metricKit: [MetricKitInput],
-                      inputLatency: InputLatencySnapshot? = nil, mainThread: MainThreadInput? = nil) -> HangReport {
+                      inputLatency: InputLatencySnapshot? = nil, mainThread: MainThreadInput? = nil,
+                      fieldData: FieldDataInput? = nil, blockingSites: [HangReport.BlockingSiteCount]? = nil) -> HangReport {
         var report = HangReport(reportId: context.reportId, installId: context.installId, day: Self.safeDay(context.day),
                                 app: Self.safeApp(context.app), os: HangReport.OS(version: Self.safeVersion(context.os.version)),
                                 hardware: context.hardware, counts: safeCounts(context.counts))
@@ -75,11 +81,16 @@ public nonisolated struct HangReportBuilder: Sendable {
         }
         // Blocking samples have no duration: they take their own slots first, so neither the
         // longest-first cut nor the body cap (which drops from the end) pushes them out.
-        let blocking = wireSchema.carriesBlocking ? Array(watchdog.blocking.prefix(StallAggregate.maxSamples)) : []
-        let timed = (metricKitHangs + watchdog.hangs + watchdog.stalls).sorted { $0.durationMs > $1.durationMs }
+        let blocking = wireSchema.carriesBlocking ? watchdog.reportedBlocking : []
+        // A watched thread's hang goes only in a schema that carries them, and only with its thread; no other sample names one.
+        let threadHangs = wireSchema.carriesThreadHangs ? watchdog.threadHangs.filter { $0.thread != nil } : []
+        let hangs = watchdog.hangs.filter { $0.source != .hangWatch }
+        let timed = (metricKitHangs + hangs + threadHangs + watchdog.stalls).sorted { $0.durationMs > $1.durationMs }
         report.hangs = (blocking + Array(timed.prefix(HangReport.maxHangs - blocking.count))).map { sample in
             var sample = sample
             sample.mainTask = wireSchema.carriesTaskAttribution ? sample.mainTask.map(Self.safeTask) : nil
+            sample.startup = wireSchema.carriesStartupTag && sample.source == .watchdog ? sample.startup.flatMap(Self.safeStartup) : nil
+            if sample.source != .hangWatch { sample.thread = nil }
             return sample
         }
         report.cpuExceptions = Array(metricKit.flatMap(\.cpuExceptions).sorted { $0.cpuMs > $1.cpuMs }
@@ -92,7 +103,27 @@ public nonisolated struct HangReportBuilder: Sendable {
         report.launches = wireSchema.carriesLaunches ? Self.launches(watchdog.launches) : nil
         if let inputLatency, wireSchema.carriesInputLatency { Self.addInputLatency(inputLatency, to: &report) }
         if let mainThread, wireSchema.carriesMainThread { Self.addMainThread(mainThread, to: &report) }
+        if let fieldData, wireSchema.carriesFieldData { Self.addFieldData(fieldData, to: &report) }
+        if let features = context.features, wireSchema.carriesFeatures { Self.addFeatures(features, to: &report) }
+        if let blockingSites, wireSchema.carriesBlockingSites { Self.addBlockingSites(blockingSites, to: &report) }
         return report
+    }
+
+    /// The registry name pattern: a code identifier of letters and digits (`schemas/features/README.md`).
+    static let featureNamePattern = #"^[A-Za-z][A-Za-z0-9]{0,63}$"#
+    /// The sources an override may name (`Feature.Source`'s wire names, the channel default left out).
+    static let featureSources: Set<String> = ["policy", "env", "local", "remote", "trial"]
+
+    /// `features`' hash, when it is 16 lowercase hex digits, and its entries whose name is a registry name,
+    /// state `on` or `off` and source an override's (at most ``HangReport/maxFeatures``, first by name); with
+    /// any other hash, neither.
+    static func addFeatures(_ features: HangReport.FeatureState, to report: inout HangReport) {
+        guard features.hash.range(of: #"^[0-9a-f]{16}$"#, options: .regularExpression) != nil else { return }
+        report.featuresHash = features.hash
+        report.features = Array(features.nonDefault.filter { entry in
+            entry.name.range(of: featureNamePattern, options: .regularExpression) != nil
+                && (entry.state == "on" || entry.state == "off") && featureSources.contains(entry.source)
+        }.prefix(HangReport.maxFeatures))
     }
 
     /// `counts` with the lane wait only when ``wireSchema`` carries it and it is one of
@@ -130,6 +161,7 @@ public nonisolated struct HangReportBuilder: Sendable {
     /// Frames of a blocking detector stack (image UUID + offset, innermost first): each through the
     /// classifier by its loaded image, so a third-party or unknown image is ``HangReportFrame/other``.
     public func frames(blocking stack: [BlockingFrame]) -> [HangReportFrame] {
+        // memory: fixed a local of one stack, kept by no one: at most `HangSample.maxFrames` (64) image records of a few strings each
         var loaded: [UUID: LoadedImage?] = [:]
         return stack.prefix(HangSample.maxFrames).map { frame in
             let image: LoadedImage?
@@ -146,6 +178,7 @@ public nonisolated struct HangReportBuilder: Sendable {
 
     /// Frames of a MetricKit call stack tree.
     func frames(_ callStackTree: Data) -> [HangReportFrame] {
+        // memory: fixed a local of one stack, kept by no one: one image record per binary of this MetricKit stack
         var loaded: [String: LoadedImage?] = [:]
         return reader.stack(callStackTree).map { raw in
             let uuid = raw.binaryUUID?.uppercased()
@@ -211,6 +244,16 @@ public nonisolated struct HangReportBuilder: Sendable {
         let identifier = task.owner.range(of: #"^[A-Za-z][A-Za-z0-9._-]{0,63}$"#, options: .regularExpression) != nil
         let userNamed = userNamedOwnerPrefixes.contains { task.owner.hasPrefix($0) }
         return HangSample.MainTask(owner: identifier && !userNamed ? task.owner : HangSample.MainTask.other, taskClass: taskClass)
+    }
+
+    /// `startup` with a phase of ``HangSample/Startup/phases`` (else nil: no field) and a task name that is a
+    /// code identifier of at most 64 letters, digits, `.`, `_` and `-` (else ``HangSample/Startup/other``).
+    static func safeStartup(_ startup: HangSample.Startup) -> HangSample.Startup? {
+        guard HangSample.Startup.phases.contains(startup.phase) else { return nil }
+        let task = startup.task.map { task in
+            task.range(of: #"^[A-Za-z][A-Za-z0-9._-]{0,63}$"#, options: .regularExpression) != nil ? task : HangSample.Startup.other
+        }
+        return HangSample.Startup(phase: startup.phase, task: task)
     }
 
     /// `yyyy-MM-dd`, else `1970-01-01`.

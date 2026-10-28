@@ -88,6 +88,7 @@ public struct ProcessRunner {
                 group.addTask {
                     guard let progressIdle, let progress else {
                         // wakeup-allow: deadline of the child process (timeout), a flexible never-early wait (WakeLeeway)
+                        // timer-class-allow: a race timeout in the run's task group (the child's exit wins it); it schedules no main-thread job
                         try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance)
                         return Int32.min
                     }
@@ -127,6 +128,7 @@ public struct ProcessRunner {
             guard end > now else { return }
             let left = end - now
             // wakeup-allow: deadline: to the silence deadline; another pass only when a write moved it
+            // timer-class-allow: a race timeout in the run's task group (the child's exit wins it); it schedules no main-thread job
             try await clock.sleep(for: left, tolerance: WakeLeeway.window(delay: left).tolerance)
         }
     }

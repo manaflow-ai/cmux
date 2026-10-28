@@ -63,7 +63,8 @@ tab's page window covers the pane (`foreign_pages`).
 - Terminal warm set sized by memory (`WarmSetBudget`: 1/64 of RAM at 48 MB a
   surface, 8 to 24 hidden surfaces; memory pressure below). Browser
   pages no longer count in (or evict terminals from) that LRU; hibernation
-  manages their memory.
+  manages their memory. The planned budget from RAM is
+  [memory-DESIGN.md](memory-DESIGN.md) section 2.
 - Workspace switches park the previous workspace (`WindowController.parked`):
   its layout view leaves the window and its panes stay mounted and paused;
   only their GPU surfaces leave, under the terminal warm set's LRU. Switching
@@ -88,6 +89,8 @@ tab's page window covers the pane (`foreign_pages`).
   the most recently parked. A torn-down
   workspace mounts again when shown, with its view-only state (strip and
   screen bar scroll) reset until p07-memory-033's `WorkspaceViewRecord`.
+  The design of these budgets is [memory-DESIGN.md](memory-DESIGN.md)
+  sections 2 and 5.
 - Memory pressure shrinks the terminal warm set through the memory
   coordinator too (`WarmSetRelease`, p07-memory-096): the coordinator's
   limit scales the warm set's normal capacity (warning: the Memory Saver
@@ -122,7 +125,9 @@ cmux.json:
   when shown, when an agent drives it (before the call goes out) and before
   the hibernation probe. Pinned tabs (unless `hibernatePinnedTabs`), excluded
   hosts, open DevTools, capture, playing media and Web Audio stay awake; a
-  page kept for media is asked again after `freezeHiddenTabs`.
+  page kept for media is asked again after `freezeHiddenTabs`. With
+  `memoryFreezeEligibility`, Chrome's freeze reasons and opener groups apply
+  too (memory-DESIGN.md, "Freezing hidden pages").
 
 - Neighbors (plans/cmux-next/neighbor-tabs-DESIGN.md): the tabs beside each
   pane's shown tab (`keepNeighborTabsAwake`, wrapping) never freeze or
@@ -240,6 +245,30 @@ Now (`HibernationPlanner.plan`):
   tabs and Never Hibernate hosts unless the settings say otherwise.
 - Never Hibernate This Site (tab context menu, palette, `tab
   never-hibernate-site`) adds the host to `browser.hibernationExclusions`.
+
+### 3b. cmux pages (chrome-parity p13-webui, 2026-10-26)
+
+cmux's own pages (agent chats, New Tab, Settings, History, Cloud and the other page tabs) have a
+lifecycle of their own, behind feature `pageLifecycle` (off; when on it replaces
+`memoryDiscardInternalPages` for page tabs). Design: [webui-DESIGN.md](webui-DESIGN.md) and
+[chrome-parity/p13-webui.md](chrome-parity/p13-webui.md) section 3.C.
+
+- States: Active, Hidden, Frozen, Discarded (`PageLifecyclePlanner`, CmuxNextHibernation, pure;
+  `PageLifecycle`, CmuxNextPages, performs it). As Chrome's freezing policy
+  (`components/performance_manager/freezing/freezing_policy.cc`), nothing observes a page: the
+  `ContentLifecycle` show and hide of section 1 and the page's own load start and end are O(1) calls.
+- Times: a hidden page may freeze after 10 s (3 s in Energy Saver) once no keep reason holds
+  (Chrome's `CannotFreezeReason`s plus a running agent turn, a draft, focus and the preload); it is
+  discarded after 300 s hidden, 60 s at warning and 10 s at critical pressure, never sooner than the
+  minutes written in `browser.hibernation`, at the browser tabs' pace (section 3a).
+- One deadline: the planner runs on hidden pages only, from one `MainDeadline` in the background
+  class (owner `webui.lifecycle`). A show thaws in its own turn, before the page is revealed.
+- Freeze: Chromium `SetPageFrozen` from fork API 29 (DevTools `Page.setWebLifecycleState` before);
+  WebKit throttles the page and keeps it in its window (029 measured the detach rule).
+- Discard: the page keeps a picture and state taken at hide (it is asked nothing when frozen);
+  Chromium discards in place (`WebContents::Discard`, fork export, 031) and reloads its entry on show.
+- The page router holds a frozen page's events and thaws before it delivers (023); a renderer
+  crash marks every page of its group, and a hidden page reloads only when it shows (039).
 
 ## 4. Not done / open
 

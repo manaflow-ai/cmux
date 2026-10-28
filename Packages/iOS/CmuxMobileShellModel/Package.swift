@@ -17,6 +17,10 @@ let package = Package(
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxTerminalSizing"),
+        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089).
+        .package(path: "../../Shared/CmuxSafeConcurrency"),
+        // blockingCall for the image reads (p02-threads-130, 146).
+        .package(path: "../../Shared/CmuxThreading"),
     ],
     targets: [
         .target(
@@ -24,6 +28,8 @@ let package = Package(
             dependencies: [
                 "CMUXMobileCore",
                 "CmuxTerminalSizing",
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+                .product(name: "CmuxThreading", package: "CmuxThreading"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

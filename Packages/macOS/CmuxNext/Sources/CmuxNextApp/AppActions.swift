@@ -139,6 +139,7 @@ enum AppActions {
         DestructiveConfirmation.install(services)
         ActionRouting.install(services)
         ActionRouting.installSidebarUserIntent(services)
+        CreationInputCoordinator.installPersonIntent(services)
         WindowKeyTable.install(services)
         // One owner per action: a second binding silently replaces the first. The check is a test
         // (noActionIsBoundTwice); at runtime a Debug dogfood build must not crash, so only a fault.
@@ -183,7 +184,7 @@ enum AppActions {
         registry.bindEffect("closeWindow", isEnabled: { services.windows.active != nil }) { invocation in
             let controller: WindowController?
             if let target = invocation.target, target.kind == .window {
-                controller = services.windows.controllers.first { $0.state.id == target.id }
+                controller = services.windows.controllerBuildingIfWaiting(for: target.id)
                 guard controller != nil else { return .refused(RefusalStrings.noWindow(target.id)) }
             } else {
                 controller = services.windows.active
@@ -199,7 +200,8 @@ enum AppActions {
             guard let window = services.windows.active else { return }
             if window.sidebar.model.isHidden { window.sidebar.model.toggle() }
             window.sidebar.container.sidebarView.focusList()
-            window.focus.send(.focusTarget(.sidebar(keyboard: true), source: .keyboard))
+            // The run's own input (the person's key, or the CLI): a script's run is not the person's intent.
+            window.focus.send(.focusTarget(.sidebar(keyboard: true), source: .intent))
         }
     }
 }

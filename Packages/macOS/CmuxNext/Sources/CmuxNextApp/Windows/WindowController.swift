@@ -9,6 +9,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextLayout
 import CmuxNextWakeups
@@ -74,9 +75,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Its view, made the first time it shows.
     var rightSidebarView: RightSidebarView?
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
-    private(set) lazy var topPages = TopPageHost(services: services)
+    private(set) lazy var topPages = TopPageHost(services: services, windowNode: visibility)
 
-    init(state: WindowState, services: AppServices, frame: NSRect?) {
+    /// - Parameter premade: The window to take instead of making one: the launch window that showed its saved
+    ///   picture before this controller existed (`LaunchSnapshotWindow`, p08-startup-059).
+    init(state: WindowState, services: AppServices, frame: NSRect?, window premade: ShellWindow? = nil) {
         self.state = state
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
@@ -91,29 +94,23 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebar.container.sidebarView.onTurnOffEnergySaver = { [weak registry = services.registry] in
             _ = registry?.perform("energy.saver.turnOffForNow", invocation: ActionInvocation(origin: .user))
         }
-        root = WindowRootView(sidebar: sidebar.container, revealDeadlines: services.mainDeadlines, signals: services.appearance, slideHoldsContent: WindowRootView.slideHoldsContent(in: services.features))
+        root = WindowRootView(sidebar: sidebar.container, revealDeadlines: services.mainDeadlines, signals: services.appearance, slideHoldsContent: WindowRootView.slideHoldsContent(in: services.features),
+                              rendersMotionOnServer: { LayoutTunables.motionRenderServer.value })
+        root.contentHost.hiddenDetach = services.makeHiddenWorkspaceDetach()
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
         }
-        let window = ShellWindow(
-            contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
+        let window = premade ?? ShellWindow.main(frame: frame)
+        window.zoomHoldsContent = services.features.isEnabled(.windowFrameAnimationHoldsContent)
         window.keyRouter = services.keyRouter
+        // Before any view, overlay or panel of the window reads it; fixed for the process, as the backend is.
+        window.pageSurface = services.chromiumRuntime.source.backend.pageSurface
         window.turnMeter = services.mainWork.budget.turns
-        window.title = Strings.appName
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = false
-        window.minSize = NSSize(width: 520, height: 320)
-        window.isReleasedWhenClosed = false
-        window.tabbingMode = .disallowed
         // Before any view reaches the window, so its views find this node under the app, not a root of their own.
         let node = services.appVisibility.windowNode(window, name: "window:\(state.id)")
         visibility = node
+        root.follow(on: node, work: services.mainWork) // its settings follow while this window shows
         let registry = services.registry
         root.toolbarBand.follow(on: node, work: services.mainWork, title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
                                 shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
@@ -134,14 +131,20 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.crashKeys = services.crashKeys
         focus.keyInput = services.keyRouter.keyInput
         focus.inputDispatch = services.inputDispatch
+        focus.personIntent = { [weak services, weak window] input in
+            services?.keyRouter.creationInputCoordinator.personActed(in: window, event: input)
+        }
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeRoom()
         observeSidebarHidden()
         followContentChanges()
         if rightSidebar.isVisible { showRightSidebar() }
-        // From the next turn: the manager registers this window and shows its first workspace first.
-        services.mainWork.post(.visible, owner: "WindowController.followWorkspace") { [weak self] in self?.observeWorkspace() }
+        // From the next turn: the manager registers this window and shows its first workspace first. Behind the
+        // launch picture the build starts it once its slices ran (`LaunchWindowBuild`, p08-startup-060).
+        if premade == nil {
+            services.mainWork.post(.visible, owner: "WindowController.followWorkspace") { [weak self] in self?.observeWorkspace() }
+        }
     }
 
     @available(*, unavailable)
@@ -149,6 +152,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func teardown() {
         tornDown = true
+        services.keyRouter.creationInputCoordinator.windowClosed(window)
         stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
@@ -204,7 +208,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     /// The local daemon's first connection, connecting or unavailable, until a workspace shows.
     private func showConnecting() {
-        let view = connectingView ?? DaemonConnectingView(frame: .zero, recovery: services.daemon.recovery)
+        let view = connectingView ?? DaemonConnectingView(frame: .zero, recovery: services.daemon.recovery, node: visibility, on: services.mainWork,
+                                                          deadlines: services.mainDeadlines)
         if connectingView == nil { DebugTimings.markLaunch("connecting_view_shown") }
         connectingView = view
         root.show(view)
@@ -386,10 +391,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
-    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing {
-    /// The traffic lights' last windowed place: their left edge, their top's
-    /// distance from the window's top, and their size (the window may come
-    /// back from full screen at another height).
+    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing, WindowLayoutPassHosting, PageSurfaceHosting {
+    /// Views that follow an ancestor's move read their place after each outermost layout pass (`layoutIfNeeded`).
+    let layoutPasses = WindowLayoutPasses()
+    /// The traffic lights' last windowed place: their left edge, their top's distance from the window's top,
+    /// and their size (the window may come back from full screen at another height).
     private var windowedLights: (x: CGFloat, fromTop: CGFloat, size: CGSize)?
     /// Between `willExitFullScreen` and its end (WindowController+FullScreen).
     var isLeavingFullScreen = false
@@ -415,6 +421,9 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
+    /// Where the window's Chromium pages draw (``PageSurfaceHosting``): set once by its controller at
+    /// creation from the process's browser backend (``BrowserBackend/pageSurface``).
+    var pageSurface: PageSurface = .childWindows
     /// The app's main run-loop turn meter: a layout depth counts only in the turn that began its pass.
     weak var turnMeter: MainTurnMeter?
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self) { [weak self] in self?.turnMeter?.turnNumber ?? 0 }
@@ -422,6 +431,11 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
     private var zoomState = WindowZoom()
     override func zoom(_ sender: Any?) { if !zoomState.zoom(self) { super.zoom(sender) } }
+    /// Feature `windowFrameAnimationHoldsContent`: a zoom holds the window's terminal grids until it lands.
+    var zoomHoldsContent: Bool {
+        get { zoomState.holdsContent }
+        set { zoomState.holdsContent = newValue }
+    }
     override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
     func windowZoomFinished(_ generation: Int) { zoomState.end(generation) }
 
@@ -440,27 +454,13 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         return button
     }
 
-    /// The Chromium fork adds each page window as a child ordered above
-    /// everything, the overlay panel included. Lift the overlay (and the app
-    /// panels above it) in the same call, before the window server shows a
-    /// frame with the page over the focus ring; the notifications that
-    /// follow the page would come a frame late.
-    override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
-        // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
-        ChildWindowPolicy.check(childWin, parent: self)
-        super.addChildWindow(childWin, ordered: place)
-        if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
-        WindowOverlayHost.childWindowsDidChange(of: self)
-    }
-
     /// The display cycle's layout pass (`-[NSWindow layoutIfNeeded]`).
     /// Work that crosses windows (the overlay panel's planes, Chromium page
     /// windows, divider catcher panels) runs after the pass, never inside a
     /// view's `layout()`: changing another window or the child window order
     /// from inside layout re-marks this window and can loop until AppKit
-    /// throws (2026-10-09 nightly crash). The overlay planes also re-read
-    /// their home's place here, so a pane ring follows a pane that moved
-    /// because an ancestor moved (sidebar width), not only its own layout.
+    /// throws (2026-10-09 nightly crash). The overlay planes also re-read their home's place here, so a
+    /// pane ring follows a pane that moved because an ancestor moved (sidebar width), not only its own layout.
     override func layoutIfNeeded() {
         #if DEBUG || CMUX_BENCH_HOOKS
         let traced = DebugWindowTransition.shared.isActive && overlayLayer.layoutDepth == 0
@@ -469,10 +469,11 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         #endif
         overlayLayer.windowWillLayout()
         super.layoutIfNeeded()
-        // The outermost pass only, and before the overlay layer's own
-        // after-pass work, so an occluder change it causes joins that work.
+        // The outermost pass only, before the overlay layer's after-pass work (an occluder change it causes
+        // joins that work); views that follow an ancestor's move hear didLayout before the queued blocks run.
         if overlayLayer.layoutDepth == 1 {
             (contentView as? WindowRootView)?.windowDidLayout()
+            layoutPasses.didLayout()
             let blocks = pendingAfterLayout
             pendingAfterLayout.removeAll()
             for block in blocks { block() }
@@ -480,9 +481,8 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         overlayLayer.windowDidLayout()
     }
 
-    /// Inside `layoutIfNeeded` (views defer cross-window work to its end).
-    /// The overlay layer counts a depth only in the turn that began the pass:
-    /// after an exception AppKit caught skipped the end of a pass, the next
+    /// Inside `layoutIfNeeded` (views defer cross-window work to its end). The overlay layer counts a depth only
+    /// in the turn that began the pass: after an exception AppKit caught skipped the end of a pass, the next
     /// turn's first pass is the outermost one again.
     var isInLayoutPass: Bool { overlayLayer.layoutDepth > 0 }
 
@@ -513,7 +513,12 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// Nested `endEditing(for:)` calls, and whether a responder change waits for them to end (ShellWindow+Events.swift).
     var editTeardown = (depth: 0, pending: false)
 
+    /// Nested order-ins of this window while it is not on screen (ShellWindow+Events.swift, `refusesOrderInKeyView`).
+    var orderInDepth = 0
+
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        // AppKit's own first key view while the window is placed on screen: the focus model places the keyboard.
+        if refusesOrderInKeyView(responder) { return false }
         // Only a modal of the overlay top layer takes the window's keyboard (`WindowOverlayHost.refusesFirstResponder`).
         if WindowOverlayHost.existingHost(for: self)?.refusesFirstResponder(responder) == true { return false }
         if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }

@@ -1,6 +1,9 @@
 public import AppKit
 public import QuartzCore
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// What the hub needs from a display link (a fake in tests). The hub makes it on the main thread
 /// through its factory and hands it to the display's hub thread; every call after that runs there.
@@ -82,6 +85,7 @@ public final class VSyncHub {
 
     /// One vsync of a display (Chrome's `BeginFrameArgs`: frame time, deadline, sequence).
     public struct Tick: Sendable, Equatable {
+        /// The display that ticked.
         public let display: CGDirectDisplayID
         /// When the frame that is showing now was shown (`CACurrentMediaTime` timebase).
         public let timestamp: CFTimeInterval
@@ -90,6 +94,7 @@ public final class VSyncHub {
         /// Counts this display's vsyncs, from 1.
         public let sequence: UInt64
 
+        /// A tick from its values (the hub makes them; tests build them).
         public init(display: CGDirectDisplayID, timestamp: CFTimeInterval, targetTimestamp: CFTimeInterval, sequence: UInt64) {
             self.display = display
             self.timestamp = timestamp
@@ -245,10 +250,11 @@ public final class VSyncHub {
     /// it ran (tests: a fake link's vsync runs where a real link's would).
     func onHubThread(_ display: CGDirectDisplayID, _ work: @escaping @Sendable () -> Void) async {
         guard let state = displays[display] else { return }
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+        // A hub thread that ended with the post queued drops it (abandoned): the wait just ends.
+        try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
             state.post {
                 work()
-                done.resume()
+                done.resume(returning: ())
             }
         }
     }

@@ -6,10 +6,11 @@
 //! time every acquisition by the request's caller class and op
 //! (`debug-daemon-locks`, crate::diagnostics::DaemonLockTable).
 
+use cmux_threads::sync::Mutex;
 use std::ops::{Deref, DerefMut};
 #[cfg(test)]
 use std::sync::TryLockResult;
-use std::sync::{LockResult, Mutex, MutexGuard, PoisonError, TryLockError};
+use std::sync::{LockResult, MutexGuard, PoisonError, TryLockError};
 use std::time::{Duration, Instant};
 
 use super::{Mux, State, WorkspaceRegistry};
@@ -287,6 +288,9 @@ pub(crate) struct StateGuard<'a> {
     held: Held<'a>,
     /// Lock rank `MuxState` (crate::lock_rank), released after the lock.
     _rank: HeldRank,
+    /// Dropped last, with the lock released: delivers the mux events this
+    /// thread queued while it held state (crate::event_bus).
+    _publish: crate::event_bus::StateReleasePublish,
 }
 
 impl<'a> StateGuard<'a> {
@@ -303,7 +307,12 @@ impl<'a> StateGuard<'a> {
         }
         debug_assert!(!on_writer, "the journal writer took the mux state lock");
         crate::workspace_registry::registry_connection::note_state_lock(true);
-        StateGuard { guard, held, _rank: rank }
+        StateGuard {
+            guard,
+            held,
+            _rank: rank,
+            _publish: crate::event_bus::StateReleasePublish::armed(),
+        }
     }
 }
 

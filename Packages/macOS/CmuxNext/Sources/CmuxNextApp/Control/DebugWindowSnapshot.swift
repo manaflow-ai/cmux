@@ -106,17 +106,17 @@ enum DebugWindowSnapshot {
             // with the live web views hidden, so the page snapshots below fill
             // each rectangle exactly once. The overlay panels go on top at the
             // end, so either base has only the page windows.
-            let composited = await window.compositedImage(on: services.work, includeChild: WindowOverlayHost.isPageWindow)
+            let composited = await window.compositedImage(on: services.work, includeChild: { window.isPageChild($0) })
             let base = try composited.map { (image: $0, method: WindowSnapshotMethod.composited) }
                 ?? (webViews.isEmpty ? appKitBaseImage(for: window) : nativeBaseImage(for: window, hiding: webViews))
             var layers: [WindowImageLayer] = []
             // The child windows each layer brings, so the result counts only
             // the ones the image includes (none from a missing layer).
             let children = window.visibleChildWindows
-            let pageChildren = children.filter(WindowOverlayHost.isPageWindow).count
+            let pageChildren = children.filter { window.isPageChild($0) }.count
             var childrenIncluded = base.method == .composited ? pageChildren : 0
             if base.method == .appkit,
-               let pageWindows = await window.childWindowsImage(on: services.work, includeChild: WindowOverlayHost.isPageWindow) {
+               let pageWindows = await window.childWindowsImage(on: services.work, includeChild: { window.isPageChild($0) }) {
                 layers.append(.window(pageWindows))
                 childrenIncluded += pageChildren
             }
@@ -152,7 +152,9 @@ enum DebugWindowSnapshot {
                 guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
                 layers.append(.page(image, rect))
             }
-            if let panels = await window.childWindowsImage(on: services.work, includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
+            // The overlay planes in the view tree (host mode) went under the page images: they go back over them.
+            if let planes = (window as? ShellWindow)?.overlayLayer.planesOverPages(layers) { layers.append(planes) }
+            if let panels = await window.childWindowsImage(on: services.work, includeChild: { !window.isPageChild($0) }) {
                 layers.append(.window(panels))
                 childrenIncluded += children.count - pageChildren
             }
@@ -221,6 +223,7 @@ enum DebugWindowSnapshot {
                 webView.layer?.isHidden = layerHidden
             }
         }
+        // sync-layout: the snapshot below reads the window drawn with its web views hidden, in this turn.
         window.contentView?.displayIfNeeded()
         return try appKitBaseImage(for: window)
     }
@@ -254,7 +257,7 @@ enum DebugWindowSnapshot {
     static func window(_ params: [String: JSONValue], services: AppServices) -> NSWindow? {
         let windows = NSApp.windows
         if let id = params["window"]?.stringValue ?? params["window"]?.intValue.map(String.init) {
-            if let main = services.windows.controller(for: id)?.window { return main }
+            if let main = services.windows.controllerBuildingIfWaiting(for: id)?.window { return main }
             return windows.first { String($0.windowNumber) == id }
         }
         if let kind = params["kind"]?.stringValue {

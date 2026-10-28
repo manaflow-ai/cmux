@@ -24,6 +24,8 @@ let package = Package(
         .package(path: "../CmuxVNC"),
         // The portable Mutex the shared session state lives in (p10-stability-172).
         .package(path: "../CmuxSafeConcurrency"),
+        // cmux-vnc-host's blockingCall (p02-threads-130, 146).
+        .package(path: "../CmuxThreading"),
     ],
     targets: [
         .binaryTarget(
@@ -34,7 +36,8 @@ let package = Package(
         .target(name: "CmuxVNCWebRTC", dependencies: ["WebRTC", .product(name: "CmuxVNC", package: "CmuxVNC"),
                                                       .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
                 swiftSettings: swiftSettings),
-        .executableTarget(name: "cmux-vnc-host", dependencies: ["CmuxVNCWebRTC", .product(name: "CmuxVNC", package: "CmuxVNC")],
+        .executableTarget(name: "cmux-vnc-host", dependencies: ["CmuxVNCWebRTC", .product(name: "CmuxVNC", package: "CmuxVNC"),
+                                                                .product(name: "CmuxThreading", package: "CmuxThreading")],
                           swiftSettings: swiftSettings),
         .testTarget(name: "CmuxVNCWebRTCTests",
                     dependencies: ["CmuxVNCWebRTC", "WebRTC", .product(name: "CmuxVNC", package: "CmuxVNC"),

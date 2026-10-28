@@ -51,7 +51,7 @@ public struct FirefoxProfileList {
                 continue
             }
             guard current != nil, let equals = line.firstIndex(of: "=") else { continue }
-            current?[String(line[..<equals])] = String(line[line.index(after: equals)...])
+            current?[String(line.prefix(upTo: equals))] = String(line.suffix(from: equals).dropFirst())
         }
         if let current { sections.append(current) }
         let profiles = sections.compactMap { section -> (Entry, Bool)? in

@@ -2,7 +2,9 @@ public import AppKit
 public import SwiftUI
 
 /// An `NSHostingView` around `AppSceneView` for AppKit hosts (the sidebar
-/// section provider wants an `NSView` plus a height for a width).
+/// section provider wants an `NSView` plus a height for a width). An app's
+/// page tab puts it in a `VisibilityGatedHostingView` (`AppPanePage`).
+// hosting-gate: opt-out in the sidebar: a section shows while the sidebar does, and the sidebar measures it by intrinsic size.
 public final class AppSceneHostingView: NSHostingView<AnyView> {
     public let model: AppSceneModel
     private let sceneAppearance = AppSceneAppearance(useSidebarBackground: true)
@@ -24,6 +26,8 @@ public final class AppSceneHostingView: NSHostingView<AnyView> {
         sceneAppearance.update(from: self)
     }
 
+    // visibility-walk-allow: resolves the scene's theme colors and writes them only when they change; an app page's copy
+    // sits in a VisibilityGatedHostingView, which holds SwiftUI's update while hidden, and a section shows with its sidebar
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         sceneAppearance.update(from: self)

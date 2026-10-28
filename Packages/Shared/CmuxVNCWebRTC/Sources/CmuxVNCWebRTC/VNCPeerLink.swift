@@ -6,12 +6,14 @@ import WebRTC
 /// carries the RFB byte stream. The viewer offers and opens the channel; the
 /// host answers. Every callback lands on libwebrtc's threads; state is behind
 /// a lock and surfaced through `events`.
-// Threads: libwebrtc's signaling thread calls the delegate methods; the owner's tasks negotiate, send and close. Not a
-// Mutex<State>: the guarded state holds libwebrtc objects (RTCDataChannel, RTCRtpSender, RTCRtpTransceiver,
-// RTCIceCandidate), which its Objective-C SDK does not declare Sendable, so a checked Mutex could not hand the channel
-// or the sender out to the send and encode calls that use it after the lock is released. Those objects are proxies that
-// marshal every call to libwebrtc's own threads (webrtc/pc/peer_connection_proxy.h, pc/rtp_sender_proxy.h).
-// crash-allow: every mutable field is read and written only under `lock` (threads and why not a Mutex: above).
+// Threads: libwebrtc's signaling thread calls the delegate methods; the owner's tasks negotiate, send and close. The
+// lock is CmuxSafeConcurrency's `PlatformLock` beside the fields (the lock under its Mutex, for a type that keeps its
+// state beside the lock), not a Mutex<State>: the guarded state holds libwebrtc objects (RTCDataChannel,
+// RTCRtpSender, RTCRtpTransceiver, RTCIceCandidate), which its Objective-C SDK does not declare Sendable, so a value
+// inside a Mutex<State> could not be handed out to the send and encode calls that use it after the lock is released.
+// Those objects are proxies that marshal every call to libwebrtc's own threads (webrtc/pc/peer_connection_proxy.h,
+// pc/rtp_sender_proxy.h).
+// crash-allow: every mutable field is read and written only inside `lock.withLock` (threads and lock shape: above).
 final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegate, RTCDataChannelDelegate {
     enum Event: Sendable {
         /// A local ICE candidate to send to the other side.
@@ -43,11 +45,14 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     let events: AsyncStream<Event>
     private let sink: AsyncStream<Event>.Continuation
     private let connection: RTCPeerConnection
-    private let lock = NSLock()
+    /// Where ``close()`` tears libwebrtc down: its close waits for the signaling thread.
+    private let closeQueue = DispatchQueue(label: "cmux.vnc.peer-close", qos: .userInitiated)
+    // concurrency-allow: held only to read or swap fields (no call into libwebrtc and no wait under it), so the signaling thread and the owner's tasks never block each other for longer than a field copy.
+    private let lock = PlatformLock()
     private var channel: RTCDataChannel?
     private var remoteSet = false
     private var pending: [RTCIceCandidate] = []
-    private var drained: [CheckedContinuation<Void, Never>] = []
+    private var drained: [OnceContinuation<Void, OnceContinuationError>] = []
     private var ended = false
     private var videoTransceiver: RTCRtpTransceiver?
     /// The host's screen sender (its encoding parameters carry the quality).
@@ -210,7 +215,7 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
 
     /// The SDP text of a created offer or answer (the description object is not Sendable).
     private func describe(_ body: @escaping (@escaping (RTCSessionDescription?, (any Error)?) -> Void) -> Void) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<String, any Error>) in
             body { description, error in
                 if let description { continuation.resume(returning: description.sdp) } else {
                     continuation.resume(throwing: VNCWebRTCError.peer(error?.localizedDescription ?? "no description"))
@@ -220,9 +225,9 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     }
 
     private func apply(_ body: @escaping (@escaping ((any Error)?) -> Void) -> Void) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             body { error in
-                if let error { continuation.resume(throwing: VNCWebRTCError.peer(error.localizedDescription)) } else { continuation.resume() }
+                if let error { continuation.resume(throwing: VNCWebRTCError.peer(error.localizedDescription)) } else { continuation.resume(returning: ()) }
             }
         }
     }
@@ -236,13 +241,14 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
             let end = min(offset + Self.chunk, data.count)
             guard let channel = lock.withLock({ channel }), channel.readyState == .open else { throw VNCWebRTCError.closed }
             while channel.bufferedAmount > Self.highWater {
-                await withCheckedContinuation { continuation in
+                // A dropped waiter goes on as a drained one does: the loop checks `ended` and the buffer again.
+                _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                     let resumeNow = lock.withLock { () -> Bool in
                         if ended || channel.bufferedAmount <= Self.highWater { return true }
                         drained.append(continuation)
                         return false
                     }
-                    if resumeNow { continuation.resume() }
+                    if resumeNow { continuation.resume(returning: ()) }
                 }
                 if lock.withLock({ ended }) { throw VNCWebRTCError.closed }
             }
@@ -265,7 +271,8 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
 
     func metrics() async -> Metrics {
         let backlog = lock.withLock { channel?.bufferedAmount ?? 0 }
-        return await withCheckedContinuation { continuation in
+        // No report (the statistics callback dropped) is the backlog alone.
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<Metrics, OnceContinuationError>) in
             connection.statistics { report in
                 var metrics = Metrics(backlogBytes: backlog)
                 for stats in report.statistics.values where stats.type == "candidate-pair" {
@@ -278,21 +285,42 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
                 }
                 continuation.resume(returning: metrics)
             }
-        }
+        }) ?? Metrics(backlogBytes: backlog)
     }
 
+    /// Ends the link at once (later sends fail, waiting sends resume) and returns; libwebrtc's own close runs on
+    /// ``closeQueue``. That close waits for libwebrtc's signaling thread (the proxy marshals it there, and TURN
+    /// deallocation can take seconds), so it never runs on the caller's thread: the main thread, a pool thread or a
+    /// libwebrtc callback, which must not close the connection it is called from. Chrome posts a peer connection's
+    /// close to its signaling thread the same way (pc/peer_connection_proxy.h).
     func close() {
-        let (channel, waiters, first) = lock.withLock { () -> (RTCDataChannel?, [CheckedContinuation<Void, Never>], Bool) in
+        let (waiters, first) = lock.withLock { () -> ([OnceContinuation<Void, OnceContinuationError>], Bool) in
             let waiters = drained
             drained.removeAll()
             defer { ended = true }
-            return (self.channel, waiters, !ended)
+            return (waiters, !ended)
         }
         guard first else { return }
-        for waiter in waiters { waiter.resume() }
-        channel?.close()
-        connection.close()
-        finish()
+        for waiter in waiters { waiter.resume(returning: ()) }
+        closeQueue.async { [self] in
+            lock.withLock { channel }?.close()
+            connection.close()
+            finish()
+        }
+    }
+
+    /// Sends `text` on the primary channel, then closes the link once `drain` has passed, so SCTP sends the queued
+    /// text before the connection closes (closing at once can discard it); closes at once when the text cannot be
+    /// sent. Returns at once: the send (a call the channel proxy marshals to libwebrtc's signaling thread) and the
+    /// close run on ``closeQueue``.
+    func close(sendingFirst text: String, drain: DispatchTimeInterval) {
+        closeQueue.async { [self] in
+            guard sendText(text) else {
+                close()
+                return
+            }
+            closeQueue.asyncAfter(deadline: .now() + drain) { [self] in close() }
+        }
     }
 
     /// Text messages on the data channel (screen stream control and input).
@@ -300,11 +328,6 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         let target = lock.withLock { label.flatMap { extras[$0] } ?? channel }
         guard let channel = target, channel.readyState == .open else { return false }
         return channel.sendData(RTCDataBuffer(data: Data(text.utf8), isBinary: false))
-    }
-
-    /// libwebrtc must not be closed from inside its own callbacks (signaling thread).
-    private func closeOffCallback() {
-        DispatchQueue.global(qos: .userInitiated).async { [self] in close() }
     }
 
     private func adopt(_ channel: RTCDataChannel) {
@@ -324,7 +347,7 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         guard lock.withLock({ dataChannel === channel }) else { return }
         switch dataChannel.readyState {
         case .open: sink.yield(.open)
-        case .closed: closeOffCallback()
+        case .closed: close()
         default: break
         }
     }
@@ -335,11 +358,11 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
 
     func dataChannel(_ dataChannel: RTCDataChannel, didChangeBufferedAmount amount: UInt64) {
         guard dataChannel.bufferedAmount <= Self.highWater else { return }
-        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+        let waiters = lock.withLock { () -> [OnceContinuation<Void, OnceContinuationError>] in
             defer { drained.removeAll() }
             return drained
         }
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 
     // MARK: RTCPeerConnectionDelegate
@@ -352,7 +375,7 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
-        if newState == .failed || newState == .closed { closeOffCallback() }
+        if newState == .failed || newState == .closed { close() }
         switch newState {
         case .disconnected: onStall?(true)
         case .connected, .completed: onStall?(false)
@@ -463,8 +486,9 @@ extension VNCPeerLink {
 
 extension VNCPeerLink {
     /// Inbound video numbers for the viewer's overlay.
+    /// Empty stats when the statistics callback dropped without a report.
     func videoStats() async -> ScreenStreamViewer.VideoStats {
-        await withCheckedContinuation { continuation in
+        (try? await withOnceContinuation { (continuation: OnceContinuation<ScreenStreamViewer.VideoStats, OnceContinuationError>) in
             connection.statistics { report in
                 var stats = ScreenStreamViewer.VideoStats()
                 var codecs: [String: String] = [:]
@@ -491,14 +515,14 @@ extension VNCPeerLink {
                 }
                 continuation.resume(returning: stats)
             }
-        }
+        }) ?? ScreenStreamViewer.VideoStats()
     }
 }
 
 extension VNCPeerLink {
     /// Outbound video, one line (host diagnostics).
     func outboundVideoSummary() async -> String {
-        await withCheckedContinuation { continuation in
+        (try? await withOnceContinuation { (continuation: OnceContinuation<String, OnceContinuationError>) in
             connection.statistics { report in
                 var codecs: [String: String?] = [:]
                 for entry in report.statistics.values where entry.type == "codec" {
@@ -513,7 +537,7 @@ extension VNCPeerLink {
                 }
                 continuation.resume(returning: out)
             }
-        }
+        }) ?? "no outbound video"
     }
 }
 

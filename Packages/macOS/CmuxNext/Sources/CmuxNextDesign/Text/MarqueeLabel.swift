@@ -88,6 +88,7 @@ public final class MarqueeLabel: NSView {
     /// fits or motion is reduced or off.
     @discardableResult
     public func startMarquee() -> Bool {
+        // sync-layout: the marquee starts from the fade geometry layout() computes for the current width.
         layoutSubtreeIfNeeded()
         return fade.startMarquee()
     }

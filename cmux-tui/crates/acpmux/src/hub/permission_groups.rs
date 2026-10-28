@@ -266,7 +266,7 @@ impl Hub {
     ) {
         let hub = self.clone();
         let session = session.clone();
-        tokio::spawn(async move {
+        self.supervise("hub.permission-group-timer", Fatal, ShutdownBehavior::Skip, async move {
             // Use the group's actual opening instant, not timer-task scheduling.
             let deadline = {
                 let state = session.permissions.lock().unwrap();

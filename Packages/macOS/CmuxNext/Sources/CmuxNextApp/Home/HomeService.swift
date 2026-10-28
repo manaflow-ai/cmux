@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextCompat
@@ -39,7 +40,7 @@ final class HomeService {
     @ObservationIgnored private var replyWatch: ServiceObservation<CmuxNextDaemon.ConversationSummary?>?
     /// The watchdog's next check: a person reads the notice, so it is visible work on a flexible wake.
     @ObservationIgnored private lazy var replyTimer = MainDeadline(owner: "HomeService.replyWatchdog", workClass: .visible,
-                                                                   scheduler: services.mainDeadlines)
+                                                                   scheduler: deadlines)
     /// The Chief home's conversation owner serves `local-conversations-v1`.
     var isAvailable: Bool { chief.supports(DaemonCapability.localConversations.rawValue) }
     /// The owner answered and its build is too old: Home shows why only then.
@@ -50,7 +51,7 @@ final class HomeService {
     @ObservationIgnored lazy var brain = ChiefBrainKeeper(
         home: chief.home, connection: { [weak self] in self?.connection },
         resolveHost: { [weak self] connection in
-            guard let self, let socket = await connection.endpoint?.socketPath else { return nil }
+            guard let self, let services = self.services, let socket = await connection.endpoint?.socketPath else { return nil }
             var host = HomeBrainHost.resolve(daemonSocket: socket, controlSocket: services.environment.launch.socketPath, home: chief.home,
                                              appBuild: services.environment.build)
             // A Chief on the app's own acpmux waits for it: the local pane host starts it.
@@ -60,7 +61,18 @@ final class HomeService {
         },
         mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) })
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
-    @ObservationIgnored unowned let services: AppServices
+    @ObservationIgnored private let servicesReference: OwnerReference<AppServices>
+    /// The services' schedulers and the app's launch read of this owner's list, taken at init: the lazy parts made
+    /// from them need no back-reference (p10-stability-091). Owned by the services, never owning them.
+    @ObservationIgnored private let work: BackgroundWork
+    @ObservationIgnored private let mainWork: MainWorkScheduler
+    @ObservationIgnored private let deadlines: MainDeadlineScheduler
+    /// The app's caches folder is set, and the app's read of this owner's list from `main` (nil: the list starts its own).
+    @ObservationIgnored private let appListRead: (hasCaches: Bool, read: HomeListLaunchRead?)
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    var services: AppServices? { servicesReference.resolve() }
+    /// The transcript and list caches' memory consumer (`memoryHomeLabCaches`, p07-memory-081); Home views track it.
+    @ObservationIgnored private(set) lazy var labCaches: MessagesLabMemoryConsumer? = services.flatMap { AppMemoryConsumers(services: $0).makeHomeLabCaches() }
     @ObservationIgnored private var availability: ServiceObservation<DaemonConnection?>?
     @ObservationIgnored private var listing: Task<Void, any Error>?
     /// The latest conversation-list read; only its answer is applied.
@@ -69,11 +81,9 @@ final class HomeService {
     /// posts, after startup unless a Home view needs it right after the first frame. nil (tests, a
     /// service made after launch): nothing waits on the launch order.
     @ObservationIgnored var launchFeeds: LaunchNeedPosts?
-    /// Home opened in a window this launch; the host starts once the Chief
+    /// Home opened in a window this launch (the app links read it); the host starts once the Chief
     /// owner is connected, even when Home opened first.
-    @ObservationIgnored private var homeWasOpened = false
-    /// Whether Home opened this launch (for the app links).
-    var homeOpened: Bool { homeWasOpened }
+    @ObservationIgnored private(set) var homeOpened = false
     /// The tagged daemon socket this app last published (ChiefAppLinks).
     @ObservationIgnored var publishedDaemonSocket: String?
     @ObservationIgnored var activationObserver: EventSubscription?
@@ -87,7 +97,7 @@ final class HomeService {
     @ObservationIgnored var homeEnsureGeneration = 0
     /// Waits for `homeEnsureInFlight` to clear (`awaitHomeEnsured`): keyed, settled when it clears, no observation.
     @ObservationIgnored private(set) lazy var homeEnsureWaiters = KeyedWaiters<String, Bool>(
-        deadlines: AlignedWakeups(queue: services.mainWork.wakeUps), deadlineOwner: "HomeService.ensureHome")
+        deadlines: AlignedWakeups(queue: mainWork.wakeUps), deadlineOwner: "HomeService.ensureHome")
     @ObservationIgnored var homeWorkspaceTask: Task<Void, Never>?
     /// The last step the home workspace setup reached, for `debug.home`.
     @ObservationIgnored var homeWorkspaceStep = "not started"
@@ -109,8 +119,10 @@ final class HomeService {
     /// transcript of every conversation tab reads this one store.
     /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine
     /// (`markdown-viewer/ondine.min.js`); one renderer (one JavaScriptCore context) for every pane.
-    /// nil when the bundle lacks the script: fences stay text.
-    @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? = OndineMermaidRenderer.bundled()
+    /// nil when the bundle lacks the script: fences stay text. With `memoryFileHomeCaches` it is a memory
+    /// consumer (`home-diagrams`) and its context goes after 10 min with no diagram shown (p07-memory-082).
+    @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? =
+        services.flatMap { OndineMermaidRenderer.bundled(memory: AppMemoryConsumers(services: $0).fileCacheRegistry) }
     @ObservationIgnored let homeSource: DaemonHomeSource
     /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
     /// merged with the local ones into the one store.
@@ -121,13 +133,15 @@ final class HomeService {
     /// The Home list rows (`home-inbox`) the Messages list maps: local from the Chief home, Cloud from the build daemon.
     @ObservationIgnored let homeInbox = HomeInboxSource(owners: ["local"])
     @ObservationIgnored let homeCloudInbox = HomeInboxSource(owners: ["cloud"])
-    /// The Home list's last state beyond the conversations, for the next launch's first frame
-    /// (HomeService+LaunchList), kept beside the conversations' cache of the same Chief owner.
-    @ObservationIgnored private(set) lazy var sidebarLaunch = HomeSidebarLaunchCache.standard(owner: chief.home.session,
-                                                                                               caches: homeCaches)
+    /// The Home list's two caches and their launch read (HomeService+LaunchList, p08-startup-076), of this Chief owner.
+    /// A folder of this service's own (no app caches folder: tests) is new, so there is nothing to read in it.
+    @ObservationIgnored private(set) lazy var listLaunch = HomeListLaunch(
+        read: appListRead.hasCaches
+            ? appListRead.read : .some(HomeListLaunchRead.nothingToRead(owner: chief.home.session, caches: homeCaches)),
+        owner: chief.home.session, caches: homeCaches, work: work, mainWork: mainWork)
     /// The folder of this service's Home caches: the app's (`AppEnvironment.homeCachesDirectory`), else
     /// a temporary folder of its own, so the drafts of one `AppServices` never reach another's.
-    @ObservationIgnored private lazy var homeCaches: URL = services.environment.homeCachesDirectory
+    @ObservationIgnored private lazy var homeCaches: URL = services?.environment.homeCachesDirectory
         ?? FileManager.default.temporaryDirectory.appending(path: "cmux-home-\(UUID().uuidString)", directoryHint: .isDirectory)
     /// The last launch's Chief roster, used until the cloud Chiefs are read (`chiefRoster`).
     @ObservationIgnored var launchRoster: HomeChiefRoster?
@@ -146,20 +160,20 @@ final class HomeService {
     @ObservationIgnored private(set) lazy var homeStore = HomeStore(
         source: homeRouter,
         blobCacheDirectory: homeCaches.appending(path: "cmux-home-blobs", directoryHint: .isDirectory),
-        cache: HomeCache.standard(owner: chief.home.session, caches: homeCaches))
+        cache: listLaunch.read.conversations, waitsForPrime: true)
     @ObservationIgnored var cloudLink: Task<Void, Never>?
     /// Team members and Chiefs for the Home page's New Message and New Chief.
     @ObservationIgnored private(set) lazy var directory = HomeDirectory(
         call: { [weak self] path, body in
-            guard let feed = self?.services.feed else { throw FeedServiceError.signedOut }
+            guard let feed = self?.services?.feed else { throw FeedServiceError.signedOut }
             return try await feed.call(path, body)
         },
         teamCall: { [weak self] path, body, team in
-            guard let feed = self?.services.feed else { throw FeedServiceError.signedOut }
+            guard let feed = self?.services?.feed else { throw FeedServiceError.signedOut }
             return try await feed.call(path, body, team: team)
         },
         me: { [weak self] in
-            guard let auth = self?.services.cloudAuth, let id = auth.user?.id else { return nil }
+            guard let auth = self?.services?.cloudAuth, let id = auth.user?.id else { return nil }
             return CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: id)
         })
     /// Hide Alerts for the group actions (`groupActions`): a sidebar source over the same owners
@@ -176,7 +190,11 @@ final class HomeService {
     let actor = ConversationParticipant.localUserID
 
     init(services: AppServices, chiefHome: ChiefHome? = nil) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
+        work = services.work
+        mainWork = services.mainWork
+        deadlines = services.mainDeadlines
+        appListRead = (services.environment.homeCachesDirectory != nil, services.environment.homeListRead)
         homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), work: services.work)
         cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), work: services.work)
         chief = ChiefConversationOwner(home: chiefHome ?? ChiefHome.resolve(tag: services.environment.tag))
@@ -190,6 +208,7 @@ final class HomeService {
     /// launch's critical path: the restore's first workspace waits for its answer (`FirstWorkspaceLaunch`).
     /// It asks only the build's own daemon; the Chief tab it adds waits for ``start()``'s Chief owner.
     func startWorkspace() {
+        guard let services else { return }
         guard homeObservation == nil else { return }
         let (local, auth) = (services.machines.local, services.cloudAuth)
         // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it. Visible: the
@@ -200,7 +219,7 @@ final class HomeService {
             guard let self, let connection = link.0 else { return }
             ensureHomeWorkspace(connection)
             // The Chief's daemon link names this connection's socket, known only once it is up.
-            if homeWasOpened { publishAppLinks() }
+            if homeOpened { publishAppLinks() }
         }
     }
 
@@ -210,6 +229,7 @@ final class HomeService {
     /// owners. Once; never before the first frame at launch (``postLaunchFeeds(startup:)``):
     /// a Home view shows the last list from the cache until then.
     func start() {
+        guard let services else { return }
         startWorkspace()
         // Local conversations come from the Chief owner; the build's own
         // daemon carries only the cloud proxy's events (its own conversation
@@ -221,21 +241,21 @@ final class HomeService {
         installChiefMigration()
         primeHomeList()
         pinMigration.attach([homeInbox, homeCloudInbox])
-        settleWatch = ChiefSettleWatch(home: chief.home) { [weak self] text in
+        settleWatch = ChiefSettleWatch(home: chief.home, mainWork: services.mainWork) { [weak self] text in
             if self?.settleNotice != text { self?.settleNotice = text }
         }
         watchReplies()
         chief.start(work: services.work)
         startCloud()
-        // task-owner: lives as long as the service; event-driven (Observation)
-        homeStore.start()
-        keepHomeListForLaunch()
+        // task-owner: lives as long as the service; event-driven (Observation). After the list's seed: its cache is read.
+        listLaunch.whenRead { [weak self] _ in self?.homeStore.start(); self?.keepHomeListForLaunch() }
         watchChiefOwner()
     }
 
     /// The Chief owner's connection: each new one reloads the list and the open sessions, and checks the
     /// Chief tab again, whether or not a Home shows (a service observation). Visible: Home shows it.
     func watchChiefOwner() {
+        guard let services else { return }
         guard availability == nil else { return }
         let chief = chief
         availability = ServiceObservation(.visible, owner: "HomeService.chiefOwner", on: services.mainWork) {
@@ -246,13 +266,14 @@ final class HomeService {
     }
 
     private func chiefOwnerChanged(_ connection: DaemonConnection?) {
+        guard let services else { return }
         homeSource.connectionChanged(connection)
         homeInbox.connectionChanged(connection)
         guard let connection else { return }
         reloadList(connection)
         // Home opened before the owner answered, or the owner came back
         // after a stop: start the host now if it does not run.
-        if homeWasOpened { homeDidOpen(asked: false) }
+        if homeOpened { homeDidOpen(asked: false) }
         // The Chief tab may wait on this owner (a local Chief with history
         // takes it back from a placed chief): check it again now.
         if let local = services.machines.local.connection,
@@ -280,8 +301,8 @@ final class HomeService {
     /// the Chief home's brain host when none runs (ChiefBrainKeeper).
     func homeDidOpen(asked: Bool) {
         launchFeeds?.need()
-        if !homeWasOpened {
-            homeWasOpened = true
+        if !homeOpened {
+            homeOpened = true
             publishAppLinks()
             observeActivation()
         }
@@ -299,6 +320,7 @@ final class HomeService {
     }
 
     func reloadList(_ connection: DaemonConnection) {
+        guard let services else { return }
         listing?.cancel()
         listGeneration &+= 1
         let generation = listGeneration, logger = logger, work = services.mainWork
@@ -415,6 +437,7 @@ final class HomeService {
 
     /// Marks everything up to `seq` read for the local user (monotonic; the owner ignores regressions by rejecting them).
     func markRead(_ seq: UInt64, in conversation: String) {
+        guard let services else { return }
         guard let connection, let head = conversations.first(where: { $0.id == conversation }),
               seq > (head.readCursors[actor] ?? 0) else { return }
         let request = ConversationOpRequest(conversation: conversation, idempotencyKey: "read:\(actor):\(seq)",
@@ -461,6 +484,7 @@ extension HomeService {
     /// until a reply lands. One deadline at a time, armed for the next change; no polling. The
     /// notice is the model's, so it follows the head while no Home shows it.
     fileprivate func watchReplies() {
+        guard let services else { return }
         replyWatch = ServiceObservation(.visible, owner: "HomeService.replyWatchdog", on: services.mainWork) { [weak self] in
             self.flatMap { HomeChiefName.select(from: $0.conversations) }
         } apply: { [weak self] head in

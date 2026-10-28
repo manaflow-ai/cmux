@@ -74,6 +74,7 @@ impl DaemonAttacher {
         let ByteAttachment { writer, reader, info } =
             ByteAttachment::open(&self.config, target, request.size, options)
                 .map_err(open_error)?;
+        // supervise-allow: this attachment's reader; pump catches a panic and tells the sink the attachment ended (failed), as a read error does.
         std::thread::Builder::new()
             .name(format!("cmux-attach-{}", info.surface))
             .spawn(move || pump(reader, sink))
@@ -146,23 +147,27 @@ impl TerminalAttachment for DaemonAttachment {
 
 /// The reader thread: forwards every item to the sink until the end.
 fn pump(mut reader: ByteAttachmentReader, mut sink: Box<dyn TerminalByteSink>) {
-    let end = loop {
-        match reader.recv() {
-            Ok(AttachmentItem::VtState(replay)) => sink.replay(&replay),
-            Ok(AttachmentItem::Resized(replay)) => sink.resized(&replay),
-            Ok(AttachmentItem::Output { data, colors }) => {
-                if let Some(colors) = colors {
-                    sink.item(&AttachmentItem::ColorsChanged(colors));
+    let pumped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        loop {
+            match reader.recv() {
+                Ok(AttachmentItem::VtState(replay)) => sink.replay(&replay),
+                Ok(AttachmentItem::Resized(replay)) => sink.resized(&replay),
+                Ok(AttachmentItem::Output { data, colors }) => {
+                    if let Some(colors) = colors {
+                        sink.item(&AttachmentItem::ColorsChanged(colors));
+                    }
+                    sink.bytes(&data);
                 }
-                sink.bytes(&data);
+                Ok(AttachmentItem::Ended(reason)) => break AttachEnd::from_end(reason),
+                Ok(item) => sink.item(&item),
+                // One malformed event; the stream continues.
+                Err(RawError::Decode(message)) => log::warn!("cmux attach: bad event: {message}"),
+                Err(error) => break AttachEnd::Failed(error.to_string()),
             }
-            Ok(AttachmentItem::Ended(reason)) => break AttachEnd::from_end(reason),
-            Ok(item) => sink.item(&item),
-            // One malformed event; the stream continues.
-            Err(RawError::Decode(message)) => log::warn!("cmux attach: bad event: {message}"),
-            Err(error) => break AttachEnd::Failed(error.to_string()),
         }
-    };
+    }));
+    let end =
+        pumped.unwrap_or_else(|_| AttachEnd::Failed("the attachment reader failed".to_owned()));
     sink.ended(end);
 }
 

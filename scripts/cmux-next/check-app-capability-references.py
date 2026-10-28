@@ -91,6 +91,9 @@ ENDPOINT = "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndp
 # isolated identify probe of check-daemon-capabilities.sh cannot require it.
 CONDITIONAL = {
     "apps-v1": "only with cmux-app-host beside the binary (cmux-tui-core apps.rs advertised())",
+    # A framed IPC grant: identify offers it only once its transport is bound (capabilities.rs
+    # IpcTransports::BOUND, p05-ipc-074), and the app falls back to a connection per view without it.
+    "attach-streams-v1": "only once its transport is bound (cmux-tui-core capabilities.rs IpcTransports::BOUND)",
 }
 
 # Capabilities of other servers that the app gates on with the same helpers.

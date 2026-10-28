@@ -41,9 +41,9 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
 
     static func arguments(layout: CEFRuntimeLayout, rootCache: URL, bundleIdentifier: String?,
                           environment: [String: String]) -> [String] {
-        // The host refuses a fork below API 27 (kMinForkAPI in chromium_host_wire.h; it exits 66):
-        // layer hosting (26) and the resize sync (27). So the switch set is the one for API 27
-        // (no AsyncLiveResize), which is every fork the host runs on.
+        // The host refuses a fork below API 30 (kMinForkAPI in chromium_host_wire.h; it exits 66):
+        // detached hosting (30) over layer hosting (26) and the resize sync (27). So the switch set
+        // is the one for API 27 (no AsyncLiveResize), which every fork the host runs on has.
         let switches = CEFSwitches.current(forkAPIVersion: CEFSwitches.resizeSyncForkAPI,
                                            bundleIdentifier: bundleIdentifier, environment: environment).arguments
             // The host runs Chromium's own message loop: there is no external pump pass to slice.
@@ -77,6 +77,17 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
     /// fatal messages): where a host that ended says why.
     static func logFile(rootCache: URL) -> URL {
         rootCache.appending(path: "chromium-host.log")
+    }
+
+    /// The data folder of this app's host: `<Application Support>/<bundle id>/ChromiumHost`.
+    public static func rootCache(applicationSupport: URL, bundleIdentifier: String) -> URL {
+        applicationSupport.appending(path: bundleIdentifier).appending(path: "ChromiumHost")
+    }
+
+    /// The Crashpad database of a host whose data folder is `rootCache`: browser_host_main.mm points
+    /// Chromium's dumps (the host's and its helpers') at `<root cache>/Crashpad` (p01-process task 226).
+    public static func crashDatabase(rootCache: URL) -> URL {
+        rootCache.appending(path: "Crashpad", directoryHint: .isDirectory)
     }
 
     /// The `--log-file` this configuration passes, or nil.

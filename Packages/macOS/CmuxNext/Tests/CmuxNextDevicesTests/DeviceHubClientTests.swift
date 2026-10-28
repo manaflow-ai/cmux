@@ -180,6 +180,34 @@ import Testing
         #expect(client.url("/v1/me").absoluteString == "https://dev.example:8787/hub/v1/me")
         #expect(client.segment("a/b c") == "a%2Fb%20c")
     }
+
+    /// Before p10-stability-094 a ts of 1e300 decoded as a date, and paging History from it
+    /// (`audit(before: entry.ts)`) trapped converting it to Int64 milliseconds; a duration of 1e300
+    /// trapped in MacScreenDevicesSettings.durationText. Now a value no real entry has is no value.
+    @Test func anAuditTimeOrDurationOutsideAnyRealOneDecodesAsNone() throws {
+        func entry(_ fields: String) throws -> AuditEntry {
+            try JSONDecoder().decode(AuditEntry.self, from: Data(#"{"id":"e1","event":"ended",\#(fields)}"#.utf8))
+        }
+        for ts in ["1e300", "-1e300", "1e18", "-100000000001"] {
+            #expect(try entry(#""ts":\#(ts)"#).ts == nil, "ts \(ts)")
+        }
+        #expect(try entry(#""ts":1800000000123"#).ts == Date(timeIntervalSince1970: 1_800_000_000.123))
+        #expect(try entry(#""ts":1800000000"#).ts == Date(timeIntervalSince1970: 1_800_000_000))
+        for duration in ["1e300", "-1", "1000000001"] {
+            #expect(try entry(#""durationS":\#(duration)"#).durationS == nil, "durationS \(duration)")
+            #expect(try entry(#""duration_s":\#(duration)"#).durationS == nil, "duration_s \(duration)")
+        }
+        #expect(try entry(#""durationS":0"#).durationS == 0)
+        #expect(try entry(#""duration_s":1347.5"#).durationS == 1347.5)
+    }
+
+    @Test func anAuditCursorPastInt64MillisecondsIsRefusedBeforeTheRequest() async throws {
+        let hub = StubHub.routes(["GET /v1/audit": (200, #"{"entries":[]}"#)])
+        let client = makeClient(hub)
+        await #expect(throws: DeviceHubError.self) { try await client.audit(before: Date(timeIntervalSince1970: 1e300)) }
+        #expect(hub.requests.allSatisfy { $0.url.path != "/v1/audit" })
+        #expect(try await client.audit(before: Date(timeIntervalSince1970: 1_800_000_000)).isEmpty)
+    }
 }
 
 /// A flag that reads true once.

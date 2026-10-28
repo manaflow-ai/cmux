@@ -45,8 +45,10 @@ pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
+mod config_writer;
 mod hosts;
 mod lifecycle;
+pub(crate) mod meta_writer;
 pub(crate) mod model_availability;
 mod model_options;
 mod new_request;
@@ -79,12 +81,14 @@ mod secrets;
 mod seen;
 mod session;
 pub(crate) mod session_pages;
+mod session_state;
 mod settings_watch;
 mod silent_turn;
 mod stalled_turn;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
+mod session_tmp;
 mod shutdown;
 mod spawn;
 mod start_defaults;
@@ -93,6 +97,7 @@ mod start_mode_state;
 mod startup;
 mod steer_end;
 mod stream;
+mod supervision;
 mod tags;
 mod tap;
 mod titles;
@@ -161,6 +166,7 @@ use crate::mailbox::Mailbox;
 use crate::rpc::{Id, Message, RpcError, method};
 use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
+use crate::supervised::{Fatal, ShutdownBehavior};
 use anyhow::Result;
 use serde_json::{Value, json};
 
@@ -199,6 +205,14 @@ pub struct HubEvent {
     pub session_id: String,
     pub record: Arc<EventRecord>,
     pub remote: Option<RemoteRef>,
+    /// The record as the `session/update` line a raw-text connection receives, made by the
+    /// first connection that sends it and shared by the rest (`server::deliver`): one encode
+    /// per token, not one per attached client. None inside: too large for one frame.
+    pub update_line: Arc<std::sync::OnceLock<Option<String>>>,
+    /// The session's summary after this record, made by the first watching connection that
+    /// sends `_acpmux/session_changed` for it and shared by the rest (`server::deliver`).
+    /// None inside: the session is gone.
+    pub summary: Arc<std::sync::OnceLock<Option<Value>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -321,7 +335,13 @@ pub(super) struct StreamState {
 
 pub struct Hub {
     pub config: RwLock<Config>,
-    pub(super) store: Box<dyn Store>,
+    /// The process's supervisor: every hub task runs under it (`crate::supervised`).
+    pub(crate) supervisor: crate::supervised::Supervisor,
+    pub(super) store: Arc<dyn Store>,
+    /// Writes session records off the request path (`meta_writer.rs`).
+    pub(super) meta_writer: meta_writer::MetaWriter,
+    /// Writes `config.json` and `start-mode.json` off the request path (`config_writer.rs`).
+    pub(super) config_writer: config_writer::ConfigWriter,
     pub(super) mailbox: Mailbox,
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
@@ -329,33 +349,30 @@ pub struct Hub {
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
     pub(super) events: broadcast::Sender<HubEvent>,
-    /// `_acpmux/models` replies now asking peers for theirs
-    /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
-    /// daemon's own catalog, so mutual peers cannot ping-pong.
+    /// `_acpmux/models` replies now asking peers for theirs (`server/models_fanout.rs`): a remote
+    /// asker meanwhile gets this daemon's own catalog, so mutual peers cannot ping-pong.
     pub models_fanouts: std::sync::atomic::AtomicUsize,
     pub shutdown: Notify,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<HashMap<String, RemoteSession>>,
-    /// Leased peers by name, with the generation of the peer each lease
-    /// started (`peer_lease.rs`); never saved. Lock order: this, then
-    /// `peers`; never `peers` first.
+    /// Leased peers by name, with the generation of the peer each lease started (`peer_lease.rs`);
+    /// never saved. Lock order: this, then `peers`; never `peers` first.
     pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
     pub(super) peer_notices: mpsc::Sender<(String, u64, crate::peer::PeerNotice)>,
     pub(super) peer_notices_rx:
         Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
-    /// Models each agent has advertised, keyed by agent profile name. Filled
-    /// whenever a session starts, so the picker can list a harness that has
-    /// no live session.
+    /// Models each agent has advertised, keyed by agent profile name. Filled whenever a session
+    /// starts, so the picker can list a harness that has no live session.
     pub(super) known_models: StdMutex<HashMap<String, Vec<(String, String)>>>,
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
     /// (harness, model) pairs whose backend refused them, with its message (model_availability.rs).
     pub(super) refused_models: StdMutex<HashMap<(String, String), String>>,
-    /// False while the daemon finishes startup work (login environment,
-    /// launcher checks) in the background. Session creation and agent
-    /// spawns wait for it; every other request is answered at once.
+    /// False while the daemon finishes startup work (login environment, launcher checks) in the
+    /// background. Session creation and agent spawns wait for it; every other request is answered
+    /// at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
     /// False from a deferred start (`Hub::new_deferred`) until `load_logs` read the
     /// chat logs: prompts wait for it, so a restored queue keeps its place.
@@ -457,6 +474,8 @@ pub struct Hub {
     pub(super) memory: crate::memory::AcpmuxMemory,
     /// The hub's memory consumers (`memory_consumers.rs`), registered once.
     pub(super) memory_consumers: std::sync::OnceLock<Vec<cmux_memory::Registration>>,
+    /// Connected clients, for the leftover daemon idle exit (`daemon_lifecycle.rs`).
+    pub clients: crate::daemon_lifecycle::ClientPresence,
 }
 
 impl Hub {
@@ -467,22 +486,38 @@ impl Hub {
     /// A daemon's hub: only the session list is read before it answers. The chat
     /// logs (their tails, queues and unsettled turns) load in `load_logs`, after
     /// the ready line (2026-10-20: reading 3.9 GB of logs first took 26.8 s).
-    pub fn new_deferred(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, true)
+    pub fn new_deferred(
+        config: Config,
+        store: Box<dyn Store>,
+        mailbox: Mailbox,
+        supervisor: crate::supervised::Supervisor,
+    ) -> Arc<Self> {
+        Self::build(config, store, mailbox, true, supervisor)
     }
 
+    /// A hub outside a daemon: its supervisor is [`crate::supervised::embedded`].
     pub fn new_with_mailbox(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, false)
+        Self::build(config, store, mailbox, false, crate::supervised::embedded())
     }
 
-    fn build(config: Config, store: Box<dyn Store>, mailbox: Mailbox, deferred: bool) -> Arc<Self> {
+    fn build(
+        config: Config,
+        store: Box<dyn Store>,
+        mailbox: Mailbox,
+        deferred: bool,
+        supervisor: crate::supervised::Supervisor,
+    ) -> Arc<Self> {
         let (events, _) = broadcast::channel(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
         let briefs = dispatch::Briefs::open(store.briefs_path());
+        let store: Arc<dyn Store> = Arc::from(store);
         let hub = Arc::new(Self {
             config: RwLock::new(config),
+            meta_writer: meta_writer::MetaWriter::start(store.clone(), &supervisor),
+            config_writer: config_writer::ConfigWriter::start(&supervisor),
+            supervisor,
             store,
             mailbox,
             forum: std::sync::OnceLock::new(),
@@ -551,6 +586,7 @@ impl Hub {
             briefs,
             memory: Default::default(),
             memory_consumers: std::sync::OnceLock::new(),
+            clients: Default::default(),
         });
         hub.register_memory_consumers();
         if let Ok(c) = hub.config.try_read() {
@@ -562,7 +598,9 @@ impl Hub {
         }
         if tokio::runtime::Handle::try_current().is_ok() {
             let h = hub.clone();
-            tokio::spawn(async move { h.peer_notice_loop().await });
+            hub.supervise("hub.peer-notices", Fatal, ShutdownBehavior::Skip, async move {
+                h.peer_notice_loop().await
+            });
             hub.watch_transfers();
             hub.watch_titles();
             hub.watch_orphans();
@@ -585,9 +623,9 @@ impl Hub {
         self.idle_wake.notify_one();
     }
 
-    /// Turns on the folder-trust gate for the app's agent pane, reading the
-    /// agents' files and acpmux's record at `paths` (the daemon passes the
-    /// user's; tests pass fixtures). None turns it off.
+    /// Turns on the folder-trust gate for the app's agent pane, reading the agents' files and
+    /// acpmux's record at `paths` (the daemon passes the user's; tests pass fixtures). None turns
+    /// it off.
     pub fn set_trust_gate(&self, paths: Option<crate::trust::Paths>) {
         *self.trust_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = paths;
     }
@@ -792,7 +830,8 @@ impl Hub {
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
-            purged: AtomicBool::new(false),
+            purged: Arc::new(AtomicBool::new(false)),
+            watch_end: Notify::new(),
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),
@@ -974,8 +1013,20 @@ impl Hub {
             session_id: session.id.clone(),
             record: Arc::new(record.clone()),
             remote: None,
+            update_line: Default::default(),
+            summary: Default::default(),
         });
         (record, stored)
+    }
+
+    /// Saves `cfg` to its file (`Config::save`) through the config writer
+    /// (`config_writer.rs`): the bytes are made here, the disk write runs on its thread. An error
+    /// is the config's own (it does not serialize); a disk error is logged by the writer.
+    pub(crate) fn save_config(&self, cfg: &Config) -> Result<()> {
+        if let Some((path, bytes)) = cfg.disk_bytes()? {
+            self.config_writer.queue(path, bytes);
+        }
+        Ok(())
     }
 
     pub fn set_rules(&self, session: &Session, rules: Option<Value>) {
@@ -1172,50 +1223,18 @@ impl Hub {
     /// the turn, a tag) would write its record back after the purge deleted it, and the next daemon
     /// start loaded it as a closed session: the Chief's compactor, which purges each node's session
     /// when the node is built, left about 450 of them in two hours (2026-10-20).
+    ///
+    /// The write itself runs on the record writer's thread (`meta_writer.rs`): this takes the
+    /// snapshot and returns, with no disk access.
     pub(super) fn save_meta(&self, session: &Session) {
         if session.purged.load(Ordering::SeqCst) {
             return;
         }
-        let meta = session.meta();
-        if let Err(e) = self.store.save(&meta) {
-            tracing::warn!(session = %session.id, "save meta failed: {e}");
-        }
-        // The purge ran between the check and the save: delete it again.
-        if session.purged.load(Ordering::SeqCst)
-            && let Err(e) = self.store.delete(&session.id)
-        {
-            tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
-        }
-    }
-
-    /// Lists the temporary folders of sessions this daemon no longer has
-    /// (`agent/session_tmp.rs`) and removes them on a thread of their own.
-    /// The daemon calls it before its socket serves, so no session starts
-    /// between the list and the store it is checked against.
-    #[cfg(unix)]
-    pub fn sweep_session_tmp(&self) {
-        let metas = match self.store.list() {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!("session tmp sweep skipped, the store did not list: {e}");
-                return;
-            }
+        let (meta, version) = {
+            let meta = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            (meta.clone(), self.meta_writer.next_version())
         };
-        let known: std::collections::HashSet<&str> = metas.iter().map(|m| m.id.as_str()).collect();
-        let closed: std::collections::HashSet<&str> = metas
-            .iter()
-            .filter(|m| m.status == SessionStatus::Closed)
-            .map(|m| m.id.as_str())
-            .collect();
-        // A session whose record did not list still has its folder.
-        let stored =
-            |id: &str| known.contains(id) || self.store.session_dir(id).is_some_and(|d| d.exists());
-        let stale = crate::agent::session_tmp::stale_for_daemon(&stored, &|id| closed.contains(id));
-        if stale.is_empty() {
-            return;
-        }
-        tracing::info!(count = stale.len(), "removing temporary folders of forgotten sessions");
-        std::thread::spawn(move || crate::agent::session_tmp::remove_all(&stale));
+        self.meta_writer.queue(&*self.store, meta, version, session.purged.clone());
     }
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
@@ -1241,6 +1260,9 @@ impl Hub {
                 self.subsession_status(&session.id, link, was, status);
             }
             session.mark_waiting(status == SessionStatus::Waiting);
+            if status == SessionStatus::Closed {
+                session.watch_end.notify_one();
+            }
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
             self.care_status(status);

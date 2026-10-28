@@ -20,6 +20,8 @@
 #include "embedder_focus_policy.h"
 #include "embedder_ui_args.h"
 #include "find_ids.h"
+#include "popup_menu_args.h"
+#include "suggestion_rows.h"
 
 namespace cmux_shim {
 
@@ -54,6 +56,7 @@ struct ForkApi {
   int (*ext_set_pinned)(int, const char*, int) = nullptr;
   int (*ext_open_options)(int, const char*) = nullptr;
   int (*ext_load_unpacked)(int, const char*) = nullptr;
+  int (*ext_load_command_line_async)(const char*, const char*, void (*)(void*, int), void*) = nullptr;  // p13-webui-055
   char* (*ext_commands)(int) = nullptr;
   int (*ext_command_run)(int, const char*, const char*) = nullptr;
   int (*tab_move_to_window)(int, int, int) = nullptr;
@@ -76,6 +79,10 @@ struct ForkApi {
   int (*browser_set_embedder_visibility)(int, int) = nullptr;
   // API version 36: a tab's Chromium views in an embedder NSView.
   int (*browser_attach_view)(int, void*) = nullptr;
+  // API version 37: a tab's visibility and capture from the app.
+  int (*tab_set_visibility)(int, int, int) = nullptr;
+  // API version 39: a string to a cmux-page document's receiver (the page push channel).
+  int (*tab_page_push)(int, const char*, size_t) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;
@@ -143,12 +150,21 @@ struct ForkApi {
   int (*browser_exit_keyboard_lock)(int) = nullptr;
   int (*browser_send_locked_mouse_move)(int, double, double, int) = nullptr;
   int (*browser_set_page_display)(int, uint32_t, double, double) = nullptr;
+  int (*browser_set_page_visibility)(int, int) = nullptr;  // shim_browser.mm
   char* (*tab_entry_page_state)(int, int) = nullptr;
   int (*tab_page_state_watch)(int, void (*)(void*, int, int), void*) = nullptr;
   int (*tab_restore_entries)(int, const ForkRestoreEntry*, int, int) = nullptr;
   // API version 31 (task 172): the renderer's answer to each DragTarget*
   // enter and over of a detached page (shim_helper_host.mm).
   int (*browser_drag_target_watch)(int, void (*)(void*, int, int, int), void*) = nullptr;
+  // API version 31 (task 171): <select> popups as data (shim_browser.mm,
+  // popup_menu_args.h).
+  int (*browser_set_popup_menu_handler)(int, ForkPopupMenuShowFn, ForkPopupMenuHideFn, void*) = nullptr;
+  int (*browser_popup_menu_reply)(int, int64_t, int) = nullptr;
+  // API version 31 (task 172): autofill, password and <datalist> suggestions
+  // as data, drawn by the app (shim_password_core.mm; suggestion_rows.h).
+  int (*browser_set_suggestion_handler)(int, const ForkSuggestionHandler*) = nullptr;
+  int (*browser_suggestion_action)(int, int64_t, int, int) = nullptr;
   // No API number yet (p13-webui-017; the fork train numbers it): its
   // presence says the fork honors CMUX_EXTRA_INFO_NO_RENDERER.
   int (*tab_renderer_state)(int) = nullptr;
@@ -164,6 +180,9 @@ struct ForkApi {
   // No API number yet (p07-memory-051; the fork train p07-memory-074 numbers
   // it): cmux's voter in Chromium's MultiSourceMemoryPressureMonitor.
   int (*memory_pressure_vote)(int) = nullptr;
+  // No API number yet (p03-rendering-116; the fork train numbers it): the
+  // slice of the next CefDoMessageLoopWork call only, in microseconds.
+  void (*set_message_loop_time_slice)(int64_t) = nullptr;
 };
 
 struct Host {
@@ -209,6 +228,15 @@ void Emit(int kind,
           int64_t b = 0,
           const std::string& s1 = std::string(),
           const std::string& s2 = std::string());
+
+// A browser Chromium made gets the <select> popup handler while the host
+// takes popups (cmux_shim_set_popup_menus; shim_browser.mm, UI thread).
+void ApplyPopupMenus(int browser_id);
+// The live DevTools browsers' identifiers (shim_devtools.mm, UI thread): they
+// are not in browsers(), and their <select> popups go to the host too.
+std::vector<int> DevToolsBrowserIds();
+// The live DevTools browsers themselves (same thread and set).
+std::vector<CefRefPtr<CefBrowser>> DevToolsBrowsers();
 
 // The file chooser handler (shim_file_dialog.mm); CancelFileDialogs cancels
 // the pending choosers of a browser that closed or crashed (UI thread).
@@ -341,6 +369,9 @@ void InstallExtensionUIHandlers();
 // so Chromium's bubble does not show (shim_password_core.mm).
 void InstallPasswordPromptHandler();
 void RemovePasswordPromptHandler();
+// A new browser's suggestions go to the app as SUGGESTIONS events while it
+// asked for them (cmux_shim_set_suggestion_events; shim_password_core.mm).
+void InstallSuggestionHandler(int browser_id);
 // The visible entry's virtual URL when it is chrome://newtab (the New Tab
 // page, which loads another URL), else `url`.
 std::string DisplayAddress(CefRefPtr<CefBrowser> browser, const std::string& url);

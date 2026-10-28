@@ -273,18 +273,21 @@ struct WireFuzzTransportCoverage: Sendable {
 }
 
 /// The reader's line scope (``LineTransport``'s `hangs` seam): it counts each line the reader routed, so the
-/// peer can wait for the reader without polling.
+/// peer can wait for the reader without polling. The writer's `daemon.write` steps share the seam and are
+/// not counted.
 final class WireFuzzRoutedLines: HangWatchScoping {
     private let routed = DispatchSemaphore(value: 0)
+    /// The slot of the reader's `daemon.line` lane; every other lane gets slot 1.
+    private static let lineSlot: UInt32 = 0
 
     func registerLane(_ name: StaticString) -> HangWatch.Registration {
-        HangWatch.Registration(slot: 0, generation: 1)
+        HangWatch.Registration(slot: name.description == "daemon.line" ? Self.lineSlot : 1, generation: 1)
     }
 
     func unregister(_ registration: HangWatch.Registration) {}
 
     func watch<T>(_ registration: HangWatch.Registration, deadline: Duration, _ body: () throws -> T) rethrows -> T {
-        defer { routed.signal() }
+        defer { if registration.slot == Self.lineSlot { routed.signal() } }
         return try body()
     }
 

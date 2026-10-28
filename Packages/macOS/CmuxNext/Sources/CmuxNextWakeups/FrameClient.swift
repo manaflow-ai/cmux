@@ -53,6 +53,7 @@ public struct FrameTick: Sendable {
 /// stops wanting BeginFrames (`SchedulerStateMachine::BeginFrameNeeded`, cc/scheduler/scheduler_state_machine.cc).
 @MainActor
 public final class FrameClient {
+    /// The client's name in the wakeup ledger, the board and the watchdog's records.
     public let owner: String
     /// Visible motion (springs, autoscroll); false for batch work such as
     /// the daemon store drain, which the busy watchdog must not excuse.
@@ -77,10 +78,11 @@ public final class FrameClient {
     private let startup: StartupPhase?
     /// True while an active client waits for the phase that opens its class.
     private var waitingForStartup = false
-    /// The flips of ``visibleOnly`` and its capture votes: made on the first activation and kept for
-    /// the client's life, so a one-shot client activated every frame does no subscription work.
-    /// An idle client ignores them.
-    private var visibilityWatch: [VisibilitySubscription] = []
+    /// The changes of ``visibleOnly``'s ``VisibilityNode/wantsFrames`` (a flip or a capture vote):
+    /// made on the first activation and kept for the client's life, so a one-shot client activated
+    /// every frame does no subscription work. An idle client ignores them.
+    private var visibilityWatch: VisibilitySubscription?
+    /// Whether the client wants frames (between ``activate()`` and the tick that returns false).
     public private(set) var isActive = false
 
     /// Whether an active client is off its scheduler because nobody sees its ``visibleOnly`` node.
@@ -126,7 +128,8 @@ public final class FrameClient {
     }
 
     /// The input stage of `scheduler`'s frames (``FrameInputCoalescer``): it ticks before the frame
-    /// clients, so they see the frame's input. Not visible motion: the busy watchdog does not excuse it.
+    /// clients, so they see the frame's input, and a frame client it activates ticks in the same frame.
+    /// Not visible motion: the busy watchdog does not excuse it.
     init(inputStageOf scheduler: FrameScheduler, owner: String, onFrame: @escaping @MainActor (FrameTick) -> Bool) {
         self.owner = owner
         self.isAnimation = false
@@ -170,11 +173,8 @@ public final class FrameClient {
     private var isSeen: Bool { visibleOnly?.wantsFrames ?? true }
 
     private func watchVisibility() {
-        guard let visibleOnly, visibilityWatch.isEmpty else { return }
-        visibilityWatch = [
-            visibleOnly.subscribe(owner: owner) { [weak self] _ in self?.visibilityDidChange() },
-            visibleOnly.subscribeExemption(owner: owner) { [weak self] in self?.visibilityDidChange() },
-        ]
+        guard let visibleOnly, visibilityWatch == nil else { return }
+        visibilityWatch = visibleOnly.subscribeRendering(owner: owner) { [weak self] _ in self?.visibilityDidChange() }
     }
 
     /// Its node flipped or a capture vote came or went: an unseen client leaves its scheduler (whose
@@ -232,10 +232,4 @@ public final class FrameClient {
     // is idle or parked (its visibility subscriptions, held only by it, go with it), and owners
     // deactivate before they let go. An `isolated deinit` here hopped through the Swift runtime on
     // every release and trapped when a layout view left its window (cx-t7hu).
-}
-
-extension VisibilityNode {
-    /// Whether frame work for this node is seen: it is ``Visibility/visible``, or a capture vote holds
-    /// it (``isCaptured``: a screenshot, a screencast or screen share sees it while it is hidden).
-    public var wantsFrames: Bool { isVisible || isCaptured }
 }
