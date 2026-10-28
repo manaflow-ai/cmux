@@ -2078,12 +2078,18 @@ class TabManager: ObservableObject {
         workspaceReordering.isAtTopOfUnpinnedTier(tabId)
     }
 
+    /// Moves one workspace to `targetIndex`, clamped to its tier.
+    ///
+    /// - Parameter requestedIndex: The index the user asked for when the caller already clamped
+    ///   it into `targetIndex` (`reorder-workspace --index`). Used only for the direction of a
+    ///   move that leaves the order as it was (session priority ruling R30).
     @discardableResult
     func reorderWorkspace(
         tabId: UUID,
         toIndex targetIndex: Int,
         isDragOperation: Bool = false,
-        origin: WorkspaceMoveOrigin = .user
+        origin: WorkspaceMoveOrigin = .user,
+        requestedIndex: Int? = nil
     ) -> Bool {
         let before = tabs.map(\.id)
         let previousMemberships = workspaceGroupMemberships(for: [tabId])
@@ -2096,9 +2102,11 @@ class TabManager: ObservableObject {
             previousMemberships: previousMemberships
         )
         if handled, origin == .user {
-            // A request below the current place is a move down (Move Down at the bottom edge
-            // is clamped and changes nothing); a drag or a placement at or above it is not.
-            let movingUp = isDragOperation || before.firstIndex(of: tabId).map { targetIndex <= $0 } ?? true
+            // A request below the current place is a move down (Move Down at the bottom edge,
+            // or `--index` past the end, is clamped and changes nothing); a drag or a placement
+            // at or above it is not.
+            let requested = requestedIndex ?? targetIndex
+            let movingUp = isDragOperation || before.firstIndex(of: tabId).map { requested <= $0 } ?? true
             noteUserWorkspaceMove(movedIds: [tabId], before: before, movingUp: movingUp)
         }
         return handled
