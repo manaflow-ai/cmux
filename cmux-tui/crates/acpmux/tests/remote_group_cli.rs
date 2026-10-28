@@ -365,7 +365,7 @@ async fn ephemeral_keep_is_limited_to_the_creating_client() {
     let created = owner
         .request(
             method::SESSION_NEW,
-            json!({"mcpServers": [], "_meta": {"acpmux": {"ephemeral": true, "harness": "fake"}}}),
+            json!({"cwd": root, "mcpServers": [], "_meta": {"acpmux": {"ephemeral": true, "harness": "fake"}}}),
         )
         .await
         .unwrap();
