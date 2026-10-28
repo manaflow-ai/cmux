@@ -144,7 +144,7 @@ export function WorkflowSideTab({ workflow, onClose, onStop, layout = "timeline"
             {stateLabel(t, workflow.state)}
           </span>
           {elapsed !== undefined && <time>{formatDuration(elapsed)}</time>}
-          <span>{counts.done}/{counts.total} {t("summary.subagents.pill", { n: counts.total })}</span>
+          <span>{counts.done}/{counts.total} {t("subagents.pill", { n: counts.total })}</span>
           {workflow.tokens !== undefined && <span>{t("subagents.tokens", { n: workflow.tokens, tokens: workflow.tokens })}</span>}
           {running(workflow) && onStop && <StopButton id={workflow.id} name={workflow.title} stop={onStop} />}
         </div>

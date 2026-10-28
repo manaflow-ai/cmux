@@ -5284,6 +5284,7 @@ function AcpmuxPane() {
     [workflowLabsEnabled, workflows, workflowSideTabId],
   );
   const openWorkflowSideTab = useCallback((id: string) => setWorkflowSideTabId(id), []);
+  const clearWorkflowSideTab = useCallback(() => setWorkflowSideTabId(undefined), []);
   useEffect(() => {
     setWorkflowSideTabId(undefined);
   }, [shownSessionId, workflowLabsEnabled]);
@@ -5380,12 +5381,13 @@ function AcpmuxPane() {
     const next = typeof open === "boolean" ? open : !inspectorOpenRef.current;
     inspectorOpenRef.current = next;
     if (next) {
+      clearWorkflowSideTab();
       setDiffView(undefined);
       inspectorOpener.current ??= document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
     }
     setInspectorOpen(next);
     return next;
-  }, []);
+  }, [clearWorkflowSideTab]);
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
   /// Opens the chat folder's diff in its own pane right of the chat, as the header's Changes does
@@ -6253,7 +6255,7 @@ function AcpmuxPane() {
     // and opening it closes them.
     covered: environmentCovered,
     onUncover: uncoverChat,
-    onBeforeOpen: () => setWorkflowSideTabId(undefined),
+    onBeforeOpen: clearWorkflowSideTab,
     beside: artifact?.opened,
     // A handoff review's form is wider than the transcript's column: the chat's shift is measured against it.
     wide: reviewing,
