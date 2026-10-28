@@ -1406,3 +1406,64 @@ async fn a_busy_terminal_channel_the_phone_closes_still_releases_its_size() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
+
+/// A Mac file opened for preview has no size cap (Leo, 2026-10-26: "WE NEED ARBITARRILY
+/// LARGE FILES OF ANY TYPE"): a sparse file past the old 64 MiB cap streams whole, and no
+/// message the phone receives is larger than one link data chunk, so neither side holds
+/// the file in memory. The test hashes as it reads and checks the length and SHA-256.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_file_past_the_old_64_mib_cap_streams_whole_in_bounded_chunks() {
+    use sha2::{Digest, Sha256};
+    use std::io::{Read, Seek, SeekFrom, Write};
+
+    let size: u64 = (64 << 20) + (1 << 20) + 7;
+    let fixture = fixture(FakeOptions::default()).await;
+    let path = fixture.root.join("big.bin");
+    {
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.set_len(size).unwrap();
+        // Marks at the start, across the old cap and at the end, so the hash sees order.
+        for (offset, mark) in [(0, b"start".as_slice()), (64 << 20, b"cap"), (size - 3, b"end")] {
+            file.seek(SeekFrom::Start(offset)).unwrap();
+            file.write_all(mark).unwrap();
+        }
+    }
+    let expected = {
+        let mut hasher = Sha256::new();
+        let mut file = std::fs::File::open(&path).unwrap();
+        let mut buffer = vec![0u8; 1 << 20];
+        loop {
+            let read = file.read(&mut buffer).unwrap();
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+        }
+        hasher.finalize()
+    };
+
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut channel =
+        connected.link.open("file", serde_json::json!({"path": path.to_str().unwrap()})).await.unwrap();
+    let mut hasher = Sha256::new();
+    let (mut received, mut largest): (u64, usize) = (0, 0);
+    let code = loop {
+        match tokio::time::timeout(Duration::from_secs(30), channel.recv()).await.expect("in time") {
+            Some(ChannelEvent::Data(data)) => {
+                largest = largest.max(data.len());
+                received += data.len() as u64;
+                hasher.update(&data);
+            }
+            Some(ChannelEvent::Closed(info)) => break format!("{} {}", info.code, info.reason),
+            None => break "none".into(),
+        }
+    };
+    assert_eq!(code.trim(), "eof", "the Mac refused or cut the file");
+    assert_eq!(received, size);
+    assert_eq!(hasher.finalize(), expected);
+    assert!(
+        largest <= cmux_mobile_link::link::DATA_CHUNK,
+        "a message of {largest} bytes: the file must stream in chunks of at most {}",
+        cmux_mobile_link::link::DATA_CHUNK
+    );
+}
