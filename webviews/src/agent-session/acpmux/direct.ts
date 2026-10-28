@@ -1866,7 +1866,8 @@ export class AcpmuxDirectClient {
             // on past while the socket was down is still read (`fetchMissedEvents`).
             this.events = this.events.filter((event) => event.seq <= resumeAfter);
             this.rebuildKeepingLiveState();
-            this.emit();
+            // The open closes the socket next and reconnects: the pane is not connected meanwhile.
+            this.emit("disconnected");
           }
           if (!kept) throw error;
         }
