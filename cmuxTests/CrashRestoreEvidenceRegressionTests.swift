@@ -8,8 +8,8 @@ import Testing
 #endif
 
 extension CrashDiagnosticSessionPolicyTests {
-    @Test("Crash merging never moves preserved workspaces past the live restore limit")
-    func crashMergeRespectsLiveWorkspaceLimit() throws {
+    @Test("Crash merging never moves preserved workspaces past the live restore limit", arguments: [false, true])
+    func crashMergeRespectsLiveWorkspaceLimit(divergent: Bool) throws {
         let count = SessionPersistencePolicy.maxWorkspacesPerWindow
         let original = crashTestWindow((0..<count).map {
             var workspace = crashTestWorkspace("workspace-\($0)", agents: ["agent-\($0)"])
@@ -17,13 +17,13 @@ extension CrashDiagnosticSessionPolicyTests {
             return workspace
         })
         var replay = original
-        replay.tabManager.workspaces[0].customDescription = "Distinct saved work"
+        if divergent { replay.tabManager.workspaces[0].customDescription = "Distinct saved work" }
         let result = try #require(SessionPersistencePolicy.snapshotForLiveRestore(AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion, createdAt: 10, windows: [original, replay]
         )))
-        #expect(result.windows.count == 2)
+        #expect(result.windows.count == (divergent ? 2 : 1))
         #expect(result.windows.allSatisfy { $0.tabManager.workspaces.count <= count })
-        #expect(result.windows.last?.tabManager.workspaces.first?.customDescription == "Distinct saved work")
+        #expect(result.windows.last?.tabManager.workspaces.first?.customDescription == (divergent ? "Distinct saved work" : nil))
     }
 
     @Test("Distinct panes sharing an agent checkpoint survive richer directory metadata")

@@ -56,12 +56,17 @@ extension SessionPersistencePolicy {
             let signature = crashWindowSignature(window, fingerprints: &fingerprints)
             if let match = signatures.first(where: { $0.signature.isCrashDuplicate(of: signature) }) {
                 let index = match.resultIndex
-                result[index] = mergingCrashDuplicateWindows(result[index], window, fingerprints: &fingerprints)
-                // Keep observed generations as evidence. The combined result is
-                // not a new observation and cannot broaden duplicate identity.
-                signatures.append((signature, index))
-                merged += 1
-                continue
+                let candidate = mergingCrashDuplicateWindows(result[index], window, fingerprints: &fingerprints)
+                // Restore caps each window independently. Combining divergent
+                // copies past that cap would turn preservation into truncation.
+                if candidate.tabManager.workspaces.count <= maxWorkspacesPerWindow {
+                    result[index] = candidate
+                    // Keep observed generations as evidence. The combined result
+                    // cannot broaden duplicate identity beyond its inputs.
+                    signatures.append((signature, index))
+                    merged += 1
+                    continue
+                }
             }
             signatures.append((signature, result.count))
             result.append(window)
