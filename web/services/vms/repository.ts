@@ -42,6 +42,7 @@ import {
 } from "./snapshotRequests";
 import { storedAgentUpdates, type VmAgentUpdatesSetting } from "./agentUpdates";
 import { VM_RESOURCE_USAGE_KEY, VM_RESOURCE_USAGE_MIN_INTERVAL_MS, type VmResourceUsage } from "./resourceUsage";
+import { VM_IDLE_PAUSE_MINUTES_KEY, type VmIdlePauseMinutes } from "./idlePause";
 import {
   VmCreateDisabledError,
   VmCreateInProgressError,
@@ -389,6 +390,11 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
   readonly setAgentUpdates?: (input: {
     readonly id: string;
     readonly agentUpdates: VmAgentUpdatesSetting;
+  }) => Effect.Effect<void, VmDatabaseError>;
+  /** Store the machine's idle auto-pause choice in minutes (0 is Off; services/vms/idlePause.ts). */
+  readonly setIdlePauseMinutes?: (input: {
+    readonly id: string;
+    readonly minutes: VmIdlePauseMinutes;
   }) => Effect.Effect<void, VmDatabaseError>;
   /** Atomically coalesce advisory samples; false also covers a replaced VM. */
   readonly recordResourceUsage?: (input: {
@@ -1321,7 +1327,8 @@ function providerMetadataPatchForPersistence(
       key !== CREATE_CLEANUP_ATTEMPT_KEY &&
       key !== CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY &&
       key !== CREATE_CLEANUP_LEASE_ID_KEY &&
-      key !== CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY,
+      key !== CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY &&
+      key !== VM_IDLE_PAUSE_MINUTES_KEY,
     ),
   );
 }
@@ -1940,6 +1947,16 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       await db
         .update(cloudVms)
         .set({ agentUpdates: storedAgentUpdates(input.agentUpdates), updatedAt: new Date() })
+        .where(eq(cloudVms.id, input.id));
+    }),
+  setIdlePauseMinutes: (input) =>
+    dbEffect("setIdlePauseMinutes", async () => {
+      await cloudDb()
+        .update(cloudVms)
+        .set({
+          providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify({ [VM_IDLE_PAUSE_MINUTES_KEY]: input.minutes })}::jsonb`,
+          updatedAt: new Date(),
+        })
         .where(eq(cloudVms.id, input.id));
     }),
   mergeProviderMetadata: (input) =>

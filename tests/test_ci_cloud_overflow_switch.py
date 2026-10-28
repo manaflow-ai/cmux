@@ -110,9 +110,10 @@ class FailoverTests(unittest.TestCase):
     def test_failover_is_derived_from_the_lane_pin(self) -> None:
         values, problems = switch.failover_values(PIN, "")
         self.assertEqual(problems, [])
-        self.assertEqual(values["LINUX_RUNNER"], "ubuntu-24.04")
-        # The merge-gating checks leave Blacksmith with the rest of Linux.
-        self.assertEqual(values["CI_TRUSTED_RUNNER"], "ubuntu-24.04")
+        # Another Blacksmith Linux size, never GitHub-hosted Ubuntu (Leo, 2026-10-27).
+        self.assertEqual(values["LINUX_RUNNER"], "blacksmith-16vcpu-ubuntu-2404")
+        # The merge-gating checks' readers accept only the 2 and 4 vCPU Blacksmith labels.
+        self.assertEqual(values["CI_TRUSTED_RUNNER"], "blacksmith-2vcpu-ubuntu-2404")
         for name in switch.STD_VARIABLES:
             self.assertEqual(values[name], "glaeda-std-xcode-26.6")
         self.assertEqual(values["MACOS_RUNNER_DISPLAY"], "glaeda-gui-std-xcode-26.6")
@@ -126,25 +127,46 @@ class FailoverTests(unittest.TestCase):
         values, _ = switch.failover_values(PIN, "")
         for name in LANE_SWITCHES:
             self.assertNotIn(name, values)
-        self.assertFalse(any(switch.cloud_label(value) for value in values.values()))
+        self.assertFalse(any(value.startswith("ubuntu-") for value in values.values()))
+        for name, value in values.items():
+            if switch.cloud_label(value):
+                self.assertIn(name, switch.LINUX_VARIABLES)
+                self.assertNotEqual(value, switch.DEFAULT_PROBE_LABEL)
 
     def test_overrides_replace_drop_and_refuse(self) -> None:
         values, problems = switch.failover_values(PIN, json.dumps({
-            "MACOS_RUNNER_15": "macos-15", "MACOS_RUNNER_26_LARGE": "",
+            "MACOS_RUNNER_15": "glaeda-side-std-xcode-26.6", "MACOS_RUNNER_26_LARGE": "",
             "MACOS_RUNNER_26": "blacksmith-12vcpu-macos-26", "CI_CLOUD_OVERFLOW_SAVED": "x",
-            "CI_PR_POOL_OWNED": "0"}))
-        self.assertEqual(values["MACOS_RUNNER_15"], "macos-15")
+            "CI_PR_POOL_OWNED": "0", "MACOS_RUNNER_PR": "macos-15"}))
+        self.assertEqual(values["MACOS_RUNNER_15"], "glaeda-side-std-xcode-26.6")
         self.assertNotIn("MACOS_RUNNER_26_LARGE", values)
         self.assertEqual(values["MACOS_RUNNER_26"], "glaeda-std-xcode-26.6")
-        self.assertEqual(len(problems), 3)
+        # A GitHub-hosted Mac is refused like a Blacksmith label: the pool keeps its owned failover.
+        self.assertEqual(values["MACOS_RUNNER_PR"], "glaeda-std-xcode-26.6")
+        self.assertEqual(len(problems), 4)
         self.assertNotIn("CI_PR_POOL_OWNED", values)
         _, problems = switch.failover_values(PIN, "[1]")
         self.assertEqual(len(problems), 1)
+        # A Linux variable may name another Blacksmith Linux size; never GitHub-hosted Ubuntu.
+        values, problems = switch.failover_values(PIN, json.dumps({
+            "LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404", "CI_TRUSTED_RUNNER": "ubuntu-24.04"}))
+        self.assertEqual(values["LINUX_RUNNER"], "blacksmith-32vcpu-ubuntu-2404")
+        self.assertEqual(values["CI_TRUSTED_RUNNER"], "blacksmith-2vcpu-ubuntu-2404")
+        self.assertEqual(len(problems), 1)
+        # CI_TRUSTED_RUNNER's readers accept only the 2 and 4 vCPU labels.
+        values, problems = switch.failover_values(PIN, json.dumps({"CI_TRUSTED_RUNNER": "blacksmith-16vcpu-ubuntu-2404"}))
+        self.assertEqual(values["CI_TRUSTED_RUNNER"], "blacksmith-2vcpu-ubuntu-2404")
+        self.assertEqual(len(problems), 1)
+        values, problems = switch.failover_values(PIN, json.dumps({"CI_TRUSTED_RUNNER": "glaeda-std-xcode-26.6"}))
+        self.assertEqual((values["CI_TRUSTED_RUNNER"], len(problems)), ("blacksmith-2vcpu-ubuntu-2404", 1))
+        values, problems = switch.failover_values(PIN, json.dumps({"CI_TRUSTED_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}))
+        self.assertEqual((values["CI_TRUSTED_RUNNER"], problems), ("blacksmith-4vcpu-ubuntu-2404", []))
 
     def test_no_pin_leaves_macos_alone(self) -> None:
         values, problems = switch.failover_values("", "")
         # Linux variables alone never turn on paid macOS overflow.
-        self.assertEqual(values, {"LINUX_RUNNER": "ubuntu-24.04", "CI_TRUSTED_RUNNER": "ubuntu-24.04"})
+        self.assertEqual(values, {"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
+                                  "CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404"})
         self.assertEqual(len(problems), 1)
 
 
@@ -159,7 +181,7 @@ class PlanTests(unittest.TestCase):
             "CI_PAID_MACOS_OVERFLOW": None,
         }, failover)
         self.assertEqual(changed["LINUX_RUNNER"], {"before": "blacksmith-4vcpu-ubuntu-2404",
-                                                   "after": "ubuntu-24.04"})
+                                                   "after": "blacksmith-16vcpu-ubuntu-2404"})
         self.assertEqual(changed["MACOS_RUNNER_15"], {"before": None, "after": "glaeda-std-xcode-26.6"})
         self.assertEqual(changed["CI_PAID_MACOS_OVERFLOW"], {"before": None, "after": "1"})
         self.assertNotIn("MACOS_RUNNER_26", changed)
@@ -167,12 +189,12 @@ class PlanTests(unittest.TestCase):
 
     def test_on_restores_deletes_and_leaves_a_hand_edit(self) -> None:
         record = {"changed": {
-            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "ubuntu-24.04"},
+            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "blacksmith-16vcpu-ubuntu-2404"},
             "CI_PAID_MACOS_OVERFLOW": {"before": None, "after": "1"},
             "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"},
         }}
         restores = {item.name: item for item in switch.plan_on(record, {
-            "LINUX_RUNNER": "ubuntu-24.04", "CI_PAID_MACOS_OVERFLOW": "1", "MACOS_RUNNER_PR": "macos-26"})}
+            "LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404", "CI_PAID_MACOS_OVERFLOW": "1", "MACOS_RUNNER_PR": "macos-26"})}
         self.assertEqual(restores["LINUX_RUNNER"].value, "blacksmith-4vcpu-ubuntu-2404")
         self.assertFalse(restores["LINUX_RUNNER"].skipped)
         self.assertIsNone(restores["CI_PAID_MACOS_OVERFLOW"].value)
@@ -209,6 +231,18 @@ class PlanTests(unittest.TestCase):
         self.assertIsNone(switch.stuck_job(jobs, NOW, 5))
         jobs.append({"status": "queued", "labels": ["blacksmith-4vcpu-ubuntu-2404"], "created_at": ago(30)})
         self.assertEqual(switch.stuck_job(jobs, NOW, 5)["created_at"], ago(30))
+        # A job already on the failover size is where the switch sends it; re-running moves nothing.
+        on_failover = [{"status": "queued", "labels": ["blacksmith-16vcpu-ubuntu-2404"], "created_at": ago(30)}]
+        self.assertIsNone(switch.stuck_job(on_failover, NOW, 5, ["blacksmith-16vcpu-ubuntu-2404"]))
+        self.assertIsNotNone(switch.stuck_job(on_failover, NOW, 5))
+        # Only a destination that was nobody's value before counts: LINUX_RUNNER on 2 vCPU moved to 16,
+        # while CI_TRUSTED_RUNNER moved onto 2, so jobs queued on 2 vCPU still move.
+        record = {"changed": {
+            "LINUX_RUNNER": {"before": "blacksmith-2vcpu-ubuntu-2404", "after": "blacksmith-16vcpu-ubuntu-2404"},
+            "CI_TRUSTED_RUNNER": {"before": None, "after": "blacksmith-2vcpu-ubuntu-2404"},
+            "MACOS_RUNNER_PR": {"before": None, "after": "glaeda-std-xcode-26.6"}}}
+        self.assertEqual(switch.failover_destinations(record, "blacksmith-2vcpu-ubuntu-2404"),
+                         {"blacksmith-16vcpu-ubuntu-2404"})
 
     def test_protected_runs_are_left_alone(self) -> None:
         self.assertTrue(switch.protected_reason({"event": "merge_group"}))
@@ -234,7 +268,7 @@ class MainTests(unittest.TestCase):
         self.assertEqual(record["probe"], "blacksmith-4vcpu-ubuntu-2404")
         self.assertEqual(record["changed"]["LINUX_RUNNER"]["before"], "blacksmith-4vcpu-ubuntu-2404")
         written = dict(writer.writes[1:])
-        self.assertEqual(written["LINUX_RUNNER"], "ubuntu-24.04")
+        self.assertEqual(written["LINUX_RUNNER"], "blacksmith-16vcpu-ubuntu-2404")
         self.assertEqual(written["MACOS_RUNNER_PR"], "glaeda-std-xcode-26.6")
         self.assertEqual(written["CI_PAID_MACOS_OVERFLOW"], "1")
         for name in LANE_SWITCHES:
@@ -244,10 +278,10 @@ class MainTests(unittest.TestCase):
 
     def test_a_started_probe_restores_and_deletes_the_record(self) -> None:
         record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
-            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "ubuntu-24.04"},
+            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "blacksmith-16vcpu-ubuntu-2404"},
             "CI_PAID_MACOS_OVERFLOW": {"before": None, "after": "1"},
             "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"}}}
-        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_LINUX_RUNNER": "ubuntu-24.04",
+        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
                "VAR_CI_PAID_MACOS_OVERFLOW": "1", "VAR_MACOS_RUNNER_PR": "macos-26",
                "VAR_CMUX_CI_XCODE_APP_PR": PIN}
         actions, writer = FakeActions(probe_job(0, status="in_progress", runner_name="bs-1")), FakeSwitch()
@@ -262,7 +296,7 @@ class MainTests(unittest.TestCase):
 
     def test_a_stalled_record_finishes_a_partial_switch(self) -> None:
         record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
-            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "ubuntu-24.04"},
+            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "blacksmith-16vcpu-ubuntu-2404"},
             "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"}}}
         env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record),
                "VAR_LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404",
@@ -271,7 +305,88 @@ class MainTests(unittest.TestCase):
         code, out, _ = run_main(env, FakeActions(probe_job(0)), writer)
         self.assertEqual(code, 0)
         self.assertIn("outcome=stalled", out)
-        self.assertEqual(writer.writes, [("LINUX_RUNNER", "ubuntu-24.04")])
+        self.assertEqual(writer.writes, [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
+
+    def test_a_record_on_hosted_ubuntu_moves_to_the_blacksmith_failover(self) -> None:
+        # Written by the switch before 2026-10-27 (Linux failed over to GitHub-hosted Ubuntu).
+        record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
+            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "ubuntu-24.04"},
+            "CI_TRUSTED_RUNNER": {"before": None, "after": "ubuntu-24.04"},
+            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"}}}
+        # LINUX_RUNNER still at the old failover; CI_TRUSTED_RUNNER changed by hand since.
+        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_LINUX_RUNNER": "ubuntu-24.04",
+               "CMUX_CI_RUNNER_VARIABLES": "CI_TRUSTED_RUNNER=blacksmith-4vcpu-ubuntu-2404\n",
+               "VAR_MACOS_RUNNER_PR": "glaeda-std-xcode-26.6", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        writer = FakeSwitch()
+        code, out, _ = run_main(env, FakeActions(probe_job(0)), writer)
+        self.assertEqual(code, 0)
+        self.assertIn("outcome=stalled", out)
+        self.assertEqual(writer.writes[0][0], "CI_CLOUD_OVERFLOW_SAVED")
+        saved = json.loads(writer.writes[0][1])["changed"]
+        self.assertEqual(saved["LINUX_RUNNER"], {"before": "blacksmith-4vcpu-ubuntu-2404",
+                                                 "after": "blacksmith-16vcpu-ubuntu-2404", "was": "ubuntu-24.04"})
+        self.assertEqual(saved["CI_TRUSTED_RUNNER"], {"before": None, "after": "ubuntu-24.04"})
+        self.assertEqual(writer.writes[1:], [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
+        # Turning overflow back on then restores from the migrated record.
+        restores = {item.name: item for item in switch.plan_on(
+            {"changed": saved}, {"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"})}
+        self.assertEqual(restores["LINUX_RUNNER"].value, "blacksmith-4vcpu-ubuntu-2404")
+        self.assertFalse(restores["LINUX_RUNNER"].skipped)
+
+    def test_a_legacy_partial_switch_resumes_onto_blacksmith(self) -> None:
+        record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
+            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "ubuntu-24.04"}}}
+        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record),
+               "VAR_LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        writer = FakeSwitch()
+        run_main(env, FakeActions(probe_job(0)), writer)
+        self.assertNotIn(("LINUX_RUNNER", "ubuntu-24.04"), writer.writes)
+        self.assertIn(("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404"), writer.writes)
+
+    def test_an_interrupted_migration_resumes_and_still_restores(self) -> None:
+        # The record was rewritten (after -> 16 vCPU, was -> ubuntu-24.04) but the variable write failed.
+        record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
+            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "blacksmith-16vcpu-ubuntu-2404",
+                             "was": "ubuntu-24.04"}}}
+        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_LINUX_RUNNER": "ubuntu-24.04",
+               "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        writer = FakeSwitch()
+        run_main(env, FakeActions(probe_job(0)), writer)
+        self.assertEqual(writer.writes, [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
+        restores = switch.plan_on(record, {"LINUX_RUNNER": "ubuntu-24.04"})
+        self.assertEqual([(r.name, r.value, r.skipped) for r in restores],
+                         [("LINUX_RUNNER", "blacksmith-4vcpu-ubuntu-2404", "")])
+
+    def test_the_failover_is_never_the_stalled_probe_label(self) -> None:
+        # LINUX_RUNNER already names 16 vCPU, so the probe asks for 16 vCPU; its failover is the next size.
+        env = {"VAR_LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        writer = FakeSwitch()
+        code, out, _ = run_main(env, FakeActions(probe_job(0)), writer)
+        self.assertEqual(code, 0)
+        self.assertIn("outcome=stalled", out)
+        saved = json.loads(writer.writes[0][1])
+        self.assertEqual(saved["probe"], "blacksmith-16vcpu-ubuntu-2404")
+        self.assertEqual(saved["changed"]["LINUX_RUNNER"], {"before": "blacksmith-16vcpu-ubuntu-2404",
+                                                            "after": "blacksmith-32vcpu-ubuntu-2404"})
+        self.assertIn(("LINUX_RUNNER", "blacksmith-32vcpu-ubuntu-2404"), writer.writes)
+        self.assertEqual(switch.away_from_probe({"CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404"},
+                                                "blacksmith-2vcpu-ubuntu-2404"),
+                         {"CI_TRUSTED_RUNNER": "blacksmith-4vcpu-ubuntu-2404"})
+        # An override naming the probed label is moved off it too.
+        self.assertEqual(switch.away_from_probe({"CI_TRUSTED_RUNNER": "blacksmith-4vcpu-ubuntu-2404",
+                                                 "LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"},
+                                                "blacksmith-4vcpu-ubuntu-2404"),
+                         {"CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404",
+                          "LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"})
+
+    def test_a_legacy_record_without_the_switch_token_fails_loudly(self) -> None:
+        record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
+            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "ubuntu-24.04"}}}
+        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_LINUX_RUNNER": "ubuntu-24.04",
+               "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        code, _, summary = run_main(env, FakeActions(probe_job(0)), None)
+        self.assertEqual(code, 1)
+        self.assertIn("LINUX_RUNNER -> blacksmith-16vcpu-ubuntu-2404", summary)
 
     def test_healthy_with_no_record_writes_nothing(self) -> None:
         writer = FakeSwitch()
@@ -283,7 +398,7 @@ class MainTests(unittest.TestCase):
         code, out, summary = run_main(BLACKSMITH_STEADY, actions, None)
         self.assertEqual(code, 1)
         self.assertIn("outcome=stalled", out)
-        self.assertIn("LINUX_RUNNER -> ubuntu-24.04", summary)
+        self.assertIn("LINUX_RUNNER -> blacksmith-16vcpu-ubuntu-2404", summary)
         self.assertEqual(actions.calls, [])
 
     def test_dry_run_changes_nothing(self) -> None:
@@ -309,7 +424,7 @@ class MainTests(unittest.TestCase):
         code, out, summary = run_main(env, FakeActions(probe_job(0)), None)
         self.assertEqual(code, 0)
         self.assertIn("outcome=stalled", out)
-        self.assertIn("LINUX_RUNNER: would set ubuntu-24.04", summary)
+        self.assertIn("LINUX_RUNNER: would set blacksmith-16vcpu-ubuntu-2404", summary)
         self.assertNotIn("no switch token", summary)
 
     def test_runner_values_come_from_the_block(self) -> None:
@@ -334,7 +449,21 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(f"name: {switch.PROBE_JOB}\n", self.text)
 
     def test_watch_runs_off_blacksmith_and_passes_every_switched_variable(self) -> None:
-        self.assertIn("runs-on: ubuntu-24.04 # github-hosted-required:", self.text)
+        # Never GitHub-hosted Ubuntu: on 2026-10-27 the watch queued 94 minutes there behind the
+        # switch's own failover and held the concurrency group, so no later run decided anything.
+        runs_on = re.search(r"name: Watch the probe and switch overflow\n(?:.*\n)*?\s+runs-on: (.*)", self.text).group(1)
+        self.assertNotIn("ubuntu-24.04", runs_on)
+        self.assertNotIn("ubuntu-latest", runs_on)
+        self.assertNotIn("github-hosted-required", runs_on)
+        # Overflow on: a Blacksmith Linux size the probe does not ask for. Overflow off: Blacksmith macOS,
+        # so the watch can put overflow back whatever the Linux sizes do.
+        # Whenever the probe itself may ask for that size, the watch takes macOS, so it never queues
+        # behind its own probe.
+        self.assertEqual(runs_on, "${{ (vars.CI_CLOUD_OVERFLOW_SAVED || startsWith(vars.LINUX_RUNNER, "
+                                  "'blacksmith-16vcpu-') || startsWith(inputs.probe_label, 'blacksmith-16vcpu-')) && "
+                                  f"'blacksmith-6vcpu-macos-26' || '{switch.LINUX_FAILOVER}' }}}}")
+        self.assertTrue(switch.LINUX_FAILOVER.startswith("blacksmith-16vcpu-"))
+        self.assertNotEqual(switch.LINUX_FAILOVER, switch.DEFAULT_PROBE_LABEL)
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
         for name in names:
@@ -368,6 +497,13 @@ class RepoVariableCheckTests(unittest.TestCase):
     def env(self, **extra: str) -> dict[str, str]:
         return {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_PR=glaeda-std-xcode-26.6\nLINUX_RUNNER=ubuntu-24.04\n",
                 "CI_OWNED_POOL_SLOTS": "", "CMUX_CI_XCODE_APP_PR": PIN, **extra}
+
+    def test_a_trusted_runner_its_readers_reject_is_drift(self) -> None:
+        def env(trusted: str) -> dict[str, str]:
+            return {"CMUX_CI_RUNNER_VARIABLES": f"CI_TRUSTED_RUNNER={trusted}\n", "CI_OWNED_POOL_SLOTS": "",
+                    "CMUX_CI_XCODE_APP_PR": PIN}
+        self.assertTrue(any("CI_TRUSTED_RUNNER" in p for p in check.problems(env("blacksmith-16vcpu-ubuntu-2404"))))
+        self.assertFalse(any("CI_TRUSTED_RUNNER" in p for p in check.problems(env("blacksmith-2vcpu-ubuntu-2404"))))
 
     def test_an_owned_label_is_drift_without_the_record(self) -> None:
         self.assertTrue(check.problems(self.env()))

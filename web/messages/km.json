@@ -14,6 +14,31 @@
     "benefitSuperpowers": "ការរៀបចំផែនការ TDD ភ្នាក់ងាររង និងការពិនិត្យ"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "សំណើ Cloud VM ត្រូវបានពន្យារ",
+      "message": "ការបែងចែក Cloud VM មិនអាចប្រើបានជាបណ្ដោះអាសន្ន។",
+      "action": "រង់ចាំមួយនាទី រួចសាកល្បងម្ដងទៀតដោយប្រើសោ idempotency ដដែល។"
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "សំណើ snapshot ត្រូវការសោសម្រាប់សាកល្បងម្ដងទៀត",
+      "message": "snapshot របស់ Cloud VM ត្រូវការសោ idempotency។",
+      "action": "សាកល្បងម្ដងទៀតដោយប្រើ Idempotency-Key ថេរដែលមានប្រវែងមិនលើស 128 តួអក្សរ។"
+    },
+    "snapshotInProgress": {
+      "title": "ស្នាមថតនៅតែដំណើរការ",
+      "message": "ស្នាមថតដែលប្រើសោ idempotency នេះនៅតែដំណើរការសម្រាប់ Cloud VM នេះ។",
+      "action": "រង់ចាំឱ្យស្នាមថតដំបូងបញ្ចប់ រួចសាកល្បងម្ដងទៀតដោយប្រើសោ idempotency ដដែល។"
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "សោសាកល្បងស្នាមថតត្រូវបានប្រើរួចហើយ",
+      "message": "សោ idempotency នេះត្រូវបានប្រើរួចហើយសម្រាប់សំណើស្នាមថតផ្សេងទៀតលើ Cloud VM នេះ។",
+      "action": "ប្រើសោ idempotency ថ្មីសម្រាប់ស្នាមថតដែលមានឈ្មោះផ្សេង។"
+    },
+    "snapshotQuota": {
+      "title": "បានដល់កម្រិត snapshot",
+      "message": "Cloud VM នេះបានដល់កម្រិត snapshot របស់វា។",
+      "action": "លុប snapshot ដែលមានស្រាប់មួយ រួចសាកល្បងម្ដងទៀតដោយប្រើសោ idempotency ដដែល។"
+    },
     "guestInstall": {
       "title": "ការរៀបចំ Cloud VM មិនបានបញ្ចប់ទេ",
       "reason": "ការរៀបចំបរិស្ថានភ្ញៀវរបស់ Cloud VM មិនបានបញ្ចប់ទេ។",
@@ -2181,6 +2206,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "នៅពេលបើក ការចុចពីរដងលើបន្ទាត់បែងចែកធ្វើឱ្យផ្ទាំងនៅក្នុងជួរដេក ឬជួរឈររបស់វាមានទំហំស្មើគ្នា។ ជួរដេក និងជួរឈរផ្សេងទៀតរក្សាទំហំដដែល។",
           "confirmQuit": "កំណត់ពេលដែល cmux ស្នើសុំការបញ្ជាក់មុនពេលចាកចេញ។ កំណែ DEV តែងតែចាកចេញភ្លាមៗ ដោយមិនគិតពីការកំណត់នេះទេ។ app.warnBeforeQuit ចាស់នៅតែត្រូវបានទទួលយកជាជម្រើសបម្រុង boolean។",
           "windowTitleTemplate": "គំរូចំណងជើង NSWindow ជាជម្រើស។ ទុកទទេ ដើម្បីរក្សាឥរិយាបថចំណងជើងលំនាំដើមដែលមានស្រាប់របស់ cmux រួមទាំង fallback ទៅថតបច្ចុប្បន្ន។ Placeholder ដែលគាំទ្រ៖ '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'។",
           "devWindowDisplay": "ឈ្មោះអេក្រង់ដែលប្រើតែក្នុង build DEBUG ពេលបើកបង្អួចថ្មី។ តម្លៃទទេប្រើលំនាំដើមរបស់ប្រព័ន្ធ។",

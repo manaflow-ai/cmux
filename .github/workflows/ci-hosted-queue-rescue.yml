@@ -80,6 +80,7 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-actions: read
+          skip-token-revoke: true
 
       - name: Rerun only a no-runner hosted queue timeout
         env:

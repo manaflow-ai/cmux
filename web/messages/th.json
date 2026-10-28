@@ -14,6 +14,31 @@
     "benefitSuperpowers": "การวางแผน TDD ตัวแทนย่อย และการตรวจทาน"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "คำขอ Cloud VM ล่าช้า",
+      "message": "ไม่สามารถจัดสรร Cloud VM ได้ชั่วคราว",
+      "action": "รอหนึ่งนาที แล้วลองอีกครั้งด้วยคีย์ idempotency เดิม"
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "คำขอสแนปช็อตต้องใช้คีย์สำหรับลองใหม่",
+      "message": "สแนปช็อต Cloud VM ต้องใช้คีย์ idempotency",
+      "action": "ลองอีกครั้งด้วย Idempotency-Key แบบคงที่ที่ยาวไม่เกิน 128 อักขระ"
+    },
+    "snapshotInProgress": {
+      "title": "สแนปชอตยังดำเนินการอยู่",
+      "message": "สแนปชอตที่ใช้คีย์ idempotency นี้ยังทำงานอยู่สำหรับ Cloud VM นี้",
+      "action": "รอให้สแนปชอตแรกเสร็จ แล้วลองอีกครั้งด้วยคีย์ idempotency เดิม"
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "คีย์ลองใหม่ของสแนปชอตถูกใช้แล้ว",
+      "message": "คีย์ idempotency นี้ถูกใช้กับคำขอสแนปชอตอื่นบน Cloud VM นี้แล้ว",
+      "action": "ใช้คีย์ idempotency ใหม่สำหรับสแนปชอตที่มีชื่ออื่น"
+    },
+    "snapshotQuota": {
+      "title": "ถึงขีดจำกัดสแนปช็อตแล้ว",
+      "message": "Cloud VM นี้ถึงขีดจำกัดสแนปช็อตแล้ว",
+      "action": "ลบสแนปช็อตที่มีอยู่ แล้วลองอีกครั้งด้วยคีย์ idempotency เดิม"
+    },
     "guestInstall": {
       "title": "การตั้งค่า Cloud VM ไม่เสร็จสมบูรณ์",
       "reason": "การตั้งค่าเกสต์ของ Cloud VM ไม่เสร็จสมบูรณ์",
@@ -2182,6 +2207,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "เมื่อเปิดใช้งาน การดับเบิลคลิกเส้นแบ่งจะทำให้บานหน้าต่างในแถวหรือคอลัมน์นั้นมีขนาดเท่ากัน แถวและคอลัมน์อื่นจะคงขนาดเดิมไว้",
           "confirmQuit": "ควบคุมว่า cmux จะขอการยืนยันก่อนออกเมื่อใด บิลด์ DEV จะออกทันทีเสมอไม่ว่าค่านี้จะเป็นอย่างไร ค่า app.warnBeforeQuit แบบเดิมยังคงใช้เป็นตัวเลือกสำรองแบบบูลีนได้",
           "windowTitleTemplate": "เทมเพลตชื่อหน้าต่าง NSWindow แบบไม่บังคับ เว้นว่างไว้เพื่อคงพฤติกรรมชื่อเริ่มต้นเดิมของ cmux รวมถึงการถอยกลับไปใช้ไดเรกทอรีปัจจุบัน ตัวยึดตำแหน่งที่รองรับ: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'",
           "devWindowDisplay": "ชื่อจอแสดงผลที่ใช้เฉพาะในบิลด์ DEBUG เมื่อเปิดหน้าต่างใหม่ ค่าว่างจะใช้ค่าเริ่มต้นของระบบ",

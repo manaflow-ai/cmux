@@ -14,6 +14,31 @@
     "benefitSuperpowers": "계획, TDD, 하위 에이전트 및 검토"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM 요청이 지연되었습니다",
+      "message": "Cloud VM 할당을 일시적으로 사용할 수 없습니다.",
+      "action": "1분 후 같은 멱등성 키로 다시 시도하세요."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "스냅샷 요청에 재시도 키가 필요합니다",
+      "message": "Cloud VM 스냅샷에는 멱등성 키가 필요합니다.",
+      "action": "128자 이하의 고정된 Idempotency-Key로 다시 시도하세요."
+    },
+    "snapshotInProgress": {
+      "title": "스냅샷이 아직 진행 중입니다",
+      "message": "이 Cloud VM에서 이 멱등성 키를 사용하는 스냅샷이 아직 실행 중입니다.",
+      "action": "첫 번째 스냅샷이 완료될 때까지 기다린 다음 같은 멱등성 키로 다시 시도하세요."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "스냅샷 재시도 키가 이미 사용되었습니다",
+      "message": "이 멱등성 키는 이 Cloud VM의 다른 스냅샷 요청에 이미 사용되었습니다.",
+      "action": "다른 이름의 스냅샷에는 새 멱등성 키를 사용하세요."
+    },
+    "snapshotQuota": {
+      "title": "스냅샷 한도에 도달했습니다",
+      "message": "이 Cloud VM이 스냅샷 한도에 도달했습니다.",
+      "action": "기존 스냅샷을 삭제한 다음 같은 멱등성 키로 다시 시도하세요."
+    },
     "guestInstall": {
       "title": "Cloud VM 설정이 완료되지 않았습니다",
       "reason": "Cloud VM 게스트 설정이 완료되지 않았습니다.",
@@ -2181,6 +2206,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "활성화하면 분할 구분선을 두 번 클릭할 때 해당 행이나 열의 창이 같은 크기로 조정됩니다. 다른 행과 열의 크기는 유지됩니다.",
           "confirmQuit": "cmux가 종료 전에 확인을 요청하는 시점을 제어합니다. DEV 빌드는 이 설정과 관계없이 항상 즉시 종료됩니다. 기존 app.warnBeforeQuit도 boolean 대체값으로 계속 허용됩니다.",
           "windowTitleTemplate": "선택적 NSWindow 제목 템플릿입니다. 비워 두면 현재 디렉터리 대체 동작을 포함해 cmux의 기존 기본 제목 동작을 유지합니다. 지원되는 자리표시자: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "새 창을 열 때 DEBUG 빌드에서만 사용하는 디스플레이 이름입니다. 빈 값은 시스템 기본값을 사용합니다.",

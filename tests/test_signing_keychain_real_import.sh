@@ -117,4 +117,8 @@ if compgen -G "$CMUX_SIGNING_KEYCHAIN_STATE_DIR/*" >/dev/null; then
   fail "delete left state in $CMUX_SIGNING_KEYCHAIN_STATE_DIR"
 fi
 
+# The same secret-bearing macOS lane also exercises the Sparkle key helper's
+# stdin-only contract. It uses a fixed non-secret seed and touches no keychain.
+"$ROOT_DIR/tests/test_derive_sparkle_public_key.sh" || fail "Sparkle public key derivation failed"
+
 echo "PASS: real signing keychain import, codesign and delete with a throwaway identity"

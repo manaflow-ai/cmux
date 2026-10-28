@@ -24,7 +24,9 @@ permissions:
 
 jobs:
   check:
-    if: github.event_name == 'pull_request_target'
+    # A draft cannot merge; it is checked when marked ready (ready_for_review
+    # above). Mergers read the freezes again at merge time either way.
+    if: github.event_name == 'pull_request_target' && !github.event.pull_request.draft
     name: merge freeze
     concurrency:
       group: merge-freeze-${{ github.event.pull_request.number }}

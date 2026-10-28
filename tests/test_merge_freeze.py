@@ -250,6 +250,14 @@ class CheckApiCalls(unittest.TestCase):
         status, _, calls = self.run_check(fake)
         self.assertEqual(status, 0)
         self.assertFalse([c for c in calls if "/pulls/" in c or "/issues/42/" in c], calls)
+        # A freeze that cannot apply to this base costs no authority reads either (GITHUB_TOKEN budget).
+        self.assertEqual(calls, [f"{self.ISSUES}&per_page=100"])
+
+    def test_a_lapsed_freeze_reads_only_the_freeze_list(self):
+        lapsed = {**issue(body=body(expires="2020-01-01T00:00Z")), "state": "open"}
+        status, _, calls = self.run_check(FakeGh({self.ISSUES: [lapsed]}))
+        self.assertEqual(status, 0)
+        self.assertEqual(calls, [f"{self.ISSUES}&per_page=100"])
 
     def applicable(self, files):
         return FakeGh({
