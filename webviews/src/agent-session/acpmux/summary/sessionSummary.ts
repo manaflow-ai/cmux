@@ -157,7 +157,9 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
   // identity set so an issue-form link for a PR the chat changed cannot resurrect it as a Source.
   const knownPullRequests = new Map(pullRequests.map((pr) => [pr.url, pr]));
   const changedIdentities = new Set(
-    pullRequests.filter((pr) => pr.changed || pr.opened).map((pr) => `${pr.repo.toLowerCase()}#${pr.number}`),
+    pullRequests
+      .filter((pr) => (pr.changed || pr.opened) && pr.kind !== "issue")
+      .map((pr) => `${pr.repo.toLowerCase()}#${pr.number}`),
   );
   const addUrls = (text: string, order: number) => {
     for (const match of text.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
