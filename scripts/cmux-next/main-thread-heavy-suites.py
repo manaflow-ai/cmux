@@ -23,7 +23,7 @@ FRAME_DRIVERS = re.compile(r"CATransaction\.flush\(\)|\.displayIfNeeded\(\)|\bdr
 ALWAYS = {("CmuxNextBrowserTests", "RemoteVideoPageTests")}
 # A top-level declaration only: its attributes may sit on lines of their own, but each such line starts at
 # column 0, so a nested (indented) type is never read as a top-level one.
-TYPE_DECL = re.compile(r"^(?:@\w+(?:\([^\n]*?\))?(?:[ \t]+|\n))*(?:(?:public|package|internal|private|fileprivate|final)[ \t]+)*"
+TYPE_DECL = re.compile(r"^(?:@\w+(?:\([^\n]*?\))?(?:[ \t]+|\n))*(?:(?:public|package|internal|private|fileprivate|final|open|nonisolated)[ \t]+)*"
                        r"(?:struct|class|enum|actor)[ \t]+([A-Z][A-Za-z0-9_]*)", re.M)
 EXTENSION = re.compile(r"^extension\s+([A-Z][A-Za-z0-9_]*)", re.M)
 

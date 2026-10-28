@@ -77,12 +77,39 @@ class Plan(unittest.TestCase):
         packed = [s["tests"] for s in plan if s["skip"]]
         self.assertLess(max(packed), 1.5 * sum(packed) / len(packed))
 
+    def test_every_test_of_every_target_is_counted_in_a_suite(self) -> None:
+        # A `nonisolated struct` suite went uncounted: CmuxNextAgentPaneTests read as 737 tests of its 803.
+        for target in shards.test_targets(PACKAGE / "Package.swift"):
+            sources = (PACKAGE / "Tests" / target).rglob("*.swift")
+            raw = sum(len(shards.TEST.findall(p.read_text(encoding="utf-8", errors="replace"))) for p in sources)
+            with self.subTest(target=target):
+                self.assertEqual(sum(shards.suite_counts(PACKAGE / "Tests" / target).values()), raw)
+
+    def test_one_target_whose_suites_share_a_long_prefix_still_splits_evenly(self) -> None:
+        # Under a 4-character prefix cap, AgentPane* (489 tests) stayed one unit: shards of 489, 152, 49 and 47.
+        plan = shards.plan(PACKAGE / "Tests", PACKAGE / "Package.swift", "CmuxNextAgentPaneTests", 4)
+        sizes = [s["tests"] for s in plan]
+        self.assertGreater(len(plan), 1)
+        self.assertLess(max(sizes), 1.5 * sum(sizes) / len(sizes))
+        for suite in shards.suite_counts(PACKAGE / "Tests" / "CmuxNextAgentPaneTests"):
+            with self.subTest(suite=suite):
+                self.assertEqual(len(matching(plan, f"CmuxNextAgentPaneTests.{suite}/aTest()")), 1)
+
     def test_only_the_selected_targets_and_never_an_excluded_one(self) -> None:
         plan = shards.plan(PACKAGE / "Tests", PACKAGE / "Package.swift", "CmuxNextFilesTests CmuxNextControlTests", 10,
                            {"CmuxNextControlTests"})
         self.assertEqual(matching(plan, "CmuxNextFilesTests.Any/aTest()"), ["shard 1"])
         self.assertEqual(matching(plan, "CmuxNextControlTests.Any/aTest()"), [])
         self.assertEqual(matching(plan, "CmuxNextAppTests.Any/aTest()"), [])
+
+    def test_a_nonisolated_or_open_suite_is_its_own_suite(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "ATests"
+            target.mkdir()
+            (target / "X.swift").write_text("@MainActor struct ATests {\n    @Test func a() {}\n}\n"
+                                            "nonisolated struct BTests {\n    @Test func b() {}\n    @Test func c() {}\n}\n"
+                                            "@Suite private nonisolated final class CTests {\n    @Test func d() {}\n}\n")
+            self.assertEqual(shards.suite_counts(target), {"ATests": 1, "BTests": 2, "CTests": 1})
 
     def test_a_small_selection_is_one_process(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -163,6 +190,17 @@ class Workflow(unittest.TestCase):
         self.assertIn('--targets "$SWIFT_TARGETS"', broad["run"])
         self.assertIn("--exclude CmuxNextControlTests", broad["run"])
         self.assertNotIn("swift-test-with-hang-sampler.sh --skip-build ${filter", broad["run"])
+
+
+class SignalPolicy(unittest.TestCase):
+    def test_the_sigpipe_handler_calls_only_async_signal_safe_functions(self) -> None:
+        # A stack print (backtrace, backtrace_symbols_fd) in a signal handler can take a lock the interrupted
+        # thread holds and deadlock the test process.
+        source = (PACKAGE / "Tests" / "Support" / "CmuxNextTestExitTrace" / "CmuxNextTestSignalPolicy.c").read_text()
+        body = re.search(r"static void sigpipe_caught\(int signal\) \{\n(.*?)\n\}", source, re.S).group(1)
+        body = re.sub(r'"(?:[^"\\]|\\.)*"', '""', body)
+        calls = set(re.findall(r"\b([A-Za-z_]\w*)\s*\(", body)) - {"if", "sizeof", "void"}
+        self.assertLessEqual(calls, {"write", "atomic_fetch_add"})
 
 
 if __name__ == "__main__":

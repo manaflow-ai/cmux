@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 
 TEST_TARGET = re.compile(r'\.testTarget\(\s*name:\s*"([A-Za-z0-9_]+)"')
-SUITE = re.compile(r"^(?:@\w+(?:\([^\n]*?\))?(?:[ \t]+|\n))*(?:(?:public|package|internal|private|fileprivate|final)[ \t]+)*"
+SUITE = re.compile(r"^(?:@\w+(?:\([^\n]*?\))?(?:[ \t]+|\n))*(?:(?:public|package|internal|private|fileprivate|final|open|nonisolated)[ \t]+)*"
                    r"(?:struct|class|enum|actor|extension)[ \t]+([A-Za-z_][A-Za-z0-9_]*)", re.M)
 TEST = re.compile(r"@Test\b|\bfunc test[A-Z0-9_]\w*\(")
 # Memory one test process takes at its peak (the whole test bundle, AppKit and WebKit loaded): it bounds the width.
@@ -64,7 +64,9 @@ def prefix_units(counts: dict[str, int], share: float, prefix: str = "") -> list
     names = {n: c for n, c in counts.items() if n.startswith(prefix)}
     total = sum(names.values())
     longer = {n: c for n, c in names.items() if len(n) > len(prefix)}
-    if total <= share or not longer or len(prefix) >= 4:
+    # No depth cap: a family that shares a long prefix (CmuxNextAgentPaneTests' AgentPane*, 489 of its 737 tests
+    # under a 4-character cap) still splits; it stops where one suite holds the rest.
+    if total <= share or not longer:
         return [(re.escape(prefix), total)]
     chars = sorted({n[len(prefix)] for n in longer})
     units: list[tuple[str, int]] = []

@@ -21,7 +21,7 @@ struct TestProcessSignalTests {
         let failure = errno
         #expect(written == -1)
         #expect(failure == EPIPE)
-        // The bundle's handler counts what it caught (and names the first writers on stderr).
+        // The bundle's handler counts what it caught (and notes the first catches on stderr).
         #expect(cmux_next_test_sigpipes() >= 0)
     }
 }
