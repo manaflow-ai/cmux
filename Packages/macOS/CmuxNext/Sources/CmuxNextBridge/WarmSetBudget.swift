@@ -2,8 +2,9 @@ public import CmuxNextCompat
 import Foundation
 
 /// How much hidden content stays warm (architecture.md section 4): the one
-/// memory budget of hidden GPU surfaces. A window keeps every workspace it
-/// showed mounted (tree, panes, strips; no budget), and its hidden terminal
+/// memory budget of hidden GPU surfaces. A window keeps the workspaces it
+/// showed most recently mounted (tree, panes, strips; `ParkedWorkspaceBudget`,
+/// 32 per window), and its hidden terminal
 /// surfaces, in the shown workspace's other tabs and in parked workspaces
 /// alike, are kept in one LRU of `terminalCapacity` (`SurfaceLedger`); an
 /// evicted one re-attaches with a daemon replay when its pane shows again.
