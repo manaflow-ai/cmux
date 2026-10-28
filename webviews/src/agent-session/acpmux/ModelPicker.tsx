@@ -73,6 +73,7 @@ type ModelChoice = {
   family?: string;
   unavailable?: string;
   efforts?: string[];
+  effortsDeclared?: boolean;
   fast?: boolean;
   /** The catalog release an alias row stands for, which the curated list names. */
   release?: string;
@@ -247,7 +248,7 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
     id: model.id,
     name: model.name,
     family,
-    ...(model.efforts !== undefined ? { efforts: model.efforts } : {}),
+    ...(model.effortsDeclared || (model.efforts?.length ?? 0) > 0 ? { efforts: model.efforts } : {}),
     ...(model.unavailable ? { disabled: true } : {}),
     ...(model.tag ? { tag: model.tag } : {}),
     ...(model.provider ? { provider: model.provider } : {}),

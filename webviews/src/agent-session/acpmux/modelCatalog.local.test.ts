@@ -62,3 +62,38 @@ test("a folded release retains its harness menu position without promoting the r
   expect(harness.topModels).toEqual(["opus", "sonnet"]);
   expect(harness.topModels).not.toContain("claude-haiku-5-5");
 });
+
+test("an omitted model effort capability stays distinct from explicit no-effort", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+  const result = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [
+      {
+        id: "custom-harness",
+        name: "Custom",
+        family: "custom",
+        models: [
+          { id: "live-custom", name: "Live custom" },
+          { id: "declared-none", name: "Declared none", efforts: [] },
+        ],
+      },
+    ],
+    session: {
+      harness: "custom-harness",
+      model: "live-custom",
+      configOptions: [
+        {
+          id: "thought_level",
+          category: "thought_level",
+          currentValue: "custom",
+          options: [{ value: "custom", name: "Custom" }],
+        },
+      ],
+    },
+  });
+  const models = result.harnesses.find((entry) => entry.id === "custom-harness")!.models;
+  expect(models.find((model) => model.id === "live-custom")?.efforts).toEqual([]);
+  expect(models.find((model) => model.id === "live-custom")?.effortsDeclared).toBeUndefined();
+  expect(models.find((model) => model.id === "declared-none")?.efforts).toEqual([]);
+  expect(models.find((model) => model.id === "declared-none")?.effortsDeclared).toBe(true);
+});

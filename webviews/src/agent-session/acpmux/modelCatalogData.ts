@@ -86,6 +86,9 @@ export type PickerModel = {
   family?: string;
   providerName?: string;
   efforts: EffortValue[];
+  /** Whether the catalog/profile explicitly declared this model's effort capability.
+   * An empty array is meaningful only when this is true; omitted capabilities may use live session options. */
+  effortsDeclared?: boolean;
   defaultEffort?: EffortValue;
   fast: boolean;
   inlineFast?: boolean;
@@ -677,6 +680,7 @@ function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog,
     ...(model.family ? { family: model.family } : {}),
     ...(providerName ? { providerName } : {}),
     efforts: model.efforts ?? [],
+    ...(model.efforts !== undefined || model.own?.efforts ? { effortsDeclared: true } : {}),
     ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}),
     fast: model.fast === true,
     ...(model.inlineFast === true ? { inlineFast: true } : {}),
