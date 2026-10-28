@@ -221,6 +221,10 @@ def run_one(opts, inner_args, arm, index):
         code = 124
     seconds = round(time.monotonic() - start, 1)
     load_end = os.getloadavg()
+    # Every run starts from no process of the tag: a bench that leaves its daemon (anim-perf, step 4bcdbf91) makes the
+    # next launch refuse with tag-in-use. tag_teardown.py ends only this bundle's processes, by PID.
+    subprocess.call([sys.executable, os.path.join(HERE, "tag_teardown.py"), opts.app], stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, timeout=120)
     raw = None
     try:
         with open(run_json) as handle:

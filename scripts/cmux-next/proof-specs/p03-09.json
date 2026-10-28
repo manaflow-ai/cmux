@@ -10,7 +10,15 @@
   "main_ms=^summary\\.\\*\\.main_ms_max$"
  ],
  "validity": [],
- "probe": [],
+ "probe": [
+  {
+   "name": "cef_pages_attached",
+   "method": "debug.cef",
+   "params": {},
+   "regex": "^tracker\\.pages_attached$",
+   "min": 1
+  }
+ ],
  "inner_args": [
   "--rounds=1"
  ]
