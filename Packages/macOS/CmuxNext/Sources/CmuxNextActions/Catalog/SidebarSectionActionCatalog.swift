@@ -277,6 +277,22 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 136, folder: .options)])
             ),
+            // `sidebar.controlsOnHover` (Show Sidebar Controls Only on Hover, Lawrence 2026-10-27): the sidebar's controls show
+            // only while the pointer is over it. Cmd+Shift+P, `cmux sidebar ...` and MCP show the one that applies.
+            ActionDescriptor(
+                id: "sidebar.controlsOnHover.on", title: t("action.sidebar.controlsOnHover.on", "Show Sidebar Controls Only on Hover"),
+                keywords: ["sidebar", "minimal", "hover", "hide", "controls", "buttons", "search", "profile", "spaces", "footer", "clean"],
+                category: .sidebar, symbol: "rectangle.dashed",
+                surfaces: [.palette, .contextMenu], cliName: "sidebar hide-controls-until-hover",
+                surfacePlan: plan(menus: [p(.sidebarBackground, .view, 137, folder: .options)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.controlsOnHover.off", title: t("action.sidebar.controlsOnHover.off", "Always Show Sidebar Controls"),
+                keywords: ["sidebar", "minimal", "hover", "show", "always", "controls", "buttons", "search", "profile", "spaces", "footer"],
+                category: .sidebar, symbol: "rectangle",
+                surfaces: [.palette, .contextMenu], cliName: "sidebar show-controls-always",
+                surfacePlan: plan(menus: [p(.sidebarBackground, .view, 138, folder: .options)])
+            ),
             // Leo (2026-10-06): Group ▸ in the sidebar's menu picks how the
             // Projects list buckets its loose rows (`sidebar.groupBy`).
             ActionDescriptor(

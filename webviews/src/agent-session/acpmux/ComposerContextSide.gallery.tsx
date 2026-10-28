@@ -72,6 +72,14 @@ export default componentEntry<Props>({
   widths: { narrow: 400, normal: 620, wide: 760 },
   height: 560,
   checks: {
+    // The filter moves the rows it keeps up into the places of the rows it drops ("relay" rises two
+    // rows): that is the filter's result, not the popover moving. The open's scale animation hid
+    // that row move from the layout-shift check until popups opened in one frame (#24980).
+    layoutShiftMax: {
+      value: 0.01,
+      reason:
+        "Filtering moves the kept folder rows up inside the open list (0.0035 seen); the play itself checks that the popover keeps its side and place.",
+    },
     longFrameFailMs: {
       value: 200,
       reason:

@@ -300,9 +300,11 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
         );
         await expectGutter(page, "card", ".acpmux-composer", ".acpmux-composer > .acpmux-composer-box", "transcript");
 
-        // The empty room right of a pull request's chip.
+        // The empty room right of the pull requests' chips. The chips stand in one list, as wide as
+        // the widest (#25207), so the room starts at the list's right edge, not a narrower chip's.
         const chip = (await page.locator(".acpmux-pr-dock__chip").first().boundingBox())!;
-        await expectEmptyRoom(page, "right of a chip", ".acpmux-pr-dock", chip.x + chip.width + 16, chip.y + 13);
+        const chips = (await page.locator(".acpmux-pr-dock__list").first().boundingBox())!;
+        await expectEmptyRoom(page, "right of a chip", ".acpmux-pr-dock", chips.x + chips.width + 16, chip.y + 13);
 
         // The tray of running work is its own box, inset by its margin: beside it is the stack's own
         // gutter, which passes through as the composer's does, and the tray takes the pointer.

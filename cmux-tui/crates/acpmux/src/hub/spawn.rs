@@ -146,6 +146,7 @@ impl Hub {
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
         let servers =
             crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all);
+        *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers.clone());
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
         if let Some(id) = session_id {
             params["sessionId"] = json!(id);
