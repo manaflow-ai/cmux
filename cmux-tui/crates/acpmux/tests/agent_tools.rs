@@ -388,7 +388,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
 fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
     let home = std::env::temp_dir().join(format!("acpmux-bg-hook-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
-    let run = |session: &str, background: bool| -> String {
+    let run_command = |session: &str, background: bool, command: &str| -> String {
         use std::io::Write;
         let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
             .arg("__bg-hook")
@@ -402,12 +402,13 @@ fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
             .spawn()
             .unwrap();
         let input = json!({"tool_name": "Bash", "cwd": "/srv/app", "tool_input":
-            {"command": "npm run dev", "run_in_background": background}});
+            {"command": command, "run_in_background": background}});
         child.stdin.take().unwrap().write_all(input.to_string().as_bytes()).unwrap();
         let out = child.wait_with_output().unwrap();
         assert!(out.status.success(), "the hook failed: {out:?}");
         String::from_utf8(out.stdout).unwrap()
     };
+    let run = |session: &str, background: bool| run_command(session, background, "npm run dev");
     let config = |session: &str, servers: Value| {
         let path = acpmux::agent_tools::mcp_config_path(&home, session);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -427,6 +428,10 @@ fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
     assert_eq!(run("with", true), "", "the same call again: the native background shell runs");
     assert!(run("with", true).contains("deny"), "after it ran, a new call is turned away again");
     assert!(run("with", true).is_empty());
+    // Two calls retried in turn (A, B, A, B): each repeat still gets through.
+    let (a, b) = (|| run_command("with", true, "a"), || run_command("with", true, "b"));
+    assert!(a().contains("deny") && b().contains("deny"));
+    assert_eq!((a(), b()), (String::new(), String::new()), "interleaved retries were stranded");
     assert_eq!(run("with", false), "", "a foreground call runs");
     assert_eq!(run("without", true), "", "no acpmux server: the native background shell runs");
     assert_eq!(run("no-config", true), "", "no config: the native background shell runs");

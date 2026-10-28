@@ -9,8 +9,9 @@
 //! no `acpmux` server, plain or behind the `cmux` server's code mode, or anything cannot be read,
 //! it says nothing and Claude Code runs the shell as asked. A configured server may still be
 //! unusable (it failed to start), so it turns a command away only once: the same call again
-//! runs as asked, and the deny says so. The last command turned away is kept beside the config
-//! (`<config>.bg-denied`, a hash), one file per chat, removed with the config.
+//! runs as asked, and the deny says so. The commands turned away and not yet repeated are kept
+//! beside the config (`<config>.bg-denied`, one hash a line, the newest [`PENDING`], under a
+//! lock so parallel calls never lose one), one file per chat, removed with the config.
 
 use serde_json::{Value, json};
 
@@ -54,7 +55,10 @@ pub fn route(config: &Value) -> Option<Route> {
     Some(if all { Route::Listed } else { Route::CodeMode })
 }
 
-/// Where the hook keeps the last command it turned away, beside the chat's MCP config.
+/// The most denied calls a chat's file remembers; an older one is denied again on its repeat.
+const PENDING: usize = 64;
+
+/// Where the hook keeps the commands it turned away, beside the chat's MCP config.
 pub fn denied_path(config: &std::path::Path) -> std::path::PathBuf {
     let mut name = config.as_os_str().to_owned();
     name.push(".bg-denied");
@@ -109,16 +113,55 @@ pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     // Keyed by what the call runs, not its per-call ids.
     let what = json!([input["cwd"], input["tool_input"]]);
     let key = crate::sha256::sha256_hex(what.to_string().as_bytes());
-    let denied = denied_path(&config);
-    if std::fs::read_to_string(&denied).is_ok_and(|last| last == key) {
-        let _ = std::fs::remove_file(&denied);
-        return Ok(());
-    }
     // Unrecorded, a repeat could not get through: then the call runs.
-    if crate::agent_tools::write_private(&denied, key.as_bytes()).is_ok() {
+    if first_time(&denied_path(&config), &key).unwrap_or(false) {
         println!("{answer}");
     }
     Ok(())
+}
+
+/// Whether `key` is new to the chat's denied calls: then it is added (true); a repeat is taken
+/// out (false). Under an exclusive lock on the file, so parallel hooks of one chat never drop
+/// each other's entries.
+#[cfg(unix)]
+fn first_time(path: &std::path::Path, key: &str) -> std::io::Result<bool> {
+    use std::io::{Read, Seek, Write};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)?;
+    // SAFETY: flock on a descriptor this function owns; closing it releases the lock.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let mut text = String::new();
+    file.read_to_string(&mut text)?;
+    let mut keys: Vec<&str> = text.lines().filter(|k| !k.is_empty()).collect();
+    let new = match keys.iter().position(|k| *k == key) {
+        Some(at) => {
+            keys.remove(at);
+            false
+        }
+        None => {
+            keys.push(key);
+            true
+        }
+    };
+    let keep = &keys[keys.len().saturating_sub(PENDING)..];
+    file.set_len(0)?;
+    file.rewind()?;
+    file.write_all(keep.iter().map(|k| format!("{k}\n")).collect::<String>().as_bytes())?;
+    Ok(new)
+}
+#[cfg(not(unix))]
+fn first_time(_path: &std::path::Path, _key: &str) -> std::io::Result<bool> {
+    Ok(false)
 }
 
 #[cfg(test)]

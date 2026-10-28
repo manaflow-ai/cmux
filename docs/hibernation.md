@@ -105,7 +105,9 @@ instead:
   no `acpmux` server, a preset's allowlist leaves `bg_start` out, or the hook cannot read the
   config, the hook says nothing and the native background shell runs, so the agent is never
   stranded. A configured server can still fail to start, so the hook turns a command away only
-  once: the same call again runs natively, and the deny says so. Codex keeps its unified exec on.
+  once: the same call again runs natively, and the deny says so. It remembers every call it
+  turned away and that has not come back yet (the newest 64 per chat), so calls retried in turn
+  each get through. Codex keeps its unified exec on.
 - A daemon-owned task never keeps a chat awake. A harness-owned background shell, a Codex
   background terminal and a background subagent still do, because hibernating would end them.
 
