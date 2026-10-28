@@ -34,10 +34,16 @@ struct TestProcessExitTests {
     /// A stop of the main run loop from a main-actor job, as `NSApp.postEvent` makes one. Without
     /// the guard the process exits 0 at the next suspension and this test never finishes, which
     /// the swift test job reports as a run with no summary.
-    @Test func aStopOfTheMainRunLoopDoesNotEndTheTestRun() async throws {
+    @Test func aStopOfTheMainRunLoopDoesNotEndTheTestRun() async {
         CFRunLoopStop(CFRunLoopGetMain())
-        try await Task.sleep(for: .milliseconds(200))
-        let alive = await MainActor.run { true }
-        #expect(alive)
+        // Suspend until the main run loop runs a default-mode block: the stopped pass must return
+        // first, so the outermost loop would have returned (and the process exited) by then.
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) { done.resume() }
+            CFRunLoopWakeUp(CFRunLoopGetMain())
+        }
+        // Reaching here is the proof. Which pass the stop ended depends on who ran this job (the guard's
+        // pass, or another suite's nested one), so the guard's stop count is not asserted.
+        #expect(cmux_next_test_run_loop_guard_running() == 1)
     }
 }
