@@ -1,8 +1,9 @@
 import { createHash, randomBytes } from "node:crypto"
-import { closeSync, constants, createReadStream, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeSync } from "node:fs"
+import { closeSync, constants, createReadStream, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync } from "node:fs"
 import type { Stats } from "node:fs"
 import { open } from "node:fs/promises"
-import { isAbsolute, join, posix, relative, resolve, sep } from "node:path"
+import type { FileHandle } from "node:fs/promises"
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
 import { Readable } from "node:stream"
 
 /** What the attachment code reads back from a stored object (the R2 subset it uses). */
@@ -37,18 +38,37 @@ const MULTIPART_DIR = ".multipart"
 const invalidKey = () => new Error("invalid object key")
 
 /**
+ * A name as a case- and normalization-insensitive filesystem may compare it (APFS, HFS+, NTFS):
+ * default-ignorable code points dropped (HFS+ ignores some), NFKC, case folded through upper then
+ * lower case, NFKC again, and trailing dots and spaces dropped (Windows strips them). NFKC rather
+ * than NFC so compatibility lookalikes (fullwidth "．ｍｕｌｔｉｐａｒｔ") fold too: this folds more
+ * than any of those filesystems does, so it refuses at least every name that aliases, never fewer.
+ */
+const fold = (name: string) =>
+  name
+    .replace(/\p{Default_Ignorable_Code_Point}/gu, "")
+    .normalize("NFKC")
+    .toUpperCase()
+    .toLowerCase()
+    .normalize("NFKC")
+    .replace(/[. ]+$/u, "")
+
+/** The first segment that names the internal multipart directory, in any case or form. */
+const isReserved = (segment: string) => fold(segment) === MULTIPART_DIR
+
+/**
  * The one way a key becomes a path. A key is "/"-separated segments, none of them empty, "." or
  * "..", with no backslash, NUL or leading "/"; its normalized form must be itself, must resolve
- * strictly inside `root`, and must not start with the internal multipart directory (an inner
- * `.multipart` segment is an ordinary name).
+ * strictly inside `root`, and its first segment must not fold to the internal multipart directory
+ * (an inner `.multipart` segment is an ordinary name).
  */
 const keyPath = (root: string, key: string): string => {
   if (typeof key !== "string" || key === "" || key.startsWith("/") || /[\\\0]/.test(key)) throw invalidKey()
   if (key.split("/").some((p) => p === "" || p === "." || p === "..")) throw invalidKey()
   const normalized = posix.normalize(key)
-  if (normalized !== key || isAbsolute(normalized) || normalized.split("/")[0] === MULTIPART_DIR) throw invalidKey()
+  if (normalized !== key || isAbsolute(normalized) || isReserved(normalized.split("/")[0]!)) throw invalidKey()
   const inside = relative(resolve(root), resolve(root, normalized))
-  if (!inside || inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside) || inside.split(sep)[0] === MULTIPART_DIR) throw invalidKey()
+  if (!inside || inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside) || isReserved(inside.split(sep)[0]!)) throw invalidKey()
   return join(root, normalized)
 }
 
@@ -80,11 +100,6 @@ const checkUploadId = (uploadId: string) => {
   return uploadId
 }
 
-/**
- * Nothing in the bucket is reached through a symbolic link: the root is resolved once, every
- * directory between it and an object is checked with lstat (no walk, one call per segment), and
- * every file is opened with O_NOFOLLOW, so a link planted under the root can't lead outside it.
- */
 const linkError = () => new Error("object path crosses a symbolic link")
 
 const errorCode = (error: unknown) => (error as NodeJS.ErrnoException | null)?.code
@@ -122,40 +137,10 @@ const openNoFollow = (path: string): number | null => {
   }
 }
 
-const readJson = <T>(path: string): T | null => {
-  const fd = openNoFollow(path)
-  if (fd === null) return null
-  try {
-    return JSON.parse(readFileSync(fd, "utf8")) as T
-  } finally {
-    closeSync(fd)
-  }
-}
-
 /** A fresh temp file: created here (never an existing file or link), not followed. */
 const CREATE_NEW = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW
 
 const tempName = (path: string) => `${path}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`
-
-/** Writes `path` by renaming a fresh temp file over it; a link at `path` is replaced, not followed. */
-const writeFileNoFollow = (path: string, data: string) => {
-  const tmp = tempName(path)
-  const fd = openSync(tmp, CREATE_NEW, 0o644)
-  try {
-    const bytes = Buffer.from(data)
-    for (let offset = 0; offset < bytes.byteLength;) {
-      const written = writeSync(fd, bytes, offset)
-      if (written === 0) throw new Error("filesystem write made no progress")
-      offset += written
-    }
-  } catch (error) {
-    closeSync(fd)
-    rmSync(tmp, { force: true })
-    throw error
-  }
-  closeSync(fd)
-  renameSync(tmp, path)
-}
 
 /** Bytes `[start, start + length)` of an open file as a stream that closes the file when done. */
 const fileStream = (fd: number, start: number, length: number): ReadableStream<Uint8Array> => {
@@ -175,49 +160,158 @@ const bodyStream = (value: unknown): ReadableStream<Uint8Array> => {
   throw new TypeError("unsupported object body")
 }
 
-/** Drain to disk with bounded memory, including short filesystem writes. */
-const writeStream = async (path: string, stream: ReadableStream<Uint8Array>): Promise<{ etag: string; size: number }> => {
-  const file = await open(path, CREATE_NEW, 0o644)
-  const reader = stream.getReader()
-  const hash = createHash("md5")
-  let size = 0
-  try {
-    for (;;) {
-      const next = await reader.read()
-      if (next.done) break
-      hash.update(next.value)
-      for (let offset = 0; offset < next.value.byteLength;) {
-        const { bytesWritten } = await file.write(next.value.subarray(offset))
-        if (bytesWritten === 0) throw new Error("filesystem write made no progress")
-        offset += bytesWritten
-      }
-      size += next.value.byteLength
-    }
-    return { etag: hash.digest("hex"), size }
-  } finally {
-    await reader.cancel().catch(() => undefined)
-    await file.close()
-  }
+/** Where a path may land: an object's place in the key space, or the bucket's own upload directory. */
+type Area = "key" | "upload"
+
+export interface FsBucketOptions {
+  /** Test seam only: runs after the bucket has checked a path's directories and before it uses them. */
+  readonly afterPathCheck?: (path: string) => void
 }
 
 /**
  * The R2 bucket subset the Home attachment code uses (`put`, `get` with range and etag match,
  * `head`, `delete`, `list` by prefix), as files under `root`. Each object is `<key>` plus
  * `<key>.meta.json`; a put writes a temp file and renames it, so a reader never sees half a file.
+ *
+ * Nothing in the bucket is reached through a symbolic link. The root is resolved once. Each
+ * directory between it and a file is checked with lstat (one call per segment, no walk). Node and
+ * Bun have no openat, so a checked directory is then used by name and could be swapped for a link
+ * before it is used; every use is re-checked where it really lands:
+ * - a file is opened with O_NOFOLLOW (new files also O_EXCL), then its realpath must be inside the
+ *   root, in the area the caller expects, and name the same inode as the open descriptor;
+ * - a directory is realpath-checked after put makes it, and right before a file is created in it,
+ *   renamed into it or removed from it.
+ * Residual window: a swap after that last check and before the rename, unlink or mkdir itself.
+ * Closing it needs renameat/unlinkat/mkdirat on a held directory descriptor, which Node lacks.
  */
 export class FsBucket {
   private readonly root: string
 
   /** A configured root that is itself a link is fine: it is resolved once, here. */
-  constructor(root: string) {
+  constructor(root: string, private readonly options: FsBucketOptions = {}) {
     mkdirSync(root, { recursive: true })
     this.root = realpathSync(root)
+  }
+
+  /** `real` must be under the root: in the key space (the root itself included) or in `.multipart`. */
+  private inside(real: string, area: Area) {
+    const rel = relative(this.root, real)
+    if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw linkError()
+    const first = rel.split(sep)[0]!
+    if (area === "upload" ? first !== MULTIPART_DIR : rel !== "" && isReserved(first)) throw linkError()
+  }
+
+  private realpath(path: string) {
+    try {
+      return realpathSync(path)
+    } catch (error) {
+      // Gone or looping since it was checked: it was swapped.
+      if (errorCode(error) === "ENOENT" || errorCode(error) === "ENOTDIR" || errorCode(error) === "ELOOP") throw linkError()
+      throw error
+    }
+  }
+
+  private checkDir(dir: string, area: Area) {
+    this.inside(this.realpath(dir), area)
+  }
+
+  /** The open descriptor is the file `path` names inside the bucket, not one reached through a swapped directory. */
+  private checkFd(fd: number, path: string, area: Area) {
+    const real = this.realpath(path)
+    this.inside(real, area)
+    const opened = fstatSync(fd, { bigint: true })
+    const named = statSync(real, { bigint: true })
+    if (opened.dev !== named.dev || opened.ino !== named.ino) throw linkError()
+  }
+
+  private openFile(path: string, area: Area): number | null {
+    const fd = openNoFollow(path)
+    if (fd === null) return null
+    try {
+      this.checkFd(fd, path, area)
+    } catch (error) {
+      closeSync(fd)
+      throw error
+    }
+    return fd
+  }
+
+  private readJson<T>(path: string, area: Area): T | null {
+    const fd = this.openFile(path, area)
+    if (fd === null) return null
+    try {
+      return JSON.parse(readFileSync(fd, "utf8")) as T
+    } finally {
+      closeSync(fd)
+    }
+  }
+
+  /** A new file at `path` whose descriptor was checked; one that landed elsewhere is removed only if `path` still names it. */
+  private async createFile(path: string, area: Area): Promise<FileHandle> {
+    this.checkDir(dirname(path), area)
+    const file = await open(path, CREATE_NEW, 0o644)
+    try {
+      this.checkFd(file.fd, path, area)
+    } catch (error) {
+      const made = fstatSync(file.fd, { bigint: true })
+      const named = lstatOrNull(path)
+      if (named && BigInt(named.ino) === made.ino && BigInt(named.dev) === made.dev) rmSync(path, { force: true })
+      await file.close()
+      throw error
+    }
+    return file
+  }
+
+  /** Writes `path` by renaming a fresh temp file over it; a link at `path` is replaced, not followed. */
+  private async writeFile(path: string, data: string, area: Area) {
+    const tmp = tempName(path)
+    const file = await this.createFile(tmp, area)
+    try {
+      await file.writeFile(data)
+    } catch (error) {
+      await file.close()
+      rmSync(tmp, { force: true })
+      throw error
+    }
+    await file.close()
+    this.rename(tmp, path, area)
+  }
+
+  private rename(from: string, to: string, area: Area) {
+    this.checkDir(dirname(to), area)
+    renameSync(from, to)
+  }
+
+  /** Drain to disk with bounded memory, including short filesystem writes. */
+  private async writeStream(path: string, stream: ReadableStream<Uint8Array>, area: Area): Promise<{ etag: string; size: number }> {
+    const file = await this.createFile(path, area)
+    const reader = stream.getReader()
+    const hash = createHash("md5")
+    let size = 0
+    try {
+      for (;;) {
+        const next = await reader.read()
+        if (next.done) break
+        hash.update(next.value)
+        for (let offset = 0; offset < next.value.byteLength;) {
+          const { bytesWritten } = await file.write(next.value.subarray(offset))
+          if (bytesWritten === 0) throw new Error("filesystem write made no progress")
+          offset += bytesWritten
+        }
+        size += next.value.byteLength
+      }
+      return { etag: hash.digest("hex"), size }
+    } finally {
+      await reader.cancel().catch(() => undefined)
+      await file.close()
+    }
   }
 
   /**
    * The file for `key`, after checking each directory between the root and it: a link there is
    * refused, and a missing one (or a file in its place) answers null, as nothing is stored below it.
-   * With `create`, missing directories are made one at a time, each checked as it is made.
+   * With `create`, missing directories are made one at a time, each checked as it is made, and the
+   * last one's real path is checked once they all exist.
    */
   private path(key: string, create = false): string | null {
     const file = keyPath(this.root, key)
@@ -232,19 +326,16 @@ export class FsBucket {
       if (stat?.isSymbolicLink()) throw linkError()
       if (!stat?.isDirectory()) return null
     }
+    this.options.afterPathCheck?.(file)
+    if (create) this.checkDir(dir, "key")
     return file
   }
 
   /** An object's metadata; the object file itself must not be a link either. */
   private metaAt(file: string): StoredMeta | null {
-    const meta = readJson<StoredMeta>(`${file}.meta.json`)
+    const meta = this.readJson<StoredMeta>(`${file}.meta.json`, "key")
     if (meta && lstatOrNull(file)?.isSymbolicLink()) throw linkError()
     return meta
-  }
-
-  private meta(key: string): StoredMeta | null {
-    const file = this.path(key)
-    return file === null ? null : this.metaAt(file)
   }
 
   private object(key: string, meta: StoredMeta, body?: ReadableStream<Uint8Array>, range?: { offset: number; length: number }): FsObject {
@@ -263,11 +354,15 @@ export class FsBucket {
     }
   }
 
+  private get multipartDir() {
+    return join(this.root, MULTIPART_DIR)
+  }
+
   /** The upload's parts directory; `.multipart` and the parts directory must not be links. */
   private multipartPath(uploadId: string) {
-    const dir = join(this.root, MULTIPART_DIR)
-    const path = join(dir, checkUploadId(uploadId))
-    if (lstatOrNull(dir)?.isSymbolicLink() || lstatOrNull(path)?.isSymbolicLink()) throw linkError()
+    const path = join(this.multipartDir, checkUploadId(uploadId))
+    if (lstatOrNull(this.multipartDir)?.isSymbolicLink() || lstatOrNull(path)?.isSymbolicLink()) throw linkError()
+    this.options.afterPathCheck?.(path)
     return path
   }
 
@@ -286,7 +381,7 @@ export class FsBucket {
   /** The open upload `uploadId`, only when it was minted for `key`; R2 answers NoSuchUpload otherwise. */
   private readMultipart(key: string, uploadId: string): MultipartMeta | null {
     keyPath(this.root, key)
-    const meta = readJson<MultipartMeta>(this.multipartMetaPath(uploadId))
+    const meta = this.readJson<MultipartMeta>(this.multipartMetaPath(uploadId), "upload")
     if (!meta) return null
     if (meta.key !== key) throw noSuchUpload()
     return meta
@@ -303,21 +398,26 @@ export class FsBucket {
     if (options.onlyIf?.etagDoesNotMatch === "*" && lstatOrNull(file)) return null
     const tmp = tempName(file)
     let stored: { etag: string; size: number }
-    try { stored = await writeStream(tmp, bodyStream(value)) } catch (error) {
+    try { stored = await this.writeStream(tmp, bodyStream(value), "key") } catch (error) {
       rmSync(tmp, { force: true })
       throw error
     }
     const meta: StoredMeta = { ...stored, ...(options.httpMetadata?.contentType ? { contentType: options.httpMetadata.contentType } : {}), uploaded: Date.now() }
-    renameSync(tmp, file)
-    writeFileNoFollow(`${file}.meta.json`, JSON.stringify(meta))
+    try {
+      this.rename(tmp, file, "key")
+    } catch (error) {
+      rmSync(tmp, { force: true })
+      throw error
+    }
+    await this.writeFile(`${file}.meta.json`, JSON.stringify(meta), "key")
     return this.object(key, meta)
   }
 
   async createMultipartUpload(key: string, options: { httpMetadata?: { contentType?: string } } = {}): Promise<FsMultipartUpload> {
     this.path(key)
     const uploadId = Array.from(randomBytes(16), (byte) => byte.toString(16).padStart(2, "0")).join("")
-    ensureDir(join(this.root, MULTIPART_DIR))
-    writeFileNoFollow(this.multipartMetaPath(uploadId), JSON.stringify({ key, ...(options.httpMetadata?.contentType ? { contentType: options.httpMetadata.contentType } : {}) } satisfies MultipartMeta))
+    ensureDir(this.multipartDir)
+    await this.writeFile(this.multipartMetaPath(uploadId), JSON.stringify({ key, ...(options.httpMetadata?.contentType ? { contentType: options.httpMetadata.contentType } : {}) } satisfies MultipartMeta), "upload")
     return new FsMultipartUpload(this, uploadId, key)
   }
 
@@ -337,17 +437,17 @@ export class FsBucket {
       if (!isPartNumber(part?.partNumber)) throw new FsBucketError("InvalidPart", "a part number must be an integer from 1 to 10,000")
       if (part.partNumber <= previous) throw new FsBucketError("InvalidPartOrder", "the parts list must be in ascending order by part number, without repeats")
       previous = part.partNumber
-      const stored = readJson<{ etag: string }>(`${this.partPath(uploadId, part.partNumber)}.json`)
+      const stored = this.readJson<{ etag: string }>(`${this.partPath(uploadId, part.partNumber)}.json`, "upload")
       if (!stored || typeof part.etag !== "string" || part.etag.replace(/"/g, "") !== stored.etag) throw new FsBucketError("InvalidPart", `part ${part.partNumber} was not stored, or its etag does not match`)
     }
     const output = this.path(meta.key, true)!
     const tmp = `${output}.multipart-${process.pid}-${Math.random().toString(36).slice(2)}`
-    const target = await open(tmp, CREATE_NEW, 0o644)
+    const target = await this.createFile(tmp, "key")
     const hash = createHash("md5")
     let size = 0
     try {
       for (const part of uploadedParts) {
-        const partFd = openNoFollow(this.partPath(uploadId, part.partNumber))
+        const partFd = this.openFile(this.partPath(uploadId, part.partNumber), "upload")
         if (partFd === null) throw new FsBucketError("InvalidPart", `part ${part.partNumber} was not stored`)
         const expected = part.etag.replace(/"/g, "")
         const partHash = createHash("md5")
@@ -364,7 +464,7 @@ export class FsBucket {
         if (partHash.digest("hex") !== expected) throw new FsBucketError("InvalidPart", `part ${part.partNumber} changed after it was stored`)
       }
       await target.close()
-      renameSync(tmp, output)
+      this.rename(tmp, output, "key")
     } catch (error) {
       await target.close().catch(() => undefined)
       rmSync(tmp, { force: true })
@@ -372,7 +472,7 @@ export class FsBucket {
     }
     const etag = hash.digest("hex")
     const stored: StoredMeta = { etag, size, ...(meta.contentType ? { contentType: meta.contentType } : {}), uploaded: Date.now() }
-    writeFileNoFollow(`${output}.meta.json`, JSON.stringify(stored))
+    await this.writeFile(`${output}.meta.json`, JSON.stringify(stored), "key")
     await this.abortMultipart(key, uploadId)
     return this.object(meta.key, stored)
   }
@@ -381,16 +481,19 @@ export class FsBucket {
     // The upload first, as R2 does: a forged, crossed or closed upload is NoSuchUpload whatever the number.
     this.openMultipart(key, uploadId)
     if (!isPartNumber(partNumber)) throw new FsBucketError("InvalidPart", "a part number must be an integer from 1 to 10,000")
-    const partPath = this.partPath(uploadId, partNumber)
+    const partsDir = this.multipartPath(uploadId)
+    const partPath = join(partsDir, `part.${partNumber}`)
     // The part streams to a temp file and replaces any earlier upload of that number only once
     // whole; its etag record is written last, so completion never trusts a half-written part.
-    ensureDir(this.multipartPath(uploadId))
+    this.checkDir(this.multipartDir, "upload")
+    ensureDir(partsDir)
     const tmp = tempName(partPath)
     try {
-      const { etag, size } = await writeStream(tmp, bodyStream(value))
+      const { etag, size } = await this.writeStream(tmp, bodyStream(value), "upload")
+      this.checkDir(partsDir, "upload")
       rmSync(`${partPath}.json`, { force: true })
-      renameSync(tmp, partPath)
-      writeFileNoFollow(`${partPath}.json`, JSON.stringify({ etag, size }))
+      this.rename(tmp, partPath, "upload")
+      await this.writeFile(`${partPath}.json`, JSON.stringify({ etag, size }), "upload")
       return { partNumber, etag }
     } catch (error) {
       rmSync(tmp, { force: true })
@@ -402,17 +505,26 @@ export class FsBucket {
   async abortMultipart(key: string, uploadId: string): Promise<void> {
     if (!this.readMultipart(key, uploadId)) return
     // Parts first, then the record, so a crash midway leaves an upload that can still be aborted.
-    rmSync(this.multipartPath(uploadId), { recursive: true, force: true })
-    rmSync(this.multipartMetaPath(uploadId), { force: true })
+    // rm never follows a link inside the tree it removes; the tree itself is checked first.
+    const partsDir = this.multipartPath(uploadId)
+    if (lstatOrNull(partsDir)) this.checkDir(partsDir, "upload")
+    rmSync(partsDir, { recursive: true, force: true })
+    // Each path is named (and passes its lstat checks) before the directory it is in is checked, then used.
+    const record = this.multipartMetaPath(uploadId)
+    this.checkDir(this.multipartDir, "upload")
+    rmSync(record, { force: true })
   }
 
   async head(key: string): Promise<FsObject | null> {
-    const meta = this.meta(key)
+    const file = this.path(key)
+    const meta = file === null ? null : this.metaAt(file)
     return meta ? this.object(key, meta) : null
   }
 
   async get(key: string, options: { range?: { offset?: number; length?: number; suffix?: number }; onlyIf?: { etagMatches?: string } } = {}): Promise<FsObject | null> {
-    const meta = this.meta(key)
+    const file = this.path(key)
+    if (file === null) return null
+    const meta = this.metaAt(file)
     if (!meta) return null
     // A failed precondition answers the object without a body, as R2 does.
     if (options.onlyIf?.etagMatches && options.onlyIf.etagMatches.replace(/"/g, "") !== meta.etag) return this.object(key, meta)
@@ -426,7 +538,7 @@ export class FsBucket {
       }
     }
     length = Math.max(0, Math.min(length, meta.size - offset))
-    const fd = openNoFollow(this.path(key)!)
+    const fd = this.openFile(file, "key")
     if (fd === null) return null
     const body = fileStream(fd, offset, length)
     return this.object(key, meta, body, options.range ? { offset, length } : undefined)
@@ -436,7 +548,8 @@ export class FsBucket {
     for (const k of typeof keys === "string" ? [keys] : keys) {
       const file = this.path(k)
       if (file === null) continue
-      // rm removes a link itself, never its target.
+      // rm removes a link itself, never its target; the directory it removes from is checked first.
+      this.checkDir(dirname(file), "key")
       rmSync(file, { force: true })
       rmSync(`${file}.meta.json`, { force: true })
     }
@@ -448,11 +561,17 @@ export class FsBucket {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new FsBucketError("InvalidMaxKeys", "MaxKeys params must be positive integer <= 1000.")
     const out: Array<FsObject> = []
     const walk = (dir: string) => {
+      // A directory swapped for a link since its parent was read is not walked.
+      try {
+        this.checkDir(dir, "key")
+      } catch {
+        return
+      }
       // Entries are typed without following links, so a link (dangling or not) is skipped, never walked.
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const name = entry.name
         // Open uploads and their parts are not objects; skip the directory rather than walk it.
-        if (dir === this.root && name === MULTIPART_DIR) continue
+        if (dir === this.root && isReserved(name)) continue
         const p = join(dir, name)
         if (entry.isDirectory()) walk(p)
         else if (entry.isFile() && !name.endsWith(".meta.json") && !name.includes(".tmp-")) {

@@ -504,8 +504,12 @@ describe("self-hosted attachment bucket", () => {
           if (calls === swapAt) swap()
         }
       })
-      /** Runs `op` once to count its checkpoints, then once per checkpoint with the swap there. */
-      const atEveryCheckpoint = async (name: string, setup: () => Promise<() => Promise<unknown>>, swapNow: () => void, undo: () => void) => {
+      /**
+       * Runs `op` once to count its checkpoints, then once per checkpoint with the swap there. The op
+       * is refused at every checkpoint, except that one which finished its last use of the swapped
+       * directory before the swap (completion, which closes the upload afterwards) may succeed and pass `finished`.
+       */
+      const atEveryCheckpoint = async (name: string, setup: () => Promise<() => Promise<unknown>>, swapNow: () => void, undo: () => void, finished?: () => Promise<void>) => {
         const dry = await setup()
         calls = 0
         swapAt = 0
@@ -522,10 +526,12 @@ describe("self-hosted attachment bucket", () => {
           }
           calls = 0
           swapAt = at
-          await expect(op(), `${name} @${at}`).rejects.toThrow(/symbolic link/)
+          const outcome = await op().then(() => null, (error: unknown) => error)
           expect(swapped, `${name} @${at}`).toBe(true)
           swapAt = 0
           undo()
+          if (outcome === null && finished) await finished()
+          else expect(String(outcome), `${name} @${at}`).toMatch(/symbolic link/)
           // Nothing outside the bucket was read into it, written, created or removed.
           expect(Object.fromEntries(Object.entries(snapshot(parent)).filter(([path]) => !path.startsWith(`${root}/`))), `${name} @${at}`).toEqual(
             Object.fromEntries(Object.entries(before).filter(([path]) => !path.startsWith(`${root}/`)))
@@ -558,7 +564,9 @@ describe("self-hosted attachment bucket", () => {
         const upload = await bucket.createMultipartUpload("a/up")
         const part = await upload.uploadPart(1, "up")
         return () => upload.complete([part])
-      }, linkA, unlinkA)
+      }, linkA, unlinkA, async () => {
+        expect(await new Response((await bucket.get("a/up"))!.body!).text()).toBe("up")
+      })
 
       // The upload directory itself, swapped for a link to a copy outside the root: its record and parts are not trusted.
       const multipart = join(root, ".multipart")
