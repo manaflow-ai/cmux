@@ -45,11 +45,11 @@ describe("the 15-minute cron", () => {
     expect([...logs.mock.calls, ...errors.mock.calls]).toEqual([])
   })
 
-  it("the compare opens no database connection without a MySQL switch, and does once one is set", async () => {
+  it("the compare reads no database binding without a MySQL switch; with one set and a binding missing, the run fails", async () => {
     await expect(compareFromEnv(production() as never)).resolves.toBeUndefined()
-    // The guard is the switch: with one set, the compare starts connecting (here it fails at once: the
-    // pg driver does not load in workerd tests, or a trapped binding is read).
-    await expect(compareFromEnv(production({ PROJECTION_SHADOW: "mysql" }) as never)).rejects.toThrow()
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {})
+    await expect(compareFromEnv(production({ PROJECTION_SHADOW: "mysql", HYPERDRIVE: undefined }) as never)).rejects.toThrow("projection compare unconfigured")
+    expect(JSON.parse(String(errors.mock.calls[0]?.[0]))).toMatchObject({ event: "projection.compare.unconfigured", postgres: false, mysql: true })
   })
 
   it("outside production, the usage sync runs beside the compare", async () => {
