@@ -66,6 +66,16 @@ import Testing
     static let short = "find an iPhone duo i can pick up from store asap"
 
     @Test func myRootIsAnOutlinedBlueBubbleNotAFill() {
+        checkMyRootOutline()
+    }
+
+    /// The same check with the process at 1x (a Home pane on a 1x CI mini's screen sets the fallback scale),
+    /// in a scope so no other test sees it.
+    @Test func myRootOutlineHoldsWhenTheProcessScaleIs1x() {
+        Fixture.withRenderScale(1) { checkMyRootOutline() }
+    }
+
+    private func checkMyRootOutline() {
         let (bmp, box) = render(preview(Self.short, outgoing: true))
         let bg = srgb(Fixture.background)
         let blue = srgb(Fixture.outgoing)
