@@ -112,7 +112,9 @@ final class NewTabButtonView: NSView {
         if (token.map(Motion.tabs.duration) ?? 0) == 0 { fillLayer.removeAnimation(forKey: "backgroundColor") }
         Motion.tabs.transaction(token) {
             performWithTheme {
-                fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: isHovered, pressed: isPressed))?.cgColor
+                // New-tab is a plain glyph action. Its hover/press state is carried by the glyph,
+                // never by a rounded plate behind the +.
+                fillLayer.backgroundColor = nil
                 glyphLayer.strokeColor = (isHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
             }
         }

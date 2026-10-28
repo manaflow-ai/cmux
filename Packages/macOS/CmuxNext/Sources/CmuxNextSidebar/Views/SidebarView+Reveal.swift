@@ -33,6 +33,7 @@ extension SidebarViewComponents {
         Motion.feedback.animate(.hover, in: self) {
             if changed {
                 newButton.animator().alphaValue = alpha
+                newWorkspaceOptionsButton.animator().alphaValue = alpha
                 profileBar.animator().alphaValue = spacesAlpha(revealed: revealed)
             }
             aboveFade.animator().alphaValue = above

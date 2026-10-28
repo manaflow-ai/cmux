@@ -3,14 +3,14 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
 @testable import CmuxNextDaemon
+@testable import CmuxNextSidebar
 @testable import CmuxNextTabs
 import Foundation
 import Testing
 
-/// Lawrence 2026-10-27: "too many buttons here" (the pane's top bar showed a terminal, a browser and
-/// "⋮") and "i dont like dropdown design here" (the strip's "+" carried a chevron that opened the type
-/// menu on press). The top bar keeps only "⋮", whose menu holds the same creation rows, and the strip's
-/// "+" is a plain button: a press opens the default tab, a hold or a right-click opens the type menu.
+/// Leo 2026-10-28: "WHY WAS THIS NEW TAB BUTTON CHANGED TO BE A DROPDOWN????????????????" Every
+/// tab-strip + is a plain one-click action; the chooser remains on hold/right-click. The pane top bar
+/// keeps only "⋮", whose menu holds the creation rows.
 @MainActor @Suite(.serialized) struct PaneTabBarControlsTests {
     private static func tree(_ surfaces: [UInt64]) -> DaemonTree {
         let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: surfaces.map { TabSnapshot(surface: SurfaceID(rawValue: $0), title: "~") })
@@ -48,7 +48,7 @@ import Testing
         #expect(plus.accessibilityRole() == .button)
     }
 
-    @Test func theScreenBarPlusIsTheOneWithACaret() throws {
+    @Test func theScreenBarPlusIsPlainAndHasNoChevron() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
@@ -59,8 +59,21 @@ import Testing
         let content = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: WindowState(record: record))
         defer { withExtendedLifetime(services) { content.teardown() } }
         let bar = content.screenBar.view
-        #expect(bar.opensNewTabMenuOnPress, "the screen bar's + opens its menu on press")
-        #expect(bar.newTabButton.showsChevron, "the caret belongs on the screen bar's + only")
+        #expect(!bar.opensNewTabMenuOnPress, "a screen-bar + makes a screen on a plain click")
+        #expect(!bar.newTabButton.showsChevron, "the screen-bar + has no dropdown chevron")
         #expect(bar.newTabToolTip == nil, "the + makes a screen, not a tab: no tab tooltip")
+    }
+
+    @Test func theSidebarWorkspacePlusIsPlainAndItsNeighborOwnsTheChooser() {
+        _ = NSApplication.shared
+        let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 480)
+        sidebar.layoutSubtreeIfNeeded()
+        sidebar.contextMenuProvider = { _ in NSMenu() }
+        #expect(sidebar.newButton.accessibilityRole() == .button, "the + creates a workspace directly")
+        #expect(sidebar.newWorkspaceOptionsButton.symbol == "chevron.down", "the chooser is a separate chevron")
+        #expect(sidebar.newWorkspaceOptionsButton.pressMenu?() != nil, "the chevron opens workspace options")
+        #expect(sidebar.newWorkspaceOptionsButton.frame.height == sidebar.newButton.frame.height,
+                "the chevron stays the same height as the +")
     }
 }

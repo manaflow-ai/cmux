@@ -61,6 +61,8 @@ public final class SidebarView: NSView {
     /// footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
     let newButton = SidebarIconButton(icon: .actionAdd, label: Strings.newWorkspace)
+    /// A separate compact chooser control: the + itself remains a one-click workspace action.
+    let newWorkspaceOptionsButton = TitlebarBandButton(symbol: "chevron.down")
     /// The footer's Search button, after the profile avatar (plans/cmux-next/sidebar-search.md):
     /// a press runs ``onSearch`` (the centered Search palette). `sidebar.showSearchButton` hides it.
     let searchButton = SidebarIconButton(icon: .search, pointSize: { Metrics.iconSize }, label: Strings.searchButton)
@@ -112,6 +114,8 @@ public final class SidebarView: NSView {
         super.init(frame: .zero)
         buildHierarchy()
         newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
+        newWorkspaceOptionsButton.setAccessibilityLabel("New Workspace Options")
+        newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
         list.reload(animated: false)
         observe()
         // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
@@ -220,9 +224,13 @@ public final class SidebarView: NSView {
     // MARK: Hierarchy
 
     private func buildHierarchy() {
-        newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }; newButton.menuProvider = { [weak self] in self?.list.contextMenuProvider?(.background) }
+        newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }
+        newButton.menuProvider = { [weak self] in self?.list.contextMenuProvider?(.background) }
+        newWorkspaceOptionsButton.longPressOpensMenu = false
+        newWorkspaceOptionsButton.pressMenu = { [weak self] in self?.list.contextMenuProvider?(.background) }
         newButton.alphaValue = 0
         addSubview(newButton)
+        addSubview(newWorkspaceOptionsButton)
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
@@ -286,8 +294,11 @@ public final class SidebarView: NSView {
         let button = SidebarStyle.toolbarButtonSize
         let rowMidY = window.flatMap(WindowTitlebar.trafficLightsFrame(in:)).map { convert($0, from: nil).midY } ?? titlebarHeight / 2
         newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: (rowMidY - button / 2).rounded(), width: button, height: button)
+        newWorkspaceOptionsButton.frame = NSRect(x: newButton.frame.minX - Metrics.space1 - button,
+                                                  y: newButton.frame.minY, width: button, height: button)
         let x = headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
-        let titlebarButtonsMinX = layoutUpdateAvailableButton(before: newButton.frame, minX: layoutPriorityButton(before: newButton.frame), leading: x)
+        let titlebarButtonsMinX = layoutUpdateAvailableButton(before: newWorkspaceOptionsButton.frame,
+                                                              minX: layoutPriorityButton(before: newWorkspaceOptionsButton.frame), leading: x)
         if let accessory = titlebarAccessory {
             let size = accessory.fittingSize
             let width = max(0, min(size.width, titlebarButtonsMinX - Metrics.space2 - x))
@@ -369,7 +380,7 @@ extension SidebarView: TitlebarPressDeciding {
     public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
         let point = convert(windowPoint, from: nil)
         guard point.y < titlebarHeight else { return .staysPut }
-        let controls = [newButton as NSView?, priorityButton, updateAvailableButton, titlebarAccessory].compactMap { $0 }.filter { !$0.isHidden }
+        let controls = [newButton as NSView?, newWorkspaceOptionsButton, priorityButton, updateAvailableButton, titlebarAccessory].compactMap { $0 }.filter { !$0.isHidden }
         return controls.contains { $0.frame.contains(point) } ? .staysPut : .movesWindow
     }
 }
