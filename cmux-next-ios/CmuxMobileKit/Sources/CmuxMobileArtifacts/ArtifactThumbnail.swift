@@ -21,6 +21,15 @@ enum ArtifactThumbnail: Equatable, @unchecked Sendable {
     /// Decoding and rendering run off the main thread (ImageIO downsampling, CoreGraphics PDF);
     /// only an HTML snapshot needs the main thread (WebKit), a few at a time.
     static func make(for artifact: TerminalArtifact, content: ArtifactContent, scale: CGFloat) async -> ArtifactThumbnail? {
+        let thumbnail = await made(for: artifact, content: content, scale: scale)
+        guard case .picture(let image)? = thumbnail else { return thumbnail }
+        // In the display's own pixel format, off the main thread: an ImageIO thumbnail or a web
+        // snapshot is decoded but not display-ready, and the render server converted it again each
+        // time a tile scrolled in (a late frame per row of tiles).
+        return await Task.detached(priority: .utility) { .picture(image.preparingForDisplay() ?? image) }.value
+    }
+
+    private static func made(for artifact: TerminalArtifact, content: ArtifactContent, scale: CGFloat) async -> ArtifactThumbnail? {
         switch content {
         case .image(let data):
             return await Task.detached(priority: .utility) { downsampled(data).map(ArtifactThumbnail.picture) }.value
@@ -94,6 +103,11 @@ final class HTMLSnapshotter: NSObject, WKNavigationDelegate {
     static let limit = 2
     private static var running = 0
     private static var waiting: [CheckedContinuation<Void, Never>] = []
+    /// While a grid of thumbnails moves, no snapshot starts: a web view loading and painting
+    /// under a scrolling grid cost a late frame every half second, and the tiles it served
+    /// had already scrolled away. Snapshots start when the grid rests, newest ask first
+    /// (the tiles on screen).
+    private static var paused = false
 
     private var finished: CheckedContinuation<Bool, Never>?
 
@@ -104,8 +118,15 @@ final class HTMLSnapshotter: NSObject, WKNavigationDelegate {
         return await HTMLSnapshotter().snapshot(html: html, displayScale: max(scale, 1))
     }
 
+    /// The grid moved (true) or came to rest (false).
+    static func setPaused(_ value: Bool) {
+        guard paused != value else { return }
+        paused = value
+        drain()
+    }
+
     private static func acquire() async {
-        if running < limit {
+        if !paused, running < limit, waiting.isEmpty {
             running += 1
             return
         }
@@ -113,11 +134,15 @@ final class HTMLSnapshotter: NSObject, WKNavigationDelegate {
     }
 
     private static func release() {
-        if waiting.isEmpty {
-            running -= 1
-        } else {
-            // The slot passes to the next waiter.
-            waiting.removeFirst().resume()
+        running -= 1
+        drain()
+    }
+
+    /// Hands free slots to the newest waiters while nothing moves.
+    private static func drain() {
+        while !paused, running < limit, !waiting.isEmpty {
+            running += 1
+            waiting.removeLast().resume()
         }
     }
 

@@ -42,6 +42,7 @@ public struct ListStressSettings: Equatable, Sendable {
     public var wraps: Bool
     public var splits: Bool
     public var holdX: Double?
+    public var holdY: Double?
     /// `CMUX_MOBILE_LIST_PLAIN_CARDS=agent,terminal,browser`: those tab kinds' grid cards
     /// draw a plain fill (the tabs case's per-kind card cost).
     public var plainCards: Set<String>
@@ -64,6 +65,7 @@ public struct ListStressSettings: Equatable, Sendable {
         wraps = environment["CMUX_MOBILE_LIST_WRAP"] == "1"
         splits = environment["CMUX_MOBILE_LIST_SPLIT"] == "1"
         holdX = environment["CMUX_MOBILE_LIST_HOLD_X"].flatMap(Double.init)
+        holdY = environment["CMUX_MOBILE_LIST_HOLD_Y"].flatMap(Double.init)
         plainCards = Set((environment["CMUX_MOBILE_LIST_PLAIN_CARDS"] ?? "").split(separator: ",").map(String.init))
         noCardPictures = environment["CMUX_MOBILE_LIST_NO_CARD_PICTURES"] == "1"
     }

@@ -174,30 +174,46 @@ import Testing
         }
     }
 
-    @Test func memoKeysByIDAndRetriesAfterCancellation() async {
+    @Test func memoSharesOneMakeAndStopsItWhenNoTileWaits() async {
         let memo = ArtifactMemo<String>(costLimit: 1 << 20)
         let artifact = TerminalArtifact(reference: "build/report.png", kind: .image, order: 1)
-        // A make cancelled midway (the tile scrolled away) is not remembered, not even as a failure.
-        let cancelled = Task {
-            await memo.value(for: artifact) { _ in
-                withUnsafeCurrentTask { $0?.cancel() }
-                return nil
-            }
+        let gate = AsyncStream<Void>.makeStream()
+        let make: @Sendable (TerminalArtifact) async -> String? = { _ in
+            for await _ in gate.stream { break }
+            return Task.isCancelled ? nil : "thumb"
         }
-        _ = await cancelled.value
-        #expect(memo.cached(artifact) == nil)
-        let made = await memo.value(for: artifact) { _ in "thumb" }
-        #expect(made == "thumb")
-        // A new order or detail is the same artifact: no second make.
+        // Two tiles ask at once: one make. One scrolls away; the other still gets the thumbnail.
+        func until(_ condition: () -> Bool) async { for _ in 0..<10_000 where !condition() { await Task.yield() } }
+        let first = Task { await memo.value(for: artifact, make: make) }
+        await until { memo.waiting(for: artifact) == 1 }
+        let second = Task { await memo.value(for: artifact) { _ in "other" } }
+        await until { memo.waiting(for: artifact) == 2 }
+        first.cancel()
+        gate.continuation.yield()
+        #expect(await second.value == "thumb")
+        _ = await first.value
+        #expect(memo.cached(artifact) == .some("thumb"))
+        #expect(memo.makesStarted == 1)
+
+        // The only tile scrolls away: the make stops and nothing is recorded, so it tries again later.
+        let lone = TerminalArtifact(reference: "build/other.png", kind: .image, order: 2)
+        let stopped = AsyncStream<Void>.makeStream()
+        let alone = Task { await memo.value(for: lone) { _ in
+            for await _ in stopped.stream { break }
+            return Task.isCancelled ? nil : "late"
+        } }
+        await until { memo.waiting(for: lone) == 1 }
+        alone.cancel()
+        stopped.continuation.yield()
+        _ = await alone.value
+        #expect(memo.cached(lone) == nil)
+        #expect(await memo.value(for: lone) { _ in "again" } == "again")
+
+        // A new order or a non-edit detail is the same artifact; an edit makes a new thumbnail.
         let moved = TerminalArtifact(reference: "build/report.png", kind: .image, order: 9, detail: "Linked")
-        let again = await memo.value(for: moved) { _ in "other" }
-        #expect(again == "thumb")
-        #expect(memo.makesStarted == 2)
-        // Edited again (new content): a new thumbnail.
+        #expect(await memo.value(for: moved) { _ in "other" } == "thumb")
         let edited = TerminalArtifact(reference: "build/report.png", kind: .image, order: 9, detail: "Edited · +12 −4")
-        let fresh = await memo.value(for: edited) { _ in "edited" }
-        #expect(fresh == "edited")
-        #expect(memo.makesStarted == 3)
+        #expect(await memo.value(for: edited) { _ in "edited" } == "edited")
         // A real failure is remembered (no retry storm).
         let missing = TerminalArtifact(reference: "gone.png", kind: .image)
         _ = await memo.value(for: missing) { _ in nil }

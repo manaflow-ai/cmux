@@ -67,6 +67,9 @@ public struct ArtifactsBrowser: View {
         self.emptyMessage = emptyMessage
     }
 
+    /// Pauses web snapshots while the grid moves (not observed: no body work per scroll frame).
+    @State private var gridMotion = ArtifactGridMotion()
+
     public var body: some View {
         // Derived once per body: the shown items, the chip counts and which chips appear.
         let shown = artifacts.filter { state.filter.includes($0.kind) }.sorted { $0.order > $1.order }
@@ -85,6 +88,8 @@ public struct ArtifactsBrowser: View {
                         .padding(.horizontal, 20)
                         .padding(.bottom, 20)
                     }
+                    .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { _, _ in gridMotion.moved() }
+                    .onDisappear { gridMotion.stop() }
                 } else {
                     List {
                         ForEach(shown) { artifact in
@@ -196,6 +201,30 @@ public struct ArtifactRow: View {
 }
 
 /// A 1:1 grid tile (SPEC 11.3): image thumbnails, a glyph card otherwise.
+/// Whether the thumbnail grid is moving: any offset change starts it, and the grid rests once
+/// its offset stayed still for a few frames.
+@MainActor
+final class ArtifactGridMotion {
+    private var rest: Task<Void, Never>?
+
+    func moved() {
+        HTMLSnapshotter.setPaused(true)
+        rest?.cancel()
+        // A rest threshold, not synchronization: about 6 frames without a new offset.
+        rest = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+            HTMLSnapshotter.setPaused(false)
+        }
+    }
+
+    func stop() {
+        rest?.cancel()
+        rest = nil
+        HTMLSnapshotter.setPaused(false)
+    }
+}
+
 struct ArtifactTile: View {
     let artifact: TerminalArtifact
     let source: any ArtifactSource

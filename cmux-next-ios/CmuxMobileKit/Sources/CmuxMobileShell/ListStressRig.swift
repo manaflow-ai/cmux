@@ -57,6 +57,12 @@ final class ListStressRig: NSObject {
             if let x = settings.holdX, let scroll = rig.findScrollView(horizontal: true) {
                 scroll.contentOffset.x = min(CGFloat(x), max(0, scroll.contentSize.width - scroll.bounds.width))
             }
+            // `CMUX_MOBILE_LIST_HOLD_Y=F`: rest at fraction F of the list's height (1 is the bottom).
+            if let fraction = settings.holdY, let scroll = rig.findScrollView(horizontal: false) {
+                let top = -scroll.adjustedContentInset.top
+                let bottom = max(top, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
+                scroll.contentOffset.y = top + (bottom - top) * CGFloat(min(max(fraction, 0), 1))
+            }
             rig.log.notice("FRAMELOG list-stress holding \(screen, privacy: .public)")
             return
         }
