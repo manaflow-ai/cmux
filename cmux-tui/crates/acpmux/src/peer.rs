@@ -946,6 +946,20 @@ mod remote_config_tests {
             lift_query_token("ws://h:1/?mytoken=a"),
             ("ws://h:1/?mytoken=a".to_owned(), None)
         );
+        // Any spelling of the key a server reads as `token` leaves the URL.
+        assert_eq!(
+            lift_query_token("ws://h:1/?Token=abc"),
+            ("ws://h:1/".to_owned(), Some("abc".to_owned()))
+        );
+        assert_eq!(
+            lift_query_token("ws://h:1/?%74oken=abc&x=1"),
+            ("ws://h:1/?x=1".to_owned(), Some("abc".to_owned()))
+        );
+    }
+
+    #[test]
+    fn a_peer_summary_never_shows_a_url_token() {
+        assert_eq!(shown_url("ws://h:1/?token=abc&x=1"), "ws://h:1/?x=1");
     }
 
     #[test]
