@@ -102,7 +102,7 @@ extension SidebarBridge {
                     done.resume(returning: ok)
                 }
                 life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) },
-                            failed: { failed(); finish(false) }, applied: { finish(true) }) { sending in
+                            failed: { failed() }, completed: { finish($0) }) { sending in
                     guard sending === connection else { throw DaemonError.notConnected }
                     for step in plan.steps {
                         try await sending.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,

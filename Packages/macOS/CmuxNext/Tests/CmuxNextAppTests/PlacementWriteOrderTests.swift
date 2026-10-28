@@ -16,7 +16,7 @@ struct PlacementWriteOrderTests {
         typealias Response = EmptyResponse
         static let command = "gallery-seed-burst"
     }
-    private struct Report: DaemonRequest {
+    private nonisolated struct Report: DaemonRequest {
         typealias Response = PlacementGalleryCaptured
         static let command = "gallery-report"
     }
@@ -47,11 +47,11 @@ struct PlacementWriteOrderTests {
             let scope = DaemonCommandScope()
             defer { scope.close() }
             services.daemon.store.apply(snapshot: snapshot.tree)
-            windows.registry.apply { $0.openWindow(id: controller.state.id, workspaceIDs: ["k4", "k3", "k2", "k1"]) }
+            windows.registry.apply { $0.openWindow(id: controller.state.id, workspaceIDs: ["k4", "k3", "k2", "k1"]); return WindowRegistry.Changes() }
             DaemonCommandScope.$current.withValue(scope) { windows.applyPendingPlacements(live: ["k1", "k2", "k3", "k4"]) }
             #expect(scope.ticketCount >= 3, "queued writes keep the action's scope open")
             #expect(controller.sidebar.model.selectableWorkspaces.map(\.id.rawValue) == ["k1", "k2", "k3", "k4"])
-            if mode == "closed" { windows.registry.apply { $0.setRestored(controller.state.id, open: false) } }
+            if mode == "closed" { windows.registry.apply { $0.setRestored(controller.state.id, open: false); return WindowRegistry.Changes() } }
             try await ControlDeadline.shared.run(method: "placement burst", deadline: .now + .seconds(15)) {
                 await scope.waitUntilIdle()
             }

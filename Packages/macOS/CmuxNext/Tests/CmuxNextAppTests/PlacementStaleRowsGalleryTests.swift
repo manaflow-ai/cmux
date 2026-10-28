@@ -10,8 +10,8 @@ import CmuxTheme
 import Foundation
 import Testing
 
-struct PlacementGalleryCaptured: Decodable, Sendable {
-    struct Write: Decodable, Sendable {
+nonisolated struct PlacementGalleryCaptured: Decodable, Sendable {
+    nonisolated struct Write: Decodable, Sendable {
         let workspace_key: String
         let index: Int
     }
@@ -35,7 +35,7 @@ struct PlacementStaleRowsGalleryTests {
         typealias Response = EmptyResponse
         static let command = "gallery-wait-for-write"
     }
-    private struct ReadCaptured: DaemonRequest {
+    private nonisolated struct ReadCaptured: DaemonRequest {
         typealias Response = PlacementGalleryCaptured
         static let command = "gallery-report"
     }
@@ -134,7 +134,7 @@ struct PlacementStaleRowsGalleryTests {
             // One main-actor turn: newer store/membership, saved rendered rows,
             // then production placement. No helper added by the fix is referenced.
             services.daemon.store.apply(snapshot: snapshot.tree)
-            services.windows.registry.apply { $0.move(["k1", "k2", "k3"], to: controller.state.id) }
+            services.windows.registry.apply { $0.move(["k1", "k2", "k3"], to: controller.state.id); return WindowRegistry.Changes() }
             sidebar.rows.show(savedSections)
             let stale = sidebar.model.sections.flatMap(\.workspaces).map(\.id.rawValue)
             try #require(stale == ["k1"])
