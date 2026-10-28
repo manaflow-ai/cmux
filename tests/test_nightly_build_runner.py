@@ -290,11 +290,33 @@ class Main(unittest.TestCase):
         out = self.run_main({}, argv=("verify",), read_runners=lambda t, r: [runner(SIDE, busy=True)],
                             read_snapshot=lambda t, r: snapshot({LARGE: 90}))
         self.assertEqual(out, {"owned": ""})
-        # A busy fleet is never waited on, even while Blacksmith is stalled: the rescue has no timed
-        # fallback for an owned job held behind a stalled Blacksmith label.
+        # While every Blacksmith label is stalled, a busy owned pool is queued on instead: it frees within
+        # one build, and the rescue holds the job there until the Blacksmith label moves.
         out = self.run_main({}, argv=("verify",), read_runners=lambda t, r: [runner(SIDE, busy=True)],
                             read_snapshot=lambda t, r: snapshot({LARGE: 90, SMALL: 90}))
-        self.assertEqual(out, {"owned": ""})
+        self.assertEqual(out, {"owned": SIDE})
+
+    def test_every_blacksmith_label_stalled_queues_on_the_busy_owned_pool(self) -> None:
+        # Run 40622241620 (2026-10-28): build-nightly-app waited 15 min on a stalled Blacksmith label
+        # while the owned nightly slots took the next two tips.
+        stalled = snapshot({LARGE: 90, SMALL: 90})
+        out = self.run_main({}, read_runners=lambda t, r: [runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: stalled)
+        self.assertEqual((out["owned"], out["runner"]), (SIDE, SIDE))
+        # One Blacksmith label still moves: it takes the build, as before.
+        out = self.run_main({}, read_runners=lambda t, r: [runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: snapshot({LARGE: 90}))
+        self.assertEqual((out["owned"], out["runner"]), ("", SMALL))
+        # No snapshot, or an offline-only pool: Blacksmith, never a dead owned label.
+        for runners, snap in (([runner(SIDE, busy=True)], None), ([runner(SIDE, status="offline")], stalled)):
+            with self.subTest(runners=runners, snap=snap):
+                out = self.run_main({}, read_runners=lambda t, r, runners=runners: runners,
+                                    read_snapshot=lambda t, r, snap=snap: snap)
+                self.assertEqual(out["owned"], "")
+                self.assertTrue(out["runner"].startswith("blacksmith-"))
+        # Unread runners (no routing token): Blacksmith.
+        out = self.run_main({"ROUTE_TOKEN": ""}, read_snapshot=lambda t, r: stalled)
+        self.assertEqual(out["owned"], "")
 
     def test_no_route_token_reads_no_runners(self) -> None:
         def unexpected(token: str, repo: str):
