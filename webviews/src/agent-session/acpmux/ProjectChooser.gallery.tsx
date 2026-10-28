@@ -92,9 +92,7 @@ const noMatches: Play = async (ctx) => {
 const typedPath: Play = async (ctx) => {
   await open(ctx);
   await ctx.type("/tmp/new-project");
-  await ctx.waitFor(() =>
-    ctx.document.querySelector('.acpmux-menu-active, [role="option"][data-highlighted]'),
-  );
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-menu-active, [role="option"][data-highlighted]'));
 };
 
 export default componentEntry<Props>({
@@ -110,13 +108,11 @@ export default componentEntry<Props>({
   checks: {
     anchorMovePx: {
       value: 0,
-      reason:
-        "Opening and filtering the chooser uses a portal and must not move the composer anchor.",
+      reason: "Opening and filtering the chooser uses a portal and must not move the composer anchor.",
     },
     layoutShiftMax: {
       value: 0,
-      reason:
-        "Project filtering and the empty state stay inside the chooser without reflowing the page.",
+      reason: "Project filtering and the empty state stay inside the chooser without reflowing the page.",
     },
     longFrameFailMs: {
       value: 33,
@@ -172,9 +168,7 @@ export default componentEntry<Props>({
         await ctx.type("gpu");
         await ctx.press("Tab");
         await ctx.waitFor(() =>
-          ctx.document
-            .querySelector<HTMLInputElement>('[role="combobox"]')
-            ?.value.includes("/home/you/src/atlas-web"),
+          ctx.document.querySelector<HTMLInputElement>('[role="combobox"]')?.value.includes("/home/you/src/atlas-web"),
         );
       },
     },

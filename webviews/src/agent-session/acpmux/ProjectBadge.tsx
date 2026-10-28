@@ -50,10 +50,7 @@ export function ProjectBadge({ project }: { project: Project }) {
 function MonogramMark({ value }: { value: string }) {
   const letter = Array.from(value.trim())[0]?.toUpperCase() ?? "•";
   return (
-    <span
-      className="acpmux-project-monogram"
-      aria-hidden="true"
-    >
+    <span className="acpmux-project-monogram" aria-hidden="true">
       {letter}
     </span>
   );
