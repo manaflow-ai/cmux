@@ -2165,7 +2165,7 @@
           "type": "integer"
         },
         "errorKind": {
-          "description": "What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,\n`peer.unreachable`, `daemon.restarting`, `spawn.failed` or `agent.exited`. A client\ntreats a kind it does not know as a plain error. The same key is on a request's error\n`data` and on the `turn_error` and `turn_result` records.",
+          "description": "What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,\n`peer.unreachable`, `daemon.restarting`, `spawn.failed`, `agent.exited`,\n`auth.signed_out` or `auth.expired`. A client treats a kind it does not know as a plain\nerror. The same key is on a request's error `data` and on the `turn_error` and\n`turn_result` records.",
           "type": [
             "string",
             "null"

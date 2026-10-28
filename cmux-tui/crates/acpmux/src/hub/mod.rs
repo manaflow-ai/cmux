@@ -15,7 +15,7 @@ pub(crate) mod auto_resume;
 mod btw;
 mod exit_reason;
 pub(crate) mod subagent_retry;
-mod turn_errors;
+pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
