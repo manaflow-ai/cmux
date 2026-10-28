@@ -96,7 +96,7 @@ fn strip_timestamp(line: &str) -> Option<&str> {
     timestamp.then(|| &line[end..])
 }
 
-fn digits(bytes: &[u8], range: std::ops::Range<usize>) -> bool {
+fn digits(bytes: &[u8], mut range: std::ops::Range<usize>) -> bool {
     range.all(|at| bytes.get(at).is_some_and(|byte| byte.is_ascii_digit()))
 }
 
