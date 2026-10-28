@@ -89,7 +89,7 @@ def item_versions(item: str) -> set[str]:
 
 def element_pattern(name: str) -> re.Pattern[str]:
     """The element, opened and closed or self-closing (the app reads a self-closing one as empty)."""
-    return re.compile(rf"<cmux:{name}\s*/>|<cmux:{name}>\s*([^<]*?)\s*</cmux:{name}>")
+    return re.compile(rf"<cmux:{name}\b[^>]*?/>|<cmux:{name}\b[^>]*>\s*([^<]*?)\s*</cmux:{name}\s*>")
 
 
 def element_value(item: str, name: str) -> str | None:
@@ -250,12 +250,16 @@ def utc(moment: datetime.datetime) -> datetime.datetime:
 
 def load_health() -> Any:
     path = Path(__file__).resolve().parent.parent / "stability-health.py"
-    spec = importlib.util.spec_from_file_location("stability_health", path)
+    spec = importlib.util.spec_from_file_location("cmux_stage_rollout_stability_health", path)
     if spec is None or spec.loader is None:
         raise RolloutError(f"cannot load {path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module  # its dataclasses look the module up by name
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(spec.name, None)
+        raise
     return module
 
 

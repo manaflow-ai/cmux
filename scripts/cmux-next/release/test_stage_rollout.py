@@ -93,7 +93,8 @@ class StageFeedTests(unittest.TestCase):
         staged = tool.stage_feed(FEED, "300", 5, NOW)
         broken = [staged.replace(">5<", ">abc<"), staged.replace("2026-11-02T12:00:00Z", "yesterday"),
                   staged.replace("<cmux:rolloutPercent>5</cmux:rolloutPercent>", "<cmux:rolloutPercent/>"),
-                  staged.replace("<cmux:rolloutStagedAt>2026-11-02T12:00:00Z</cmux:rolloutStagedAt>", "<cmux:rolloutStagedAt />")]
+                  staged.replace("<cmux:rolloutStagedAt>2026-11-02T12:00:00Z</cmux:rolloutStagedAt>", "<cmux:rolloutStagedAt />"),
+                  staged.replace("<cmux:rolloutPercent>5</cmux:rolloutPercent>", "<cmux:rolloutPercent >abc</cmux:rolloutPercent>")]
         for feed in broken:
             repaired = tool.stage_feed(feed, "300", 5, later)
             self.assertEqual(tool.current_stage(repaired, "300"), tool.Stage(5, later), feed)

@@ -48,18 +48,31 @@ nonisolated public struct UpdateProber: Sendable {
     /// picks the newest item first and holds it there (`shouldProceedWithUpdate`), never falling
     /// back to an older one, so the probe does not either.
     func outcome(_ items: [AppcastItem], currentBuild: String, system: SystemVersion) -> UpdateProbeOutcome {
-        held(AppcastSelector.select(from: items, currentBuild: currentBuild, system: system))
+        Self.outcome(items, currentBuild: currentBuild, system: system, rollout: rollout)
     }
 
-    func held(_ outcome: UpdateProbeOutcome) -> UpdateProbeOutcome {
-        let item: AppcastItem
-        switch outcome {
-        case .updateAvailable(let newest), .requiresNewerSystem(let newest, _): item = newest
-        default: return outcome
+    /// What Sparkle does with `items` on this install: it picks the newest item this macOS runs and
+    /// holds it when the install's stage does not reach it, never stepping back to an older one
+    /// (`shouldProceedWithUpdate`). The note that a newer build needs a newer macOS names only a
+    /// build the stage reaches.
+    static func outcome(_ items: [AppcastItem], currentBuild: String, system: SystemVersion,
+                        rollout: StagedRollout?) -> UpdateProbeOutcome {
+        let selected = AppcastSelector.select(from: items, currentBuild: currentBuild, system: system)
+        guard let rollout else { return selected }
+        let reaches = { (item: AppcastItem) in rollout.offers(version: item.version, rawPercent: item.rolloutPercent) }
+        switch selected {
+        case .updateAvailable(let item) where !reaches(item):
+            return .upToDate(latest: nil)
+        case .requiresNewerSystem:
+            // Only the macOS note changes: the reached items' own answer, never an update Sparkle holds.
+            let reached = AppcastSelector.select(from: items.filter(reaches), currentBuild: currentBuild, system: system)
+            if case .requiresNewerSystem = reached { return reached }
+            return .upToDate(latest: nil)
+        default:
+            return selected
         }
-        guard let rollout, !rollout.offers(version: item.version, rawPercent: item.rolloutPercent) else { return outcome }
-        return .upToDate(latest: nil)
     }
+
 
     /// Off the main actor: the feed's items an updater allowing `allowedChannels` sees, in feed
     /// order (a ring switch looks for the ring's builds this Mac kept, ``RingReturn``).
@@ -87,7 +100,7 @@ nonisolated public struct UpdateProber: Sendable {
             currentBuild: identity.build,
             system: system,
             itemCount: items.count,
-            outcome: held(AppcastSelector.select(from: items, currentBuild: identity.build, system: system)),
+            outcome: outcome(items, currentBuild: identity.build, system: system),
             checkedAt: now
         )
     }

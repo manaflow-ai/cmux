@@ -74,10 +74,11 @@ import Testing
         prober.rollout = StagedRollout(seed: 1)
         let floor = try #require(SystemVersion("99.0"))
         let item = AppcastItem(version: "500", minimumSystemVersion: floor, rolloutPercent: "0")
-        #expect(prober.held(.requiresNewerSystem(item, required: floor)) == .upToDate(latest: nil))
-        #expect(prober.held(.updateAvailable(item)) == .upToDate(latest: nil))
+        #expect(prober.outcome([item], currentBuild: "300", system: SystemVersion(major: 15)) == .upToDate(latest: nil))
+        let heldHere = AppcastItem(version: "500", rolloutPercent: "0")
+        #expect(prober.outcome([heldHere], currentBuild: "300", system: SystemVersion(major: 15)) == .upToDate(latest: nil))
         let open = AppcastItem(version: "500")
-        #expect(prober.held(.updateAvailable(open)) == .updateAvailable(open))
+        #expect(prober.outcome([open], currentBuild: "300", system: SystemVersion(major: 15)) == .updateAvailable(open))
     }
 
     /// The ring's newest build is held for this install: Sparkle offers nothing, so the ring has
