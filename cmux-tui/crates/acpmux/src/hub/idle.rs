@@ -133,6 +133,14 @@ impl Hub {
             if !has_child {
                 continue;
             }
+            // In use at its deadline: a full idle period starts now.
+            let busy = session.turn_lock.try_lock().is_err()
+                || session.spawn_lock.try_lock().is_err()
+                || session.harness_use.try_write().is_err();
+            if busy || !self.idle_eligible(&session) {
+                self.touch(&session);
+                continue;
+            }
             // Its MCP servers, read before the leases: the configs are files (`idle_census.rs`).
             let Some(child) = session.child.lock().await.clone() else { continue };
             let sidecars = self.sidecars(&session, &child).await;
