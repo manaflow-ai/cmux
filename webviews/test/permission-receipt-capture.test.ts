@@ -11,6 +11,9 @@
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
+import { readFileSync } from "node:fs";
+import { parseGhosttyTheme } from "../src/theme/ghosttyTheme";
+import { agentPaneTheme, themeTokens } from "../src/gallery/theme/web";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -36,7 +39,7 @@ await requireBrowserLane("permission-receipt-capture.test.ts", async () => {
   const FULL = "0190a000-0000-7000-8000-0000000000f7";
   const CODEX_FULL = "0190a000-0000-7000-8000-0000000000f9";
   const POLICY = "0190a000-0000-7000-8000-0000000000f8";
-  const START = Date.now() - 90_000;
+  const START = 1793200000000;
   type Step = [dir: string, kind: string, msg: Record<string, unknown>];
   const update = (update: Record<string, unknown>) => ({
     method: "session/update",
@@ -173,10 +176,20 @@ await requireBrowserLane("permission-receipt-capture.test.ts", async () => {
   const captureDir = process.env.PERMISSION_CAPTURE_DIR ?? "/tmp/permission-receipt-capture";
   async function capture(page: Page, name: string) {
     await Bun.$`mkdir -p ${captureDir}`;
-    await Bun.write(`${captureDir}/${name}-light.png`, await page.screenshot({ type: "png" }));
-    await page.emulateMedia({ colorScheme: "dark" });
-    await Bun.write(`${captureDir}/${name}-dark.png`, await page.screenshot({ type: "png" }));
-    await page.emulateMedia({ colorScheme: "light" });
+    for (const scheme of ["light", "dark"] as const) {
+      const themeName = scheme === "dark" ? "Apple System Colors" : "Apple System Colors Light";
+      const theme = parseGhosttyTheme(themeName, readFileSync(path.join(webviews, "../Resources/ghostty/themes", themeName), "utf8"))!;
+      const payload = agentPaneTheme(themeTokens(theme), true);
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.evaluate(async ({ payload, moduleUrl }) => {
+        const { applyAgentTheme } = await import(/* @vite-ignore */ moduleUrl);
+        applyAgentTheme(payload);
+        await document.fonts.ready;
+        await new Promise(requestAnimationFrame);
+        await new Promise(requestAnimationFrame);
+      }, { payload, moduleUrl: `/@fs${webviews}/src/agent-session/shared/theme.ts` });
+      await Bun.write(`${captureDir}/${name}-${scheme}.png`, await page.screenshot({ type: "png" }));
+    }
   }
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
