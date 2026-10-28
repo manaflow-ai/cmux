@@ -1,5 +1,6 @@
 import Foundation
 import CmuxWorkspaces
+import CryptoKit
 
 extension SessionPersistencePolicy {
     /// The snapshot a live restore opens: crash-diagnostic windows pruned,
@@ -104,7 +105,7 @@ extension SessionPersistencePolicy {
         )
         let preferredWorkspaces = preferred.tabManager.workspaces
         let supplementalWorkspaces = supplemental.tabManager.workspaces
-        let mergedWorkspaces = plan.selections.map { selection in
+        var mergedWorkspaces = plan.selections.map { selection in
             switch selection {
             case .preferred(let index): return preferredWorkspaces[index]
             case .supplemental(let index): return supplementalWorkspaces[index]
@@ -116,6 +117,10 @@ extension SessionPersistencePolicy {
             guard let keptID = mergedWorkspaces[preferredIndex].workspaceId else { continue }
             if let oldID = preferredWorkspaces[preferredIndex].workspaceId { preferredReplacements[oldID] = keptID }
             if let oldID = supplementalWorkspaces[supplementalIndex].workspaceId { supplementalReplacements[oldID] = keptID }
+        }
+        let replacements = preferredReplacements.merging(supplementalReplacements) { preferred, _ in preferred }
+        for index in mergedWorkspaces.indices {
+            mergedWorkspaces[index].dock = remappingCrashDockOwnership(mergedWorkspaces[index].dock, replacements: replacements)
         }
         let preferredGroups = preferred.tabManager.workspaceGroups ?? []
         let preferredGroupIDs = Set(preferredGroups.map(\.id))
@@ -132,6 +137,7 @@ extension SessionPersistencePolicy {
             keptWorkspaces: mergedWorkspaces, identityReplacements: supplementalReplacements
         ) ?? [])
         var merged = preferred
+        merged.dock = remappingCrashDockOwnership(preferred.dock, replacements: replacements)
         merged.tabManager.workspaces = mergedWorkspaces
         merged.tabManager.workspaceGroups = groups.isEmpty ? nil : groups
         return merged
@@ -148,12 +154,54 @@ extension SessionPersistencePolicy {
             fidelityScore: sessionWorkspaceRestoreFidelityScore(workspace),
             nonAgentPanelIDs: Set(workspace.panels.compactMap {
                 crashPanelCheckpointID($0) == nil ? $0.id : nil
-            })
+            }),
+            preservedContentIDs: crashWorkspaceContentIDs(workspace)
         )
     }
 
     private nonisolated static func crashDockSignature(_ dock: SessionSplitContainerSnapshot?) -> CrashDockSignature? {
-        dock.map { CrashDockSignature(panelIDs: Set($0.panels.map(\.id)), checkpointIDs: crashPanelCheckpointIDs($0.panels)) }
+        dock.map {
+            CrashDockSignature(
+                panelIDs: Set($0.panels.map(\.id)), checkpointIDs: crashPanelCheckpointIDs($0.panels),
+                contentFingerprint: crashContentFingerprint($0)
+            )
+        }
+    }
+
+    /// Preserve complete non-agent panel contents and agent text independently of metadata scores.
+    private nonisolated static func crashWorkspaceContentIDs(_ workspace: SessionWorkspaceSnapshot) -> Set<String>? {
+        var contents: Set<String> = []
+        for panel in workspace.panels {
+            guard let checkpoint = crashPanelCheckpointID(panel) else {
+                guard let fingerprint = crashContentFingerprint(panel) else { return nil }
+                contents.insert("panel:\(panel.id):\(fingerprint)")
+                continue
+            }
+            if let scrollback = panel.terminal?.scrollback, !scrollback.isEmpty {
+                guard let fingerprint = crashContentFingerprint(scrollback) else { return nil }
+                contents.insert("scrollback:\(checkpoint):\(fingerprint)")
+            }
+            if let draft = panel.terminal?.textBoxDraft {
+                guard let fingerprint = crashContentFingerprint(draft) else { return nil }
+                contents.insert("draft:\(checkpoint):\(fingerprint)")
+            }
+        }
+        return contents
+    }
+
+    private nonisolated static func crashContentFingerprint<Value: Encodable>(_ value: Value) -> String? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(value) else { return nil }
+        return Data(SHA256.hash(data: data)).base64EncodedString()
+    }
+
+    private nonisolated static func remappingCrashDockOwnership(
+        _ dock: SessionSplitContainerSnapshot?, replacements: [UUID: UUID]
+    ) -> SessionSplitContainerSnapshot? {
+        guard var dock else { return nil }
+        dock.sourceWorkspaceIdsByPanelId = dock.sourceWorkspaceIdsByPanelId?.mapValues { replacements[$0] ?? $0 }
+        return dock
     }
 
     private nonisolated static func crashWindowCheckpointIDs(

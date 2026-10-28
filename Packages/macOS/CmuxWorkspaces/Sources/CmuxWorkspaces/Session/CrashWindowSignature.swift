@@ -48,7 +48,7 @@ public struct CrashWindowSignature: Equatable, Sendable {
     ///   session runs in one place, so a window whose sessions all live in
     ///   another window is a crash replay of it that was given a new ID.
     public nonisolated func isCrashDuplicate(of other: CrashWindowSignature) -> Bool {
-        guard dock == other.dock else { return false }
+        guard dock == other.dock, dock == nil || dock?.contentFingerprint != nil else { return false }
         guard mayShareIdentity(with: other) else {
             return isReplayWithNewWindowID(of: other)
         }

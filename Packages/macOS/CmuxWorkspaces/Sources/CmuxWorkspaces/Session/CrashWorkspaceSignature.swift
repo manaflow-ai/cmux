@@ -27,8 +27,8 @@ public struct CrashWorkspaceSignature: Sendable {
     ///   - dock: Dock identity, or nil when no dock was persisted.
     ///   - fidelityScore: Restore metadata score used when checkpoint sets are equal.
     ///   - nonAgentPanelIDs: Persisted panels without agent checkpoint identity.
-    ///   - preservedContentIDs: Fingerprints of saved terminal text keyed by panel or checkpoint;
-    ///     nil refuses whole-copy selection when that text cannot be compared.
+    ///   - preservedContentIDs: Fingerprints of non-agent panel contents and saved agent text;
+    ///     nil refuses whole-copy selection when that content cannot be compared.
     public nonisolated init(
         stableID: UUID?, workspaceID: UUID?, checkpointIDs: Set<String>,
         title: String?, description: String?, groupID: UUID?, directory: String,
@@ -51,18 +51,21 @@ public struct CrashWorkspaceSignature: Sendable {
     /// A whole copy may replace another only if it covers every panel identity.
     nonisolated func canMerge(with other: Self) -> Bool {
         groupID == other.groupID && dock == other.dock
+            && (dock == nil || dock?.contentFingerprint != nil)
             && (containsPanels(of: other) || other.containsPanels(of: self))
     }
 
     nonisolated func isPreferred(over other: Self) -> Bool {
-        if checkpointIDs != other.checkpointIDs || nonAgentPanelIDs != other.nonAgentPanelIDs {
+        if checkpointIDs != other.checkpointIDs || nonAgentPanelIDs != other.nonAgentPanelIDs
+            || preservedContentIDs != other.preservedContentIDs {
             return containsPanels(of: other)
         }
         return fidelityScore > other.fidelityScore
     }
 
     private nonisolated func containsPanels(of other: Self) -> Bool {
-        checkpointIDs.isSuperset(of: other.checkpointIDs)
+        guard let ownContents = preservedContentIDs, let otherContents = other.preservedContentIDs else { return false }
+        return ownContents.isSuperset(of: otherContents) && checkpointIDs.isSuperset(of: other.checkpointIDs)
             && nonAgentPanelIDs.isSuperset(of: other.nonAgentPanelIDs)
     }
 }
