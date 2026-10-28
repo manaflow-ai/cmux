@@ -1,4 +1,8 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { formatReport } from "../scripts/latency/report";
 import { validateEvidence, type BudgetConfig } from "../scripts/latency/validate";
 import { captureBaseline } from "../scripts/latency/bootstrap";
@@ -229,4 +233,56 @@ test("bootstrap retains actual over-budget numbers without manufacturing an exce
       evidenceSha256: "d".repeat(64),
     }),
   ).toThrow("incomplete");
+});
+
+test.each(["missing", "digest", "empty"])("required raw trace rejects %s artifact data", (failure) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "latency-trace-test-"));
+  try {
+    const candidate = evidence();
+    const raw = JSON.stringify({ traceEvents: failure === "empty" ? [] : [{ name: "Paint", ts: 1, ph: "X" }] });
+    const file = path.join(directory, "case.trace.json");
+    fs.writeFileSync(file, raw);
+    candidate.results[0].rawTrace = {
+      path: "case.trace.json",
+      bytes: Buffer.byteLength(raw),
+      sha256: createHash("sha256").update(raw).digest("hex"),
+    };
+    if (failure === "missing") fs.rmSync(file);
+    if (failure === "digest") fs.writeFileSync(file, raw.replace("Paint", "Other"));
+    const options = { expectedHead: source.head, traceDir: directory };
+    const result = validateEvidence(candidate, baseline(), { ...budget, rawTraceRequired: true }, options);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join("\n")).toMatch(/raw trace|timeline/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("required raw traces need actual files even when all metadata is present", () => {
+  const candidate = evidence();
+  candidate.results[0].rawTrace = { path: "case.trace.json", bytes: 20, sha256: "a".repeat(64) };
+  expect(validateEvidence(candidate, baseline(), { ...budget, rawTraceRequired: true }).ok).toBe(false);
+});
+
+test.each(["probe", "adapter"])("every %s cadence run must contribute a nonempty frame window", (kind) => {
+  const candidate = evidence(8);
+  candidate.results[0].metricType = "frame_time";
+  const cadenceBudget = { ...budget, metricTypes: { [id]: "frame_time" } };
+  if (kind === "adapter") {
+    candidate.results[0].samples = [];
+    candidate.results[0].adapterRuns = Array.from({ length: 10 }, () => ({
+      status: "complete",
+      observations: [{ status: "painted", latencyMs: 12, inputAt: 10, targetPaintAt: 22, raw: {} }],
+      frameGaps: [8],
+      longTasks: [],
+      reactCommits: 1,
+      unsupportedReasons: {},
+    }));
+  }
+  expect(validateEvidence(candidate, baseline(8), cadenceBudget).ok).toBe(true);
+  const runs = kind === "adapter" ? candidate.results[0].adapterRuns : candidate.results[0].samples;
+  runs.slice(0, 9).forEach((run: any) => {
+    run.frameGaps = [];
+  });
+  expect(validateEvidence(candidate, baseline(8), cadenceBudget).ok).toBe(false);
 });
