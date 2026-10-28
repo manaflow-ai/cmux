@@ -7,6 +7,7 @@ import { followTrace } from "../../src/agent-session/acpmux/followTrace";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import type { TurnFile } from "../../src/agent-session/acpmux/diff";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
+import { clearShadowHighlight, prepareShadowHighlight } from "./transcript-shadow-highlight.fixture";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
 import "../../src/ui/popupSurface.css";
@@ -85,11 +86,15 @@ const draw = () =>
     __mountShadowSurface(rowId: string, kind: "highlighted-code" | "edit-diff-hunks"): Promise<void>;
   }
 ).__mountShadowSurface = async (rowId, kind) => {
+  prepareShadowHighlight();
   const row = document.querySelector<HTMLElement>(`[data-row-id="${rowId}"]`);
   if (!row) throw new Error(`No row for shadow fixture: ${rowId}`);
   const mount = document.createElement("div");
   mount.id = `shadow-surface-${kind}`;
   mount.className = "selectable";
+  mount.addEventListener("pointerdown", (event) => {
+    mount.dataset.shadowPrevented = String(event.defaultPrevented);
+  });
   (row.querySelector<HTMLElement>(".cv-md") ?? row).append(mount);
   const root = createRoot(mount);
   shadowMounts.push({ root, host: mount });
@@ -124,21 +129,13 @@ const draw = () =>
     };
     root.render(<EditDiffHunks file={file} patches={[editPatch(file, file.edits[0]!)]} wrap={false} />);
   }
-  // A worker can be unavailable in the browser lane even though the production component mounted.
-  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-  // Keep the deterministic line in a separate host: a real component may replace its own Pierre
-  // shadow contents when its worker responds, while this host remains the same painted text surface
-  // for the pointer path under test.
-  const host = document.createElement("div");
-  host.id = `shadow-text-${kind}`;
-  host.style.cssText = "display:block;width:100%;height:24px;pointer-events:auto;user-select:text";
-  mount.append(host);
-  const shadow = host.attachShadow({ mode: "open" });
-  const line = document.createElement("span");
-  line.setAttribute("data-line", "");
-  line.textContent = 'const keeper = "shadow code"; return keeper;';
-  line.style.cssText = "display:block;white-space:pre;user-select:text;pointer-events:auto";
-  shadow.append(line);
+};
+(window as unknown as { __unmountShadowSurfaces(): void }).__unmountShadowSurfaces = () => {
+  for (const { root, host } of shadowMounts.splice(0)) {
+    root.unmount();
+    host.remove();
+  }
+  clearShadowHighlight();
 };
 (window as unknown as { __showRawRows: (rows: AcpmuxRow[]) => void }).__showRawRows = (rows) => {
   rawRows = true;

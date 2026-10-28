@@ -18,6 +18,16 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
     vite = await createServer({
       root,
       configFile: path.join(root, "vite.config.ts"),
+      plugins: [
+        {
+          name: "transcript-shadow-highlight-fixture",
+          enforce: "pre",
+          resolveId(source, importer) {
+            if (source === "./highlightPool" && importer?.includes("/acpmux/conversation/"))
+              return path.join(root, "test/browser/transcript-shadow-highlight.fixture.ts");
+          },
+        },
+      ],
       server: { port: 0, host: "127.0.0.1" },
       logLevel: "error",
     });
@@ -283,45 +293,98 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
     ] as const)
       test(`${name}: ${label} shadow text keeps native selection ownership`, async () => {
         const page = await open(name, "agent", "agent");
-        await page.evaluate((surface) => {
-          const mount = (
-            window as unknown as {
-              __mountShadowSurface(rowId: string, kind: "highlighted-code" | "edit-diff-hunks"): Promise<void>;
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(String(error)));
+        try {
+          await page.evaluate((surface) => {
+            const mount = (
+              window as unknown as {
+                __mountShadowSurface(rowId: string, kind: "highlighted-code" | "edit-diff-hunks"): Promise<void>;
+              }
+            ).__mountShadowSurface("upper", surface);
+            return mount;
+          }, kind);
+          const surfaceSelector = `#shadow-surface-${kind}`;
+          const textSelector = `${surfaceSelector} diffs-container`;
+          try {
+            await page.waitForFunction((surface) => {
+              const host = document.querySelector<HTMLElement>(surface);
+              return Array.from(host?.shadowRoot?.querySelectorAll("[data-line]") ?? []).some((line) =>
+                line.textContent?.includes("shadow code"),
+              );
+            }, textSelector);
+          } catch (error) {
+            console.error(
+              `SHADOW_READINESS ${name} ${kind}`,
+              await page.evaluate((surface) => {
+                const mount = document.querySelector(surface);
+                const host = mount?.querySelector("diffs-container");
+                return {
+                  markup: mount?.outerHTML.slice(0, 2500),
+                  shadow: host?.shadowRoot?.innerHTML.slice(0, 2500),
+                  lines: Array.from(host?.shadowRoot?.querySelectorAll("[data-line]") ?? []).map(
+                    (line) => line.textContent,
+                  ),
+                  worker: document.documentElement.dataset.shadowHighlightWorker,
+                };
+              }, surfaceSelector),
+              errors,
+            );
+            throw error;
+          }
+          await paint(page);
+          console.log(
+            `SHADOW_HOST_READY ${name} ${label}`,
+            await page.evaluate((surface) => {
+              const host = document.querySelector(surface)!;
+              return {
+                tag: host.localName,
+                className: host.className,
+                lines: Array.from(host.shadowRoot!.querySelectorAll("[data-line]")).map((line) => line.textContent),
+              };
+            }, textSelector),
+          );
+          const point = await page.evaluate((surface) => {
+            const host = document.querySelector<HTMLElement>(surface);
+            const line = Array.from(host?.shadowRoot?.querySelectorAll<HTMLElement>("[data-line]") ?? []).find(
+              (candidate) => candidate.textContent?.includes("shadow code"),
+            );
+            if (!line) throw new Error(`No shadow text for ${surface}`);
+            const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+            const rects: DOMRect[] = [];
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              rects.push(...Array.from(range.getClientRects()).filter((rect) => rect.width > 0));
             }
-          ).__mountShadowSurface("upper", surface);
-          return mount;
-        }, kind);
-        const textSelector = `#shadow-text-${kind}`;
-        await page.waitForFunction((surface) => {
-          const host = document.querySelector<HTMLElement>(surface);
-          return Boolean(host?.shadowRoot?.querySelector("[data-line]"));
-        }, textSelector);
-        await paint(page);
-        const point = await page.evaluate((surface) => {
-          const host = document.querySelector<HTMLElement>(surface);
-          const line = host?.shadowRoot?.querySelector<HTMLElement>("[data-line]");
-          if (!line) throw new Error(`No shadow text for ${surface}`);
-          const range = document.createRange();
-          range.selectNodeContents(line);
-          const rect = Array.from(range.getClientRects()).find((candidate) => candidate.width > 0);
-          if (!rect) throw new Error(`No painted shadow text for ${surface}`);
-          const end = Array.from(range.getClientRects()).at(-1)!;
-          return {
-            from: { x: rect.left + Math.min(4, rect.width / 2), y: rect.top + rect.height / 2 },
-            to: { x: Math.max(end.left + 1, end.right - 2), y: end.top + end.height / 2 },
-          };
-        }, textSelector);
-        await drag(page, point.from, point.to);
-        const details = await page.evaluate(() => {
-          const selection = getSelection()!;
-          return {
-            text: selection.toString(),
-          };
-        });
-        expect(details.text).toContain("shadow code");
-        expect(details.text).not.toContain("upper keeper checks");
-        expect(details.text).not.toContain("lower keeper checks");
-        await page.close();
+            const rect = rects[0];
+            if (!rect) throw new Error(`No painted shadow text for ${surface}`);
+            const end = rects.at(-1)!;
+            return {
+              from: { x: rect.left + Math.min(4, rect.width / 2), y: rect.top + rect.height / 2 },
+              to: { x: Math.max(end.left + 1, end.right - 2), y: end.top + end.height / 2 },
+            };
+          }, textSelector);
+          await drag(page, point.from, point.to);
+          const details = await page.evaluate((surface) => {
+            const selection = getSelection()!;
+            return {
+              text: selection.toString(),
+              prevented: document.querySelector<HTMLElement>(surface)?.dataset.shadowPrevented,
+            };
+          }, surfaceSelector);
+          expect(details.prevented).toBe("false");
+          expect(details.text).toContain("shadow code");
+          expect(details.text).not.toContain("upper keeper checks");
+          expect(details.text).not.toContain("lower keeper checks");
+        } finally {
+          await page.evaluate(() =>
+            (window as unknown as { __unmountShadowSurfaces(): void }).__unmountShadowSurfaces(),
+          );
+          const remaining = await page.locator('[id^="shadow-surface-"]').count();
+          await page.close();
+          expect(remaining).toBe(0);
+        }
       });
     test(`${name}: control presses, control drags, and text presses retain native ownership`, async () => {
       const page = await open(name, "tool", "prompt");
