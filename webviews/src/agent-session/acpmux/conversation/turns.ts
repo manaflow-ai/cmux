@@ -19,7 +19,7 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { groupWaitingSteps, type WaitingSteps } from "./waitingMessages";
+import { groupAgentMessages, groupWaitingSteps, type WaitingSteps } from "./waitingMessages";
 import { tailStart } from "./ToolGroupRow";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
 import { acpmuxSendCall } from "./acpmuxSends";
@@ -135,9 +135,6 @@ export type TurnView = {
   lineBelow: boolean;
   working: boolean;
   sessionStatus: boolean;
-  /// Whether a source or shaping change reached a row before the current tail. Consumers that
-  /// cache a tail-only transform must invalidate when this is true.
-  changedBeforeLast: boolean;
   /// The steers that wait (snapshot `waitingSteers`), and where they were in the running turn, with
   /// the cards other sessions' messages among them draw as (waitingMessages.ts `groupWaitingSteps`).
   waitingSteers?: readonly string[];
@@ -149,7 +146,8 @@ export type TurnView = {
   starts: number[];
   times: TurnTimes[];
   dated: boolean[];
-  ends: number[];
+  /// Each boundary keeps its count and last row before the next prompt extends a fold.
+  ends: { count: number; row: AcpmuxRow | undefined }[];
   rows: AcpmuxRow[];
 };
 
@@ -196,7 +194,6 @@ export function turnViewFrom(
   // The turn to shape from: the one holding the first changed row. The turn before it may
   // have ended there, and the last turn draws differently once another follows it.
   let reuse = 0;
-  let changedBeforeLast = true;
   if (
     previous &&
     previous.expanded === expanded &&
@@ -210,7 +207,6 @@ export function turnViewFrom(
     else {
       let from = 0;
       while (from < rows.length && from < shared.length && rows[from] === shared[from]) from += 1;
-      changedBeforeLast = from < rows.length - 1;
       while (reuse < previous.starts.length && previous.starts[reuse]! < from) reuse += 1;
     }
     reuse = Math.max(0, reuse - 1);
@@ -224,11 +220,13 @@ export function turnViewFrom(
   let starts: number[];
   let times: TurnTimes[];
   let dated: boolean[];
-  let ends: number[];
+  let ends: TurnView["ends"];
   if (reuse > 0) {
     lead = previous!.lead;
     index = previous!.starts[reuse]!;
-    out = previous!.rows.slice(0, previous!.ends[reuse - 1]);
+    const boundary = previous!.ends[reuse - 1];
+    out = previous!.rows.slice(0, boundary?.count);
+    if (boundary?.row && out.length) out[out.length - 1] = boundary.row;
     starts = previous!.starts.slice(0, reuse);
     times = previous!.times.slice(0, reuse);
     dated = previous!.dated.slice(0, reuse);
@@ -294,11 +292,11 @@ export function turnViewFrom(
     const runs = waiting?.runs ?? [];
     for (let index = 0, run = 0; index < shaped.length; index += 1) {
       if (run < runs.length && index === runs[run]![0]) {
-        out.push(runs[run]![2]);
+        groupAgentMessages([runs[run]![2]], out);
         index = runs[run++]![1] - 1;
-      } else out.push(shaped[index]!);
+      } else groupAgentMessages([shaped[index]!], out);
     }
-    ends.push(out.length);
+    ends.push({ count: out.length, row: out.at(-1) });
   }
   return {
     source: rows,
@@ -308,7 +306,6 @@ export function turnViewFrom(
     lineBelow,
     working,
     sessionStatus,
-    changedBeforeLast,
     ...(waitingSteers ? { waitingSteers } : {}),
     ...(waiting ? { waiting } : {}),
     lead,

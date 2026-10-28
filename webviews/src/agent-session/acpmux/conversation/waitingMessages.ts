@@ -56,51 +56,57 @@ export function groupWaitingTurn(tail: readonly AcpmuxRow[], last?: readonly Acp
   return card === before ? last! : [card];
 }
 
-/// Consecutive received agent messages in the transcript get the same quiet fold as messages
-/// waiting in the queue. The records remain individual rows inside the fold, so sender identity,
-/// Reply and Find still belong to the message that acpmux recorded. A non-message row ends a run.
-export function groupAgentMessages(rows: readonly AcpmuxRow[], last?: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
-  const previous = new Map(
-    (last ?? [])
-      .filter((row) => row.kind === WAITING_MESSAGES && row.waiting?.delivery === "chat")
-      .map((row) => [row.id, row] as const),
-  );
-  const out: AcpmuxRow[] = [];
-  let run: AcpmuxRow[] = [];
-  const flush = () => {
-    if (run.length < 2) out.push(...run);
-    else {
-      const id = `messages-${run[0]!.id}`;
-      const before = previous.get(id);
-      const oldRows = before?.waiting?.rows;
-      const same = oldRows?.length === run.length && oldRows.every((row, index) => row === run[index]);
-      if (before && same) out.push(before);
-      else {
-        const lastRow = run[run.length - 1]!;
-        out.push({
-          id,
-          version: (before?.version ?? 0) + 1,
-          at: run[0]!.at,
-          kind: WAITING_MESSAGES,
-          text: run.map((row) => (row.incoming?.kind === "message" ? row.incoming.message.text : "")).join("\n\n"),
-          untyped: true,
-          joined: run.map((row) => row.id),
-          waiting: { delivery: "chat", rows: run },
-          ...(lastRow.lastTurn ? { lastTurn: true } : {}),
-        });
-      }
-    }
-    run = [];
-  };
+/// Each unchanged prefix/message pair keeps its fold. Weak keys let discarded transcript
+/// rows and their folds go away; a changed message object builds a new fold under the same id.
+const messageFolds = new WeakMap<AcpmuxRow, WeakMap<AcpmuxRow, AcpmuxRow>>();
+
+const chatMessage = (row: AcpmuxRow) =>
+  row.kind === "user" && row.incoming?.kind === "message" && row.steer !== "waiting";
+
+/// Append newly shaped rows to the turn builder's output, folding adjacent received messages.
+/// The builder already copies its unchanged prefix once; this consumes only the rebuilt suffix,
+/// never scans that prefix or copies it again. A streaming assistant/status row is one visit,
+/// regardless of its object identity or the number of historical folds.
+/// `out` is the builder's fresh array, never a previously published snapshot.
+export function groupAgentMessages(
+  rows: Iterable<AcpmuxRow>,
+  out: AcpmuxRow[] = [],
+  visit?: (row: AcpmuxRow) => void,
+): AcpmuxRow[] {
   for (const row of rows) {
-    if (row.kind === "user" && row.incoming?.kind === "message") run.push(row);
-    else {
-      flush();
-      out.push(row);
-    }
+    visit?.(row);
+    const before = out.at(-1);
+    const prefix =
+      before?.kind === WAITING_MESSAGES && before.waiting?.delivery === "chat"
+        ? before.waiting.rows
+        : before && chatMessage(before)
+          ? [before]
+          : undefined;
+    if (before && prefix && chatMessage(row)) {
+      let pairs = messageFolds.get(before);
+      if (!pairs) messageFolds.set(before, (pairs = new WeakMap()));
+      let fold = pairs.get(row);
+      if (!fold) {
+        const members = [...prefix, row];
+        fold = {
+          id: `messages-${members[0]!.id}`,
+          version: ++version,
+          at: members[0]!.at,
+          kind: WAITING_MESSAGES,
+          text: members
+            .map((member) => (member.incoming?.kind === "message" ? member.incoming.message.text : ""))
+            .join("\n\n"),
+          untyped: true,
+          joined: members.map((member) => member.id),
+          waiting: { delivery: "chat", rows: members },
+          ...(row.lastTurn ? { lastTurn: true } : {}),
+        };
+        pairs.set(row, fold);
+      }
+      out[out.length - 1] = fold;
+    } else out.push(row);
   }
-  flush();
-  return out.length === rows.length && out.every((row, index) => row === rows[index]) ? rows : out;
+  return out;
 }
 
 /// Where the steers that wait were in the running turn's drawn rows last time, and the cards their

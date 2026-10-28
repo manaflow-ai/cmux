@@ -52,7 +52,7 @@ import {
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { WaitingMessagesCard } from "./conversation/WaitingMessagesCard";
-import { groupAgentMessages, groupWaitingTurn } from "./conversation/waitingMessages";
+import { groupWaitingTurn } from "./conversation/waitingMessages";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
@@ -5133,15 +5133,10 @@ function AcpmuxPane() {
   );
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
-  const turnRowsChangedBeforeLast = useRef(true);
-  const lastTurnRowsOuterInputs = useRef<
-    { chatShellRuns: typeof chatShellRuns; panelAsks: typeof panelAsks } | undefined
-  >(undefined);
   /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
   const sessionStatus = useSessionStatus();
   const turnRowsShown = useMemo(() => {
     if (childRows) {
-      turnRowsChangedBeforeLast.current = true;
       return withoutAskedCalls(withoutQuietThoughts(childRows), panelAsks);
     }
     const startedRows = withStartedSessions(sourceRows, started, startedCache.current);
@@ -5163,13 +5158,6 @@ function AcpmuxPane() {
         },
         last?.turns,
       );
-      const previousOuter = lastTurnRowsOuterInputs.current;
-      turnRowsChangedBeforeLast.current =
-        turns.changedBeforeLast ||
-        previousOuter === undefined ||
-        previousOuter.chatShellRuns !== chatShellRuns ||
-        previousOuter.panelAsks !== panelAsks;
-      lastTurnRowsOuterInputs.current = { chatShellRuns, panelAsks };
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
       lastTurns.current = { turns, subagents };
       // After the turns: a live turn's status reads its last row, the call's included.
@@ -5191,30 +5179,6 @@ function AcpmuxPane() {
     subagentTray,
     workflowLabsEnabled,
   ]);
-  // Consecutive received agent messages stay quiet until opened as one fold. The card keeps the
-  // original rows inside it, so each sender's shared presentation and actions remain unchanged.
-  const lastAgentMessageRows = useRef<readonly AcpmuxRow[] | undefined>(undefined);
-  const lastAgentMessageInput = useRef<readonly AcpmuxRow[] | undefined>(undefined);
-  const agentMessageRows = useMemo(() => {
-    const previousInput = lastAgentMessageInput.current;
-    const tail = turnRowsShown.at(-1);
-    // Assistant streaming updates do not alter a received-message run. Keep the previous grouping
-    // without another transcript pass; a newly delivered message is a user tail and takes the slow
-    // path below. This keeps the message fold out of the per-token transcript path.
-    if (
-      previousInput &&
-      lastAgentMessageRows.current &&
-      !turnRowsChangedBeforeLast.current &&
-      previousInput.length === turnRowsShown.length &&
-      previousInput.at(-1) === tail &&
-      !(tail?.kind === "user" && tail.incoming?.kind === "message")
-    )
-      return lastAgentMessageRows.current;
-    const grouped = groupAgentMessages(turnRowsShown, lastAgentMessageRows.current);
-    lastAgentMessageInput.current = turnRowsShown;
-    lastAgentMessageRows.current = grouped;
-    return grouped;
-  }, [turnRowsShown]);
   // Another agent's messages waiting in the queue: their received cards after the running turn, in
   // the queue's order (conversation/queuedMessages.ts), never composer-queue rows; two or more, one
   // card that holds them (conversation/waitingMessages.ts). A chat with none keeps its rows as they
@@ -5227,8 +5191,8 @@ function AcpmuxPane() {
     return (lastQueuedTail.current = groupWaitingTurn(lastQueuedRows.current, lastQueuedTail.current));
   }, [childRows, snapshot.queue]);
   const transcriptRows = useMemo(
-    () => (queuedRows.length ? [...agentMessageRows, ...queuedRows] : agentMessageRows),
-    [agentMessageRows, queuedRows],
+    () => (queuedRows.length ? [...turnRowsShown, ...queuedRows] : turnRowsShown),
+    [turnRowsShown, queuedRows],
   );
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's
