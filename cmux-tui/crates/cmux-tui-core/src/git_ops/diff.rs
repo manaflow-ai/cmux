@@ -518,14 +518,19 @@ fn pathspecs(fields: &Map<String, Value>) -> Result<Vec<String>, ResourceError> 
                 .components()
                 .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
             if inside {
-                Ok(Path::new(raw)
+                let normalized = Path::new(raw)
                     .components()
                     .filter_map(|part| match part {
                         Component::Normal(name) => Some(name.to_string_lossy()),
                         _ => None,
                     })
                     .collect::<Vec<_>>()
-                    .join("/"))
+                    .join("/");
+                Ok(if normalized.is_empty() && !raw.is_empty() {
+                    ".".to_owned()
+                } else {
+                    normalized
+                })
             } else {
                 Err(ResourceError::validation_invalid(
                     Some("paths"),

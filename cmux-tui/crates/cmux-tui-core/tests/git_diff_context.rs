@@ -128,6 +128,25 @@ fn cmux_next_git_diff_context_lines_give_the_whole_file() {
     assert!(text.contains("\n line 1\n") && text.contains("\n line 30\n"), "{text}");
     assert!(text.contains("\n-line 15\n+line 15 changed\n"), "{text}");
 
+    // A repository-root pathspec is a directory filter, not an empty
+    // pathspec. Normalizing ./file must keep both . and ./ working too.
+    for paths in [json!(["."]), json!(["./"])] {
+        let root = client.read(
+            "git.diff",
+            json!({"path": path, "scope": "uncommitted", "include_patch": true, "paths": paths}),
+        );
+        assert_eq!(root["files"].as_array().map(Vec::len), Some(2), "{root}");
+        assert!(root["files"].as_array().unwrap().iter().all(|file| {
+            file["patch"].as_str().is_some_and(|patch| !patch.is_empty())
+        }), "{root}");
+    }
+    let directory = client.read(
+        "git.diff",
+        json!({"path": path, "scope": "uncommitted", "include_patch": true, "paths": ["./src/"]}),
+    );
+    assert_eq!(directory["files"].as_array().map(Vec::len), Some(1), "{directory}");
+    assert_eq!(directory["files"][0]["path"], "src/a.txt");
+
     mux.shutdown();
     server::cleanup(&socket);
     let _ = std::fs::remove_dir_all(&dir);
