@@ -57,11 +57,12 @@ if [[ -z "$app" || ! -d "$app" ]]; then
 fi
 ls -l "$app/Contents/Resources/bin/" | grep -E "cmux-holder|cmux-tui-host" || echo "holder-dogfood: the bundle has no cmux-holder"
 python3 scripts/cmux-next/bench_launch.py session || { echo "holder-dogfood: no GUI session on this host" >&2; exit 1; }
-vdisplay_pid="" dogfood_pid=""
+vdisplay_pid="" dogfood_pid="" tee_pid=""
 # shellcheck disable=SC2329 # run by the traps below
 stop_vdisplay() {
   if [[ -n "$dogfood_pid" ]]; then kill -TERM "$dogfood_pid" 2>/dev/null || true; wait "$dogfood_pid" 2>/dev/null || true; fi  # the dogfood this script started
-  dogfood_pid=""
+  if [[ -n "$tee_pid" ]]; then wait "$tee_pid" 2>/dev/null || true; fi  # its tee ends at the fifo's EOF
+  dogfood_pid="" tee_pid=""
   if [[ -n "$vdisplay_pid" ]]; then kill "$vdisplay_pid" 2>/dev/null || true; wait "$vdisplay_pid" 2>/dev/null || true; fi  # the helper this script started
   vdisplay_pid=""
 }
@@ -94,11 +95,18 @@ if [[ -n "$vdisplay_hz" ]]; then
 fi
 status=0
 for model in $models; do
-  python3 scripts/cmux-next/holder-dogfood.py --app "$app" --model "$model" --out "$out/$model" \
-    > >(tee "$out/$model.log") &
+  # Both in the background through a fifo, so $! names each (bash 3.2 has no PID for a process
+  # substitution) and the script waits for the log's last line before it reads the log.
+  rm -f "$out/$model.fifo"; mkfifo "$out/$model.fifo"
+  tee "$out/$model.log" < "$out/$model.fifo" &
+  tee_pid=$!
+  python3 scripts/cmux-next/holder-dogfood.py --app "$app" --model "$model" --out "$out/$model" > "$out/$model.fifo" &
   dogfood_pid=$!
   wait "$dogfood_pid" || status=$?
   dogfood_pid=""
+  wait "$tee_pid" || status=$?
+  tee_pid=""
+  rm -f "$out/$model.fifo"
 done
 python3 - "$out" $models > "$PWD/holder-dogfood.json" <<'PY' || true
 import json, sys
