@@ -7,7 +7,8 @@ import Foundation
 /// (``AgentPaneDictation/payload(_:)``).
 ///
 /// Only a recording this pane's dictation wrote, in this chat, goes, and only once
-/// (``AgentPaneDictation/takeRecording(_:session:)``); any other path the page names is refused
+/// per try (``AgentPaneDictation/takeRecording(_:session:)``; a failed upload gives it back for the
+/// page's Retry); any other path the page names is refused
 /// before anything is read. The file streams from disk through the chat's own upload stager
 /// (``AgentPaneModel/onUploadStage``, the one a dropped file takes: `_acpmux/file_put` for a peer,
 /// `cmux link access upload` for Cloud), one chunk in memory at a time, and the page gets where it
@@ -26,7 +27,10 @@ struct AgentPaneDictationUpload {
         guard let file = model.onDictationRecording?(path, session) else {
             return AgentPaneReply.failure(code: "dictation.not_a_recording", message: "Not a recording this pane made.")
         }
-        return await send(file, through: stager, session: session)
+        let reply = await send(file, through: stager, session: session)
+        // A failed upload gives the recording back, so the chip's Retry can send it again.
+        if reply["ok"] as? Bool != true { model.onDictationRecordingUnsent?(file, session) }
+        return reply
     }
 
     /// Streams `file` through `stager` for chat `session`: `{path}` on the chat's machine, or the

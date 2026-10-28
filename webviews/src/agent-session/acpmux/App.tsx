@@ -6580,16 +6580,16 @@ function AcpmuxPane() {
       const recording = recordingAttachment(audio, name, chatIsLocal.current);
       if (recording) composerHandle.current?.attach(recording);
       else if (!audio.path) directClient.current?.notice(translate(recordingLeftOutNotice("tooLarge")));
-      else {
-        // A chat on another computer: the host sends its file there. A chip that comes back after
-        // the pane moved to another chat names a file on that chat's machine, not this one's.
-        const chat = sessionIdRef.current;
-        void remoteRecordingAttachment(audio, name, callNative).then((sent) => {
-          if (chat !== sessionIdRef.current) return;
-          if (sent) composerHandle.current?.attach(sent);
-          else directClient.current?.notice(translate(recordingLeftOutNotice("elsewhere")));
-        });
-      }
+      // A chat on another computer: the host sends its file there. Until it answers, the recording
+      // is a pending chip that a send (Return, Send, the auto-send) waits for, as for a dropped
+      // file still uploading; one that fails says so on its chip, with Retry. A chip made after the
+      // pane moved to another chat is that chat's (it names a file on that chat's machine).
+      else
+        composerHandle.current?.attachLater(
+          `${name}.wav`,
+          () => remoteRecordingAttachment(audio, name, callNative),
+          translate(recordingLeftOutNotice("elsewhere")),
+        );
     },
     omitted: (reason) => directClient.current?.notice(translate(recordingLeftOutNotice(reason))),
     // A recording that closed after the pane moved to another chat is the chat's it was made in:
