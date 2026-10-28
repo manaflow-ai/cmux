@@ -241,6 +241,7 @@ install -m 0755 scripts/merge-xcstrings.py "$MERGE_DRIVER_DIR/merge-xcstrings.py
 install -m 0755 scripts/merge-pbxproj.py "$MERGE_DRIVER_DIR/merge-pbxproj.py"
 install -m 0755 scripts/merge-baseline.py "$MERGE_DRIVER_DIR/merge-baseline.py"
 install -m 0755 scripts/merge-daemon-capabilities.py "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
+install -m 0755 scripts/merge-keyed-json.py "$MERGE_DRIVER_DIR/merge-keyed-json.py"
 install -m 0644 scripts/ci/merge_main_resolver.py "$MERGE_DRIVER_DIR/ci/merge_main_resolver.py"
 install -m 0755 scripts/normalize-pbxproj.py "$MERGE_DRIVER_DIR/normalize-pbxproj.py"
 printf -v XCSTRINGS_DRIVER '%q -I %q %%O %%A %%B %%P %%L' \
@@ -251,6 +252,8 @@ printf -v BASELINE_DRIVER '%q -I %q %%O %%A %%B %%P' \
     "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-baseline.py"
 printf -v CAPABILITIES_DRIVER '%q -I %q %%O %%A %%B %%P' \
     "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
+printf -v KEYED_JSON_DRIVER '%q -I %q %%O %%A %%B %%P' \
+    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-keyed-json.py"
 git config merge.xcstrings-v2.name "Xcode string catalog (trusted key-wise three-way merge)"
 git config merge.xcstrings-v2.driver "$XCSTRINGS_DRIVER"
 # Neutralize the checkout-relative command installed by older setup versions.
@@ -270,6 +273,9 @@ echo "==> ratchet baseline merge driver installed (merge.cmux-baseline-v1.driver
 git config merge.cmux-capabilities-v1.name "Daemon capability export (trusted per-list set merge)"
 git config merge.cmux-capabilities-v1.driver "$CAPABILITIES_DRIVER"
 echo "==> daemon capability merge driver installed (merge.cmux-capabilities-v1.driver)."
+git config merge.cmux-keyed-json-v1.name "Keyed JSON document (trusted key-wise and id-wise three-way merge)"
+git config merge.cmux-keyed-json-v1.driver "$KEYED_JSON_DRIVER"
+echo "==> keyed JSON merge driver installed (merge.cmux-keyed-json-v1.driver)."
 # Generated web bundles keep the current branch's copy and are rebuilt by
 # scripts/cmux-next/regenerate-web-bundles.sh. `true` is a git no-op, not a
 # checkout path, so this driver needs no trusted copy.

@@ -89,6 +89,7 @@ jobs:
             scripts/merge-pbxproj.py
             scripts/merge-baseline.py
             scripts/merge-daemon-capabilities.py
+            scripts/merge-keyed-json.py
             scripts/ci/merge_main_resolver.py
             scripts/normalize-pbxproj.py
           sparse-checkout-cone-mode: false
@@ -125,10 +126,12 @@ jobs:
           printf -v pbxproj '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-pbxproj.py"
           printf -v baseline '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-baseline.py"
           printf -v capabilities '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-daemon-capabilities.py"
+          printf -v keyed_json '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-keyed-json.py"
           git config merge.xcstrings-v2.driver "$xcstrings"
           git config merge.pbxproj-v1.driver "$pbxproj"
           git config merge.cmux-baseline-v1.driver "$baseline"
           git config merge.cmux-capabilities-v1.driver "$capabilities"
+          git config merge.cmux-keyed-json-v1.driver "$keyed_json"
           git fetch --quiet origin "$BASE_SHA"
           if git merge --no-commit --no-ff "$BASE_SHA" >/dev/null 2>&1; then
             echo "skip=false" >> "$GITHUB_OUTPUT"

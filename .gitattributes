@@ -105,6 +105,16 @@ cmux-tui/bindings/zig/src/raw/generated/** merge=cmux-generated-v1
 # Same trusted registration as xcstrings-v2; an unconfigured clone merges it
 # by line, which conflicts instead of dropping an entry.
 plans/cmux-next/daemon-capabilities.json merge=cmux-capabilities-v1
+# The chrome-parity design result is one 1.6 MB JSON line; every task branch
+# edits only its own task, but any two edits conflicted under a line merge.
+# scripts/merge-keyed-json.py merges it key by key and tasks by "id", writes
+# it back in the same one-line format, and conflicts only when both sides
+# changed the same field. Same trusted registration as xcstrings-v2.
+plans/cmux-next/chrome-parity/design-result.json merge=cmux-keyed-json-v1
+# Same for the host ops list: branches append exports and events at the end;
+# its lists merge by "name", "kind" and "site" (gen-chromium-host-wire.py still
+# validates every event value against the header after a merge).
+plans/cmux-next/chromium-host-ops.json merge=cmux-keyed-json-v1
 # Ratchet baselines list known debt per entry. Keeping one side whole would
 # drop the other side's fixes (style ratchets only warn under their ceiling),
 # so scripts/merge-baseline.py merges entry by entry and writes a conflict only
