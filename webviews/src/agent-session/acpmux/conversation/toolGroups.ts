@@ -112,18 +112,15 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     const key = call && mcpKey(call);
     const rememberMessageFiles = () => {
       if (!tool) return;
-      // Observational calls, including MCP calls with these ACP kinds, cannot replace a file.
-      // Their status or missing timestamps must not invalidate a producer or block a later one.
-      // Commands, diffs and unknown capabilities still use the conservative mutation path.
-      const parsedMcp = !tool.kind && !tool.command && mcpCall(tool);
-      const observationalMcp = parsedMcp ? mcpIsObservational(parsedMcp) : false;
-      if (
-        !tool.command &&
-        !tool.diffs?.length &&
-        !tool.background &&
-        (observationalMcp || tool.kind === "read" || tool.kind === "search" || tool.kind === "fetch")
-      )
-        return;
+      // A parsed MCP action must itself be observational: a generic ACP read/search/fetch kind
+      // cannot make write_file or read_and_write safe. Explicit mutation kinds still invalidate.
+      // Observational status or missing timestamps cannot replace a producer or block a later one.
+      const parsedMcp = !tool.command && mcpCall(tool);
+      const observationalKind = tool.kind === "read" || tool.kind === "search" || tool.kind === "fetch";
+      const observational = parsedMcp
+        ? mcpIsObservational(parsedMcp) && (!tool.kind || observationalKind)
+        : observationalKind;
+      if (!tool.command && !tool.diffs?.length && !tool.background && observational) return;
       const endedAt = tool.background ? tool.background.endedAt : tool.endedAt;
       const rememberMutation = () => {
         const ended = tool.background

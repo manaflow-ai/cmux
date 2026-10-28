@@ -92,7 +92,7 @@ export function mcpAction(call: McpCall): McpAction {
   return VERBS[words(call.tool)[0] ?? ""] ?? "call";
 }
 
-/// Whether a kindless MCP call is explicitly observational. The first verb supplies the parsed
+/// Whether a parsed MCP call is explicitly observational, regardless of its generic ACP kind. The first verb supplies the parsed
 /// action; a later mutating word makes names such as `read_and_write` fail closed rather than
 /// becoming read-only because they happen to start with `read`.
 const MCP_MUTATING_WORDS = new Set([
