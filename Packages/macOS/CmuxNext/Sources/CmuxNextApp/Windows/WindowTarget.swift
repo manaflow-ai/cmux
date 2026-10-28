@@ -117,6 +117,16 @@ extension WindowManager {
         return registry.value.recency.lazy.compactMap { self.controller(for: $0) }.first { $0.window != nil } ?? controllers.last
     }
 
+    /// The app's windows front to back from its own record, never a WindowServer query (audit H6,
+    /// H15: `NSApp.orderedWindows` on the input path): a window the registry does not list yet (the
+    /// launch window) first, then the registry's recency, which every order-in
+    /// (`WindowActivation.didOrder`) and key change (`didActivate`) updates.
+    var frontToBack: [WindowController] {
+        let recency = registry.value.recency
+        let unlisted = controllers.filter { controller in !recency.contains(controller.state.id) }
+        return unlisted + recency.compactMap { controller(for: $0) }
+    }
+
     /// The window a sheet, toast, HUD or panel of the current run or input shows on: the run's window
     /// (``active``), else, with no cmux window open, the key window (Settings, a standalone panel).
     var presentingWindow: NSWindow? { active?.window ?? services.keyWindowSource() }

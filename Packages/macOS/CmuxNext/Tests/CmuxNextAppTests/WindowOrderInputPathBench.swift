@@ -65,8 +65,8 @@ import Testing
         defer { world.close() }
         let drag = world.services.dragSession
         let overlap = CGPoint(x: 200 + 40, y: 200 + 40)
-        let picked = TabDragWindowPick.frontmost(at: overlap, in: drag.windowOrder(source: nil, ghost: nil))
-        Self.time("tab-drag-window-order") { _ = TabDragWindowPick.frontmost(at: overlap, in: drag.windowOrder(source: nil, ghost: nil)) }
+        let picked = TabDragWindowPick.frontmost(at: overlap, in: drag.windowOrder(ghost: nil))
+        Self.time("tab-drag-window-order") { _ = TabDragWindowPick.frontmost(at: overlap, in: drag.windowOrder(ghost: nil)) }
         #expect(picked == world.windows[1].state.id, "the drag picked \(picked ?? "no window") over the front window 2")
     }
 

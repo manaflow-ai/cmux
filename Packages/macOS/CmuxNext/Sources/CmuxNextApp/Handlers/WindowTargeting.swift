@@ -1,19 +1,23 @@
 import AppKit
 
 /// The cmux window a window action (Zoom, Select Next/Previous Window, Close
-/// All Windows) acts on: the key window, else the frontmost cmux window,
+/// All Windows) acts on: the run's window (`WindowTarget`), else the frontmost cmux window,
 /// never simply the first window opened (nxdog47: Zoom hit the first window
 /// while the app was in the background).
 struct WindowTargeting {
+    /// The run's window (`WindowManager.active`), resolved at its entrypoint.
     var keyWindow: NSWindow?
-    /// Every app window, front to back (`NSApp.orderedWindows`).
+    /// The app's windows front to back, from the app's own record (`WindowManager.frontToBack`).
     var ordered: [NSWindow]
     /// The cmux shell windows.
     var shells: [NSWindow]
 
+    /// The targeting of a run: its window, and the shown cmux windows front to back. No WindowServer
+    /// query (audit H15): Cmd-` and Zoom read the app's own order record.
     @MainActor
-    static func current(_ shells: [NSWindow]) -> WindowTargeting {
-        WindowTargeting(keyWindow: NSApp.keyWindow, ordered: NSApp.orderedWindows, shells: shells)
+    static func current(_ windows: WindowManager) -> WindowTargeting {
+        let ordered = windows.frontToBack.compactMap(\.window)
+        return WindowTargeting(keyWindow: windows.active?.window, ordered: ordered, shells: ordered.filter(\.isVisible))
     }
 
     var target: NSWindow? {

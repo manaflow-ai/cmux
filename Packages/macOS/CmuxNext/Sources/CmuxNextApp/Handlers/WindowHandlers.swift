@@ -88,7 +88,7 @@ enum WindowHandlers {
     }
 
     private static func targeting(_ context: AppActionContext) -> WindowTargeting {
-        WindowTargeting.current(context.services.windows.controllers.compactMap(\.window).filter(\.isVisible))
+        WindowTargeting.current(context.services.windows)
     }
 
     /// The cmux window `offset` places from the key or frontmost one, wrapping.

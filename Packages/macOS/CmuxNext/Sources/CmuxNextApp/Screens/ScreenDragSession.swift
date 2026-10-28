@@ -98,12 +98,13 @@ final class ScreenDragSession {
         event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? event.locationInWindow
     }
 
+    /// The front cmux window at `point`, from the app's own order record (audit H6: no WindowServer query
+    /// per pointer event).
     private func window(at point: CGPoint) -> WindowController? {
-        let controllers = services.windows.controllers
-        for window in NSApp.orderedWindows where window.isVisible && !window.isMiniaturized && window.frame.contains(point) {
-            if let controller = controllers.first(where: { $0.window === window }) { return controller }
+        services.windows.frontToBack.first { controller in
+            guard let window = controller.window else { return false }
+            return window.isVisible && !window.isMiniaturized && window.frame.contains(point)
         }
-        return nil
     }
 
     private func target(for controller: WindowController) -> SidebarTabDropTarget {

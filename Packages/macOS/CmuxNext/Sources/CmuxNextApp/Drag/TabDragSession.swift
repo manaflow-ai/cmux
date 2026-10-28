@@ -349,7 +349,7 @@ final class TabDragSession: NSObject {
     /// Chromium page windows, the overlay panel and the ghost are looked
     /// through (`TabDragWindowPick`).
     func window(at point: CGPoint) -> WindowController? {
-        window(at: point, in: windowOrder(source: nil, ghost: nil))
+        window(at: point, in: windowOrder(ghost: nil))
     }
 
     /// Frontmost app window containing `point` in `order` (one walk of the windows serves a pointer event).
@@ -361,28 +361,19 @@ final class TabDragSession: NSObject {
     /// The app's windows front to back, read once per pointer event: `drag`'s ghost and the source
     /// window's own children (its pages, its overlay) never hide the ghost's overlay.
     func windowOrder(for drag: Drag) -> [TabDragWindowPick.Candidate] {
-        windowOrder(source: drag.source.window?.window, ghost: drag.ghost.panel)
+        windowOrder(ghost: drag.ghost.panel)
     }
 
-    func windowOrder(source: NSWindow?, ghost: NSWindow?) -> [TabDragWindowPick.Candidate] {
-        let controllers = services.windows.controllers
-        return NSApp.orderedWindows.map { window in
-            TabDragWindowPick.Candidate(frame: window.frame,
-                                        controllerID: controllers.first { $0.window === window }.map { $0.state.id },
-                                        isVisible: window.isVisible && !window.isMiniaturized,
-                                        occludes: window !== ghost && !Self.isChild(window, of: source))
+    /// The cmux windows front to back from the app's own order record (`WindowManager.frontToBack`), never
+    /// a WindowServer query per pointer event (audit H6). A window's own children (its pages, its overlay)
+    /// sit inside its frame, so the window stands for them; the ghost is never a candidate. The app's other
+    /// windows (panels, the palette) never hold a drop and are not listed.
+    func windowOrder(ghost: NSWindow?) -> [TabDragWindowPick.Candidate] {
+        services.windows.frontToBack.compactMap { controller in
+            guard let window = controller.window, window !== ghost else { return nil }
+            return TabDragWindowPick.Candidate(frame: window.frame, controllerID: controller.state.id,
+                                               isVisible: window.isVisible && !window.isMiniaturized)
         }
-    }
-
-    /// Whether `window` is a child window of `parent`, at any depth.
-    static func isChild(_ window: NSWindow, of parent: NSWindow?) -> Bool {
-        guard let parent else { return false }
-        var current = window.parent
-        while let next = current {
-            if next === parent { return true }
-            current = next.parent
-        }
-        return false
     }
 
     /// Drop targets of `controller` in priority order: sidebar, the strips
