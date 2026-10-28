@@ -13,12 +13,7 @@
 import { useSyncExternalStore } from "react";
 import { isArm } from "../../experiments/experiment";
 import { threadMinimapLayout } from "./threadMinimap/layout.experiment";
-import {
-  applyInspectorOrder,
-  DEFAULT_INSPECTOR_ORDER,
-  INSPECTOR_ORDER_SETTING_KEY,
-  inspectorOrderHostAvailable,
-} from "./inspector/sectionOrder";
+import { applyInspectorOrder, INSPECTOR_ORDER_SETTING_KEY } from "./inspector/sectionOrder";
 
 /// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
 export type ThreadMinimapArm = keyof typeof threadMinimapLayout.arms;
@@ -244,8 +239,7 @@ export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void 
 /// The host's `display` event: the page follows at once.
 export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
-  if (INSPECTOR_ORDER_SETTING_KEY in raw) applyInspectorOrder(raw[INSPECTOR_ORDER_SETTING_KEY]);
-  else if (inspectorOrderHostAvailable()) applyInspectorOrder(DEFAULT_INSPECTOR_ORDER);
+  applyInspectorOrder(raw[INSPECTOR_ORDER_SETTING_KEY]);
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const threadMinimap = resolveThreadMinimapArm(raw);

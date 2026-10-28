@@ -31,7 +31,7 @@ await requireBrowserLane("chat-inspector-server-columns.test.ts", async () => {
     browser = await chromium.launch({ headless: true });
     await warmGalleryFrame(vite, "agent-pane.chat-inspector", {
       browser,
-      params: { variant: "full", theme: "light" },
+      params: { variant: "full", colorScheme: "light" },
     });
   });
 
@@ -44,7 +44,7 @@ await requireBrowserLane("chat-inspector-server-columns.test.ts", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 420, height: 900 } });
     await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame("agent-pane.chat-inspector", { variant: "full", theme: "light" })}`,
+      `http://127.0.0.1:${port}${galleryFrame("agent-pane.chat-inspector", { variant: "full", colorScheme: "light" })}`,
     );
     await page.locator(".acpmux-chat-inspector-server__dot").first().waitFor();
     const metrics = await page
@@ -76,7 +76,7 @@ await requireBrowserLane("chat-inspector-server-columns.test.ts", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 420, height: 900 } });
     await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame("agent-pane.chat-inspector", { variant: "cards-balanced", theme: "light" })}`,
+      `http://127.0.0.1:${port}${galleryFrame("agent-pane.chat-inspector", { variant: "cards-balanced", colorScheme: "light" })}`,
     );
     const handle = page.locator('[data-section-card="changes"] .acpmux-chat-inspector-card__handle');
     const target = page.locator('[data-section-card="context"]');
@@ -103,18 +103,14 @@ await requireBrowserLane("chat-inspector-server-columns.test.ts", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 420, height: 900 } });
     await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame("agent-pane.chat-inspector", { variant: "cards-balanced", theme: "light" })}`,
+      `http://127.0.0.1:${port}${galleryFrame("agent-pane.chat-inspector", { variant: "cards-balanced", colorScheme: "light" })}`,
     );
     const section = page.locator('section[data-section="outputs"]');
     await section.waitFor();
     await section.evaluate((node) => {
       const list = node.querySelector<HTMLElement>(".acpmux-chat-inspector-scroll")!;
-      for (let index = 0; index < 24; index++) {
-        const row = document.createElement("div");
-        row.textContent = `scroll fixture ${index}`;
-        row.style.height = "28px";
-        list.append(row);
-      }
+      const first = list.querySelector("li")!;
+      for (let index = 0; index < 24; index++) list.append(first.cloneNode(true));
     });
     await page.waitForFunction(
       (node) => (node as HTMLElement).scrollHeight > (node as HTMLElement).clientHeight,
@@ -139,6 +135,20 @@ await requireBrowserLane("chat-inspector-server-columns.test.ts", async () => {
       (node) => getComputedStyle(node as Element, "::after").opacity === "1",
       await edge.elementHandle(),
     );
+    // The disclosure's reset/hover styles must not make the sticky header transparent.
+    for (const hovered of [false, true]) {
+      if (hovered) await edge.hover();
+      expect(
+        await edge.evaluate((node) => {
+          const canvas = document.createElement("canvas");
+          const context = canvas.getContext("2d")!;
+          context.fillStyle = getComputedStyle(node).backgroundColor;
+          context.fillRect(0, 0, 1, 1);
+          return context.getImageData(0, 0, 1, 1).data[3];
+        }),
+      ).toBe(255);
+    }
+
     if (process.env.CMUX_CAPTURE_DIR) {
       await page.screenshot({ path: path.join(process.env.CMUX_CAPTURE_DIR, "session-info-scroll-scrolled.png") });
     }
@@ -147,6 +157,26 @@ await requireBrowserLane("chat-inspector-server-columns.test.ts", async () => {
       (node) => getComputedStyle(node as Element, "::after").opacity === "0",
       await edge.elementHandle(),
     );
+    await page.close();
+  });
+
+  test("linked and plain Sources share the same icon gap", async () => {
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    const page = await browser!.newPage({ viewport: { width: 420, height: 900 } });
+    await page.goto(
+      `http://127.0.0.1:${port}${galleryFrame("agent-pane.chat-inspector", { variant: "cards-balanced", colorScheme: "light" })}`,
+    );
+    const sources = page.locator(".acpmux-chat-inspector-source");
+    await sources.first().waitFor();
+    const gaps = await sources.evaluateAll((rows) =>
+      rows.map((row) => {
+        const label = row.querySelector(".acpmux-chat-inspector-source__label")!;
+        const icon = row.querySelector("svg")!;
+        return label.getBoundingClientRect().left - icon.getBoundingClientRect().right;
+      }),
+    );
+    expect(gaps.length).toBeGreaterThan(2);
+    for (const gap of gaps) expect(gap).toBeCloseTo(8);
     await page.close();
   });
 
@@ -159,7 +189,7 @@ await requireBrowserLane("chat-inspector-server-columns.test.ts", async () => {
     ] as const) {
       const page = await browser!.newPage({ viewport: { width: 420, height: 900 } });
       await page.goto(
-        `http://127.0.0.1:${port}${galleryFrame("agent-pane.chat-inspector", { variant, theme: "light" })}`,
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.chat-inspector", { variant, colorScheme: "light" })}`,
       );
       await page.locator(".acpmux-chat-inspector-task__wave.acpmux-wave-item").first().waitFor();
       expect(

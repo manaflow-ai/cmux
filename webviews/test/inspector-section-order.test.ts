@@ -19,33 +19,101 @@ function memory(raw: string | null = null) {
   };
 }
 
-test("Changes above Context writes through the native preference and survives a relaunch", () => {
+test("Changes above Context writes through the native preference and survives a relaunch", async () => {
   const native: unknown[] = [];
-  registerInspectorOrderHost((value) => native.push(value));
+  registerInspectorOrderHost(async (value) => {
+    native.push(value);
+  });
   const storage = memory();
   try {
     const first = createInspectorOrderStore(() => storage);
-    first.set(moveSection(first.current(), "changes", "context"));
+    await first.set(moveSection(first.current(), "changes", "context"));
     expect(first.current().slice(0, 3)).toEqual(["environment", "changes", "context"]);
     expect(native).toEqual([first.current()]);
     // A new page receives the persisted native value through its display event before mounting.
     applyInspectorOrder(native[0]);
     expect(createInspectorOrderStore(() => memory()).current()).toEqual(first.current());
-    expect(storage.getItem("cmux.agentPane.inspector.sections")).toBeNull();
+    expect(storage.getItem(INSPECTOR_ORDER_KEY)).toBeNull();
   } finally {
     registerInspectorOrderHost(undefined);
   }
 });
 
 test("resetting native settings clears the fallback and restores the default after relaunch", () => {
-  const storage = memory(JSON.stringify(["changes", "context"]));
+  const storage = memory();
   const native = moveSection(DEFAULT_INSPECTOR_ORDER, "changes", "context");
-  registerInspectorOrderHost(() => undefined);
+  registerInspectorOrderHost(async () => undefined);
   try {
     setChatDisplay({ [INSPECTOR_ORDER_SETTING_KEY]: native });
     expect(createInspectorOrderStore(() => storage).current()).toEqual(native);
+    storage.setItem(INSPECTOR_ORDER_KEY, JSON.stringify(native));
     setChatDisplay({});
     expect(createInspectorOrderStore(() => storage).current()).toEqual(DEFAULT_INSPECTOR_ORDER);
+    expect(storage.getItem(INSPECTOR_ORDER_KEY)).toBeNull();
+  } finally {
+    registerInspectorOrderHost(undefined);
+  }
+});
+
+test.each([false, true])("rejected native writes survive reload (host advertises setting=%s)", async (advertises) => {
+  const storage = memory();
+  const host = async () => {
+    throw new Error("unsupported or managed setting");
+  };
+  registerInspectorOrderHost(host);
+  try {
+    setChatDisplay(advertises ? { [INSPECTOR_ORDER_SETTING_KEY]: DEFAULT_INSPECTOR_ORDER } : {});
+    const first = createInspectorOrderStore(() => storage);
+    const next = moveSection(first.current(), "changes", "context");
+    await first.set(next);
+    expect(JSON.parse(storage.getItem(INSPECTOR_ORDER_KEY)!)).toEqual(next);
+    registerInspectorOrderHost(host); // A new page registers the same native route.
+    setChatDisplay(advertises ? { [INSPECTOR_ORDER_SETTING_KEY]: DEFAULT_INSPECTOR_ORDER } : {});
+    expect(createInspectorOrderStore(() => storage).current()).toEqual(next);
+  } finally {
+    registerInspectorOrderHost(undefined);
+  }
+});
+
+test("Reset removes a rejected fallback as well as the native setting", async () => {
+  const storage = memory();
+  registerInspectorOrderHost(async () => {
+    throw new Error("write rejected");
+  });
+  try {
+    setChatDisplay({ [INSPECTOR_ORDER_SETTING_KEY]: DEFAULT_INSPECTOR_ORDER });
+    const store = createInspectorOrderStore(() => storage);
+    await store.set(moveSection(DEFAULT_INSPECTOR_ORDER, "changes", "context"));
+    expect(storage.getItem(INSPECTOR_ORDER_KEY)).not.toBeNull();
+    setChatDisplay({}); // Reset All removes the native key, even when its value was the default.
+    store.applyExternal();
+    expect(storage.getItem(INSPECTOR_ORDER_KEY)).toBeNull();
+    registerInspectorOrderHost(async () => undefined);
+    setChatDisplay({});
+    expect(createInspectorOrderStore(() => storage).current()).toEqual(DEFAULT_INSPECTOR_ORDER);
+  } finally {
+    registerInspectorOrderHost(undefined);
+  }
+});
+
+test("native acknowledgement clears the fallback only after resolution", async () => {
+  const storage = memory();
+  let confirm!: () => void;
+  registerInspectorOrderHost(
+    () =>
+      new Promise<void>((resolve) => {
+        confirm = resolve;
+      }),
+  );
+  try {
+    const store = createInspectorOrderStore(() => storage);
+    const next = moveSection(DEFAULT_INSPECTOR_ORDER, "changes", "context");
+    const writing = store.set(next);
+    applyInspectorOrder(next); // Display can arrive before the RPC response.
+    expect(createInspectorOrderStore(() => storage).current()).toEqual(next);
+    expect(storage.getItem(INSPECTOR_ORDER_KEY)).not.toBeNull();
+    confirm();
+    await writing;
     expect(storage.getItem(INSPECTOR_ORDER_KEY)).toBeNull();
   } finally {
     registerInspectorOrderHost(undefined);
@@ -64,30 +132,33 @@ test("old or malformed storage keeps known order and appends missing sections", 
   ).toBe("changes,context,environment,connectors,sources,outputs,subagents,tasks");
 });
 
-test.each([false, true])("storage failure (readable=%s) keeps memory, stable snapshots and unsubscribe", (readable) => {
-  const unavailable = () => {
-    throw new Error("storage unavailable");
-  };
-  const store = createInspectorOrderStore(() => ({
-    getItem: readable ? () => null : unavailable,
-    setItem: unavailable,
-  }));
-  const original = store.current();
-  let notices = 0;
-  const unsubscribe = store.subscribe(() => notices++);
-  store.set(moveSection(original, "changes", "context"));
-  const changed = store.current();
-  expect(changed).toBe(store.current());
-  expect(changed).not.toEqual(original);
-  store.set(changed);
-  expect(notices).toBe(1);
-  unsubscribe();
-  const again = store.subscribe(() => {});
-  expect(store.current()).toBe(changed);
-  again();
-  store.set(original);
-  expect(notices).toBe(1);
-});
+test.each([false, true])(
+  "storage failure (readable=%s) keeps memory, stable snapshots and unsubscribe",
+  async (readable) => {
+    const unavailable = () => {
+      throw new Error("storage unavailable");
+    };
+    const store = createInspectorOrderStore(() => ({
+      getItem: readable ? () => null : unavailable,
+      setItem: unavailable,
+    }));
+    const original = store.current();
+    let notices = 0;
+    const unsubscribe = store.subscribe(() => notices++);
+    await store.set(moveSection(original, "changes", "context"));
+    const changed = store.current();
+    expect(changed).toBe(store.current());
+    expect(changed).not.toEqual(original);
+    await store.set(changed);
+    expect(notices).toBe(1);
+    unsubscribe();
+    const again = store.subscribe(() => {});
+    expect(store.current()).toBe(changed);
+    again();
+    await store.set(original);
+    expect(notices).toBe(1);
+  },
+);
 
 test("moves before and after without mutating the input; dropping on itself is stable", () => {
   const original = Object.freeze([...DEFAULT_INSPECTOR_ORDER]);

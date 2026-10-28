@@ -423,6 +423,14 @@ button.acpmux-chat-inspector-port:hover,
   appearance: none;
   transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
+.acpmux-chat-inspector-card .acpmux-chat-inspector-section[data-fade-top] .ui-scroll-edge-fade {
+  /* Keep scrolled rows behind the card's own opaque header fill. */
+  background: color-mix(
+    in srgb,
+    var(--glass-surface) 20%,
+    var(--acpmux-composer-solid, var(--agent-page-bg)) 80%
+  );
+}
 .acpmux-chat-inspector-section .ui-disclosure-trigger:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
@@ -777,6 +785,7 @@ button.acpmux-chat-inspector-port:hover,
   min-width: 0;
   display: flex;
   align-items: center;
+  gap: 8px;
   height: var(--ui-row-height);
   padding: 0 8px;
   border-radius: var(--acpmux-inspector-row-radius);

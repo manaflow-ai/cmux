@@ -1025,7 +1025,7 @@ export function ChatInspector({
   const cardOrder = useInspectorOrder();
   const moveCard = useCallback(
     (id: InspectorOrderId, target: InspectorOrderId, after = false) => {
-      setInspectorOrder(moveSection(cardOrder, id, target, after));
+      void setInspectorOrder(moveSection(cardOrder, id, target, after));
     },
     [cardOrder],
   );

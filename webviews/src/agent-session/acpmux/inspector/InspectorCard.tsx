@@ -86,6 +86,7 @@ export function InspectorCard({
       onDragEnd={clearDragState}
     >
       {children}
+      {/* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex, jsx-a11y/prefer-tag-over-role -- Focusable drag affordance; Arrow keys reorder, with no activation action. */}
       <div
         role="group"
         aria-roledescription="drag handle"
@@ -99,6 +100,7 @@ export function InspectorCard({
       >
         <span aria-hidden="true">⠿</span>
       </div>
+      {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex, jsx-a11y/prefer-tag-over-role */}
     </article>
   );
 }
