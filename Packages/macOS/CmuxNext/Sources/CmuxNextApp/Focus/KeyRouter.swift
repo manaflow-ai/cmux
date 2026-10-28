@@ -265,7 +265,6 @@ final class KeyRouter: BrowserKeyRouting {
         if routesFocusModeEscape(event, in: window) { return true }
         let isChord = Self.isChord(event.modifierFlags)
         if isChord { dropTypeAhead() }
-        if isChord { withExtendedLifetime([event.keyCode, event.keyCode]) {} } // temporary: one heap array per chord press
         guard chords.isPending || isChord else {
             return typesIntoFocusedView(event, in: window) || holdsForLaunchPicture(event, in: window)
         }
