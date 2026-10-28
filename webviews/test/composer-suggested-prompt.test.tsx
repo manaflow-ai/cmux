@@ -75,7 +75,7 @@ function Chips() {
   return null;
 }
 
-async function render(snapshot: AcpmuxSnapshot, headerCwd?: string, onMode?: (id: string) => void) {
+async function render(snapshot: AcpmuxSnapshot, headerCwd?: string, onMode?: (id: string) => void, draft?: string) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   root ??= createRoot(host);
@@ -92,6 +92,7 @@ async function render(snapshot: AcpmuxSnapshot, headerCwd?: string, onMode?: (id
         }}
         onStop={() => {}}
         onMode={onMode}
+        draft={draft}
         onProject={() => {}}
         onNewChat={() => {}}
         localName="studio"
@@ -339,4 +340,43 @@ test("the + menu runs the advertised plan mode and opens the existing project ch
   const project = host.querySelector<HTMLElement>('[data-value="add.project"]')!;
   await act(async () => project.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
   expect(host.querySelector(".acpmux-location-button[aria-expanded=true]")).toBeTruthy();
+});
+
+test("the + menu keeps the full draft as a selected skill or goal's arguments", async () => {
+  const commands = [
+    { name: "review", description: "Review the change", source: "skill" as const },
+    { name: "goal", description: "Set a goal", source: "agent" as const },
+  ];
+  const snapshot = noChat([], { summary: { sessionId: "", cwd: APP } as never, commands });
+  for (const [row, command] of [
+    ["add.skill.review", "review"],
+    ["add.goal", "goal"],
+  ] as const) {
+    await render(snapshot, undefined, undefined, "Keep these words before the caret");
+    const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+    await act(async () => plus.click());
+    const choice = host.querySelector<HTMLElement>(`[data-value="${row}"]`)!;
+    await act(async () => choice.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+    expect(field().textContent).toContain(`/${command} Keep these words before the caret`);
+    await act(async () => root?.unmount());
+    root = undefined;
+    host.replaceChildren();
+  }
+});
+
+test("the + menu uses the current pane language for existing actions", async () => {
+  const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
+  const prior = globalThis.__cmuxPaneStrings;
+  globalThis.__cmuxPaneStrings = (await import("../src/agent-session/acpmux/generated/strings.json")).default;
+  try {
+    await act(async () => setPaneLanguage("de"));
+    await render(fresh([]));
+    const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+    await act(async () => plus.click());
+    expect(host.querySelector('[data-value="add.files"] .acpmux-menu-label')?.textContent).toBe("Dateien anhängen …");
+    expect(host.querySelector('[data-value="add.project"] .acpmux-menu-label')?.textContent).toBe("Projekt auswählen");
+  } finally {
+    await act(async () => setPaneLanguage("en"));
+    globalThis.__cmuxPaneStrings = prior;
+  }
 });

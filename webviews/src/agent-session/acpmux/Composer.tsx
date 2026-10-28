@@ -915,6 +915,15 @@ export function Composer({
     edit(next.text, next.caret);
     field.current?.focus();
   };
+  // A + row is chosen while a draft may already exist. The command starts the prompt and the
+  // entire draft becomes its arguments; the typed slash-completion path above replaces /word.
+  const pickFromPlus = (command: SlashCommand) => {
+    const existing = field.current?.value() ?? text;
+    const next = `/${command.name} ${existing}`;
+    pendingCaret.current = next.length;
+    edit(next, next.length);
+    field.current?.focus();
+  };
   /// The draft without what + wrote over it, while the text is still exactly that.
   const unwrapped = () => {
     const plus = plusDraft.current;
@@ -1873,6 +1882,7 @@ export function Composer({
                   ...composerPlusSections(
                     composerPlusRegistry({
                       commands,
+                      translate: t,
                       canCapture: Boolean(capture && allowImages),
                       canChooseProject: locationVisible && Boolean(projectChoices || onBrowseProject),
                       ...(planChoice && plan
@@ -1894,7 +1904,7 @@ export function Composer({
                   entries.length
                     ? [
                         {
-                          title: section === "add" ? "Add" : "Files and chats",
+                          title: section === "add" ? t(COMPOSER_LABELS.add) : t("files.search"),
                           choices: entries.map((entry): Choice => ({
                             id: entry.id,
                             name: entry.name,
@@ -1946,7 +1956,7 @@ export function Composer({
                                 else if (action === "searchFiles") setFindingFiles(true);
                                 else if (action === "composer.commands") openCommands();
                               },
-                              slash: pick,
+                              slash: pickFromPlus,
                             });
                           },
                         },
