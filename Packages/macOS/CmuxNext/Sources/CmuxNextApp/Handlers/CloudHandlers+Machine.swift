@@ -233,7 +233,8 @@ extension CloudHandlers {
                 return ["machine_id": .string(machineID), "machine_config": machineConfigAnswer(outcome, machineID: machineID)]
             }
         }
-        bind("cloudDeliverSecrets", registry, reason: reason) { invocation in try deliverSecrets(invocation, context) }
+        // Not only for Cloud: an own machine needs no sign-in (deliverSecrets checks it for a Cloud machine).
+        bind("cloudDeliverSecrets", registry, reason: { nil }) { invocation in try deliverSecrets(invocation, context) }
         bind("palette.cloud.status", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.stats) else { throw operationUnavailable }
             answer("machine status", invocation, context) {
@@ -396,7 +397,7 @@ extension CloudHandlers {
         return fields
     }
 
-    /// `cloud deliver-secrets --target machine:<id> [--repo OWNER/NAME]` (CloudMachineSecrets): the values
+    /// `cloud deliver-secrets --target machine:<id> [--repo OWNER/NAME] [--names A,B]` (CloudMachineSecrets): the values
     /// of the names the machine's last machine-config apply declared, from this Mac's Keychain to the
     /// machine over its daemon link: `--repo`'s values first, else the global ones (the person picks
     /// the scope, never the machine). Answers the names delivered and those with no value here; a
@@ -409,6 +410,17 @@ extension CloudHandlers {
         let repo = try invocation["repo"]?.stringValue.map { text in
             guard let scope = CloudMachineSecrets.repoScope(text) else { throw ActionFailure(message: CloudStrings.secretRepoInvalid(text)) }
             return scope
+        }
+        let names = try secretNames(invocation)
+        // An own machine (an SSH machine or an acpmux peer) over ssh, with the names the person gives
+        // (CloudHandlers+OwnMachineSecrets).
+        if let target = invocation.target, target.kind == .machine, !isCloudMachine(target.id, context) {
+            return try deliverSecretsToOwnMachine(target.id, names: names, repo: repo, context)
+        }
+        // A Cloud machine's names are the ones its machine config declares.
+        guard names == nil else { throw ActionFailure(message: CloudStrings.secretNamesOnCloudMachine) }
+        if let reason = context.services.cloud.unavailableReason ?? (context.services.cloud.isSignedIn ? nil : CloudStrings.signInFirst) {
+            throw ActionFailure(message: reason)
         }
         let cloud = context.services.cloud, work = context.services.work, session = try machine(invocation, context)
         guard session.machine.allows(.exec) else { throw operationUnavailable }
@@ -452,17 +464,7 @@ extension CloudHandlers {
                 answer["status"] = .string("unchanged")
                 return answer
             }
-            var values: [(name: String, value: String)] = []
-            for item in items {
-                let ran = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/usr/bin/security"),
-                    ["find-generic-password", "-s", CloudMachineSecrets.service, "-a", item.account, "-w"], timeout: .seconds(30)))
-                guard ran.succeeded else { throw ActionFailure(message: CloudStrings.secretUnreadable(item.name)) }
-                let value = String(ran.text.dropLast(ran.text.hasSuffix("\n") ? 1 : 0))
-                // One line, no NUL, as `cmux cloud secret set` stores it: an item made some other way never
-                // turns into extra records on the machine.
-                guard CloudMachineSecrets.isValue(value) else { throw ActionFailure(message: CloudStrings.secretUnreadable(item.name)) }
-                values.append((item.name, value))
-            }
+            let values = try await keychainValues(items)
             // 0644 and run with `sh`: the file API may write as root, and the terminal runs as the work user.
             // The receiver holds no value; the folder is the work user's 0700 one (the config apply made it),
             // so its ticket (below) is readable by that user and root only.

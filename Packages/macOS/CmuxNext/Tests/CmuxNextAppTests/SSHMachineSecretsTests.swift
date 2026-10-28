@@ -1,0 +1,126 @@
+@testable import CmuxNextCloud
+@testable import CmuxNextRemote
+import Foundation
+import Testing
+
+/// `cmux cloud deliver-secrets` to an own machine (SSHMachineSecrets): the Cloud receiver and protocol,
+/// carried over the person's own ssh. A stand-in ssh runs the remote command here (on a pty for `-tt`,
+/// through `script`), so the delivery below runs the real receiver end to end against a scratch home.
+@Suite(.serialized)
+struct SSHMachineSecretsTests {
+    @Test func aPeersSSHURLGivesItsSSHDestinationWithoutTheDaemonsPort() throws {
+        #expect(SSHMachineSecrets.destination(peerURL: "ssh://leo@huge-blue:47811")?.sshArgument == "leo@huge-blue")
+        #expect(SSHMachineSecrets.destination(peerURL: "ssh://huge-blue")?.sshArgument == "huge-blue")
+        #expect(SSHMachineSecrets.destination(peerURL: "ssh://huge-blue:47811")?.port == nil, "47811 is the daemon's, not ssh's")
+        #expect(SSHMachineSecrets.destination(peerURL: "ssh://[fd7a::1]:47811")?.sshArgument == "fd7a::1")
+        for other in ["ws://100.64.0.1:47811", "wss://host", "huge-blue", "ssh://-oProxyCommand=x", "ssh://a b"] {
+            #expect(SSHMachineSecrets.destination(peerURL: other) == nil, "\(other)")
+        }
+    }
+
+    @Test func theReceiverRunsOnAPtyOfItsOwnWithTheAppsSSHOptions() throws {
+        let destination = try SSHDestination(parsing: "leo@huge-blue:2222")
+        let command = try #require(SSHMachineSecrets.remoteCommand(["sh", SSHMachineSecrets.receiverPath, SSHMachineSecrets.ticketPath]))
+        #expect(command == #"sh "$HOME/.cmux/machine-config/receive-secrets" "$HOME/.cmux/machine-config/receive-secrets.ticket""#)
+        let argv = SSHCommandLine().pty(destination, command)
+        #expect(Array(argv.prefix(2)) == ["/usr/bin/ssh", "-tt"])
+        #expect(argv.contains("-oForwardAgent=no") && argv.contains("-oBatchMode=yes"))
+        #expect(Array(argv.suffix(5)) == ["-p", "2222", "--", "leo@huge-blue", command])
+        // Only the fixed receiver paths pass: nothing a login shell would read as more than a word.
+        for word in ["a b", "x\"y", "$(id)", "`id`", "a;b", ""] {
+            #expect(SSHMachineSecrets.remoteCommand(["sh", word]) == nil, "\(word)")
+        }
+    }
+
+    @Test func theInstallWritesTheReceiverAndItsTicketPrivatelyAndNoValue() throws {
+        let home = try Self.scratchHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let ticket = CloudMachineSecrets.ticket(nonce: "ab12", key: "cd34", names: ["API_KEY"])
+        let script = SSHMachineSecrets.installScript(ticket: ticket, word: "w0rd")
+        let ran = try Self.shell(script, home: home)
+        #expect(ran == 0)
+        let folder = home.appendingPathComponent(".cmux/machine-config")
+        #expect(try String(contentsOf: folder.appendingPathComponent("receive-secrets"), encoding: .utf8) == CloudMachineSecrets.receiver + "\n")
+        #expect(try Data(contentsOf: folder.appendingPathComponent("receive-secrets.ticket")) == ticket)
+        #expect(try Self.mode(folder) == 0o700)
+        #expect(try Self.mode(folder.appendingPathComponent("receive-secrets.ticket")) == 0o600)
+    }
+
+    /// The whole delivery over the stand-in ssh: the receiver writes the file (0600) with the values,
+    /// removes its ticket, and answers with the token only it can make.
+    @Test(.enabled(if: FileManager.default.isExecutableFile(atPath: "/sbin/sha256sum")
+                   || FileManager.default.isExecutableFile(atPath: "/usr/bin/sha256sum")))
+    func aDeliveryOverSSHWritesTheMachinesSecretsFile() async throws {
+        let home = try Self.scratchHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let ssh = try Self.standInSSH(in: home)
+        let link = SSHMachineSecrets.link(to: try SSHDestination(parsing: "leo@own-machine"),
+                                          environment: ["HOME": home.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+                                          commandLine: SSHCommandLine(sshBinary: ssh.path))
+        let values = [(name: "API_KEY", value: "sk-live-1'23"), (name: "DATABASE_URL", value: "postgres://u:p@db/app")]
+        let count = try await CloudMachineSecrets.deliver(values, over: link, receiverAt: SSHMachineSecrets.receiverPath,
+                                                          ticketAt: SSHMachineSecrets.ticketPath)
+        #expect(count == 2)
+        let file = home.appendingPathComponent(".config/cmux/machine-secrets.env")
+        #expect(try String(contentsOf: file, encoding: .utf8) == "export API_KEY='sk-live-1'\\''23'\nexport DATABASE_URL='postgres://u:p@db/app'\n")
+        #expect(try Self.mode(file) == 0o600)
+        #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".cmux/machine-config/receive-secrets.ticket").path))
+    }
+
+    /// An ssh that cannot reach the machine stops the delivery before any value is read off the pty,
+    /// with ssh's own words.
+    @Test func anUnreachableMachineStopsAtTheInstallWithSSHsWords() async throws {
+        let home = try Self.scratchHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let ssh = home.appendingPathComponent("ssh")
+        try "#!/bin/sh\necho 'ssh: connect to host own-machine port 22: Connection refused' >&2\nexit 255\n".write(to: ssh, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ssh.path)
+        let link = SSHMachineSecrets.link(to: try SSHDestination(parsing: "own-machine"), environment: ["HOME": home.path],
+                                          commandLine: SSHCommandLine(sshBinary: ssh.path))
+        await #expect(throws: SSHMachineSecrets.Unreachable(message: "ssh: connect to host own-machine port 22: Connection refused")) {
+            _ = try await CloudMachineSecrets.deliver([(name: "API_KEY", value: "sk-live-123")], over: link,
+                                                      receiverAt: SSHMachineSecrets.receiverPath, ticketAt: SSHMachineSecrets.ticketPath)
+        }
+    }
+
+    // MARK: Helpers
+
+    static func scratchHome() throws -> URL {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("cn-ssh-secrets-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        return home
+    }
+
+    /// Stands in for ssh: the last argument is the remote command, run here; `-tt` gives it a pty.
+    static func standInSSH(in folder: URL) throws -> URL {
+        let url = folder.appendingPathComponent("ssh")
+        let script = """
+            #!/bin/sh
+            tty=no
+            for arg; do [ "$arg" = "-tt" ] && tty=yes; last=$arg; done
+            [ "$tty" = yes ] && exec /usr/bin/script -q /dev/null /bin/sh -c "$last"
+            exec /bin/sh -c "$last"
+
+            """
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        return url
+    }
+
+    static func shell(_ script: String, home: URL) throws -> Int32 {
+        let process = Process(), input = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-s"]
+        process.environment = ["HOME": home.path, "PATH": "/usr/bin:/bin"]
+        process.standardInput = input
+        try process.run()
+        try input.fileHandleForWriting.write(contentsOf: Data(script.utf8))
+        try input.fileHandleForWriting.close()
+        process.waitUntilExit()
+        return process.terminationStatus
+    }
+
+    static func mode(_ url: URL) throws -> Int {
+        try ((FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber)?.intValue ?? -1) & 0o777
+    }
+}

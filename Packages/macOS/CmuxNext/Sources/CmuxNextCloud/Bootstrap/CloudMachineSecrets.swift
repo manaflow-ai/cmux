@@ -122,7 +122,7 @@ public struct CloudMachineSecrets: Equatable, Sendable {
     /// The machine config's name rule (`[A-Za-z_][A-Za-z0-9_]*`, at most 128), and not a name the
     /// machine's shell, libc, python or cmux owns: the same list as the applier (``CloudMachineConfig``)
     /// and `cmux cloud secret set`, so a value under such a name is never delivered, whatever made it.
-    static func isName(_ name: String) -> Bool {
+    public static func isName(_ name: String) -> Bool {
         guard let first = name.unicodeScalars.first, name.count <= 128 else { return false }
         let letter = { (c: Unicode.Scalar) in c.isASCII && (CharacterSet.letters.contains(c) || c == "_") }
         guard letter(first), name.unicodeScalars.allSatisfy({ letter($0) || ("0"..."9").contains($0) }) else { return false }
@@ -292,15 +292,17 @@ public struct CloudMachineSecrets: Equatable, Sendable {
     static let errorCodes: Set<String> = ["no-tty", "mkdir", "mktemp", "too-large", "eof", "bad-base64", "bad-name", "bad-line", "duplicate", "write", "interrupted", "nonce", "bad-mac"]
 
     /// Runs the receiver in a new terminal, types the payload once it says echo is off, and closes
-    /// the terminal. Answers how many names the machine wrote.
+    /// the terminal. Answers how many names the machine wrote. `receiverAt` and `ticketAt` are where the
+    /// link put them (an own machine's are under its own home, `SSHMachineSecrets`).
     public static func deliver(_ values: [(name: String, value: String)], over link: Link,
-                               nonce: String = randomHex(), key: String = randomHex()) async throws -> Int {
+                               nonce: String = randomHex(), key: String = randomHex(),
+                               receiverAt: String = receiverPath, ticketAt: String = ticketPath) async throws -> Int {
         let typed = payload(values, key: key)
         // The receiver's own limits: a set too large is refused here, before any terminal opens.
         guard typed.count <= maxPayloadBytes, envFileBytes(values) <= maxEnvFileBytes else { throw DeliveryFailed(reason: "too-large") }
         // The names travel with the key: the receiver writes these and nothing else.
         try await link.writeTicket(ticket(nonce: nonce, key: key, names: values.map(\.name)))
-        let terminal = try await link.start(["sh", receiverPath, ticketPath])
+        let terminal = try await link.start(["sh", receiverAt, ticketAt])
         let outcome: Result<String, any Error>
         do {
             let opened = try await link.waitFor(terminal, "\(ready) \(nonce)|\(error) [a-z-]+", waitSeconds)
