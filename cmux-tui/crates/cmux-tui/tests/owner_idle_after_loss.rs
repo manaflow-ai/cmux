@@ -97,7 +97,7 @@ fn cpu(pid: u32) -> Option<Duration> {
 }
 
 #[test]
-fn an_orphaned_owner_stays_idle_after_its_clients_go_away() {
+fn orphaned_owner_stays_idle_after_its_clients_go_away() {
     let root = scratch("peers");
     fs::create_dir_all(&root).unwrap();
     let owner = Owner::ensure(&root, Path::new(env!("CARGO_BIN_EXE_cmux-tui")), &root);
@@ -131,7 +131,7 @@ fn an_orphaned_owner_stays_idle_after_its_clients_go_away() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn an_owner_exits_when_its_executables_volume_is_removed() {
+fn orphaned_owner_exits_when_its_executables_volume_is_removed() {
     let root = scratch("volume");
     fs::create_dir_all(&root).unwrap();
     let source = PathBuf::from(env!("CARGO_BIN_EXE_cmux-tui"));
