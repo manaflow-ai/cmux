@@ -239,6 +239,26 @@ test("the card waits Codex's 250 ms, follows the pointer at once while warm, and
   }
 });
 
+test("the tall initial rail does not make empty space a hit target", async () => {
+  const view = await mount(4);
+  jest.useFakeTimers();
+  try {
+    await enter(1);
+    await advance(260);
+    expect(card()?.textContent).toContain("Question 1");
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    // Four rows occupy the first 40 px; the rest of the initial rail is intentionally empty.
+    await pointer("pointermove", list, { clientY: 100 });
+    expect(card()).toBeNull();
+    await pointer("pointerdown", list, { clientY: 100, pointerId: 1 });
+    await pointer("pointermove", list, { clientY: 100, pointerId: 1 });
+    expect(list.closest("nav")!.hasAttribute("data-scrubbing")).toBe(false);
+    await pointer("pointerup", list, { clientY: 100, pointerId: 1 });
+  } finally {
+    await view.unmount();
+  }
+});
+
 test("keyboard focus grows its row alone and opens the card at once; Escape closes it; Return jumps", async () => {
   const view = await mount(12);
   try {
