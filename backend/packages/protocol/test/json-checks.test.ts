@@ -69,4 +69,3 @@ describe("JSON Schema checks", () => {
     ])
   })
 })
-})
