@@ -118,7 +118,8 @@ struct ChiefDisabledHomeTests {
         defer { setting.restore() }
         let manager = TabManager()
         let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
-        let homePane = try #require(home.panels.values.compactMap { $0 as? ChiefPanel }.first(where: \.isHome))
+        let homePanes = home.panels.values.compactMap { $0 as? ChiefPanel }.filter { $0.isHome }
+        let homePane = try #require(homePanes.first)
         let paneId = try #require(home.bonsplitController.focusedPaneId)
         let terminal = try #require(home.newTerminalSurface(inPane: paneId, focus: false))
 
