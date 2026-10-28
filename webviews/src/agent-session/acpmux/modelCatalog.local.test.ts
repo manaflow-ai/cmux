@@ -62,3 +62,56 @@ test("a folded release retains its harness menu position without promoting the r
   expect(harness.topModels).toEqual(["opus", "sonnet"]);
   expect(harness.topModels).not.toContain("claude-haiku-5-5");
 });
+
+test("a reported Prime family keeps its discovered model or one default entry", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+  const discovered = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [{ id: "prime-agent", name: "Prime Agent", family: "prime", models: [{ id: "prime/x", name: "Prime X" }] }],
+  });
+  expect(discovered.harnesses.find((entry) => entry.family === "prime")?.models.map((model) => model.id)).toEqual([
+    "prime/x",
+  ]);
+
+  const fallback = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [
+      {
+        id: "prime-agent",
+        name: "Prime Agent",
+        family: "prime",
+        models: [{ id: "default", name: "default (agent's choice)" }],
+      },
+    ],
+  });
+  expect(fallback.harnesses.find((entry) => entry.family === "prime")?.models.map((model) => model.id)).toEqual([
+    "default",
+  ]);
+
+  const absent = buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux: [] });
+  expect(absent.harnesses.some((entry) => entry.family === "prime")).toBe(false);
+
+  const unreportedFamily = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [{ id: "prime-agent", name: "Prime Agent", models: [{ id: "default", name: "default (agent's choice)" }] }],
+  });
+  expect(unreportedFamily.harnesses.find((entry) => entry.id === "prime-agent")?.family).toBeUndefined();
+
+  const staticOnly = buildPickerCatalog({
+    catalog: {
+      ...BUNDLED_MODEL_CATALOG,
+      harnesses: [
+        {
+          id: "prime",
+          name: "Prime Intellect",
+          brand: "prime",
+          families: ["prime"],
+          modelSource: "probe",
+          models: [],
+        },
+      ],
+    },
+    acpmux: [],
+  });
+  expect(staticOnly.harnesses.find((entry) => entry.id === "prime")?.family).toBeUndefined();
+});

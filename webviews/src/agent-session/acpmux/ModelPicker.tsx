@@ -45,6 +45,7 @@ type HarnessChoice = {
   id: string;
   ids: string[];
   name: string;
+  family?: string;
   models: {
     id: string;
     name?: string;
@@ -82,6 +83,8 @@ type ModelChoice = {
   provider?: string;
   /** A bracketed note the model's name carried ("New"). */
   tag?: string;
+  /** Prime Agent has no ACP model API; its default entry is informational, not selectable. */
+  defaultChoice?: boolean;
 };
 
 /// `choices` as one row per model (modelVariants.ts): a model several providers serve lands the
@@ -125,13 +128,15 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
   if (cached) return cached;
   const seen = new Set<string>();
   const choices = entry.models.flatMap((model): ModelChoice[] => {
-    if (isDefaultChoice(model)) return [];
+    const defaultChoice = entry.family === "prime" && isDefaultChoice(model);
+    if (isDefaultChoice(model) && !defaultChoice) return [];
     if (seen.has(model.id)) return [];
     seen.add(model.id);
     return [
       {
         id: model.id,
-        name: model.shortName || model.name || model.id,
+        name: defaultChoice ? "Default" : model.shortName || model.name || model.id,
+        ...(defaultChoice ? { defaultChoice: true } : {}),
         ...(model.family ? { family: model.family } : {}),
         unavailable: model.unavailable,
         efforts: model.efforts,
@@ -190,6 +195,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
       id: entry.id,
       ids: [entry.id],
       name: entry.name,
+      ...(entry.family ? { family: entry.family } : {}),
       models: entry.models,
       unavailable: entry.unavailable,
       acpmuxHarness: entry.id,
@@ -204,6 +210,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
       id: entry.id,
       ids: [entry.id],
       name: entry.name,
+      ...(entry.family ? { family: entry.family } : {}),
       models: entry.models,
       unavailable: entry.unavailable,
       acpmuxHarness: entry.id,
@@ -220,6 +227,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
         id: entry.id,
         ids: [entry.id],
         name,
+        ...(entry.family ? { family: entry.family } : {}),
         models: [...entry.models],
         unavailable: entry.unavailable,
         acpmuxHarness: entry.acpmuxHarness,
@@ -231,6 +239,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
       continue;
     }
     existing.ids.push(entry.id);
+    existing.family ??= entry.family;
     if (entry.acpmuxHarness && !existing.acpmuxHarness) existing.acpmuxHarness = entry.acpmuxHarness;
     existing.pickable ||= entry.pickable;
     const known = new Set(existing.models.map((model) => model.id));
@@ -247,7 +256,7 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
     id: model.id,
     name: model.name,
     family,
-    ...(model.unavailable ? { disabled: true } : {}),
+    ...(model.unavailable || model.defaultChoice ? { disabled: true } : {}),
     ...(model.tag ? { tag: model.tag } : {}),
     ...(model.provider ? { provider: model.provider } : {}),
     ...(model.offers
@@ -746,7 +755,7 @@ export function ModelPicker(props: ModelPickerProps) {
 
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
-    if (model.unavailable || !owner?.pickable || loginFor(owner) !== undefined) return;
+    if (model.unavailable || model.defaultChoice || !owner?.pickable || loginFor(owner) !== undefined) return;
     toPrompt.current = true;
     // A typed effort or fast mode, or a model of another harness, lands as one combo.
     const effort = searching ? modelEffort(model, parsed.effort) : undefined;
@@ -1453,7 +1462,7 @@ export function ModelPicker(props: ModelPickerProps) {
                         aria-checked={model.id === props.model && owners.get(model)?.ids.includes(harness ?? "")}
                         className={`acpmux-mp-row ${modelRow} ${rowFill(index === active)} ${model.id === props.model ? "pr-14" : "pr-8"}${index === active ? " acpmux-mp-active" : ""}`}
                         onPointerEnter={() => setActive(index)}
-                        disabled={Boolean(model.unavailable)}
+                        disabled={Boolean(model.unavailable || model.defaultChoice)}
                         onClick={() => selectModel(model)}
                         active={index === active}
                       >

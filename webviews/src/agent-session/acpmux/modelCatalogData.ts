@@ -110,6 +110,8 @@ export type PickerHarness = {
   topModels?: string[];
   id: string;
   name: string;
+  /** acpmux family, when this profile was reported (for family-specific picker behavior). */
+  family?: string;
   /** AgentMark brand id; null = no brand (use `iconUrl`, else the generic glyph). */
   brand: string | null;
   /** A host-served icon an acpmux profile declared (`_acpmux/harnesses` `icon` that is not a brand). */
@@ -402,6 +404,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
   return {
     id: harness.id,
     name: harness.name,
+    ...(chosen?.family ? { family: chosen.family } : {}),
     brand: harness.brand,
     acpmuxHarness: chosen?.id ?? null,
     installed: chosen !== undefined,
@@ -452,6 +455,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   return {
     id: entry.id,
     name: agentName(entry.id, entry.name),
+    ...(entry.family ? { family: entry.family } : {}),
     brand: declaredBrand ?? agentBrand(entry.id) ?? null,
     ...(iconUrl ? { iconUrl } : {}),
     acpmuxHarness: entry.id,
