@@ -132,6 +132,13 @@ const { AvatarContext } = await import("../src/pages/home-channels/avatars");
 const { askingRecords, fakeRoom, joinFrames } = await import("../src/agent-session/guest/fixtures/liveChat");
 
 afterAll(() => {
+  // Bun shares modules across test files: put every host and transport back as the pane has them.
+  removeReporter();
+  setNativeHost(undefined);
+  setChipHost(undefined);
+  setBookmarkTransport(undefined);
+  setMessageMenuSource(undefined);
+  timers.clear();
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
