@@ -5,19 +5,24 @@ import Foundation
 
 /// Watches a file page's file (kernel vnode events through ``ConfigFileWatcher``, which follows
 /// in-place writes, atomic renames and delete-and-recreate) and reports its new content once per
-/// burst: each event restarts a debounce on the injected clock, then the file is read off the main
-/// actor and reported when its hash differs from ``knownHash`` (nil: deleted). The page's own
-/// saves are reported too; the page recognizes them by hash.
+/// burst: each event restarts a debounce (a visible-class ``MainDeadline`` on the app's deadline
+/// scheduler), whose action reads the file on the files lane; the read's reply reports it when its
+/// hash differs from ``knownHash`` (nil: deleted). The page's own saves are reported too; the page
+/// recognizes them by hash. A kernel event reaches main as one visible-class task on the app's
+/// scheduler. Hidden or not, the watch runs: the page's router holds what a hidden page is sent.
 final class FileChangeWatch {
     let url: URL
     /// The hash last reported (or read at open); a read with the same hash reports nothing.
     var knownHash: String?
     private let inWorkspace: () -> Bool
-    private let clock: any Clock<Duration>
+    private let mainWork: MainWorkScheduler
+    private let work: BackgroundWork
     private let debounce: Duration
     private let onChange: (FileSnapshot?) -> Void
     private var watcher: ConfigFileWatcher?
-    private var pending: Task<Void, Never>?
+    /// The burst's debounce: each event pushes it back; its action starts the read.
+    private let settle: MainDeadline
+    /// Bumped by every event and by ``stop()``: an older read's reply reports nothing.
     private var generation = 0
     /// The file's identity, size and modification time at the last read: an event that changes
     /// none of them (an access-time update from the read itself) reads nothing.
@@ -30,31 +35,29 @@ final class FileChangeWatch {
         let modified: Int64
     }
 
-    init(url: URL, inWorkspace: @escaping () -> Bool, clock: any Clock<Duration>, debounce: Duration = .milliseconds(100),
-         onChange: @escaping (FileSnapshot?) -> Void) {
+    /// - Parameters:
+    ///   - deadlines: The app's deadline scheduler (`AppServices.mainDeadlines`): the debounce is one of its deadlines,
+    ///     and its scheduler takes the kernel events and the read's reply.
+    ///   - work: The app's lanes (`AppServices.work`): the file is read on its files lane.
+    init(url: URL, inWorkspace: @escaping () -> Bool, deadlines: MainDeadlineScheduler, work: BackgroundWork,
+         debounce: Duration = .milliseconds(100), onChange: @escaping (FileSnapshot?) -> Void) {
         self.url = url
         self.inWorkspace = inWorkspace
-        self.clock = clock
+        mainWork = deadlines.work
+        self.work = work
         self.debounce = debounce
         self.onChange = onChange
+        settle = MainDeadline(owner: "files.change-watch", workClass: .visible, scheduler: deadlines)
     }
 
-    /// Debounces in flight.
-    var pendingCount: Int { pending == nil ? 0 : 1 }
-
-    /// Returns once no debounce or read is in flight (tests await it instead of wall time).
-    func settled() async {
-        while let task = pending {
-            await task.value
-            if pending == task { pending = nil }
-        }
-    }
+    /// Whether a debounce waits to read.
+    var isSettling: Bool { settle.isScheduled }
 
     func start() {
         guard watcher == nil else { return }
+        let mainWork = mainWork
         let watcher = ConfigFileWatcher(url: url) { [weak self] in
-            // task-owner: hops one kernel event to the main actor; the debounce owns the work
-            Task { @MainActor in self?.noteEvent() }
+            mainWork.postFromAnyThread(.visible, owner: "files.change-watch") { self?.noteEvent() }
         }
         self.watcher = watcher
         watcher.start()
@@ -63,38 +66,34 @@ final class FileChangeWatch {
     func stop() {
         watcher?.stop()
         watcher = nil
-        pending?.cancel()
-        pending = nil
+        settle.cancel()
+        generation += 1
     }
 
     /// One kernel event for the file (the watcher calls it; tests call it to drive the debounce
-    /// without the kernel): restarts the debounce.
+    /// without the kernel): restarts the debounce, and drops a read already started.
     func noteEvent() {
-        pending?.cancel()
         generation += 1
-        let generation = generation
-        let clock = clock, debounce = debounce, url = url, inWorkspace = inWorkspace()
-        pending = Task { [weak self] in
-            do {
-                // wakeup-allow: deadline one debounce per disk event burst, cancelled by the next event. One task is the
-                // debounce and the read it starts, so the next event cancels either.
-                try await clock.sleep(for: debounce, tolerance: WakeLeeway.window(delay: debounce).tolerance)
-            } catch {
-                return
+        settle.schedule(after: debounce) { [weak self] in self?.startRead() }
+    }
+
+    /// Reads the file on the files lane; the reply reports it unless a later event or a stop came first.
+    private func startRead() {
+        let generation = generation, url = url, inWorkspace = inWorkspace(), previous = stamp
+        work.run(.userVisible, mayBlock: .files) { Self.read(url, inWorkspace: inWorkspace, unless: previous) }
+            .reply(on: mainWork, class: .visible, owner: "files.change-watch") { [weak self] read in
+                guard let self, self.generation == generation else { return }
+                let (stamp, snapshot) = read
+                guard stamp != self.stamp else { return }
+                self.stamp = stamp
+                guard snapshot?.hash != self.knownHash else { return }
+                self.knownHash = snapshot?.hash
+                self.onChange(snapshot)
             }
-            let (stamp, snapshot) = await Self.read(url, inWorkspace: inWorkspace, unless: self?.stamp)
-            guard let self, !Task.isCancelled, self.generation == generation else { return }
-            self.pending = nil
-            guard stamp != self.stamp else { return }
-            self.stamp = stamp
-            guard snapshot?.hash != self.knownHash else { return }
-            self.knownHash = snapshot?.hash
-            self.onChange(snapshot)
-        }
     }
 
     /// The file's stamp, and its content when the stamp differs from `previous` (nil: gone).
-    @concurrent private static func read(_ url: URL, inWorkspace: Bool, unless previous: Stamp?) async -> (Stamp?, FileSnapshot?) {
+    private nonisolated static func read(_ url: URL, inWorkspace: Bool, unless previous: Stamp?) -> (Stamp?, FileSnapshot?) {
         var info = stat()
         // SAFETY: stat reads the NUL-terminated copy of the path made for the call and writes one struct stat
         // into `info`, a local live for the call.
