@@ -25,6 +25,8 @@ export type ComposerAlignment = {
   modelText: Center | null;
   ring: Center | null;
   ringGlyph: Center | null;
+  /// Computed layout facts behind the numbers (display, grid placement, child lists): diagnostics.
+  dom: Record<string, string>;
 };
 
 /** Runs in the page. */
@@ -71,7 +73,44 @@ export function measureComposerAlignment(): ComposerAlignment {
   const mode = q(".acpmux-composer-foot .acpmux-access-trigger");
   const model = q(".acpmux-composer-foot .acpmux-model .acpmux-picker-button");
   const ring = q(".acpmux-composer-foot .acpmux-context-ring");
+  const css = (element: Element | null | undefined, prop: string): string => {
+    if (!element) return "none";
+    return getComputedStyle(element).getPropertyValue(prop);
+  };
+  const kids = (element: Element | null | undefined): string =>
+    element
+      ? [...element.children].map((child) => `${child.tagName.toLowerCase()}.${child.className}`).join(" | ")
+      : "";
+  const chrome = q(".acpmux-composer-box > .acpmux-chrome-area");
+  const bar = q(".acpmux-composer-box .acpmux-composer-bar");
+  const plusRoot = q(".acpmux-composer-bar .acpmux-composer-plus");
+  const fieldMenu = q(".acpmux-composer-box > .acpmux-composer-field-menu");
+  const field = q(".acpmux-composer-box .acpmux-md-field");
+  const actions = q(".acpmux-composer-box .acpmux-composer-actions");
+  const dom: Record<string, string> = {
+    boxClass: box?.className ?? "",
+    boxDisplay: css(box, "display"),
+    boxGridColumns: css(box, "grid-template-columns"),
+    boxKids: kids(box),
+    chromeClass: chrome?.className ?? "",
+    chromeDisplay: css(chrome, "display"),
+    chromeKids: kids(chrome),
+    barClass: bar?.className ?? "",
+    barDisplay: css(bar, "display"),
+    barKids: kids(bar),
+    fieldMenuDisplay: css(fieldMenu, "display"),
+    plusRootClass: plusRoot?.className ?? "",
+    plusRootDisplay: css(plusRoot, "display"),
+    plusRootGridRow: css(plusRoot, "grid-row-start"),
+    plusRootGridColumn: css(plusRoot, "grid-column-start"),
+    fieldGridRow: css(field, "grid-row-start"),
+    fieldGridColumn: `${css(field, "grid-column-start")} / ${css(field, "grid-column-end")}`,
+    actionsGridRow: css(actions, "grid-row-start"),
+    actionsGridColumn: css(actions, "grid-column-start"),
+    actionsDisplay: css(actions, "display"),
+  };
   return {
+    dom,
     box: boxOf(box)!,
     plusButton: boxOf(plus),
     plusGlyph: boxOf(plusGlyph),
