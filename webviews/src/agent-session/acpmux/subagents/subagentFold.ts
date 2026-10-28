@@ -138,6 +138,7 @@ export class SubagentFold {
   private readonly viewRevisions = new Map<string, ViewRevisions>();
   private readonly settledViews = new Map<string, { state: string; name: string }>();
   private readonly viewTools = new Map<string, Map<string, boolean>>();
+  private readonly viewToolSummaries = new Map<string, Map<string, string>>();
   private readonly pendingReplySummaries = new Set<string>();
   /// The latest assistant message id per child, so a steer's new stream settles the prior reply.
   private readonly replyMessageIds = new Map<string, string>();
@@ -601,6 +602,21 @@ export class SubagentFold {
       // the marker until a rendered tool or thought actually follows it.
       const hidden = hiddenCall(this.hiddenCalls, `${id}\u0000${call}`, update);
       const tools = this.viewTools.get(id) ?? new Map<string, boolean>();
+      const summaries = this.viewToolSummaries.get(id) ?? new Map<string, string>();
+      const summaryKey = JSON.stringify({
+        title: update.title,
+        description: update.description ?? update.rawInput?.description,
+        command: update.command ?? update.rawInput?.command,
+        inputSummary: update.inputSummary,
+        kind: update.kind,
+        status: update.status,
+        exitCode: update.exitCode,
+        startedAt: update.startedAt,
+        background: update.background ?? update.rawInput?.run_in_background,
+      });
+      const metadataChanged = summaries.has(call) && summaries.get(call) !== summaryKey;
+      summaries.set(call, summaryKey);
+      this.viewToolSummaries.set(id, summaries);
       // A page opened after a ToolSearch started has only its title-less result. Treat a result
       // with no renderable content as hidden too, matching direct transcript folding.
       const unknownHiddenResult =
@@ -618,6 +634,7 @@ export class SubagentFold {
       streaming = tools.has(call) && !settled && !replySettled;
       tools.set(call, settled ?? false);
       this.viewTools.set(id, tools);
+      if (metadataChanged) this.bumpViewRevision(id);
     }
     if (replySettled) streaming = false;
     if (!streaming) this.bumpViewRevision(id);
