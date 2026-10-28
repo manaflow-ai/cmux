@@ -39,6 +39,9 @@ pub(crate) fn encode_local_line(line: &[u8]) -> Result<Option<Bytes>, MuxInputEr
         || value.get("no_reply").and_then(Value::as_bool) != Some(true)
         || value.get("paste").is_some_and(|paste| paste.as_bool() != Some(false))
         || value.get("text").is_some_and(|text| text.as_str() != Some(""))
+        // The compact packet has no stream; a send that names one stays a
+        // JSON line, so the daemon still runs it on that stream.
+        || value.get("stream").is_some()
     {
         return Ok(None);
     }
@@ -103,6 +106,18 @@ impl From<serde_json::Error> for MuxInputError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_send_on_a_stream_keeps_its_stream() {
+        // The compact packet has no stream field; the line stays JSON.
+        assert!(
+            encode_local_line(
+                br#"{"id":17,"cmd":"send","surface":23,"stream":4,"bytes":"YQ==","no_reply":true}"#,
+            )
+            .unwrap()
+            .is_none()
+        );
+    }
 
     #[test]
     fn one_way_send_round_trips_without_base64_on_the_wire() {

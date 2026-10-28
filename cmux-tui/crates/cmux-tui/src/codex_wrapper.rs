@@ -79,7 +79,7 @@ pub(crate) fn shim_directory() -> Option<PathBuf> {
 
 fn current_executable() -> anyhow::Result<PathBuf> {
     let executable = std::env::current_exe().context("resolve the cmux-tui executable")?;
-    Ok(executable.canonicalize().unwrap_or(executable))
+    Ok(cmux_blocking::fs::canonicalize(&executable).unwrap_or(executable))
 }
 
 fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
@@ -91,7 +91,8 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
     let Some((socket, Some(terminal))) = crate::hook_helper::session_route("codex") else {
         return Ok(None);
     };
-    if !fs::metadata(&socket).is_ok_and(|metadata| metadata.file_type().is_socket()) {
+    if !cmux_blocking::fs::metadata(&socket).is_ok_and(|metadata| metadata.file_type().is_socket())
+    {
         return Ok(None);
     }
     let executable = current_executable()?;
@@ -122,7 +123,7 @@ fn find_real_codex(path: &OsStr, shim_dir: Option<&Path>) -> Option<PathBuf> {
         .filter(|dir| !dir.as_os_str().is_empty() && !is_shim_directory(dir, shim_dir))
         .map(|dir| dir.join("codex"))
         .find(|candidate| {
-            candidate.metadata().is_ok_and(|metadata| metadata.is_file())
+            cmux_blocking::fs::metadata(candidate).is_ok_and(|metadata| metadata.is_file())
                 && current_process_can_execute(candidate)
                 && !is_codex_shim(candidate)
         })
@@ -153,11 +154,11 @@ fn path_with_shim_first(path: &OsStr, shim_dir: &Path) -> Option<OsString> {
 fn is_shim_directory(dir: &Path, shim_dir: Option<&Path>) -> bool {
     let Some(shim_dir) = shim_dir else { return false };
     dir == shim_dir
-        || matches!((dir.canonicalize(), shim_dir.canonicalize()), (Ok(dir), Ok(shim_dir)) if dir == shim_dir)
+        || matches!((cmux_blocking::fs::canonicalize(dir), cmux_blocking::fs::canonicalize(shim_dir)), (Ok(dir), Ok(shim_dir)) if dir == shim_dir)
 }
 
 fn is_codex_shim(path: &Path) -> bool {
-    fs::File::open(path)
+    cmux_blocking::fs::open(path)
         .ok()
         .and_then(|file| {
             let mut bytes = Vec::new();
@@ -169,14 +170,15 @@ fn is_codex_shim(path: &Path) -> bool {
 }
 
 fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
-    fs::create_dir_all(dir).context("create the shim directory")?;
-    fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+    cmux_blocking::fs::create_dir_all(dir).context("create the shim directory")?;
+    crate::blocking::fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
     let path = dir.join("codex");
     let script = shim_script(executable, dir)?;
-    let current = fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file())
-        && fs::read(&path).is_ok_and(|existing| existing == script.as_bytes());
+    let current = cmux_blocking::fs::symlink_metadata(&path)
+        .is_ok_and(|metadata| metadata.is_file())
+        && cmux_blocking::fs::read(&path).is_ok_and(|existing| existing == script.as_bytes());
     if current {
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+        crate::blocking::fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
     } else {
         agent_hook_install::atomic_write(&path, script.as_bytes(), Some(0o700))?;
     }
