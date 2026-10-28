@@ -65,8 +65,12 @@ public nonisolated struct KeyInput: Equatable, Sendable {
     /// - on an ISO keyboard (`iso`) the key left of 1 is kVK_ISO_Section (10), the US ` key, and
     ///   kVK_ANSI_Grave (50) is the extra key left of Z, which names nothing.
     public static func positionalPunctuation(keyCode: UInt16, keyTypes: String?, iso: Bool, layoutTypes: (String) -> Bool) -> String? {
-        // The rule before review 1 of slice 3 (red): any key whose US punctuation the layout does not type.
-        guard let us = usPunctuation[keyCode] else { return nil }
+        let us: String? = iso ? (keyCode == 10 ? "`" : keyCode == 50 ? nil : usPunctuation[keyCode]) : usPunctuation[keyCode]
+        guard let us else { return nil }
+        if let typed = keyTypes, typed.unicodeScalars.count == 1, let scalar = typed.unicodeScalars.first,
+           scalar.isASCII, scalar.value > 0x20, scalar.value != 0x7F {
+            return nil
+        }
         return layoutTypes(us) ? nil : us
     }
 

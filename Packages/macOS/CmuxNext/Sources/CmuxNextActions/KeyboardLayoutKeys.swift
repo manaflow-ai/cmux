@@ -77,6 +77,7 @@ public final class KeyboardLayoutKeys {
         // SAFETY: as above; HIToolbox documents the bytes as a UCKeyboardLayout.
         let layout = unsafe UnsafeRawPointer(bytes).assumingMemoryBound(to: UCKeyboardLayout.self)
         var state = 0
+        if modifiers.contains(.capsLock) { state |= alphaLock }
         if modifiers.contains(.shift) { state |= shiftKey }
         if modifiers.contains(.option) { state |= optionKey }
         if modifiers.contains(.control) { state |= controlKey }

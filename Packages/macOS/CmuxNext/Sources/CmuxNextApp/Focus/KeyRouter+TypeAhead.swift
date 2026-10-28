@@ -104,6 +104,12 @@ extension KeyRouter {
         }
         guard decide(event, focus: focus, keyWindow: kind, facts: facts) == .typeAhead else {
             guard waiting else { return false }
+            if event.keyCode == Self.deleteKeyCode, heldDeadKey {
+                // Delete after a dead key cancels the dead key only, as the layout does: the queue stays.
+                typeAheadComposer.reset()
+                decided.add(event)
+                return true
+            }
             if event.keyCode == Self.deleteKeyCode {
                 // A Delete while the taken text is being inserted, with nothing queued after it, is
                 // for that text: it goes to the page once the text landed (it was dropped before).
