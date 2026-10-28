@@ -49,9 +49,17 @@ struct C(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 impl C {
     async fn new(hub: &Arc<Hub>, caller: Option<&str>) -> Self {
+        Self::open(hub, caller, Origin::Local).await
+    }
+
+    async fn with_origin(hub: &Arc<Hub>, origin: Origin) -> Self {
+        Self::open(hub, None, origin).await
+    }
+
+    async fn open(hub: &Arc<Hub>, caller: Option<&str>, origin: Origin) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
-        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
         let mut c = C(in_tx, out_rx, 0);
         let mut hello = json!({"protocolVersion": 1, "clientInfo": {"name": "t"}});
         if let Some(id) = caller {
@@ -84,12 +92,12 @@ impl C {
 }
 
 /// A stand-in for the added machine's daemon: it answers the Mac's handshake saying it serves
-/// the Mac as `origin`, then asks it for `action` once (with `early`, before it answers the
-/// Mac's `initialize`) and hands back the Mac's whole answer.
+/// the Mac as `origin`, then asks it for `action` once (`when`) and hands back the Mac's whole
+/// answer.
 async fn lane_asking(
     action: Value,
     origin: &'static str,
-    early: bool,
+    when: Ask,
 ) -> (u16, oneshot::Receiver<Value>) {
     use tokio_tungstenite::tungstenite::Message as Ws;
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -115,14 +123,12 @@ async fn lane_asking(
                 _ => json!({}),
             };
             let mut lines = vec![Message::ok(id, result).to_line()];
-            let ask_now = if early { m == method::INITIALIZE } else { m == method::MUX_WATCH };
-            if ask_now {
-                let ask = Message::request(json!("lane-1"), GITHUB_ACTION, action.clone());
-                if early {
-                    lines.insert(0, ask.to_line());
-                } else {
-                    lines.push(ask.to_line());
-                }
+            let ask = Message::request(json!("lane-1"), GITHUB_ACTION, action.clone()).to_line();
+            match when {
+                Ask::BeforeInitialize if m == method::INITIALIZE => lines.insert(0, ask),
+                Ask::BeforeWatch if m == method::INITIALIZE => lines.push(ask),
+                Ask::AfterWatch if m == method::MUX_WATCH => lines.push(ask),
+                _ => {}
             }
             for line in lines {
                 ws.send(Ws::Text(line.trim_end().to_owned().into())).await.unwrap();
@@ -132,9 +138,18 @@ async fn lane_asking(
     (port, rx)
 }
 
+/// When the stand-in machine asks: before it answers the Mac's `initialize`, right after it
+/// (before the Mac's `_acpmux/watch`), or after it answers the watch, as a real one does.
+#[derive(Clone, Copy)]
+enum Ask {
+    BeforeInitialize,
+    BeforeWatch,
+    AfterWatch,
+}
+
 /// What the Mac answers a lane it added with `githubBroker` as given.
 async fn mac_answers(app: &mut C, name: &str, github_broker: Option<bool>, action: Value) -> Value {
-    mac_answers_link(app, name, github_broker, action, "peer", false).await
+    mac_answers_link(app, name, github_broker, action, "peer", Ask::AfterWatch).await
 }
 
 async fn mac_answers_link(
@@ -143,9 +158,9 @@ async fn mac_answers_link(
     github_broker: Option<bool>,
     action: Value,
     origin: &'static str,
-    early: bool,
+    when: Ask,
 ) -> Value {
-    let (port, answer) = lane_asking(action, origin, early).await;
+    let (port, answer) = lane_asking(action, origin, when).await;
     let mut add = json!({"name": name, "url": format!("ws://127.0.0.1:{port}"), "token": "tok",
         "wait": true});
     if let Some(on) = github_broker {
@@ -188,12 +203,32 @@ async fn the_mac_lends_only_on_a_link_whose_handshake_made_it_a_peer() {
     let a = hub();
     let mut app = C::new(&a, None).await;
     let read = json!({"action": "read", "repo": "o/r"});
-    let v = mac_answers_link(&mut app, "early", Some(true), read.clone(), "peer", true).await;
+    let early = Ask::BeforeInitialize;
+    let v = mac_answers_link(&mut app, "early", Some(true), read.clone(), "peer", early).await;
     assert_eq!(v["error"]["data"]["reason"], "github.denied", "asked before the handshake: {v}");
-    let v = mac_answers_link(&mut app, "as-web", Some(true), read.clone(), "remote", false).await;
+    // The review of #24797 at 4dfbc25: the gate opened at `initialize`, before the watch.
+    let mid = Ask::BeforeWatch;
+    let v = mac_answers_link(&mut app, "mid", Some(true), read.clone(), "peer", mid).await;
+    assert_eq!(v["error"]["data"]["reason"], "github.denied", "asked before the watch: {v}");
+    let done = Ask::AfterWatch;
+    let v = mac_answers_link(&mut app, "as-web", Some(true), read.clone(), "remote", done).await;
     assert_eq!(v["error"]["data"]["reason"], "github.denied", "served the Mac as Web: {v}");
-    let v = mac_answers_link(&mut app, "lent", Some(true), read, "peer", false).await;
+    let v = mac_answers_link(&mut app, "lent", Some(true), read, "peer", done).await;
     assert!(v["result"]["output"].as_str().is_some_and(|o| o.starts_with("gh repo view")), "{v}");
+}
+
+/// The review of #24797 at 4dfbc25: a page, the app's pane or a peer could ask the Mac's daemon
+/// for a GitHub action naming a session it mirrors, and have it forwarded to that machine.
+#[tokio::test]
+async fn no_page_pane_or_peer_asks_for_a_github_action() {
+    let a = hub();
+    for origin in [Origin::Web, Origin::LocalApp, Origin::Peer] {
+        let mut c = C::with_origin(&a, origin).await;
+        let ask = json!({"sessionId": "mac-b/s-1", "action": "read", "repo": "o/r"});
+        let e = c.call(GITHUB_ACTION, ask).await.unwrap_err();
+        let text = e.to_string();
+        assert!(text.contains("_acpmux/github_action"), "{origin:?}: {text}");
+    }
 }
 
 /// The review of #24797's Add Machine part at 5e03d7f: lending to a peer added before replaced its

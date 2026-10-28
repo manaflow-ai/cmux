@@ -141,8 +141,11 @@ impl Hub {
         {
             return Err(RpcError::invalid_params(format!("refusing that ssh peer URL: {why}")));
         }
+        // The config lock is held through starting the peer: a reload never lands between the
+        // save and the start (`reload_saved_peers`).
+        let mut cfg = self.config.write().await;
+        self.peer_config_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let pc = {
-            let mut cfg = self.config.write().await;
             // A re-add of the same machine keeps the VM boundary its config gave it
             // (`vm_boundary.rs`); `peer_add` itself never turns it on.
             let vm_boundary =
@@ -188,24 +191,48 @@ impl Hub {
             }
             self.start_peer(name, &pc)
         };
+        drop(cfg);
         if wait {
             let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
         }
         Ok(())
     }
 
-    /// A config reload's saved peers' VM boundaries (`catalog_reload.rs`), onto the running
-    /// peers of those names; a leased peer keeps its lease's. Lock order: `peer_leases`, then
-    /// `peers`.
-    pub(super) fn reload_peer_boundaries(&self, boundaries: &[(String, bool, bool)]) {
+    /// A config reload's saved peers' VM boundaries and GitHub lending (`catalog_reload.rs`),
+    /// from the file it read (`next`), into the saved config and onto the running peers of
+    /// those names at that url; a leased peer keeps its lease's. Called under the config write
+    /// lock, which `peer_add` holds through starting its peer, so the two never interleave; a
+    /// `peer_add` after the reload began its read (`read_gen`) wins, since the file read may be
+    /// from before its save. Lock order: config, `peer_leases`, then `peers`.
+    /// The `peer_add` generation a reload starts from, read under the config lock: a
+    /// `peer_add` holds the write lock from its count through its save, so this is from wholly
+    /// before one (which then counts past it) or after its save (which the file read then sees).
+    pub(super) async fn peer_read_gen(&self) -> u64 {
+        let _cfg = self.config.read().await;
+        self.peer_config_gen.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub(super) fn reload_saved_peers(
+        &self,
+        current: &mut crate::config::Config,
+        next: &std::collections::BTreeMap<String, crate::config::PeerConfig>,
+        read_gen: u64,
+    ) {
+        if self.peer_config_gen.load(std::sync::atomic::Ordering::SeqCst) != read_gen {
+            return;
+        }
         let leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
         let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-        for (name, on, github_broker) in boundaries {
+        for (name, pc) in current.peers.iter_mut() {
+            let same = next.get(name).filter(|n| n.url == pc.url);
+            pc.vm_boundary = same.is_some_and(|n| n.vm_boundary);
+            pc.github_broker = same.is_some_and(|n| n.github_broker);
             if !leases.contains_key(name)
                 && let Some(peer) = peers.get(name)
+                && peer.url == pc.url
             {
-                peer.set_vm_boundary(*on);
-                peer.set_github_broker(*github_broker);
+                peer.set_vm_boundary(pc.vm_boundary);
+                peer.set_github_broker(pc.github_broker);
             }
         }
     }
@@ -228,11 +255,14 @@ impl Hub {
     /// waiting out the reconnect backoff; with `wait`, answer once the
     /// attempt settled.
     pub async fn reconnect_peer(&self, name: &str, wait: bool) -> Result<(), RpcError> {
-        let peer = self.config.read().await.peers.get(name).cloned();
-        let Some(peer) = peer else {
+        // Read under the config lock and held through the start: a `peer_add` or reload that
+        // changes the peer (its GitHub lending) lands wholly before or after, never between.
+        let cfg = self.config.read().await;
+        let Some(peer) = cfg.peers.get(name).cloned() else {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
         let mut settled = self.start_peer(name, &peer);
+        drop(cfg);
         if wait {
             let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
         }
@@ -935,6 +965,84 @@ impl Hub {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Reviews of #24797 at d703168 and 828f855: a reload applied the lending it read to
+    /// whatever peer had the name by then, and a reload whose file read came before a
+    /// `peer_add` brought back what that add took away.
+    #[tokio::test]
+    async fn a_reload_lends_only_to_the_machine_and_the_add_it_read() {
+        use crate::config::PeerConfig;
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let url = "ws://127.0.0.1:9/m";
+        let lent = |url: &str| PeerConfig {
+            url: url.into(),
+            token: None,
+            peer_token: None,
+            vm_boundary: true,
+            github_broker: true,
+        };
+        let file = |pc: PeerConfig| std::collections::BTreeMap::from([("m".to_owned(), pc)]);
+        let peer = || hub.peers.lock().unwrap().get("m").cloned().unwrap();
+        let reload = |next: std::collections::BTreeMap<String, PeerConfig>, read: u64| {
+            let hub = &hub;
+            async move {
+                let mut current = hub.config.write().await;
+                hub.reload_saved_peers(&mut current, &next, read);
+            }
+        };
+        hub.add_peer_lending("m", url, None, None, Some(false), false).await.unwrap();
+
+        // The file names `m` at another url: neither the saved peer nor the running one lends.
+        let read = hub.peer_read_gen().await;
+        reload(file(lent("ws://127.0.0.1:9/other")), read).await;
+        assert!(!peer().github_broker() && !peer().vm_boundary(), "read for another machine");
+
+        // The reload read the file, then `peer_add` took lending away (same url): it holds.
+        let read = hub.peer_read_gen().await;
+        hub.add_peer_lending("m", url, None, None, Some(false), false).await.unwrap();
+        reload(file(lent(url)), read).await;
+        assert!(!peer().github_broker(), "a later add takes it away for good");
+        assert!(!hub.config.read().await.peers["m"].github_broker);
+
+        // A reload with nothing between its read and its apply turns it on.
+        let read = hub.peer_read_gen().await;
+        reload(file(lent(url)), read).await;
+        assert!(peer().github_broker() && peer().vm_boundary(), "read for this machine");
+        assert!(hub.config.read().await.peers["m"].github_broker);
+        peer().stop();
+    }
+
+    /// Review of #24797 at b93f3a3: a reload read the add count outside the config lock (so
+    /// mid-add, before its save), and a reconnect started a peer from a config read it had let
+    /// go. Both now wait for a change in progress and see what it saved.
+    #[tokio::test]
+    async fn a_reload_or_reconnect_waits_for_a_peer_change_in_progress() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let url = "ws://127.0.0.1:9/m";
+        hub.add_peer_lending("m", url, None, None, Some(true), false).await.unwrap();
+        let wait = std::time::Duration::from_millis(200);
+
+        // A change in progress: counted, not yet saved (what `peer_add` does under the lock).
+        let mut held = hub.config.write().await;
+        hub.peer_config_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let read = tokio::time::timeout(wait, hub.peer_read_gen()).await;
+        assert!(read.is_err(), "the count is not read mid-change");
+        let reconnect = tokio::time::timeout(wait, hub.reconnect_peer("m", false)).await;
+        assert!(reconnect.is_err(), "no peer starts from a config mid-change");
+        held.peers.get_mut("m").unwrap().github_broker = false;
+        drop(held);
+
+        hub.reconnect_peer("m", false).await.unwrap();
+        let peer = hub.peers.lock().unwrap().get("m").cloned().unwrap();
+        assert!(!peer.github_broker(), "the reconnect started what the change saved");
+        peer.stop();
+    }
 
     #[test]
     fn remote_summary_qualifies_the_mux_id_without_changing_legacy_name() {

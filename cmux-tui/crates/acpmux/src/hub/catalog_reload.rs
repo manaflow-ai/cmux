@@ -14,6 +14,7 @@ impl Hub {
         static RELOADING: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
         let _one = RELOADING.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
         let (path, sources) = self.config_sources().await?;
+        let peers_read = self.peer_read_gen().await;
         // Disk reads and PATH discovery run outside the async executor. An
         // invalid/missing file never replaces the last accepted configuration.
         let mut next = tokio::task::spawn_blocking(move || {
@@ -23,7 +24,7 @@ impl Hub {
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?
         .map_err(|e| RpcError::invalid_params(format!("reload config: {e}")))?;
-        let (harnesses, default_harness, retained, boundaries) = {
+        let (harnesses, default_harness, retained) = {
             let mut current = self.config.write().await;
             let mut retained = Vec::new();
             for session in self.sessions.lock().unwrap().values() {
@@ -69,13 +70,7 @@ impl Hub {
             // The peers stay put, but a saved peer's VM boundary follows the file at once: a
             // `false` there is the caller taking it back (`vm_boundary.rs`).
             // So does whether this Mac lends it GitHub (`github_broker.rs`).
-            let mut boundaries = Vec::new();
-            for (name, pc) in current.peers.iter_mut() {
-                let same = next.peers.get(name).filter(|n| n.url == pc.url);
-                pc.vm_boundary = same.is_some_and(|n| n.vm_boundary);
-                pc.github_broker = same.is_some_and(|n| n.github_broker);
-                boundaries.push((name.clone(), pc.vm_boundary, pc.github_broker));
-            }
+            self.reload_saved_peers(&mut current, &next.peers, peers_read);
             current.web_asking_modes = next.web_asking_modes;
             // The start budget applies from the next start, like a restart would.
             current.agent_start_timeout_ms = next.agent_start_timeout_ms;
@@ -93,10 +88,8 @@ impl Hub {
                 current.harnesses.keys().cloned().collect::<Vec<_>>(),
                 current.default_harness.clone(),
                 retained,
-                boundaries,
             )
         };
-        self.reload_peer_boundaries(&boundaries);
         // A new `stalledTurnEndMs` moves the stalled turns' deadlines (`stalled_turn.rs`).
         self.idle_wake.notify_one();
         // Pooled sessions started under the old catalog are never served.

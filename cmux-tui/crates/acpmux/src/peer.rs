@@ -113,8 +113,8 @@ pub struct Peer {
     /// `github_broker.rs`), and how many of its actions may run at once.
     github_broker: AtomicBool,
     github_slots: Arc<tokio::sync::Semaphore>,
-    /// The link (`link_epoch` + 1; 0 for none) whose handshake finished with the peer serving
-    /// this daemon as a peer: the only link a GitHub action is taken on.
+    /// The link (`link_epoch` + 1; 0 for none) whose handshake's watch was answered by the peer
+    /// serving this daemon as a peer: the only link a GitHub action is taken on.
     github_link: AtomicU64,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
@@ -479,16 +479,19 @@ impl Peer {
     ) {
         let me = self.clone();
         let epoch = self.link_epoch();
+        // The slot is held until the answer is queued, within the request budget: at most
+        // `OWNER_SLOTS` of these tasks exist per peer, even when the link stops reading.
         tokio::spawn(async move {
             let reply = crate::github_broker::serve_owner(&me.name, params).await;
-            drop(slot);
             let msg = match reply {
                 Ok(v) => Message::ok(id, v),
                 Err(e) => Message::err(id, e),
             };
             if let Ok(line) = msg.bounded_line() {
-                let _ = me.out.send(Outbound { epoch, key: None, line }).await;
+                let frame = Outbound { epoch, key: None, line };
+                let _ = tokio::time::timeout(me.timings.request, me.out.send(frame)).await;
             }
+            drop(slot);
         });
     }
 
@@ -882,10 +885,6 @@ impl Peer {
                 return Ok(());
             }
             me.admitting.store(false, Ordering::SeqCst);
-            // This link's own epoch: if it dropped meanwhile, the next one is not ready.
-            if me.served_as().as_deref() == Some("peer") {
-                me.github_link.store(link + 1, Ordering::SeqCst);
-            }
             *me.person_instance.lock().unwrap_or_else(|e| e.into_inner()) = init
                 .pointer("/_meta/acpmux/personInstance")
                 .and_then(Value::as_str)
@@ -1000,6 +999,13 @@ impl Peer {
                             let Some(tx) = tx else { continue };
                             let reply = match error { Some(e) => Err(e), None => Ok(result.unwrap_or(Value::Null)) };
                             let watch = self.watch_key.lock_or_recover().take_if(|k| *k == key).is_some();
+                            // The handshake's last step answered on this link, as a peer serving
+                            // this daemon: GitHub actions are taken from here on, and the
+                            // added machine asks only after sending this answer
+                            // (`hub/github_owner.rs`).
+                            if watch && reply.is_ok() && self.served_as().as_deref() == Some("peer") {
+                                self.github_link.store(link + 1, Ordering::SeqCst);
+                            }
                             if let (true, Ok(list)) = (watch, &reply) {
                                 let notice = PeerNotice::Sessions(watch_sessions(list));
                                 if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {

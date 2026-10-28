@@ -35,6 +35,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_STEER,
     method::MUX_BRIEFS,
     method::MUX_REPORT,
+    // A GitHub action is for this daemon's own caller session (`github_broker.rs`).
+    method::MUX_GITHUB_ACTION,
     // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
     method::MUX_TASK_NEW,
     method::MUX_TASKS,
