@@ -166,6 +166,11 @@ function parseEvidence(value: unknown, expectedHead: string | undefined, errors:
 function inspectResult(result: Record<string, unknown>, errors: string[]): boolean {
   const id = typeof result.id === "string" ? result.id : "<missing id>";
   let valid = true;
+  const metricTypes = new Set(["target_painted", "frame_time", "scroll_frame_time", "drag_target_painted"]);
+  if (typeof result.metricType !== "string" || !metricTypes.has(result.metricType)) {
+    errors.push(`${id}: unsupported or missing metricType`);
+    valid = false;
+  }
   if (result.engine !== "chromium") errors.push(`${id}: result.engine must be chromium`);
   if (!validDistribution(result.latencyMs)) {
     errors.push(`${id}: invalid latencyMs distribution`);
