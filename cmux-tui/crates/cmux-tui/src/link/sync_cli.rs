@@ -31,6 +31,7 @@ mod place;
 mod pull;
 mod remote;
 
+use crate::json_fields::JsonFields;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read as _;
 use std::os::unix::fs::OpenOptionsExt as _;
@@ -107,7 +108,7 @@ pub(super) fn run(args: &[String]) -> i32 {
     match push(&socket, &local, &remote) {
         Ok(summary) => {
             let mut line = summary.json();
-            line["ok"] = json!(true);
+            line.insert("ok", json!(true));
             println!("{line}");
             0
         }
@@ -419,11 +420,11 @@ impl Listings {
     /// a file.
     fn revision(&mut self, remote: &mut Remote, target: &str) -> anyhow::Result<Option<String>> {
         let (parent, name) = remote::split(target)?;
-        if !self.0.contains_key(parent) {
-            let listing = remote.list(parent)?;
-            self.0.insert(parent.to_string(), listing);
-        }
-        Ok(self.0[parent]
+        let listing = match self.0.entry(parent.to_string()) {
+            std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::btree_map::Entry::Vacant(entry) => entry.insert(remote.list(parent)?),
+        };
+        Ok(listing
             .as_ref()
             .and_then(|entries| entries.get(name))
             .filter(|entry| entry.kind == "file")
@@ -472,7 +473,7 @@ fn hash(file: &LocalFile) -> anyhow::Result<String> {
         if read == 0 {
             break;
         }
-        hasher.update(&buffer[..read]);
+        hasher.update(crate::panic_free::reported_prefix(&buffer, read)?);
     }
     Ok(hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
 }

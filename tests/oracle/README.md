@@ -9,6 +9,7 @@ section 3E). The tool that reads the expectation files is
 | `Expectations.d/<suite>.txt` | Known results that are not Pass, for one suite |
 | `NeverFix.d/<suite>.txt` | Cases that never run on a configuration (`[ Skip ]` only) |
 | `corpus/<suite>/<case>.json` | Cases (task 012); the linter reads them for stale and budget checks |
+| `corpus-store.json`, `corpus-store/` | The generated suites git does not carry (`tla`, `config`, `terminal`): `scripts/cmux-next/oracle/corpus_store.py ensure` writes them from their generator or from a pinned content-addressed tarball; every oracle tool calls it first |
 | `blocked/<suite>/<case>.json` | Converted cases that no driver can run yet; no run reads them. The suite's `coverage.json` names what blocks each one |
 | `baselines/` | Reviewed baselines of golden suites (task 016) |
 | `engine-parity.json` | Engine parity (task 113): the WebKit vs Chromium differences that are the engine itself, each with its reason; `oracle.py diff --engine webkit,chromium` explains them; an engine arm's driver canonicalizes without the tabs' `engine` |

@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesign
-import CmuxNextInput
+public import CmuxNextInput
 public import CmuxNextInputCore
 public import CmuxNextWakeups
 package import CmuxNextRemoteView
@@ -28,7 +28,7 @@ public protocol RemoteBrowserEventTarget: AnyObject {
 /// Chromium delivers rAF-aligned input (`third_party/blink/renderer/platform/widget/input/
 /// main_thread_event_queue.cc`). Buttons, enter, leave, keys and scroll phase edges flush what waits
 /// first (`ShouldFlushQueue`), so the page sees every event in the order it came.
-public final class RemoteBrowserContentView: NSView {
+public final class RemoteBrowserContentView: NSView, KeyEquivalentOwningSurface {
     package let video = RemoteVideoView()
     public weak var eventTarget: (any RemoteBrowserEventTarget)?
 

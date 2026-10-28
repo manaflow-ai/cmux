@@ -79,8 +79,9 @@ pub fn parse(diff: &str) -> Result<Vec<FilePatch>, HandError> {
                     file.new_no_eol |= matches!(prev, Some('+' | ' '));
                     continue;
                 }
-                let (tag, rest) = match l.chars().next() {
-                    Some(c @ (' ' | '-' | '+')) => (c, &l[1..]),
+                let mut chars = l.chars();
+                let (tag, rest) = match chars.next() {
+                    Some(c @ (' ' | '-' | '+')) => (c, chars.as_str()),
                     None => (' ', ""),
                     Some(_) => return Err(bad(format!("bad hunk line {l:?}"))),
                 };
@@ -125,9 +126,7 @@ fn find(haystack: &[String], needle: &[String], hint: usize) -> Option<usize> {
     if needle.is_empty() {
         return Some(hint.min(haystack.len()));
     }
-    let fits = |at: usize| {
-        at + needle.len() <= haystack.len() && haystack[at..at + needle.len()] == *needle
-    };
+    let fits = |at: usize| haystack.get(at..at + needle.len()) == Some(needle);
     let max = haystack.len();
     for d in 0..=max {
         if hint >= d && fits(hint - d) {

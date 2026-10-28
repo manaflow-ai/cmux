@@ -124,6 +124,9 @@ extension ActionLatencyHUD {
         case .presented:
             String(localized: "actionLatencyHUD.stage.presented", defaultValue: "presented", table: "ActionLatencyHUD",
                    bundle: .module)
+        case .echoParsed:
+            String(localized: "actionLatencyHUD.stage.echoParsed", defaultValue: "echo parsed", table: "ActionLatencyHUD",
+                   bundle: .module)
         }
     }
 }

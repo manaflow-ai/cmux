@@ -7,6 +7,13 @@ struct Stroke {
     code: KeyCode,
     mods: KeyModifiers,
 }
+/// The one character of `s`; None for none or several.
+fn single_char(s: &str) -> Option<char> {
+    let mut chars = s.chars();
+    let c = chars.next()?;
+    chars.next().is_none().then_some(c)
+}
+
 impl Stroke {
     fn event(k: KeyEvent) -> Self {
         let mut code = k.code;
@@ -52,8 +59,10 @@ impl Stroke {
             "end" => KeyCode::End,
             "backspace" => KeyCode::Backspace,
             "delete" => KeyCode::Delete,
-            s if s.starts_with('f') && s[1..].parse::<u8>().is_ok() => KeyCode::F(s[1..].parse()?),
-            s if s.chars().count() == 1 => KeyCode::Char(s.chars().next().unwrap()),
+            s if let Some(n) = s.strip_prefix('f').and_then(|n| n.parse::<u8>().ok()) => {
+                KeyCode::F(n)
+            }
+            s if let Some(c) = single_char(s) => KeyCode::Char(c),
             _ => anyhow::bail!("unknown key {name:?}"),
         };
         Ok(Self { code, mods })
@@ -204,7 +213,7 @@ impl Keymap {
             }
         }
         for (i, a) in out.bindings.iter().enumerate() {
-            for b in &out.bindings[i + 1..] {
+            for b in out.bindings.iter().skip(i + 1) {
                 if a.keys.starts_with(&b.keys) || b.keys.starts_with(&a.keys) {
                     anyhow::bail!(
                         "conflicting shortcuts: {} ({}) and {} ({})",

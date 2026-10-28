@@ -88,6 +88,7 @@ pub(super) const MODULE_ROUTES: &[&[Route]] = &[
     super::debug_crash_inject::ROUTES,
     super::loopback_forward::ROUTES,
     super::energy_op::ROUTES,
+    super::frontend_visibility::ROUTES,
     super::memory_limit::ROUTES,
     #[cfg(unix)]
     super::browser_runtime::ROUTES,

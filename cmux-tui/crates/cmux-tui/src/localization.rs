@@ -113,6 +113,11 @@ pub(crate) struct ForeignViewportHint {
 }
 
 impl ForeignViewportHint {
+    #[allow(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        reason = "INVARIANT: `ForeignViewportMessages::hint` is the one constructor; it writes `len` bytes of UTF-8 text and ASCII digits into `bytes` through a cursor bounded by the array"
+    )]
     pub fn as_str(&self) -> &str {
         std::str::from_utf8(&self.bytes[..self.len])
             .expect("foreign viewport hint is assembled from UTF-8 strings and ASCII digits")

@@ -896,7 +896,7 @@ fn linux_provider_authority_process_is_non_dumpable_and_scrubs_env() {
 /// systemd socket activation (sd_listen_fds(3)): the startup capture takes
 /// `LISTEN_PID`, `LISTEN_FDS` and `LISTEN_FDNAMES` out of the environment
 /// before any thread starts, hands them out once, and the provider management
-/// listener on descriptor 3 still reaches `take_provider_management_listener`.
+/// listener on descriptor 3 still reaches `provider_authority::take_management_listener`.
 #[cfg(target_os = "linux")]
 #[test]
 fn linux_systemd_listen_env_is_captured_at_startup_and_reaches_the_listener() {
@@ -936,12 +936,12 @@ fn linux_systemd_listen_env_is_captured_at_startup_and_reaches_the_listener() {
             for key in LISTEN_KEYS {
                 assert!(std::env::var_os(key).is_none(), "{key} left in the environment");
             }
-            let listener = take_provider_management_listener()
+            let listener = provider_authority::take_management_listener()
                 .unwrap()
                 .expect("descriptor 3 reaches the provider management listener");
             assert_eq!(listener.as_raw_fd(), 3);
             assert_eq!(listener.local_addr().unwrap().as_pathname(), Some(Path::new(&socket_path)));
-            assert!(take_provider_management_listener().unwrap().is_none());
+            assert!(provider_authority::take_management_listener().unwrap().is_none());
             return;
         }
         _ => {}

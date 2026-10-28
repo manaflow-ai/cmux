@@ -4,7 +4,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
 import Foundation
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import UniformTypeIdentifiers
 
 /// The Chief's settings: the content of the popover the header's "Chief >"

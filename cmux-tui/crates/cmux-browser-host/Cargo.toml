@@ -27,6 +27,8 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 url = "2.5"
 hmac.workspace = true
+# The Chromium Host relay credential (provider.rs, HMAC-SHA256).
+sha2.workspace = true
 # Undoable cookie clears: encrypted backups (src/cookie_backups.rs).
 chacha20poly1305 = "0.10"
 getrandom.workspace = true
@@ -39,3 +41,8 @@ cmux-panic-log.workspace = true
 libc.workspace = true
 # The host's black box (src/bin/cmux-browser-host.rs); std and libc only.
 cmux-trace.workspace = true
+
+# The relay link's peer check (src/provider_link/relay_peer.rs): audit token
+# and code signature, as the link sockets check them.
+[target.'cfg(target_os = "macos")'.dependencies]
+cmux-link.workspace = true

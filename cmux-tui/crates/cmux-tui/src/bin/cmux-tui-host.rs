@@ -64,8 +64,8 @@ fn main() -> std::process::ExitCode {
     // The holder of every PTY (cmux-holder) runs from this small binary too,
     // with the same panic log (holder-panics.jsonl).
     #[cfg(unix)]
-    if let Some(("__holder", holder_args)) =
-        args.split_first().map(|(first, rest)| (first.as_str(), rest))
+    if let Some((mode, holder_args)) = args.split_first()
+        && mode == "__holder"
     {
         // Its black box first (p09-observability-095), as cmux-holder's main.
         if let Some(dir) = cmux_holder::blackbox_dir(holder_args) {
