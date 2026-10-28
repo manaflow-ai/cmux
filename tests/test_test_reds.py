@@ -132,6 +132,11 @@ class PerTest(unittest.TestCase):
                 self.assertTrue(reds.classify(log(line), log(line), "cmux-next swift test").own)
         self.assertTrue(reds.classify("  \n", log(failed("a()")), "cmux-next swift test").own)
 
+    def test_a_whole_unittest_run_and_a_known_issue_run_end_are_whole(self):
+        self.assertEqual(reds.read(log("test_a (mod.T.test_a) ... ok", "Ran 1 test in 0.001s", "OK")).truncated, [])
+        self.assertEqual(reds.read(log("◇ Test run started.", "━ Test run with 1 test in 1 suite passed after 0.1 "
+                                       "seconds with 1 known issue.")).truncated, [])
+
     def test_a_compile_job_that_prints_fatal_error_is_left_to_the_caller(self):
         compile_log = log("Fatal error: module map file not found")
         self.assertIsNone(reds.classify(compile_log, compile_log, "cmux app scheme compile (Debug)"))
@@ -153,7 +158,8 @@ class PerTest(unittest.TestCase):
         self.assertTrue(reds.read(dup).truncated)
         reds.read(log("✔ Test run with " + "9" * 5000 + " tests in 1 suite passed after 0.1 seconds."))
         for cut in (log("============================= test session starts ==============================",
-                        "FAILED test_mod.py::test_x"), log("FAIL: test_x (mod.T.test_x)")):
+                        "FAILED test_mod.py::test_x"), log("FAIL: test_x (mod.T.test_x)"),
+                    log("test_a (mod.T.test_a) ... ok", "test_b (mod.T.test_b) ...")):
             with self.subTest(cut):
                 self.assertTrue(reds.classify(cut, cut).own)
 

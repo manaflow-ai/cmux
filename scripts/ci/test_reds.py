@@ -78,8 +78,10 @@ TRUNCATED = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*(?:no \"Test run with
                        r"The job running on runner .* has exceeded the maximum execution time|"
                        r"The operation was canceled|.*\blog (?:is|was) truncated)|^This log was truncated")
 RUN_STARTED = re.compile(r"^◇ Test run started\.")
-RUN_ENDED = re.compile(r"^[✔✘] Test run with \d+ tests?")
-RUN_COUNT = re.compile(r"^[✔✘] Test run with (\d{1,9}) tests?")
+RUN_ENDED = re.compile(r"^[✔✘━] Test run with \d+ tests?")
+RUN_COUNT = re.compile(r"^[✔✘━] Test run with (\d{1,9}) tests?")
+# A unittest run (verbose `name (module.Class...) ... ok` lines, or a FAIL/ERROR block) ends with `Ran N tests`.
+UNITTEST_LINE = re.compile(r"^(?:FAIL|ERROR): |^\w+ \([\w.]+\)(?: \.\.\.|$)")
 XC_SUITE_STARTED = re.compile(r"^\s*Test Suite '.+' started at ")
 XC_SUITE_ENDED = re.compile(r"^\s*Test Suite '.+' (?:passed|failed) at ")
 SUITE_STARTED = re.compile(r"^◇ Suite (.+?) started\.")
@@ -240,7 +242,7 @@ def read(log: str | None) -> Result:
     named: list[str] = []
     crashed = False
     for text in lines:
-        if RAN.search(text):
+        if RAN.search(text) or UNITTEST_LINE.match(text):
             result.ran = True
         for pattern in FAILED:
             if match := pattern.search(text):
@@ -287,7 +289,7 @@ def read(log: str | None) -> Result:
     if any(re.match(r"^=+ test session starts =+$", text) for text in lines) and not any(
             re.match(r"^=+ .*\bin [\d.]+s\b.*=+$", text) for text in lines):
         result.truncated.append("a pytest session printed no closing summary")
-    if any(re.match(r"^(?:FAIL|ERROR): ", text) for text in lines) and not any(
+    if any(UNITTEST_LINE.match(text) for text in lines) and not any(
             re.match(r"^Ran \d+ tests? in ", text) for text in lines):
         result.truncated.append("a unittest run printed no `Ran N tests` line")
     running = sum(1 for text in lines if CARGO_RUNNING.match(text))
