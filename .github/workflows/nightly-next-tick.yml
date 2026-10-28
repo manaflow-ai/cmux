@@ -5,8 +5,9 @@ name: nightly-next tick
 # cmux-tui tree, fresh strings; scripts/cmux-next/request-nightly-next.sh), and
 # that push starts exactly one nightly build. Main's promote job ignores a
 # request that does not move nightly-next forward, so a tick with nothing new
-# starts nothing. Builds are never cancelled: a tick may start a newer build
-# beside a running one, and publication is latest-wins (publish-nightly's
+# starts nothing. A newer tip never cancels a build: a tick may start it
+# beside a running one (only a run with a job no runner took for 20 minutes is
+# cancelled and re-run, scripts/ci/nightly_next_stuck_run.sh), and publication is latest-wins (publish-nightly's
 # check-build recheck refuses a build no newer than the feed).
 #
 # Until 2026-10-28 every cmux-next or cmux-tui artifacts run on feat-cmux-next
@@ -78,6 +79,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/nightly_next_cancelled_tip.sh
+            scripts/ci/nightly_next_stuck_run.sh
             scripts/ci/nightly_repick.py
             scripts/ci/owned_pool_rescue.py
             scripts/ci/owned_pool_sources.py
@@ -122,6 +124,17 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/tick-venv"
           "$RUNNER_TEMP/tick-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
           echo "$RUNNER_TEMP/tick-venv/bin" >> "$GITHUB_PATH"
+
+      # A nightly-next or promotion run with a job that has had no runner for 20 minutes
+      # (a label that stopped serving, run 40771197361) is cancelled here, so the step
+      # below re-runs the tip with its runners picked fresh from the current variables;
+      # scripts/ci/nightly_next_stuck_run.sh. A run that is running or waiting on a
+      # gate is never cancelled.
+      - name: Cancel a nightly-next run stuck without a runner
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .tick-tooling/scripts/ci/nightly_next_stuck_run.sh "$GITHUB_REPOSITORY"
 
       # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
       # re-run, run 40340830337) is never requested again below ("already on

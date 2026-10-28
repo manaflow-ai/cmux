@@ -690,6 +690,60 @@ class StarvationGuardTests(unittest.TestCase):
         self.assertEqual(inspect.signature(watch.starvation_dispatch).parameters["minutes"].default, 25.0)
 
 
+class StuckRunTests(unittest.TestCase):
+    """A nightly run whose job never got a runner carries nothing (run 40771197361: decide waited
+    34 min on a Blacksmith Linux label that had stopped starting jobs)."""
+
+    TIP = "f" * 40
+
+    class Gh(StarvationGuardTests.Gh):
+        def __init__(self, outer, runs, jobs):
+            super().__init__(outer, runs, landed=NOW - dt.timedelta(minutes=50))
+            self._jobs = jobs
+
+        def jobs(self, run):
+            if isinstance(self._jobs, Exception):
+                raise self._jobs
+            return self._jobs
+
+    def guard(self, jobs, workflow="nightly.yml"):
+        run = {"id": 9, "status": "in_progress", "created_at": at(0.5), "head_sha": self.TIP,
+               "html_url": "https://github.com/o/r/actions/runs/9"}
+        gh = self.Gh(self, [run], jobs)
+        result = watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=90), published_sha="", branch="feat-cmux-next",
+            workflow="nightly-next-tick.yml", ref="main", active_workflows=[(workflow, "nightly-next")])
+        return result, gh.dispatched
+
+    def test_a_run_stuck_without_a_runner_does_not_hold_the_dispatch(self):
+        decide = queued_job("decide", 34, ["blacksmith-4vcpu-ubuntu-2404"])
+        done = dict(queued_job("probe", 34, []), status="completed", conclusion="skipped")
+        result, dispatched = self.guard([decide, done])
+        self.assertEqual(result, f"dispatched nightly-next-tick.yml for {self.TIP}")
+        self.assertEqual(len(dispatched), 1)
+
+    def test_a_run_that_is_running_waiting_or_only_briefly_queued_still_holds(self):
+        stuck = queued_job("decide", 34, ["blacksmith-4vcpu-ubuntu-2404"])
+        cases = {
+            "briefly queued": [queued_job("decide", 19, ["blacksmith-4vcpu-ubuntu-2404"])],
+            "another job running": [stuck, dict(queued_job("build", 5, ["x"], status="in_progress"), runner_name="r")],
+            "a gate waits": [stuck, queued_job("sign", 40, ["x"], status="waiting")],
+            "an owned label": [queued_job("build-nightly-app", 40, ["glaeda-trusted-next-nightly"])],
+            "the jobs cannot be read": OSError("boom"),
+        }
+        for case, jobs in cases.items():
+            with self.subTest(case):
+                result, dispatched = self.guard(jobs)
+                self.assertEqual(result, "running https://github.com/o/r/actions/runs/9")
+                self.assertEqual(dispatched, [])
+
+    def test_only_nightly_runs_are_judged(self):
+        # The tick's own run is never read: a tick waiting on a dead label is replaced by the next one.
+        result, _ = self.guard([queued_job("request", 40, ["blacksmith-2vcpu-ubuntu-2404"])],
+                               workflow="nightly-next-tick.yml")
+        self.assertEqual(result, "running https://github.com/o/r/actions/runs/9")
+
+
 class ActiveRunReadTests(unittest.TestCase):
     """A stuck run must be found even when newer runs have buried it.
 

@@ -82,6 +82,11 @@ TICK_WORKFLOW = "nightly-next-tick.yml"
 GATE_RUNS = (("cmux-tui-artifacts.yml", "feat-cmux-next"), ("nightly.yml", "nightly-next"))
 GATE_QUEUED_MINUTES = 10.0
 GATE_RUNS_READ = 5  # queued or in-progress runs read per workflow, newest first
+# A nightly.yml job queued this long with no runner, on a label that is not owned, is on a label
+# that stopped serving: GitHub fixed the label when it created the job, so the run never finishes.
+# The same rule as the tick's scripts/ci/nightly_next_stuck_run.sh (STUCK_MINUTES), which cancels
+# and re-runs such a run.
+STUCK_RUNNER_MINUTES = 20.0
 TICK_ANNOTATION = "nightly-next tick"  # the tick's refusal tally
 PUBLISHED_MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.IGNORECASE)
 
@@ -159,6 +164,27 @@ def queued_gates(now: dt.datetime, runs_by_workflow: list[tuple[str, list[dict]]
                 out.append(f"{workflow} job \"{job.get('name', '?')}\" queued {waited:.0f} min on {labels} "
                            f"({run.get('head_sha', '')[:12]}, {run.get('html_url', run.get('id', '?'))})")
     return "; ".join(out)
+
+
+def stuck_without_runner(now: dt.datetime, jobs: list[dict], minutes: float = STUCK_RUNNER_MINUTES) -> bool:
+    """Whether a run's latest jobs are stuck on a label that stopped serving (run 40771197361).
+
+    A job has waited `minutes` queued with no runner on a label that is not owned (glaeda-* jobs
+    are the owned-pool rescue's), and every other job has finished or also waits with no runner.
+    A job that is running, or waiting on a gate, means the run is not stuck.
+    """
+    def unserved(job: dict) -> bool:
+        return job.get("status") == "queued" and not job.get("runner_name")
+
+    def waited(job: dict) -> float:
+        try:
+            return (now - parse_time(job.get("created_at") or "")).total_seconds() / 60
+        except (TypeError, ValueError):
+            return 0.0
+
+    stuck = [job for job in jobs if unserved(job) and waited(job) >= minutes
+             and not any(str(label).startswith("glaeda-") for label in job.get("labels") or [])]
+    return bool(stuck) and all(job.get("status") == "completed" or unserved(job) for job in jobs)
 
 
 def assess(now: dt.datetime, newest: dt.datetime, pushes: list[dict], nightly: list[dict],
@@ -377,6 +403,16 @@ def carries_tip(run: dict, tip: str, tip_landed: dt.datetime | None) -> bool:
         return True
 
 
+def stuck_run(gh: GitHub, run: dict, now: dt.datetime) -> bool:
+    """A nightly build or promotion run stuck without a runner carries nothing: the tick this
+    guard dispatches cancels it and re-runs the tip (scripts/ci/nightly_next_stuck_run.sh).
+    An unreadable job list keeps the run, so a failed read never doubles a build."""
+    try:
+        return stuck_without_runner(now, gh.jobs(run))
+    except Exception:  # noqa: BLE001 - fail closed: the run may be carrying the tip
+        return False
+
+
 def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | None,
                         published_sha: str, branch: str, workflow: str,
                         ref: str, inputs: dict[str, str] | None = None,
@@ -391,7 +427,8 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
     run suppressed it, so a build stuck on an old commit held the feed back for
     as long as it hung -- on 2026-10-26 three nightly-next runs created at
     03:27Z, 04:18Z and 04:23Z kept the guard quiet while the tip moved four
-    hours ahead of the feed.
+    hours ahead of the feed. A nightly.yml run stuck without a runner
+    (`stuck_run`) never finishes, so it does not hold the dispatch back either.
 
     Two scheduled runs cannot race here: the workflow's concurrency group
     `nightly-next-feed-watch` has `cancel-in-progress: false`, so one runs at
@@ -445,7 +482,8 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
         return f"unchanged: the tip is published, feed newest {feed.isoformat()}"
     active = [run for name, run_branch in (active_workflows or [(workflow, branch)])
               for run in gh.recent_runs(name, run_branch, now)
-              if is_active_delivery_run(name, run_branch, run) and carries_tip(run, tip, tip_landed)]
+              if is_active_delivery_run(name, run_branch, run) and carries_tip(run, tip, tip_landed)
+              and not (name == "nightly.yml" and stuck_run(gh, run, now))]
     if active:
         return f"running {active[0].get('html_url', active[0].get('id', '?'))}"
     gh.dispatch(workflow, ref, {**(inputs or {}), tip_input: tip} if tip_input else inputs)
