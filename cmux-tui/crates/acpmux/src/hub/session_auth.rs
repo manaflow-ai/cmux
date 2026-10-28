@@ -141,13 +141,19 @@ impl Facts {
 pub(crate) fn one_sentence(text: &str) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
     // A sentence ends at `.`, `!` or `?` before a space, but not after an abbreviation
-    // ("e.g.", "etc.") or a lone letter ("a.").
-    let end = flat.match_indices(['.', '!', '?']).map(|(i, _)| i + 1).find(|&i| {
+    // ("e.g.", "etc.") or a word of one or two letters ("a.", "no.").
+    // A closing quote or bracket right after the mark ends with it ("expired." Please).
+    let closers = ['"', '\'', '\u{201d}', '\u{2019}', ')', ']'];
+    let end = flat.match_indices(['.', '!', '?']).map(|(i, _)| i + 1).find_map(|i| {
         let word = flat[..i].rsplit(' ').next().unwrap_or_default().to_lowercase();
-        let short = word.trim_start_matches(|c: char| !c.is_alphanumeric()).chars().count() <= 2;
-        flat[i..].starts_with(' ')
+        let word = word.trim_start_matches(|c: char| !c.is_alphanumeric());
+        let short = word.chars().count() <= 2;
+        let rest = flat[i..].trim_start_matches(closers);
+        let end = flat.len() - rest.len();
+        (rest.starts_with(' ')
             && !short
-            && !["e.g.", "i.e.", "etc.", "vs.", "cf.", "approx."].contains(&word.as_str())
+            && !["e.g.", "i.e.", "etc.", "vs.", "cf.", "approx."].contains(&word))
+        .then_some(end)
     });
     let sentence = end.map_or(flat.as_str(), |i| &flat[..i]);
     if sentence.chars().count() <= DETAIL_CHARS {
@@ -322,6 +328,10 @@ mod tests {
         );
         assert_eq!(one_sentence("see e.g. the docs"), "see e.g. the docs");
         assert_eq!(one_sentence("not logged in. run /login"), "not logged in.");
+        assert_eq!(
+            one_sentence("Claude said: \"OAuth token expired.\" Please run /login"),
+            "Claude said: \"OAuth token expired.\""
+        );
         assert_eq!(one_sentence("Error! try again"), "Error!");
         assert_eq!(one_sentence("use v2.1 i.e. the new one"), "use v2.1 i.e. the new one");
         let long = one_sentence(&"word ".repeat(100));
