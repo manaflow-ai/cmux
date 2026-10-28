@@ -84,7 +84,7 @@ async function openPicker(
   efforts: string[] | undefined,
   inline: boolean,
   effortPicks: string[] = [],
-  effortsDeclared: boolean | undefined = false,
+  effortsDeclared?: boolean,
 ) {
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
   const { PromptFocus } = await import("../src/agent-session/acpmux/promptFocus");
