@@ -125,11 +125,16 @@ test("blocked and skipped agents count as ended without finishing, never as unkn
   expect(workflow!.phases[1]!.state).toBe("running");
 });
 
-test("the transcript card names the workflow, its size and time, with a dot per agent", () => {
+test("the transcript card shows workflow progress, latest agent text, model, time and tokens", () => {
   const [node] = workflowFixture("running", NOW).filter((each) => each.kind === "workflow");
   const html = renderToStaticMarkup(<WorkflowCard node={{ ...node!, endedAt: node!.startedAt + 13_000 }} />);
-  expect(text(html)).toBe("demo-name-tournament Workflow 6 agents 13s");
-  expect(html.match(/acpmux-workflow-dot"/g)?.length).toBe(6);
+  expect(text(html)).toContain("demo-name-tournament Running Critique 3/6 13s 185.1K tokens");
+  expect(text(html)).toContain("The latest shortlist favors names that read clearly at a glance.");
+  expect(text(html)).toContain("claude-opus-5-5");
+  expect(html).toContain('role="progressbar"');
+  expect(html).toContain('aria-valuemin="0"');
+  expect(html).toContain('aria-valuemax="6"');
+  expect(html).toContain('aria-valuenow="3"');
   // No handler: the card is no button anyone can press.
   expect(html).toContain("disabled");
 });

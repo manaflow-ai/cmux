@@ -125,10 +125,11 @@ public struct SidebarMapping {
         let unread = showsUnread ? workspace.unreadCount : 0
         let statuses = StatusMapping.shared.summaries(tabs: tabs, status: workspace.status)
         let indicator = statuses.workspace
-        let front = frontTab(workspace, selectedTab: selectedTab)
+        // The focused tab; the row is named for its chat while it is an idle shell (`labelTab`).
+        let focused = frontTab(workspace, selectedTab: selectedTab), front = labelTab(focused, tabs, newTabPages: newTabPages)
         // The workspace's folder (Group by Folder's bucket): a tab row repeats it nowhere.
-        let rowFolder = front?.cwd ?? tabs.lazy.compactMap(\.cwd).first
-        let folder = folderTab(tabs)
+        let rowFolder = focused?.cwd ?? tabs.lazy.compactMap(\.cwd).first
+        let folder = folderTab(tabs, label: front)
         let work = front?.kind == .browser ? workTab(workspace, selectedTab: selectedTab) : nil
         let page = front.flatMap { pageFace(workspace, $0, work) }
         // Each browser tab's face once: its favicon in the tab list, its sound on the row.
@@ -187,7 +188,8 @@ public struct SidebarMapping {
             // Group by Folder's bucket: the front tab's folder, else any tab's.
             folder: rowFolder.map(shorten)
         )
-        row.focusedTab = front.map { TabID($0.id) }
+        row.focusedTab = focused.map { TabID($0.id) }
+        row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
         row.isUnnamed = Self.isUnnamed(workspace, label: page?.title)
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
@@ -384,11 +386,6 @@ public struct SidebarMapping {
 
     static func entry(_ key: String, in entries: [WorkspaceStatus.Entry]) -> String? {
         entries.first { $0.key == key && !$0.text.isEmpty }?.text
-    }
-
-    /// The first tab that reports a folder: the row's folder and branch.
-    func folderTab(_ tabs: [TabModel]) -> TabModel? {
-        tabs.first { $0.cwd != nil }
     }
 
     /// The front terminal's program as the shell or program titles it (OSC

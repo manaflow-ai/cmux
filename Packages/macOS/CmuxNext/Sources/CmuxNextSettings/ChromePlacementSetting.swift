@@ -116,7 +116,7 @@ public nonisolated struct ChromePlacementSetting {
         SettingDescriptor(spacesVisibilityPath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.spacesVisibility", "Show Spaces"),
                           help: SettingsText.keyed("settings.sidebar.spacesVisibility.help",
-                                                   "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons."),
+                                                   "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then."),
                           kind: .choice([
                               SettingChoice(SpacesVisibilityMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
                               SettingChoice(SpacesVisibilityMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),

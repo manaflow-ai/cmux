@@ -1,6 +1,7 @@
 #!/bin/bash
 # cmux pre-push hook, installed by scripts/install-git-hooks.sh as a clone-local
 # copy outside the checkout.
+# 0. Checks refresh (a push to feat-cmux-next): scripts/git-hooks/refresh_checks.py.
 # 1. Web lint (always): runs the web checks CI runs on what the push changes and
 #    refuses the push when they fail. Skip once with
 #    CMUX_WEB_LINT_SKIP_REASON="<the failing check and the base SHA where it also fails>".
@@ -29,6 +30,14 @@ cd "$REPO_ROOT"
 PUSHED_REFS="$(cat)"
 PUSHED_REMOTE="${1:-origin}"
 CHECKS="$HOOK_DIR/cmux-next-checks"
+
+# The checks copy is refreshed from the fetched feat-cmux-next before a push to it (refresh_checks.py says why);
+# it never refuses a push.
+REFRESH="$HOOK_DIR/refresh_checks.py"
+if [[ -f "$REFRESH" ]]; then
+    printf '%s\n' "$PUSHED_REFS" | "$PYTHON3_BIN" -I "$REFRESH" --hook-dir "$HOOK_DIR" --repo "$REPO_ROOT" \
+        --remote-url "${2:-}" || true
+fi
 
 WEB_LINT="$HOOK_DIR/web_lint_prepush.py"
 if [[ -f "$WEB_LINT" ]]; then

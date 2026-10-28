@@ -788,22 +788,22 @@
   color: var(--cv-text);
 }
 .cv-h1 {
-  font-size: 21px;
-  line-height: 28px;
+  font-size: calc(var(--cv-font-size) * 1.5);
+  line-height: calc(var(--cv-font-size) * 2);
   margin: 20px 0 12px;
 }
 .cv-h2 {
-  font-size: 17.5px;
-  line-height: 24px;
+  font-size: calc(var(--cv-font-size) * 1.25);
+  line-height: calc(var(--cv-font-size) * 24 / 14);
   margin: 15px 0 3.5px;
 }
 .cv-h3 {
-  font-size: 15.75px;
-  line-height: 22px;
+  font-size: calc(var(--cv-font-size) * 1.125);
+  line-height: calc(var(--cv-font-size) * 22 / 14);
   margin: 15px 0 5px;
 }
 .cv-h4 {
-  font-size: 14px;
+  font-size: var(--cv-font-size);
   margin: 16px 0 4px;
 }
 .cv-md strong {
@@ -983,9 +983,9 @@
    between a label and its value); long-text columns are 256px at least (TableBlock.tsx). */
 .cv-table {
   border-collapse: collapse;
-  font-size: var(--cv-table-size, 12.25px);
+  font-size: var(--cv-table-size, calc(var(--cv-font-size) * 0.875));
   letter-spacing: var(--cv-table-tracking, 0px);
-  line-height: var(--cv-table-line-height, 23px);
+  line-height: var(--cv-table-line-height, calc(var(--cv-font-size) * 23 / 14));
   width: max-content;
 }
 .cv-table th,
@@ -1210,6 +1210,10 @@ pre.cv-math-source {
    that frame, and the offset clamped short of the end and stayed there. */
 .acpmux-spacer {
   transition: none;
+  /* A row's entrance (`cv-enter`) slides it up 4px into place; its translate must not make the
+     scroller taller than the layout, or a view at its end rests 2-4px short of it until the motion
+     ends (transcript-pinned-bottom). The 4px falls in the row's own bottom padding. */
+  overflow-y: clip;
 }
 /* The thread is drawn up by a followed view's composer growth (VirtualTranscript `lift`) in the frame
    the card grows: under Reduce Motion's 0.01ms transitions it would keep its old position for that
@@ -1226,6 +1230,12 @@ pre.cv-math-source {
 .acpmux-row[data-transcript-selected="true"] {
   border-radius: 8px;
   background: color-mix(in srgb, var(--agent-accent) 8%, transparent);
+}
+/* Response focus rings are opt-in (focusRing.enabled, #23745): the shared desktop ring leaves the
+   row out (desktop.css), so without the setting the row draws nothing, not the engine's own
+   `outline: auto`. */
+.acpmux-row:focus-visible {
+  outline: none;
 }
 [data-focus-ring-enabled="true"] .acpmux-row[data-transcript-active="true"]:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
@@ -1508,6 +1518,19 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
 }
+/* Split, output first and what the model read second (TurnTokens.tsx): "↓ 12.4K out ↑ 3.9M in". */
+.cv-worked__tokens.is-split {
+  display: inline-flex;
+  gap: 8px;
+}
+/* The turn's time is quieter than its words too, as its tokens are (Leo, 2026-10-21: "shouldnt the
+   token text and maybe time tho be less prominent? darker?"): beside "Thinking" or a call, and
+   inside "Working for 35s" and "Worked for 1m 16s" (TurnTokens.tsx `TimedLabel`). */
+.cv-worked__time,
+.cv-worked__label-time {
+  color: var(--cv-text-dim);
+  font-variant-numeric: tabular-nums;
+}
 .cv-worked__open {
   all: unset;
   min-width: 0;
@@ -1568,10 +1591,6 @@ pre.cv-math-source {
 .cv-worked.is-below {
   height: calc(var(--cv-meta-row) + var(--cv-turn-gap));
   padding-top: calc(var(--cv-live-gap) + 2px);
-}
-/* Its time is quieter than its words, as the tool rows' time is. */
-.cv-worked.is-below .cv-worked__time {
-  color: var(--cv-text-dim);
 }
 /* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line. */
 :is(.cv-worked, .cv-activity) .cv-command__bg {
@@ -1786,6 +1805,8 @@ pre.cv-math-source {
 }
 /* The folded label uses the same row height as tools; full thought text keeps its padding. */
 .cv-thought.is-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   padding-block: 0;
 }
@@ -2849,10 +2870,10 @@ a.cv-sha:focus-visible {
   }
 }
 
-/* cx-2lv1k: a row from a page of older history fades in once, the first time the reader scrolls it
- * into view at the top edge (OlderRowFade in App.tsx). It waits at a soft 0.35 until then, out of
- * view, so the fade starts from ink already there and never from a blank band. Opacity only: no
- * row moves or changes height, so the anchoring that holds the reader's place is untouched. Reduce
+/* A row from older history fades on its first mounted copy (OlderRowFade in App.tsx), including
+ * a warm copy outside the view. Its layout effect starts the fade before paint, so intersection
+ * never defers opacity and a remount draws in full ink. Opacity only: no row moves or changes
+ * height, so the anchoring that holds the reader's place is untouched. Reduce
  * Motion draws it in full ink at once; ui.animationSpeed off makes the fade instant (the token is 0). */
 @keyframes acpmux-older-in {
   from {
