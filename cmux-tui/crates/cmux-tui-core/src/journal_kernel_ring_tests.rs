@@ -60,16 +60,25 @@ fn append_agent_turns(mux: &Arc<Mux>, terminal: &str, turns: usize) {
     }
 }
 
-/// Pages from `cursor` through `head` the way the readers do: the ring, and
-/// a database reader once the cursor is behind it. Returns every sequence.
+/// Pages from 0 through `head` the way a journal stream does: the ring
+/// while its cursor is inside it, a SQLite reader of its own after a Gap,
+/// and the ring again once the reader caught up past the ring's start.
+/// Returns every sequence, in the order it got them.
 fn read_all(mux: &Arc<Mux>, head: u64) -> Vec<u64> {
     let mut cursor = 0;
     let mut seen = Vec::new();
     let mut reader = None;
     while cursor < head {
-        let page = match mux.shared_journal_after(cursor, 256) {
-            SharedJournalRead::Page(page) if reader.is_none() => {
-                page.records.iter().map(|doc| doc.record.sequence).collect::<Vec<_>>()
+        // Back to the ring as soon as it covers the next record.
+        if reader.is_some()
+            && let SharedJournalRead::Page(page) = mux.shared_journal_after(cursor, 1)
+            && page.records.first().is_some_and(|doc| doc.record.sequence == cursor + 1)
+        {
+            reader = None;
+        }
+        let page: Vec<u64> = match (reader.is_none(), mux.shared_journal_after(cursor, 256)) {
+            (true, SharedJournalRead::Page(page)) => {
+                page.records.iter().map(|doc| doc.record.sequence).collect()
             }
             _ => {
                 let reader =
