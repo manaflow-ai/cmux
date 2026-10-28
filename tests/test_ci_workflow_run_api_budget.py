@@ -181,6 +181,76 @@ class FailureAttributionCalls(unittest.TestCase):
         self.assertEqual(gh.writes, [])
 
 
+    def main_act(self, gh: "CountingGitHub", run: dict, classify=None) -> tuple[list[str], list[str]]:
+        """classify_failures.main(["act"]) on `run` as the workflow_run event, with `gh` as its client.
+        Returns (the runs classify_run read, stdout lines)."""
+        classified: list[str] = []
+        gh.calls = gh.read_calls = 0  # type: ignore[attr-defined]
+
+        def fake_classify(client, event_run):  # noqa: ANN001, ANN202
+            classified.append(str(event_run["id"]))
+            found = classify(client) if classify else report([cf.CODE])
+            for job in found["jobs"]:
+                job.setdefault("signature", None)
+            return found
+
+        with tempfile.TemporaryDirectory() as temp:
+            event = Path(temp) / "event.json"
+            event.write_text(json.dumps({"workflow_run": run}))
+            out = io.StringIO()
+            saved = {name: getattr(cf, name) for name in ("GitHub", "classify_run")}
+            env = {"GITHUB_EVENT_PATH": str(event), "GH_TOKEN": "t", "GITHUB_REPOSITORY": REPO}
+            old_env = {key: os.environ.get(key) for key in env}
+            try:
+                cf.GitHub = lambda *args, **kwargs: gh  # type: ignore[assignment,misc]
+                cf.classify_run = fake_classify  # type: ignore[assignment]
+                os.environ.update(env)
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(cf.main(["act"]), 0)
+            finally:
+                for name, value in saved.items():
+                    setattr(cf, name, value)
+                for key, value in old_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+        return classified, out.getvalue().splitlines()
+
+    def test_a_red_run_on_a_moved_or_closed_head_reads_no_jobs(self) -> None:
+        self.assertTrue(cf.moved_past(RUN, (7, {"state": "open", "head": {"sha": "b" * 40}})))
+        self.assertTrue(cf.moved_past(RUN, (7, {"state": "closed", "head": {"sha": HEAD}, "merged_at": None})))
+        self.assertTrue(cf.moved_past(RUN, (None, {})))
+        self.assertFalse(cf.moved_past(RUN, (7, {"state": "open", "head": {"sha": HEAD}})))
+        self.assertFalse(cf.moved_past(RUN, (7, {"state": "closed", "head": {"sha": HEAD}, "merged_at": "x"})))
+        red = {**RUN, "status": "completed", "conclusion": "failure", "run_attempt": 1}
+        gh = CountingGitHub(comments=[{**BOT_COMMENT, "body": cf.MARKER + "\n" + cf.head_marker(HEAD, "failed")}],
+                            head="b" * 40)
+        classified, _ = self.main_act(gh, red)
+        self.assertEqual(classified, [])  # no jobs, logs or annotations read
+        self.assertEqual(gh.writes, [("PATCH", f"repos/{REPO}/issues/comments/99")])  # marked pending
+        gh = CountingGitHub(state="closed")
+        classified, lines = self.main_act(gh, red)
+        self.assertEqual((classified, gh.writes), ([], []))
+        self.assertTrue(any("no open pull request" in line for line in lines))
+        # A red run on the current head is classified as before.
+        gh = CountingGitHub()
+        self.assertEqual(self.main_act(gh, red)[0], ["42"])
+
+    def test_a_pull_request_that_moves_while_its_logs_are_read_is_not_re_run(self) -> None:
+        red = {**RUN, "status": "completed", "conclusion": "failure", "run_attempt": 1}
+        gh = CountingGitHub()
+
+        def moves_meanwhile(client) -> dict:  # noqa: ANN001
+            client.head = "b" * 40  # a push lands while the jobs and logs are read
+            return report([cf.MACHINE])
+
+        classified, _ = self.main_act(gh, red, classify=moves_meanwhile)
+        self.assertEqual(classified, ["42"])
+        self.assertEqual(gh.reads.count("pull 7"), 2)  # read again before deciding the re-run
+        self.assertNotIn(("POST", f"repos/{REPO}/actions/runs/42/rerun-failed-jobs"), gh.writes)
+
+
     NEXT_RUN = {**RUN, "id": 42, "conclusion": "success", "pull_requests": [
         {"number": 7, "base": {"ref": "feat-cmux-next", "repo": {"url": f"https://api.github.com/repos/{REPO}"}}}]}
 

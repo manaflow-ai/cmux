@@ -251,7 +251,8 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("workflows: [CI]", self.text)
 
     def test_dispatches_ci_on_main(self):
-        self.assertIn("gh workflow run ci.yml --repo \"$GITHUB_REPOSITORY\" --ref main", self.text)
+        self.assertIn('gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/dispatches"', self.text)
+        self.assertIn("-f ref=main -F return_run_details=true", self.text)
         self.assertIn("steps.gate.outputs.dispatch == 'true'", self.text)
 
     def test_a_completed_full_suite_run_dispatches_the_next(self):
@@ -263,15 +264,11 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("COMPLETED_SHA: ${{ github.event.workflow_run.head_sha }}", dispatch)
         self.assertIn('--completed-sha "$COMPLETED_SHA"', dispatch)
 
-    def dispatch_step(self, newest):
+    def dispatch_step(self, answer):
         step = self.text.split("      - name: Dispatch CI on main\n", 1)[1].split("\n  report:\n", 1)[0]
         script = textwrap.dedent(step.split("        run: |\n", 1)[1])
         with tempfile.TemporaryDirectory() as directory:
-            listing = f'echo "{newest}"' if newest else "exit 1"
-            fake_gh(directory, f'[ "$1" = workflow ] && exit 0\n{listing}\n')
-            sleep = pathlib.Path(directory) / "sleep"
-            sleep.write_text("#!/bin/sh\n")
-            sleep.chmod(0o755)
+            fake_gh(directory, f'echo "{answer}"\n' if answer is not None else "exit 1\n")
             return subprocess.run(
                 ["bash", "-euo", "pipefail", "-c", script],
                 env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"],
@@ -279,14 +276,17 @@ class WorkflowWiringTests(unittest.TestCase):
                 capture_output=True, text=True, timeout=10,
             )
 
-    def test_the_dispatch_step_waits_until_its_run_is_listed(self):
-        self.assertEqual(self.dispatch_step("2999-01-01T00:00:00Z").returncode, 0)
-        # An older run, or a lookup that keeps failing, never passes for the new one.
-        for newest in ("2020-01-01T00:00:00Z", None):
-            with self.subTest(newest=newest):
-                result = self.dispatch_step(newest)
-                self.assertEqual(result.returncode, 1)
-                self.assertIn("was not listed", result.stdout)
+    def test_the_dispatch_step_needs_the_run_it_created(self):
+        self.assertEqual(self.dispatch_step("https://github.com/test/repo/actions/runs/1").returncode, 0)
+        # A dispatch that names no run, or fails, never passes for a run in flight.
+        result = self.dispatch_step("")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("returned no run", result.stdout)
+        self.assertNotEqual(self.dispatch_step(None).returncode, 0)
+
+    def test_the_dispatch_step_does_not_poll(self):
+        step = self.text.split("      - name: Dispatch CI on main\n", 1)[1].split("\n  report:\n", 1)[0]
+        self.assertNotIn("sleep", step)
 
     def test_branch_lookup_failure_still_dispatches(self):
         gate = self.text.split("        id: gate\n", 1)[1].split("      - name: Dispatch CI", 1)[0]

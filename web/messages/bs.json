@@ -14,6 +14,31 @@
     "benefitSuperpowers": "Planiranje, TDD, podagenti i pregled"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM zahtjev je odgođen",
+      "message": "Dodjela Cloud VM-a je privremeno nedostupna.",
+      "action": "Sačekajte minutu, a zatim pokušajte ponovo s istim ključem idempotentnosti."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Zahtjev za snimak treba ključ za ponovni pokušaj",
+      "message": "Cloud VM snimci zahtijevaju ključ idempotentnosti.",
+      "action": "Pokušajte ponovo sa stabilnim Idempotency-Key ključem od najviše 128 znakova."
+    },
+    "snapshotInProgress": {
+      "title": "Snimak je još u toku",
+      "message": "Snimak s ovim ključem idempotentnosti još se izrađuje za ovu Cloud VM.",
+      "action": "Sačekajte da se prvi snimak završi, zatim pokušajte ponovo s istim ključem idempotentnosti."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Ključ za ponavljanje snimka je već korišten",
+      "message": "Ovaj ključ idempotentnosti već je korišten za drugi zahtjev za snimak na ovoj Cloud VM.",
+      "action": "Koristite novi ključ idempotentnosti za snimak s drugim nazivom."
+    },
+    "snapshotQuota": {
+      "title": "Dostignuto je ograničenje snimaka",
+      "message": "Ovaj Cloud VM je dostigao ograničenje snimaka.",
+      "action": "Izbrišite postojeći snimak, a zatim pokušajte ponovo s istim ključem idempotentnosti."
+    },
     "guestInstall": {
       "title": "Postavljanje Cloud VM-a nije završeno",
       "reason": "Postavljanje gosta za Cloud VM nije završeno.",

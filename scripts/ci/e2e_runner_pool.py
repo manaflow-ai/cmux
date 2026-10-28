@@ -608,6 +608,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             state = dataclasses.replace(state, blacksmith=tuple(
                 pool for pool in state.blacksmith if pool.label in usable))
         choice = simple_pool_picker.pick(state)
+        print(f"pool pick: {choice.label or 'default'} ({choice.reason})", file=sys.stderr)
         print(choice.label or args.variable or SMALL_RUNNER)
         return 0
     if args.retry_of is not None:

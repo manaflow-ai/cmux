@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Builds the patched DMG signer for the cmux NEXT DEV tip DMG.
+# Builds our patched rcodesign, the one signer the DEV and nightly signing jobs use.
 #
-#   scripts/ci/build-rcodesign-dmg.sh <dest-dir>
+#   scripts/ci/build-rcodesign.sh <dest-dir>
 #
 # Source: the apple-codesign 0.29.0 crate from crates.io, checked against its
 # pinned sha256, with scripts/ci/rcodesign-0.29.0-dmg.patch applied, built

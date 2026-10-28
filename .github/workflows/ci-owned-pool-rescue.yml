@@ -181,6 +181,11 @@ jobs:
           # A CI run's budget grows by a round per queue round the picker allows.
           QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          # The cmux-bot token above lasts an hour and a sweeper five: with the App's key the script
+          # mints the next one itself (owned_pool_rescue.GitHub._fresh_token()). Only when that mint
+          # worked, so GH_TOKEN is the App's.
+          BOT_APP_ID: ${{ steps.cmux-bot-token.outputs.token && vars.CMUX_BOT_APP_ID || '' }}
+          BOT_APP_KEY: ${{ steps.cmux-bot-token.outputs.token && secrets.CMUX_BOT_APP_KEY || '' }}
           RESCUE_SECONDS: ${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}
           # cmux-next uses the repository rescue window. A bot rerun reaches
           # attempt 3 and takes the workflow's Blacksmith fallback; manual

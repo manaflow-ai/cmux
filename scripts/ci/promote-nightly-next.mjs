@@ -42,6 +42,15 @@
 //       nightly-train/* ref for that exact SHA has a successful
 //       "nightly-next train Release compile" job;
 // and its first parent must be the current nightly-next. G3/G4 are unchanged.
+//   G5  the cmux-tui tree of the SHA (of a train commit's second parent) is
+//       published and daemon-tested: its tree-commit marker
+//       (files.cmux.com/cmux-tui/tree-commits/<sha>.json, written by
+//       cmux-tui-artifacts.yml on feat-cmux-next; contract in
+//       scripts/cmux-next/tree-commit-marker.sh there) reads 200 and names the
+//       SHA. A 404 refuses with the backfill command; any other answer is a
+//       marker read failure, never "no tree". Nightly-next run 40445128409
+//       failed when a direct promote moved nightly-next to 5d81874b while its
+//       tree was still building. Main needs no tree key and no API call for it.
 // Anything it cannot establish is a "refuse" (fail closed).
 //
 // The functions take injected clients so tests drive them with a fake API.
@@ -105,6 +114,63 @@ export function surfaceMatcher(globs) {
 }
 
 const refuse = (reason, extra = {}) => ({ action: 'refuse', reason, ...extra });
+
+// G5: the tree-commit marker (feat-cmux-next's scripts/cmux-next/tree-commit-marker.sh).
+export const TREE_MARKER_BASE = 'https://files.cmux.com/cmux-tui/tree-commits';
+export const TREE_BACKFILL = 'gh workflow run cmux-tui-artifacts.yml -R manaflow-ai/cmux --ref feat-cmux-next';
+export const TREE_REQUEST_AGAIN = 'gh workflow run nightly-next-tick.yml -R manaflow-ai/cmux --ref main';
+
+// Reads one marker: { url, status, body } or { url, status, error }. The query
+// string bypasses a cached 404 at the CDN edge. Status 0 is no complete
+// response. Redirects are not followed (a 3xx is a read failure, as in the
+// shell check), and a 404 counts only once its body has been read in full.
+export async function fetchTreeMarker(sha, { fetchImpl = globalThis.fetch, now = () => Date.now(), timeoutMs = 30_000 } = {}) {
+  const url = `${TREE_MARKER_BASE}/${sha}.json`;
+  let response;
+  try {
+    response = await fetchImpl(`${url}?t=${now()}`, { signal: AbortSignal.timeout(timeoutMs), redirect: 'manual' });
+  } catch (error) {
+    return { url, status: 0, error: error.message };
+  }
+  if (response.status === 404) {
+    try {
+      await response.text();
+    } catch (error) {
+      return { url, status: 0, error: `the 404 was cut off (${error.message})` };
+    }
+    return { url, status: 404 };
+  }
+  if (response.status !== 200) return { url, status: response.status };
+  try {
+    return { url, status: 200, body: await response.json() };
+  } catch (error) {
+    return { url, status: 200, error: `the body does not parse (${error.message})` };
+  }
+}
+
+// null when the marker says the tree of `sha` is ready, else the refusal reason.
+export async function treeMarkerGate(readTreeMarker, sha) {
+  let marker;
+  try {
+    marker = await readTreeMarker(sha);
+  } catch (error) {
+    marker = { status: 0, error: error.message };
+  }
+  const url = marker?.url || `${TREE_MARKER_BASE}/${sha}.json`;
+  if (marker?.status === 404 && !marker.error) {
+    return `${sha} has no cmux-tui tree-commit marker (${url}): its tree is not published and daemon-tested yet, or the marker was never written; nothing promoted. Backfill: ${TREE_BACKFILL} (marks every recent feat-cmux-next commit whose tree is ready), then request again: ${TREE_REQUEST_AGAIN}`;
+  }
+  if (marker?.status !== 200 || marker.error) {
+    return `tree marker read failed for ${sha} (${url}: ${marker?.error || `HTTP ${marker?.status}`}); nothing promoted. A read failure, not a missing tree: request again once files.cmux.com answers (${TREE_REQUEST_AGAIN})`;
+  }
+  const body = marker.body;
+  const hex40 = (v) => typeof v === 'string' && /^[0-9a-f]{40}$/.test(v);
+  if (body?.commit !== sha || !hex40(body?.key) || !hex40(body?.publishedBy)
+      || typeof body?.markedBy !== 'string' || !body.markedBy.trim()) {
+    return `tree marker read failed for ${sha} (${url}): it is not a complete marker of ${sha} (commit ${body?.commit || 'none'}, key ${body?.key || 'none'}, publishedBy ${body?.publishedBy || 'none'}, markedBy ${body?.markedBy ? 'set' : 'none'}); nothing promoted`;
+  }
+  return null;
+}
 
 async function admitted(github, owner, repo, sha, { attempts, delayMs, sleep, core }) {
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -452,7 +518,7 @@ async function landersOf(github, owner, repo, commit, actors) {
 export async function decide({
   github, owner, repo, sha, surfaceText, core, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   debounce = false, minIntervalHours = 0, admissionAttempts = 6, admissionDelayMs = 5000, now = () => Date.now(),
-  verifyTrain = null, requireReleaseCompile = false, requireApproval = false,
+  verifyTrain = null, requireReleaseCompile = false, requireApproval = false, readTreeMarker = fetchTreeMarker,
 }) {
   if (!/^[0-9a-f]{40}$/.test(sha)) return refuse(`promote_nightly_next_sha must be 40 lowercase hex characters, got ${sha}`);
 
@@ -512,6 +578,12 @@ export async function decide({
       }
     }
   }
+
+  // G5: the tree is published and daemon-tested. A train commit carries its
+  // second parent's tree minus its listed reverts; the parent's marker stands
+  // for it (the train is off unless vars.NIGHTLY_NEXT_TRAIN is on).
+  const treeRefusal = await treeMarkerGate(readTreeMarker, train ? train.tip : sha);
+  if (treeRefusal) return refuse(treeRefusal);
 
   if (debounce && Number.isFinite(minIntervalHours) && minIntervalHours > 0) {
     const { data } = await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: 'nightly.yml', branch: TARGET, per_page: 1 });
@@ -653,7 +725,7 @@ export async function decide({
 // REQUEST_TITLE and that expression in step. QUEUE_EVICTED is the annotation
 // GitHub leaves on an evicted job; a request a person cancelled gets a
 // different one and stays cancelled.
-const REQUEST_TITLE = /^Promote nightly-next to ([0-9a-f]{40})$/;
+const REQUEST_TITLE = /^Promote nightly-next to (tick:)?([0-9a-f]{40})$/;
 const QUEUE_EVICTED = 'Canceling since a higher priority waiting request for nightly-next-promote exists';
 const PROMOTE_JOB = 'promote-nightly-next';
 const EVICTED_MAX_AGE_MS = 24 * 3_600_000;
@@ -667,8 +739,11 @@ export async function evictedPromotions({ github, owner, repo, runId, now = () =
   });
   const evicted = [];
   for (const run of data.workflow_runs || []) {
-    const sha = REQUEST_TITLE.exec(run.display_title || '')?.[1];
+    const title = REQUEST_TITLE.exec(run.display_title || '');
+    const sha = title?.[2];
     if (!sha || run.id === runId || evicted.some((other) => other.sha === sha)) continue;
+    // A landing's evicted request is no more admitted than the request itself.
+    if (!onCadence({ tick: Boolean(title[1]), actor: run.triggering_actor?.login })) continue;
     if (now() - Date.parse(run.created_at) > EVICTED_MAX_AGE_MS) continue;
     const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
       owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
@@ -739,6 +814,49 @@ async function evictedCandidates({ github, core, owner, repo, sha, runId, now })
     containing.splice(at, 0, request);
   }
   return { containing: containing.map((request) => request.sha), diverged };
+}
+
+// The nightly-next cadence: only the 30-minute tick (nightly-next-tick.yml)
+// promotes, so a burst of landings starts one build. The tick's dispatch
+// carries TICK_PREFIX on the SHA (the dispatch has its maximum of inputs). A
+// request without it from LANDING_ACTOR, the GITHUB_TOKEN a feat-cmux-next
+// workflow dispatches with, is a landing's: older revisions of
+// request-nightly-next.sh (each cmux-tui artifacts run checks out its own
+// commit) still send one on every landing, and it is skipped here. A person's
+// dispatch (any other actor) is decided as before. The promote job's `if:` in
+// nightly.yml applies the same rule first, so a landing's request never joins
+// the promote queue, where it would evict the tick's waiting request.
+export const TICK_PREFIX = 'tick:';
+export const LANDING_ACTOR = 'github-actions[bot]';
+
+export function onCadence({ tick, actor }) {
+  return tick || actor !== LANDING_ACTOR;
+}
+
+// promote_nightly_next_sha: [dry-run:][tick:]<sha>, the prefixes in either order.
+export function parseRequest(requested) {
+  let rest = (requested || '').trim();
+  let dryRun = false;
+  let tick = false;
+  for (;;) {
+    if (rest.startsWith('dry-run:')) { dryRun = true; rest = rest.slice('dry-run:'.length).trim(); }
+    else if (rest.startsWith(TICK_PREFIX)) { tick = true; rest = rest.slice(TICK_PREFIX.length).trim(); }
+    else break;
+  }
+  return { sha: rest, dryRun, tick };
+}
+
+// The promote job's decision for one dispatch: the cadence gate, then
+// decideNewest().
+export async function decideRequest({ requested, actor, ...rest }) {
+  const { sha, dryRun, tick } = parseRequest(requested);
+  if (!onCadence({ tick, actor })) {
+    return {
+      decision: { action: 'skip', reason: `per-landing request for ${sha}; the 30-minute nightly-next tick (nightly-next-tick.yml) promotes`, sha },
+      requested: sha, scanFailed: false, dryRun, tick,
+    };
+  }
+  return { ...(await decideNewest({ ...rest, sha })), dryRun, tick };
 }
 
 export async function decideNewest({ github, core, owner, repo, sha, runId, ...rest }) {

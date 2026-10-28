@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Nightly macOS work stays on trusted Macs; fast orchestration may use Blacksmith.
+"""Nightly runners: owned minis first, then literal Blacksmith labels.
 
-The app build, signing, notarization and GUI checks stay on trusted Macs.
-Non-Mac orchestration uses the trusted fast-check runner; shared runner
-variables remain forbidden because they can silently move a job back to a
-single-host queue.
+The app compile takes the trusted owned minis on attempt 1. Signing,
+notarization, verification and the other macOS jobs take a literal Blacksmith
+label (Blacksmith is trusted like GitHub-hosted, release signing included),
+never a GitHub-hosted Mac. Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE
+SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER CONSIDERATINO". Shared
+runner variables remain forbidden because they can silently move a job onto a
+single-host queue or a reused machine.
 """
 
 from __future__ import annotations
@@ -70,15 +73,15 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         for required in ("nightly.yml", "auto-resume-nightly-notarization.yml"):
             self.assertIn(required, names)
 
-    def test_only_fast_orchestration_names_blacksmith(self) -> None:
+    def test_blacksmith_is_named_only_as_a_literal_runner_label(self) -> None:
         failures = [
             f"{path.name}:{number}: {line.strip()}"
             for path in nightly_workflows()
             for number, line in code_lines(path)
             if BLACKSMITH.search(line)
-            and not ("runs-on:" in line and "blacksmith-2vcpu-ubuntu-2404" in line)
+            and not ("runs-on:" in line and re.search(r"'blacksmith-\d+vcpu-[a-z0-9-]+'", line))
         ]
-        self.assertEqual(failures, [], "only non-Mac orchestration may route to Blacksmith")
+        self.assertEqual(failures, [], "a nightly job names Blacksmith only as a literal runs-on label")
 
     def test_no_nightly_job_reads_a_shared_blacksmith_runner_variable(self) -> None:
         failures = [
@@ -87,7 +90,7 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
             for number, line in code_lines(path)
             if SHARED_RUNNER_VARIABLES.search(line)
         ]
-        self.assertEqual(failures, [], "a shared runner variable points at Blacksmith; use a literal owned or hosted label")
+        self.assertEqual(failures, [], "a shared runner variable points at Blacksmith; use a literal owned or Blacksmith label")
 
     def test_nightlies_skip_the_benchmark_mini(self) -> None:
         """cmux11s is the dedicated benchmark mini (since 2026-10-20, a153).
@@ -151,32 +154,22 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
                 self.assertNotRegex(runs_on, SHARED_RUNNER_VARIABLES)
 
     @unittest.skipUnless((WORKFLOWS / "cmux-next.yml").exists(), "no cmux-next on this branch")
-    def test_finished_push_runs_start_a_nightly_next_with_a_thirty_minute_catch_up(self) -> None:
-        """Every finished feat-cmux-next push run asks for a NEXT nightly.
+    def test_the_thirty_minute_tick_is_the_nightly_next_cadence(self) -> None:
+        """nightly-next is promoted on a 30-minute tick, not on every landing.
 
-        A push whose own request was cancelled by the next push, or whose
-        request waited on a stalled pool, asked for nothing. The tick closes
-        that gap from events, not a clock (user decision 2026-10-20: no GitHub
-        cron on the nightly path; the dedicated builder is cmux22,
-        plans/cmux-next/nightly-builder-DESIGN.md). It starts when a
-        cmux-next or cmux-tui artifacts push run on feat-cmux-next completes,
-        whatever its conclusion, and can be started by hand. GitHub runs
-        `workflow_run` only from the default branch, so the file must exist
-        on main too.
+        Until 2026-10-28 the tick also ran whenever a cmux-next or cmux-tui
+        artifacts push run on feat-cmux-next completed (workflow_run), so each
+        landing promoted and started a full nightly build: six ran at once.
+        Leo: "every 30 mins or so you do it / within 30min you replace". It
+        runs on its cron and by hand only. A schedule runs only from the
+        default branch, so the file must exist on main.
         """
         path = WORKFLOWS / "nightly-next-tick.yml"
         self.assertTrue(path.exists(), "nightly-next-tick.yml must exist")
         text = path.read_text(encoding="utf-8")
         self.assertRegex(text, r"(?m)^\s+schedule:\s*$")
         self.assertRegex(text, r'(?m)^\s+- cron: "7,37 \* \* \* \*"$')
-        self.assertIn("workflow_run:", text)
-        workflows = re.search(r"(?m)^\s+workflows: \[(.+)\]$", text)
-        self.assertIsNotNone(workflows, "workflow_run must name its workflows")
-        self.assertIn('"cmux-next"', workflows.group(1))
-        self.assertIn('"cmux-tui artifacts"', workflows.group(1))
-        self.assertRegex(text, r"(?m)^\s+branches: \[feat-cmux-next\]$")
-        self.assertRegex(text, r"(?m)^\s+types: \[completed\]$")
-        self.assertIn("github.event.workflow_run.event == 'push'", text)
+        self.assertNotIn("workflow_run:", text)
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("scripts/cmux-next/request-nightly-next.sh --tree-ready", text)
         self.assertIn("cancel-in-progress: false", text)

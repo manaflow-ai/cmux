@@ -108,10 +108,12 @@ class ApprovedLabelsPass(unittest.TestCase):
             "blacksmith-4vcpu-ubuntu-2404",
             "warp-macos-15-arm64-6x",
             "ubuntu-24.04-arm",
-            "macos-15",
         ):
             with self.subTest(label=label):
                 self.assertIsNone(forbidden_reason(label))
+        # A GitHub-hosted Mac is never a runner variable's value
+        # (tests/test_ci_no_github_hosted_macos.py).
+        self.assertIsNotNone(forbidden_reason("macos-15"))
 
     def test_an_unset_variable_is_not_drift(self) -> None:
         self.assertIsNone(forbidden_reason(""))
@@ -207,9 +209,12 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
         # label, so the label policy does not apply to them.
         read = set()
         for path in (ROOT / ".github" / "workflows").glob("*.y*ml"):
+            text = path.read_text(encoding="utf-8")
+            # runs_on_values.py's input in ci-repo-variables.yml also names other branches' runs-on variables.
+            text = re.sub(r"^( +)CMUX_CI_RUNS_ON_VARIABLES: \|\n(?:\1 +.*\n)+", "", text, flags=re.M)
             read |= {
                 name
-                for name in re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", path.read_text(encoding="utf-8"))
+                for name in re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", text)
                 if name not in NON_LABEL_RUNNER_VARIABLES
             }
         self.assertTrue(read)

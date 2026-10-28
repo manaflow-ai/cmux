@@ -8,6 +8,7 @@ import io
 import re
 import sys
 import unittest
+import urllib.error
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
@@ -18,6 +19,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import cla_quota_rerun as rerun  # noqa: E402
 import yaml  # noqa: E402
 
+API = "https://api.github.com"
 NOW = dt.datetime(2026, 10, 26, 4, 30, tzinfo=dt.timezone.utc)
 LIMITED_LOG = "##[error]Could not complete the CLA check: ... API rate limit exceeded for installation."
 # The guard hides every PolicyError, a failed API read included, behind this one line.
@@ -54,9 +56,20 @@ class FakeGitHub:
         self.finished = finished or {}
         self.calls, self.posts = [], []
         self.repo = "o/r"
+        self.errors = {}  # (method, path) -> HTTPErrors raised in turn, one per call
+
+    def fail(self, method, path, code, **headers):
+        headers = {key.replace("_", "-"): value for key, value in headers.items()}
+        self.errors.setdefault((method, path), []).append(urllib.error.HTTPError(API + path, code, "x", headers, None))
 
     def request(self, method, path, raw=False):
         self.calls.append((method, path))
+        pending = self.errors.get((method, path))
+        if pending:
+            # What GitHub.request raises for it.
+            error = pending.pop(0)
+            spent = rerun.spent_budget(error, path)
+            raise spent if spent is not None else error
         if path == "/rate_limit":
             left = self.remaining.pop(0) if len(self.remaining) > 1 else self.remaining[0]
             return {"resources": {"core": {"limit": 15000, "remaining": left, "reset": int(self.reset.timestamp())}}}
@@ -90,13 +103,13 @@ def rerun_path(run_id):
 
 
 class Tests(unittest.TestCase):
-    def sweep(self, fake, dry=False, now=NOW, slept=None):
+    def sweep(self, fake, dry=False, now=NOW, slept=None, code=0):
         env = {"GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "app", "RATE_TOKEN": "workflow"}
         out = io.StringIO()
         slept = [] if slept is None else slept
         with mock.patch.object(rerun, "GitHub", lambda token, repo: fake), mock.patch.dict("os.environ", env), \
                 redirect_stdout(out):
-            self.assertEqual(rerun.main(["--dry-run"] if dry else [], now=now, sleep=slept.append), 0)
+            self.assertEqual(rerun.main(["--dry-run"] if dry else [], now=now, sleep=slept.append), code)
         return out.getvalue()
 
     def test_a_reset_within_the_window_gets_one_pass_just_after_it(self):
@@ -109,7 +122,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(fake.posts, [rerun_path(1)])
 
     def test_a_reset_that_leaves_the_budget_low_stops_after_one_more_read(self):
-        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=[0, 0],
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=[0, 100],
                           reset=NOW + dt.timedelta(minutes=6))
         slept = []
         self.assertIn("a re-run would fail the same way", self.sweep(fake, slept=slept))
@@ -117,11 +130,18 @@ class Tests(unittest.TestCase):
         self.assertEqual(fake.calls, [("GET", "/rate_limit")] * 2)
 
     def test_a_far_reset_is_not_waited_for(self):
-        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=0, reset=NOW + dt.timedelta(minutes=50))
+        reset = NOW + dt.timedelta(minutes=50)
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=0, reset=reset)
         slept = []
-        self.sweep(fake, slept=slept)
+        # Spent until past the deadline: red, with the time, for the next tick.
+        self.assertIn(f"spent until {reset + rerun.RESET_GRACE:%H:%M:%SZ}", self.sweep(fake, slept=slept, code=1))
         self.assertEqual(slept, [])
         self.assertEqual(fake.calls, [("GET", "/rate_limit")])
+
+    def test_a_far_reset_under_the_floor_but_not_spent_stays_green(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=100, reset=NOW + dt.timedelta(minutes=50))
+        self.assertIn("a re-run would fail the same way", self.sweep(fake))
+        self.assertEqual(fake.posts, [])
 
     def test_re_runs_are_capped_to_keep_the_floor(self):
         floor = int(15000 * rerun.FLOOR_SHARE)
@@ -336,10 +356,147 @@ class Tests(unittest.TestCase):
         self.assertNotIn("pull_request_target", on)
         self.assertEqual(workflow["permissions"], {})
 
+    def test_a_403_waits_for_the_reset_and_reruns(self):
+        # 2026-10-26: a pass logged only "HTTP Error 403: Forbidden" and ended green, CLA red.
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
+        reset = NOW + dt.timedelta(minutes=6)
+        fake.fail("POST", rerun_path(1), 403, X_RateLimit_Remaining="0", X_RateLimit_Reset=str(int(reset.timestamp())))
+        slept = []
+        out = self.sweep(fake, slept=slept)
+        self.assertIn("HTTP 403", out)
+        self.assertEqual(slept, [6 * 60 + 20])
+        self.assertEqual(fake.posts, [rerun_path(1)])
+
+    def test_a_429_waits_for_retry_after(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
+        fake.fail("GET", "/repos/o/r/actions/workflows/cla.yml/runs?event=pull_request_target&per_page=100", 429,
+                  Retry_After="30", X_RateLimit_Reset=str(int((NOW + dt.timedelta(minutes=30)).timestamp())))
+        slept = []
+        self.sweep(fake, slept=slept)
+        self.assertEqual(slept, [30.0])
+        self.assertEqual(fake.posts, [rerun_path(1)])
+
+    def test_remaining_zero_on_another_status_is_a_spent_budget(self):
+        error = urllib.error.HTTPError(API, 404, "x", {"X-RateLimit-Remaining": "0"}, None)
+        self.assertIsNotNone(rerun.spent_budget(error, "/x"))
+        self.assertIsNone(rerun.spent_budget(urllib.error.HTTPError(API, 500, "x", {}, None), "/x"))
+
+    def test_a_reset_past_the_deadline_exits_non_zero_with_its_time(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
+        reset = NOW + rerun.PASS_DEADLINE + dt.timedelta(minutes=1)
+        fake.fail("POST", rerun_path(1), 403, X_RateLimit_Reset=str(int(reset.timestamp())))
+        slept = []
+        out = self.sweep(fake, slept=slept, code=1)
+        self.assertEqual(slept, [])
+        self.assertIn(f"spent until {reset + rerun.RESET_GRACE:%H:%M:%SZ}", out)
+        self.assertEqual(fake.posts, [])
+
+    def test_a_budget_that_stays_spent_stops_after_the_retries(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
+        for _ in range(rerun.SPENT_RETRIES + 1):
+            fake.fail("POST", rerun_path(1), 403)
+        slept = []
+        self.sweep(fake, slept=slept, code=1)
+        self.assertEqual(slept, [rerun.SPENT_FALLBACK.total_seconds()] * rerun.SPENT_RETRIES)
+
+    def test_other_http_errors_stay_warnings(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
+        fake.fail("POST", rerun_path(1), 500)
+        self.assertIn("::warning", self.sweep(fake))
+
+    def test_the_pass_ends_inside_the_step_and_a_red_pass_shows_red(self):
+        workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci-cla-quota-rerun.yml").read_text())
+        job = workflow["jobs"]["cla-quota-rerun"]
+        step = next(s for s in job["steps"] if "cla_quota_rerun.py" in str(s.get("run", "")))
+        self.assertGreater(step["timeout-minutes"], rerun.PASS_DEADLINE.total_seconds() / 60)
+        self.assertGreater(rerun.PASS_DEADLINE, rerun.WAIT_FOR_RESET)
+        self.assertNotIn("continue-on-error", job)
+        self.assertNotIn("continue-on-error", step)
+
+    def test_a_retried_pass_never_reruns_a_run_twice(self):
+        fake = FakeGitHub([run(1, "a" * 40, number=1), run(2, "b" * 40, number=2)], [], {1: LIMITED_LOG, 2: LIMITED_LOG})
+        fake.fail("POST", rerun_path(2), 403)  # run 1, accepted first, still lists as failed
+        self.sweep(fake)
+        self.assertEqual(sorted(fake.posts), [rerun_path(1), rerun_path(2)])
+
+    def test_a_budget_still_spent_after_the_reset_ends_red(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=[0, 0],
+                          reset=NOW + dt.timedelta(minutes=6))
+        slept = []
+        self.sweep(fake, slept=slept, code=1)
+        self.assertEqual(slept[0], 6 * 60 + 20)
+        self.assertEqual(fake.posts, [])
+
+    def test_a_retry_spends_no_slot_on_a_run_already_rerun(self):
+        head_a, head_g = "a" * 40, "b" * 40
+        fake = FakeGitHub([run(1, head_a, number=1)], [run(2, head_g, number=2, name=GUARD)],
+                          {1: LIMITED_LOG, 2: GUARD_403_LOG}, remaining=[15000, rerun.FLOOR_MIN * 3 + rerun.RERUN_COST])
+        fake.fail("POST", rerun_path(2), 403)
+        self.sweep(fake)
+        self.assertEqual(fake.posts, [rerun_path(1), rerun_path(2)])
+
+    def test_a_pass_out_of_time_exits_non_zero(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
+        fake.request = mock.Mock(side_effect=rerun.PastDeadline("no time left for GET /rate_limit"))
+        self.assertIn("deadline", self.sweep(fake, code=1))
+
     def test_dry_run_writes_nothing(self):
         fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
         self.assertIn("would re-run", self.sweep(fake, dry=True))
         self.assertEqual(fake.posts, [])
+
+
+class Response(io.BytesIO):
+    def __init__(self, body=b"{}", status=200, headers=None):
+        super().__init__(body)
+        self.status, self.headers = status, headers or {}
+
+
+class RealRequestTests(unittest.TestCase):
+    """GitHub.request itself, with urlopen mocked."""
+
+    def test_a_403_becomes_a_spent_budget_with_its_reset(self):
+        error = urllib.error.HTTPError(API + "/x", 403, "Forbidden", {"X-RateLimit-Reset": "1793124441"}, None)
+        with mock.patch.object(rerun.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(rerun.SpentBudget) as caught:
+                rerun.GitHub("t", "o/r").request("POST", "/x")
+        self.assertEqual(caught.exception.reset, dt.datetime.fromtimestamp(1793124441, dt.timezone.utc))
+        error.close()
+
+    def test_a_successful_response_with_none_left_stops_the_next_call(self):
+        gh = rerun.GitHub("t", "o/r")
+        headers = {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1793124441"}
+        with mock.patch.object(rerun.urllib.request, "urlopen", return_value=Response(headers=headers)) as opened:
+            self.assertEqual(gh.request("GET", "/repos/o/r/pulls"), {})
+            with self.assertRaises(rerun.SpentBudget):
+                gh.request("GET", "/repos/o/r/pulls")
+        self.assertEqual(opened.call_count, 1)
+
+    def test_the_free_rate_limit_read_is_judged_by_its_body(self):
+        gh = rerun.GitHub("t", "o/r")
+        with mock.patch.object(rerun.urllib.request, "urlopen",
+                               side_effect=lambda *a, **k: Response(headers={"X-RateLimit-Remaining": "0"})) as opened:
+            gh.request("GET", "/rate_limit")
+            gh.request("GET", "/rate_limit")
+        self.assertEqual(opened.call_count, 2)
+
+    def test_a_call_cut_short_by_the_deadline_is_out_of_time(self):
+        gh = rerun.GitHub("t", "o/r")
+        gh.deadline = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=1.5)
+
+        def slow(*args, **kwargs):
+            gh.deadline = dt.datetime.now(dt.timezone.utc)  # the timeout ran out
+            raise TimeoutError("timed out")
+
+        with mock.patch.object(rerun.urllib.request, "urlopen", side_effect=slow), self.assertRaises(rerun.PastDeadline):
+            gh.request("GET", "/x")
+
+    def test_no_call_starts_past_the_deadline(self):
+        gh = rerun.GitHub("t", "o/r")
+        gh.deadline = dt.datetime.now(dt.timezone.utc)
+        with mock.patch.object(rerun.urllib.request, "urlopen") as opened, self.assertRaises(rerun.PastDeadline):
+            gh.request("GET", "/x")
+        opened.assert_not_called()
 
 
 if __name__ == "__main__":

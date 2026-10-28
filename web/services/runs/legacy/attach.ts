@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
-import { cloudDb } from "../../db/client";
-import { runAttempts, runAttachTickets } from "../../db/schema";
+import { cloudDb } from "../../../db/client";
+import { runAttempts, runAttachTickets } from "../../../db/schema";
 import { RunHttpError, runNotFound } from "./http";
 import { readRunSnapshot, type RunScope } from "./repository";
 

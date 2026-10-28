@@ -5,14 +5,10 @@ name: cmux NEXT DEV daily dispatcher
 # source workflow for one Release cmux NEXT DEV artifact every five minutes.
 # The source run builds only that SHA (cmux-next.yml checks github.sha) and
 # never cancels another run. GitHub's cron fired every 15-25 minutes on
-# 2026-10-25 (a merge reached the tip feed 48 minutes later), so a
-# feat-cmux-next push also starts this dispatcher at once: cmux-next-dev-kick.yml,
-# or the push run's dev-landing-publish when its landing compiled no app. A
-# landing the push run compiles itself (its "cmux NEXT DEV Release compile
-# (landing)" job) needs no DEV build; its finished app is handed over here too
-# when the push run's own handoff was lost. A landing whose landing compile ran
-# and produced nothing gets its DEV build at once; only a push with no landing
-# path keeps the five-minute spacing (its cmux-scheme-compile builds the app).
+# 2026-10-25 (a merge reached the tip feed 48 minutes later), so every
+# feat-cmux-next push also starts this dispatcher (cmux-next.yml job
+# kick-cmux-next-dev-dispatch); the 5-minute spacing below keeps that from
+# starting a DEV build per merge.
 on:
   schedule:
     - cron: "2-59/5 * * * *"
@@ -156,107 +152,25 @@ jobs:
               (['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) ||
                (run.status === 'completed' && run.conclusion === 'success'))
             );
-            // A finished run of this tip whose app compile passed covers it too,
-            // whatever its other jobs did: its app went to the publisher above.
-            // With no spacing, rebuilding it would compile the tip every tick.
-            const builtTip = finishedDev && finishedDev.head_sha === sha && isDevRun(finishedDev);
-            if (activeOrSucceeded || builtTip) {
+            if (activeOrSucceeded) {
               core.notice(`Dev-daily source run already covers feat-cmux-next ${sha}`);
               return;
             }
-            // The tip's push run compiles its DEV app itself (cmux-next.yml
-            // dev-landing-place, then dev-landing-compile) and hands it to the
-            // publisher. While that compile is placed, running or done, the tip
-            // needs no DEV build; a finished one whose handoff was lost is
-            // handed over here.
-            const landingCompile = 'cmux NEXT DEV Release compile (landing)';
-            const landingPlace = 'cmux NEXT DEV landing placement';
-            const { data: pushes } = await api.rest.actions.listWorkflowRuns({
-              owner,
-              repo,
-              workflow_id: workflow,
-              event: 'push',
-              branch: source,
-              head_sha: sha,
-              per_page: 5,
-            });
-            let landingTried = false;
-            for (const push of pushes.workflow_runs.filter((run) => run.head_sha === sha)) {
-              const { data: pushJobs } = await api.rest.actions.listJobsForWorkflowRun({
-                owner,
-                repo,
-                run_id: push.id,
-                filter: 'latest',
-                per_page: 100,
-              });
-              const compiled = pushJobs.jobs.find((job) => job.name === landingCompile && job.conclusion === 'success');
-              const has = (name) => pushJobs.jobs.some((job) => job.name === name);
-              // Placed, placing, or compiling; or a push run under three minutes
-              // old that has not listed its placement job yet (a push kicks this
-              // dispatcher within seconds). An older run without one has no
-              // landing compile: the tip gets a DEV build.
-              const pending = pushJobs.jobs.some((job) =>
-                (job.name === landingCompile || job.name === landingPlace) && job.status !== 'completed') ||
-                (push.status !== 'completed' && (
-                  (pushJobs.jobs.some((job) => job.name === landingPlace && job.conclusion === 'success') && !has(landingCompile)) ||
-                  (!has(landingPlace) && Date.now() - Date.parse(push.created_at) < 3 * 60 * 1000)));
-              if (compiled) {
-                const pushTitle = `cmux NEXT DEV daily · publish ${push.id}`;
-                const { data: pushPublished } = await api.rest.actions.listWorkflowRuns({
-                  owner,
-                  repo,
-                  workflow_id: 'cmux-next-dev-daily.yml',
-                  event: 'workflow_dispatch',
-                  per_page: 100,
-                });
-                const pushHandled = pushPublished.workflow_runs.some((run) =>
-                  (run.name === pushTitle || run.display_title === pushTitle) &&
-                  (['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) ||
-                   (run.status === 'completed' && run.conclusion === 'success')));
-                if (!pushHandled) {
-                  await api.rest.actions.createWorkflowDispatch({
-                    owner,
-                    repo,
-                    workflow_id: 'cmux-next-dev-daily.yml',
-                    ref: context.payload.repository?.default_branch || 'main',
-                    inputs: { source_run_id: String(push.id) },
-                  });
-                  core.notice(`Requested publication of landing run ${push.id} (${sha})`);
-                }
-              }
-              if (compiled || pending) {
-                core.notice(`The landing compile of push run ${push.id} covers feat-cmux-next ${sha}`);
-                return;
-              }
-              if (pushJobs.jobs.some((job) => job.name === landingPlace && job.conclusion !== 'skipped')) {
-                landingTried = true;
-              }
-            }
-            // The five-minute spacing holds only where the push run has no landing
-            // path (vars.CMUX_NEXT_DEV_LANDING_COMPILE=0, or a push before it): its
-            // cmux-scheme-compile produces the push's DEV app, and a DEV build per
-            // merge would compile it twice. A landing whose own compile was tried
-            // and produced nothing gets its DEV build at once.
-            if (!landingTried) {
-              const devName = /^cmux NEXT DEV daily · [0-9a-f]{40}$/;
-              const recent = data.workflow_runs.find((run) =>
-                (devName.test(run.name || '') || devName.test(run.display_title || '')) &&
-                ['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) &&
-                Date.now() - Date.parse(run.created_at) < 5 * 60 * 1000);
-              if (recent) {
-                core.notice(`DEV source run ${recent.id} started under five minutes ago and ${sha} has no landing compile; the next push or tick asks for it`);
-                return;
-              }
-            }
-            // A push kicks this dispatcher within seconds, sometimes before
-            // GitHub lists the push's own run. A tip landed under three minutes
-            // ago with no push run yet waits for the next push, handoff or tick.
-            if (!pushes.workflow_runs.some((run) => run.head_sha === sha)) {
-              const { data: commit } = await api.rest.git.getCommit({ owner, repo, commit_sha: sha });
-              if (Date.now() - Date.parse(commit.committer.date) < 3 * 60 * 1000) {
-                core.notice(`feat-cmux-next ${sha} has no push run yet; its landing compile takes it`);
-                return;
-              }
+            // At most one new DEV build per five minutes, as the schedule meant:
+            // a push kicks this dispatcher on every merge (one every few minutes),
+            // and a build per merge would double the fleet's Release compiles.
+            // A run is spaced only while it is still active; the next push or
+            // tick after the window asks for the newest tip.
+            const spacingMs = 5 * 60 * 1000;
+            // Only a run this dispatcher started: its name carries a full SHA.
+            const devName = /^cmux NEXT DEV daily · [0-9a-f]{40}$/;
+            const recent = data.workflow_runs.find((run) =>
+              (devName.test(run.name || '') || devName.test(run.display_title || '')) &&
+              ['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) &&
+              Date.now() - Date.parse(run.created_at) < spacingMs);
+            if (recent) {
+              core.notice(`DEV source run ${recent.id} started under five minutes ago; the next push or tick asks for ${sha}`);
+              return;
             }
             await github.rest.actions.createWorkflowDispatch({
               owner,
