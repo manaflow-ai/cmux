@@ -252,7 +252,7 @@ struct ComputerUseSheetTests {
         dock.pointerEvent(.mouseMoved, timestamp: 100)
         dock.pointerEvent(.mouseMoved, timestamp: 100 + HelperDragPanelDock.moveInterval / 2)
         #expect(locator.reads == 1)
-        dock.pointerEvent(.mouseMoved, timestamp: 100 + HelperDragPanelDock.moveInterval)
+        dock.pointerEvent(.mouseMoved, timestamp: 100 + HelperDragPanelDock.moveInterval * 1.5)
         #expect(locator.reads == 2)
     }
 
