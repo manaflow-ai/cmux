@@ -1754,3 +1754,7 @@ mod outbound_queue_tests {
         assert!(matches!(gap, Message::Notification { method, .. } if method == "_acpmux/lagged"));
     }
 }
+
+/// Owner-only TLS ingress from the embedded tailnet node.
+#[cfg(all(unix, feature = "tailnet"))]
+pub mod tailnet_ingress;

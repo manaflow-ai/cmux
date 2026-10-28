@@ -195,6 +195,13 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 targets: [.machine], cliName: "cloud open-machine"
             ),
             ActionDescriptor(
+                id: "cloudOpenDesktop",
+                title: String(localized: "action.cloudOpenDesktop", defaultValue: "Open Desktop", bundle: .module),
+                keywords: ["vm", "cloud tree", "desktop", "display", "screen", "vnc", "computer use"], category: .cloud,
+                symbol: "display", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.desktopViewerChoice],
+                targets: [.machine], cliName: "cloud open-desktop"
+            ),
+            ActionDescriptor(
                 id: "cloudRenameMachine",
                 title: String(localized: "action.cloudRenameMachine", defaultValue: "Rename Machine…", bundle: .module),
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "pencil", surfaces: [.contextMenu],

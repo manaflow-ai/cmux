@@ -14,6 +14,7 @@ extension WorkspaceContentController {
         focus.topologySent(by: self)
         #if DEBUG
         DebugLayoutCounters.topologySends &+= 1
+        debugTopologySends &+= 1
         DebugLayoutCounters.note("topology", file, line)
         #endif
         focus.send(.topology(focusTopology()))
@@ -36,6 +37,7 @@ extension WorkspaceContentController {
             guard let self, !self.isParked, !self.isApplying else { return nil }
             #if DEBUG
             DebugLayoutCounters.topologySends &+= 1
+            self.debugTopologySends &+= 1
             DebugLayoutCounters.note("topology", file, line)
             #endif
             self.rekeySurfaceWait() // lands on this topology when it adds the tab (the reducer keeps the wait)

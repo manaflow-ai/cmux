@@ -186,7 +186,7 @@ public final class LayoutModel {
     static let explicitReflowWindow: TimeInterval = 0.6
     /// An explicit equalize is in its window now.
     public var animatesReflow: Bool { ProcessInfo.processInfo.systemUptime < explicitReflowUntil }
-    @ObservationIgnored private var widthOverrides: [ColumnID: Override] = [:]
+    @ObservationIgnored var widthOverrides: [ColumnID: Override] = [:]
     /// A pane whose shown content the next structural change moves into the pane it adds, until an
     /// uptime (`handOffContent(of:)`).
     @ObservationIgnored var contentHandoff: (pane: PaneID, until: TimeInterval)?

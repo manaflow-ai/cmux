@@ -6152,7 +6152,10 @@
       "keywords" : [
         "split",
         "equal",
-        "size"
+        "size",
+        "autobalance",
+        "balance",
+        "equalize"
       ],
       "kind" : "choice",
       "page_hidden" : false,

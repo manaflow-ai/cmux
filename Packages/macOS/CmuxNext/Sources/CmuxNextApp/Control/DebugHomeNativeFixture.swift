@@ -87,6 +87,11 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             // A click on the first shown link with this prefix (a Chief subagent's `cmux://chief/`).
             let url = view.debugClickLink(prefix: params["prefix"]?.stringValue ?? "https://")
             return .object(["ok": .bool(url != nil), "url": url.map { .string($0) } ?? .null])
+        case "fixture_typing":
+            guard let fixture = (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.fixture(showing: view) else {
+                return .object(["error": .string("no mock Home fixture is shown")])
+            }
+            return .object(["ok": .bool(fixture.debugTyping(params["on"]?.boolValue ?? true))])
         case "typing":
             // The typing bubble's body in window points (bottom-left origin) and the window's size,
             // for a pixel check of a window snapshot (scripts/cmux-next/home-typing-still.py).
