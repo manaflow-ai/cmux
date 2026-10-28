@@ -37,6 +37,7 @@ describe("GET /v1/billing/summary (paid plans dashboard)", () => {
     expect(v.plan).toMatchObject({ id: null, paid: false, name: "Free" })
     expect(v.credits).toMatchObject({ available_usd: 0, balance_usd: 0 })
     expect(v.credits.topup_amounts_usd).toEqual([10, 20, 50, 100])
+    expect(v.credits).toMatchObject({ topup_min_usd: 5, topup_max_usd: 2500 })
     expect(v.upgrade.map((p: { id: string }) => p.id)).toEqual(["pro", "max"])
     expect(v.upgrade[0]).toMatchObject({ name: "cmux Pro", usd: 50 })
     expect(v.upgrade[0].checkout_url).toMatch(/^https:\/\/api\.test\/v1\/billing\/plan\/[A-Za-z0-9_-]+\.[0-9a-f]{64}$/)

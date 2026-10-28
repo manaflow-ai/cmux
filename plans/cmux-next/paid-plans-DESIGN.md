@@ -79,3 +79,58 @@ App: `PaidPlanUpgrade` (CmuxNextApp/Billing): `start(plan:source:fallback:)` ret
 - Final prices and included amounts (catalog 5/20/100/20 vs proposal 3/25/100/25).
 - Live Stripe keys and real charges (code refuses live keys).
 - Who grants a plan bought through the Worker's upsell link (gap 5): web `cmuxPlan` (default) or the Worker.
+
+## 6. Prepaid credits v2: any amount, auto-reload, Claude billing parity (user, 2026-10-27, msg 14648)
+
+Ask: "prepaid credits, so a person can add any amount they want, not fixed packs (set a min/max), and
+configurable auto-reload (a threshold, a reload amount and a monthly cap). Study how Anthropic/Claude
+bills ... and reach parity across all those methods."
+
+### 6.1 How Claude bills (read 2026-10-27, Anthropic help center)
+
+| Claude method | What it does | cmux today | Plan |
+| --- | --- | --- | --- |
+| Prepaid API credits (Console) | Buy credits up front; a receipt per purchase | Packs 10/20/50/100 only (`/v1/credits/topup`) | **Any amount** between a min and a max (§6.2) |
+| Auto-reload (Console; also "usage credits" on Pro/Max/Team) | When the balance reaches a threshold, buy more; turning it on below the threshold buys at once; card only, not ACH | None | **Auto-reload** with threshold, reload amount, **monthly cap** (§6.3) |
+| Subscriptions (Pro, Max, Team seats) | Monthly plan, included usage | cmux.com Go/Pro/Max/Team (web billing) | Exists; console page shows it (§1) |
+| Monthly included credits, spent before purchased credits, expire each cycle | Max/Team API credits | Included amount per plan (`billing-catalog.ts`), then postpaid overage | Exists (usage-billing.md); order "included first, then purchased" kept |
+| Usage-based billing / invoicing in arrears (Enterprise, via Sales) | Monthly Stripe invoice for usage, net terms | Postpaid metered overage on the plan subscription (`billing-usage-sync.ts`) | Exists for plan holders; contract invoicing with net terms is a Sales step (needs Lawrence: terms, who approves) |
+| Spend limits (org cap by usage tier; workspace limits) | Monthly cap; slightly over is possible since the check is before the call | Team AI limit per member (`team.ai_limit`), automation cap (`usage.cap.set`), provider daily brake | Exists; auto-reload's monthly cap bounds automatic charges (§6.3) |
+| Invoices and receipts in the Console | Admin/Billing roles read them | Stripe portal via cmux.com `/dashboard/billing`; credits ledger on the console | Exists; native invoice list later (gap 7) |
+
+Sources: support.claude.com articles 8977456 (paying for API usage), 12429409 and 12005970 (usage
+credits, auto-reload), 11526368 (Enterprise billing), 16608069 (API invoices), 17154008 (monthly
+API credits), docs rate limits (tier spend caps).
+
+### 6.2 Any amount
+
+- `POST /v1/credits/topup {"usd": 37.5}`: any amount with at most 2 decimals in
+  `[CREDITS_TOPUP_MIN_USD, CREDITS_TOPUP_MAX_USD]`, defaults **5** and **2,500** (Claude's Console minimum
+  is 5 USD). The old packs stay as suggestions (`amounts_usd`). The signed link (`?usd=`) takes the same range.
+- `GET /v1/credits` and `GET /v1/billing/summary` answer `topup_min_usd` and `topup_max_usd`.
+- Console: an amount field next to the suggestion buttons.
+
+### 6.3 Auto-reload
+
+- Settings per team, in the team's UsageMeterDO: `enabled`, `threshold_usd` (reload when available credit
+  falls below it), `amount_usd` (each reload; in the top-up range), `monthly_cap_usd` (the most auto-reload
+  charges in a UTC month; at least one reload). Default picked: a fixed reload amount (the user's words),
+  not Claude's "bring the balance back up to".
+- `GET /v1/credits/auto-reload` (member), `PUT /v1/credits/auto-reload` (member; same rule as top-up:
+  anyone in the team may pay into it). Turning it on needs a saved card on the team's payment customer
+  (`credits.no_saved_card` with the top-up path otherwise). Top-ups now save the card for off-session use
+  (`setup_future_usage=off_session`), so the first top-up is the setup.
+- Trigger: after a credits charge settles, the DO checks `available < threshold`, `month total + amount <=
+  cap`, and no reload in flight; then charges the saved card off-session (Stripe PaymentIntent, `confirm`,
+  `off_session`, idempotency key per team, month and reload number). Turning it on while already below the
+  threshold reloads at once (as Claude). A success adds credits once (`autoreload:<payment intent>`); the
+  webhook (`payment_intent.succeeded`, kind `cmux_credits_autoreload`) grants the same key, so a lost answer
+  still grants once. A refused card turns auto-reload off with the reason shown, so a bad card is never
+  retried on every call.
+- Test mode only (`creditsKey` refuses live keys and test keys on production).
+
+### 6.4 Steps (failing test first)
+
+1. Any amount (Worker): range checks, summary fields. 2. Auto-reload settings route and decision. 3. The
+off-session charge, grant, cap, in-flight guard, card-refused turn-off, webhook grant. 4. Console: amount
+field and auto-reload form. 5. Staging: a test card top-up of a custom amount and one auto-reload.
