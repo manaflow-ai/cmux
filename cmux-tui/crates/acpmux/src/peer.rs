@@ -471,24 +471,12 @@ impl Peer {
         self.subagent_transcript.load(Ordering::SeqCst)
     }
 
-    /// Whether the peer listed `feature` at its last handshake (none before it answered).
+    /// Whether the peer listed `feature` at its last handshake (none before it answered): it
+    /// saves a message's attachments (`attach::FEATURE`), reads uploaded files a message names
+    /// (`prompt_uploads::FEATURE`), answers upload status (`file_uploads::RESUME_FEATURE`), or
+    /// holds a prompt for the owner (`author::QUEUE_APPROVAL_FEATURE`).
     pub fn lists(&self, feature: &str) -> bool {
         self.features.lock_or_recover().iter().any(|f| f == feature)
-    }
-
-    /// Whether it saves a message's attachments (`attach.rs`).
-    pub fn supports_send_attach(&self) -> bool {
-        self.lists(crate::attach::FEATURE)
-    }
-
-    /// Whether it reads uploaded files a message names (`prompt_uploads.rs`).
-    pub fn supports_prompt_uploads(&self) -> bool {
-        self.lists(crate::prompt_uploads::FEATURE)
-    }
-
-    /// Whether it answers upload status and checks a finish's `sha256` (`hub/file_uploads.rs`).
-    pub fn supports_upload_resume(&self) -> bool {
-        self.lists(crate::hub::file_uploads::RESUME_FEATURE)
     }
 
     /// The WebSocket is open and the handshake has not finished.
