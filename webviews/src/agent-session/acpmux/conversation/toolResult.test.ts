@@ -76,6 +76,20 @@ test("fetch log lines stay monospace, including a single line, and title punctua
   }
 });
 
+test("source-looking underscores stay literal while structural and fetched Markdown still renders", () => {
+  const python = `class Worker:\n    def __init__(self):\n        self.__ready__ = True`;
+  expect(toolResult(python)).toEqual({ text: python, lang: "text" });
+  expect(toolResult(python, undefined, false, { kind: "fetch", title: "Fetch https://example.test/source" })).toEqual({
+    text: python,
+    lang: "text",
+  });
+  expect(toolResult("## Heading\n\n- **clear** structure")).toEqual({
+    text: "## Heading\n\n- **clear** structure",
+    lang: "markdown",
+  });
+  expect(toolResult("A fetched page summary.", undefined, false, { kind: "fetch" }).lang).toBe("markdown");
+});
+
 const PNG = "iVBORw0KGgo=";
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
 
