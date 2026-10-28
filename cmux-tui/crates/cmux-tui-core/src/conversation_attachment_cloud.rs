@@ -34,7 +34,8 @@ pub(crate) struct CloudUpload {
 }
 
 /// The partial files of a taken cloud upload, removed when this drops (after
-/// their bodies were sent, or when one could not be opened).
+/// their bodies were sent, or when one could not be opened). Drop it after the
+/// bodies that read them: an open file cannot be removed on Windows.
 pub(crate) struct PartialFiles(Vec<PathBuf>);
 
 impl Drop for PartialFiles {
@@ -70,7 +71,13 @@ impl CloudUpload {
             }
         }
         match failure {
-            Some(error) => Err(error.into()),
+            Some(error) => {
+                // Every opened piece closes before `partial` removes the files: Windows
+                // refuses to delete an open file.
+                drop(out);
+                drop(partial);
+                Err(error.into())
+            }
             None => Ok((out, partial)),
         }
     }
