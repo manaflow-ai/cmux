@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Architecture counts for cmux-next, method v6: the numbers plans/cmux-next/arch-ratchet.json records.
+"""Architecture counts for cmux-next, method v7: the numbers plans/cmux-next/arch-ratchet.json records.
 
 The rules are the goal (repo CLAUDE.md "Refactor architecture", "Modern Swift concurrency";
 plans/cmux-next/perf-lead.md "Architecture targets"); these counts are proxies, and a pattern renamed
@@ -20,7 +20,7 @@ targets that product exposes, classified by the one layer map like an edge insid
 of a remote package is no edge. Moving code into a linked local package therefore moves its count, it
 does not drop it.
 
-Rows (method v6; a change of any definition bumps METHOD_VERSION, and `arch-ratchet.py --update` then
+Rows (method v7; a change of any definition bumps METHOD_VERSION, and `arch-ratchet.py --update` then
 rewrites the json without comparing totals: reviewers compare the definitions):
   layer_hard              target edges from a core, service or domain target to a ui or app target
                           (layers from plans/cmux-next/architecture-layers.json, as arch-layers.py)
@@ -68,7 +68,8 @@ rewrites the json without comparing totals: reviewers compare the definitions):
   global_mutable_statics  any other stored `static var` or file-scope `var`, or a static or file-scope
                           lock/cache/atomic container (Mutex, OSAllocatedUnfairLock, NSLock,
                           NSRecursiveLock, NSCondition(Lock), NSCache, NSHashTable, NSMapTable, Atomic,
-                          ManagedAtomic, NSMutable*), serial queue (DispatchQueue), running Task or
+                          ManagedAtomic, UnsafeAtomic, (Managed/Unsafe)AtomicLazyReference,
+                          DispatchSemaphore, NSMutable*), serial queue (DispatchQueue), running Task or
                           stream (AsyncStream, AsyncThrowingStream); same skips as above
   assume_isolated_outside_adapters
                           every `MainActor.assumeIsolated` except an adapter site: not inside a
@@ -199,7 +200,12 @@ from typing import NamedTuple
 # their subclasses through the superclass link), NSMenu, NSStatusItem, Timer, Process, Thread and FileHandle, and
 # the blocking_allow_escapes row is new (deep-guardrails review a08985b7dac; lead 2026-10-24). stateful_singletons
 # can rise from v5 with no code change.
-METHOD_VERSION = 6
+# v7: the containers add the rest of the atomic family (UnsafeAtomic, AtomicLazyReference, ManagedAtomicLazyReference,
+# UnsafeAtomicLazyReference) and DispatchSemaphore: a type whose state is one of them is stateful, so its shared
+# instance is a stateful singleton (BrowserSourceRegistryInstall.shared went in uncounted through a PreloadedValue's
+# ManagedAtomicLazyReference), and a static of one is a global mutable static. Both rows can rise from v6 with no
+# code change.
+METHOD_VERSION = 7
 # The app's package: the root of the closure (read_paths). Its Sources and Package.swift are the v4 scope; the
 # layer gate (arch_rules/layer_gate.py) still judges only this manifest's targets and edges.
 PACKAGE_DIR = "Packages/macOS/CmuxNext"
@@ -260,7 +266,8 @@ SYS_STATEFUL = frozenset({
 # queue-as-lock CLAUDE.md bans), a running Task and a stream (its continuation is a process-wide channel).
 CONTAINERS = frozenset({
     "Mutex", "OSAllocatedUnfairLock", "NSLock", "NSRecursiveLock", "NSCondition", "NSConditionLock",
-    "NSCache", "NSHashTable", "NSMapTable", "Atomic", "ManagedAtomic", "NSMutableDictionary",
+    "NSCache", "NSHashTable", "NSMapTable", "Atomic", "ManagedAtomic", "UnsafeAtomic", "AtomicLazyReference",
+    "ManagedAtomicLazyReference", "UnsafeAtomicLazyReference", "DispatchSemaphore", "NSMutableDictionary",
     "NSMutableArray", "NSMutableSet", "NSMutableOrderedSet", "DispatchQueue", "Task", "AsyncStream",
     "AsyncThrowingStream",
 })
