@@ -40,7 +40,7 @@ import Testing
 
     @Test func theFreePlanGetsTheUpgradeCardAndSendsNothing() async throws {
         let sent = Sent()
-        await #expect(throws: CloudMachineCreateFlow.Failure.upgradeRequired) {
+        await #expect(throws: CloudMachineCreateFlow.Failure.upgradeRequired(.freePlan)) {
             try await CloudMachineCreateFlow.legacy(name: nil, startedByPerson: true, gate: { .upgrade(.init(reason: .freePlan)) },
                                                     confirm: { sent.prompts.append($0); return false },
                                                     create: { sent.send() })
