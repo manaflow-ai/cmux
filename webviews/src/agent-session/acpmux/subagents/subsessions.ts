@@ -157,7 +157,7 @@ export class SubsessionStore {
   private namedKey = "";
   private readonly nameListeners = new Set<() => void>();
 
-  senderRevision = () => this.namedKey;
+  senderEntries = (): ReadonlyMap<string, AcpmuxSessionEntry> => this.senders;
 
   /// Replaces the views with those of the sub-sessions among `sessions`; one whose content did not
   /// change keeps its object. The pane sends the list with every snapshot, reusing the entry of a
@@ -349,13 +349,13 @@ export function useSenderIdentity(sender: SenderReference, viewerSessionId?: str
 /** A batch follows the same live session metadata and resolver as each message it contains. */
 export function useSenderIdentities(senders: readonly SenderReference[], viewerSessionId?: string): SenderIdentity[] {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
-  const revision = useSyncExternalStore(store.subscribeNames, store.senderRevision, store.senderRevision);
+  const entries = useSyncExternalStore(store.subscribeNames, store.senderEntries, store.senderEntries);
   return useMemo(
     () =>
       senders.map((sender) => {
         const id = sender.sessionId ?? store.find(sender.name);
-        return resolveSenderIdentity(sender, id ? store.sender(id) : undefined, viewerSessionId);
+        return resolveSenderIdentity(sender, id ? entries.get(id) : undefined, viewerSessionId);
       }),
-    [senders, viewerSessionId, store, revision],
+    [senders, viewerSessionId, store, entries],
   );
 }

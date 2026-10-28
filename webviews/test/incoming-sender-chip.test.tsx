@@ -153,8 +153,20 @@ test("a batched peer message card uses canonical sender headlines and secondary 
   const store = new SubsessionStore();
   store.set([remote]);
   const message = { name: remote.name!, sessionId: remote.sessionId, text: "Ready.", raw: "Ready." };
-  const rows = [1, 2].map((index) => ({ id: `queued-${index}`, incoming: { kind: "message", message } }) as AcpmuxRow);
-  const row = { id: "batch", waiting: { delivery: "turn", rows } } as AcpmuxRow;
+  const rows: AcpmuxRow[] = [1, 2].map((index) => ({
+    id: `queued-${index}`,
+    version: 1,
+    at: index,
+    kind: "queuedMessage",
+    incoming: { kind: "message", message },
+  }));
+  const row: AcpmuxRow = {
+    id: "batch",
+    version: 1,
+    at: 1,
+    kind: "waitingMessages",
+    waiting: { delivery: "turn", rows },
+  };
   root = createRoot(host);
   await act(async () =>
     root!.render(
