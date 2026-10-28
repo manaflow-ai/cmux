@@ -447,6 +447,9 @@ final class MobileHostService {
     /// scoped rather than inferred from the current socket reference.
     private var tailscaleListenerGeneration = UUID()
     private var tailscaleAdmissionGeneration: UUID?
+    /// Admission tasks remain owned by the listener so disabling pairing can
+    /// cancel work that has not inserted its connection into the registry yet.
+    private var tailscaleAdmissionTasks: [UUID: Task<Void, Never>] = [:]
     private var signingOutScope: AuthenticatedTeamScope?
     private var isSigningOut = false
     private var authObservationTask: Task<Void, Never>?
@@ -1118,6 +1121,11 @@ final class MobileHostService {
     private func stopTailscaleListener() {
         tailscaleListenerGeneration = UUID()
         tailscaleAdmissionGeneration = nil
+        let admissionTasks = Array(tailscaleAdmissionTasks.values)
+        tailscaleAdmissionTasks.removeAll()
+        for task in admissionTasks {
+            task.cancel()
+        }
         for connection in MobileHostConnectionRegistry.shared.removeStackBearerConnections() {
             Task { await connection.close(reason: "Tailscale listener stopped") }
         }
@@ -1141,7 +1149,8 @@ final class MobileHostService {
             return
         }
         let transport = CmxNetworkByteTransport(acceptedConnection: connection)
-        Task {
+        let taskID = UUID()
+        let task = Task { @MainActor [weak self] in
             _ = await Self.acceptTransport(
                 transport,
                 authorization: .stackBearer,
@@ -1156,7 +1165,9 @@ final class MobileHostService {
                     }
                 }
             )
+            self?.tailscaleAdmissionTasks.removeValue(forKey: taskID)
         }
+        tailscaleAdmissionTasks[taskID] = task
     }
 
     @discardableResult
