@@ -41,3 +41,42 @@ test("a fed client folds a snapshot, live records once, and an older page in fro
   expect(text.indexOf("First ask")).toBeLessThan(text.indexOf("Second ask"));
   expect(text).toContain("Done.");
 });
+
+test("dispose removes the page listeners and a frame already asked for draws nothing", () => {
+  const scope = globalThis as Record<string, unknown>;
+  // The listeners on the page, as the DOM keeps them: a second remove of one is a no-op.
+  const listening = new Set<string>();
+  const handlers = new Map<unknown, number>();
+  const id = (handler: unknown) => handlers.get(handler) ?? handlers.set(handler, handlers.size).get(handler)!;
+  const target = (kind: string) => ({
+    addEventListener: (type: string, handler: unknown) => listening.add(`${kind}:${type}:${id(handler)}`),
+    removeEventListener: (type: string, handler: unknown) => listening.delete(`${kind}:${type}:${id(handler)}`),
+    visibilityState: "visible",
+  });
+  const saved = { document: scope.document, window: scope.window };
+  scope.document = target("document");
+  scope.window = target("window");
+  const frames: (() => void)[] = [];
+  const schedule = AcpmuxDirectClient.scheduleFrame;
+  AcpmuxDirectClient.scheduleFrame = (run) => void frames.push(run);
+  try {
+    let draws = 0;
+    const client = AcpmuxDirectClient.fed("guest-chat", () => (draws += 1));
+    // Not a page chat: nothing left listening from the moment it is made.
+    expect([...listening]).toEqual([]);
+    client.feed([prompt(1, "Ask")], "snapshot");
+    expect(draws).toBe(1);
+    client.feed([say(2, "Working")], "live");
+    expect(frames.length).toBe(1);
+    client.dispose();
+    for (const run of frames) run();
+    client.feed([say(3, "More")], "live");
+    client.feed([prompt(1, "Again")], "snapshot");
+    expect(draws).toBe(1);
+    expect([...listening]).toEqual([]);
+  } finally {
+    AcpmuxDirectClient.scheduleFrame = schedule;
+    scope.document = saved.document;
+    scope.window = saved.window;
+  }
+});
