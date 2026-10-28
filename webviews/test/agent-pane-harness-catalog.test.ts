@@ -202,7 +202,10 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     const menu = page.locator(".acpmux-quick-menu").first();
     await menu.waitFor();
     await menu.getByRole("menuitem", { name: "More models" }).hover();
-    await page.locator(".acpmux-quick-more").getByRole("menuitem", { name: /Add harness/ }).click();
+    await page
+      .locator(".acpmux-quick-more")
+      .getByRole("menuitem", { name: /Add harness/ })
+      .click();
     const claude = page.locator("[data-harness-row]").filter({ hasText: "Claude Code" });
     await claude.waitFor();
     expect(await claude.getAttribute("data-harness-status")).toBe("ready");

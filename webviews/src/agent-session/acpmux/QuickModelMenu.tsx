@@ -330,7 +330,8 @@ export function QuickModelMenu({
       ? (activeAccount?.name ?? t("picker.harnessLogin"))
       : undefined;
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing || event.keyCode === 229)
+      return;
     // Only the menu's own keys, not a submenu's (React carries those up through the portal).
     if (!event.currentTarget.contains(event.target as Node)) return;
     popup.current = event.currentTarget;

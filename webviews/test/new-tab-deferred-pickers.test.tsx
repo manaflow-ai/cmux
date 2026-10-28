@@ -280,9 +280,9 @@ async function mountNewTab({
       setter.call(search, query);
       search!.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
     });
-    const row = [...dom.window.document.querySelectorAll<HTMLElement>('.acpmux-quick-menu [role="menuitemradio"]')].find(
-      (candidate) => candidate.textContent?.includes(label),
-    );
+    const row = [
+      ...dom.window.document.querySelectorAll<HTMLElement>('.acpmux-quick-menu [role="menuitemradio"]'),
+    ].find((candidate) => candidate.textContent?.includes(label));
     expect(row).not.toBeUndefined();
     await act(async () => row!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
   };

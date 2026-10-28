@@ -677,7 +677,10 @@ export function ModelPicker(props: ModelPickerProps) {
     };
   }, [close, open]);
   useEffect(
-    () => registerPicker(modelText, () => (quick !== undefined ? (open ? close() : setQuickOpen(true)) : showRef.current())),
+    () =>
+      registerPicker(modelText, () =>
+        quick !== undefined ? (open ? close() : setQuickOpen(true)) : showRef.current(),
+      ),
     [modelText, quick, open, close],
   );
   // The footer's harness item opens this menu: its rail is the composer's harness switcher.
