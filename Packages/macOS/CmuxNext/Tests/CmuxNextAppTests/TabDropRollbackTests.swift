@@ -155,4 +155,24 @@ struct TabDropRollbackTests {
         #expect(strip.view.pendingDrop == nil && strip.view.dropPlaceholderIndex == nil)
     }
 
+    @Test func aRejectedWholeGroupDropRestoresItsMembersInOrder() throws {
+        let strip = Strip()
+        defer { strip.window.close() }
+        strip.model.groups = [TabGroupItem(id: "g")]
+        strip.model.tabs = [TabItem(id: "first", title: "First", groupID: "g"),
+                            TabItem(id: "second", title: "Second", groupID: "g"), TabItem(id: "target", title: "Target")]
+        strip.view.sync(fromModel: true)
+        strip.view.groups.detachedGroupID = "g"
+        strip.view.sync(fromModel: false)
+        let payload = TabDragPayload.tabGroup(id: "g", tabIDs: ["first", "second"], sourceStripID: strip.model.stripID, width: 160)
+        let proposal = try #require(strip.view.dropHitTest(screenPoint: strip.point, payload: payload))
+        let settle = try #require(strip.view.dropEnded(committed: proposal))
+        #expect(strip.view.presentedTabIDs == ["target", "first", "second"])
+        settle(false)
+        #expect(strip.view.presentedTabIDs == ["first", "second", "target"])
+        #expect(strip.view.displayed.filter { $0.groupID == "g" }.map(\.id) == ["first", "second"])
+        #expect(strip.view.orderOverride == nil && strip.view.groups.detachedGroupID == nil)
+        #expect(strip.view.dropPlaceholderIndex == nil && strip.view.groups.phantomWidth == nil)
+    }
+
 }
