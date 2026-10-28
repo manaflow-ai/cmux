@@ -176,6 +176,10 @@ class PerTest(unittest.TestCase):
         panic = log("START src/b.test.ts (hard limit 300s)", "panic(main thread): Segmentation fault at address 0x0",
                     "FAIL src/b.test.ts (limit 300s)")
         self.assertTrue(reds.classify(panic, panic, "web / react-apps-check (2)").own)
+        for name in ("src/foo_test.ts", "src/foo_spec.tsx", "src/foo.spec.mjs"):
+            with self.subTest(name):
+                cut = log(f"START {name} (hard limit 300s)", f"TIMEOUT {name} (limit 300s)")
+                self.assertTrue(reds.classify(cut, cut, "web / react-apps-check (4)").own)
         passing = log("START src/c.test.ts (hard limit 300s)", "PASS src/c.test.ts (raw log retained)")
         self.assertIsNone(reds.classify(passing, passing, "web / react-apps-check (3)"))
 

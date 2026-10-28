@@ -89,8 +89,8 @@ TRUNCATED = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*(?:no \"Test run with
                        r"[Cc]ancelled test|[Tt]imeout))|^This log was truncated", re.I)
 # scripts/ci/run-webviews-tests.sh: one `START file` and one `PASS|FAIL|TIMEOUT file ...` line per Bun test file.
 # A TIMEOUT is a file the wrapper killed at its hard limit: cut short. Bun's own panic is a crash.
-BUN_STARTED = re.compile(r"^START (\S+\.(?:test|spec)\.[cm]?[jt]sx?) \(hard limit")
-BUN_RESULT = re.compile(r"^(PASS|FAIL|TIMEOUT) (\S+\.(?:test|spec)\.[cm]?[jt]sx?)\b")
+BUN_STARTED = re.compile(r"^START (\S+\.[cm]?[jt]sx?) \(hard limit")
+BUN_RESULT = re.compile(r"^(PASS|FAIL|TIMEOUT) (\S+\.[cm]?[jt]sx?)(?: |$)")
 BUN_PANIC = re.compile(r"^(?:panic\((?:main thread|thread \d+)\)|oh no: Bun has crashed)")
 RUN_STARTED = re.compile(r"^◇ Test run started\.")
 RUN_ENDED = re.compile(r"^[✔✘━] Test run with \d+ tests?")
