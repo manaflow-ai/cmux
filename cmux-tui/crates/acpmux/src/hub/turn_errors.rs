@@ -133,11 +133,11 @@ pub fn is_refused_request(message: &str) -> bool {
 
 /// Why an agent's error is worth trying again in a moment, if it is: `capacity`
 /// ([`is_capacity_error`]) or `transport` ([`is_transport_error`]). A usage limit, a sign-in
-/// failure, a bad request, a refused permission ([`is_refused_request`]) and anything else are
-/// not: None.
+/// failure (`recovery::auth_kind`: not one that says the provider was unreachable), a bad
+/// request, a refused permission ([`is_refused_request`]) and anything else are not: None.
 pub fn transient_cause(error: &str) -> Option<&'static str> {
     if is_limit_error(error)
-        || crate::claude_auth::is_sign_in_failure(error)
+        || crate::recovery::auth_kind(error).is_some()
         || is_refused_request(error)
     {
         return None;
@@ -171,8 +171,7 @@ pub(super) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'
 pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
     if is_limit_error(raw)
         || is_limit_error(shown)
-        || crate::claude_auth::is_sign_in_failure(shown)
-        || crate::recovery::auth_kind(shown) == Some(crate::recovery::kind::AUTH_EXPIRED)
+        || crate::recovery::auth_kind(shown).is_some()
         || is_refused_request(raw)
         || is_refused_request(shown)
     {
@@ -247,6 +246,10 @@ mod tests {
             resume_cause("HTTP 503: credential expired", "HTTP 503: credential expired"),
             Some("capacity")
         );
+        for m in ["HTTP 503: OAuth token has expired", "connection error: OAuth token has expired"]
+        {
+            assert!(resume_cause(m, m).is_some(), "{m}");
+        }
         assert_eq!(
             resume_cause(raw, "agent process closed (fake): Not logged in · Please run /login"),
             None
