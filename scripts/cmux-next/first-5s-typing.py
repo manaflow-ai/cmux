@@ -291,29 +291,60 @@ class NextApp:
         return self.control.rpc("debug.key", params, timeout=20)
 
     def play(self, name, modifiers, typed):
-        """The open shortcut, then a letter every --interval. Each key is its own `debug.key` request on its own
-        connection, sent at its scheduled time from a thread and never waited for, stamped with that time (the
-        client's CLOCK_UPTIME_RAW, the probe's clock): so a key that waits for a busy main thread counts the wait, and
-        a slow reply never delays the next key. (`debug.key {sequence}` refuses on hosts whose CGEvent has no
-        timestamp: "no event timestamp to start the sequence from".)"""
-        open_ns = NOW_NS()
-        reply = self.key(name, modifiers, stamp=open_ns / 1e9)
+        """The open shortcut, then a letter every --interval, all on ONE control connection: each `debug.key` line
+        is written at its scheduled time and stamped with it (the client's CLOCK_UPTIME_RAW, the probe's clock),
+        and a reader thread takes the replies, so no key waits for an earlier reply or a new connection. The
+        server runs a connection's requests in order as input (MainActorWorkQueue.drainInput), so a key that waits
+        for a busy main thread or a held key counts that wait, as a person's key queued in the window server does.
+        (A connection per key measured the server's accept and connection setup: a 0-150 ms sawtooth on every key.
+        `debug.key {sequence}` refuses on hosts whose CGEvent has no timestamp.)"""
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(60)
+        conn.connect(self.control.socket_path)
+        replies, buf = [], b""
+        total = 1 + len(typed)
+
+        def reader():
+            nonlocal buf
+            while len(replies) < total:
+                try:
+                    chunk = conn.recv(1 << 20)
+                except OSError:
+                    return
+                if not chunk:
+                    return
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    try:
+                        replies.append(json.loads(line))
+                    except ValueError:
+                        replies.append({"raw": line[:200].decode(errors="replace")})
+        thread = threading.Thread(target=reader, daemon=True)
+        thread.start()
         sent = [{} for _ in typed]
-        threads = []
+
+        def send(rid, key, mods, when):
+            params = {"key": key, "timestamp": when / 1e9}
+            if mods:
+                params["modifiers"] = list(mods)
+            conn.sendall((json.dumps({"id": rid, "method": "debug.key", "params": params}) + "\n").encode())
+        open_ns = NOW_NS()
+        send(0, name, modifiers, open_ns)
         for k, letter in enumerate(typed):
             when = open_ns + int((k + 1) * opts.interval * 1e9)
             wait = (when - NOW_NS()) / 1e9
             if wait > 0:
                 time.sleep(wait)
-            def one(k=k, letter=letter, when=when):
-                s0 = NOW_NS()
-                self.key(letter, stamp=when / 1e9)
-                sent[k]["send_late_ms"] = round((s0 - when) / 1e6, 2)
-            t = threading.Thread(target=one, daemon=True)
-            t.start()
-            threads.append(t)
-        for t in threads:
-            t.join(30)
+            sent[k]["send_late_ms"] = round((NOW_NS() - when) / 1e6, 2)
+            send(k + 1, letter, (), when)
+        thread.join(30)
+        try:
+            conn.close()
+        except OSError:
+            pass
+        first = next((r for r in replies if r.get("id") == 0), {})
+        reply = first.get("result") if first.get("ok") else first
         return sent, reply, open_ns
 
     def close(self, scenario):
