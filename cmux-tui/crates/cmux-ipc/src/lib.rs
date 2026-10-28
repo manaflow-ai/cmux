@@ -28,6 +28,10 @@
 //! arrive in order: the holder link uses it, and so do the daemon's frame lanes.
 //! It is the only module with `unsafe` (libc `sendmsg`/`recvmsg`).
 //!
+//! `request_shapes` (feature `fuzzing`) holds the request shape of every
+//! framed command, which the cmux-tui/fuzz `dispatch_structured` target
+//! walks to build bodies the schema allows (task 182).
+//!
 //! [`lane_writer`] is the outbound priority policy (design 3.4): input
 //! streams, then the one control FIFO, then bulk, then background, with
 //! per-stream turns, a starvation bound, chunking and a byte bound.
@@ -68,6 +72,8 @@ pub mod frame;
 pub mod lane_writer;
 pub mod methods;
 pub mod reader;
+#[cfg(feature = "fuzzing")]
+pub mod request_shapes;
 pub mod schema;
 mod schema_digest;
 mod server_families;

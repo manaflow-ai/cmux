@@ -20,6 +20,10 @@ serde_json = { workspace = true, optional = true }
 
 [features]
 client = ["dep:serde_json"]
+# The request shapes of the framed commands (src/request_shapes.rs), for the
+# schema-structured generator of the cmux-tui/fuzz `dispatch_structured`
+# target. Only the fuzz workspace turns it on.
+fuzzing = []
 
 # build.rs reads both schema files; it writes only to OUT_DIR.
 [build-dependencies]

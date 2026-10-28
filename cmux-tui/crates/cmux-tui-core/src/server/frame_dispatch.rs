@@ -337,21 +337,7 @@ impl RequestFrames {
         payload: &[u8],
         connection: &FrameConnection<'_>,
     ) -> Result<bool, ConnectionBadMessage> {
-        let method = self.method(call).map_err(ConnectionBadMessage::Call)?;
-        request_flags(method, call.flags).map_err(ConnectionBadMessage::Call)?;
-        if let Some(max) = method.max_bytes
-            && payload.len() > usize::try_from(max).unwrap_or(usize::MAX)
-        {
-            let len = payload.len();
-            return Err(ConnectionBadMessage::Call(CallRefusal::Oversize {
-                method_id: call.method_id,
-                len,
-                max,
-            }));
-        }
-        let body = std::str::from_utf8(payload).map_err(|error| {
-            ConnectionBadMessage::Wire(BadMessage::InvalidUtf8 { valid_up_to: error.valid_up_to() })
-        })?;
+        let (method, body) = checked_request(self.tables, call, payload)?;
         let stream = header.stream();
         let lane = self.streams.request_lane(stream, method).map_err(ConnectionBadMessage::Call)?;
         self.admit(call.request_id).map_err(ConnectionBadMessage::Call)?;
@@ -418,7 +404,7 @@ impl RequestFrames {
         call: CallAux,
         empty: bool,
     ) -> Result<(), CallRefusal> {
-        let method = self.method(call)?;
+        let method = table_method(self.tables, call)?;
         self.streams.check_cancel(header.stream())?;
         let request_id = call.request_id;
         if !empty {
@@ -441,24 +427,6 @@ impl RequestFrames {
         Ok(())
     }
 
-    /// The call's method, refusing a priority hint that differs from the
-    /// table.
-    fn method(&self, call: CallAux) -> Result<&'static MethodAttrs, CallRefusal> {
-        let method_id = call.method_id;
-        let method = self
-            .tables
-            .method(MethodId::new(method_id))
-            .ok_or(CallRefusal::UnknownMethod { method_id })?;
-        if call.priority != method.priority {
-            return Err(CallRefusal::PriorityMismatch {
-                method_id,
-                hint: call.priority,
-                table: method.priority,
-            });
-        }
-        Ok(method)
-    }
-
     /// Refuses an id still in flight; sweeps answered requests in batches,
     /// so the table stays proportional to what is in flight.
     fn admit(&mut self, request_id: u32) -> Result<(), CallRefusal> {
@@ -473,9 +441,53 @@ impl RequestFrames {
     }
 }
 
+/// The call's method, refusing a priority hint that differs from the table.
+fn table_method(
+    tables: &'static MethodTables,
+    call: CallAux,
+) -> Result<&'static MethodAttrs, CallRefusal> {
+    let method_id = call.method_id;
+    let method =
+        tables.method(MethodId::new(method_id)).ok_or(CallRefusal::UnknownMethod { method_id })?;
+    if call.priority != method.priority {
+        return Err(CallRefusal::PriorityMismatch {
+            method_id,
+            hint: call.priority,
+            table: method.priority,
+        });
+    }
+    Ok(method)
+}
+
+/// What a REQUEST frame must pass before any connection state: a method in
+/// the table, its priority, flags it takes, a body within its `max_bytes`
+/// and UTF-8. Answers the method and the body text.
+pub(super) fn checked_request<'p>(
+    tables: &'static MethodTables,
+    call: CallAux,
+    payload: &'p [u8],
+) -> Result<(&'static MethodAttrs, &'p str), ConnectionBadMessage> {
+    let method = table_method(tables, call).map_err(ConnectionBadMessage::Call)?;
+    request_flags(method, call.flags).map_err(ConnectionBadMessage::Call)?;
+    if let Some(max) = method.max_bytes
+        && payload.len() > usize::try_from(max).unwrap_or(usize::MAX)
+    {
+        let len = payload.len();
+        return Err(ConnectionBadMessage::Call(CallRefusal::Oversize {
+            method_id: call.method_id,
+            len,
+            max,
+        }));
+    }
+    let body = std::str::from_utf8(payload).map_err(|error| {
+        ConnectionBadMessage::Wire(BadMessage::InvalidUtf8 { valid_up_to: error.valid_up_to() })
+    })?;
+    Ok((method, body))
+}
+
 /// Whether the method's reply goes through the responder: a JSON v12
 /// `Command` (its handler replies through `responses`).
-fn served_on_frames(tables: &MethodTables, method: &MethodAttrs) -> bool {
+pub(super) fn served_on_frames(tables: &MethodTables, method: &MethodAttrs) -> bool {
     tables.v12(method.id).is_some()
         && method.payload == Payload::Json
         && Command::method_of_wire(method.name).is_some()
@@ -532,7 +544,7 @@ fn member_present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D:
 
 /// The body must be the v12 line of the header's method, so the handler that
 /// runs is the one the header was checked for.
-fn names_method(body: &str, method: &MethodAttrs) -> Result<(), CallRefusal> {
+pub(super) fn names_method(body: &str, method: &MethodAttrs) -> Result<(), CallRefusal> {
     match crate::line_parses::parse::<BodyHead<'_>>(body) {
         Ok(BodyHead { cmd: Some(cmd), protocol: false }) if cmd == method.name => Ok(()),
         _ => Err(CallRefusal::MethodMismatch { method_id: method.id.raw() }),

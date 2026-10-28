@@ -257,9 +257,11 @@ run_target() {
 
   # libFuzzer names an artifact by what it found; the first one written decides the verdict.
   local artifact verdict
-  artifact="$(find "$artifacts" -maxdepth 1 -type f \
-    \( -name 'crash-*' -o -name 'oom-*' -o -name 'timeout-*' -o -name 'leak-*' \) \
-    -printf '%T@ %p\n' | sort -n | head -n 1 | cut -d' ' -f2-)"
+  # Portable (BSD find has no -printf): fleet minis run this through ipc-fuzz-fleet.sh.
+  artifact="$(python3 -I -c 'import os, sys
+names = [entry for entry in os.scandir(sys.argv[1]) if entry.is_file()
+         and entry.name.split("-")[0] in ("crash", "oom", "timeout", "leak")]
+print(min(names, key=lambda entry: entry.stat().st_mtime).path if names else "")' "$artifacts")"
   # A run that wrote nothing leaves no empty directory behind.
   rmdir "$artifacts" 2>/dev/null || true
   if [[ -n "$artifact" ]]; then

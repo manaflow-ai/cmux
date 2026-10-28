@@ -48,6 +48,9 @@ arbitrary = { version = "1", features = ["derive"] }
 base64 = "0.22"
 flate2 = "1"
 sha2 = "0.10"
+# p05-ipc-182: the binary IPC reader and the schema's request shapes (feature
+# `fuzzing`) for frame_reader and dispatch_structured.
+cmux-ipc = { path = "../crates/cmux-ipc", features = ["fuzzing"] }
 
 # The same Crossterm patch as the main workspace, so any crate here that
 # reaches Crossterm builds the code cmux ships.
@@ -411,6 +414,23 @@ bench = false
 [[bin]]
 name = "page_request_head"
 path = "fuzz_targets/page_request_head.rs"
+test = false
+doc = false
+bench = false
+
+# p05-ipc-182: the binary IPC frame reader and the daemon's request dispatch
+# with schema-structured bodies (plans/cmux-next/chrome-parity/p05-ipc.md, 3.7).
+# scripts/cmux-next/ipc-fuzz-fleet.sh runs both on idle fleet minis.
+[[bin]]
+name = "frame_reader"
+path = "fuzz_targets/frame_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dispatch_structured"
+path = "fuzz_targets/dispatch_structured.rs"
 test = false
 doc = false
 bench = false

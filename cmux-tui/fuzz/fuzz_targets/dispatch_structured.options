@@ -1,0 +1,9 @@
+# Read by scripts/cmux-next/rust-fuzz.sh (Chromium's <target>.options format).
+#
+# The body is drawn from the input's bytes after a 3-byte header, so a short
+# input gives a body of defaults. libFuzzer grows its length limit from the
+# 64-byte seeds only slowly by default (-len_control=100); let it use the
+# whole 4096 bytes from the start.
+[libfuzzer]
+max_len = 4096
+len_control = 0

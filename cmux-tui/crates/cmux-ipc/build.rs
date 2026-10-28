@@ -20,11 +20,17 @@
 //!   daemon expands them into its request params and `Command` variants for
 //!   the families `server-families.json` lists, with its `refused_fields`
 //!   and `boxed` variants.
+//! - `request_shapes.rs` (task 182): the request shape of every framed
+//!   command, which `src/request_shapes.rs` includes. Written only with the
+//!   `fuzzing` feature (only the cmux-tui/fuzz workspace turns it on), so no
+//!   other build pays for it.
 
 #[path = "build-support/client_requests.rs"]
 mod client_requests;
 #[path = "build-support/method_tables.rs"]
 mod method_tables;
+#[path = "build-support/request_shapes.rs"]
+mod request_shapes;
 #[path = "src/schema_digest.rs"]
 mod schema_digest;
 #[path = "build-support/server_families.rs"]
@@ -115,6 +121,7 @@ fn main() -> Result<(), BuildError> {
     println!("cargo:rerun-if-changed=build-support/method_tables.rs");
     println!("cargo:rerun-if-changed=build-support/client_requests.rs");
     println!("cargo:rerun-if-changed=build-support/server_families.rs");
+    println!("cargo:rerun-if-changed=build-support/request_shapes.rs");
     let manifest = PathBuf::from(env("CARGO_MANIFEST_DIR")?);
     let out_dir = PathBuf::from(env("OUT_DIR")?);
     let schemas = Schemas::read(&manifest, SDK_SCHEMA, RESOURCE_OPERATIONS)?;
@@ -122,6 +129,10 @@ fn main() -> Result<(), BuildError> {
     write(&out_dir, "method_tables.rs", &method_tables(&schemas, "TABLES")?)?;
     write(&out_dir, "client_requests.rs", &client_requests(&schemas.sdk)?)?;
     write(&out_dir, "server_families.rs", &server_families(&manifest, &schemas)?)?;
+    if std::env::var_os("CARGO_FEATURE_FUZZING").is_some() {
+        let shapes = request_shapes::read(&schemas.sdk.doc);
+        write(&out_dir, "request_shapes.rs", &request_shapes::emit(&shapes))?;
+    }
     let fixture = Schemas::read(&manifest, TABLE_FIXTURE_SDK, TABLE_FIXTURE_RESOURCE)?;
     write(&out_dir, "method_tables_fixture.rs", &method_tables(&fixture, "FIXTURE_TABLES")?)
 }

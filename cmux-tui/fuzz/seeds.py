@@ -125,6 +125,50 @@ def holder(_repo: Path) -> Iterable[bytes]:
     yield b"cmux-holder wire 1-5\n"
 
 
+def ipc_frame_reader(repo: Path) -> Iterable[bytes]:
+    # fuzz_targets/frame_reader.rs: flags, negotiate-after, line limit, frame
+    # limit, four chunk sizes, then the stream. The golden frames of
+    # spec/fixtures/ipc-frames, negotiated (flags 1) and through read_with
+    # (flags 9), whole and in small chunks; the mixed vector also with frames
+    # negotiated after its first line (flags 2).
+    chunkings = (bytes([255, 255, 255, 255]), bytes([0, 6, 15, 2]))
+    for path in sorted((repo / "cmux-tui/spec/fixtures/ipc-frames").glob("*.bin")):
+        stream = path.read_bytes()
+        for flags in (1, 9):
+            for chunks in chunkings:
+                yield bytes([flags, 0, 0, 0]) + chunks + stream
+        if path.name.startswith("mixed"):
+            yield bytes([2, 1, 0, 0]) + chunkings[1] + stream
+    # A line past a 64-byte limit and a frame past a 256-byte one.
+    yield bytes([1, 0, 16, 16, 7, 7, 7, 7]) + b"x" * 80 + b"\n"
+    # Structured (flags 5): arbitrary bytes the target turns into pieces.
+    yield bytes([5, 0, 0, 0, 3, 3, 3, 3]) + bytes(range(64))
+
+
+def ipc_framed_method_count(repo: Path) -> int:
+    sdk = json.loads((repo / "cmux-tui/spec/sdk-schema.json").read_text())
+    v2 = json.loads((repo / "cmux-tui/spec/resource-operations-v2.json").read_text())
+    return sum("method_id" in entry
+               for entries in (sdk.get("commands", {}), v2.get("operations", {}))
+               for entry in entries.values())
+
+
+def ipc_dispatch_structured(repo: Path) -> Iterable[bytes]:
+    # fuzz_targets/dispatch_structured.rs: a little-endian method index, a
+    # mutation byte (below 160: well formed), then arbitrary bytes. One
+    # well-formed seed per framed method, so every method id is covered from
+    # the first run, and each mutation once on a spread of methods.
+    count = ipc_framed_method_count(repo)
+    for index in range(count):
+        # 64 bytes the generator draws the request id and values from; the
+        # same SHA-1 stream for every method, offset by its index.
+        draw = hashlib.sha1(index.to_bytes(2, "little")).digest() * 4
+        yield struct.pack("<HB", index, 0) + draw[:64]
+    for mutation in range(12):
+        index = (mutation * 31) % max(count, 1)
+        yield struct.pack("<HB", index, 160 + mutation) + bytes(range(mutation, mutation + 32))
+
+
 TARGETS: dict[str, Callable[[Path], Iterable[bytes]]] = {
     "ghostty_vt_output": terminal_corpus,
     "terminal_host_read_frame": terminal_host_frames,
@@ -132,6 +176,8 @@ TARGETS: dict[str, Callable[[Path], Iterable[bytes]]] = {
     "remote_protocol": remote_protocol,
     "config_jsonc": config_jsonc,
     "holder_decode": holder,
+    "frame_reader": ipc_frame_reader,
+    "dispatch_structured": ipc_dispatch_structured,
 }
 
 

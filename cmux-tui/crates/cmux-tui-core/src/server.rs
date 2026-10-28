@@ -161,6 +161,9 @@ mod command_args;
 mod frame_dispatch;
 #[cfg(unix)]
 mod fs_wire;
+/// The dispatch decisions the cmux-tui/fuzz `dispatch_structured` target checks.
+#[cfg(feature = "fuzz")]
+pub(crate) mod fuzz_dispatch;
 mod line_connection;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,

@@ -8,10 +8,17 @@
 //! parsing. A codec entry answers [`Decoded`]: a decoder must refuse bad
 //! bytes with an error, and what it accepts must encode again (the
 //! canonical bytes the target feeds back in).
+//!
+//! [`dispatch_request`] is the daemon's request dispatch up to the handler
+//! (server/fuzz_dispatch.rs, p05-ipc-182): a REQUEST frame's checks, the
+//! line's head, its route and its typed decode.
 
 use std::io::{Read, Write};
 
 use crate::SessionJournalRecord;
+pub use crate::server::fuzz_dispatch::{
+    Dispatched, Framed, Head, Line, dispatch as dispatch_request,
+};
 use crate::terminal_host_runtime as host;
 use crate::workspace_registry::session_journal;
 
