@@ -4,6 +4,28 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use super::*;
 
 #[test]
+fn connection_limit_probe_bounds_a_peer_that_never_terminates_its_line() {
+    use std::io::Read;
+    use std::sync::mpsc;
+
+    let (client, mut server) = UnixStream::pair().unwrap();
+    let (finished, wait) = mpsc::channel();
+    let sender = std::thread::spawn(move || {
+        // Send beyond identify's existing response limit, then keep the
+        // connection open. Restart must reject the malformed response
+        // without depending on the peer's EOF or treating it as silence.
+        let bytes = (16 * 1024 * 1024 + 2) as u64;
+        let sent = std::io::copy(&mut std::io::repeat(b'x').take(bytes), &mut server);
+        let _ = wait.recv();
+        sent
+    });
+    let result = probe(Box::new(client), Instant::now() + PROBE_DEADLINE);
+    finished.send(()).unwrap();
+    assert_eq!(sender.join().unwrap().unwrap(), (16 * 1024 * 1024 + 2) as u64);
+    assert!(matches!(result, Probe::Answered), "oversized input is not an unresponsive owner");
+}
+
+#[test]
 fn connection_limit_recovery_gets_a_full_identify_deadline() {
     let dir = tempfile::tempdir_in("/tmp").unwrap();
     let spec = super::super::recovery_tests::owner_spec(dir.path().join("owner.sock"));
