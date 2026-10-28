@@ -42,7 +42,10 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
   area: "New Tab",
   experimental: true,
   pane: true,
-  covers: ["agent-session/acpmux/ComposerContext.tsx#ComposerContext"],
+  covers: [
+    "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
+    "agent-session/acpmux/EnvironmentPicker.tsx#AutoIcon",
+  ],
   keywords: ["auto", "cloud", "environment", "run location", "folder"],
   styles: () => Promise.all([import("./styles.css"), import("./composerLocation.css")]),
   load: () => import("./ComposerContext").then((module) => module.ComposerContext),
