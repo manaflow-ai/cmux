@@ -908,11 +908,11 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             // adapter instead of starting an unrelated Chrome process.
             "--agent-browser-provider" => out.agent_browser_provider = true,
             "-h" | "--help" => {
-                print!("{}", usage());
+                print!("{}", cli::with_program_name(&usage(), &cli::program_name()));
                 client_log::exit(0);
             }
             "-V" | "--version" => {
-                println!("cmux {}", version_string());
+                println!("{} {}", cli::program_name(), version_string());
                 client_log::exit(0);
             }
             other => return Err(format!("unknown argument {other:?}")),
