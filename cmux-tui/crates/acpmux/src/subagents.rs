@@ -630,6 +630,18 @@ mod codex_tests {
             }),
         );
         assert_eq!(completed[0]["tokens"], 200);
+        let explicit = subagents(
+            &mut tree,
+            json!({
+                "sessionUpdate": "subagent_state_update",
+                "subagentSessionId": "child",
+                "state": "completed",
+                "tokens": 300,
+                "lastMessage": "final answer"
+            }),
+        );
+        assert_eq!(explicit[0]["tokens"], 300);
+        assert_eq!(explicit[0]["lastMessage"], "final answer");
     }
 
     #[test]
