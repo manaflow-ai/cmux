@@ -36,9 +36,6 @@ test("a refused mirror clear stays authoritative across an unavailable daemon re
   const refusal = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const entered = new Promise<void>((resolve) => {
-    started = resolve;
-  });
   const actions = draftTextActions(
     {
       readDraft: async () => (available ? { sessionId, draft: null } : undefined),

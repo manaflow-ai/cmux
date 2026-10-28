@@ -4,7 +4,6 @@ type DraftClient = {
 };
 type Native = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
-/** Daemon state is shared by every host; ordered native mirrors survive unavailable reads. */
 export function draftTextActions(client: DraftClient, native: Native) {
   const tails = new Map<string, Promise<unknown>>();
   const edits = new Map<string, { version: number; text: string }>();
