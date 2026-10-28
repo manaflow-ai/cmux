@@ -132,7 +132,7 @@ const draw = () =>
   // Keep the deterministic line in a separate host: a real component may replace its own Pierre
   // shadow contents when its worker responds, while this host remains the same painted text surface
   // for the pointer path under test.
-  const host = document.createElement("diffs-container");
+  const host = document.createElement("div");
   host.id = `shadow-text-${kind}`;
   host.style.cssText = "display:block;width:100%;height:24px;pointer-events:auto;user-select:text";
   mount.append(host);
