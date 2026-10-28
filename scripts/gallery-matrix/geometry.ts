@@ -122,7 +122,7 @@ export function parseArtifact(value: unknown, file = "artifact"): GeometryArtifa
   const capture = item.capture as Record<string, unknown> | undefined;
   if (!capture || typeof capture.caseId !== "string" || typeof capture.engine !== "string" || typeof capture.theme !== "string" || typeof capture.screenshot !== "string") throw new Error(`${file}: capture provenance is required`);
   if (!capture.caseId || !capture.engine || !capture.theme || !capture.screenshot || typeof capture.screenshotSha256 !== "string" || !/^[0-9a-f]{64}$/.test(capture.screenshotSha256)) throw new Error(`${file}: non-empty capture identity and screenshotSha256 are required`);
-  if (!["css-px", "screenshot-pixels"].includes(String(capture.coordinateSpace))) throw new Error(`${file}: coordinateSpace is required`);
+  if (typeof capture.coordinateSpace !== "string" || !["css-px", "screenshot-pixels"].includes(capture.coordinateSpace)) throw new Error(`${file}: coordinateSpace must be css-px or screenshot-pixels`);
   const viewport = capture.viewport as Record<string, unknown> | undefined;
   if (!viewport || !finite(viewport.width) || viewport.width <= 0 || !finite(viewport.height) || viewport.height <= 0 || !finite(capture.deviceScaleFactor) || (capture.deviceScaleFactor as number) <= 0) throw new Error(`${file}: positive viewport/deviceScaleFactor are required`);
   if (!Array.isArray(item.elements) || item.elements.length === 0) throw new Error(`${file}: elements evidence is required`);
@@ -130,7 +130,7 @@ export function parseArtifact(value: unknown, file = "artifact"): GeometryArtifa
   const elements = item.elements.map((raw, index) => {
     if (!raw || typeof raw !== "object") throw new Error(`${file}: element ${index} must be an object`);
     const element = raw as Record<string, unknown>;
-    if (typeof element.id !== "string" || !element.id || ids.has(element.id) || (element.kind !== "web" && element.kind !== "native") || !["dom-rect", "ax-frame", "view-frame"].includes(String(element.source)) || !rectValid(element.rect)) throw new Error(`${file}: element ${index} has invalid or duplicate id/kind/source/rect`);
+    if (typeof element.id !== "string" || !element.id || ids.has(element.id) || (element.kind !== "web" && element.kind !== "native") || typeof element.source !== "string" || !["dom-rect", "ax-frame", "view-frame"].includes(element.source) || !rectValid(element.rect)) throw new Error(`${file}: element ${index} has invalid or duplicate id/kind/source/rect`);
     ids.add(element.id);
     if (element.kind === "web" && element.source !== "dom-rect") throw new Error(`${file}: web element ${element.id} must use dom-rect source`);
     if (element.kind === "native" && element.source === "dom-rect") throw new Error(`${file}: native element ${element.id} must use ax-frame or view-frame source`);
