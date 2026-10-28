@@ -40,6 +40,10 @@ if ! command -v ditto >/dev/null; then
   printf '#!/usr/bin/env bash\nmkdir -p "$(dirname "$2")"; cp -R "$1" "$2"\n' > "$TMP/bin/ditto"
   chmod +x "$TMP/bin/ditto"
 fi
+# The stand-in framework is not a Mach-O: a stand-in strip records what a Release
+# embed strips (embed-cef.test.sh checks the real strip on a real library).
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "${@: -1}" >> "%s"\n' "$TMP/stripped" > "$TMP/bin/strip"
+chmod +x "$TMP/bin/strip"
 for stub in install-cef-credits.sh install-cef-license.sh sign-cef.sh; do
   printf '#!/usr/bin/env bash\nexit 0\n' > "$scripts/$stub"
 done
@@ -114,6 +118,9 @@ for pair in libcmux_cef_shim.dylib=shim cmux-cef-helper=helper cmux-chromium-hos
 done
 [[ "$(cat "$TMP/CEF-dSYMs/arm64/$cef_dwarf" 2>/dev/null)" == "cef dwarf" ]] ||
   fail "a Release embed did not keep Chromium's dSYM: $(cat "$TMP/embed-Release.log")"
+# With Chromium's dSYM kept, the framework binary ships stripped (its symbols go to Sentry).
+grep -qx ".*/Versions/A/Chromium Embedded Framework" "$TMP/stripped" 2>/dev/null ||
+  fail "a Release embed with Chromium's dSYM kept did not strip the framework: $(cat "$TMP/stripped" 2>/dev/null)"
 # A second Release build reuses the unpacked dSYM (the archive is not read again).
 cp "$dist/Chromium Embedded Framework.dSYM.tar.xz" "$TMP/cef-dsym.tar"
 printf 'not a tar' > "$dist/Chromium Embedded Framework.dSYM.tar.xz"
