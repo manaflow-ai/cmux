@@ -144,7 +144,7 @@ public final class CrashReporter: Sendable {
         options.enableSwizzling = true
         // No URLSession breadcrumbs (audit 17): each holds the request's address, query and fragment, and the
         // app's requests carry what the person typed and browsed (the omnibox suggest query, a saved or probed
-        // page). Chrome's crash reports hold no URL history either.
+        // page).
         options.enableNetworkBreadcrumbs = false
         options.attachStacktrace = true
         options.enableCaptureFailedRequests = false

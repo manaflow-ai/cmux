@@ -45,10 +45,11 @@ import Testing
     }
 
     /// Audit 17: no request address reaches Sentry. The SDK's URLSession breadcrumb holds every request's
-    /// address, query and fragment: the omnibox suggest request (`q=` what the person typed, private profiles
-    /// too), a page saved or probed in the browser, the weather lookup's place. A query key such as `q` names
-    /// no secret, so the scrubber kept the value. The breadcrumb is off, and an http breadcrumb that still
-    /// reaches the scrubber loses its query and fragment.
+    /// address, query and fragment: the omnibox suggest request (`q=` what the person typed; a private
+    /// profile's ephemeral session is a URLSession too), a page saved or probed in the browser, the weather
+    /// lookup's place. A query key such as `q` names no secret, so the scrubber kept the value. The breadcrumb
+    /// is off, and an http breadcrumb that still reaches the scrubber, or an event's copy of it, loses its
+    /// query and fragment.
     @Test(arguments: [CrashReporter.HangTracking.sentry, .watchdog])
     func noRequestAddressReachesSentry(_ hangTracking: CrashReporter.HangTracking) throws {
         let options = Self.reporter(hangTracking).options()
@@ -69,6 +70,17 @@ import Testing
         #expect(data["http.fragment"] == nil)
         #expect(!String(describing: data).contains("private"))
         #expect(data["method"] as? String == "GET")
+
+        // The event's own copies of the scope's breadcrumbs (SentryEventScrubber.scrubbedCopy).
+        let held = Breadcrumb(level: .info, category: "http")
+        held.data = ["url": "https://duckduckgo.com/ac/", "http.query": "q=private%20words&type=list"]
+        let event = Event(level: .error)
+        event.breadcrumbs = [held]
+        let beforeSend = try #require(options.beforeSend)
+        let out = try #require(beforeSend(event))
+        let copy = try #require(out.breadcrumbs?.first)
+        #expect(copy.data?["http.query"] == nil)
+        #expect(held.data?["http.query"] as? String == "q=private%20words&type=list", "the scope's own crumb is not changed")
     }
 
     /// Each switch the CLI policy sets is the same here, or kept on for a reason the app has and a CLI run has not.

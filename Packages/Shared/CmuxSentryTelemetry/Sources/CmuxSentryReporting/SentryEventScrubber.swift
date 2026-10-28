@@ -134,8 +134,8 @@ public struct SentryEventScrubber: Sendable {
     }
 
     /// The URLSession breadcrumb's query and fragment (sentry-cocoa `SentryNetworkTracker.addBreadcrumb`),
-    /// dropped whole: their keys (`q`, `query`) name no secret, so the key-aware scrub would keep a search
-    /// the person typed, and no pattern can tell typed text from an id.
+    /// dropped whole: a query parameter such as `q` names no secret, so the key-aware query scrub would keep
+    /// a search the person typed, and no pattern can tell typed text from an id.
     static let requestContentKeys = ["http.query", "http.fragment"]
 
     /// Returns a scrubbed copy of a breadcrumb the scope may still share.
