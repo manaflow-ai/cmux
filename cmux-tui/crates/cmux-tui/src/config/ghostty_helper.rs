@@ -102,12 +102,10 @@ pub(super) fn read_ghostty_limited_output_async(
 ) -> Option<GhosttyHelperOutputReader> {
     let (sender, receiver) = mpsc::channel();
     // supervise-allow: one helper child's reader or reaper, bounded by that child; a panic drops its sender, so the wait ends with no output.
-    std::thread::Builder::new()
-        .name(thread_name.to_string())
-        .spawn(move || {
-            let _ = sender.send(read_ghostty_limited_string(stdout, max_bytes));
-        })
-        .ok()?;
+    cmux_threads::spawn(thread_name, cmux_threads::ThreadQos::UserInitiated, move || {
+        let _ = sender.send(read_ghostty_limited_string(stdout, max_bytes));
+    })
+    .ok()?;
     Some(GhosttyHelperOutputReader { receiver })
 }
 
@@ -226,7 +224,7 @@ pub(super) fn reap_ghostty_child_after_short_wait(
         return reaped_receiver;
     }
     // supervise-allow: one helper child's reader or reaper, bounded by that child; a panic drops its sender, so the wait ends with no output.
-    let _ = std::thread::Builder::new().name(reaper_name.to_string()).spawn(move || {
+    let _ = cmux_threads::spawn(reaper_name, cmux_threads::ThreadQos::Utility, move || {
         let _ = child.wait();
         let _ = reaped_sender.send(());
     });

@@ -208,14 +208,16 @@ impl ServerProcess {
         };
         let pid = Arc::new(Mutex::new(Some(child.id())));
         let (queue, outgoing) = sync_channel(QUEUE);
-        supervised::spawn(
+        supervised::spawn_at(
             format!("cmux-app-server-w:{name}"),
+            cmux_threads::ThreadQos::Utility,
             Fatal,
             ShutdownBehavior::Continue,
             move || write_loop(stdin, outgoing),
         )?;
-        supervised::spawn(
+        supervised::spawn_at(
             format!("cmux-app-server-e:{name}"),
+            cmux_threads::ThreadQos::Utility,
             Fatal,
             ShutdownBehavior::Continue,
             move || {
@@ -233,8 +235,9 @@ impl ServerProcess {
             },
         )?;
         let reaper = pid.clone();
-        supervised::spawn(
+        supervised::spawn_at(
             format!("cmux-app-server:{name}"),
+            cmux_threads::ThreadQos::Utility,
             Fatal,
             ShutdownBehavior::Continue,
             move || {

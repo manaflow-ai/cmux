@@ -154,9 +154,15 @@ impl Mux {
         }
         retries.worker_running = true;
         let mux = Arc::downgrade(self);
-        match supervised::spawn("cell-pixel-retry", Fatal, ShutdownBehavior::Continue, move || {
-            Self::run_cell_pixel_retry_worker(mux);
-        }) {
+        match supervised::spawn_at(
+            "cell-pixel-retry",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                Self::run_cell_pixel_retry_worker(mux);
+            },
+        ) {
             Ok(_) => Ok(()),
             Err(error) => {
                 retries.worker_running = false;

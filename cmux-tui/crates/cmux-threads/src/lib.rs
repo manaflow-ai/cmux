@@ -89,4 +89,4 @@ pub use registry::{
     DesiredQos, QosSlot, ThreadInfo, apply_pending_qos, current_slot, deregister_current,
     register_current, register_current_following, snapshot,
 };
-pub use spawn::{spawn, spawn_following, spawn_with_stack};
+pub use spawn::{Scope, caller_qos, scope, spawn, spawn_following, spawn_with_stack};
