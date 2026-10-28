@@ -230,6 +230,23 @@ fn a_send_naming_bytes_never_uploaded_or_with_another_size_is_refused() {
 }
 
 #[test]
+fn attachment_begin_accepts_an_original_above_the_former_size_cap() {
+    let (mux, user, _, conversation) = setup();
+    for size in [100_000_001_u64, 5_u64 << 30] {
+        let mut request = begin(&conversation, IMAGE, None);
+        request["byte_count"] = json!(size);
+        let begun = run(&mux, user, request).unwrap();
+        let upload = begun["upload"].as_str().unwrap();
+        run(
+            &mux,
+            user,
+            json!({"cmd":"conversation-attachment-upload","op":"cancel","upload":upload}),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
 fn bad_types_sizes_and_hashes_are_refused_before_any_bytes() {
     let (mux, user, _, conversation) = setup();
     let cases = [
@@ -237,7 +254,7 @@ fn bad_types_sizes_and_hashes_are_refused_before_any_bytes() {
         // Any name attaches since 9f31a629471 (a client sends HTML as text/plain);
         // a type outside the owner's list is still refused.
         (json!({"name":"index.html","mime_type":"text/html"}), "type_refused"),
-        (json!({"byte_count":100_000_001}), "too_large"),
+        (json!({"byte_count":0}), "validation_invalid"),
         (json!({"sha256":"ABC"}), "validation_invalid"),
         (json!({"name":"a/b.png"}), "validation_invalid"),
     ];
