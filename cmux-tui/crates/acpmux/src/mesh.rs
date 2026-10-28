@@ -153,6 +153,13 @@ pub struct Receipt {
     pub prompt_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// When the hub took it, leased it last and had its ack (ms since the epoch).
+    #[serde(default)]
+    pub created_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leased_until: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acked_at: Option<u64>,
 }
 
 /// How a delivery settled.

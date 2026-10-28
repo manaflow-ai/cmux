@@ -79,17 +79,22 @@ pub(super) async fn send(
         idempotency_key: idempotency_key(&prompt_id),
     };
     let receipt = mesh.send(&message).await.map_err(|e| refusal(target, e))?;
-    let mut status = status_of(&receipt, target);
-    status["promptId"] = json!(prompt_id);
-    Ok(status)
+    Ok(status_of(&receipt, target))
 }
 
 /// `_acpmux/send_status` of a delivery the hub holds: its receipt, read once.
 pub(super) async fn status(mesh: &Arc<dyn MeshHub>, id: &str) -> Result<Value, RpcError> {
     let message = id.strip_prefix(PREFIX).unwrap_or(id);
     let receipt = mesh.receipt(message).await.map_err(|e| {
-        RpcError::invalid_params(format!("no delivery {id}: {e}"))
-            .with_data(json!({"reason": "outbox.unknown", "deliveryId": id}))
+        if e.refused {
+            RpcError::invalid_params(format!("no delivery {id}: {e}"))
+                .with_data(json!({"reason": "outbox.unknown", "deliveryId": id}))
+        } else {
+            // The hub did not answer: the delivery may well be there; ask again later.
+            RpcError::internal(format!("the mesh hub did not answer for {id}: {e}")).with_data(
+                json!({"reason": "mesh.unavailable", "retryable": true, "deliveryId": id}),
+            )
+        }
     })?;
     let target = match (&receipt.to.host, &receipt.to.name) {
         (Some(host), Some(name)) => format!("{host}/{name}"),
@@ -98,7 +103,8 @@ pub(super) async fn status(mesh: &Arc<dyn MeshHub>, id: &str) -> Result<Value, R
     Ok(status_of(&receipt, &target))
 }
 
-/// A receipt in the outbox's status shape (`hub/outbox.rs` `Delivery::status`).
+/// A receipt in the outbox's status shape (`hub/outbox.rs` `Delivery::status`). Its `promptId`
+/// is the one the target runs it with: the hub's message id (`mesh_relay.rs` `deliver`).
 fn status_of(receipt: &Receipt, target: &str) -> Value {
     let status = match receipt.state.as_str() {
         "leased" => "delivering",
@@ -110,14 +116,18 @@ fn status_of(receipt: &Receipt, target: &str) -> Value {
         .then(|| json!({"promptId": receipt.prompt_id, "detail": receipt.detail}));
     let error = (status == "failed")
         .then(|| receipt.detail.clone().unwrap_or_else(|| receipt.state.clone()));
+    let updated = receipt.acked_at.or(receipt.leased_until).unwrap_or(receipt.created_at);
     json!({
         "deliveryId": format!("{PREFIX}{}", receipt.message_id),
         "target": target,
+        "promptId": receipt.prompt_id.as_deref().unwrap_or(&receipt.message_id),
         "via": "mesh",
         "status": status,
         "attempts": receipt.attempt,
         "error": error,
         "accepted": accepted,
+        "createdAt": receipt.created_at,
+        "updatedAt": updated.max(receipt.created_at),
     })
 }
 
