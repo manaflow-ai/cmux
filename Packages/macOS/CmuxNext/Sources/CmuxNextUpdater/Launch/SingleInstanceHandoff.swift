@@ -108,8 +108,7 @@ import os
             let target = owner.bundlePath, ownerPID = owner.pid, count = batch.count
             Self.spawn(Self.reopenCommand(pid: pid, appPath: target, urls: batch))
             Self.logger.notice(
-                "launch: \(count, privacy: .public) URL(s) go to pid \(ownerPID, privacy: .public) at \(target, privacy: .public) "
-                    + "once this one exits")
+                "launch: \(count, privacy: .public) URL(s) go to pid \(ownerPID, privacy: .public) at \(target, privacy: .public) after exit")
             await self?.helperEnded(delivered: true, handedBefore: handedBefore)
         }
     }
