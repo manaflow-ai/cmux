@@ -16,14 +16,19 @@ cat > "$TMP/bin/zig" <<'STUB'
 #!/usr/bin/env bash
 # Hangs the first FAKE_ZIG_HANGS fetches (with a child of its own, as zig's
 # downloads are), fails the next FAKE_ZIG_FAILURES, then succeeds.
+if [ "$*" = env ]; then printf '.{\n    .global_cache_dir = "%s",\n}\n' "${FAKE_CACHE:?}"; exit 0; fi
 count_file="${FAKE_ZIG_COUNT:?}"
 count=$(( $(cat "$count_file" 2>/dev/null || echo 0) + 1 ))
 echo "$count" > "$count_file"
 [ "$*" = "build --fetch=all" ] || { echo "unexpected zig args: $*" >&2; exit 2; }
 [ "$(pwd -P)" = "${FAKE_ZIG_DIR:?}" ] || { echo "zig ran in $(pwd -P)" >&2; exit 2; }
 if [ "$count" -le "${FAKE_ZIG_HANGS:-0}" ]; then
-  mkdir -p "$ZIG_GLOBAL_CACHE_DIR/tmp/partial-$count"
-  echo half > "$ZIG_GLOBAL_CACHE_DIR/tmp/partial-$count/data"
+  # What a stalled download leaves: an unfinished unpack (Zig 0.16 stages it
+  # in zig-pkg/.tmp-*, older Zig in the cache's tmp/) and a cut-short archive.
+  mkdir -p "$FAKE_CACHE/tmp/partial-$count" "zig-pkg/.tmp-$count"
+  echo half > "$FAKE_CACHE/tmp/partial-$count/data"
+  echo half > "zig-pkg/.tmp-$count/data"
+  echo half > "$FAKE_CACHE/p/N-cut-$count.tar.gz"
   sleep 600 &
   echo "$!" >> "${FAKE_ZIG_CHILDREN:?}"
   wait
@@ -33,16 +38,20 @@ if [ "$count" -le $(( ${FAKE_ZIG_HANGS:-0} + ${FAKE_ZIG_FAILURES:-0} )) ]; then
   echo "error: unable to connect to server: UnknownHostName" >&2
   exit 1
 fi
-mkdir -p "$ZIG_GLOBAL_CACHE_DIR/p/N-done"
+mkdir -p "$FAKE_CACHE/p/N-done"
 STUB
 chmod +x "$TMP/bin/zig"
 run() { # <hangs> <failures> -> status in $status, seconds in $elapsed
-  rm -rf "$TMP/count" "$TMP/children" "$TMP/cache/tmp"/* "$TMP/cache/p"/*
+  rm -rf "$TMP/count" "$TMP/children" "$TMP/cache/tmp"/* "$TMP/cache/p"/* "$TMP/src/zig-pkg"
   : > "$TMP/children"
+  # Packages an earlier run finished, which a killed attempt must not touch.
+  mkdir -p "$TMP/src/zig-pkg/N-old"
+  echo whole > "$TMP/cache/p/N-old.tar.gz"
+  touch -t 202001010000 "$TMP/cache/p/N-old.tar.gz"
   status=0
   local start=$SECONDS
   PATH="$TMP/bin:$PATH" FAKE_ZIG_COUNT="$TMP/count" FAKE_ZIG_HANGS="$1" FAKE_ZIG_FAILURES="$2" \
-    FAKE_ZIG_CHILDREN="$TMP/children" FAKE_ZIG_DIR="$(cd "$TMP/src" && pwd -P)" ZIG_GLOBAL_CACHE_DIR="$TMP/cache" \
+    FAKE_ZIG_CHILDREN="$TMP/children" FAKE_ZIG_DIR="$(cd "$TMP/src" && pwd -P)" FAKE_CACHE="$TMP/cache" \
     CMUX_ZIG_FETCH_ATTEMPTS=3 CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT=2 CMUX_ZIG_FETCH_RETRY_DELAY=0 \
     "$SCRIPT" "$TMP/src" >"$TMP/out" 2>&1 || status=$?
   elapsed=$((SECONDS - start))
@@ -73,6 +82,9 @@ run 1 0
 grep -q "timed out after 2s (attempt 1 of 3)" "$TMP/out" || fail "the timeout was not reported"
 children_gone || fail "the hung attempt's child process outlived its deadline"
 [ -z "$(ls -A "$TMP/cache/tmp")" ] || fail "the hung attempt's partial download was left in Zig's scratch dir"
+[ -z "$(ls -d "$TMP/src/zig-pkg"/.tmp-* 2>/dev/null)" ] || fail "the hung attempt's partial unpack was left in zig-pkg/"
+[ ! -e "$TMP/cache/p/N-cut-1.tar.gz" ] || fail "the hung attempt's cut-short archive was left in the cache"
+[ -d "$TMP/src/zig-pkg/N-old" ] && [ -e "$TMP/cache/p/N-old.tar.gz" ] || fail "clearing a hung attempt removed a finished package"
 [ -d "$TMP/cache/p/N-done" ] || fail "the second attempt did not fetch"
 (( elapsed < 20 )) || fail "one 2 s hang took ${elapsed}s"
 

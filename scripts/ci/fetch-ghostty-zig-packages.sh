@@ -31,22 +31,33 @@ zig_bin="${CMUX_ZIG:-zig}"
 cd "$source_dir"
 
 marker="$(mktemp "${TMPDIR:-/tmp}/zig-fetch-timeout.XXXXXX")"
-trap 'rm -f "$marker"' EXIT
 
-# Zig's scratch dir for unfinished downloads (only what a killed attempt left).
+started="$(mktemp "${TMPDIR:-/tmp}/zig-fetch-started.XXXXXX")"
+trap 'rm -f "$marker" "$started"' EXIT
+
+# What a killed attempt left: unfinished unpacks (Zig 0.16 stages them in
+# zig-pkg/.tmp-*, older Zig in <global cache>/tmp) and any package archive it
+# wrote to <global cache>/p, which the kill may have cut short. A finished
+# zig-pkg/<hash> was moved into place after its hash checked, and stays.
 clear_scratch() {
+  find zig-pkg -mindepth 1 -maxdepth 1 -name '.tmp-*' -exec rm -rf {} + 2>/dev/null || true
   local cache="${ZIG_GLOBAL_CACHE_DIR:-}"
   if [[ -z "$cache" ]]; then
-    cache="$("$zig_bin" env 2>/dev/null | sed -n 's/.*"global_cache_dir": *"\([^"]*\)".*/\1/p' | head -1)" || cache=""
+    # `zig env` prints ZON (0.15 and later: `.global_cache_dir = "..."`) or JSON (older).
+    cache="$("$zig_bin" env 2>/dev/null | sed -n 's/.*global_cache_dir"\{0,1\} *[:=] *"\([^"]*\)".*/\1/p' | head -1)" || cache=""
   fi
-  if [[ -n "$cache" && -d "$cache/tmp" ]]; then
+  [[ -n "$cache" ]] || return 0
+  if [[ -d "$cache/tmp" ]]; then
     find "$cache/tmp" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+  fi
+  if [[ -d "$cache/p" ]]; then
+    find "$cache/p" -mindepth 1 -maxdepth 1 -type f -newer "$started" -exec rm -f {} + 2>/dev/null || true
   fi
 }
 
 # One fetch under the deadline. Returns zig's status, or 124 on the deadline.
 fetch_once() {
-  rm -f "$marker"
+  rm -f "$marker"; touch "$started"
   # Job control gives the background fetch a process group of its own, so the
   # deadline kills zig and every child it started (bash on Linux and macOS).
   set -m
