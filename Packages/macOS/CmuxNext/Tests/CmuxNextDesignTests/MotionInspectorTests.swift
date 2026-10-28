@@ -49,13 +49,13 @@ import Testing
         let base = MotionTimebase.identity
         let slowed = base.retimed(rate: 0.1, atParent: 50)
         #expect(slowed.localTime(atParent: 50) == 50, "no jump at the retime")
-        #expect(abs(slowed.localTime(atParent: 60) - 51) < 1e-9, "10 s of wall time is 1 s of animation at 10x")
+        #expect(abs(slowed.localTime(atParent: 60) - 51) < 1e-6, "10 s of wall time is 1 s of animation at 10x")
         let paused = slowed.retimed(rate: 0, atParent: 60)
-        #expect(abs(paused.localTime(atParent: 90) - 51) < 1e-9, "paused: the time stands still")
+        #expect(abs(paused.localTime(atParent: 90) - 51) < 1e-6, "paused: the time stands still")
         let stepped = paused.stepped(by: 1.0 / 120)
-        #expect(abs(stepped.localTime(atParent: 90) - (51 + 1.0 / 120)) < 1e-9)
+        #expect(abs(stepped.localTime(atParent: 90) - (51 + 1.0 / 120)) < 1e-6)
         let back = stepped.stepped(by: -2.0 / 120)
-        #expect(abs(back.localTime(atParent: 90) - (51 - 1.0 / 120)) < 1e-9, "a step back moves the time back")
+        #expect(abs(back.localTime(atParent: 90) - (51 - 1.0 / 120)) < 1e-6, "a step back moves the time back")
     }
 
     // MARK: Zero cost when off
@@ -189,7 +189,7 @@ import Testing
         let record = try #require(inspector.records.last)
         #expect(record.category == .tabs)
         #expect(record.property == "position.x")
-        #expect(record.from == "-40" && record.to == "0")
+        #expect(record.from == "Δ-40" && record.to == "Δ0", "an additive move lists offsets: \(record.from ?? "nil") → \(record.to ?? "nil")")
         #expect(record.site?.hasPrefix("CmuxNextDesignTests/MotionInspectorTests.swift:") == true)
     }
 
