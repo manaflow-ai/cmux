@@ -202,8 +202,10 @@ type Task = Box<dyn FnOnce() + Send + 'static>;
 
 type SpawnFn = dyn Fn(&'static str, ThreadQos, Task) -> io::Result<()> + Send + Sync;
 
-/// Starts a detached worker thread: `cmux_threads::spawn` by default, a
-/// stand-in that fails in tests.
+/// Starts a detached worker thread: a supervised thread (Fatal,
+/// p10-stability-112) by default, a stand-in that fails in tests. A task's
+/// own panic is caught in the worker loop; a failure of the worker itself
+/// ends the process.
 #[derive(Clone)]
 pub(crate) struct WorkerSpawner(Arc<SpawnFn>);
 
@@ -219,7 +221,16 @@ impl WorkerSpawner {
 impl Default for WorkerSpawner {
     fn default() -> Self {
         // The handle is dropped: the worker is detached.
-        Self(Arc::new(|name, qos, body| cmux_threads::spawn(name, qos, body).map(drop)))
+        Self(Arc::new(|name, qos, body| {
+            crate::supervised::spawn_at(
+                name,
+                qos,
+                crate::supervised::Fatal,
+                crate::supervised::ShutdownBehavior::Continue,
+                body,
+            )
+            .map(drop)
+        }))
     }
 }
 

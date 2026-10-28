@@ -62,11 +62,11 @@ pub struct RegistryAgentProjection {
 /// The agent value's `extra` object. `agent_session_id` is present only when
 /// a hook reported the agent's own session id.
 pub(crate) fn agent_projection_extra(agent: Option<&str>, agent_session_id: Option<&str>) -> Value {
-    let mut extra = json!({"agent": agent});
+    let mut extra = serde_json::Map::from_iter([("agent".to_string(), json!(agent))]);
     if let Some(agent_session_id) = agent_session_id {
-        extra["agent_session_id"] = json!(agent_session_id);
+        extra.insert("agent_session_id".into(), json!(agent_session_id));
     }
-    extra
+    Value::Object(extra)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -319,7 +319,7 @@ impl WorkspaceRegistry {
                 .filter_map(|(outcome_json, _)| {
                     serde_json::from_str::<Value>(outcome_json)
                         .ok()
-                        .and_then(|value| value["value"]["id"].as_str().map(str::to_string))
+                        .and_then(|value| value.pointer("/value/id")?.as_str().map(str::to_string))
                 })
                 .collect::<HashSet<String>>();
             let stale =
@@ -740,8 +740,9 @@ impl WorkspaceRegistry {
 }
 
 fn agent_id(terminal_id: &TerminalPublicId) -> anyhow::Result<AgentPublicId> {
-    let digest = Sha256::digest(format!("cmux.protocol/2/agent/{terminal_id}").as_bytes());
-    let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let digest: [u8; 32] =
+        Sha256::digest(format!("cmux.protocol/2/agent/{terminal_id}").as_bytes()).into();
+    let payload = hex_bytes(&digest[..16]);
     AgentPublicId::parse(format!("agent_{payload}")).map_err(Into::into)
 }
 
@@ -751,11 +752,11 @@ fn decode_terminal_defaults(stored: StoredTerminalDefaults) -> anyhow::Result<De
         let index = index
             .parse::<u8>()
             .with_context(|| format!("terminal palette index {index:?} is invalid"))?;
-        anyhow::ensure!(
-            palette[usize::from(index)].is_none(),
-            "terminal palette index {index} is duplicated"
-        );
-        palette[usize::from(index)] = Some(parse_rgb(&color)?);
+        let slot = palette
+            .get_mut(usize::from(index))
+            .with_context(|| format!("terminal palette index {index} is out of range"))?;
+        anyhow::ensure!(slot.is_none(), "terminal palette index {index} is duplicated");
+        *slot = Some(parse_rgb(&color)?);
     }
     Ok(DefaultColors {
         fg: stored.foreground.as_deref().map(parse_rgb).transpose()?,
@@ -778,8 +779,9 @@ fn parse_rgb(value: &str) -> anyhow::Result<Rgb> {
         .strip_prefix('#')
         .filter(|hex| hex.len() == 6)
         .with_context(|| format!("terminal color {value:?} must use #rrggbb"))?;
-    let parse = |range| {
-        u8::from_str_radix(&hex[range], 16)
+    let parse = |range: std::ops::Range<usize>| {
+        hex.get(range)
+            .and_then(|digits| u8::from_str_radix(digits, 16).ok())
             .with_context(|| format!("terminal color {value:?} must use #rrggbb"))
     };
     Ok(Rgb { r: parse(0..2)?, g: parse(2..4)?, b: parse(4..6)? })

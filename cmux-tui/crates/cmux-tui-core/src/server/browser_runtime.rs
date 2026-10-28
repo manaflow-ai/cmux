@@ -48,6 +48,7 @@ use serde_json::{Value, json};
 use super::routes::{Route, RouteLine, RouteName};
 use super::{FrameStage, MessageWriter, Response, send_response};
 use crate::mux::Mux;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 pub const BROWSER_RUNTIME_CAPABILITY: &str = "browser-runtime-v1";
 /// Overrides the install directory (development and tests).
@@ -67,7 +68,6 @@ pub(crate) const MAX_STATUS_READS_PER_CLIENT: usize = 4;
 pub(crate) const MAX_STATUS_READS_TOTAL: usize = 16;
 const MAX_URL_BYTES: usize = 8 * 1024;
 const LOG_TAIL_BYTES: u64 = 2 * 1024;
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 struct Runtime {
     owner: u64,
@@ -503,10 +503,11 @@ fn launch(
     });
     let (line_tx, line_rx) = std::sync::mpsc::sync_channel(1);
     let reader = stdout.map(|stdout| {
-        cmux_threads::spawn_with_stack(
+        supervised::spawn_at(
             "mux-browser-runtime-out",
             crate::thread_qos::ThreadType::Utility.qos(),
-            THREAD_STACK_BYTES,
+            Fatal,
+            ShutdownBehavior::Continue,
             move || {
                 let mut reader = BufReader::new(stdout);
                 let mut line = String::new();
