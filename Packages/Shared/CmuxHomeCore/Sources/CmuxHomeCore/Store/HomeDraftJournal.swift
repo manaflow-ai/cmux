@@ -1,5 +1,9 @@
 import CmuxSafeConcurrency
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 
 /// The write-ahead record of Home drafts (audit 4, P15): each draft change, as it is typed, is
@@ -144,7 +148,14 @@ public final class HomeDraftJournal: Sendable {
         let fd = open(url.path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0o600)
         guard fd >= 0 else { return false }
         defer { close(fd) }
-        return bytes.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) } == bytes.count
+        let written = bytes.withUnsafeBytes { buffer in
+            #if canImport(Darwin)
+            Darwin.write(fd, buffer.baseAddress, buffer.count)
+            #else
+            Glibc.write(fd, buffer.baseAddress, buffer.count)
+            #endif
+        }
+        return written == bytes.count
     }
 
     /// The lines of `data` that decode, up to the first that does not; `whole` when that is all of it.
