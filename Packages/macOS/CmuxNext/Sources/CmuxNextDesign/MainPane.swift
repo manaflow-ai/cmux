@@ -2,6 +2,7 @@ public import CoreGraphics
 import AppKit
 public import Foundation
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// The curved main pane (cx-rkgu, Leo 2026-10-10): the workspace content
 /// sits inset in the window chrome as one rounded card, as in Edge. A

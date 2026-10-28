@@ -49,7 +49,12 @@ pub use clipboard_read::{
 mod callbacks;
 pub use callbacks::{Callbacks, NotifyFn, PtyWriteFn};
 
+mod active_text;
+
 mod clear_history;
+
+mod memory_usage;
+pub use memory_usage::{ScreenMemory, TerminalMemoryUsage};
 
 mod program_status;
 pub use program_status::{
@@ -1567,27 +1572,6 @@ impl Terminal {
             self.reset_history_anchor();
         }
         Ok(())
-    }
-
-    /// Resident bytes of the primary screen's pages (screen and scrollback),
-    /// `None` when libghostty-vt cannot report it.
-    pub fn primary_resident_bytes(&self) -> Option<u64> {
-        // SAFETY: an all-zero GhosttyTerminalMemoryUsage is a valid value of
-        // the plain C struct; `size` is then set to the struct size the
-        // getter requires.
-        let mut usage: sys::GhosttyTerminalMemoryUsage = unsafe { std::mem::zeroed() };
-        usage.size = size_of::<sys::GhosttyTerminalMemoryUsage>();
-        // SAFETY: `self.raw` is this Terminal's live handle; MEMORY_USAGE writes a
-        // GhosttyTerminalMemoryUsage whose `size` is set above.
-        check(unsafe {
-            sys::ghostty_terminal_get(
-                self.raw,
-                sys::GHOSTTY_TERMINAL_DATA_MEMORY_USAGE,
-                (&mut usage as *mut sys::GhosttyTerminalMemoryUsage).cast(),
-            )
-        })
-        .ok()?;
-        Some(usage.primary_resident_bytes)
     }
 
     /// Number of retained history rows, saturated to the protocol's `u32`.

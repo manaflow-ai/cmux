@@ -6,6 +6,7 @@
 // frame once its loops start. Prints the table (main-thread task ms/s, style recalcs/s) and fails
 // when the current lines restyle per frame.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { fixedPageClock } from "../src/ui/fixedPageClock";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -25,7 +26,7 @@ await requireBrowserLane("working-loops-main-thread.test.tsx", async () => {
     .map((file) => readFileSync(path.join(src, file), "utf8"))
     .join("\n");
   const START = Date.UTC(2026, 9, 21, 9, 0, 0);
-  const line = renderToStaticMarkup(<Thinking since={START} now={() => START + 18_000} below />);
+  const line = renderToStaticMarkup(<Thinking since={START} clock={fixedPageClock(START + 18_000)} below />);
   // The shimmer as it was before SPINNERS-OFF-MAIN (conversation.css, feat-cmux-next f8c77f41717).
   const oldCss = `@keyframes old-shimmer { from { background-position: 100% 0 } to { background-position: -50% 0 } }
     .old-line { display: inline-block; color: transparent; white-space: nowrap;

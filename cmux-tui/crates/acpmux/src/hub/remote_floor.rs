@@ -129,8 +129,10 @@ impl Hub {
         else {
             return;
         };
-        let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
-        rt.spawn(async move {
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        self.supervise("hub.remote-floor-cancel", Fatal, ShutdownBehavior::Skip, async move {
             let child = s.child.lock().await.clone();
             // Only the turn the floor cancelled, never a newer one.
             if s.turn().map(|t| t.turn_id) != Some(turn.turn_id) {

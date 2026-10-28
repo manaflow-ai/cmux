@@ -485,13 +485,18 @@ async fn handle(msg: Value, ctx: &Arc<(Options, Endpoint)>, state: &Arc<Mutex<St
                 s.running.insert(sid.clone(), cancel_tx);
             }
             let (ctx, state, tx) = (ctx.clone(), state.clone(), tx.clone());
-            tokio::spawn(async move {
+            let (failed_tx, failed_id) = (tx.clone(), id.clone());
+            let prompt = async move {
                 let outcome = run_prompt(&ctx.0, &ctx.1, &sid, &blocks, cancel_rx, &tx).await;
                 state.lock().await.running.remove(&sid);
                 match outcome {
                     Ok(stop) => reply(&tx, &id, json!({"stopReason": stop})),
                     Err((code, e)) => error(&tx, &id, code, e),
                 }
+            };
+            // A panic ends this prompt with an internal error, not the agent.
+            crate::supervised::spawn_request(prompt, async move {
+                error(&failed_tx, &failed_id, -32603, "the prompt failed".to_owned());
             });
         }
         ("session/cancel", _) => {

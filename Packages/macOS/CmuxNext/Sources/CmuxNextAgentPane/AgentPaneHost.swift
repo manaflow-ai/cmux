@@ -90,8 +90,18 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
 /// WebSocket endpoint. Concurrent handshakes (several panes opening at once)
 /// share one lookup, so they never race to spawn two daemons. A reconnect
 /// only looks; it never starts a daemon.
+///
+/// Its file reads (the LocalApp token, `daemon.pid`, the daemon home's creation) block, so the actor runs
+/// on a serial queue of its own (``queue``; the HomeCache pattern, plans/cmux-next/threading-model.md),
+/// never on a cooperative pool thread: a slow disk holds this queue, not the pool every task shares.
 public actor AcpmuxHost: AgentPaneHostProviding {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
+    // executor: cmux.next.agent-pane.acpmux-host
+    /// The queue this actor runs on, at the QoS of a pane a person is opening.
+    private nonisolated let queue = DispatchSerialQueue(label: "cmux.next.agent-pane.acpmux-host", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
     private let resolveEnvironment: @Sendable () -> AcpmuxEnvironment?
     /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
     /// read at each daemon start, since Computer Use turns on and off while the app runs.
@@ -220,7 +230,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
         }
         let launcher = self.launcher
-        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal, launcher: launcher) }
+        let task = Task {
+            try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal, launcher: launcher,
+                                       on: self)
+        }
         inFlight[startsDaemon] = task
         defer { if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil } }
         let endpoint = try await task.value
@@ -278,7 +291,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// A shutdown removes `daemon.pid`; kill -9 or a crash leaves it naming a dead process,
     /// and a daemon nobody reaped leaves a zombie, which `kill(pid, 0)` still reports alive.
     private static func crashed(_ home: URL) -> Bool {
-        guard let text = try? String(contentsOf: home.appendingPathComponent("daemon.pid"), encoding: .utf8),
+        guard let text = try? String(blockingContentsOf: home.appendingPathComponent("daemon.pid"), encoding: .utf8),
               let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0 else { return false }
         return !agentPaneProcessIsRunning(pid)
     }
@@ -318,8 +331,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         }
     }
 
+    /// Runs on `host`'s ``queue``: the pid read and the daemon home's creation (``AcpmuxDaemonLauncher``) block that
+    /// queue only; the launch shell spawns on `launcher`.
     private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool, owned: Bool,
-                                    heal: (@Sendable (Int32) async -> Bool)?, launcher: ChildProcessLauncher) async throws -> AcpmuxWebEndpoint {
+                                    heal: (@Sendable (Int32) async -> Bool)?, launcher: ChildProcessLauncher,
+                                    on host: isolated AcpmuxHost) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
         do {

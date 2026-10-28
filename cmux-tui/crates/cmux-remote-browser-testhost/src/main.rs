@@ -136,6 +136,7 @@ fn write_control(stream: &mut TcpStream, control: &Control) -> Res<()> {
 /// Frames read from the viewer, from a reader thread (EOF ends the stream).
 fn reader(mut stream: TcpStream) -> Receiver<(u8, Vec<u8>)> {
     let (tx, rx) = mpsc::channel();
+    // supervise-allow: this test host's viewer reader; a panic drops `tx`, which reads as the end of the stream.
     thread::spawn(move || {
         let mut deframer = StreamDeframer::default();
         let mut buf = [0u8; 16 * 1024];

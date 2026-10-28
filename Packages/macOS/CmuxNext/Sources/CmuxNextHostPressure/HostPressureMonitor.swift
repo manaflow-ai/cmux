@@ -80,6 +80,7 @@ public actor HostPressureMonitor {
     public typealias Delivery = @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void
     public static let mainActorHop: Delivery = { work in
         // task-owner: hands one level change to the main actor; ends after the call
+        // main-hop-allow: the tests' and fixtures' default; the app passes its scheduler's classed post (HostPressureService)
         Task { @MainActor in work() }
     }
 
@@ -143,7 +144,7 @@ public actor HostPressureMonitor {
             continuation.finish()
         }
         // task-owner: the run's one reader of the feed; it ends when stop() finishes the stream and cancels it
-        pressureChanges = Task { [weak self] in
+        pressureChanges = Task { @concurrent [weak self] in
             for await pressure in changes {
                 await self?.memoryPressureChanged(pressure, generation: generation)
             }
@@ -166,7 +167,7 @@ public actor HostPressureMonitor {
         tick.setEventHandler { [weak monitor] in
             guard let monitor else { return }
             // task-owner: one hop per tick; the read itself is `reading`, which stop() cancels
-            Task { await monitor.read(generation: generation) }
+            Task { @concurrent in await monitor.read(generation: generation) }
         }
         tick.activate()
         return tick
@@ -200,7 +201,7 @@ public actor HostPressureMonitor {
         let generation = self.generation
         let (source, pressure) = (source, eventPressure)
         // task-owner: this read; stop() cancels it, and a cancelled read applies nothing
-        let task = Task { () -> HostBudgetVerdict in
+        let task = Task { @concurrent () -> HostBudgetVerdict in
             if let shared = await source.acpmuxVerdict() { return shared }
             return await source.localVerdict(pressure: pressure)
         }
