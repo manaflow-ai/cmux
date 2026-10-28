@@ -184,7 +184,7 @@ impl Rows {
     fn push(&mut self, row: &Value) {
         let start = self.text.len();
         // A Value always serializes, and Vec's writer cannot fail.
-        serde_json::to_writer(&mut self.text, row).expect("serialize session summary");
+        let _ = serde_json::to_writer(&mut self.text, row);
         self.spans.push(start..self.text.len());
         self.keys.push(RowKey {
             at: self.keys.len(),
@@ -234,7 +234,7 @@ impl Rows {
         }
         whole.extend_from_slice(b"]}");
         // serde_json writes UTF-8, and rows are copied only at their boundaries.
-        (String::from_utf8(whole).expect("JSON is UTF-8"), spans, keys)
+        (String::from_utf8(whole).unwrap_or_default(), spans, keys)
     }
 }
 
