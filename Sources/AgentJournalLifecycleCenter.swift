@@ -102,7 +102,8 @@ final class AgentJournalLifecycleCenter: Sendable {
                         Self.apply(
                             application.assignment,
                             workspaceHint: application.workspaceHint,
-                            activity: application.activity
+                            activity: application.activity,
+                            settledDrainedBackgroundWork: application.settledDrainedBackgroundWork
                         )
                     }
                 }

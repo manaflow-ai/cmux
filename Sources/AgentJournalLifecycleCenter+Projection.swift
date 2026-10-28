@@ -10,6 +10,9 @@ extension AgentJournalLifecycleCenter {
         /// The meaningful transition this live event caused, if any. Drives
         /// agent-activity sidebar ordering; startup replay never sets it.
         let activity: AgentLifecycleActivity?
+        /// The app's own drain check settled this pane to idle, so no hook
+        /// will replace its Waiting pill.
+        var settledDrainedBackgroundWork = false
     }
 
     /// - Parameter sourceKind: The kind the producer emitted. The notification
@@ -50,7 +53,10 @@ extension AgentJournalLifecycleCenter {
                 event: sourceKind ?? canonical.kind,
                 from: previousPhase,
                 to: phase
-            )
+            ),
+            settledDrainedBackgroundWork: previousPhase == .backgroundWorkPending
+                && phase == .idle
+                && canonical.draft.nativeEvent == ClaudeBackgroundWorkDrain.nativeEvent
         )
     }
 
@@ -180,7 +186,8 @@ extension AgentJournalLifecycleCenter {
     static func apply(
         _ assignment: AgentLifecycleAssignment,
         workspaceHint: String?,
-        activity: AgentLifecycleActivity? = nil
+        activity: AgentLifecycleActivity? = nil,
+        settledDrainedBackgroundWork: Bool = false
     ) {
         guard AgentHibernationLifecycleStatusKeys.isAllowed(assignment.agentKey) else { return }
         guard let panelId = UUID(uuidString: assignment.surfaceId) else { return }
@@ -221,6 +228,13 @@ extension AgentJournalLifecycleCenter {
             )
         } else {
             owner.clearAgentLifecycle(key: assignment.agentKey, panelId: panelId)
+        }
+        if settledDrainedBackgroundWork, assignment.phase == .idle {
+            owner.setStatusEntry(
+                ClaudeBackgroundWorkDrain.idleStatusEntry(),
+                key: assignment.agentKey,
+                panelId: panelId
+            )
         }
         if let activity, case .workspace(let workspace) = owner {
             WorkspaceActivityReorderController.shared.agentActivity(activity, workspaceId: workspace.id)

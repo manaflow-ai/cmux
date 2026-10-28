@@ -27,6 +27,39 @@ extension AgentHibernationTranscriptGuard {
         inTranscriptTail data: Data,
         notBefore: Date?
     ) -> Set<String> {
+        Set(unfinishedBackgroundLaunches(inTranscriptTail: data, notBefore: notBefore).map(\.toolUseID))
+    }
+
+    /// What the transcript says about background work launched since `notBefore`.
+    enum BackgroundWorkTranscriptState: Equatable, Sendable {
+        /// Every launch reported a terminal notification or was stopped.
+        case allFinished
+        /// Every unfinished launch ran as its own process: a `run_in_background`
+        /// Bash command or a Monitor. A process scope with no live shell under
+        /// the agent proves these ended even when no notification was written.
+        case unfinishedProcessWorkOnly
+        /// An async subagent has not reported completion. It runs inside the
+        /// agent process, so only its transcript notification proves it ended.
+        case unfinishedInProcessWork
+        /// The transcript could not be read.
+        case unreadable
+    }
+
+    static func backgroundWorkTranscriptState(
+        atPath path: String,
+        notBefore: Date? = nil,
+        maxTailBytes: Int = Self.backgroundWorkScanTailBytes
+    ) -> BackgroundWorkTranscriptState {
+        guard let data = tailData(atPath: path, maxBytes: maxTailBytes) else { return .unreadable }
+        let unfinished = unfinishedBackgroundLaunches(inTranscriptTail: data, notBefore: notBefore)
+        if unfinished.isEmpty { return .allFinished }
+        return unfinished.allSatisfy(\.isProcessBacked) ? .unfinishedProcessWorkOnly : .unfinishedInProcessWork
+    }
+
+    private static func unfinishedBackgroundLaunches(
+        inTranscriptTail data: Data,
+        notBefore: Date?
+    ) -> [BackgroundLaunch] {
         var launches: [BackgroundLaunch] = []
         var finishedIDs: Set<String> = []
         let launchMarkers = ["\"backgroundTaskId\"", "\"async_launched\"", "\"timeoutMs\"", "\"task_id\""]
@@ -57,31 +90,37 @@ extension AgentHibernationTranscriptGuard {
                 }
             }
         }
-        return Set(launches.filter { launch in
+        return launches.filter { launch in
             !finishedIDs.contains(launch.toolUseID) &&
                 !(launch.taskID.map(finishedIDs.contains) ?? false)
-        }.map(\.toolUseID))
+        }
     }
 
     private struct BackgroundLaunch {
         let toolUseID: String
         let taskID: String?
+        /// A Bash command or Monitor, as opposed to an in-process async subagent.
+        let isProcessBacked: Bool
     }
 
     /// Launches recorded by a user line whose tool result started background work.
     private static func backgroundLaunches(in object: [String: Any]) -> [BackgroundLaunch]? {
         guard let result = object["toolUseResult"] as? [String: Any] else { return nil }
         let taskID: String?
+        let isProcessBacked: Bool
         if let id = nonEmptyString(result["backgroundTaskId"]) {
             taskID = id
+            isProcessBacked = true
         } else if let id = nonEmptyString(result["taskId"]),
                   result["timeoutMs"] != nil || result["persistent"] != nil {
             // Monitor. Other tools also return a `taskId` (todo updates), so the
             // Monitor-only keys are required.
             taskID = id
+            isProcessBacked = true
         } else if (result["isAsync"] as? Bool) == true,
                   (result["status"] as? String) == "async_launched" {
             taskID = nonEmptyString(result["agentId"])
+            isProcessBacked = false
         } else {
             return nil
         }
@@ -94,7 +133,7 @@ extension AgentHibernationTranscriptGuard {
                   let id = nonEmptyString(block["tool_use_id"]) else {
                 return nil
             }
-            return BackgroundLaunch(toolUseID: id, taskID: taskID)
+            return BackgroundLaunch(toolUseID: id, taskID: taskID, isProcessBacked: isProcessBacked)
         }
         return launches.isEmpty ? nil : launches
     }
