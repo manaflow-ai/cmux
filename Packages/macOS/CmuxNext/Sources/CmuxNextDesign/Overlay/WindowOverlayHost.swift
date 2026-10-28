@@ -179,7 +179,10 @@ public final class WindowOverlayHost {
             if panel.parent === window { window.removeChildWindow(panel) }
             Self.hosts[ObjectIdentifier(window)] = nil
         }
-        panel.orderOut(nil)
+        // Closed, not only ordered out: the window is gone, and an ordered-out panel stays in the
+        // app's window list for as long as anything still holds this host.
+        panel.isReleasedWhenClosed = false
+        panel.close()
     }
 
     // MARK: Attach and order

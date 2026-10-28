@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// resolved through the focused pane's selected content, so a press on a page that was not that
 /// content (another workspace's dock had focus, a pane shown in two windows, an adopted Web Store
 /// tab) refused with "No browser tab is focused."
-@MainActor @Suite(.serialized) struct BrowserToolbarPressTargetTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct BrowserToolbarPressTargetTests {
     private func onScreen(_ key: String, in services: AppServices) -> (BrowserEntry, NSWindow) {
         let entry = services.cache.browser(for: key, url: URL(string: "https://example.com/\(key)"))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
@@ -26,7 +27,7 @@ import Testing
         let services = AppServices(environment: AppEnvironment.current([:]))
         let context = AppActionContext(services: services)
         let (entry, window) = onScreen("toolbar-press-a", in: services)
-        defer { window.close() }
+        defer { window.close(); services.cache.release("toolbar-press-a") }
         #expect(services.windows.active?.focusedPane == nil, "no workspace pane has focus")
         let target = ActionTargetRef(kind: .tab, id: "toolbar-press-a")
         let page = try context.page(ActionInvocation(target: target))
@@ -38,7 +39,10 @@ import Testing
         let context = AppActionContext(services: services)
         let (first, firstWindow) = onScreen("toolbar-press-b", in: services)
         let (second, secondWindow) = onScreen("toolbar-press-c", in: services)
-        defer { firstWindow.close(); secondWindow.close() }
+        defer {
+            firstWindow.close(); secondWindow.close()
+            services.cache.release("toolbar-press-b"); services.cache.release("toolbar-press-c")
+        }
         #expect(try context.page(ActionInvocation(target: ActionTargetRef(kind: .tab, id: "toolbar-press-b"))) === first)
         #expect(try context.page(ActionInvocation(target: ActionTargetRef(kind: .tab, id: "toolbar-press-c"))) === second)
     }
@@ -47,6 +51,7 @@ import Testing
         let services = AppServices(environment: AppEnvironment.current([:]))
         let context = AppActionContext(services: services)
         _ = services.cache.browser(for: "toolbar-press-d", url: URL(string: "https://example.com/d"))
+        defer { services.cache.release("toolbar-press-d") }
         #expect(throws: (any Error).self) {
             try context.page(ActionInvocation(target: ActionTargetRef(kind: .tab, id: "toolbar-press-d")))
         }

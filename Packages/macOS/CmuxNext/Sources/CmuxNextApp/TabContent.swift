@@ -154,6 +154,7 @@ final class BrowserEntry {
 
     func close() {
         tab.close()
+        chrome.closePopupPanels()
         chrome.removeFromSuperview()
     }
 }
