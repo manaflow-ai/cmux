@@ -74,6 +74,7 @@ extension AgentHandlers {
             let local = invocation.target.map { AgentChatPlacement.resolve($0, services: context.services)?.daemon.isLocal == true }
                 ?? context.services.activeDaemon.isLocal
             guard local else { return .failure(ActionWorkFailure(refusal: .unavailable, reason: WorkspaceVerbStrings.noMachine)) }
+            routed.arguments["host"] = .string("local")
         }
         if case .peer(let peer) = destination.route {
             // A peer does not need a cmux workspace daemon. The tab stays in the requested
