@@ -531,6 +531,27 @@ class SingletonTests(Repo):
                                      "    static let wrapped = Wrapper(store: Store())\n}\n"})
         self.assertEqual(rows, ["stateful_singletons"])
 
+    def test_an_atomic_reference_or_semaphore_field_makes_its_type_stateful(self):
+        # BrowserSourceRegistryInstall.shared (6901498b0cc2) went in uncounted: its one field is a PreloadedValue whose
+        # state is a ManagedAtomicLazyReference, and the atomic family beside Atomic/ManagedAtomic was not a container.
+        self.write(f"{SRC}/CmuxNextDomain/Preloaded.swift",
+                   "final class Preloaded {\n    private let installed = ManagedAtomicLazyReference<Style>()\n}\n")
+        self.base = self.commit("a lazily installed value")
+        for decl, use in (("", "static let shared = Install()\n    let slot = Preloaded()"),
+                          ("", "static let shared = Install()\n    private let count = UnsafeAtomic<Int>.create(0)"),
+                          ("", "static let shared = Install()\n    private let wake = DispatchSemaphore(value: 0)")):
+            with self.subTest(use=use):
+                self.git("reset", "--quiet", "--hard", self.base)
+                rows, _ = self.refused_rows({f"{SRC}/CmuxNextDomain/Install.swift":
+                                             decl + f"final class Install {{\n    {use}\n}}\n"})
+                self.assertEqual(rows, ["stateful_singletons"], use)
+        for use in ("static let slot = ManagedAtomicLazyReference<Style>()", "static let wake = DispatchSemaphore(value: 0)",
+                    "static let count = UnsafeAtomic<Int>.create(0)"):
+            with self.subTest(use=use):
+                self.git("reset", "--quiet", "--hard", self.base)
+                rows, _ = self.refused_rows({f"{SRC}/CmuxNextDomain/Slots.swift": f"enum Slots {{\n    {use}\n}}\n"})
+                self.assertEqual(rows, ["global_mutable_statics"], use)
+
     def test_a_class_two_links_away_is_stateful(self):
         self.write(f"{SRC}/CmuxNextDomain/Chain.swift", "final class Inner {\n    var n = 0\n}\n"
                    "final class Middle {\n    let inner = Inner()\n}\nfinal class Outer {\n    let middle = Middle()\n}\n")
