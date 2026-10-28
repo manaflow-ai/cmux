@@ -577,6 +577,8 @@ struct Args {
     owner_ready_fd: Option<i32>,
     owner_install_key_fd: Option<i32>,
     terminal_reap_grace: Option<std::time::Duration>,
+    /// `--exit-with-pid` (headless owners only, `local_owner::exit_with`).
+    exit_with_pid: Option<u32>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -687,6 +689,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         owner_ready_fd: None,
         owner_install_key_fd: None,
         terminal_reap_grace: None,
+        exit_with_pid: None,
     };
     let mut args = args.into_iter().peekable();
     while let Some(arg) = args.next() {
@@ -937,6 +940,13 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     return Err(format!("{arg} may be supplied only once"));
                 }
             }
+            local_owner::EXIT_WITH_PID_ARG => {
+                let value = args.next().ok_or_else(|| format!("{arg} needs a value"))?;
+                let pid = local_owner::parse_exit_with_pid(&value)?;
+                if out.exit_with_pid.replace(pid).is_some() {
+                    return Err(format!("{arg} may be supplied only once"));
+                }
+            }
             owner_arg if local_owner::is_owner_arg(owner_arg) => {
                 local_owner::claim_owner_arg(&arg, &mut args, &mut out)?;
             }
@@ -958,6 +968,9 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             }
             other => return Err(format!("unknown argument {other:?}")),
         }
+    }
+    if out.exit_with_pid.is_some() && !out.headless {
+        return Err(format!("{} requires --headless", local_owner::EXIT_WITH_PID_ARG));
     }
     if out.terminal.is_some() && !out.attach {
         return Err("--terminal requires `cmux attach`".to_string());
@@ -1497,6 +1510,7 @@ pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--owner-host-bg",
     local_owner::OWNER_READY_FD_ARG,
     local_owner::OWNER_INSTALL_KEY_FD_ARG,
+    local_owner::EXIT_WITH_PID_ARG,
 ];
 
 /// Return the first argument after a startup option and its value.
@@ -2666,6 +2680,8 @@ fn run_server(
         )
     });
     let result = if args.headless {
+        // A starter that already exited stops the owner at once.
+        local_owner::exit_with(&mux, args.exit_with_pid);
         mux.mark_server_lifecycle_ready();
         if let Some(fd) = args.owner_ready_fd {
             local_owner::signal_ready(fd);
@@ -2945,6 +2961,7 @@ fn start_detached_owner_session(
         term: Some(owner_term),
         initial_host_colors: Some(host_colors),
         terminal_reap_grace: args.terminal_reap_grace,
+        exit_with_pid: None,
         install_key: None,
         chief_tools_socket: None,
         chief_brains: None,

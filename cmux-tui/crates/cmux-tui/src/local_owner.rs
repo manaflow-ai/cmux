@@ -113,8 +113,10 @@ const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 /// file first means the owner exited (a lost bind race or a crash).
 pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
 
+mod exit_with;
 mod install_key;
 mod replace;
+pub(crate) use exit_with::{EXIT_WITH_PID_ARG, exit_with, parse_exit_with_pid};
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
 pub(crate) use replace::{ReplaceError, replace_if_unresponsive};
 
@@ -206,6 +208,8 @@ pub(crate) struct OwnerSpec {
     /// `--terminal-reap-grace-seconds` for the owner. Reaping is opt-in, so
     /// `None` starts an owner that never reaps unplaced terminals.
     pub terminal_reap_grace: Option<Duration>,
+    /// `--exit-with-pid` for an owner this call spawns (`exit_with`).
+    pub exit_with_pid: Option<u32>,
     /// The app's install key for an owner this call spawns (`server ensure
     /// --install-key-stdin`); a running owner never receives it.
     pub install_key: Option<cmux_tui_core::server::FrontendKey>,
@@ -723,6 +727,9 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     }
     if let Some(grace) = spec.terminal_reap_grace {
         command.arg("--terminal-reap-grace-seconds").arg(grace.as_secs().to_string());
+    }
+    if let Some(pid) = spec.exit_with_pid {
+        command.arg(EXIT_WITH_PID_ARG).arg(pid.to_string());
     }
     if let Some(websocket) = &spec.websocket {
         command.arg("--ws").arg("127.0.0.1:0");

@@ -272,7 +272,7 @@ pub(crate) fn process_is_running(_pid: u32) -> bool {
 
 /// Block until `pid` exits. `Ok` at once when it is not running.
 #[cfg(target_vendor = "apple")]
-fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
+pub(crate) fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
     let pid = libc::pid_t::try_from(pid).map_err(|_| std::io::ErrorKind::InvalidInput)?;
     // SAFETY: plain kqueue calls on a descriptor this function owns.
     unsafe {
@@ -313,7 +313,7 @@ fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
 
 /// Block until `pid` exits. `Ok` at once when it is not running.
 #[cfg(target_os = "linux")]
-fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
+pub(crate) fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
     let pid = libc::pid_t::try_from(pid).map_err(|_| std::io::ErrorKind::InvalidInput)?;
     // SAFETY: pidfd_open and poll on a descriptor this function owns.
     unsafe {
@@ -338,7 +338,7 @@ fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
 }
 
 #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
-fn wait_for_process_exit(_pid: u32) -> std::io::Result<()> {
+pub(crate) fn wait_for_process_exit(_pid: u32) -> std::io::Result<()> {
     Err(std::io::ErrorKind::Unsupported.into())
 }
 
