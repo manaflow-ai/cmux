@@ -77,3 +77,53 @@ read -r code calls < <(run_guard 9 manifest)
 grep -q 'ci-phase swift package resolve failed' "$TMP_DIR/out" || fail "a manifest failure lost the 'resolve failed' line"
 grep -q 'manifest parse error' "$TMP_DIR/out" || fail "a manifest failure's output is not in the step log"
 echo "PASS: a non-network resolve failure is not retried and keeps the old rule"
+
+# 4. The package lane (scripts/ci/package-test-lane.sh packages) with two packages: Alpha's tests fail, Beta's
+#    resolve fails on the network every try. The lane must not stop at Beta (exit 75 from inside the loop would
+#    hide Alpha's red): every package gets a row, Beta's is "no verdict", and the lane exits with Alpha's failure.
+#    With Alpha passing, the lane ends with 75 (no verdict), not 1.
+LANE="$TMP_DIR/lane"
+mkdir -p "$LANE/scripts" "$LANE/Packages/macOS/Alpha" "$LANE/Packages/macOS/Beta" "$TMP_DIR/lanebin"
+cp -R "$ROOT/scripts/ci" "$LANE/scripts/ci"
+for p in Alpha Beta; do printf '// swift-tools-version: 6.0\n' > "$LANE/Packages/macOS/$p/Package.swift"; done
+cat > "$TMP_DIR/lanebin/swift" <<'STUB'
+#!/bin/bash
+if [ "$1" = "--version" ]; then echo "Swift version 6.3 (stub)"; exit 0; fi
+pkg=""; prev=""
+for a in "$@"; do [ "$prev" = "--package-path" ] && pkg="$a"; prev="$a"; done
+case "$1 $2 $pkg" in
+  "package resolve "*Beta*)
+    echo "error: Couldn’t fetch updates from remote repositories:"
+    echo "    error: RPC failed; curl 18 Transferred a partial file"; exit 1 ;;
+  "package resolve "*) echo "resolved"; exit 0 ;;
+  "test "*)
+    if [ "${ALPHA_FAILS:-1}" = 1 ]; then
+      echo "✘ Test run with 1 test in 1 suite failed after 0.1 seconds with 1 issue."; exit 1
+    fi
+    echo "✔ Test run with 1 test in 1 suite passed after 0.1 seconds."; exit 0 ;;
+  *) echo "Build complete!"; exit 0 ;;
+esac
+STUB
+chmod +x "$TMP_DIR/lanebin/swift"
+printf 'Alpha\nBeta\n' > "$TMP_DIR/selected.txt"
+run_lane() {
+  set +e
+  (cd "$LANE" && env PATH="$TMP_DIR/lanebin:$PATH" RUNNER_TEMP="$TMP_DIR/lanework" ALPHA_FAILS="$1" \
+    CMUX_SWIFTPM_RESOLVE_RETRY_DELAYS="0 0" CMUX_SWIFT_PACKAGE_BUILD_JOBS=1 \
+    SELECTED_PACKAGES="$TMP_DIR/selected.txt" SELECTED_COUNT=2 bash scripts/ci/package-test-lane.sh packages) \
+    > "$TMP_DIR/out" 2>&1
+  local code=$?
+  set -e
+  echo "$code"
+}
+mkdir -p "$TMP_DIR/lanework"
+code="$(run_lane 1)"
+grep -Eq '^Beta +no verdict \(fetch\)' "$TMP_DIR/out" || fail "the lane has no 'no verdict' row for Beta (it stopped at Beta?)"
+grep -Eq '^Alpha +failed' "$TMP_DIR/out" || fail "the lane has no failed row for Alpha"
+[ "$code" -eq 1 ] || fail "Alpha failed and Beta had no verdict: lane exit $code, expected Alpha's 1"
+echo "PASS: a package whose fetch failed does not stop the lane or hide another package's red"
+code="$(run_lane 0)"
+grep -Eq '^Alpha +passed' "$TMP_DIR/out" || fail "Alpha did not pass in the second run"
+[ "$code" -eq 75 ] || fail "Alpha passed and Beta had no verdict: lane exit $code, expected 75"
+grep -q 'fetch failed, no test ran' "$TMP_DIR/out" || fail "the lane's 75 has no 'fetch failed, no test ran' line"
+echo "PASS: a lane with no red and a package whose fetch failed ends with 75 (no verdict)"
