@@ -2486,7 +2486,7 @@ a.cv-sha:focus-visible {
 }
 :is(.cv-tool-output, .cv-tool-output__markdown)[data-output-viewport] {
   max-height: calc(8 * 18px + 16px);
-  overscroll-behavior: contain;
+  overscroll-behavior: auto;
 }
 :is(.cv-tool-output, .cv-tool-output__markdown)[data-output-viewport][data-preview="all"] {
   max-height: min(70vh, 640px);

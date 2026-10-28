@@ -64,6 +64,31 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
       await page.close();
     }
   });
+  test("an inner output scrolls first, then chains a wheel at its edge to the reader", async () => {
+    const page = await stage("compact");
+    try {
+      const body = page.locator(".cv-tool-output__markdown");
+      await body.evaluate((node) => {
+        node.ownerDocument.body.style.minHeight = "1600px";
+        node.scrollTop = 0;
+        node.ownerDocument.scrollingElement!.scrollTop = 0;
+      });
+      await body.hover();
+      await page.mouse.wheel(0, 240);
+      await page.waitForFunction(() => (document.querySelector(".cv-tool-output__markdown")?.scrollTop ?? 0) > 0);
+      expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
+      await body.evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+        node.ownerDocument.scrollingElement!.scrollTop = 0;
+      });
+      await page.mouse.wheel(0, 320);
+      await page.waitForFunction(() => (document.scrollingElement?.scrollTop ?? 0) > 0);
+      expect(await body.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+      expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBeGreaterThan(0);
+    } finally {
+      await page.close();
+    }
+  });
   test("a single wrapped line always has an expansion control", async () => {
     const page = await stage("wrapped-line");
     try {
