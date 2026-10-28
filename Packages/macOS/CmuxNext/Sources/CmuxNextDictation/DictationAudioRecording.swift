@@ -129,11 +129,13 @@ public final class DictationAudioRecording: Sendable {
             guard state.pending.count >= Self.flushSamples else { return nil }
             defer { state.pending = [] }
             state.written += state.pending.count
-            return state.pending
+            // Enqueued under the lock, so the writer runs the writes in the order `written` counted
+            // them and before any finish or discard that read `written` after this one (async: no wait).
+            let full = state.pending
+            writer.async { self.write(full) }
+            return full
         }
-        guard let full else { return }
-        flushTaken?()
-        writer.async { self.write(full) }
+        if full != nil { flushTaken?() }
     }
 
     /// Why ``finish()`` has nothing, when the session's audio was left out rather than silent.
@@ -143,22 +145,25 @@ public final class DictationAudioRecording: Sendable {
     /// recording that fits ``inlinePromptBytes`` comes back as bytes and its file is removed; a
     /// larger one comes back as its file. Nil when nothing was heard or the input was narrowband.
     public func finish() async -> DictationAudio? {
-        let (rest, total, omitted) = state.withLock { state -> ([Int16], Int, Omission?) in
-            state.finished = true
-            defer { state.pending = [] }
-            state.written += state.pending.count
-            return (state.pending, state.written, state.omitted)
-        }
-        return await withCheckedContinuation { continuation in
-            writer.async {
-                continuation.resume(returning: self.close(rest: rest, samples: total, omitted: omitted))
+        await withCheckedContinuation { continuation in
+            // Enqueued under the lock, after every write a tap took before it (see `append`).
+            state.withLock { state in
+                guard !state.finished else { return continuation.resume(returning: nil) }
+                state.finished = true
+                let (rest, total, omitted) = (state.pending, state.written + state.pending.count, state.omitted)
+                state.pending = []
+                state.written = total
+                writer.async {
+                    continuation.resume(returning: self.close(rest: rest, samples: total, omitted: omitted))
+                }
             }
         }
     }
 
     /// Removes the file (a cancelled or superseded session).
     public func discard() {
-        _ = state.withLock { $0.finished = true }
+        state.withLock { $0.finished = true }
+        // A write or finish enqueued before this runs first; this one ends the file for good.
         writer.async {
             // Final: a later write or finish finds `failed` and keeps nothing.
             self.output.withLock { output in
@@ -205,6 +210,8 @@ public final class DictationAudioRecording: Sendable {
             defer {
                 try? output.handle?.close()
                 output.handle = nil
+                // Final: nothing reopens a finished recording's file.
+                output.failed = true
             }
             guard omitted == nil, samples > 0, !output.failed, let handle = output.handle else { return false }
             do {
