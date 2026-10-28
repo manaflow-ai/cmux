@@ -131,6 +131,31 @@ struct AgentPaneDictationAudioTests {
         #expect((try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.isEmpty ?? true)
     }
 
+    /// Review of #26559 at 2596b7ca: a recording's file went to a shared temporary folder that
+    /// nothing cleaned. A recording owns the folder it is given (an upload folder of the chat, which
+    /// goes with the chat or after 30 days): a short one sent inline, or a discarded one, leaves no
+    /// folder; a long one is `Recording.wav` in it.
+    @Test func aRecordingOwnsItsFolder() async throws {
+        let parent = FileManager.default.temporaryDirectory.appending(path: "dictation-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let shortFolder = parent.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
+        let short = DictationAudioRecording(folder: shortFolder)
+        feed(short, seconds: 1)
+        #expect(try #require(await short.finish()).data != nil)
+        #expect(!FileManager.default.fileExists(atPath: shortFolder.path), "a recording sent inline leaves no folder")
+        let discardedFolder = parent.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
+        let discarded = DictationAudioRecording(folder: discardedFolder)
+        feed(discarded, seconds: 2)
+        discarded.discard()
+        #expect(await discarded.finish() == nil)
+        #expect(!FileManager.default.fileExists(atPath: discardedFolder.path), "a discarded recording leaves no folder")
+        let longFolder = parent.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
+        let long = DictationAudioRecording(folder: longFolder)
+        feed(long, seconds: 140)
+        let file = try #require(await long.finish()?.file)
+        #expect(file == longFolder.appending(path: "Recording.wav"))
+    }
+
     @Test func aDiscardedRecordingLeavesNoFile() async throws {
         let (recording, folder) = recording()
         defer { try? FileManager.default.removeItem(at: folder) }
