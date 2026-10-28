@@ -53,15 +53,21 @@ public nonisolated struct HangReportBuilder: Sendable {
     /// The schema every report is written in; ``HangReportService`` sends only queued reports in it,
     /// and blocking samples, launches and input latency go into a report only when it carries them.
     public let wireSchema: HangReport.WireSchema
+    /// Whether a schema-3 report carries the slow-launch trace (``HangReport/launchTrace``, p08-startup-111).
+    public let sendsLaunchTrace: Bool
     private let reader = CallStackTreeReader()
 
     /// - Parameter wireSchema: ``HangReport/WireSchema/deployed`` (schema 2, the default) until the
     ///   server accepts schema 3; a schema-2 server answers 400 to a report with `launches` or a
     ///   blocking sample, and that drops it.
-    public init(classifier: ImageClassifier, resolver: any ImageResolving, wireSchema: HangReport.WireSchema = .deployed) {
+    /// - Parameter sendsLaunchTrace: False (the default) until the server's schema-3 decoder lists `launch_trace`: it
+    ///   answers 400 to an unknown key, and that drops the report.
+    public init(classifier: ImageClassifier, resolver: any ImageResolving, wireSchema: HangReport.WireSchema = .deployed,
+                sendsLaunchTrace: Bool = false) {
         self.classifier = classifier
         self.resolver = resolver
         self.wireSchema = wireSchema
+        self.sendsLaunchTrace = sendsLaunchTrace
     }
 
     /// The report of `watchdog`'s findings, the MetricKit deliveries and the input latency since
@@ -101,6 +107,8 @@ public nonisolated struct HangReportBuilder: Sendable {
         report.intervals = Self.intervals(metricKit.flatMap(\.signposts))
         report.schema = wireSchema.rawValue
         report.launches = wireSchema.carriesLaunches ? Self.launches(watchdog.launches) : nil
+        // The slow launch's ring, attached only when that launch missed its p95 first-frame budget (p08-startup-111).
+        report.launchTrace = carriesLaunchTrace ? watchdog.launchTrace.flatMap { safeLaunchTrace($0) } : nil
         if let inputLatency, wireSchema.carriesInputLatency { Self.addInputLatency(inputLatency, to: &report) }
         if let mainThread, wireSchema.carriesMainThread { Self.addMainThread(mainThread, to: &report) }
         if let fieldData, wireSchema.carriesFieldData { Self.addFieldData(fieldData, to: &report) }

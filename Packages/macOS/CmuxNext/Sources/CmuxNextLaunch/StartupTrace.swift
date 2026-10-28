@@ -22,7 +22,8 @@ public import Foundation
 /// recording thread, the main thread included.
 ///
 /// Built only when the variable asks for it (``fromEnvironment(processStartNanos:)``); unset, the app holds
-/// nil and records nothing.
+/// nil and records nothing. The field build's counterpart, with Nightly hang reports on, is ``SlowLaunchRing``: names
+/// and times only, in 32 KiB, until `startup_complete`, and no file (task 111).
 ///
 /// ```swift
 /// let trace = StartupTrace.fromEnvironment(processStartNanos: start)   // first thing in main

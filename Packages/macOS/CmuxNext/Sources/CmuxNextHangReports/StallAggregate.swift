@@ -3,7 +3,8 @@
 /// ``HangReportFrame``s, so the aggregate can be saved and sent after a relaunch), the hang watch's longest
 /// hangs of other threads (apart from the main thread's, so a lane that hangs again and again never pushes a
 /// main-thread hang out), and the launches
-/// (``LaunchAggregate``), which ride the same pending file, drain and merge.
+/// (``LaunchAggregate``) with the slowest one's trace (``HangReport/LaunchTrace``), which ride the same pending
+/// file, drain and merge.
 public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     /// Histogram edges in milliseconds: buckets are `[50, 100)`, `[100, 250)`, ...,
     /// `[10000, one day)`.
@@ -33,9 +34,11 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     /// The blocking detector's call sites (at most ``maxSamples``) and the daemon's (at most
     /// ``maxDaemonSamples``), first seen first, each once.
     public private(set) var blocking: [HangSample] = []
+    /// The trace of the launch furthest past its first-frame budget since the last report (p08-startup-111).
+    public private(set) var launchTrace: HangReport.LaunchTrace?
 
     private enum CodingKeys: String, CodingKey {
-        case counts, stalls, hangs, threadHangs, launches, blocking
+        case counts, stalls, hangs, threadHangs, launches, blocking, launchTrace
     }
 
     /// Makes the value from its parts.
@@ -54,10 +57,13 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
         threadHangs = try container.decodeIfPresent([HangSample].self, forKey: .threadHangs) ?? []
         launches = try container.decodeIfPresent(LaunchAggregate.self, forKey: .launches) ?? LaunchAggregate()
         blocking = try container.decodeIfPresent([HangSample].self, forKey: .blocking) ?? []
+        launchTrace = try container.decodeIfPresent(HangReport.LaunchTrace.self, forKey: .launchTrace)
     }
 
     /// Whether nothing was recorded.
-    public var isEmpty: Bool { isEmptyWithoutLaunches && launches.isEmpty && blocking.isEmpty && threadHangs.isEmpty }
+    public var isEmpty: Bool {
+        isEmptyWithoutLaunches && launches.isEmpty && blocking.isEmpty && threadHangs.isEmpty && launchTrace == nil
+    }
 
     /// Whether no stall or main-thread hang was recorded (launches, blocking samples and thread hangs aside: a
     /// schema-2 report carries none of them).
@@ -66,6 +72,12 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     /// Counts one launch at its `startup_complete`.
     public mutating func record(launch: LaunchAggregate.Record) {
         launches.record(launch)
+    }
+
+    /// Keeps `trace` when no launch trace is kept yet or it is further past its budget than the kept one.
+    public mutating func keep(launchTrace trace: HangReport.LaunchTrace) {
+        guard launchTrace.map({ trace.overrunMs > $0.overrunMs }) ?? true else { return }
+        launchTrace = trace
     }
 
     /// Counts a finished stall of `durationMs`.
@@ -111,6 +123,7 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
         other.threadHangs.forEach { keep($0) }
         launches.merge(other.launches)
         other.blocking.forEach { keepBlocking($0) }
+        if let trace = other.launchTrace { keep(launchTrace: trace) }
     }
 
     /// Whether a blocking sample of this site would be kept (it is new and its source has room). A daemon
@@ -144,6 +157,11 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     /// Forgets the blocking samples (a saved aggregate a build without them reads).
     public mutating func dropBlocking() {
         blocking = []
+    }
+
+    /// Forgets the launch trace (a saved aggregate a builder that sends none reads).
+    public mutating func dropLaunchTrace() {
+        launchTrace = nil
     }
 
     /// Forgets the watched threads' hangs (a saved aggregate a build whose schema has none reads).

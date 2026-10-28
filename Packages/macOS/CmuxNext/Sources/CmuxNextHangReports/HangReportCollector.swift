@@ -83,6 +83,8 @@ public final class HangReportCollector: Sendable {
     private let keepsThreadHangs: Bool
     /// Nil: no other process's hang is kept.
     private let resolveForeign: ResolveForeign?
+    /// Whether a slow launch's trace is kept (``noteLaunchTrace(_:)``): only when the builder sends one.
+    public let keepsLaunchTrace: Bool
     /// Runs a black-box capture; the default is a utility task. Tests keep the job and await it.
     private let scheduleCapture: @Sendable (@escaping @Sendable () async -> Void) -> Void
 
@@ -97,11 +99,14 @@ public final class HangReportCollector: Sendable {
     ///   schema has none (``HangReport/WireSchema/carriesThreadHangs``).
     /// - Parameter resolveForeign: Nil (the default) keeps no other process's hang (``noteProcessHang(durationMs:frames:thread:)``);
     ///   the app passes the builder's classifier over MetricKit-style frames.
+    /// - Parameter keepsLaunchTrace: False (the default) keeps no slow launch's trace, for a builder that sends none
+    ///   (``HangReportBuilder/carriesLaunchTrace``).
     public init(resolve: @escaping Resolve,
                 resolveBlocking: ResolveBlocking? = nil,
                 captureBlackBox: CaptureBlackBox? = nil,
                 keepsThreadHangs: Bool = false,
                 resolveForeign: ResolveForeign? = nil,
+                keepsLaunchTrace: Bool = false,
                 schedule: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void = { job in
                     // task-owner: one short resolution per sampled stall; nothing to cancel.
                     Task.detached(priority: .utility) { job() }
@@ -115,6 +120,7 @@ public final class HangReportCollector: Sendable {
         self.captureBlackBox = captureBlackBox
         self.keepsThreadHangs = keepsThreadHangs
         self.resolveForeign = resolveForeign
+        self.keepsLaunchTrace = keepsLaunchTrace
         self.schedule = schedule
         self.scheduleCapture = scheduleCapture
     }
@@ -254,6 +260,19 @@ public final class HangReportCollector: Sendable {
         state.withLock { $0.aggregate.record(launch: launch) }
     }
 
+    /// The trace of one launch that missed its first-frame budget (``HangReport/LaunchTrace``, p08-startup-111),
+    /// handed over off the main thread after `startup_complete`: of the launches since the last report, the one
+    /// furthest past its budget is kept. Off, or when the builder sends no launch trace, nothing is kept (the app
+    /// checks ``isEnabled`` and ``keepsLaunchTrace`` first, so it frees the ring at completion instead).
+    public func noteLaunchTrace(_ trace: HangReport.LaunchTrace) {
+        guard keepsLaunchTrace, isEnabled else { return }
+        state.withLock { state in
+            // Checked again under the lock the drop of setEnabled(false) takes.
+            guard isEnabled else { return }
+            state.aggregate.keep(launchTrace: trace)
+        }
+    }
+
     /// One key frame (`key.frame`, key-down to its commit): over ``blackBoxKeyFrameMicros`` it takes the black
     /// box, unless one was taken since the last report. Off, one atomic load.
     public func noteKeyFrame(durationMicros: UInt64) {
@@ -326,6 +345,7 @@ public final class HangReportCollector: Sendable {
         // A build whose schema had blocking samples or thread hangs saved them; this one cannot send them.
         if resolveBlocking == nil { saved.dropBlocking() }
         if !keepsThreadHangs { saved.dropThreadHangs() }
+        if !keepsLaunchTrace { saved.dropLaunchTrace() }
         guard isEnabled, !saved.isEmpty else { return }
         state.withLock { $0.aggregate.merge(saved) }
     }

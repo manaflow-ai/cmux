@@ -26,6 +26,8 @@ extension HangReportService {
     ///   - blockingSites: Reads the blocking detector's main-thread sites and reset count
     ///     (`BlockingDetector.mainThreadRead`; empty where the detector is compiled out), counted into a
     ///     ``BlockingSiteLedger`` where the wire schema carries them.
+    ///   - sendsLaunchTrace: Whether a schema-3 report carries a slow launch's trace (``HangReport/launchTrace``,
+    ///     p08-startup-111); on only once the server's schema-3 decoder lists `launch_trace`.
     public static func forThisApp(folder: URL, endpoint: String, channel: String,
                                   personalTerms: @autoclosure @escaping @Sendable () -> [String],
                                   counts: @escaping @Sendable () async -> CoarseCounts, stillAllowed: @escaping @Sendable () -> Bool,
@@ -34,10 +36,11 @@ extension HangReportService {
                                   metricsDirectory: URL = HangReportFieldSources.appMetricsDirectory(bundleID: Bundle.main.bundleIdentifier),
                                   rings: HangReportFieldSources.RingFolders = .app(bundleID: Bundle.main.bundleIdentifier, flowsDirectory: nil),
                                   features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
-                                  blockingSites: @escaping @Sendable () -> BlockingDetector.MainThreadRead = { .init() })
+                                  blockingSites: @escaping @Sendable () -> BlockingDetector.MainThreadRead = { .init() },
+                                  sendsLaunchTrace: Bool = false)
         -> HangReportService {
         let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTerms()),
-                                        resolver: DyldImageResolver(), wireSchema: wireSchema)
+                                        resolver: DyldImageResolver(), wireSchema: wireSchema, sendsLaunchTrace: sendsLaunchTrace)
         // Blocking sites are kept only when the schema the server accepts carries them.
         // Typed locals: the inline ternary over a closure literal crashed the type checker ("failed to produce
         // diagnostic") once this moved into this module.
@@ -63,7 +66,8 @@ extension HangReportService {
             }
         }
         let collector = HangReportCollector(resolve: resolve, resolveBlocking: resolveBlocking, captureBlackBox: captureBlackBox,
-                                            keepsThreadHangs: builder.wireSchema.carriesThreadHangs, resolveForeign: resolveForeign)
+                                            keepsThreadHangs: builder.wireSchema.carriesThreadHangs, resolveForeign: resolveForeign,
+                                            keepsLaunchTrace: builder.carriesLaunchTrace)
         let mainThread = builder.wireSchema.carriesMainThread ? MainThreadReportLedger(histograms: mainThreadHistograms) : nil
         let blocking = builder.wireSchema.carriesBlockingSites ? BlockingSiteLedger(sites: blockingSites) : nil
         let info = Bundle.main.infoDictionary ?? [:]

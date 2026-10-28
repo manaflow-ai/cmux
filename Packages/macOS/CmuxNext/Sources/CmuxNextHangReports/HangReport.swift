@@ -80,6 +80,10 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// Whether a report in this schema carries ``HangReport/blockingSites``, the main thread's blocking call
         /// counts by site id (p12-perf-process-226; the schema-3 decoder lists them: web/services/hangReports/wireSchema.ts).
         public var carriesBlockingSites: Bool { self == .v3 }
+        /// Whether a report in this schema may carry ``HangReport/launchTrace`` (p08-startup-111). The builder writes it
+        /// only when it is also told to (``HangReportBuilder/sendsLaunchTrace``): the schema-3 decoder
+        /// (web/services/hangReports/wireSchema3.ts) must list `launch_trace` before a build sends one.
+        public var carriesLaunchTrace: Bool { self == .v3 }
     }
 
     /// The wire schema a report is written in by default (``WireSchema/deployed``).
@@ -261,6 +265,10 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     /// ``maxBlockingSites``), each by its hashed site id only (``BlockingSiteCount``). Schema 3 only; nil, and so
     /// absent from the JSON, in schema 2, in an older report and when the detector is not in the build.
     public var blockingSites: [BlockingSiteCount]?
+    /// The trace of the slowest launch since the last report whose first frame missed its p95 budget
+    /// (``LaunchTrace``, p08-startup-111). Schema 3 only, and only from a builder told to send it; nil, and so
+    /// absent from the JSON, otherwise and when no launch was slow.
+    public var launchTrace: LaunchTrace?
 
     /// Makes the value from its parts.
     public init(reportId: String, installId: String, day: String, app: App, os: OS, hardware: HardwareClass,
@@ -274,12 +282,12 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         self.counts = counts
     }
 
-    /// Whether the report says nothing about performance (no hang, stall, metric, interval, launch,
+    /// Whether the report says nothing about performance (no hang, stall, metric, interval, launch, launch trace,
     /// input latency or active second: active time without a hang is the rate's denominator).
     public var hasNoFindings: Bool {
         hangs.isEmpty && cpuExceptions.isEmpty && stallHistogram.allSatisfy { $0.count == 0 } && metrics.isEmpty
             && intervals.isEmpty && (launches?.isEmpty ?? true) && !hasInputLatency && (activeSeconds ?? 0) == 0
-            && !hasFieldData && (blockingSites ?? []).isEmpty
+            && !hasFieldData && (blockingSites ?? []).isEmpty && launchTrace == nil
     }
 
     /// Whether the report carries histograms, stability counts or a launch section (a black box alone is
@@ -309,6 +317,7 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         case featuresHash = "features_hash"
         case features
         case blockingSites = "blocking_sites"
+        case launchTrace = "launch_trace"
     }
 
     /// The wire encoder: sorted keys, so the same report always has the same bytes.
