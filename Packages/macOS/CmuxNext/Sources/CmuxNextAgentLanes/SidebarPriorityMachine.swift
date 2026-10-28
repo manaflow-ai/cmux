@@ -27,14 +27,19 @@ public struct SidebarPriorityMachine {
         return store.isLoaded && !store.isProvisional
     }
 
-    /// One lane per acpmux session the tree's agent chat tabs show, in tree order. A session two
-    /// tabs show is one lane, at the stronger of their states.
+    /// One lane per acpmux session the tree's agent chat tabs show, by tab id. A session two tabs
+    /// show is one lane, at the stronger of their states (the first by tab id on a tie).
+    ///
+    /// The tabs come from the store's agent chat tabs (`StoreTabRoles`), not a walk of the tree: the
+    /// cost is the machine's chats, and the panel observes their set and those tabs alone, so a
+    /// terminal opened, moved or closed on the machine re-runs nothing (hot-path audit 3, H13).
+    // perf-hot: 50us store-tab-roles (every Priority panel build, per other machine)
     func lanes() -> [AgentActivityLane] {
         var order: [String] = []
         var lanes: [String: AgentActivityLane] = [:]
         // The notices' times by id, read from the ledger once and only when a tab's notice has none.
         var ledger: [NotificationID: UInt64]?
-        for tab in tabs() {
+        for tab in store.tabRoles.chatTabs {
             guard let ref = tab.agentSession, let session = ref.session, !session.isEmpty else { continue }
             let lane = lane(tab, ref: ref, session: session, ledger: &ledger)
             if let held = lanes[session] {
@@ -47,13 +52,19 @@ public struct SidebarPriorityMachine {
         return order.compactMap { lanes[$0] }
     }
 
-    /// The id of the tree's tab that shows acpmux session `session` (the one its row is made from).
+    /// The id of the tree's tab that shows acpmux session `session`: the one its row is made from
+    /// (``lanes()``: the strongest, the first by tab id on a tie). Costs the tabs of that session.
     func tab(showing session: String) -> String? {
-        tabs().first { $0.agentSession?.session == session }?.id
-    }
-
-    private func tabs() -> [TabModel] {
-        store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+        let tabs = store.tabRoles.chatTabs(showing: session)
+        guard tabs.count > 1 else { return tabs.first?.id }
+        var ledger: [NotificationID: UInt64]?
+        var best: (tab: TabModel, strength: Int)?
+        for tab in tabs {
+            guard let ref = tab.agentSession else { continue }
+            let strength = Self.strength(lane(tab, ref: ref, session: session, ledger: &ledger))
+            if best.map({ strength > $0.strength }) ?? true { best = (tab, strength) }
+        }
+        return best?.tab.id
     }
 
     /// The tab's chat as a lane: an unread warning is a question or permission prompt, an unread
