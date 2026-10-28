@@ -56,6 +56,10 @@ pub struct Spec {
     #[serde(default)]
     pub env: BTreeMap<String, String>,
     pub segment: u64,
+    /// The chat folder's generation (`hub/bg_tasks.rs`): its records carry it, so a runner that
+    /// outlived a purge never shows in a later folder of the same name.
+    #[serde(default)]
+    pub generation: String,
 }
 
 /// `<id>.json`, written whole (to a temporary file, then renamed) each time it changes.
@@ -77,6 +81,9 @@ pub struct Record {
     /// Why its output stopped being kept (a full disk); the task ran on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_error: Option<String>,
+    /// [`Spec::generation`].
+    #[serde(default)]
+    pub generation: String,
 }
 
 fn file(dir: &Path, id: &str, ext: &str) -> PathBuf {
@@ -146,8 +153,13 @@ impl Spool {
             if self.len >= self.segment {
                 let start = self.start + self.len;
                 self.file = std::fs::File::create(segment_path(&self.dir, &self.id, start))?;
+                // A segment that will not go is an error: the spool stops (`outputError`)
+                // rather than keep more than two.
                 if let Some(old) = self.prev.replace(self.start) {
-                    let _ = std::fs::remove_file(segment_path(&self.dir, &self.id, old));
+                    match std::fs::remove_file(segment_path(&self.dir, &self.id, old)) {
+                        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+                        _ => {}
+                    }
                 }
                 (self.start, self.len) = (start, 0);
             }
@@ -260,8 +272,13 @@ pub fn main() -> anyhow::Result<()> {
         libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
     }
     // A closed pipe is an error to see, never a death (the task gets SIGPIPE back, `setup`).
-    // SAFETY: setting a signal disposition before any thread starts.
-    unsafe { libc::signal(libc::SIGPIPE, libc::SIG_IGN) };
+    // SIGCHLD at its default, whatever the runner inherited: an ignored SIGCHLD would reap the
+    // leader by itself and free its group id while this runner still signals it.
+    // SAFETY: setting signal dispositions before any thread starts.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+        libc::signal(libc::SIGCHLD, libc::SIG_DFL);
+    }
     let (dir, id) = (spec.dir.clone(), spec.id.clone());
     /// The task's pid once it runs, whether it was reaped (from then on its group id may be
     /// another's), and its record: one lock, so a stop never interleaves with the start, the
@@ -288,10 +305,17 @@ pub fn main() -> anyhow::Result<()> {
     let stop = {
         let (task, dir, give_up, killed) =
             (task.clone(), dir.clone(), give_up.clone(), killed.clone());
+        let held_id = id.clone();
         move || {
             let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(pid) = held.pid else { std::process::exit(1) };
-            if std::mem::replace(&mut held.stopping, true) {
+            // Not started yet: nothing to stop, and nothing of the start stays.
+            let Some(pid) = held.pid else {
+                let _ = std::fs::remove_file(ctl_path(&dir, &held_id));
+                let _ = std::fs::remove_file(segment_path(&dir, &held_id, 0));
+                std::process::exit(1)
+            };
+            // Ended (or its group unknown): a stop changes nothing, its record included.
+            if held.reaped || std::mem::replace(&mut held.stopping, true) {
                 return;
             }
             held.record.stopped = true;
@@ -299,22 +323,27 @@ pub fn main() -> anyhow::Result<()> {
             drop(held);
             let (task, give_up, killed) = (task.clone(), give_up.clone(), killed.clone());
             std::thread::spawn(move || {
+                let sent = || {
+                    *killed.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
+                    killed.1.notify_all();
+                };
                 for signal in [libc::SIGTERM, libc::SIGKILL] {
                     let held = task.lock().unwrap_or_else(|e| e.into_inner());
                     if held.reaped {
-                        return;
+                        break;
                     }
                     // SAFETY: the leader is unreaped (checked under the lock, and the reap waits
                     // for the SIGKILL below), so the group is the task's.
                     unsafe { libc::killpg(pid as i32, signal) };
                     drop(held);
                     if signal == libc::SIGKILL {
-                        *killed.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
-                        killed.1.notify_all();
+                        sent();
                     }
                     std::thread::sleep(GRACE);
                 }
-                // Killed and still not done: a process outside the group holds the pipe.
+                // Every way out lets the reap go on, and ends the wait for a pipe a process
+                // outside the group (or one this runner cannot signal) still holds.
+                sent();
                 if let Some(done) = give_up.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                     let _ = done.send(());
                 }
@@ -384,6 +413,7 @@ pub fn main() -> anyhow::Result<()> {
             cwd: spec.cwd.to_string_lossy().into_owned(),
             pid,
             started_at: crate::store::now_ms(),
+            generation: spec.generation.clone(),
             ..Record::default()
         };
         // A closed answer pipe is an error here, never a SIGPIPE (ignored since the start).
@@ -445,9 +475,14 @@ pub fn main() -> anyhow::Result<()> {
     // the task's, so a stop still reaches what it left behind.
     // SAFETY: waitid into a zeroed siginfo this function owns; WNOWAIT leaves the leader unreaped.
     let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-    while unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) } != 0
-        && std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR)
-    {}
+    while unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) } != 0 {
+        if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+            // The leader cannot be waited for, so its group id is not known to be the task's:
+            // nothing signals it from here on.
+            task.lock().unwrap_or_else(|e| e.into_inner()).reaped = true;
+            break;
+        }
+    }
     // Then every byte: the pipe's EOF, when the last process holding it (a child the leader left)
     // is gone, or a stop's end (its SIGKILL and grace) when one left the group and holds it.
     let _ = done_rx.recv();
