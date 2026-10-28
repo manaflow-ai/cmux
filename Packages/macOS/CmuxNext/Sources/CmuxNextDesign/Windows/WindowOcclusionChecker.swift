@@ -120,7 +120,8 @@ public nonisolated struct WindowOcclusionRule: Sendable {
 ///
 /// ```swift
 /// let checker = WindowOcclusionChecker(windows: { controllers.compactMap(\.window) },
-///                                      workspaceEvents: services.workspaceEvents, mainWork: services.mainWork)
+///                                      workspaceEvents: services.workspaceEvents,
+///                                      displaysAsleep: services.displaysAsleep, mainWork: services.mainWork)
 /// checker.onChange = { window, offScreen in cache.windowDidChangeOnScreen(window, offScreen: offScreen) }
 /// checker.onClose = { window in cache.offScreenWindowDidClose(window) }
 /// checker.start()
@@ -170,8 +171,8 @@ public nonisolated struct WindowOcclusionRule: Sendable {
     ///   - drawsWhenOccluded: Automation launches keep occluded windows drawing, and so on screen here.
     ///   - center: Window and application notifications.
     ///   - workspaceEvents: The displays' sleep and wake: the app's events of NSWorkspace's center.
-    ///   - displaysAsleep: Whether every display sleeps now (``DisplaySleepWatch/everyDisplayAsleep()``;
-    ///     tests pass their own).
+    ///   - displaysAsleep: Whether every display sleeps now (``DisplaySleepWatch/everyDisplayAsleep()``
+    ///     from the composition root; tests pass their own).
     ///   - mainWork: The app's main-thread scheduler, where the coalesced pass is posted.
     public init(windows: @escaping @MainActor () -> [NSWindow],
                 orderedWindows: @escaping @MainActor () -> [NSWindow] = { NSApp?.orderedWindows ?? [] },
@@ -180,7 +181,7 @@ public nonisolated struct WindowOcclusionRule: Sendable {
                 drawsWhenOccluded: Bool = WindowDrawPolicy.drawsWhenOccluded,
                 center: NotificationCenter = .default,
                 workspaceEvents: AppEvents,
-                displaysAsleep: @escaping DisplaySleepWatch.Probe = DisplaySleepWatch.everyDisplayAsleep,
+                displaysAsleep: @escaping DisplaySleepWatch.Probe,
                 mainWork: MainWorkScheduler) {
         self.windows = windows
         self.orderedWindows = orderedWindows

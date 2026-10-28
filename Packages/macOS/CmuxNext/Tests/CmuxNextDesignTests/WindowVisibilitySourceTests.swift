@@ -101,9 +101,9 @@ import Testing
         #expect(sources.allSatisfy { $0.node.isVisible })
     }
 
-    /// What the displays' probe reads: the test says when they sleep.
+    /// What the displays' probe reads: the test says when they sleep; nil when no display is online.
     private final class FakeDisplays {
-        var asleep = false
+        var asleep: Bool? = false
     }
 
     /// The app node, on private centers, whose displays' state `displays` gives.
@@ -159,6 +159,25 @@ import Testing
         #expect(app.screensAsleep)
         #expect(app.node.effective == .occluded, "a launch during display sleep started visible")
         workspaceCenter.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
+        #expect(app.node.isVisible)
+    }
+
+    /// A Mac mini whose only monitor dropped off the bus in standby has no display online: the probe
+    /// cannot tell (nil), so a system wake or a display change keeps the app occluded instead of
+    /// showing it. A launch with no display online starts visible: nothing says the displays sleep.
+    @Test func aProbeThatCannotTellKeepsTheDisplaysAsleep() {
+        let appCenter = NotificationCenter(), workspaceCenter = NotificationCenter()
+        let displays = FakeDisplays()
+        displays.asleep = nil
+        let app = Self.appSource(appCenter, workspaceCenter, displays)
+        #expect(app.node.isVisible, "no display online read as asleep at launch")
+        workspaceCenter.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
+        #expect(app.node.effective == .occluded)
+        workspaceCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+        appCenter.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        #expect(app.node.effective == .occluded, "a probe with no display online woke the app")
+        displays.asleep = false
+        appCenter.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
         #expect(app.node.isVisible)
     }
 

@@ -139,6 +139,9 @@ final class AppServices {
     /// observes the display options through it (`observeGlass`) and ``appVisibility`` the display sleeps.
     // raw-observer-allow: the AppEvents fan-out itself, one observer per workspace notice for the whole app
     let workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter, observerLedger: .shared)
+    /// Whether every display sleeps now (``DisplaySleepWatch/Probe``): `AppDelegate` passes Core Graphics'
+    /// answer; a test's services read no displays (always awake) unless the test passes its own.
+    let displaysAsleep: DisplaySleepWatch.Probe
     /// The app's node in the visibility tree (hidden app, sleeping displays), every window's
     /// node's parent (`WindowVisibilitySource`, p06-scheduler-022). Made in init, before the
     /// updater, whose feed checks align to its hidden wakes.
@@ -759,6 +762,9 @@ final class AppServices {
     /// - Parameter appearance: The appearance signals (the app's design settings'; a test's own).
     /// - Parameter launchStartup: The launch's scheduler (`AppDelegate` passes `LaunchOrder.startup`); nil (tests)
     ///   makes the right sidebar's icons on main when its first panel is built.
+    /// - Parameter displaysAsleep: Whether every display sleeps now, for the app's visibility node, the occlusion
+    ///   checkers and the sleep watch: `AppDelegate` passes ``DisplaySleepWatch/everyDisplayAsleep()``; the
+    ///   default (tests) reads no displays and says awake.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = LaunchReveal(), agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), terminalLaunchFrames: TerminalLaunchFrames? = nil,
@@ -767,8 +773,10 @@ final class AppServices {
          energyMonitor: EnergyMonitor? = nil, inputTap: InputEventTap = InputEventTap(),
          launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil,
          crashKeys: CrashKeySlots? = nil, watchdog: MainThreadWatchdog? = nil,
-         appearance: AppearanceSignals = DesignSettings.shared.signals, features: FeatureList? = nil) {
+         appearance: AppearanceSignals = DesignSettings.shared.signals, features: FeatureList? = nil,
+         displaysAsleep: @escaping DisplaySleepWatch.Probe = { false }) {
         self.appearance = appearance
+        self.displaysAsleep = displaysAsleep
         ThemeScope.app.store.repaint(following: appearance)
         let work = work ?? BackgroundWork(hangs: hangWatch, inputTurns: mainWork.budget.board)
         self.work = work
@@ -791,7 +799,8 @@ final class AppServices {
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board, displays: FrameScheduler.appDisplays)
         (mainDeadlines, appVisibility) = (MainDeadlineScheduler(work: mainWork),
                                           AppVisibilitySource(appEvents: appEvents, workspaceEvents: workspaceEvents,
-                                                              isAppHidden: NSApp?.isHidden ?? false, workCounts: visibilityWorkCounts))
+                                                              isAppHidden: NSApp?.isHidden ?? false, displaysAsleep: displaysAsleep,
+                                                              workCounts: visibilityWorkCounts))
         updater = UpdaterService(work: work, deadlines: mainDeadlines, checkNode: appVisibility.node)
         let launchFeatures = features ?? Self.launchFeatures(environment)
         // In host mode one Chromium Host serves every tab of every profile (p01-process-080).
@@ -1002,7 +1011,7 @@ final class AppServices {
     /// follows its edges (`energy.set`). Only
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared, design: DesignSettings = .shared) {
-        energy.start(inputs: energyMonitor, suspend: features.isEnabled(.sleepWakeKeepalives) ? SuspendWatch(events: workspaceEvents, appEvents: appEvents, path: .system(on: mainWork)) : nil)
+        energy.start(inputs: energyMonitor, suspend: features.isEnabled(.sleepWakeKeepalives) ? SuspendWatch(events: workspaceEvents, appEvents: appEvents, path: .system(on: mainWork), displaysAsleep: displaysAsleep) : nil)
         // The session's `energySaver`: the daemon's value when it kept another one (p12-perf-process-150).
         environment.daemonFeatureHello?.whenSessionValueKnown(of: Feature.energySaver.name,
                                                               launchValue: features.isEnabled(.energySaver)) { [weak self, mainWork] value in

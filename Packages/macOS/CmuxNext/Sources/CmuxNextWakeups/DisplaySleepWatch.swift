@@ -10,9 +10,10 @@ import AppKit
 /// `NSApplication.didChangeScreenParametersNotification`. A flag that only the screens-wake notice
 /// clears then says "asleep" until the next display wake. So each screens notice sets the state it
 /// announces (a read of the displays on the same turn may lag it), and a system wake or a display
-/// change reads the displays again through the probe (Core Graphics by default, as
-/// `DisplaySleep` does for motion). The probe also gives the state at creation, so an owner made
-/// while the displays sleep starts asleep. Chrome likewise reads the state again when it may have
+/// change reads the displays again through the probe (``everyDisplayAsleep()`` in the app, Core
+/// Graphics as `DisplaySleep` reads it for motion). The probe also gives the state at creation, so
+/// an owner made while the displays sleep starts asleep. A probe that cannot tell (no display
+/// online) changes nothing. The composition root injects the probe; tests pass their own. Chrome likewise reads the state again when it may have
 /// changed instead of pairing notices: its screen re-queries the displays on each reconfiguration
 /// (ui/display/mac/screen_mac.mm) and its power monitor reads the power state on resume
 /// (base/power_monitor).
@@ -20,12 +21,13 @@ import AppKit
 /// Each owner makes one from the app's events it already follows, and drops it with ``cancel()``:
 ///
 /// ```swift
-/// displays = DisplaySleepWatch(workspaceEvents: workspaceEvents, appEvents: appEvents, owner: "Owner")
+/// displays = DisplaySleepWatch(workspaceEvents: workspaceEvents, appEvents: appEvents, owner: "Owner", probe: displaysAsleep)
 /// displays.onChange = { [weak self] asleep in self?.setAsleep(asleep) }
 /// ```
 @MainActor public final class DisplaySleepWatch {
-    /// Whether every display sleeps now. Read on a notice, never per frame.
-    public typealias Probe = @MainActor () -> Bool
+    /// Whether every display sleeps now; nil when it cannot tell (no display online). Read on a
+    /// notice, never per frame.
+    public typealias Probe = @MainActor () -> Bool?
 
     /// The displays sleep.
     public private(set) var asleep: Bool
@@ -46,13 +48,13 @@ import AppKit
     ///   - appEvents: The fan-out on the center of `NSApplication.didChangeScreenParametersNotification`
     ///     (`NotificationCenter.default` in the app).
     ///   - owner: The subscriber's name for diagnostics.
-    ///   - probe: Whether every display sleeps now (``everyDisplayAsleep()``; tests pass their own).
-    public init(workspaceEvents: AppEvents, appEvents: AppEvents, owner: String,
-                probe: @escaping Probe = DisplaySleepWatch.everyDisplayAsleep) {
+    ///   - probe: Whether every display sleeps now (``everyDisplayAsleep()`` in the app; tests pass
+    ///     their own). Nil at creation counts as awake: nothing says the displays went dark.
+    public init(workspaceEvents: AppEvents, appEvents: AppEvents, owner: String, probe: @escaping Probe) {
         self.probe = probe
         self.workspaceEvents = workspaceEvents
         self.appEvents = appEvents
-        asleep = probe()
+        asleep = probe() ?? false
         subscriptions = [
             workspaceEvents.subscribe(NSWorkspace.screensDidSleepNotification, owner: owner) { [weak self] in self?.set(true) },
             workspaceEvents.subscribe(NSWorkspace.screensDidWakeNotification, owner: owner) { [weak self] in self?.set(false) },
@@ -68,24 +70,28 @@ import AppKit
     }
 
     /// Core Graphics' answer: every online display sleeps (`CGDisplayIsAsleep`). An asleep display
-    /// is online but not active, so the online list is the one to read. No online display at all (a
-    /// headless Mac) is not a sleep: nothing says the displays went dark.
-    nonisolated public static func everyDisplayAsleep() -> Bool {
+    /// is online but not active, so the online list is the one to read. Nil when no display is
+    /// online or the list cannot be read: a Mac mini whose only monitor dropped off the bus in
+    /// standby, or a headless Mac, says nothing about a wake.
+    nonisolated public static func everyDisplayAsleep() -> Bool? {
         var count: UInt32 = 0
         // SAFETY: with a null list CGGetOnlineDisplayList writes only the count, into a local live for the call.
-        guard unsafe CGGetOnlineDisplayList(0, nil, &count) == .success else { return false }
+        guard unsafe CGGetOnlineDisplayList(0, nil, &count) == .success else { return nil }
         let capacity = Int(count)
-        guard capacity > 0 else { return false }
+        guard capacity > 0 else { return nil }
         var displays = [CGDirectDisplayID](repeating: 0, count: capacity)
         // SAFETY: CGGetOnlineDisplayList writes at most `displays.count` IDs into the array's storage and the
         // count into a local, both live for the call.
-        guard unsafe CGGetOnlineDisplayList(UInt32(displays.count), &displays, &count) == .success else { return false }
+        guard unsafe CGGetOnlineDisplayList(UInt32(displays.count), &displays, &count) == .success else { return nil }
         let online = displays.prefix(Int(count))
-        return !online.isEmpty && online.allSatisfy { CGDisplayIsAsleep($0) != 0 }
+        guard !online.isEmpty else { return nil }
+        return online.allSatisfy { CGDisplayIsAsleep($0) != 0 }
     }
 
+    /// A system wake or a display change: the displays' state now, unless the probe cannot tell.
     private func readDisplays() {
-        set(probe())
+        guard let value = probe() else { return }
+        set(value)
     }
 
     private func set(_ value: Bool) {

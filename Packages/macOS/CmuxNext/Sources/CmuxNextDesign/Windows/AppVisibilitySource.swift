@@ -34,12 +34,12 @@ public import CmuxNextWakeups
     ///   - workspaceEvents: The fan-out on `NSWorkspace.shared.notificationCenter`, where the
     ///     display sleep and wake and the system wake notices are posted.
     ///   - isAppHidden: Whether the app is hidden now (`NSApp.isHidden`).
-    ///   - displaysAsleep: Whether every display sleeps now (``DisplaySleepWatch/everyDisplayAsleep()``;
-    ///     tests pass their own).
+    ///   - displaysAsleep: Whether every display sleeps now (``DisplaySleepWatch/everyDisplayAsleep()``
+    ///     from the composition root; tests pass their own).
     ///   - uptime: The clock of the tree's `hiddenSince`.
     ///   - workCounts: Where the tree counts its work (`debug.layout_counters`); nil counts nothing.
     public init(appEvents: AppEvents, workspaceEvents: AppEvents, isAppHidden: Bool,
-                displaysAsleep: @escaping DisplaySleepWatch.Probe = DisplaySleepWatch.everyDisplayAsleep,
+                displaysAsleep: @escaping DisplaySleepWatch.Probe,
                 uptime: @escaping VisibilityNode.Uptime = VisibilityNode.systemUptime,
                 workCounts: VisibilityWorkCounts? = nil) {
         let owner = "AppVisibilitySource"

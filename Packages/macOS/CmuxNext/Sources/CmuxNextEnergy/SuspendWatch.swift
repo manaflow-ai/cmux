@@ -57,10 +57,10 @@ public final class SuspendWatch {
     ///   - appEvents: The fan-out on `NotificationCenter.default` (`AppServices.appEvents`), where a
     ///     display change is posted.
     ///   - path: The network path wait (``NetworkPathWait/system(on:)``; tests pass their own).
-    ///   - displaysAsleep: Whether every display sleeps now (``DisplaySleepWatch/everyDisplayAsleep()``;
-    ///     tests pass their own).
+    ///   - displaysAsleep: Whether every display sleeps now (``DisplaySleepWatch/everyDisplayAsleep()``
+    ///     from the composition root; tests pass their own).
     public init(events: AppEvents, appEvents: AppEvents, path: NetworkPathWait,
-                displaysAsleep: @escaping DisplaySleepWatch.Probe = DisplaySleepWatch.everyDisplayAsleep) {
+                displaysAsleep: @escaping DisplaySleepWatch.Probe) {
         self.events = events
         self.appEvents = appEvents
         self.path = path
