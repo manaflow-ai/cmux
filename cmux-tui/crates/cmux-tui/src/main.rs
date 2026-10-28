@@ -2730,22 +2730,33 @@ fn run_server(
         )
     });
     let result = if args.headless {
-        mux.mark_server_lifecycle_ready();
-        if let Some(fd) = args.owner_ready_fd {
-            local_owner::signal_ready(fd);
-        }
+        // The --exit-with-pid watch runs before the owner says it is ready;
+        // a watch that cannot start fails the start (its terminals ended).
         #[cfg(unix)]
-        {
-            run_headless(&mux, &socket_path, bound_owner, || {
-                remote_runtime
-                    .as_ref()
-                    .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
-            })
-        }
+        let bound = bound_owner
+            .map(|armed| armed.start(&mux))
+            .transpose()
+            .context("cannot start the --exit-with-pid watch");
         #[cfg(not(unix))]
-        {
-            run_headless(&mux, &socket_path, None, || false)
-        }
+        let bound: anyhow::Result<Option<headless::BoundOwner>> = Ok(None);
+        bound.and_then(|bound| {
+            mux.mark_server_lifecycle_ready();
+            if let Some(fd) = args.owner_ready_fd {
+                local_owner::signal_ready(fd);
+            }
+            #[cfg(unix)]
+            {
+                run_headless(&mux, &socket_path, bound, || {
+                    remote_runtime
+                        .as_ref()
+                        .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
+                })
+            }
+            #[cfg(not(unix))]
+            {
+                run_headless(&mux, &socket_path, bound, || false)
+            }
+        })
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime, mux.clone(), config)
     } else {

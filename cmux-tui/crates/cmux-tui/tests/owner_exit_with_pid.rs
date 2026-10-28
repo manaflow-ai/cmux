@@ -42,7 +42,7 @@ struct Fixture {
     /// The terminal hosts this test's owner started, ended on drop when a
     /// failed test leaves them running (`server stop` cannot reach them once
     /// their owner is gone).
-    hosts: std::cell::RefCell<Vec<u32>>,
+    hosts: std::cell::RefCell<Vec<(u32, Option<u64>)>>,
 }
 
 impl Fixture {
@@ -136,7 +136,11 @@ exec sleep 600"#;
         loop {
             let hosts = host_pids(&root);
             if !hosts.is_empty() {
-                self.hosts.borrow_mut().extend(&hosts);
+                // With each host's start time, so cleanup never signals a
+                // later process that reuses its pid.
+                let started =
+                    hosts.iter().map(|pid| (*pid, cmux_tui_core::process_started_ms(*pid)));
+                self.hosts.borrow_mut().extend(started);
                 return hosts;
             }
             assert!(Instant::now() < deadline, "no terminal host record appeared");
@@ -149,8 +153,14 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = self.server("stop").arg("--end-terminals").output();
         let hosts = self.hosts.borrow().clone();
-        for pid in await_exit(&hosts, Duration::from_secs(5)) {
-            // SAFETY: a terminal host of this test's own owner, still running.
+        let pids: Vec<u32> = hosts.iter().map(|(pid, _)| *pid).collect();
+        for pid in await_exit(&pids, Duration::from_secs(5)) {
+            let recorded = hosts.iter().find(|(host, _)| *host == pid).and_then(|(_, at)| *at);
+            if recorded.is_none() || cmux_tui_core::process_started_ms(pid) != recorded {
+                continue;
+            }
+            // SAFETY: the same process (pid and start time) as a terminal
+            // host of this test's own owner, still running.
             unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
         }
         let _ = fs::remove_dir_all(&self.dir);

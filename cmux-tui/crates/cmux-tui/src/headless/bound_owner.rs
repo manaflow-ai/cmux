@@ -58,14 +58,23 @@ pub(crate) fn arm(bound: BoundPid) -> io::Result<Armed> {
 }
 
 impl Armed {
-    /// Starts the watching thread for this owner.
+    /// Starts the watching thread for this owner, before it reports itself
+    /// ready. When the thread cannot start, the owner must not keep its
+    /// terminals unwatched: they are ended here (with the survivor sweep)
+    /// and the error fails the start.
     pub(crate) fn start(self, mux: &Arc<Mux>) -> io::Result<BoundOwner> {
         let Self { pid, watch, stop, reused } = self;
-        let mux = Arc::downgrade(mux);
+        let weak = Arc::downgrade(mux);
         let thread = std::thread::Builder::new()
             .name("bound-owner".into())
-            .spawn(move || run(&watch, reused, &mux, pid))?;
-        Ok(BoundOwner { stop: Some(stop), thread: Some(thread) })
+            .spawn(move || run(&watch, reused, &weak, pid));
+        match thread {
+            Ok(thread) => Ok(BoundOwner { stop: Some(stop), thread: Some(thread) }),
+            Err(error) => {
+                end_every_terminal(mux);
+                Err(error)
+            }
+        }
     }
 }
 
@@ -106,6 +115,13 @@ fn run(watch: &Watch, reused: bool, mux: &Weak<Mux>, pid: u32) {
         ),
     }
     let Some(mux) = mux.upgrade() else { return };
+    end_every_terminal(&mux);
+    mux.request_daemon_shutdown();
+}
+
+/// Ends every terminal of this owner, and every host still running by its
+/// record when that fails, so none outlives a bound owner.
+fn end_every_terminal(mux: &Mux) {
     if let Err(error) = mux.end_all_terminals() {
         crate::client_log::stderr_log!(
             "lifecycle",
@@ -122,7 +138,6 @@ fn run(watch: &Watch, reused: bool, mux: &Weak<Mux>, pid: u32) {
             );
         }
     }
-    mux.request_daemon_shutdown();
 }
 
 #[cfg(target_vendor = "apple")]

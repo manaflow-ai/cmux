@@ -55,8 +55,13 @@ fn exit_with_pid(value: &str) -> Result<crate::BoundPid, UsageError> {
         if gone {
             return Err(UsageError::new(format!("--exit-with-pid {pid}: no such process")));
         }
+        // Required: without it the owner could not tell a reused pid from
+        // the launcher (a launcher that exits right here has no start time).
         if bound.started_ms.is_none() {
-            bound.started_ms = cmux_tui_core::process_started_ms(pid);
+            let started = cmux_tui_core::process_started_ms(pid).ok_or_else(|| {
+                UsageError::new(format!("--exit-with-pid {pid}: cannot read when it started"))
+            })?;
+            bound.started_ms = Some(started);
         }
         Ok(bound)
     }
