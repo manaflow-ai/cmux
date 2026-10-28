@@ -3,6 +3,7 @@ import type { AcpmuxRow } from "../model";
 import { groupAgentMessages } from "./waitingMessages";
 import * as waitingMessages from "./waitingMessages";
 import { turnViewFrom } from "./turns";
+import { withShellRows, type ShellRun } from "../shell/shellRuns";
 
 function message(id: string, name = "claude-sr2", text = id): AcpmuxRow {
   return {
@@ -106,4 +107,33 @@ test("a fold crossing a reused turn boundary neither duplicates nor drops messag
     next,
   );
   expect(changed.rows.find((row) => row.waiting?.delivery === "chat")?.text).toBe("a\n\nedited\n\nc");
+});
+
+test("a synthetic shell block ends a received-message run, including a newly inserted block", () => {
+  const first = { ...message("a"), at: 1 };
+  const second = { ...message("b"), at: 3 };
+  const rows = [first, second];
+  const expanded = new Set<string>();
+  const previous = turnViewFrom(rows, expanded, { now: 3 });
+  expect(previous.rows.some((row) => row.waiting?.delivery === "chat")).toBe(true);
+  for (const startedAt of [1, 2]) {
+    const shell: ShellRun = {
+      id: "cmd",
+      command: "pwd",
+      startedAt,
+      status: "done",
+      output: "/tmp",
+      truncated: false,
+      version: 1,
+    };
+    const view = turnViewFrom(rows, expanded, { now: 3, messageBreaks: [startedAt] }, previous);
+    const shown = withShellRows(view.rows, [shell]).filter((row) => row.kind !== "date");
+    expect(shown.map((row) => row.id)).toEqual(["a", "shell-cmd", "b"]);
+    expect(shown.some((row) => row.waiting?.delivery === "chat")).toBe(false);
+  }
+  // Before or after the run: the messages remain adjacent and may still fold.
+  for (const startedAt of [0, 3]) {
+    const view = turnViewFrom(rows, expanded, { now: 3, messageBreaks: [startedAt] }, previous);
+    expect(view.rows.find((row) => row.waiting?.delivery === "chat")?.joined).toEqual(["a", "b"]);
+  }
 });

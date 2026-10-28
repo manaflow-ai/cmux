@@ -4984,6 +4984,15 @@ function AcpmuxPane() {
     () => allShellRuns.filter((run) => run.sessionId === snapshot.sessionId),
     [allShellRuns, snapshot.sessionId],
   );
+  // Shell output changes do not move its block. Keep the message-fold boundaries stable until
+  // a command starts or leaves this chat, so output chunks cannot invalidate historical folds.
+  const lastMessageBreaks = useRef<readonly number[]>([]);
+  const messageBreaks = useMemo(() => {
+    const next = chatShellRuns.map((run) => run.startedAt).sort((a, b) => a - b);
+    const previous = lastMessageBreaks.current;
+    if (next.length === previous.length && next.every((at, index) => at === previous[index])) return previous;
+    return (lastMessageBreaks.current = next);
+  }, [chatShellRuns]);
   /// A fresh chat shows its empty state until something is in it: a prompt, or a command it ran.
   const freshView = freshChat && chatShellRuns.length === 0;
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
@@ -5155,6 +5164,7 @@ function AcpmuxPane() {
           lineBelow,
           // Other sessions' messages among them, two or more in a run, draw as one card.
           waitingSteers: snapshot.waitingSteers,
+          messageBreaks,
         },
         last?.turns,
       );
@@ -5174,6 +5184,7 @@ function AcpmuxPane() {
     sessionStatus,
     lineBelow,
     snapshot.waitingSteers,
+    messageBreaks,
     chatShellRuns,
     panelAsks,
     subagentTray,

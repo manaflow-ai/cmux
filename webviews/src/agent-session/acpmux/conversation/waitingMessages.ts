@@ -63,6 +63,19 @@ const messageFolds = new WeakMap<AcpmuxRow, WeakMap<AcpmuxRow, AcpmuxRow>>();
 const chatMessage = (row: AcpmuxRow) =>
   row.kind === "user" && row.incoming?.kind === "message" && row.steer !== "waiting";
 
+/// Shell blocks are inserted after turn shaping. Their sorted times still break message runs
+/// here so folding cannot move a message across a block that will be placed between them.
+function crossesMessageBreak(from: number, to: number, breaks: readonly number[]): boolean {
+  let low = 0;
+  let high = breaks.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if ((breaks[middle] ?? Infinity) < from) low = middle + 1;
+    else high = middle;
+  }
+  return low < breaks.length && (breaks[low] ?? Infinity) < to;
+}
+
 /// Append newly shaped rows to the turn builder's output, folding adjacent received messages.
 /// The builder already copies its unchanged prefix once; this consumes only the rebuilt suffix,
 /// never scans that prefix or copies it again. A streaming assistant/status row is one visit,
@@ -72,6 +85,7 @@ export function groupAgentMessages(
   rows: Iterable<AcpmuxRow>,
   out: AcpmuxRow[] = [],
   visit?: (row: AcpmuxRow) => void,
+  breaks: readonly number[] = [],
 ): AcpmuxRow[] {
   for (const row of rows) {
     visit?.(row);
@@ -82,16 +96,23 @@ export function groupAgentMessages(
         : before && chatMessage(before)
           ? [before]
           : undefined;
-    if (before && prefix && chatMessage(row)) {
+    const first = prefix?.[0];
+    if (
+      before &&
+      prefix &&
+      first &&
+      chatMessage(row) &&
+      !crossesMessageBreak(prefix.at(-1)?.at ?? before.at, row.at, breaks)
+    ) {
       let pairs = messageFolds.get(before);
       if (!pairs) messageFolds.set(before, (pairs = new WeakMap()));
       let fold = pairs.get(row);
       if (!fold) {
         const members = [...prefix, row];
         fold = {
-          id: `messages-${members[0]!.id}`,
+          id: `messages-${first.id}`,
           version: ++version,
-          at: members[0]!.at,
+          at: first.at,
           kind: WAITING_MESSAGES,
           text: members
             .map((member) => (member.incoming?.kind === "message" ? member.incoming.message.text : ""))
