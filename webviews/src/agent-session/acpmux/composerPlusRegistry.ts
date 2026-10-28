@@ -66,7 +66,7 @@ const staticRows: readonly ComposerPlusEntry[] = [
 ];
 
 function extensionKey(entry: ComposerPlusEntry): string {
-  return entry.section + ":\\u0000" + entry.id;
+  return `${entry.section}:${entry.id}`;
 }
 
 /**
@@ -113,7 +113,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
 
   if (options.planMode) {
     rows.push({
-      id: "add.mode." + options.planMode.id,
+      id: `add.mode.${options.planMode.id}`,
       section: "add",
       name: options.planMode.name,
       description: options.planMode.description,
@@ -140,9 +140,9 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     const name = command.name.trim();
     if (!name) continue;
     rows.push({
-      id: "add.skill." + name.toLocaleLowerCase(),
+      id: `add.skill.${name.toLocaleLowerCase()}`,
       section: "add",
-      name: "/" + name,
+      name: `/${name}`,
       description: command.description || "Run this skill in the current chat",
       icon: "sparkles",
       keywords: [name, command.description],
@@ -177,7 +177,7 @@ export function composerPlusSections(entries: readonly ComposerPlusEntry[]): Map
   const sections = new Map<ComposerPlusSection, ComposerPlusEntry[]>(
     COMPOSER_PLUS_SECTIONS.map((section) => [section, []]),
   );
-  for (const entry of entries) sections.get(entry.section)!.push(entry);
+  for (const entry of entries) sections.get(entry.section)?.push(entry);
   return sections;
 }
 
