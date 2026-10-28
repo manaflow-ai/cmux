@@ -168,9 +168,7 @@ public struct AgentHookDeliveryPolicy: Sendable {
             return inferredPID ?? mappedPID
         }
         guard let mappedPID, mappedPID > 0 else { return inferredPID }
-        guard let inferredPID, inferredPID > 0, inferredPID != mappedPID else {
-            return mappedPID
-        }
+        guard let inferredPID, inferredPID > 0 else { return mappedPID }
         return isRunning(mappedPID) ? mappedPID : inferredPID
     }
 
