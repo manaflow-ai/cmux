@@ -89,15 +89,12 @@ final class HomeHeaderButton: NSButton {
         needsDisplay = true
     }
 
-    private static var centred: [String: NSImage] = [:]
-
     /// Symbol `name` at `size` with what it draws centred in its canvas, as a template (the tint
     /// still applies). SF Symbols centre their layout box, not their ink: compose's pencil tip
-    /// lifts its box, so its square sat 1.75 pt below the other header glyphs. Cached per name
-    /// and size (a few small images).
+    /// lifts its box, so its square sat 1.75 pt below the other header glyphs. A new image
+    /// per call (only when the size, glyph or tint changes), so the button always redraws
+    /// (https://github.com/manaflow-ai/cmux/pull/24199).
     static func centredSymbol(_ name: String, size: CGFloat) -> NSImage? {
-        let key = "\(name)@\(size)"
-        if let cached = centred[key] { return cached }
         guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular)) else { return nil }
         var proposed = CGRect(origin: .zero, size: symbol.size)
@@ -116,7 +113,6 @@ final class HomeHeaderButton: NSButton {
             return true
         }
         result.isTemplate = true
-        centred[key] = result
         return result
     }
 

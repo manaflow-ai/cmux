@@ -418,7 +418,7 @@ public final class HomeSidebarView: NSView {
     /// (`HomeHeaderButton.debugState`) as the call found it (`before`) and after its layout.
     public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?) -> [String: Any]? {
         if let select, !model.rows.indices.contains(select) { return nil }
-        let before = [compose, unreadToggle].map(\.debugState)
+        let before = [compose, newChief, unreadToggle].map(\.debugState)
         let split = superview as? HomeSidebarSplitView
         if let width { split?.setWidth(width) }
         if let select {
@@ -439,7 +439,7 @@ public final class HomeSidebarView: NSView {
                 "header": ["search": frame(h.search), "filter": frame(h.filter), "newChief": frame(h.newChief),
                            "compose": frame(h.compose), "compact": h.compact, "buttonsCovered": h.buttonsCovered,
                            "chatCompose": frame(chat)] as [String: Any],
-                "buttons": ["before": before, "after": [compose, unreadToggle].map(\.debugState)]]
+                "buttons": ["before": before, "after": [compose, newChief, unreadToggle].map(\.debugState)]]
     }
     #endif
 
