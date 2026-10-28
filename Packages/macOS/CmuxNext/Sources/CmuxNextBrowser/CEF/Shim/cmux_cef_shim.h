@@ -1431,6 +1431,16 @@ CMUX_SHIM_EXPORT void cmux_shim_set_popup_menus(int enabled);
 // group label, a separator, a disabled option) closes the popup as -1 does.
 // An answered or hidden token does nothing. UI thread.
 CMUX_SHIM_EXPORT void cmux_shim_browser_popup_menu_reply(int browser_id, int64_t token, int index);
+// One Edit menu command on the page's focused frame (its main frame when no
+// frame has focus), by Blink's editor command name: "Undo", "Redo", "Cut",
+// "Copy", "Paste", "PasteAndMatchStyle", "Delete", "SelectAll" or
+// "CenterSelection" (Jump to Selection; does nothing on a fork without
+// cmux_browser_center_selection); any other name does nothing. Chrome's
+// RenderWidgetHostNSViewHost Undo ... SelectAll and CenterSelection
+// (content/common/render_widget_host_ns_view.mojom), which its browser runs
+// on the focused frame's FrameInputHandler. The Chromium Host's page view in
+// cmux sends them (ChromiumHostPageView's Edit menu actions). UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_browser_edit_command(int browser_id, const char* command);
 
 // Chromium tracing through stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; task
 // p09-observability-050). These are not cmux_shim_* exports, so the Chromium Host wire does not

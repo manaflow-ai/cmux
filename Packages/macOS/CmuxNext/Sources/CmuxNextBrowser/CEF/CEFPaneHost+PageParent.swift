@@ -64,6 +64,10 @@ extension CEFPaneHost {
             guard let self, let page, let tab = visibleTab else { return false }
             return runtime.swipeNavigation.handleHosted(event, tab: tab, page: page)
         }
+        // The Edit menu's commands go to the visible tab's page (task 047).
+        page.editCommandRoute = ChromiumHostEditCommand.Route(
+            runs: { [weak self] command in self?.runsEditCommand(command) ?? false },
+            send: { [weak self] command in self?.runEditCommand(command) })
         #endif
         // The host's page window takes the view's size in the same commit as the pane (task 052).
         page.onGeometry = { [weak self, weak page] geometry in
@@ -143,3 +147,19 @@ extension CEFRuntime {
         return lastPageViewToken
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension CEFPaneHost {
+    /// Whether the visible tab's page runs `command` (``ChromiumHostEditCommand/runs(onForkAPI:)``).
+    func runsEditCommand(_ command: ChromiumHostEditCommand) -> Bool {
+        visibleTab?.browserID != nil && runtime.shim != nil && command.runs(onForkAPI: runtime.forkAPIVersion)
+    }
+
+    /// Host mode: the page view's Edit menu command on the visible tab's page, a post on the host's
+    /// ordered stream after the input before it (task p01-process-047).
+    func runEditCommand(_ command: ChromiumHostEditCommand) {
+        guard let browser = visibleTab?.browserID, let shim = runtime.shim else { return }
+        command.rawValue.withCString { shim.browserEditCommand(browser, $0) }
+    }
+}
+#endif

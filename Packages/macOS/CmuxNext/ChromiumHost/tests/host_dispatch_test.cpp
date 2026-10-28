@@ -164,6 +164,9 @@ int cmux_shim_browser_set_page_visibility(int browser_id, int visibility) {
   shim.calls.push_back("visibility " + std::to_string(browser_id) + " " + std::to_string(visibility));
   return 1;
 }
+void cmux_shim_browser_edit_command(int browser_id, const char* command) {
+  shim.calls.push_back("edit " + std::to_string(browser_id) + " " + (command ? command : "<null>"));
+}
 void cmux_shim_shutdown(void) { shim.calls.push_back("shutdown"); }
 char* cmux_shim_tab_navigation_state(int browser_id) {
   shim.calls.push_back("nav_state " + std::to_string(browser_id));
@@ -517,6 +520,31 @@ void MintedTab() {
   Expect(f.Sent(),
          TabKeys("mirror", minted, {Key("mirror", kOpLiveBrowserCount), Key("mirror", kOpWindowCount), "event 2 " + minted + " 0", "ack 30"}),
          "an AFTER_CREATED inside tab_add already carries the minted id");
+}
+
+// An Edit menu command (task 047) runs on the host's browser of the client's
+// id, by its Blink name, and is acked.
+void EditCommandOnTheMappedBrowser() {
+  Fixture f;
+  f.Start();
+  Writer add;
+  add.I32(kMinted + 1);
+  add.I32(3);
+  add.Str("https://d/");
+  add.I32(-1);
+  add.I32(1);
+  f.host.OnMessages({Op(kOpTabAdd, 30, add)});
+  f.Sent();
+  shim.calls.clear();
+  Writer paste;
+  paste.I32(kMinted + 1);
+  paste.Str("Paste");
+  Writer center;
+  center.I32(kMinted + 1);
+  center.Str("CenterSelection");
+  f.host.OnMessages({Op(kOpBrowserEditCommand, 31, paste), Op(kOpBrowserEditCommand, 32, center)});
+  Expect(shim.calls, {"edit 4 Paste", "edit 4 CenterSelection"}, "the command runs on the minted tab's browser");
+  Expect(f.Sent(), {"ack 31", "ack 32"}, "each command is acked");
 }
 
 void DevTools() {
@@ -1740,6 +1768,7 @@ int main() {
   PreinitBeforeInitialize();
   MintedWindow();
   MintedTab();
+  EditCommandOnTheMappedBrowser();
   DevTools();
   DevToolsPlacementView();
   FocusIsTheShimsEmbedderActiveRule();

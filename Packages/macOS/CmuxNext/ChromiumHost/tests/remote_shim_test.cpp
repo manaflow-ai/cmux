@@ -1159,6 +1159,25 @@ int main() {
           resize->height == 480 && resize->fence_seq == 0 && resize->deadline_frames == 1);
   }
 
+  // An Edit menu command (task 047) is ordered too: a paste lands after the keys typed before it,
+  // and the next key follows the paste.
+  {
+    uint32_t ctl = 99;
+    CHECK(cmux_remote_shim_order_input(&ctl) == 6 && ctl == 7);
+    CHECK(cmux_remote_shim_order_input(&ctl) == 7 && ctl == 7);
+    cmux_shim_browser_edit_command(browser, "Paste");
+    CHECK(cmux_remote_shim_order_input(&ctl) == 8 && ctl == 8);
+    const std::vector<Message> got = host.Read(1);
+    CHECK(got.size() == 1);
+    if (got.size() == 1) {
+      CHECK(got[0].op == cmux_remote::kOpBrowserEditCommand && got[0].ctl_seq == 8 && got[0].after_input == 7);
+      TlvReader edit(got[0].fields);
+      CHECK(edit.I32() == browser);
+      CHECK(edit.Str() == std::optional<std::string>("Paste"));
+      CHECK(edit.ok() && edit.AtEnd());
+    }
+  }
+
   // With a fence channel, the fence right goes to the host's inbox first, under the next fence
   // seq, and the op carries that seq and a token the host answers. A fence the inbox did not take
   // sends the op unfenced and takes no seq.

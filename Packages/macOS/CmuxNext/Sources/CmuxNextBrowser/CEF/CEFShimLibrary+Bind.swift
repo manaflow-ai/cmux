@@ -63,6 +63,7 @@ nonisolated extension CEFShimLibrary {
             tabPagePush = nil
         }
         browserSetPageDisplay = try r("cmux_shim_browser_set_page_display")
+        browserEditCommand = try r("cmux_shim_browser_edit_command")
         unsafe initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         unsafe setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")

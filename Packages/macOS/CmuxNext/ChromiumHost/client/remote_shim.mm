@@ -187,7 +187,8 @@ std::optional<uint64_t> StateKeyFor(uint16_t op, const std::vector<Field>& field
 // must reach first: focus (OnFirstResponderChanged), the active page and embedder activity
 // (OnWindowIsKeyChanged), geometry (OnBoundsInWindowChanged), IME (ImeSetComposition,
 // ImeCommitText, ImeFinishComposingText, ImeCancelComposition: p04-input-064), so a commit never
-// passes the key that made it; edit commands (ExecuteEditCommand) join as task 047 adds them.
+// passes the key that made it, and Edit menu commands (Undo ... SelectAll, task 047), so a paste
+// lands after the keys typed before it.
 // Each carries its control seq and the input seq it follows; input frames name the last one.
 bool IsOrderedOp(uint16_t op) {
   switch (op) {
@@ -201,6 +202,7 @@ bool IsOrderedOp(uint16_t op) {
     case kOpBrowserImeFinishComposing:
     case kOpBrowserImeCancelComposition:
     case cmux_host::kOpPageResize:
+    case kOpBrowserEditCommand:
       return true;
     default:
       return false;

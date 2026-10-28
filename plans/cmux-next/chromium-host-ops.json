@@ -4454,6 +4454,27 @@
       "reason": "Answers a POPUP_MENU token once with the chosen item or -1 (task 060); like PopupMenuRunner's reply, one way."
     },
     {
+      "name": "cmux_shim_browser_edit_command",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "command",
+          "type": "const char*"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "An Edit menu command of the page view (task 047), Chrome's RenderWidgetHostNSViewHost Undo ... SelectAll; ordered with the input seq barrier (task 092), so a paste lands after the keys typed before it."
+    },
+    {
       "name": "cmux_shim_tab_set_visibility",
       "class": "post",
       "args": [

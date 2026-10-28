@@ -81,6 +81,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Fork API 34: `cmux_shim_browser_set_embedder_visibility` (a `cmux_shim_embedder_visibility_t`; 1 when the
     /// fork took it). Nil on a shim without the export (task p03-rendering-058).
     let browserSetEmbedderVisibility: (@convention(c) (Int32, Int32) -> Int32)?
+    /// `cmux_shim_browser_edit_command(browser, name)`: an Edit menu command on the page's focused frame
+    /// (`ChromiumHostEditCommand`, task p01-process-047); a post on the host's ordered stream in host mode.
+    let browserEditCommand: @convention(c) (Int32, UnsafePointer<CChar>?) -> Void
     /// Fork API 31: `cmux_shim_browser_set_page_visibility` (a ``ChromiumHostPageVisibility``), what cmux shows
     /// of a detached page's window; host mode only (task p01-process-220).
     let browserSetPageVisibility: @convention(c) (Int32, Int32) -> Int32

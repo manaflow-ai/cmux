@@ -27,13 +27,15 @@ import QuartzCore
 /// changed (PATTERNS P8).
 ///
 /// Input (``InputTarget``): with ``InputTarget/view`` this view is the page's
-/// input target and first responder (host mode: mouse, scroll, keys and Edit
-/// menu actions become wire frames for ``sink``, one per event, in the
+/// input target and first responder (host mode: mouse, scroll and keys
+/// become wire frames for ``sink``, one per event, in the
 /// event's own turn: no display-tick alignment here, the renderer aligns
 /// input to its frames, as Chrome's browser process forwards input at once;
 /// ``ChromiumHostConnection`` coalesces only under socket back-pressure;
 /// keys in ChromiumHostPageView+Keys.swift; buttons past the third, pinch,
-/// smart zoom and Force Touch pressure in ChromiumHostPageView+Gestures.swift). With
+/// smart zoom and Force Touch pressure in ChromiumHostPageView+Gestures.swift;
+/// the Edit menu, services, speech and selection Look Up in
+/// ChromiumHostPageView+Edit.swift). With
 /// ``InputTarget/pageWindow`` the fork's transparent page window above takes
 /// every event (in-process layer hosting), and this view takes none.
 public final class ChromiumHostPageView: NSView {
@@ -179,6 +181,11 @@ public final class ChromiumHostPageView: NSView {
     /// The input seq of the last wheel frame this view sent, 0 before any: WHEEL_ACKs of a gesture's own
     /// wheels carry later seqs (task p01-process-234).
     private(set) var lastWheelSeq: UInt32 = 0
+    /// Where the Edit menu's commands go and which ones run (``InputTarget/view`` only;
+    /// ChromiumHostPageView+Edit.swift). With none, the view takes no Edit menu command.
+    var editCommandRoute: ChromiumHostEditCommand.Route?
+    /// Speaks the page's selection for Start Speaking; made on first use. Tests pass a recorder.
+    lazy var speech: any ChromiumHostSpeaking = ChromiumHostSpeechSynthesizer()
     #endif
 
     private var lastGeometry: ChromiumHostGeometry?

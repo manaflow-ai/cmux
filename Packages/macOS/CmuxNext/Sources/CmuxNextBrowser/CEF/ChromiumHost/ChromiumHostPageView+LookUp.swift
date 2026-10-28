@@ -71,10 +71,14 @@ nonisolated struct ChromiumHostLookUpWord: Equatable, Sendable, Decodable {
 /// plans/cmux-next/chrome-parity/p01-process.md), as Chrome's page view does it
 /// (content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm `-quickLookWithEvent:`:
 /// `LookUpDictionaryOverlayAtPoint`, answered by `ShowDictionaryOverlay`). The word comes from the
-/// pane (``wordLookUp``); with none, AppKit's own Look Up runs.
+/// pane (``wordLookUp``); with none, the page's pushed selection (``showDefinitionForSelection()``,
+/// task 047), and without that AppKit's own Look Up runs.
 extension ChromiumHostPageView {
     public override func quickLook(with event: NSEvent) {
-        guard let wordLookUp else { return super.quickLook(with: event) }
+        guard let wordLookUp else {
+            if !showDefinitionForSelection() { super.quickLook(with: event) }
+            return
+        }
         let point = pagePoint(event)
         wordLookUp(CGPoint(x: CGFloat(point.x), y: CGFloat(point.y)), window?.backingScaleFactor ?? 1) { [weak self] word in
             guard let self, let word else { return }
