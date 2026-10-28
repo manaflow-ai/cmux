@@ -248,6 +248,31 @@ describe("acpmuxSend", () => {
     expect(read(`perl -e 'exec @ARGV' acpmux send a b`)).toBeUndefined();
   });
 
+  test("nested wrappers count executable sends without counting quoted mentions", () => {
+    for (const command of [
+      `bash -c 'echo "acpmux send x y"'; acpmux send lane hi`,
+      `reach box 'echo "acpmux send x y"'; acpmux send lane hi`,
+      `bash -c 'printf "%s" "cmux acp send x y"'; acpmux send lane hi`,
+      "bash -c 'cat <<EOF\nacpmux send x y\nEOF'; acpmux send lane hi",
+      `bash -c 'echo "acpmux send x y"; acpmux send lane hi'`,
+      `bash -c "bash -c 'echo \\"acpmux send x y\\"'"; acpmux send lane hi`,
+    ]) {
+      const send = read(command);
+      expect(send?.target).toBe("lane");
+      expect(send?.text).toBe("hi");
+      expect(send?.others).toBe(1);
+    }
+    for (const command of [
+      `bash -c 'acpmux send first hi'; acpmux send second hi`,
+      `bash -c 'acpmux send first hi; acpmux send second hi'`,
+      `bash -c 'acpmux send "$FIRST" hi'; acpmux send second hi`,
+      `reach box 'acpmux send "$FIRST" hi'; acpmux send second hi`,
+      `bash -c "$SCRIPT"; acpmux send lane hi`,
+      `reach "$HOST" 'acpmux send first hi'; acpmux send second hi`,
+    ])
+      expect(read(command)).toBeUndefined();
+  });
+
   test("a send anywhere in a compound command, with the other work counted", () => {
     expect(
       read(

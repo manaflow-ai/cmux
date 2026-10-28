@@ -168,6 +168,50 @@ test("nonmutating read search fetch and MCP tools preserve recorded message bodi
   }
 });
 
+test("kindless observational MCP calls preserve recorded bodies without trusting read substrings", () => {
+  const writer = item({
+    title: "Bash",
+    kind: "execute",
+    command: "cat > /tmp/mcp-read.md <<'EOF'\nrecorded MCP body\nEOF",
+    startedAt: 1,
+    endedAt: 2,
+  });
+  const send = item({
+    title: "Bash",
+    kind: "execute",
+    command: "acpmux send lane - < /tmp/mcp-read.md",
+    startedAt: 5,
+    endedAt: 6,
+  });
+  for (const name of ["read_file", "list_files", "search_files", "get_file"]) {
+    for (const fields of [
+      { title: `mcp__fs__${name}`, inputSummary: JSON.stringify({ path: "/tmp/mcp-read.md" }) },
+      {
+        title: `fs.${name} call`,
+        inputSummary: JSON.stringify({ server: "fs", tool: name, arguments: { path: "/tmp/mcp-read.md" } }),
+      },
+    ]) {
+      const observer = item(fields);
+      const group = toolGroups([writer, observer, send]).find((entry) => entry.type === "send");
+      expect(group?.type).toBe("send");
+      if (group?.type === "send") expect(group.send.text).toBe("recorded MCP body\n");
+    }
+  }
+  for (const fields of [
+    ...["write_readme", "update_read_file", "thread_read", "readwrite_file", "run"].map((name) => ({
+      title: `mcp__fs__${name}`,
+    })),
+    { title: "mcp__fs__read_file", kind: "edit" },
+    { title: "mcp__fs__read_file", diffs: [{ path: "/tmp/mcp-read.md", newText: "changed" }] },
+    { title: "mcp__fs__read_file", command: "truncate -s 0 /tmp/mcp-read.md" },
+  ]) {
+    const mutation = item({ ...fields, startedAt: 3, endedAt: 4 });
+    const group = toolGroups([writer, mutation, send]).find((entry) => entry.type === "send");
+    expect(group?.type).toBe("send");
+    if (group?.type === "send") expect(group.send.text).toBeUndefined();
+  }
+});
+
 test("mutation capable and ambiguous tools still invalidate recorded message bodies", () => {
   const writer = item({
     title: "Bash",
