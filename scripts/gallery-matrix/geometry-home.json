@@ -36,6 +36,38 @@
       "tolerancePx": 0.5,
       "minCount": 6,
       "source": "dom-rect"
+    },
+    {
+      "id": "home-inbox-marks-coverage",
+      "kind": "required-source",
+      "group": "home-inbox-marks",
+      "requiredSource": "dom-rect",
+      "tolerancePx": 0,
+      "minCount": 4
+    },
+    {
+      "id": "home-review-marks-coverage",
+      "kind": "required-source",
+      "group": "home-review-marks",
+      "requiredSource": "dom-rect",
+      "tolerancePx": 0,
+      "minCount": 2
+    },
+    {
+      "id": "home-inbox-labels-coverage",
+      "kind": "required-source",
+      "group": "home-inbox-labels",
+      "requiredSource": "dom-rect",
+      "tolerancePx": 0,
+      "minCount": 4
+    },
+    {
+      "id": "home-review-labels-coverage",
+      "kind": "required-source",
+      "group": "home-review-labels",
+      "requiredSource": "dom-rect",
+      "tolerancePx": 0,
+      "minCount": 2
     }
   ],
   "cases": [
@@ -81,6 +113,22 @@
       {
         "group": "home-labels",
         "selector": ".acpmux-home-inbox-text, .acpmux-home-row > .acpmux-home-title"
+      },
+      {
+        "group": "home-inbox-marks",
+        "selector": ".acpmux-home-inbox-mark"
+      },
+      {
+        "group": "home-review-marks",
+        "selector": ".acpmux-home-row > .acpmux-icon:first-child"
+      },
+      {
+        "group": "home-inbox-labels",
+        "selector": ".acpmux-home-inbox-text"
+      },
+      {
+        "group": "home-review-labels",
+        "selector": ".acpmux-home-row > .acpmux-home-title"
       }
     ],
     "home-columns-dark": [
@@ -91,6 +139,22 @@
       {
         "group": "home-labels",
         "selector": ".acpmux-home-inbox-text, .acpmux-home-row > .acpmux-home-title"
+      },
+      {
+        "group": "home-inbox-marks",
+        "selector": ".acpmux-home-inbox-mark"
+      },
+      {
+        "group": "home-review-marks",
+        "selector": ".acpmux-home-row > .acpmux-icon:first-child"
+      },
+      {
+        "group": "home-inbox-labels",
+        "selector": ".acpmux-home-inbox-text"
+      },
+      {
+        "group": "home-review-labels",
+        "selector": ".acpmux-home-row > .acpmux-home-title"
       }
     ]
   },

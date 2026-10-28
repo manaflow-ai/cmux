@@ -14,7 +14,11 @@ function captures(reviewMarkX = 30, reviewLabelX = 54) {
     schemaVersion: 1,
     revision: { sha: config.revision.sha, source: "unit fixture replaying measured Home column x coordinates" },
     capture: { ...tuple, viewport: { width: 560, height: 640 }, deviceScaleFactor: 2, screenshot: "fixture.png", screenshotSha256: "0".repeat(64), coordinateSpace: "css-px" },
-    elements: ["home-marks", "home-labels"].flatMap((group) => Array.from({ length: 6 }, (_, index) => ({ id: `${group}:${index}`, group, kind: "web", source: "dom-rect", rect: { x: group === "home-marks" ? index < 4 ? 30 : reviewMarkX : index < 4 ? 54 : reviewLabelX, y: 50 + index * 28, width: 16, height: 16 } }))),
+    elements: ["home-marks", "home-labels"].flatMap((group) => Array.from({ length: 6 }, (_, index) => {
+      const rect = { x: group === "home-marks" ? index < 4 ? 30 : reviewMarkX : index < 4 ? 54 : reviewLabelX, y: 50 + index * 28, width: 16, height: 16 };
+      const subgroup = `home-${index < 4 ? "inbox" : "review"}-${group === "home-marks" ? "marks" : "labels"}`;
+      return [{ id: `${group}:${index}`, group, kind: "web", source: "dom-rect", rect }, { id: `${subgroup}:${index}`, group: subgroup, kind: "web", source: "dom-rect", rect: { ...rect } }];
+    }).flat()),
   } as GeometryArtifact }));
 }
 
@@ -25,7 +29,7 @@ test("Home capture contract exercises every inbox and review row in both appeara
     const item = cases.find((item) => item.id === tuple.caseId)!;
     expect(item.params?.colorScheme).toBe(tuple.theme);
     expect(item.params?.auditScroll).toBe(".acpmux-home-area");
-    expect(raw.selectors[tuple.caseId].every((selection: { selector: string }) => selection.selector.includes(".acpmux-home-row >") && selection.selector.includes(".acpmux-home-inbox-"))).toBe(true);
+    expect(raw.selectors[tuple.caseId].filter((selection: { group: string }) => ["home-marks", "home-labels"].includes(selection.group)).every((selection: { selector: string }) => selection.selector.includes(".acpmux-home-row >") && selection.selector.includes(".acpmux-home-inbox-"))).toBe(true);
   }
 });
 
@@ -38,8 +42,14 @@ test("measured 2px/4px column drift fails, aligned columns pass, and missing evi
   missing[0]!.artifact.elements.pop();
   expect((await lintGeometry(missing, config)).passed).toBe(false);
   const regression = captures();
-  regression[1]!.artifact.elements[5]!.rect.x += 0.51;
+  regression[1]!.artifact.elements[10]!.rect.x += 0.51;
   expect((await lintGeometry(regression, config)).passed).toBe(false);
+  const substituted = captures();
+  for (const item of substituted) {
+    const review = item.artifact.elements.find((element) => element.group === "home-review-marks")!;
+    review.group = "home-inbox-marks";
+  }
+  expect((await lintGeometry(substituted, config)).passed).toBe(false);
 });
 
 const fleetTest = process.env.CMUX_GALLERY_IN_VM === "1" ? test : test.skip;
@@ -54,6 +64,8 @@ fleetTest("declared scroll setup exposes lower rows and rejects ambiguous or mis
     const area = await page.locator(".area").boundingBox();
     expect(row!.y + row!.height).toBeLessThanOrEqual(area!.y + area!.height);
     await expect(prepareGeometryCapture(page, ".missing")).rejects.toThrow("must resolve once");
+    await page.locator(".area").evaluate((element) => (element as HTMLElement).style.overflow = "visible");
+    await expect(prepareGeometryCapture(page, ".area")).rejects.toThrow("not scrollable");
     await page.locator("body").evaluate((element) => element.insertAdjacentHTML("beforeend", '<div class="area"></div>'));
     await expect(prepareGeometryCapture(page, ".area")).rejects.toThrow("must resolve once");
   } finally { await browser.close(); }

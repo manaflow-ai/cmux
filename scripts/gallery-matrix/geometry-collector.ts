@@ -10,7 +10,10 @@ export async function prepareGeometryCapture(page: Page, scrollSelector?: string
     const targets = document.querySelectorAll(selector);
     if (targets.length !== 1) throw new Error(`geometry scroll target must resolve once: ${selector}`);
     const target = targets[0]!;
+    const maximum = Math.max(0, target.scrollHeight - target.clientHeight);
+    if (maximum > 0 && !["auto", "scroll"].includes(getComputedStyle(target).overflowY)) throw new Error(`geometry scroll target is not scrollable: ${selector}`);
     target.scrollTop = target.scrollHeight;
+    if (Math.abs(target.scrollTop - maximum) > 1) throw new Error(`geometry scroll target did not reach its end: ${selector}`);
   }, scrollSelector);
   await page.evaluate(() => document.getAnimations().forEach((animation) => animation.pause()));
 }
