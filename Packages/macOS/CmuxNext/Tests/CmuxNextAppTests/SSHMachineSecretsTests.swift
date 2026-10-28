@@ -20,8 +20,8 @@ struct SSHMachineSecretsTests {
 
     @Test func theReceiverRunsOnAPtyOfItsOwnWithTheAppsSSHOptions() throws {
         let destination = try SSHDestination(parsing: "ann@dev-box:2222")
-        let command = try #require(SSHMachineSecrets.remoteCommand(["sh", SSHMachineSecrets.receiverPath, SSHMachineSecrets.ticketPath]))
-        #expect(command == #"sh "$HOME/.cmux/machine-config/receive-secrets" "$HOME/.cmux/machine-config/receive-secrets.ticket""#)
+        let command = try #require(SSHMachineSecrets.remoteCommand(["sh", SSHMachineSecrets.receiverPath, SSHMachineSecrets.ticketPath("ab12")]))
+        #expect(command == #"sh "$HOME/.cmux/machine-config/receive-secrets" "$HOME/.cmux/machine-config/receive-secrets.ab12.ticket""#)
         let argv = SSHCommandLine().pty(destination, command)
         #expect(Array(argv.prefix(2)) == ["/usr/bin/ssh", "-tt"])
         #expect(argv.contains("-oForwardAgent=no") && argv.contains("-oBatchMode=yes"))
@@ -41,9 +41,10 @@ struct SSHMachineSecretsTests {
         #expect(ran == 0)
         let folder = home.appendingPathComponent(".cmux/machine-config")
         #expect(try String(contentsOf: folder.appendingPathComponent("receive-secrets"), encoding: .utf8) == CloudMachineSecrets.receiver + "\n")
-        #expect(try Data(contentsOf: folder.appendingPathComponent("receive-secrets.ticket")) == ticket)
+        #expect(try Data(contentsOf: folder.appendingPathComponent("receive-secrets.w0rd.ticket")) == ticket)
         #expect(try Self.mode(folder) == 0o700)
-        #expect(try Self.mode(folder.appendingPathComponent("receive-secrets.ticket")) == 0o600)
+        #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent(".receive-secrets.w0rd").path), "the receiver goes in by a rename")
+        #expect(try Self.mode(folder.appendingPathComponent("receive-secrets.w0rd.ticket")) == 0o600)
     }
 
     /// The whole delivery over the stand-in ssh: the receiver writes the file (0600) with the values,
@@ -55,15 +56,15 @@ struct SSHMachineSecretsTests {
         let ssh = try Self.standInSSH(in: home)
         let link = SSHMachineSecrets.link(to: try SSHDestination(parsing: "ann@own-machine"),
                                           environment: ["HOME": home.path, "PATH": "/usr/bin:/bin"],
-                                          commandLine: SSHCommandLine(sshBinary: ssh.path))
+                                          commandLine: SSHCommandLine(sshBinary: ssh.path), word: "a1b2")
         let values = [(name: "API_KEY", value: "sk-live-1'23"), (name: "DATABASE_URL", value: "postgres://u:p@db/app")]
         let count = try await CloudMachineSecrets.deliver(values, over: link, receiverAt: SSHMachineSecrets.receiverPath,
-                                                          ticketAt: SSHMachineSecrets.ticketPath)
+                                                          ticketAt: SSHMachineSecrets.ticketPath("a1b2"))
         #expect(count == 2)
         let file = home.appendingPathComponent(".config/cmux/machine-secrets.env")
         #expect(try String(contentsOf: file, encoding: .utf8) == "export API_KEY='sk-live-1'\\''23'\nexport DATABASE_URL='postgres://u:p@db/app'\n")
         #expect(try Self.mode(file) == 0o600)
-        #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".cmux/machine-config/receive-secrets.ticket").path))
+        #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".cmux/machine-config/receive-secrets.a1b2.ticket").path))
     }
 
     /// An ssh that cannot reach the machine stops the delivery before any value is read off the pty,
@@ -75,10 +76,10 @@ struct SSHMachineSecretsTests {
         try "#!/bin/sh\necho 'ssh: connect to host own-machine port 22: Connection refused' >&2\nexit 255\n".write(to: ssh, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ssh.path)
         let link = SSHMachineSecrets.link(to: try SSHDestination(parsing: "own-machine"), environment: ["HOME": home.path],
-                                          commandLine: SSHCommandLine(sshBinary: ssh.path))
+                                          commandLine: SSHCommandLine(sshBinary: ssh.path), word: "c3d4")
         await #expect(throws: SSHMachineSecrets.Unreachable(message: "ssh: connect to host own-machine port 22: Connection refused")) {
             _ = try await CloudMachineSecrets.deliver([(name: "API_KEY", value: "sk-live-123")], over: link,
-                                                      receiverAt: SSHMachineSecrets.receiverPath, ticketAt: SSHMachineSecrets.ticketPath)
+                                                      receiverAt: SSHMachineSecrets.receiverPath, ticketAt: SSHMachineSecrets.ticketPath("c3d4"))
         }
     }
 
@@ -86,32 +87,34 @@ struct SSHMachineSecretsTests {
     /// deadline instead of holding the delivery.
     @Test func aStalledSSHEndsTheTypingAtItsDeadline() async throws {
         let run = try Self.standIn("echo ready\nexec sleep 30\n")
-        defer { run.run.stop(); try? FileManager.default.removeItem(at: run.home) }
+        defer { try? FileManager.default.removeItem(at: run.home) }
         _ = try await run.run.waitFor("ready", seconds: 10)
         let started = ContinuousClock.now
         await #expect(throws: CloudMachineSecrets.DeliveryFailed(reason: "eof")) {
             try await run.run.type(Data(repeating: 0x41, count: 1 << 20), seconds: 1)
         }
         #expect(ContinuousClock.now - started < .seconds(10))
+        await run.run.stop()
     }
 
     /// One deadline for the whole payload: an ssh that keeps taking a little (1 KiB every 0.2 s) does
     /// not keep the typing past it.
     @Test func aTricklingSSHEndsTheTypingAtTheOneDeadline() async throws {
         let run = try Self.standIn("echo ready\nwhile :; do dd bs=1024 count=1 2>/dev/null >/dev/null || exit 0; sleep 0.2; done\n")
-        defer { run.run.stop(); try? FileManager.default.removeItem(at: run.home) }
+        defer { try? FileManager.default.removeItem(at: run.home) }
         _ = try await run.run.waitFor("ready", seconds: 10)
         let started = ContinuousClock.now
         await #expect(throws: CloudMachineSecrets.DeliveryFailed(reason: "eof")) {
             try await run.run.type(Data(repeating: 0x41, count: 4 << 20), seconds: 2)
         }
         #expect(ContinuousClock.now - started < .seconds(8))
+        await run.run.stop()
     }
 
     /// A cancelled delivery stops typing within about a second, even into a full pipe.
     @Test func aCancelledTypingStopsSoon() async throws {
         let run = try Self.standIn("echo ready\nexec sleep 30\n")
-        defer { run.run.stop(); try? FileManager.default.removeItem(at: run.home) }
+        defer { try? FileManager.default.removeItem(at: run.home) }
         _ = try await run.run.waitFor("ready", seconds: 10)
         let pty = run.run
         let typing = Task { try await pty.type(Data(repeating: 0x41, count: 1 << 20), seconds: 30) }
@@ -120,6 +123,19 @@ struct SSHMachineSecretsTests {
         typing.cancel()
         await #expect(throws: CloudMachineSecrets.DeliveryFailed(reason: "eof")) { try await typing.value }
         #expect(ContinuousClock.now - started < .seconds(5))
+        await run.run.stop()
+    }
+
+    /// Stopping waits for ssh to exit, and kills one that ignores the hang-up: none is left behind.
+    @Test func aStopLeavesNoSSHBehindEvenOneThatIgnoresTerm() async throws {
+        let run = try Self.standIn("trap '' TERM HUP\necho ready\nexec sleep 30\n")
+        defer { try? FileManager.default.removeItem(at: run.home) }
+        _ = try await run.run.waitFor("ready", seconds: 10)
+        let started = ContinuousClock.now
+        await run.run.stop()
+        #expect(!run.run.isRunning)
+        #expect(ContinuousClock.now - started < .seconds(8))
+        await run.run.stop()
     }
 
     // MARK: Helpers

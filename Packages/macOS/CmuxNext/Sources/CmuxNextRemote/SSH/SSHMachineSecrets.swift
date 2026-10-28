@@ -20,7 +20,9 @@ public enum SSHMachineSecrets {
     /// The machine's folder for the receiver and its ticket, as a remote shell expands it.
     public static let directory = "$HOME/.cmux/machine-config"
     public static let receiverPath = directory + "/receive-secrets"
-    public static let ticketPath = directory + "/receive-secrets.ticket"
+    /// One delivery's ticket, named by its `word` (hex): deliveries to one machine under two names (an
+    /// SSH machine and a peer alias) never read each other's.
+    public static func ticketPath(_ word: String) -> String { directory + "/receive-secrets.\(word).ticket" }
     /// Where the receiver writes the values (``CloudMachineSecrets/receiver``).
     public static let envFile = "~/.config/cmux/machine-secrets.env"
     /// The line a shell profile on the machine needs for its shells and agents to see the values: an own
@@ -36,8 +38,10 @@ public enum SSHMachineSecrets {
     }
 
     /// The script `sh -s` runs on the machine: the receiver and the ticket, each from a quoted here-document
-    /// whose end word occurs in neither, into a 0700 folder with umask 077.
-    static func installScript(ticket: Data, word: String = CloudMachineSecrets.randomHex()) -> String {
+    /// whose end word occurs in neither, into a 0700 folder with umask 077. The receiver is replaced by a
+    /// rename, so a delivery already running keeps reading the copy it opened; tickets a delivery never
+    /// used (its receiver did not start) go after 10 minutes.
+    static func installScript(ticket: Data, word: String) -> String {
         let receiver = "CMUX_RECEIVER_\(word)", ticketEnd = "CMUX_TICKET_\(word)"
         let body = String(decoding: ticket, as: UTF8.self)
         let text = body.hasSuffix("\n") ? body : body + "\n"
@@ -47,11 +51,12 @@ public enum SSHMachineSecrets {
             d="\(directory)"
             mkdir -p "$d"
             chmod 700 "$d"
-            rm -f "$d/receive-secrets.ticket"
-            cat > "$d/receive-secrets" <<'\(receiver)'
+            find "$d" -name 'receive-secrets.*.ticket' -mmin +10 -exec rm -f {} + 2>/dev/null || true
+            cat > "$d/.receive-secrets.\(word)" <<'\(receiver)'
             \(CloudMachineSecrets.receiver)
             \(receiver)
-            cat > "$d/receive-secrets.ticket" <<'\(ticketEnd)'
+            mv -f "$d/.receive-secrets.\(word)" "$d/receive-secrets"
+            cat > "$d/receive-secrets.\(word).ticket" <<'\(ticketEnd)'
             \(text)\(ticketEnd)
 
             """
@@ -64,13 +69,13 @@ public enum SSHMachineSecrets {
     }
 
     /// The delivery's calls over ssh to `destination` (see ``CloudMachineSecrets/deliver(_:over:nonce:key:receiverAt:ticketAt:)``,
-    /// with ``receiverPath`` and ``ticketPath``).
+    /// with ``receiverPath`` and ``ticketPath(_:)`` of the same `word`, a fresh hex word per delivery).
     public static func link(to destination: SSHDestination, environment: [String: String],
-                            commandLine: SSHCommandLine = SSHCommandLine()) -> CloudMachineSecrets.Link {
+                            commandLine: SSHCommandLine = SSHCommandLine(), word: String) -> CloudMachineSecrets.Link {
         let run = PTYBox()
         return CloudMachineSecrets.Link(
             writeTicket: { ticket in
-                let result = try await SSHProcessRunner.run(commandLine.script(destination), input: .data(Data(installScript(ticket: ticket).utf8)),
+                let result = try await SSHProcessRunner.run(commandLine.script(destination), input: .data(Data(installScript(ticket: ticket, word: word).utf8)),
                                                             environment: environment, deadline: .seconds(60), label: "secrets receiver install")
                 guard result.status == 0 else { throw Unreachable(message: lastLine(result.stderr)) }
             },
@@ -88,7 +93,7 @@ public enum SSHMachineSecrets {
                 guard let pty = run.get() else { throw CloudMachineSecrets.DeliveryFailed(reason: "unexpected") }
                 try await pty.type(bytes)
             },
-            close: { _ in run.get()?.stop() })
+            close: { _ in await run.get()?.stop() })
     }
 
     /// `argv` as one remote command line: the first word plain, the rest in double quotes, so the
@@ -128,6 +133,8 @@ final class SSHPTYRun: Sendable {
     private let running: Mutex<Running>
     private let input: Int32
     private let changes: AsyncStream<Void>
+    /// Finishes when ssh has exited (its termination handler), for ``stop()`` to wait on.
+    private let exited: AsyncStream<Void>
 
     init(_ argv: [String], environment: [String: String]) throws {
         guard let executable = argv.first else { throw CocoaError(.executableNotLoadable) }
@@ -141,6 +148,9 @@ final class SSHPTYRun: Sendable {
         process.standardError = FileHandle.nullDevice
         let (changes, changed) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
         self.changes = changes
+        let (exited, exit) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        self.exited = exited
+        process.terminationHandler = { _ in exit.finish() }
         input = stdinPipe.fileHandleForWriting.fileDescriptor
         // A write after ssh ended fails with EPIPE instead of signalling the app.
         _ = fcntl(input, F_SETNOSIGPIPE, 1)
@@ -151,7 +161,7 @@ final class SSHPTYRun: Sendable {
         self.output = output
         stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
             var buffer = [UInt8](repeating: 0, count: 16 * 1024)
-            let count = Darwin.read(fd, &buffer, buffer.count)
+            let count = buffer.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
             if count < 0, errno == EINTR || errno == EAGAIN { return }
             // End of file or a read error: the waits end.
             guard count > 0 else {
@@ -215,13 +225,28 @@ final class SSHPTYRun: Sendable {
     }
 
     /// Ends the run, once: its stdin closes and ssh stops, which hangs up the receiver's pty.
-    func stop() {
-        running.withLock { running in
-            guard !running.stopped else { return }
+    /// Whether ssh is still running (tests).
+    var isRunning: Bool { running.withLock { $0.process.isRunning } }
+
+    func stop() async {
+        let first = running.withLock { running -> (process: Process, stdout: FileHandle)? in
+            guard !running.stopped else { return nil }
             running.stopped = true
             try? running.stdin.fileHandleForWriting.close()
             if running.process.isRunning { running.process.terminate() }
+            return (running.process, running.stdout.fileHandleForReading)
         }
+        guard let first else { return }
+        // Waits for ssh to exit, a few seconds at most, then kills it: no stopped run leaves an ssh,
+        // its pipes or the machine's pty behind.
+        let exited = exited
+        let ended = (try? await withDeadline(.seconds(3), label: "secrets ssh exit") { for await _ in exited {} }) != nil
+        if !ended, first.process.isRunning {
+            kill(first.process.processIdentifier, SIGKILL)
+            _ = try? await withDeadline(.seconds(2), label: "secrets ssh kill") { for await _ in exited {} }
+        }
+        first.stdout.readabilityHandler = nil
+        try? first.stdout.close()
     }
 }
 

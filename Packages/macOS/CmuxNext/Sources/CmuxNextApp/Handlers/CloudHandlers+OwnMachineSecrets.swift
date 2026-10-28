@@ -97,11 +97,12 @@ extension CloudHandlers {
             // Always sent: an own machine is one file reachable under several names (an SSH machine,
             // a peer, another alias), so no record here can say what it holds now.
             let values = try await keychainValues(items)
-            let link = SSHMachineSecrets.link(to: destination, environment: await SSHService.environment())
+            let word = CloudMachineSecrets.randomHex()
+            let link = SSHMachineSecrets.link(to: destination, environment: await SSHService.environment(), word: word)
             let count: Int
             do {
                 count = try await CloudMachineSecrets.deliver(values, over: link, receiverAt: SSHMachineSecrets.receiverPath,
-                                                              ticketAt: SSHMachineSecrets.ticketPath)
+                                                              ticketAt: SSHMachineSecrets.ticketPath(word))
             } catch let failed as CloudMachineSecrets.DeliveryFailed {
                 throw ActionFailure(message: CloudStrings.secretsNotDelivered(failed.reason))
             } catch let unreachable as SSHMachineSecrets.Unreachable {
