@@ -658,13 +658,46 @@ impl Controller {
                 .await
                 .map_err(|error| error.to_string())?;
             if let Err(error) = result {
-                self.clear_node("error");
+                self.finish_shutdown("error");
                 self.update(|snapshot| snapshot.error = Some(error.clone()));
                 return Err(error);
             }
         }
-        self.clear_node("stopped");
+        self.finish_shutdown("stopped");
         Ok(())
+    }
+
+    fn finish_shutdown(&self, state: &'static str) {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        // A logout can queue behind shutdown while retirement owns the gate.
+        // Shutdown must not consume that caller's remote sign-out receipt.
+        let previous = std::mem::replace(&mut inner.state, LifecycleState::Stopped);
+        let node = match previous {
+            LifecycleState::LoggingOut { node, remote_result } => {
+                inner.state = LifecycleState::LoggingOut {
+                    remote_result: remote_result
+                        .or_else(|| node.as_ref().map(|_| Err(late_logout_error()))),
+                    node: None,
+                };
+                node
+            }
+            LifecycleState::Retiring { node, phase: RetirementPhase::ClosingForLogout } => {
+                inner.state = LifecycleState::LoggingOut {
+                    node: None,
+                    remote_result: Some(Err(late_logout_error())),
+                };
+                node
+            }
+            LifecycleState::Running(node) => Some(node),
+            LifecycleState::Retiring { node, .. } => node,
+            _ => None,
+        };
+        inner.snapshot.node_gone(state);
+        self.publish_locked(&inner.snapshot);
+        drop(inner);
+        if let Some(node) = node {
+            release_node(node);
+        }
     }
 
     fn retire_node(
@@ -1430,9 +1463,14 @@ mod tests {
 
     #[tokio::test]
     async fn retirement_preserves_remote_logout_completion_for_the_waiter() {
-        for (late, remote_result) in
-            [(true, Ok(())), (false, Ok(())), (false, Err("remote logout failed".to_owned()))]
-        {
+        for (late, remote_result, shutdown_first) in [
+            (true, Ok(()), false),
+            (true, Ok(()), true),
+            (false, Ok(()), false),
+            (false, Ok(()), true),
+            (false, Err("remote logout failed".to_owned()), false),
+            (false, Err("remote logout failed".to_owned()), true),
+        ] {
             let temporary = tempfile::tempdir().unwrap();
             let config = NodeConfig::new(temporary.path(), "test");
             let node = tokio::task::spawn_blocking(move || Arc::new(Node::new(&config).unwrap()))
@@ -1456,6 +1494,9 @@ mod tests {
             tokio::task::spawn_blocking(move || closing_node.close().unwrap()).await.unwrap();
             assert!(controller.finish_retirement(generation, &node, Ok(remote_result.clone())));
             let expected = if late { Err(late_logout_error()) } else { remote_result };
+            if shutdown_first {
+                controller.shutdown().await.unwrap();
+            }
             assert_eq!(controller.logout().await.map(|_| ()), expected);
             assert!(!temporary.path().join("tailscaled.state").exists());
             assert!(controller.state_node().is_none());
