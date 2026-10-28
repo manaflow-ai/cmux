@@ -916,3 +916,71 @@ test("deleting a placed attachment with its token pasted as text beside it takes
   expect(sent[0]!.attachments).toEqual([]);
   expect(blockTexts(sent[0]!)).toEqual([`text:${token} see  here`]);
 });
+
+// Review of #26667 (Astra), finding 2: a file still streaming to the session's machine does not
+// hold a send; it stays for the next prompt (attachmentIntake.tsx useSendWhenAttached). The send's
+// clear took its node out of the text as an edit, and the edit cancelled it: its upload was dropped
+// and the next prompt went without it. A node the person deletes is still cancelled.
+async function withUploadingFile(onSend?: ComposerProps["onSend"]) {
+  let finish: ((paths: string[]) => void) | undefined;
+  const upload = () =>
+    new Promise<{ paths: string[] }>((resolve) => {
+      finish = (paths) => resolve({ paths });
+    });
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent, { upload, ...(onSend ? { onSend } : {}) });
+  await act(async () => composer.current!.restore("see", []));
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  const archive = new File([new Uint8Array(64)], "notes.bin", { type: "application/octet-stream" });
+  Object.defineProperty(event, "clipboardData", {
+    value: { files: [archive], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => {
+    field().dispatchEvent(event);
+  });
+  await until(
+    () => finish !== undefined && Boolean(field().querySelector("[data-inline-attachment]")),
+    "the uploading placeholder in the text",
+  );
+  const id = field().querySelector("[data-inline-attachment]")!.getAttribute("data-inline-attachment")!;
+  return { composer, sent, id, finish: (paths: string[]) => act(async () => finish!(paths)) };
+}
+
+test("a file still uploading when the prompt is sent stays, and goes with the next prompt", async () => {
+  // The host takes the prompt a moment later; the person types on meanwhile.
+  let take: (() => void) | undefined;
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const upload = await withUploadingFile((text, attachments) => {
+    sent.push({ text, attachments: attachments ?? [] });
+    return new Promise<void>((resolve) => {
+      take = resolve;
+    });
+  });
+  await act(async () => upload.composer.current!.send());
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.attachments).toEqual([]);
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  await act(async () => markdownField().insertTyped(" next"));
+  await act(async () => take!());
+  await settleTurns();
+  await upload.finish(["/tmp/notes.bin"]);
+  await until(
+    () => (upload.composer.current!.wakeState().attachments ?? []).some((each) => each.id === upload.id),
+    "the uploaded file, kept for the next prompt",
+  );
+  await act(async () => upload.composer.current!.send());
+  expect(sent).toHaveLength(2);
+  expect(sent[1]!.attachments.map((each) => [each.id, each.path])).toEqual([[upload.id, "/tmp/notes.bin"]]);
+});
+
+test("a file still uploading whose node the person deletes is cancelled", async () => {
+  const upload = await withUploadingFile();
+  await act(async () => markdownField().removeInline(upload.id));
+  await settleTurns();
+  await upload.finish(["/tmp/notes.bin"]);
+  await settleTurns();
+  expect(upload.composer.current!.wakeState().attachments ?? []).toEqual([]);
+  expect(field().querySelector("[data-inline-attachment]")).toBeNull();
+  expect(host.querySelector('[aria-busy="true"]')).toBeNull();
+});
