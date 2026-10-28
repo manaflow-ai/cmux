@@ -16,6 +16,10 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from runs_on_labels import EMPTY, Unknown, disallowed_labels, resolve_labels  # noqa: E402
+# The personal Linux workstation's label, from the fleet rule lint: the one file allowed to spell it.
+from test_ci_fleet_rule_lints import CANDIDATE_WORDS_ANY_CASE  # noqa: E402
+
+PERSONAL_WORKSTATION_LABEL = CANDIDATE_WORDS_ANY_CASE[0]
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
@@ -75,7 +79,7 @@ class DisallowedLabels(unittest.TestCase):
             "${{ vars.X && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}": "ubuntu-24.04",
             "${{ vars.X && 'macos-26' || 'blacksmith-4vcpu-ubuntu-2404' }}": "macos-26",
             "${{ vars.X && 'windows-2022' || 'blacksmith-4vcpu-ubuntu-2404' }}": "windows-2022",
-            "${{ vars.X && 'big-red' || 'blacksmith-4vcpu-ubuntu-2404' }}": "big-red",
+            "${{ vars.X && '%s' || 'blacksmith-4vcpu-ubuntu-2404' }}" % PERSONAL_WORKSTATION_LABEL: PERSONAL_WORKSTATION_LABEL,
             "${{ vars.X && 'blacksmith-6vcpu-macos-26' || 'blacksmith-4vcpu-ubuntu-2404' }}": "blacksmith-6vcpu-macos-26",
             "${{ vars.X && 'glaeda-side-light-xcode-26.6' || 'blacksmith-4vcpu-ubuntu-2404' }}": "glaeda-side-light-xcode-26.6",
             "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}": "vars.LINUX_RUNNER",
@@ -103,7 +107,7 @@ class Workflows(unittest.TestCase):
             text = (WORKFLOWS / name).read_text(encoding="utf-8")
             runs_on = read(text)
             self.assertIn("'blacksmith-32vcpu-ubuntu-2404'", runs_on, f"{name}: the mutation needs a target")
-            for bad in ("ubuntu-latest", "ubuntu-24.04", "macos-26", "big-red"):
+            for bad in ("ubuntu-latest", "ubuntu-24.04", "macos-26", PERSONAL_WORKSTATION_LABEL):
                 mutated = text.replace(runs_on, runs_on.replace("'blacksmith-32vcpu-ubuntu-2404'", f"'{bad}'"))
                 with self.subTest(workflow=name, label=bad):
                     self.assertNotEqual(mutated, text)

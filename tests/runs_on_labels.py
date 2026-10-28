@@ -15,7 +15,8 @@ unknown value, reported as `vars.X`. The result over-approximates: it holds ever
 those unknowns can produce.
 
 `disallowed_labels` names each label that is not Blacksmith Linux or a Linux label the manaflow-ai
-fleet declares in .github/runners.json, with the reason. An empty result is a falsy value (an empty
+fleet declares in .github/runners.json, with the reason. A personal machine's label is neither, so it fails
+like any other label (tests/test_runs_on_labels.py mutates a workflow onto one to prove it). An empty result is a falsy value (an empty
 runs-on never schedules). An unknown variable is refused unless the caller allows it by name.
 """
 from __future__ import annotations
@@ -31,8 +32,6 @@ OWNER = "manaflow-ai"
 BLACKSMITH_LINUX = re.compile(r"blacksmith-[0-9]+vcpu-ubuntu-[0-9]{4}(?:-arm)?")
 # GitHub-hosted images: ubuntu-24.04, ubuntu-latest, macos-26, macos-15-intel, windows-2022, ...
 GITHUB_HOSTED = re.compile(r"(?:ubuntu|macos|windows)-(?:latest|[0-9][0-9.]*)(?:-[a-z0-9]+)*")
-# Leo's personal Linux machine: never infrastructure.
-BIG_RED = re.compile(r"big[-_]?red", re.IGNORECASE)
 
 TOKEN = re.compile(
     r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|<=|>=|[!(),<>])"
@@ -221,8 +220,6 @@ def disallowed_labels(runs_on, allow_vars: frozenset[str] = frozenset(), root: P
                 bad[str(label)] = "an unknown value: nothing proves it is Blacksmith Linux"
         elif isinstance(label, bool) or label == EMPTY:
             bad[repr(label)] = "a falsy value: an empty runs-on never schedules"
-        elif BIG_RED.search(label):
-            bad[label] = "big-red is Leo's personal machine, never a runner"
         elif GITHUB_HOSTED.fullmatch(label):
             bad[label] = "a GitHub-hosted runner outside the fork branch"
         elif not (BLACKSMITH_LINUX.fullmatch(label) or label in fleet_linux):
