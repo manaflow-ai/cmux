@@ -222,7 +222,7 @@ jobs:
     # Keep its default on the hosted runner so a busy paid Linux pool cannot
     # delay every nightly before the macOS work is admitted; retain the normal
     # Linux runner fallback for repositories that do not set the override.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -1414,7 +1414,7 @@ jobs:
   resolve-nightly-ghostty-cli-helper:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1765,7 +1765,7 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: ${{ !cancelled() && needs.resolve-nightly-cmux-tui-client.result == 'success' }}
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A dispatch mints the routing token too, so the key is read in the routing environment, as
     # the other dispatchable pickers do (iroh-release-gate.yml, test-ios.yml).
     environment: ci-routing-agent
@@ -3132,7 +3132,7 @@ jobs:
     # Runs for every app build (build_only and fast included): it picks the
     # commit every app job checks out (build_sha).
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       actions: read
@@ -3292,13 +3292,13 @@ jobs:
     # gives Apple lipo's bytes). The client install, its probes and the strip
     # run in build-nightly-app; the checks that execute Mach-O run in
     # verify-signed-nightly. The fallback below runs only after a failure.
-    # While Blacksmith Linux starts nothing (the overflow record is set) and
-    # hosted Ubuntu is saturated, this and the other light nightly jobs take
-    # Blacksmith macOS 26, which still moves. Apple's lipo then does the
-    # thinning llvm-lipo copies. No owned label: a runs-on never reads an
-    # unpicked owned variable (tests/test_nightly_trusted_routing.py), and the
-    # picker that validates one itself runs after decide.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # This and the other light nightly jobs stay on Linux while the overflow
+    # record is set (LINUX_RUNNER then names the switch's Linux failover). A
+    # job keeps the label GitHub gave it when it was created, so one created
+    # while the switch was on waited hours on Blacksmith macOS after the switch
+    # cleared (2026-10-28). Its steps still run on a Mac (Apple's lipo, the
+    # Mac's tar).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -3740,7 +3740,7 @@ jobs:
     # A different Blacksmith Linux size than the primary's, so a stalled 4 vCPU
     # queue does not hold the fallback too; never GitHub-hosted (Leo, 2026-10-27:
     # "just put it on blacksmith / 16vcpu blacksmiths do exist").
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -4026,7 +4026,7 @@ jobs:
   prepare-nightly-variant:
     needs: [prepare-nightly-variant-primary, prepare-nightly-variant-fallback]
     if: always() && (needs.prepare-nightly-variant-primary.result == 'success' || needs.prepare-nightly-variant-fallback.result == 'success')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Accept primary or fallback preparation
         run: echo "nightly preparation completed on the primary or fallback route"
@@ -4046,7 +4046,7 @@ jobs:
     # vars.MACOS_RUNNER_26: a pick never blocks signing. It runs on Blacksmith Linux, as
     # prepare-nightly-variant does (LINUX_RUNNER, which the overflow switch moves).
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
     # routing environment, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
     environment: ci-routing-agent
@@ -5682,7 +5682,7 @@ jobs:
   find-nightly-next-recovery:
     needs: [decide]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 70
     permissions:
       actions: read
