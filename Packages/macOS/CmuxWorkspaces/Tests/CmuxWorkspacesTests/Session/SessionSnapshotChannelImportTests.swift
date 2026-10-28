@@ -4,12 +4,6 @@ import Testing
 
 @Suite("Session channel import bounds")
 struct SessionSnapshotChannelImportTests {
-    private struct Snapshot: SessionSnapshotRepresenting {
-        var version: Int
-        var windows: [String]
-        var hasWindows: Bool { !windows.isEmpty }
-    }
-
     private func snapshotData(paddingTokens: Int) -> Data {
         Data(("{\"version\":1,\"windows\":[\"terminal\"],\"pad\":["
             + String(repeating: "0,", count: paddingTokens) + "0]}").utf8)
@@ -19,7 +13,7 @@ struct SessionSnapshotChannelImportTests {
     func channelImportRetainsLargeSession(useBackup: Bool) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let repository = SessionSnapshotRepository<Snapshot>(
+        let repository = SessionSnapshotRepository<SessionSnapshotChannelImportFixture>(
             schemaVersion: 1, bundleIdentifier: "com.cmuxterm.tests", appSupportDirectory: directory
         )
         let location = SessionSnapshotFileLocation(appSupportDirectory: directory)
@@ -45,7 +39,7 @@ struct SessionSnapshotChannelImportTests {
     func channelImportRejectsExcessiveTokens(useBackup: Bool) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let repository = SessionSnapshotRepository<Snapshot>(
+        let repository = SessionSnapshotRepository<SessionSnapshotChannelImportFixture>(
             schemaVersion: 1, bundleIdentifier: "com.cmuxterm.tests", appSupportDirectory: directory
         )
         let location = SessionSnapshotFileLocation(appSupportDirectory: directory)
@@ -66,7 +60,7 @@ struct SessionSnapshotChannelImportTests {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let repository = SessionSnapshotRepository<Snapshot>(
+        let repository = SessionSnapshotRepository<SessionSnapshotChannelImportFixture>(
             schemaVersion: 1, bundleIdentifier: "com.cmuxterm.tests", appSupportDirectory: directory
         )
         let source = directory.appendingPathComponent("import.json")
