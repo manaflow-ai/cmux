@@ -12,6 +12,7 @@ import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import { liftInlineImages, withoutDataUris } from "../src/agent-session/acpmux/inlineImages";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -189,6 +190,7 @@ async function openComposer(
 }
 
 const field = () => host.querySelector<HTMLElement>('[role="combobox"]')!;
+const markdownField = () => host.querySelector<MarkdownFieldElement>(".acpmux-md-field")!.acpmuxMarkdownField!;
 
 /// Pastes on the prompt field as WebKit delivers it: one ClipboardEvent with the clipboard's data.
 async function paste(clipboard: { files?: File[]; html?: string; plain?: string }) {
@@ -537,4 +539,51 @@ test("a chat's draft read before its kept attachments places them once they come
   await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "the kept image in the text");
   expect(field().textContent).not.toContain(MARK);
   expect(field().textContent).not.toContain(image.id);
+});
+
+// Review of #26545: after a send cleared the prompt, its Undo brought back the sent attachments'
+// tokens (U+FFFC, the id, U+FFFC) with no attachment to draw, and the next send sent them as raw
+// text. They went with the first prompt: an undo of the clear brings back the words, and a resend
+// (in the undo's own task too) sends the words with no token and no attachment.
+test("sending, undoing the clear, and resending never sends a sent attachment's token", async () => {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const image: ComposerAttachment = {
+    id: "sent-then-undone",
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  await act(async () => composer.current!.restore(`before ${inlineToken(image.id)} after`, [image]));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "restored inline image");
+  // A person sends a moment after writing: the field's history keeps the clear as its own step
+  // (prosemirror-history joins steps less than 500 ms apart).
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 600)));
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.attachments.map((attachment) => attachment.id)).toEqual([image.id]);
+  await until(() => !field().textContent?.includes("before"), "the cleared prompt");
+  // Undo, and a send in the same task, before anything after the undo ran.
+  await act(async () => {
+    markdownField().undo();
+    composer.current!.send();
+  });
+  await until(() => field().textContent?.includes("before") === true, "the undone clear");
+  for (let turn = 0; turn < 5; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(field().querySelector("[data-inline-attachment]")).toBeNull();
+  expect(field().textContent).not.toContain(MARK);
+  expect(markdownField().value()).not.toContain(MARK);
+  expect(composer.current!.wakeState().attachments ?? []).toEqual([]);
+  if (sent.length === 1) await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(2);
+  const resent = sent[1]!;
+  expect(resent.attachments).toEqual([]);
+  expect(resent.text).toContain("before");
+  expect(resent.text).toContain("after");
+  expect(resent.text).not.toContain(MARK);
+  expect(resent.text).not.toContain(image.id);
+  expect(JSON.stringify(promptBlocks(resent.text, resent.attachments))).not.toContain(image.id);
 });
