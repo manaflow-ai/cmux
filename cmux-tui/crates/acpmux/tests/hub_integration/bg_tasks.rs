@@ -235,3 +235,25 @@ async fn a_task_sees_the_agents_environment() {
         assert_eq!(text(&r, &id, &task), format!("{id}\n"), "launched: {launched}");
     }
 }
+
+/// A record of another generation of the chat's folder (a runner that outlived a purge, writing
+/// under the old path) is neither listed nor reached.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_record_from_an_earlier_folder_of_the_id_is_not_the_chats() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "generations").await;
+    let task = start(&mut r, &id, "true").await["id"].as_str().unwrap().to_owned();
+    r.until("the task never ended", || state(&r, &id, &task) == "exited").await;
+    let dir = acpmux::config::home().join("bg").join(&id);
+    let mut old = acpmux::bg_run::read_record(&dir, &task).unwrap();
+    old.id = "bg-0ld0ld0ld0ld".into();
+    old.generation = "an-earlier-folder".into();
+    acpmux::bg_run::write_record(&dir, &old).unwrap();
+    let list = r.hub.bg_list(&r.hub.resolve(&id).unwrap());
+    let ids: Vec<_> = list["tasks"].as_array().unwrap().iter().map(|t| t["id"].clone()).collect();
+    assert_eq!(ids, [json!(task)], "{list}");
+    let stop = r.c.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": old.id})).await;
+    assert!(stop.is_err(), "an earlier folder's task was reached");
+}

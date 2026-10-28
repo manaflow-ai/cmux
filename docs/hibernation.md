@@ -74,7 +74,9 @@ instead:
   once the pipe ends and a stop's SIGKILL went out. So output a child writes after the leader
   exited is kept, and a child that ignores SIGTERM is killed even with its output sent
   elsewhere. Purging a chat stops its tasks and removes their folder; a runner still there after
-  the wait (20 s) keeps it. Stopping a chat keeps them, and a stopped chat starts none.
+  the wait (20 s) is moved aside, and a folder that neither moves nor goes fails the purge.
+  Each folder has a generation its records carry, so a runner that outlived a purge never shows
+  in a later folder of the same chat id. Stopping a chat keeps them, and a stopped chat starts none.
 - A task whose spool failed (a full disk) says so in `outputError`: its output is incomplete.
 - Only the chat's own agent (its proven caller token) and the person reach a chat's tasks. A
   chat moved away and imported back is the same chat, and finds its tasks again.

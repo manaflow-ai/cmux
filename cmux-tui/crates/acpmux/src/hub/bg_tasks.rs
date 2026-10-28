@@ -59,8 +59,12 @@ impl Hub {
         }
         // One start at a time: the running count and a purge's stop see every task.
         let _one = self.bg_starts.lock().await;
-        let closing =
-            || session.closing.load(Ordering::SeqCst) || session.purged.load(Ordering::SeqCst);
+        // A chat stopped before a restart is Closed with no closing flag: both count.
+        let closing = || {
+            session.closing.load(Ordering::SeqCst)
+                || session.purged.load(Ordering::SeqCst)
+                || session.status() == SessionStatus::Closed
+        };
         if closing() {
             return Err(RpcError::invalid_params("the chat is stopped; it starts no task"));
         }
@@ -82,6 +86,7 @@ impl Hub {
         }
         let env = self.bg_env(session, &meta).await?;
         std::fs::create_dir_all(&dir).map_err(internal)?;
+        let generation = bg_generation(&dir, true).map_err(internal)?;
         let id = format!("bg-{}", &uuid::Uuid::now_v7().simple().to_string()[20..]);
         let (runner, segment) = match self.bg_runner.lock().unwrap().clone() {
             Some(set) => set,
@@ -97,6 +102,7 @@ impl Hub {
             cwd,
             env,
             segment,
+            generation,
         };
         bg_spawn(&runner, &spec).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
         // A stop or purge that came meanwhile missed it: it ends here.
@@ -133,7 +139,10 @@ impl Hub {
         Ok(crate::agent::command_env(&cmd).into_iter().collect())
     }
 
+    /// The folder's tasks: only records of its own generation, so a runner that outlived a purge
+    /// of an earlier folder of this name never shows here.
     fn bg_records(&self, dir: &std::path::Path) -> Vec<Record> {
+        let Ok(generation) = bg_generation(dir, false) else { return Vec::new() };
         let mut records: Vec<Record> = std::fs::read_dir(dir)
             .into_iter()
             .flatten()
@@ -142,6 +151,7 @@ impl Hub {
                 let name = e.file_name().into_string().ok()?;
                 bg_run::read_record(dir, name.strip_suffix(".json")?)
             })
+            .filter(|r| r.generation == generation)
             .collect();
         records.sort_by_key(|r| r.started_at);
         records
@@ -158,7 +168,9 @@ impl Hub {
     fn bg_record(&self, session: &Session, id: &str) -> Result<(PathBuf, Record), RpcError> {
         let dir = self.bg_dir(session);
         let known = !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
-        match known.then(|| bg_run::read_record(&dir, id)).flatten() {
+        let generation = bg_generation(&dir, false).ok();
+        let record = known.then(|| bg_run::read_record(&dir, id)).flatten();
+        match record.filter(|r| Some(&r.generation) == generation.as_ref()) {
             Some(r) => Ok((dir, r)),
             None => Err(RpcError::not_found(format!("background task {id}"))),
         }
@@ -200,9 +212,11 @@ impl Hub {
     /// A purged chat's tasks are stopped and waited for (at most [`STOP_WAIT`], all at once).
     /// Its folder then goes, so a chat that later takes its id (an import) finds none. A runner
     /// that outlived the wait keeps its files, moved to `bg/.purged/<chat>-<n>` where no chat
-    /// looks. It holds the start lock, so a start in flight is either seen here or sees the chat
-    /// closing.
-    pub(super) async fn bg_purge(&self, session: &Session) {
+    /// looks; whatever it writes later under the old path carries the old generation, which a new
+    /// folder of this name does not list. A folder that neither moves nor goes fails the purge,
+    /// so the chat stays (stopped) rather than leave its tasks to a later chat of this id. It
+    /// holds the start lock, so a start in flight is either seen here or sees the chat closing.
+    pub(super) async fn bg_purge(&self, session: &Session) -> Result<(), RpcError> {
         let _one = self.bg_starts.lock().await;
         let dir = self.bg_dir(session);
         let mut gone = Vec::new();
@@ -213,7 +227,7 @@ impl Hub {
         }
         if futures::future::join_all(gone).await.into_iter().all(|g| g) {
             let _ = std::fs::remove_dir_all(&dir);
-            return;
+            return bg_cleared(&dir);
         }
         let aside = crate::config::home().join("bg").join(".purged");
         let to = aside.join(format!("{}-{}", session.id, uuid::Uuid::now_v7().simple()));
@@ -227,6 +241,31 @@ impl Hub {
                 let _ = std::fs::remove_dir_all(&dir);
             }
         }
+        bg_cleared(&dir)
+    }
+}
+
+/// The folder's generation (`.generation`, made with the folder's first task when `make`).
+fn bg_generation(dir: &std::path::Path, make: bool) -> std::io::Result<String> {
+    let path = dir.join(".generation");
+    match std::fs::read_to_string(&path) {
+        Err(e) if make && e.kind() == std::io::ErrorKind::NotFound => {
+            let generation = uuid::Uuid::now_v7().simple().to_string();
+            std::fs::write(&path, &generation)?;
+            Ok(generation)
+        }
+        r => r,
+    }
+}
+
+/// A purge's end: the chat's folder is gone, or the purge fails.
+fn bg_cleared(dir: &std::path::Path) -> Result<(), RpcError> {
+    match std::fs::symlink_metadata(dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        _ => Err(RpcError::internal(format!(
+            "the chat's background tasks in {} could not be removed",
+            dir.display()
+        ))),
     }
 }
 
