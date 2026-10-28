@@ -7,7 +7,8 @@ mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
-use acpmux::config::{Config, StoreMode};
+use acpmux::config::profiles::AuthNotes;
+use acpmux::config::{Config, ProfileMeta, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
 use acpmux::server::{Origin, serve_connection_with};
@@ -34,14 +35,25 @@ fn scratch(tag: &str) -> PathBuf {
 fn hub(root: &Path) -> Arc<Hub> {
     let two = root.join("claude-two");
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "claude"}},
+        "harnesses": {
+            "fake": {"argv": ["python3", FAKE], "family": "claude"},
+            // A harness whose own check passes only in the env its preset `checked-two` sets.
+            "checked": {"argv": ["python3", FAKE], "family": "plain"},
+        },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
-        "presets": {"two": {"harness": "fake", "env": {"CLAUDE_CONFIG_DIR": two}}},
+        "presets": {
+            "two": {"harness": "fake", "env": {"CLAUDE_CONFIG_DIR": two}},
+            "checked-two": {"harness": "checked", "env": {"WHO": "two"}},
+        },
         // No automatic continuation runs behind a failed turn (`auto_resume.rs`).
         "autoResumeDelaysMs": [],
     }))
     .unwrap();
+    let check = ["sh", "-c", "test \"$WHO\" = two"].map(String::from).to_vec();
+    let auth = AuthNotes { check, ..Default::default() };
+    cfg.profile_meta
+        .insert("checked".into(), ProfileMeta { auth: Some(auth), ..Default::default() });
     cfg.path = Some(root.join("home").join("config.json"));
     cfg.profile_sources.user_dir = Some(root.join("config").join("harnesses"));
     cfg.store.mode = StoreMode::Memory;
@@ -76,10 +88,17 @@ impl Client {
     }
 
     async fn new_session(&mut self, preset: Option<&str>) -> String {
-        let meta = match preset {
-            Some(p) => json!({"preset": p}),
-            None => json!({"harness": "fake"}),
-        };
+        match preset {
+            Some(p) => self.new_session_with(json!({"preset": p})).await,
+            None => self.new_session_of("fake").await,
+        }
+    }
+
+    async fn new_session_of(&mut self, harness: &str) -> String {
+        self.new_session_with(json!({"harness": harness})).await
+    }
+
+    async fn new_session_with(&mut self, meta: Value) -> String {
         let v = self
             .call(
                 method::SESSION_NEW,
@@ -176,4 +195,19 @@ async fn session_auth_names_the_chats_own_account_home() {
         format!("CLAUDE_CONFIG_DIR={} claude auth login", home.display()),
         "{out}"
     );
+}
+
+/// With refresh, the harness's own check runs in the chat's env (its preset's over the
+/// profile's), so a chat signed in by its preset is not reported signed out.
+#[tokio::test]
+async fn session_auth_checks_in_the_chats_own_env() {
+    let root = scratch("check-env");
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let preset = c.new_session(Some("checked-two")).await;
+    let out = c.auth(json!({"sessionId": preset, "refresh": true})).await;
+    assert_eq!(state(&out), ("ready", "authCheck"), "{out}");
+    let plain = c.new_session_of("checked").await;
+    let out = c.auth(json!({"sessionId": plain, "refresh": true})).await;
+    assert_eq!(state(&out), ("signedOut", "authCheck"), "{out}");
 }

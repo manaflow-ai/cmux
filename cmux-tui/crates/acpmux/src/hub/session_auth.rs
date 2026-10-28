@@ -206,6 +206,9 @@ impl Hub {
             && refresh
             && let Some(mut profile) = profile
         {
+            // The chat's own env (its preset's and its chat store's over the profile's), as
+            // its harness runs.
+            profile.env = self.harness_env(&meta).await.1;
             if let (Some(var), Some(home)) = (var, &home) {
                 profile.env.insert(var.to_owned(), home.display().to_string());
             }
