@@ -12,6 +12,18 @@
 
 use super::*;
 
+/// `initialize`'s reply with `_acpmux/queue_get` in `extensions` and `queueGet` in `features`,
+/// added here: the reply's own `json!` is at the macro's recursion limit.
+pub(super) fn advertised(mut reply: Value) -> Value {
+    let added =
+        [("extensions", method::MUX_QUEUE_GET), ("features", crate::author::QUEUE_GET_FEATURE)];
+    for (key, value) in added {
+        let list = reply.pointer_mut(&format!("/_meta/acpmux/{key}")).and_then(Value::as_array_mut);
+        list.into_iter().for_each(|list| list.push(Value::from(value)));
+    }
+    reply
+}
+
 /// Whether `m` is one of them.
 pub(super) fn handles(m: &str) -> bool {
     matches!(
