@@ -286,7 +286,9 @@ lines = [target.read_text()]
 for key, entry in state.items() if isinstance(state, dict) else ():
     trusted = entry.get("trusted_hash") if isinstance(entry, dict) else None
     if isinstance(key, str) and key.startswith(prefix) and isinstance(trusted, str):
-        lines.extend([f"[hooks.state.{json.dumps(key)}]", f"trusted_hash = {json.dumps(trusted)}", ""])
+        # TOML accepts UTF-8 directly; JSON's default surrogate escapes are
+        # rejected by TOML parsers for non-BMP path characters.
+        lines.extend([f"[hooks.state.{json.dumps(key, ensure_ascii=False)}]", f"trusted_hash = {json.dumps(trusted)}", ""])
 if len(lines) > 1:
     content = "\n".join(lines)
     fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=".config.toml.")
