@@ -50,11 +50,8 @@ extension MobileShellComposite {
                   !isHiddenMacPairingKey(key, hiddenIDs: hiddenIDs) else { return false }
             return seen.insert(key.pairingID).inserted
         }
-        if generation == directoryCandidatesGeneration {
-            discoveredIrohMacs = visible
-        }
-        // A newer list refresh owns publication, not the caller's independent
-        // reconnect attempt. Its same-scope result remains usable for dialing.
+        guard generation == directoryCandidatesGeneration else { return [] }
+        discoveredIrohMacs = visible
         return visible
     }
 

@@ -304,6 +304,12 @@ struct MacComputerDetailView: View {
                     availableMacs: privatePathEditorMacs
                 ) { draft in
                     let saved = await irohSettingsModel.upsertCustomPrivatePath(draft)
+                    guard saved else {
+                        return (false, L10n.string(
+                            "mobile.iroh.private.custom.saveFailed",
+                            defaultValue: "The private addresses could not be saved. Try again."
+                        ))
+                    }
                     if saved, pairedMac == nil, draft.isEnabled {
                         let connected = await store.connectDiscoveredIrohMac(using: draft)
                         return (

@@ -3286,6 +3286,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }) else {
             return false
         }
+        guard !Task.isCancelled, await currentScopeSnapshot() == scope else { return false }
         let attemptID = beginPairingAttempt(method: "manual")
         defer { finishConnectionOwningPairingAttempt(attemptID) }
         let connected = await connectAccountDiscoveredIrohMac(
