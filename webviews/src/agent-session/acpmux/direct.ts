@@ -1474,6 +1474,8 @@ export class AcpmuxDirectClient {
   /// newer one is dropped (its list may lack a peer the newer one has).
   private peerReadsStarted = 0;
   private peerReadApplied = 0;
+  /// The last peer list answer applied.
+  private lastPeerList: unknown;
   /// The peer list was read on this connection: until it is (a failed read), opening the list reads it.
   private peersRead = false;
   /// Each peer's last push taken (its `at`): a lagging watcher's repeat of an older note is not news.
@@ -6684,8 +6686,14 @@ export class AcpmuxDirectClient {
     const reply = await this.snapshotPeers(() =>
       this.request("_acpmux/peer_reconnect", { name, wait }, wait ? PEER_RECONNECT_WAIT_MS : undefined).catch(() => undefined),
     );
-    if (reply === undefined) return this.refreshPeers();
+    // No answer, or a read that started while it waited was applied instead or after it: that read
+    // may say the machine as it was before the reconnect settled, so the list is read again now.
+    if (reply === undefined || !this.appliedLast(reply)) return this.refreshPeers();
     if (!this.snapshotHold) this.emit();
+  }
+  /// Whether `reply` is the last peer list applied (no later read replaced it while it ran).
+  private appliedLast(reply: unknown): boolean {
+    return this.lastPeerList === reply;
   }
   /// This connection may read acpmux's peer list: this machine's own acpmux, or an older one that
   /// names no origin. One acpmux calls `peer` or `remote` is another host's, whose peers are not
@@ -6702,6 +6710,7 @@ export class AcpmuxDirectClient {
       const status = await read();
       if (status !== undefined && number > this.peerReadApplied) {
         this.peerReadApplied = number;
+        this.lastPeerList = status;
         this.readPeers(status);
         this.peersRead = true;
         for (const params of this.pushedDuringReads.values()) this.applyPeerState(params, true);

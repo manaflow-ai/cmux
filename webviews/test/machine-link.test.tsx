@@ -96,6 +96,9 @@ function daemon(
   const added: string[] = [];
   let holding = false;
   const held: (() => void)[] = [];
+  /// `_acpmux/peer_reconnect` waits (it settles when `settleReconnect()` is called), answering then.
+  let reconnectWaits = false;
+  const waitingReconnects: (() => void)[] = [];
   const peers = () => ({
     peers: [
       ...(listed ? [{ name: "gpu-box", transport: "ssh", connected: peerState === "connected", state: peerState }] : []),
@@ -161,6 +164,7 @@ function daemon(
           return () => socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }) });
         };
         if (holding && message.method === "_acpmux/status") held.push(respond());
+        else if (reconnectWaits && message.method === "_acpmux/peer_reconnect") waitingReconnects.push(() => respond()());
         else queueMicrotask(() => respond()());
       },
       close() {},
@@ -181,7 +185,14 @@ function daemon(
   };
   /// acpmux lists one more peer from now on.
   const add = (name: string) => added.push(name);
-  return { asked, open, notify, hold, release, add };
+  const waitReconnects = () => {
+    reconnectWaits = true;
+  };
+  const settleReconnect = () => {
+    reconnectWaits = false;
+    for (const settle of waitingReconnects.splice(0)) settle();
+  };
+  return { asked, open, notify, hold, release, add, waitReconnects, settleReconnect };
 }
 
 async function client(state: string, options: Parameters<typeof daemon>[1] = {}) {
@@ -206,6 +217,8 @@ async function client(state: string, options: Parameters<typeof daemon>[1] = {})
     hold: fake.hold,
     release: fake.release,
     add: fake.add,
+    waitReconnects: fake.waitReconnects,
+    settleReconnect: fake.settleReconnect,
     last: () => latest,
   };
 }
@@ -337,6 +350,20 @@ test("an older peer list read that answers after a newer one is dropped, so an a
   await Promise.all([older, newer]);
   expect(states.at(-1)?.["new-box"]).toBe("connected");
   expect(states.at(-1)?.["gpu-box"]).toBe("connected");
+});
+
+test("a list read while a reconnect waits never leaves the machine down once the reconnect answers", async () => {
+  const { client: pane, asked, states, waitReconnects, settleReconnect } = await client("offline");
+  waitReconnects();
+  const reconnect = pane.reconnectPeer("gpu-box", true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // The list opens while the reconnect waits: acpmux still says offline.
+  await pane.refreshPeersOnOpen();
+  expect(states.at(-1)?.["gpu-box"]).toBe("offline");
+  settleReconnect();
+  await reconnect;
+  expect(states.at(-1)?.["gpu-box"]).toBe("connected");
+  expect(asked.filter((message) => message.method === "_acpmux/peer_reconnect")).toHaveLength(1);
 });
 
 test("a lagging watcher's older note never replaces a newer one", async () => {
