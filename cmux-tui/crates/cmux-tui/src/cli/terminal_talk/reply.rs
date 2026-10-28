@@ -7,9 +7,6 @@
 //! - [`reply_after`]: the screen lines after the sent message's echo, less
 //!   the harness's own input box and status footer.
 
-/// Bracketed paste start and end (xterm `?2004`).
-const PASTE_START: &str = "\x1b[200~";
-const PASTE_END: &str = "\x1b[201~";
 /// How many characters of the message (whitespace removed) the end and
 /// start anchors use when the full message is not on screen.
 const ANCHOR_CHARS: usize = 48;
@@ -32,15 +29,14 @@ pub(in crate::cli) fn paste_mode_on(state: &[u8]) -> bool {
 }
 
 /// The bytes to type for `message`, without Enter. A trailing newline is
-/// dropped: Enter is the caller's. A paste end marker inside the message
-/// is removed so it cannot end the paste early.
+/// dropped: Enter is the caller's. Every paste end marker inside the message
+/// is removed (`bracketed_paste::frame`) so it cannot end the paste early.
 pub(in crate::cli) fn input_bytes(message: &str, paste_mode: bool) -> Vec<u8> {
     let message = message.trim_end_matches(['\n', '\r']);
     if !paste_mode {
         return message.as_bytes().to_vec();
     }
-    let body = message.replace(PASTE_END, "").replace("\r\n", "\n");
-    format!("{PASTE_START}{body}{PASTE_END}").into_bytes()
+    cmux_tui_core::bracketed_paste::frame(message.replace("\r\n", "\n").as_bytes())
 }
 
 /// The text the agent printed after `message`, and whether the message's

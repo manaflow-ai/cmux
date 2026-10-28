@@ -22,6 +22,14 @@ final class TerminalClipboardRequests {
     private var writeDialogID: Int?
     private var writeRequestState: UncheckedPointer?
     nonisolated static let maxProgramWriteBytes = 1 << 20
+    /// How long after the person's last key or click in this terminal a
+    /// program may still write the clipboard without asking (a copy command
+    /// they just ran). Later, or from a terminal without focus, it asks.
+    nonisolated static let programWriteInputWindow: Duration = .seconds(5)
+    /// The clock the input window reads.
+    private let clock: ContinuousClock
+    /// When the person last pressed a key or a mouse button in this terminal.
+    private var lastUserInput: ContinuousClock.Instant?
 
     /// Runs `body` as a user paste (see `userPasteInProgress`).
     func asUserPaste<T>(_ body: () -> T) -> T {
@@ -31,8 +39,11 @@ final class TerminalClipboardRequests {
         return body()
     }
 
-    /// Marks the synchronous Ghostty call made by a user's copy key or menu.
+    /// Marks the synchronous Ghostty call made by a user's key, click, copy
+    /// key or menu; it is also the person's latest input in this terminal
+    /// (``noteUserInput()``).
     func asUserClipboardWrite<T>(_ body: () -> T) -> T {
+        noteUserInput()
         let previous = userClipboardWriteInProgress
         userClipboardWriteInProgress = true
         defer { userClipboardWriteInProgress = previous }
@@ -46,8 +57,15 @@ final class TerminalClipboardRequests {
             && event.charactersIgnoringModifiers?.lowercased() == "v"
     }
 
-    init(view: TerminalSurfaceView) {
+    init(view: TerminalSurfaceView, clock: ContinuousClock = ContinuousClock()) {
         self.view = view
+        self.clock = clock
+    }
+
+    /// The person pressed a key or a mouse button in this terminal: one
+    /// clock read per key.
+    func noteUserInput() {
+        lastUserInput = clock.now
     }
 
     /// Serves a clipboard read with the pasteboard's text (and, when asked,
@@ -120,11 +138,15 @@ final class TerminalClipboardRequests {
     }
 
     /// Ghostty's write callback. Ghostty already applied `clipboard-write`:
-    /// it asks for confirmation only when the user set `ask` (and drops the
-    /// write for `deny`), so an unconfirmed write is committed silently.
+    /// it asks for confirmation when the user set `ask` (and drops the write
+    /// for `deny`). With `allow`, cmux still asks unless the person is using
+    /// this terminal (``writeDecision(userInitiated:requiresConfirmation:focused:sinceInput:)``).
     func write(items: [TerminalClipboardItem], location: TerminalPasteboardLocation, requiresConfirmation: Bool) {
+        let focused = view?.hasTerminalFocus ?? false
+        let sinceInput = lastUserInput.map { clock.now - $0 }
         switch Self.writeDecision(userInitiated: userClipboardWriteInProgress,
-                                  requiresConfirmation: requiresConfirmation) {
+                                  requiresConfirmation: requiresConfirmation,
+                                  focused: focused, sinceInput: sinceInput) {
         case .write:
             guard userClipboardWriteInProgress || bounded(items) else { return }
             TerminalPasteboard.write(items, to: location)
@@ -134,9 +156,18 @@ final class TerminalClipboardRequests {
     }
 
     /// What a clipboard write callback does: a user's own copy always
-    /// writes; a program write asks only when Ghostty's config says `ask`.
-    nonisolated static func writeDecision(userInitiated: Bool, requiresConfirmation: Bool) -> TerminalClipboardWriteDecision {
-        userInitiated || !requiresConfirmation ? .write : .confirm
+    /// writes. A program write asks when Ghostty's config says `ask`, and
+    /// also when the terminal does not have focus (`focused`: first responder
+    /// in the key window of the active app) or the person's last key or
+    /// click in it (`sinceInput`, nil for none) is older than
+    /// ``programWriteInputWindow``: output the person is not watching must not
+    /// change what their next paste types.
+    nonisolated static func writeDecision(userInitiated: Bool, requiresConfirmation: Bool,
+                                          focused: Bool, sinceInput: Duration?) -> TerminalClipboardWriteDecision {
+        if userInitiated { return .write }
+        if requiresConfirmation { return .confirm }
+        guard focused, let sinceInput, sinceInput >= .zero, sinceInput <= programWriteInputWindow else { return .confirm }
+        return .write
     }
 
     private func confirmProgramWrite(contents: String, contentBytes: Int, state: UncheckedPointer) {

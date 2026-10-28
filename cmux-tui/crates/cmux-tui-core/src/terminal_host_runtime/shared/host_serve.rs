@@ -616,11 +616,9 @@ impl ClientFrames {
                 let bracketed = ctx.host.term.lock().recover_poison().mode(2004, false);
                 let mut writer = ctx.host.pty_writer();
                 if bracketed {
-                    let _ = writer.write_all(b"\x1b[200~");
-                }
-                let _ = writer.write_all(&frame.payload);
-                if bracketed {
-                    let _ = writer.write_all(b"\x1b[201~");
+                    let _ = writer.write_all(&crate::bracketed_paste::frame(&frame.payload));
+                } else {
+                    let _ = writer.write_all(&frame.payload);
                 }
                 let _ = writer.flush();
             }

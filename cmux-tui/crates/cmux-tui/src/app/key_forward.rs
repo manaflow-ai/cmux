@@ -216,10 +216,7 @@ impl App {
             return;
         };
         if bracketed {
-            let mut bytes = Vec::with_capacity(text.len() + 12);
-            bytes.extend_from_slice(b"\x1b[200~");
-            bytes.extend_from_slice(text.as_bytes());
-            bytes.extend_from_slice(b"\x1b[201~");
+            let bytes = cmux_tui_core::bracketed_paste::frame(text.as_bytes());
             let _ = self.write_pty_bytes(surface_id, surface, bytes.into(), PtyInputKind::Ordered);
         } else {
             let _ = self.write_pty_bytes(
@@ -238,10 +235,7 @@ impl App {
             return;
         };
         if bracketed {
-            let mut bytes = Vec::with_capacity(text.len() + 12);
-            bytes.extend_from_slice(b"\x1b[200~");
-            bytes.extend_from_slice(text.as_bytes());
-            bytes.extend_from_slice(b"\x1b[201~");
+            let bytes = cmux_tui_core::bracketed_paste::frame(text.as_bytes());
             let _ = self.write_pty_bytes(surface_id, surface, bytes.into(), PtyInputKind::Ordered);
         } else {
             let _ = self.write_pty_bytes(

@@ -620,6 +620,10 @@ public final class TerminalSurfaceView: NSView {
 
     var isFirstResponder: Bool { window?.firstResponder === self }
 
+    /// The person can be typing into this terminal: it is first responder in
+    /// the key window of the active app.
+    var hasTerminalFocus: Bool { isFirstResponder && (window?.isKeyWindow ?? false) && NSApp.isActive }
+
     /// Focus is first responder in the key window. Ghostty uses it for cursor
     /// style and for focus reports (mode 1004) to the program.
     func updateFocus(firstResponder: Bool? = nil) {

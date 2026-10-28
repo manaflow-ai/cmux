@@ -16,6 +16,7 @@ pub mod agent_view;
 mod apps;
 /// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
 pub use cmux_tui_util::backoff;
+pub mod bracketed_paste;
 mod browser;
 pub mod browser_host;
 mod browser_host_history;

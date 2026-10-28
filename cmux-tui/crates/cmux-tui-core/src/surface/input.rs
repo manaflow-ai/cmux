@@ -360,14 +360,7 @@ impl Surface {
         };
         #[cfg(not(unix))]
         let _ = master;
-        let mut payload = Vec::with_capacity(bytes.len() + if bracketed { 12 } else { 0 });
-        if bracketed {
-            payload.extend_from_slice(b"\x1b[200~");
-        }
-        payload.extend_from_slice(bytes);
-        if bracketed {
-            payload.extend_from_slice(b"\x1b[201~");
-        }
+        let payload = if bracketed { crate::bracketed_paste::frame(bytes) } else { bytes.to_vec() };
         // A holder terminal's `pty-writer` queue takes the paste whole, after
         // every key typed before it, without waiting for the child.
         #[cfg(unix)]
