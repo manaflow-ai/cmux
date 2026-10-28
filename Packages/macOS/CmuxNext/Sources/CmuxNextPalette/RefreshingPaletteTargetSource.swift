@@ -1,4 +1,4 @@
-import CmuxNextActions
+public import CmuxNextActions
 
 /// A live argument catalog for selected actions, composed with existing target sources.
 /// Its cached rows are available immediately; the page owns refresh cancellation.
