@@ -303,6 +303,46 @@ import Testing
         await source.shutdown()
     }
 
+    @Test func anAttachmentUploadsOrderedMultipartPiecesBeforeCompletion() async throws {
+        let source = makeSource()
+        let log = try await connect(source)
+        defer { log.stop() }
+        let bytes = Data("elevenbytes".utf8)
+        let path = "/v1/home/attachments/multipart/\(WireFixture.conversationID)/slot.k1.mac"
+        http.script { [http] route, _ in
+            switch route {
+            case "/v1/home/attachments/intent":
+                return HomeWireHTTPReply(json: ["ok": true, "value": [
+                    "state": "upload", "mode": "multipart", "method": "PUT", "part_size": 4, "slot": "slot",
+                    "upload_url": .string("http://mini.tail1234.ts.net:7320\(path)"),
+                ]])
+            case path:
+                let request = try #require(http.requests.last)
+                let number = try #require(request.value(forHTTPHeaderField: "x-cmux-part-number").flatMap(Int.init))
+                return HomeWireHTTPReply(json: ["ok": true, "value": [
+                    "part_number": .number(Double(number)), "byte_count": .number(Double(request.httpBody?.count ?? 0)),
+                    "etag": .string("etag-\(number)"),
+                ]])
+            case "/v1/home/attachments/multipart/complete":
+                return HomeWireHTTPReply(json: ["ok": true, "value": ["state": "stored"]])
+            default: return nil
+            }
+        }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("wire-multipart-\(UUID().uuidString)")
+        try bytes.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let ref = AttachmentRef(hash: String(repeating: "ab", count: 32), name: "note.txt", mimeType: "text/plain", byteCount: bytes.count)
+        #expect(try await source.upload(AttachmentUpload(conversation: conversation, fileURL: file, ref: ref)) == ref)
+        let puts = http.requests.filter { $0.httpMethod == "PUT" }
+        #expect(puts.map { $0.httpBody?.count } == [4, 4, 3])
+        #expect(puts.reduce(into: Data()) { $0.append($1.httpBody ?? Data()) } == bytes)
+        let complete = try #require(http.bodies("/v1/home/attachments/multipart/complete").first)
+        #expect(complete["parts"].array?.map { $0["etag"].string } == ["etag-1", "etag-2", "etag-3"])
+        #expect(http.bodies("/v1/home/attachments/intent").first?["multipart"].bool == true)
+        #expect(http.requests.last?.url?.path == "/v1/home/attachments/multipart/complete")
+        await source.shutdown()
+    }
+
     @Test func theBackoffGrowsToThirtySeconds() {
         #expect((0..<7).map { reconnectDelay(attempt: $0) } == [1, 2, 4, 8, 16, 30, 30].map { Duration.seconds($0) })
     }
