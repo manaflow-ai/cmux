@@ -345,7 +345,10 @@ class InstalledHelperRegression(unittest.TestCase):
                 "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/risk-tier.yml'; then "
                 "printf 'HTTP/2.0 200\\r\\n\\r\\n%s\\n' " + shlex.quote(contents) + "; exit 0; fi\n"
             )
-        check_payload = shlex.quote(json.dumps([{"check_runs": checks}]))
+        # One page of each list (scripts/ci/gh_pages.py reads it as `per_page=100&page=1`, and a short
+        # page ends the list).
+        check_payload = shlex.quote(json.dumps({"total_count": len(checks), "check_runs": checks}))
+        files_payload = shlex.quote(json.dumps([{"filename": f} for f in changed_files]))
         runs_payload = shlex.quote(json.dumps({"total_count": len(cmux_next_runs), "workflow_runs": [
             {"id": 900 + index, "status": status, "conclusion": conclusion, "run_attempt": attempt, "head_sha": HEAD, "event": "pull_request"}
             for index, (status, conclusion, attempt) in enumerate(cmux_next_runs)]}))
@@ -370,7 +373,7 @@ class InstalledHelperRegression(unittest.TestCase):
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/cmux-next.yml?ref=" + HEAD + "'; then "
             + workflow_route + "; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files'; then "
-            "printf '%s\\n' " + " ".join(shlex.quote(f) for f in changed_files) + "; exit 0; fi\n"
+            "printf '%s\\n' " + files_payload + "; exit 0; fi\n"
             + risk_route +
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/contents/'; then printf '%s\\n' 'HTTP/2.0 200'; exit 0; fi\n"
             "if [ \"$1\" = api ]; then printf '%s\\n' '[]'; exit 0; fi\n"
@@ -779,16 +782,20 @@ jobs:
                   printf '%s\\n' 'HTTP/2.0 200'; exit 0
                 fi
                 if [ "$1" = api ] && printf '%s' "$*" | grep -q '/pulls/42/files'; then
-                  case "$*" in
-                    *'.[].filename'*) i=0; while [ "$i" -lt 100000 ]; do printf '%s\\n' 'Sources/Large.swift'; i=$((i + 1)); done ;;
-                    *'.[].patch'*)
-                      if [ "$INCLUDE_CONFLICT" = 1 ]; then printf '%s\\n' '+<<<<<<< HEAD'; fi
-                      i=0; while [ "$i" -lt 100000 ]; do printf '%s\\n' '+ordinary line'; i=$((i + 1)); done ;;
-                  esac
-                  exit 0
+                  # 2950 files over 30 pages of 100 (the last one short), each with a
+                  # 40-line patch: about 118000 patch lines.
+                  exec python3 -c '
+                import json, os, sys
+                page = int(sys.argv[1].rsplit("page=", 1)[1])
+                count = 100 if page < 30 else 50
+                patch = "\\n".join(["+ordinary line"] * 40)
+                if os.environ["INCLUDE_CONFLICT"] == "1" and page == 30:
+                    patch = "+<<<<<<< HEAD\\n" + patch
+                print(json.dumps([{{"filename": "Sources/Large.swift", "patch": patch}}] * count))
+                ' "$2"
                 fi
                 if [ "$1" = api ] && printf '%s' "$*" | grep -q '/check-runs'; then
-                  printf '%s\\n' '[{{"check_runs":[{{"id":1,"name":"ci-status","status":"completed","conclusion":"success"}},{{"id":2,"name":"macos / macOS compile admission","status":"completed","conclusion":"success"}}]}}]'
+                  printf '%s\\n' '{{"check_runs":[{{"id":1,"name":"ci-status","status":"completed","conclusion":"success"}},{{"id":2,"name":"macos / macOS compile admission","status":"completed","conclusion":"success"}}]}}'
                   exit 0
                 fi
                 exit 2
@@ -856,12 +863,15 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     else:
                         print('{}')
                     sys.exit(0 if code == 200 else 1)
+                # Lists answer one page (`per_page=100&page=1`); the paginate flag is refused.
+                elif a[0] == 'api' and '--paginate' in a:
+                    sys.exit(3)
                 elif a[0] == 'api' and any('/check-runs' in arg for arg in a):
-                    print(json.dumps([{'check_runs': x['checks']}]))
+                    print(json.dumps({'total_count': len(x['checks']), 'check_runs': x['checks']}))
                 elif a[0] == 'api' and any('/statuses' in arg for arg in a):
-                    print(json.dumps([x['statuses']]))
+                    print(json.dumps(x['statuses']))
                 elif a[0] == 'api' and any('/files' in arg for arg in a):
-                    if '.[].filename' in a: print('\n'.join(x['files']))
+                    print(json.dumps([{'filename': f} for f in x['files']]))
                 else:
                     sys.exit(2)
                 """))
@@ -1629,13 +1639,13 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
                           exit 1
                           ;;
                         repos/example/repo/commits/*/check-runs*)
-                          printf '[{{"check_runs":[{{"id":1,"name":"ci-status","status":"completed","conclusion":"success","app":{{"slug":"github-actions"}}}}]}}]\\n'
+                          printf '{{"check_runs":[{{"id":1,"name":"ci-status","status":"completed","conclusion":"success","app":{{"slug":"github-actions"}}}}]}}\\n'
                           ;;
                         repos/example/repo/commits/*/statuses*)
                           printf '[]\\n'
                           ;;
                         repos/example/repo/pulls/123/files*)
-                          printf ''
+                          printf '[]\\n'
                           ;;
                         repos/example/repo/pulls/123/merge)
                           if [ "{int(rest_merge_error)}" = 1 ]; then
