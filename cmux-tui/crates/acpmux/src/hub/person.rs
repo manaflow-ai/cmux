@@ -407,6 +407,31 @@ pub const MAX_PICK_FOLDERS: usize = 64;
 pub const MAX_WORKSPACE_ROOTS: usize = 256;
 
 impl PersonGate {
+    /// Signs an owner-policy grant with this daemon's existing person key.
+    /// Daemons for the same person share this enrolled key; agents never see it.
+    pub(crate) fn owner_policy_proof(
+        &self,
+        session: &str,
+        policy: &str,
+        host: &str,
+        nonce: &str,
+    ) -> Option<String> {
+        let key = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()?;
+        Some(owner_policy_proof_for_secret(&key, session, policy, host, nonce))
+    }
+
+    pub(crate) fn owner_policy_proof_matches(
+        &self,
+        proof: &str,
+        session: &str,
+        policy: &str,
+        host: &str,
+        nonce: &str,
+    ) -> bool {
+        self.owner_policy_proof(session, policy, host, nonce)
+            .is_some_and(|expected| cmux_local_auth::tokens_match(proof, &expected))
+    }
+
     /// `_acpmux/workspace_roots_set {roots}` (the person only): replaces the
     /// workspace folders. Absolute paths without control characters.
     pub fn set_workspace_roots(&self, params: &Value) -> Result<Value, RpcError> {
@@ -781,7 +806,7 @@ pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -
 
 /// Computes the daemon-to-daemon owner-policy proof for a shared peer
 /// credential. Callers must keep the credential private.
-pub fn owner_policy_proof_for_secret(
+pub(crate) fn owner_policy_proof_for_secret(
     secret: &str,
     session: &str,
     policy: &str,

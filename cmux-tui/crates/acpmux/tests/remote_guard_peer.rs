@@ -143,22 +143,14 @@ async fn a_proven_peer_starts_an_approve_all_session_and_the_web_still_cannot() 
     assert!(err(&r).contains(WEB_ONLY), "{r}");
 
     // A peer token alone cannot choose the HMAC key used by the owner marker.
-    let chosen_key = "11".repeat(32);
     let nonce = "22".repeat(32);
-    let proof = acpmux::hub::person::owner_policy_proof_for_secret(
-        &chosen_key,
-        &id,
-        "approve-all",
-        "forged-host",
-        &nonce,
-    );
     let (_init, r) = call_auth_pair(
         &hub,
         Origin::Peer,
         ConnAuth::PeerToken,
         ("initialize", json!({"protocolVersion": 1})),
         ("_acpmux/set_policy", json!({"sessionId": id, "policy": "approve-all", "_meta": {"acpmux": {
-            "ownerPolicyGrant": true, "ownerPolicyHost": "forged-host", "ownerPolicyProof": proof, "ownerPolicyNonce": nonce
+            "ownerPolicyGrant": true, "ownerPolicyHost": "forged-host", "ownerPolicyProof": "00", "ownerPolicyNonce": nonce
         }}})),
     ).await;
     assert!(err(&r).contains(WEB_ONLY), "{r}");

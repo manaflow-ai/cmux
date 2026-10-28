@@ -221,23 +221,6 @@ impl Peer {
         })
     }
 
-    pub(crate) fn owner_policy_proof(
-        &self,
-        session: &str,
-        policy: &str,
-        host: &str,
-        nonce: &str,
-    ) -> String {
-        let secret = self
-            .presented
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-            .or_else(|| self.peer_token.clone())
-            .unwrap_or_default();
-        crate::hub::person::owner_policy_proof_for_secret(&secret, session, policy, host, nonce)
-    }
-
     pub fn link(&self) -> Link {
         self.link.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }

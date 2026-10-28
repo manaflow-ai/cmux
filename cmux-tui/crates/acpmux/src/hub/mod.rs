@@ -512,9 +512,6 @@ pub struct Hub {
     pub health: Arc<crate::harness_health::HealthService>,
     /// The token the web listener checks now (`web_token.rs`).
     pub web_token: WebToken,
-    /// The peer token this daemon issued, used as the authenticated key for
-    /// owner grants arriving over a peer link.
-    pub(crate) owner_policy_secret: StdMutex<Option<String>>,
     /// This launch's person key (`person.rs`): who may allow and grant.
     pub person: person::PersonGate,
     /// One-time owner-policy grants accepted by this daemon. Nonces are
@@ -570,10 +567,6 @@ pub struct Hub {
 }
 
 impl Hub {
-    pub(crate) fn owner_policy_secret(&self) -> Option<String> {
-        self.owner_policy_secret.lock().unwrap_or_else(|e| e.into_inner()).clone()
-    }
-
     pub(crate) fn spend_owner_policy_nonce(&self, nonce: &str) -> bool {
         self.owner_policy_nonces.lock().unwrap_or_else(|e| e.into_inner()).insert(nonce.to_owned())
     }
@@ -677,7 +670,6 @@ impl Hub {
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
-            owner_policy_secret: StdMutex::new(None),
             person: Default::default(),
             owner_policy_nonces: StdMutex::new(std::collections::HashSet::new()),
             presence: Default::default(),

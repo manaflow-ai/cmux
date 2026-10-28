@@ -719,10 +719,6 @@ pub async fn serve_ws_with(
     auth: WsAuth,
 ) -> Result<()> {
     anyhow::ensure!(!token.is_empty(), "the acpmux web listener needs a token");
-    if let Some(peer_auth) = &auth.peer {
-        *hub.owner_policy_secret.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(peer_auth.token().to_owned());
-    }
     let bound = listener.local_addr()?;
     let (extra_origins, extra_hosts) = {
         let config = hub.config.read().await;
