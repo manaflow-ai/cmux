@@ -373,6 +373,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         revisions = [:]
         lookup.layouts.reset()
         lookup.shownNative = [:]
+        lookup.shownPool = [:]
         primed = false
         shownIDs = []
         shownTurns = [:]
@@ -574,6 +575,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             revisions = revisions.filter { live.contains($0.key) }
             lookup.layouts.retain(live)
             lookup.shownNative = lookup.shownNative.filter { live.contains($0.key) }
+            lookup.shownPool = lookup.shownPool.filter { live.contains($0.key) }
             let turnIDs = Set(turns.map(\.id))
             shownTurns = shownTurns.filter { turnIDs.contains($0.key) }
         }
@@ -592,7 +594,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         }
         forced = []
         for id in changed {
-            if let was = lookup.shownNative[id], was != lookup.isNative(id) { reloadIDs.append(id) } else { reconfigure.append(id) }
+            // A reconfigure must dequeue from the cell's own pool: a row whose pool changed (native
+            // and SwiftUI, or a streaming block that became a list) is reloaded.
+            if let was = lookup.shownPool[id], was != lookup.pool(for: id) { reloadIDs.append(id) } else { reconfigure.append(id) }
         }
         if ids != shownIDs {
             var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
@@ -680,6 +684,14 @@ final class ChatRowLookup {
     var showAll: (String) -> Void = { _ in }
     /// The cell type each row was last configured in (true: native).
     var shownNative: [String: Bool] = [:]
+    /// The reuse pool each row's cell came from (a reconfigure must use the same one).
+    var shownPool: [String: String] = [:]
+
+    /// The pool the data source dequeues `id` from now.
+    func pool(for id: String) -> String {
+        guard let row = rows[id] else { return "" }
+        return isNative(id) ? "N:" + row.nativeReuseKey : "H:" + row.hostedReuseKey
+    }
     /// The viewed files each edited-files card was last drawn with.
     var viewedShown: [String: Set<Int>] = [:]
 
@@ -725,6 +737,7 @@ final class ChatRowLookup {
     func configureNative(_ cell: ChatNativeRowCell, id: String) {
         guard let row = rows[id], let native = layouts.makeNow(row, revision: revisions[id] ?? 0, expanded: expanded(id)) else { return }
         shownNative[id] = true
+        shownPool[id] = "N:" + row.nativeReuseKey
         #if DEBUG
         let start = CACurrentMediaTime()
         if ChatRowCost.isEnabled { cell.costKind = row.costKind }
@@ -748,6 +761,7 @@ final class ChatRowLookup {
     func configure(_ cell: ChatRowCell, id: String) {
         guard let row = rows[id] else { return }
         shownNative[id] = false
+        shownPool[id] = "H:" + row.hostedReuseKey
         cell.known = layout?.knownHeight(of: id)
         #if DEBUG
         let start = CACurrentMediaTime()
