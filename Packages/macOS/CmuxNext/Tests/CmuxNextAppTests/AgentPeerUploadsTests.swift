@@ -105,6 +105,22 @@ import Testing
         }
     }
 
+    /// The page's begin past the former 1 GiB decoder limit, alone or with a batch naming a file past
+    /// it, decodes as the bridge decodes it (``DecodedStagedBegins``) and the peer stager takes it.
+    @Test(arguments: [2 << 30, 8 << 30])
+    func aDecodedBeginOfAnySizeReachesThePeerStager(size: Int) async throws {
+        try await Self.withPeerStager { stager, session in
+            for (params, begin) in DecodedStagedBegins.cases(size: size) {
+                let stage = try #require(DecodedStagedBegins.decode(params), "the decoder refused \(params)")
+                #expect(stage == begin)
+                let reply = await stager(stage, session)
+                #expect(reply["ok"] as? Bool == true, "\(reply)")
+                let token = try #require((reply["value"] as? [String: Any])?["token"] as? String)
+                _ = await stager(.cancel(token: token), session)
+            }
+        }
+    }
+
     /// The peer stager of a tab whose chat runs on `huge-blue`, and that chat's session.
     private static func withPeerStager(_ body: (AgentPaneUploadStager, String) async throws -> Void) async throws {
         _ = NSApplication.shared

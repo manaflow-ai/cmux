@@ -25,6 +25,19 @@ import Testing
         #expect(CloudUploads.beginRefusal(name: "a.mov", size: 40 * 1024 * 1024, manifest: large) == nil)
     }
 
+    /// The page's begin past the former 1 GiB decoder limit, alone or with a batch naming a file past
+    /// it, decodes as the bridge decodes it (``DecodedStagedBegins``) and the Cloud stager's begin
+    /// check takes it.
+    @Test(arguments: [2 << 30, 8 << 30])
+    func aDecodedBeginOfAnySizeReachesTheCloudStager(size: Int) throws {
+        for (params, begin) in DecodedStagedBegins.cases(size: size) {
+            let stage = try #require(DecodedStagedBegins.decode(params), "the decoder refused \(params)")
+            #expect(stage == begin)
+            guard case .begin(let name, let staged, _, let manifest) = stage else { continue }
+            #expect(CloudUploads.beginRefusal(name: name, size: staged, manifest: manifest) == nil)
+        }
+    }
+
     /// A batch whose first entry is not the file begun, or that names a negative size, is still refused.
     @Test func aMalformedBatchIsStillRefused() {
         let entries = [AgentPaneUploadBatchEntry(name: "a.bin", size: 1), AgentPaneUploadBatchEntry(name: "b.bin", size: 2)]
