@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Observation
 
 extension NotificationCenterService {
@@ -16,14 +17,15 @@ extension NotificationCenterService {
     /// Focus, typing, clicks and opens see the rest through `interacted`. An
     /// agent chat's turns are acpmux's (`unread`, cx-n8ou): its pane says
     /// whether it shows the chat.
-    func followViewedProgramStatus(_ store: DaemonStore) -> Task<Void, Never> {
-        Task { [weak self] in // task-owner: start() keeps the handle in tasks
-            for await _ in ObservationStream({ [weak self] in self?.viewedFacts(store) ?? ViewedTabsFacts(revision: 0, tabs: []) }) {
-                guard let self else { return }
-                let viewed = self.viewedTabs(store)
-                for tab in viewed { self.interacted(.focus, tab: tab) }
-                self.clearTabMarks(entering: viewed)
-            }
+    /// It runs in the visible class: the person sees the tab, but no input of theirs changed the facts.
+    func followViewedProgramStatus(_ store: DaemonStore) -> AnyObject {
+        ServiceObservation(.visible, owner: "notifications.viewed-tabs", on: work) { [weak self] in
+            self?.viewedFacts(store) ?? ViewedTabsFacts(revision: 0, tabs: [])
+        } apply: { [weak self] _ in
+            guard let self else { return }
+            let viewed = self.viewedTabs(store)
+            for tab in viewed { self.interacted(.focus, tab: tab) }
+            self.clearTabMarks(entering: viewed)
         }
     }
 

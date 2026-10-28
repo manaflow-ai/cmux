@@ -225,6 +225,7 @@ impl TerminalCleanup {
         match self.slots.clone().try_acquire_owned() {
             Ok(permit) => {
                 let cleanup = self.clone();
+                // supervise-allow: one stream's reset, bounded by cleanup.deadline and a slot permit; a panic frees the permit and loses only that reset.
                 tokio::spawn(async move {
                     let _permit = permit;
                     send_reset_or_close_session(
@@ -240,6 +241,7 @@ impl TerminalCleanup {
                 });
             }
             Err(_) if !self.escalating.swap(true, Ordering::AcqRel) => {
+                // supervise-allow: the one escalation close of a session out of cleanup slots; a panic loses only that close.
                 tokio::spawn(async move {
                     let _ = endpoint.close_session().await;
                 });
@@ -621,6 +623,7 @@ impl Drop for PendingOpenGuard {
         let service = self.service;
         let id = self.id;
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            // supervise-allow: Drop cannot await; one rejected open's tombstone and cleanup under tokio Mutexes (no poison), and a panic loses only that cleanup.
             runtime.spawn(async move {
                 closed
                     .lock()
@@ -900,6 +903,7 @@ impl Drop for ServiceStream {
         let state = self.state.clone();
         let service = self.service;
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            // supervise-allow: Drop cannot await; one closed stream's tombstone and cleanup under tokio Mutexes (no poison), and a panic loses only that cleanup.
             runtime.spawn(async move {
                 closed.lock().await.insert_on(id, legal_tombstone_lane_mask(service));
                 registrations.lock().await.remove(&id);
