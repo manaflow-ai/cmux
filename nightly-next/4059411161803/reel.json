@@ -1,0 +1,197 @@
+{
+  "version": 1,
+  "build": "4059411161803",
+  "notes": "notes/4059411161803.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26367,
+      "title": "ci(nightly-next): put node on PATH when setup-node exits without adding it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26301,
+      "title": "test(cmux-next app): DaemonRestartTests wait on their conditions, not wall-clock limits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26365,
+      "title": "ci(nightly-next): the dedicated builder admits by glaeda's floor for its runner",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24035,
+      "title": "cmux NEXT Needs you: a jump opens the waiting chat on the right, in the chat's side pane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26335,
+      "title": "ci(nightly-next): hand the signer jobs' output to verify and publish, macOS job as fallback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26293,
+      "title": "cmux NEXT sidebar tests: the rail test pins ui.animations.newWorkspace off, its default",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26235,
+      "title": "cmux-host, devbox: guest-side vm-kind writers keep the record the create wrote",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26336,
+      "title": "cmux NEXT tests: the hibernation rig plans a hidden page at once instead of waiting out a 10 s timer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26296,
+      "title": "cmux NEXT sidebar tests: the render-server move tests insert under a row that holds still",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26298,
+      "title": "cmux-next tests: AgentPaneColdChatRevealTests waits on the fade's completion, not 2 s",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26307,
+      "title": "fix(cmux-next agent pane): a call that missed its deadline says so, also when its teardown fails it first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26300,
+      "title": "test(cmux-next agent pane): the stalled --version probe's bound runs on an injected clock, not wall time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26342,
+      "title": "ci(cmux-next checks): \"Pushed commits add no violations\" fetches history without blobs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26268,
+      "title": "fix(webviews): derive New Tab probe styles from pane graph",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26357,
+      "title": "acpmux: the pool does not serve a host whose link stopped reading",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26317,
+      "title": "Agent pane relay: a new chat on another machine starts in that machine's folder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26355,
+      "title": "ci(nightly): light nightly jobs take Blacksmith macOS while Blacksmith Linux is down",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26334,
+      "title": "Capture runs show no host name: showcase Mac name and a neutral zsh prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26292,
+      "title": "test(cmux-next): FinishedBannerBurstTests runs with the sound burst cooldown off",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26347,
+      "title": "ci(nightly-next): verify jobs take an idle owned Mac by the build's rule, not the PR pool picker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26264,
+      "title": "cmux-next tests: BrowserDownloadWaitsTests has no suite time limit; its waits end at their own deadlines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26333,
+      "title": "acpmux: ACPMUX_HARNESS_FIXTURE serves a capture fixture's harnesses and health",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26211,
+      "title": "feat(cloud): use Codex broker for auth recovery",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26143,
+      "title": "cx-52vh66: align Cloud sidebar rows and text hierarchy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26267,
+      "title": "cmux-next tests: bound the self-sampling profiles and make them opt-in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26059,
+      "title": "acpmux: under MDM's off, an agent whose host this daemon no longer hears ends (#23322 b5)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26058,
+      "title": "acpmux: under MDM's off, a full-access option a bare answer took ends its agent (#23322 b4)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26212,
+      "title": "cloud-setup: connect Codex broker to app lifetime",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26170,
+      "title": "cloud-setup: add native Codex refresh broker client",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26341,
+      "title": "ci(nightly): the Ghostty helper's source-archive and license-tree uploads overwrite",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26311,
+      "title": "cloud-setup: bound Codex holder graceful shutdown",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
