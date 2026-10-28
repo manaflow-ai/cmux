@@ -6,7 +6,7 @@ import { pgSafe } from "./text-safe.ts"
 
 /**
  * Projection statements for PlanetScale MySQL (plans/cmux-next/state-placement.md 4.1), the same
- * kinds and payloads as the Postgres drain (projection.ts, projection-drizzle.ts). Every upsert keeps
+ * kinds and payloads the Postgres drain had (retired, cmuxterm-hq#4767 step 8). Every upsert keeps
  * the single-writer guard: a row changes only when the incoming source_seq is newer than the stored
  * one. MySQL has no conditional ON CONFLICT, so each assignment is `col = IF(cond, VALUES(col), col)`.
  * MySQL evaluates the assignments left to right and later ones see values already assigned, and

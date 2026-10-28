@@ -7,7 +7,7 @@ import { cases, iso, T0 } from "./projection-cases.ts"
  * Every projection kind against the migrated MySQL (CI: the mysql:8.4 service after
  * "Migrations apply from zero"; locally: scripts/mysql-scratch.sh; or the PlanetScale development
  * branch): a write applies, an older source_seq never moves the row back, a newer one updates it,
- * and deletes respect the same guard. Same cases as test-pg/projection.test.ts.
+ * and deletes respect the same guard. The cases of the retired Postgres projection test.
  */
 const url = process.env.MYSQL_URL
 const run = url ? describe : describe.skip
