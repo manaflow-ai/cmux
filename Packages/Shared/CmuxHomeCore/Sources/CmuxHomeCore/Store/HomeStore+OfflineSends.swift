@@ -57,7 +57,8 @@ extension HomeStore {
         let deadline = Self.offlineSendDeadline
         offlineDeadlines[key]?.cancel()
         offlineDeadlines[key] = Task { [weak self] in
-            do { try await clock.sleep(for: deadline) } catch { return }
+            // wakeup-allow: deadline of one send made while offline; its answer or `stop` cancels it
+            do { try await clock.sleep(for: deadline, tolerance: HomeWakeLeeway(delay: deadline).tolerance) } catch { return }
             guard !Task.isCancelled, let self, !self.stopped else { return }
             self.offlineDeadlines[key] = nil
             guard let entry = self.log.entries.first(where: { $0.intent.key == key }) else { return }

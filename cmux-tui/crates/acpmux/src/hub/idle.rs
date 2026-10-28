@@ -177,6 +177,23 @@ impl Hub {
     pub fn lifecycle_clock(&self) -> Arc<dyn crate::clock::Clock> {
         self.clock.lock_or_recover().clone()
     }
+
+    /// Nothing the daemon's priority serves: no live agent or background
+    /// process, and no pooled host starting (its fork inherits the daemon's
+    /// priority). The `idleHelperBackgroundPriority` idle task's question
+    /// (`ClientPresence::run_idle_priority`).
+    pub fn idle_quiet(&self) -> bool {
+        self.pool_starts_in_flight() == 0
+            && self.live_agent_count() == 0
+            && self.live_process_count() == 0
+    }
+
+    /// A session's status changed (`set_status`): the worktree care worker
+    /// and the daemon's idle priority (it asks `idle_quiet` again) hear it.
+    pub(super) fn status_changed(&self, status: SessionStatus) {
+        self.care_status(status);
+        self.clients.work_changed();
+    }
 }
 
 #[cfg(test)]

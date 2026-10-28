@@ -57,7 +57,8 @@ impl Peers {
     /// revoked admission view.
     pub(super) async fn reload<O: Overlay>(&self, overlay: &O) -> io::Result<()> {
         let _update = self.updates.lock().await;
-        let fresh = Arc::new(Pairings::load(&self.path)?);
+        let path = self.path.clone();
+        let fresh = Arc::new(crate::blocking::off_worker(move || Pairings::load(&path)).await?);
         let removed: Vec<[u8; 32]> = self
             .snapshot()
             .peers
