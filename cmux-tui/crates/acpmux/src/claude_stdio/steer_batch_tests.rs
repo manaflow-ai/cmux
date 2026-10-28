@@ -1,0 +1,242 @@
+//! Other sessions' messages steered into one step go in as one line (`steer_batch.rs`; Leo,
+//! 2026-10-27: "i also feel like there should be better batching for messages from other sessions
+//! so you can get to things faster/more efficiently"). `Queue` stands in for Claude Code's command
+//! queue: a user line written during the step waits there, and `cancel_async_message` drops one
+//! that still waits, as Claude Code does.
+
+use super::*;
+
+/// Claude Code's command queue during one long step.
+#[derive(Default)]
+struct Queue {
+    waiting: Vec<Value>,
+    /// Drops asked and not answered yet, so a test can answer them late or read a line first.
+    drops: Vec<Value>,
+}
+
+impl Queue {
+    /// Takes what acpmux wrote: user lines wait, drops are kept to answer.
+    fn take(&mut self, lines: Vec<Value>) {
+        for line in lines {
+            match line["type"].as_str() {
+                Some("user") => self.waiting.push(line),
+                Some("control_request") if line["request"]["subtype"] == "cancel_async_message" => {
+                    self.drops.push(line)
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Answers every drop asked (dropping the line when it still waits), and takes what acpmux
+    /// writes back, until nothing more comes; returns acpmux's answers to the hub.
+    async fn settle(&mut self, t: &Translator) -> Vec<Message> {
+        let mut out = Vec::new();
+        while !self.drops.is_empty() {
+            for drop in std::mem::take(&mut self.drops) {
+                let uuid = &drop["request"]["message_uuid"];
+                let before = self.waiting.len();
+                self.waiting.retain(|l| &l["uuid"] != uuid);
+                let cancelled = self.waiting.len() < before;
+                let answer = json!({"type": "control_response", "response": {"subtype": "success", "request_id": drop["request_id"], "response": {"cancelled": cancelled}}});
+                out.extend(t.inbound(&answer).await);
+                let written = t.take_stdin_replies().await;
+                self.take(written);
+            }
+        }
+        out
+    }
+}
+
+fn steer(id: i64, text: &str, meta: Value) -> Message {
+    Message::request(
+        id,
+        method::SESSION_PROMPT,
+        json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": text}], "_meta": meta}),
+    )
+}
+
+/// Another session's message, as the hub marks it (`hub/steer_end.rs`).
+fn from(id: i64, sender: &str, text: &str) -> Message {
+    let meta = json!({"steer": true, "promptId": format!("p{id}"), "batch": {"from": sender}});
+    steer(id, text, meta)
+}
+
+fn echo(line: &Value) -> Value {
+    json!({"type": "user", "isReplay": true, "uuid": line["uuid"], "message": line["message"]})
+}
+
+fn text_of(line: &Value) -> String {
+    let content = line["message"]["content"].as_array().cloned().unwrap_or_default();
+    content.iter().filter_map(|b| b["text"].as_str()).collect()
+}
+
+fn answer(msgs: &[Message], want: i64) -> Option<Result<Value, String>> {
+    msgs.iter().find_map(|m| match m {
+        Message::Response { id, result, error } if *id == want => Some(match error {
+            Some(e) => Err(e.message.clone()),
+            None => Ok(result.clone().unwrap_or(Value::Null)),
+        }),
+        _ => None,
+    })
+}
+
+/// A turn running its long step, its prompt read.
+async fn stepping() -> (Arc<Translator>, Queue) {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let Outbound::Lines(first) = t.outbound(&steer(1, "long-step", json!({}))).await else {
+        panic!()
+    };
+    t.inbound(&echo(&first[0])).await;
+    (t, Queue::default())
+}
+
+async fn write(t: &Translator, q: &mut Queue, msg: &Message) {
+    let Outbound::Lines(lines) = t.outbound(msg).await else { panic!("answered at once") };
+    q.take(lines);
+}
+
+const SENDERS: [&str; 3] = ["lane-a", "lane-b", "lane-c"];
+
+/// Ten messages from three sessions while the step runs: one line waits, and it holds every
+/// message whole, under its sender, oldest first, after a line that says what it holds. Its echo
+/// answers each message's own request.
+#[tokio::test]
+async fn ten_messages_during_a_step_wait_as_one_line_with_every_word_in_order() {
+    let (t, mut q) = stepping().await;
+    let mut answers = Vec::new();
+    for i in 1..=10 {
+        let sender = SENDERS[(i - 1) % 3];
+        write(&t, &mut q, &from(i as i64 + 1, sender, &format!("message {i}\nsecond line"))).await;
+        // Some drops are answered at once, some late: either way they end as one line.
+        if i % 4 == 0 {
+            answers.extend(q.settle(&t).await);
+        }
+    }
+    answers.extend(q.settle(&t).await);
+    assert_eq!(q.waiting.len(), 1, "one waiting line, not one per message: {:#?}", q.waiting);
+    assert!(answers.is_empty(), "a message was answered before Claude Code read it: {answers:?}");
+    let text = text_of(&q.waiting[0]);
+    assert!(text.starts_with("10 messages from 3 sessions arrived during this step."), "{text}");
+    let mut at = 0;
+    for i in 1..=10 {
+        let sender = SENDERS[(i - 1) % 3];
+        for want in
+            [format!("[message {i} of 10] from {sender}\n"), format!("message {i}\nsecond line")]
+        {
+            let found = text[at..]
+                .find(&want)
+                .unwrap_or_else(|| panic!("{want:?} missing or out of order in {text}"));
+            at += found + want.len();
+        }
+    }
+    let read = t.inbound(&echo(&q.waiting[0])).await;
+    for id in 2..=11 {
+        assert_eq!(answer(&read, id).unwrap().unwrap()["stopReason"], "steered", "{id}: {read:?}");
+    }
+}
+
+/// The person's steer and one read now (`steerNow`) never wait for a drop: each is written at
+/// once, its own line.
+#[tokio::test]
+async fn the_persons_steer_and_one_read_now_are_written_at_once() {
+    let (t, mut q) = stepping().await;
+    write(&t, &mut q, &from(2, "lane-a", "first")).await;
+    write(&t, &mut q, &from(3, "lane-b", "second")).await;
+    assert_eq!(q.drops.len(), 1, "the second joins the first");
+    let person = steer(4, "use Rust", json!({"steer": true, "promptId": "p4"}));
+    let Outbound::Lines(lines) = t.outbound(&person).await else { panic!() };
+    assert_eq!(text_of(&lines[0]), "use Rust", "the person's steer waited: {lines:?}");
+    let mut urgent = from(5, "lane-c", "stop now");
+    if let Message::Request { params: Some(p), .. } = &mut urgent {
+        p["_meta"]["steerNow"] = json!(true);
+    }
+    let Outbound::Lines(lines) = t.outbound(&urgent).await else { panic!() };
+    assert_eq!(text_of(&lines[0]), "stop now", "the steer read now waited: {lines:?}");
+    q.take(lines);
+    q.settle(&t).await;
+    let texts: Vec<String> = q.waiting.iter().map(text_of).collect();
+    assert_eq!(texts.len(), 3, "{texts:?}");
+    assert!(texts[0] == "use Rust" && texts[1] == "stop now", "{texts:?}");
+    assert!(texts[2].starts_with("2 messages from 2 sessions"), "{texts:?}");
+}
+
+/// Claude Code read the line before the drop reached it: that line stands, answered at its echo,
+/// and the message that came goes in as the next line.
+#[tokio::test]
+async fn a_line_read_first_stands_and_the_new_message_goes_next() {
+    let (t, mut q) = stepping().await;
+    write(&t, &mut q, &from(2, "lane-a", "first")).await;
+    write(&t, &mut q, &from(3, "lane-b", "second")).await;
+    let read = t.inbound(&echo(&q.waiting.remove(0))).await;
+    assert_eq!(answer(&read, 2).unwrap().unwrap()["stopReason"], "steered");
+    let answers = q.settle(&t).await;
+    assert!(answers.is_empty(), "{answers:?}");
+    assert_eq!(q.waiting.len(), 1);
+    assert_eq!(text_of(&q.waiting[0]), "second");
+    let read = t.inbound(&echo(&q.waiting[0])).await;
+    assert_eq!(answer(&read, 3).unwrap().unwrap()["stopReason"], "steered");
+    assert!(answer(&read, 2).is_none(), "the first answered twice");
+}
+
+/// The X on one message of a line of several: the line goes and the others are written again;
+/// the withdrawn one answers `STEER_WITHDRAWN`, never `steered`.
+#[tokio::test]
+async fn withdrawing_one_message_of_a_line_writes_the_others_again() {
+    let (t, mut q) = stepping().await;
+    for (id, sender) in [(2, "lane-a"), (3, "lane-b"), (4, "lane-c")] {
+        write(&t, &mut q, &from(id, sender, &format!("text {id}"))).await;
+    }
+    q.settle(&t).await;
+    assert_eq!(q.waiting.len(), 1);
+    let withdraw = Message::request(
+        9,
+        method::MUX_STEER_WITHDRAW,
+        json!({"sessionId": "acp-1", "promptId": "p3"}),
+    );
+    write(&t, &mut q, &withdraw).await;
+    let answers = q.settle(&t).await;
+    assert_eq!(answer(&answers, 9).unwrap().unwrap()["withdrawn"], true, "{answers:?}");
+    assert!(answer(&answers, 3).unwrap().unwrap_err().starts_with(STEER_WITHDRAWN));
+    assert_eq!(q.waiting.len(), 1);
+    let text = text_of(&q.waiting[0]);
+    assert!(text.starts_with("2 messages from 2 sessions"), "{text}");
+    assert!(
+        text.contains("text 2") && text.contains("text 4") && !text.contains("text 3"),
+        "{text}"
+    );
+    let read = t.inbound(&echo(&q.waiting[0])).await;
+    assert_eq!(answer(&read, 2).unwrap().unwrap()["stopReason"], "steered");
+    assert_eq!(answer(&read, 4).unwrap().unwrap()["stopReason"], "steered");
+}
+
+/// A Claude Code that cannot drop a line: the line stands, the held message goes next, and the
+/// messages after it are written at once with no drop asked again.
+#[tokio::test]
+async fn a_refused_drop_leaves_each_line_as_it_was() {
+    let (t, mut q) = stepping().await;
+    write(&t, &mut q, &from(2, "lane-a", "first")).await;
+    write(&t, &mut q, &from(3, "lane-b", "second")).await;
+    let drop = q.drops.remove(0);
+    let refused = json!({"type": "control_response", "response": {"subtype": "error", "request_id": drop["request_id"], "error": "Unsupported control request subtype: cancel_async_message"}});
+    assert!(t.inbound(&refused).await.is_empty());
+    q.take(t.take_stdin_replies().await);
+    write(&t, &mut q, &from(4, "lane-c", "third")).await;
+    assert!(q.drops.is_empty(), "asked to drop again");
+    let texts: Vec<String> = q.waiting.iter().map(text_of).collect();
+    assert_eq!(texts, ["first", "second", "third"]);
+}
+
+/// The answer was lost while messages were held for a drop: each held message is answered too,
+/// so no send waits forever.
+#[tokio::test]
+async fn a_lost_answer_answers_the_held_messages_too() {
+    let (t, mut q) = stepping().await;
+    write(&t, &mut q, &from(2, "lane-a", "first")).await;
+    write(&t, &mut q, &from(3, "lane-b", "second")).await;
+    let failed = t.fail_pending("the agent's answer was too large").await;
+    assert!(answer(&failed, 2).unwrap().is_err(), "{failed:?}");
+    assert!(answer(&failed, 3).unwrap().is_err(), "{failed:?}");
+    let answers = q.settle(&t).await;
+    assert!(answers.is_empty(), "answered twice: {answers:?}");
+}

@@ -236,6 +236,8 @@ mod inbound;
 mod outbound;
 #[cfg(test)]
 mod steer_now_tests;
+#[cfg(test)]
+mod steer_batch_tests;
 mod steer_withdraw;
 #[cfg(test)]
 mod steer_withdraw_tests;
