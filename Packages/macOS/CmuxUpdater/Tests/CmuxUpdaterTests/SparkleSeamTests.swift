@@ -24,6 +24,8 @@ private let answeredDelegateSelectors = [
     "updater:userDidMakeChoice:forUpdate:state:",
     "updater:shouldPostponeRelaunchForUpdate:untilInvokingBlock:",
     "updaterWillRelaunchApplication:",
+    // The staged rollout's hold (StagedRollout): asked before any driver acts.
+    "updater:shouldProceedWithUpdate:updateCheck:error:",
 ]
 
 /// Every `SPUUserDriver` method the driver answered: the required ones and `showUpdateInFocus`
@@ -53,7 +55,6 @@ private let answeredUserDriverSelectors = [
 private let unansweredSelectors = [
     "updater:mayPerformUpdateCheck:error:",
     "updaterMayCheckForUpdates:",
-    "updater:shouldProceedWithUpdate:updateCheck:error:",
     "bestValidUpdateInAppcast:forUpdater:",
     "updaterDidNotFindUpdate:",
     "feedParametersForUpdater:sendingSystemProfile:",

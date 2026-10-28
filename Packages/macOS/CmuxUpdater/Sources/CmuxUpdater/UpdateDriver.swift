@@ -42,6 +42,9 @@ final class UpdateDriver {
     /// Holds back a fresh update without deltas for one scheduled check
     /// (``UpdateController/pendingDeltaWindow``); nil offers every update at once.
     var pendingDeltaWait: PendingDeltaWait?
+    /// Holds a scheduled check back from an item whose staged rollout has not reached this
+    /// install (``UpdateController/stagedRollout``); nil offers every item.
+    var stagedRollout: StagedRollout?
     /// The current time, for ``pendingDeltaWait`` (replaced by tests).
     var now: () -> Date = Date.init
     /// The update a background check accepted, and its held install once it is ready.
@@ -114,6 +117,16 @@ final class UpdateDriver {
     func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
         log.append("show user-initiated update check")
         beginChecking(cancel: cancellation)
+    }
+
+    /// Why a check of kind `check` must not go on with `item` (nil: it may): a scheduled check
+    /// outside the item's staged rollout. Sparkle asks before it records the update as found
+    /// (`shouldProceedWithUpdate`, ``SparkleDriverBridge``), for every driver.
+    func stagedRolloutHold(_ item: UpdateAppcastItem, check: UpdateCheckKind) -> String? {
+        guard check == .updatesInBackground, let stagedRollout, !stagedRollout.offers(item) else { return nil }
+        let reason = "not offering \(item.versionString) yet: its staged rollout (\(item.rolloutPercent ?? "") %) has not reached this Mac (bucket \(stagedRollout.bucket(forVersion: item.versionString)) of \(StagedRollout.buckets))"
+        log.append(reason)
+        return reason
     }
 
     func showUpdateFound(with appcastItem: UpdateAppcastItem,

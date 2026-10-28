@@ -46,6 +46,10 @@ public struct UpdateAppcastItem: Sendable {
     public var fileURL: URL? { sparkle.fileURL }
     /// Whether the item lists any delta update.
     public var listsDeltas: Bool { !(sparkle.deltaUpdates?.isEmpty ?? true) }
+    /// The item's staged-rollout percentage as written (`<cmux:rolloutPercent>`), when it has one
+    /// (``StagedRollout``). Sparkle keeps every element it does not know in the item's
+    /// properties under its qualified name.
+    public var rolloutPercent: String? { sparkle.propertiesDictionary[StagedRollout.element] as? String }
 }
 
 // MARK: - Choices, checks and permission
@@ -299,6 +303,14 @@ final class SparkleDriverBridge: NSObject, @preconcurrency SPUUserDriver, @preco
 
     func allowedChannels(for updater: SPUUpdater) -> Set<String> {
         driver.allowedChannels()
+    }
+
+    /// Asks the driver whether a check of kind `check` may go on with `item`; throws the hold
+    /// (``StagedRollout/errorDomain``) when it may not.
+    func forwardShouldProceed(with item: UpdateAppcastItem, check: SPUUpdateCheck) throws {
+        if let reason = driver.stagedRolloutHold(item, check: UpdateCheckKind(check)) {
+            throw NSError(domain: StagedRollout.errorDomain, code: 1, userInfo: [NSLocalizedDescriptionKey: reason])
+        }
     }
 
     func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
