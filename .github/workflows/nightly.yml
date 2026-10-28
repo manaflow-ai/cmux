@@ -529,6 +529,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           REQUESTED_SHA: ${{ inputs.promote_nightly_next_sha }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           DEBOUNCE: ${{ inputs.promote_nightly_next_debounce && 'true' || 'false' }}
           MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '2' }}
         with:
@@ -537,14 +538,15 @@ jobs:
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             const { owner, repo } = context.repo;
             // The dispatch already has its maximum of inputs, so a dry run is
-            // the "dry-run:" prefix on the SHA.
-            const requested = (process.env.REQUESTED_SHA || '').trim();
-            const dryRun = requested.startsWith('dry-run:');
-            const sha = dryRun ? requested.slice('dry-run:'.length).trim() : requested;
-            // The newest request wins (guard.decideNewest): `decision.sha` may be
-            // a newer commit that an earlier request waits to promote.
-            const { decision, scanFailed } = await guard.decideNewest({
-              github, core, owner, repo, sha, runId: context.runId,
+            // the "dry-run:" prefix on the SHA, and the 30-minute tick's
+            // request the "tick:" prefix (guard.parseRequest). Only the tick
+            // or a person promotes (guard.decideRequest); a landing's request
+            // is skipped. The newest request wins (guard.decideNewest):
+            // `decision.sha` may be a newer commit that an earlier request
+            // waits to promote.
+            const { decision, requested: sha, scanFailed, dryRun } = await guard.decideRequest({
+              requested: process.env.REQUESTED_SHA, actor: process.env.TRIGGERING_ACTOR,
+              github, core, owner, repo, runId: context.runId,
               surfaceText: fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/release-surface.txt`, 'utf8'),
               debounce: process.env.DEBOUNCE === 'true',
               minIntervalHours: Number(process.env.MIN_INTERVAL_HOURS),

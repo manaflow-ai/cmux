@@ -13,10 +13,14 @@ name: nightly-next tick
 # also promoted (workflow_run here, and request-nightly-next in those
 # workflows), so each landing started a full Release build: six ran at once on
 # 2026-10-28 and only the newest could publish. Leo: "every 30 mins or so you
-# do it / within 30min you replace". Only the tick promotes now: it sets
-# NIGHTLY_NEXT_PROMOTE=1 for request-nightly-next.sh, which otherwise only
-# reports. Landing to live on /next/ is then at most 30 minutes plus one
-# build, sign and publish. nightly-next-feed-watch.yml dispatches this tick
+# do it / within 30min you replace". Only the tick promotes now: its request
+# carries the "tick:" prefix (the gh shim below marks it), and main's promote
+# job skips a request without it from github-actions[bot], since older
+# revisions of request-nightly-next.sh still send one on every landing
+# (promote-nightly-next.mjs decideRequest). The tick also sets
+# NIGHTLY_NEXT_PROMOTE=1, without which newer revisions only report. A
+# person's dispatch still promotes. Landing to live on /next/ is then at most
+# 30 minutes plus one build, sign and publish. nightly-next-feed-watch.yml dispatches this tick
 # when the feed falls behind, the backstop for a tick GitHub's scheduler drops.
 # A schedule runs only from the default branch: this file must exist on main.
 on:
@@ -145,8 +149,8 @@ jobs:
           # Each commit runs its own revision of request-nightly-next.sh, and
           # each call listed 99 cmux-next push runs and read their jobs again,
           # up to 120 times a tick: with the old coalescer, most of the
-          # repository's GITHUB_TOKEN budget (2026-10-25). Two cuts, both here
-          # so they hold for every revision:
+          # repository's GITHUB_TOKEN budget (2026-10-25). Two cuts and the cadence
+          # mark, all here so they hold for every revision:
           # 1. A gh in front of PATH keeps those two read-only listings for
           #    this tick (a failed read is never kept).
           # 2. --tree-ready answers for the commit's cmux-tui tree: it searches
@@ -172,6 +176,19 @@ jobs:
                 exit
                 ;;
             esac
+          fi
+          # 3. The tick's promotion request carries the "tick:" prefix, which
+          #    main's promote job admits (a landing's request lacks it), so
+          #    every revision's dispatch is marked here.
+          if [[ "${1:-} ${2:-} ${3:-}" == "workflow run nightly.yml" ]]; then
+            args=()
+            for arg in "$@"; do
+              if [[ "$arg" == promote_nightly_next_sha=* && "$arg" != promote_nightly_next_sha=tick:* ]]; then
+                arg="promote_nightly_next_sha=tick:${arg#promote_nightly_next_sha=}"
+              fi
+              args+=("$arg")
+            done
+            exec "$GH_REAL" "${args[@]}"
           fi
           exec "$GH_REAL" "$@"
           SH

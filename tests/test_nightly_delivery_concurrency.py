@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 import yaml
@@ -277,6 +278,31 @@ def test_the_tick_is_the_only_cadence_and_the_only_promoter() -> None:
     for name, step in steps.items():
         if step is not request:
             assert "NIGHTLY_NEXT_PROMOTE" not in (step.get("env") or {}), name
+
+
+def test_the_tick_marks_every_revisions_promotion_request(tmp_path: Path) -> None:
+    """Main's promote job admits only "tick:" requests from github-actions[bot] (promote-nightly-next.mjs
+    decideRequest); the tick's gh shim adds the prefix to whatever form each revision's script dispatches."""
+    tick = yaml.safe_load((WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8"))
+    run = next(s for s in tick["jobs"]["request"]["steps"] if s.get("name") == "Request nightly-next promotion on main")["run"]
+    shim = re.search(r"cat > \"\$GH_TICK_CACHE/bin/gh\" <<'SH'\n(.*?)\nSH\n", run, re.S).group(1)
+    (tmp_path / "gh").write_text(shim, encoding="utf-8")
+    real = tmp_path / "real-gh"
+    real.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$LOG"\n', encoding="utf-8")
+    real.chmod(0o755)
+    env = {"PATH": "/usr/bin:/bin", "GH_REAL": str(real), "GH_TICK_CACHE": str(tmp_path), "LOG": str(tmp_path / "log")}
+    sha = "a" * 40
+    for args in (
+        ["workflow", "run", "nightly.yml", "--repo", "o/r", "--ref", "main", "-f", f"promote_nightly_next_sha={sha}"],
+        ["workflow", "run", "nightly.yml", "--repo", "o/r", "--ref", "main", "-f", f"promote_nightly_next_sha=tick:{sha}"],
+        ["workflow", "run", "cmux-tui-artifacts.yml", "--repo", "o/r", "--ref", "feat-cmux-next"],
+    ):
+        subprocess.run(["bash", str(tmp_path / "gh"), *args], env=env, check=True)
+    assert (tmp_path / "log").read_text(encoding="utf-8").splitlines() == [
+        f"workflow run nightly.yml --repo o/r --ref main -f promote_nightly_next_sha=tick:{sha}",
+        f"workflow run nightly.yml --repo o/r --ref main -f promote_nightly_next_sha=tick:{sha}",
+        "workflow run cmux-tui-artifacts.yml --repo o/r --ref feat-cmux-next",
+    ]
 
 
 def test_nightly_push_runs_never_share_a_build_group() -> None:
