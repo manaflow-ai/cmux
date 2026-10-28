@@ -2720,6 +2720,7 @@ export class AcpmuxDirectClient {
       this.takeRunningLimit(sessionId, result?.subsessionLimits, seen);
       if (this.limitsVersion === seen) return subsessionLimits(result?.subsessionLimits);
     }
+    // l10n-allow: a developer error for the limit's reader; never shown.
     throw new Error("the running limit kept changing while it was read");
   }
 
@@ -3081,6 +3082,7 @@ export class AcpmuxDirectClient {
     // those drawn or held, so nothing drawn is kept, and the session listed now is attached.
     const strayed = () => strayedFrom(watch, replyOf);
     const again = () => {
+      // l10n-allow: an attach's internal retry bound; the pane says its own open failure.
       if (tries >= ATTACH_TRIES) throw new Error("the session changed while it was opened");
       this.resetSessionState();
       this.copyLive = new Map();
@@ -3088,6 +3090,7 @@ export class AcpmuxDirectClient {
     };
     if (strayed()) return again();
     if (recreated || rowNow?.peer !== askedOf) {
+      // l10n-allow: an attach's internal retry bound; the pane says its own open failure.
       if (tries >= ATTACH_TRIES) throw new Error("the session changed while it was opened");
       return this.attach(sessionId, generation, keptThrough, tries + 1);
     }
@@ -5738,6 +5741,7 @@ export class AcpmuxDirectClient {
   ): Promise<void> {
     const sessionId = session ?? this.actingSessionId;
     // Nothing was sent, so the answer is refused: a card that waits on it lets the person answer again.
+    // l10n-allow: refuses the card's answer so it stays answerable; never shown.
     if (!sessionId) throw new Error("no chat to answer in");
     const ticket =
       optionId === undefined
@@ -5869,6 +5873,7 @@ export class AcpmuxDirectClient {
       // selection and leave the client unselected, so a recovered New Tab cannot send into the
       // malformed target through ensureSession's selected-session fast path.
       this.leave();
+      // l10n-allow: a host protocol error for the attach's caller; never shown.
       throw new Error("chat attach did not return a matching session summary");
     }
     return selected;
