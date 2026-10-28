@@ -589,3 +589,106 @@ test("a PR mutation target with a comment fragment is marked changed", () => {
   expect(transcriptPullRequests(rows)).toMatchObject([{ number: 41, changed: true, kind: "pullRequest" }]);
   expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
 });
+
+const shellRegressionCases: [string, string, number[]][] = [
+  ["skipped substitution", "false && echo $(gh pr merge 41 -R acme/app); true", []],
+  ["active substitution", "echo $(gh pr merge 41 -R acme/app)", [41]],
+  ["and continuation", "false &&\ngh pr merge 41 -R acme/app; true", []],
+  ["or continuation", "true ||\ngh pr merge 41 -R acme/app", []],
+  ["skipped pipeline", "true || echo no | gh pr merge 41 -R acme/app", []],
+  ["active pipeline", "false || echo no | gh pr merge 41 -R acme/app", [41]],
+  ["unmatched if succeeds", "if false; then true; fi || gh pr merge 41 -R acme/app", []],
+  ["unmatched if continuation", "if false; then true; fi && gh pr merge 41 -R acme/app", [41]],
+  ["conditional merge", "if true; then gh pr merge 41 -R acme/app --squash; fi", [41]],
+  ["subshell merge", "(gh pr merge 41 -R acme/app --squash)", [41]],
+  ["fallback after skipped and", "false && echo no || gh pr merge 41 -R acme/app", [41]],
+  ["false and chain", "false && echo skipped && gh pr merge 41 -R acme/app; true", []],
+  ["false and true fallback", "false && true || gh pr merge 41 -R acme/app", [41]],
+  ["negated true", "! true && gh pr merge 41 -R acme/app; true", []],
+  ["negated false", "! false || gh pr merge 41 -R acme/app", []],
+  ["independent newline", "true || gh pr close 41 -R acme/app\ngh pr merge 42 -R acme/app", [42]],
+  ["independent background", "false && echo skipped & gh pr merge 42 -R acme/app", [42]],
+  ["multiple then commands", "if true; then gh pr merge 41 -R acme/app; gh pr close 42 -R acme/app; fi", [41, 42]],
+  [
+    "false elif",
+    "if false; then true; elif false; then gh pr merge 41 -R acme/app; else gh pr view 42 -R acme/app; fi",
+    [42],
+  ],
+  [
+    "true elif",
+    "if false; then true; elif true; then gh pr merge 41 -R acme/app; else gh pr close 42 -R acme/app; fi",
+    [41],
+  ],
+  [
+    "newline elif",
+    "if false\nthen\ntrue\nelif true\nthen\ngh pr merge 41 -R acme/app\nelse\ngh pr close 42 -R acme/app\nfi",
+    [41],
+  ],
+  [
+    "later command condition",
+    "if false; then true; elif false; then true; elif gh pr merge 43 -R acme/app; then true; fi",
+    [43],
+  ],
+  [
+    "nested false",
+    "if true; then if false; then gh pr merge 41 -R acme/app; else gh pr view 42 -R acme/app; fi; fi",
+    [42],
+  ],
+  ["compound false condition", "if true && false; then gh pr merge 41 -R acme/app; fi", []],
+  ["timeout short signal", "timeout -s TERM 60 gh pr merge 41 -R acme/app", [41]],
+  ["timeout preserve status", "timeout -p 60 gh pr merge 41 -R acme/app", [41]],
+  ["timeout path", "/usr/bin/timeout 60 gh pr merge 41 -R acme/app", [41]],
+  ["timeout duration", "timeout 60s gh pr merge 41 -R acme/app", [41]],
+  ["timeout signal", "timeout --signal=TERM 60 gh pr merge 41 -R acme/app", [41]],
+  ["timeout split signal", "timeout --signal TERM 60 gh pr merge 41 -R acme/app", [41]],
+  ["timeout echo payload", "/usr/bin/timeout 60 echo gh pr merge 41 -R acme/app", []],
+];
+for (const [name, command, numbers] of shellRegressionCases) {
+  test(`shell execution regression: ${name}`, () => {
+    const rows = toolsRows(shell(command));
+    expect(transcriptPullRequests(rows).map((pr) => pr.number)).toEqual(numbers);
+  });
+}
+for (const separator of ["; ", "\n"]) {
+  test(`Sources and Changes share conditional branches with ${JSON.stringify(separator)}`, () => {
+    const command = [
+      "if false",
+      "then echo https://github.com/acme/app/pull/41",
+      "elif true",
+      "then echo https://github.com/acme/app/pull/42",
+      "else echo https://github.com/acme/app/pull/43",
+      "fi",
+    ].join(separator);
+    const rows = toolsRows(shell(command));
+    expect(transcriptPullRequests(rows).map((pr) => pr.number)).toEqual([42]);
+    expect(sessionSummary(rows, "acme/app").sources.map((source) => source.url)).toEqual([
+      "https://github.com/acme/app/pull/42",
+    ]);
+  });
+}
+test("timeout arguments cannot trigger exponential command matching", () => {
+  const started = performance.now();
+  expect(transcriptPullRequests(toolsRows(shell(`timeout 60 echo ${"--flag ".repeat(10000)}`)))).toEqual([]);
+  expect(transcriptPullRequests(toolsRows(shell("timeout ".repeat(1000))))).toEqual([]);
+  expect(performance.now() - started).toBeLessThan(1000);
+});
+
+test("raw shell input uses the same executed Sources branches", () => {
+  const rows = toolsRows(
+    tool("execute", "execute", "completed", {
+      inputSummary: JSON.stringify({
+        command: "if false; then echo https://example.com/skipped; else echo https://example.com/read; fi",
+      }),
+    }),
+  );
+  expect(sessionSummary(rows, "acme/app").sources.map((source) => source.url)).toEqual(["https://example.com/read"]);
+});
+
+for (const command of [
+  "false && echo $(echo https://github.com/acme/app/pull/41); true",
+  "true || echo no | echo https://github.com/acme/app/pull/41",
+]) {
+  test(`Sources exclude skipped shell expansions: ${command}`, () => {
+    expect(sessionSummary(toolsRows(shell(command)), "acme/app").sources).toEqual([]);
+  });
+}
