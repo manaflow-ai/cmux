@@ -26,7 +26,7 @@ struct SessionPrioritySettingsCard: View {
                 ),
                 subtitle: String(
                     localized: "settings.automation.sessionPriority.subtitle",
-                    defaultValue: "cmux restarts idle Claude terminals to change their effort, more for workspaces higher in the sidebar and less further down, and resumes each conversation.",
+                    defaultValue: "cmux restarts idle Claude terminals to change their effort, more for workspaces higher in the sidebar and less further down, and resumes each conversation. It also rates each task's difficulty by sending short conversation excerpts to a small Claude model on your account.",
                     bundle: .module
                 )
             ) {

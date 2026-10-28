@@ -17045,55 +17045,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux restarts idle Claude terminals to change their effort, more for workspaces higher in the sidebar and less further down, and resumes each conversation."
+            "value": "cmux restarts idle Claude terminals to change their effort, more for workspaces higher in the sidebar and less further down, and resumes each conversation. It also rates each task's difficulty by sending short conversation excerpts to a small Claude model on your account."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعيد cmux تشغيل طرفيات Claude الخاملة لتغيير جهدها، فيزيده لمساحات العمل الأعلى في الشريط الجانبي ويقلّله للأدنى، ثم يستأنف كل محادثة."
+            "value": "يعيد cmux تشغيل طرفيات Claude الخاملة لتغيير جهدها، فيزيده لمساحات العمل الأعلى في الشريط الجانبي ويقلّله للأدنى، ثم يستأنف كل محادثة. ويقيّم أيضًا صعوبة كل مهمة بإرسال مقتطفات قصيرة من المحادثة إلى نموذج Claude صغير على حسابك."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux startet untätige Claude-Terminals neu, um ihren Aufwand zu ändern – mehr für Arbeitsbereiche weiter oben in der Seitenleiste, weniger weiter unten – und setzt jede Unterhaltung fort."
+            "value": "cmux startet untätige Claude-Terminals neu, um ihren Aufwand zu ändern – mehr für Arbeitsbereiche weiter oben in der Seitenleiste, weniger weiter unten – und setzt jede Unterhaltung fort. Außerdem bewertet es die Schwierigkeit jeder Aufgabe, indem es kurze Gesprächsausschnitte an ein kleines Claude-Modell in deinem Konto sendet."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux reinicia las terminales de Claude inactivas para cambiar su esfuerzo, más para los espacios de trabajo situados más arriba en la barra lateral y menos para los de más abajo, y reanuda cada conversación."
+            "value": "cmux reinicia las terminales de Claude inactivas para cambiar su esfuerzo, más para los espacios de trabajo situados más arriba en la barra lateral y menos para los de más abajo, y reanuda cada conversación. También evalúa la dificultad de cada tarea enviando breves fragmentos de la conversación a un modelo pequeño de Claude en tu cuenta."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux redémarre les terminaux Claude inactifs pour modifier leur effort, plus élevé pour les espaces de travail situés plus haut dans la barre latérale et plus faible plus bas, puis reprend chaque conversation."
+            "value": "cmux redémarre les terminaux Claude inactifs pour modifier leur effort, plus élevé pour les espaces de travail situés plus haut dans la barre latérale et plus faible plus bas, puis reprend chaque conversation. Il évalue aussi la difficulté de chaque tâche en envoyant de courts extraits de la conversation à un petit modèle Claude sur votre compte."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux はアイドル状態の Claude ターミナルを再起動してエフォートを変更し（サイドバーの上位のワークスペースほど高く、下位ほど低く）、それぞれの会話を再開します。"
+            "value": "cmux はアイドル状態の Claude ターミナルを再起動してエフォートを変更し（サイドバーの上位のワークスペースほど高く、下位ほど低く）、それぞれの会話を再開します。また、会話の短い抜粋をアカウント上の小型 Claude モデルに送信して、各タスクの難しさを評価します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 유휴 상태인 Claude 터미널을 다시 시작해 노력도를 바꾸고(사이드바에서 위쪽 워크스페이스일수록 높게, 아래쪽일수록 낮게) 각 대화를 재개합니다."
+            "value": "cmux가 유휴 상태인 Claude 터미널을 다시 시작해 노력도를 바꾸고(사이드바에서 위쪽 워크스페이스일수록 높게, 아래쪽일수록 낮게) 각 대화를 재개합니다. 또한 대화의 짧은 발췌문을 계정의 소형 Claude 모델로 보내 각 작업의 난이도를 평가합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 会重新启动空闲的 Claude 终端以更改其投入程度（侧边栏中靠上的工作区更高，靠下的更低），并继续每段对话。"
+            "value": "cmux 会重新启动空闲的 Claude 终端以更改其投入程度（侧边栏中靠上的工作区更高，靠下的更低），并继续每段对话。它还会将简短的对话摘录发送到你账户上的小型 Claude 模型，以评估每项任务的难度。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 會重新啟動閒置的 Claude 終端機以變更其投入程度（側邊欄中較上方的工作區較高，較下方的較低），並繼續每段對話。"
+            "value": "cmux 會重新啟動閒置的 Claude 終端機以變更其投入程度（側邊欄中較上方的工作區較高，較下方的較低），並繼續每段對話。它還會將簡短的對話摘錄傳送到你帳戶上的小型 Claude 模型，以評估每項任務的難度。"
           }
         }
       }

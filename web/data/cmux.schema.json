@@ -2081,7 +2081,7 @@
               "type": "boolean",
               "default": false,
               "descriptionKey": "schemaDescriptions.automation.sessionPriorityEnabled",
-              "description": "When on, cmux restarts idle Claude Code terminals to change their effort (and optional model) to the matrix value for their workspace's priority and difficulty, then resumes each conversation. Off by default."
+              "description": "When on, cmux restarts idle Claude Code terminals to change their effort (and optional model) to the matrix value for their workspace's priority and difficulty, then resumes each conversation. It also rates each task's difficulty by sending short conversation excerpts to a small Claude model on the session's account. Off by default."
             },
             "urgentCount": {
               "type": "integer",
