@@ -457,7 +457,7 @@ the gap, no row left out of place after drop or cancel).
 
 ## Codex follow-up
 
-- 2026-10-28: rail-topright-plus (Leo: "put a chevron optional in the new workspace thing"): the new-workspace + stays a one-click action, with a separate compact chevron for workspace options. Both controls start hidden and reveal together; the chevron's mouse, keyboard and VoiceOver paths open the same menu.
+- 2026-10-28: rail-topright-plus (`38580d70451`, Leo: "put a chevron optional in the new workspace thing"): the new-workspace + stays a one-click action, with a separate compact chevron for workspace options. Both controls start hidden and reveal together; the chevron's mouse, keyboard and VoiceOver paths open the same menu.
 
 - 2026-10-23: Codex #24513 follow-up keeps the `inside` Chrome corner inset for a parent group whose rows are only nested groups; the regression test covers the previously unmeasured parent rail.
 
