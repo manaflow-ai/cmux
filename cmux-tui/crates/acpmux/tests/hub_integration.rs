@@ -1578,10 +1578,10 @@ mod preset_args;
 mod claude_failover;
 #[path = "hub_integration/lifecycle_fixes.rs"]
 mod lifecycle_fixes;
-#[path = "hub_integration/session_hibernate.rs"]
-mod session_hibernate;
 #[path = "hub_integration/quit_spawn.rs"]
 mod quit_spawn;
+#[path = "hub_integration/session_hibernate.rs"]
+mod session_hibernate;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;
