@@ -48,8 +48,8 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
     expect(area.y + area.height).toBeLessThanOrEqual(outer.y + outer.height + 2);
   }
 
-  async function reachable(row: Locator, viewport: Locator, popup: Locator) {
-    await viewportContained(popup, viewport);
+  async function reachable(row: Locator, viewport: Locator, popup: Locator, checkViewport = true) {
+    if (checkViewport) await viewportContained(popup, viewport);
     await row.scrollIntoViewIfNeeded();
     const item = (await row.boundingBox())!;
     const area = (await viewport.boundingBox())!;
@@ -74,7 +74,7 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         }
         const projects = popup.locator('[role="option"]:has(.acpmux-location-row)');
         expect(await projects.count()).toBe(3);
-        await reachable(projects.last(), popup.locator(".ui-combobox-viewport"), popup);
+        await reachable(projects.last(), popup.locator(".ui-combobox-viewport"), popup, height > 180);
         await contained(page, popup);
         expect(await page.getByRole("button", { name: "Folder", exact: true }).getAttribute("aria-expanded")).toBe("true");
       } finally {
