@@ -88,20 +88,21 @@ struct CloudGitHubSetupTests {
         let identity = CloudGitHubSetup.GitIdentity(name: "Ann Lee", email: "ann@example.com")
         let outcome = CloudGitHubSetup.parse(exitCode: 0, stdout: "cmux-git: set\ncmux-gh: pending AB12-CD34\n")
         #expect(outcome == .init(identity: .set, gitHub: .pending, deviceCode: "AB12-CD34"))
-        let fields = CloudGitHubSetup.fields(outcome, identity: identity)
+        let fields = CloudGitHubSetup.fields(outcome, identity: identity, fallback: .notConnected)
         #expect(fields == [
-            "ok": .bool(true), "user_name": .string("Ann Lee"), "user_email": .string("ann@example.com"),
+            "ok": .bool(true), "method": .string("device"), "fallback_reason": .string("not_connected"), "user_name": .string("Ann Lee"), "user_email": .string("ann@example.com"),
             "gh_status": .string("pending"), "device_code": .string("AB12-CD34"),
             "verification_uri": .string("https://github.com/login/device"),
         ])
     }
 
     @Test func theResultCarriesOnlyTheAgreedKeys() {
-        let allowed: Set<String> = ["ok", "user_name", "user_email", "gh_status", "device_code", "verification_uri"]
+        let allowed: Set<String> = ["ok", "method", "fallback_reason", "user_name", "user_email", "gh_status", "device_code", "verification_uri"]
         let identity = CloudGitHubSetup.GitIdentity(name: "Ann", email: "a@b.c")
         for stdout in ["cmux-git: set\ncmux-gh: logged_in", "cmux-git: skipped\ncmux-gh: missing", "cmux-git: failed\ncmux-gh: failed",
-                       "cmux-git: set\ncmux-gh: pending AB12-CD34", "gho_secret_token\ncmux-gh: pending gho_secret_token"] {
-            let fields = CloudGitHubSetup.fields(CloudGitHubSetup.parse(exitCode: 0, stdout: stdout), identity: identity)
+                       "cmux-git: set\ncmux-gh: pending AB12-CD34", "gho_secret_token\ncmux-gh: pending gho_secret_token",
+                       "cmux-git: set\ncmux-gh: app", "cmux-git: set\ncmux-app: unavailable\ncmux-gh: logged_in"] {
+            let fields = CloudGitHubSetup.fields(CloudGitHubSetup.parse(exitCode: 0, stdout: stdout), identity: identity, fallback: .unknown)
             #expect(Set(fields.keys).isSubset(of: allowed))
             #expect(!fields.values.contains(.string("gho_secret_token")))
         }
@@ -111,13 +112,13 @@ struct CloudGitHubSetupTests {
         let outcome = CloudGitHubSetup.parse(exitCode: 0, stdout: "cmux-git: set\ncmux-gh: logged_in\n")
         #expect(outcome.ok)
         #expect(outcome.deviceCode == nil)
-        #expect(CloudGitHubSetup.fields(outcome, identity: .init(name: "A", email: nil))["device_code"] == nil)
+        #expect(CloudGitHubSetup.fields(outcome, identity: .init(name: "A", email: nil), fallback: nil)["device_code"] == nil)
     }
 
     @Test func aMissingGhIsNotOk() {
         let outcome = CloudGitHubSetup.parse(exitCode: 0, stdout: "cmux-git: set\ncmux-gh: missing\n")
         #expect(!outcome.ok)
-        #expect(CloudGitHubSetup.fields(outcome, identity: .init())["gh_status"] == .string("missing"))
+        #expect(CloudGitHubSetup.fields(outcome, identity: .init(), fallback: nil)["gh_status"] == .string("missing"))
     }
 
     @Test(arguments: ["cmux-gh: pending", "cmux-gh: pending abcd-1234", "cmux-gh: pending AB12CD34", "cmux-gh: pending https://evil.example/AB12-CD34"])
@@ -135,9 +136,78 @@ struct CloudGitHubSetupTests {
 
     @Test func identityNotSetLeavesTheNameOutOfTheResult() {
         let outcome = CloudGitHubSetup.parse(exitCode: 0, stdout: "cmux-git: failed\ncmux-gh: logged_in\n")
-        let fields = CloudGitHubSetup.fields(outcome, identity: .init(name: "Ann", email: "a@b.c"))
+        let fields = CloudGitHubSetup.fields(outcome, identity: .init(name: "Ann", email: "a@b.c"), fallback: nil)
         #expect(fields["ok"] == .bool(false))
         #expect(fields["user_name"] == nil)
+    }
+
+    // MARK: The cmux GitHub App first
+
+    @Test func theAppRunsBeforeTheDeviceFlowOnlyWhenAsked() throws {
+        let identity = CloudGitHubSetup.GitIdentity(name: "Ann", email: "a@b.c")
+        let app = CloudGitHubSetup.command(identity, app: true)
+        let helper = try #require(app.range(of: CloudGitHubSetup.appCommand))
+        let signIn = try #require(app.range(of: "gh auth status"))
+        #expect(helper.upperBound <= signIn.lowerBound, "the App's helper runs first")
+        #expect(app.range(of: CloudGitHubSetup.identityCommand(identity))?.upperBound ?? app.endIndex <= helper.lowerBound)
+        #expect(!CloudGitHubSetup.command(identity).contains("cmux github setup"))
+        #expect(CloudGitHubSetup.appCommand.contains("/run/cmux-vm-agent/agent.sock"))
+    }
+
+    /// The helper line, run by a real `/bin/sh` with a stand-in `cmux`: the App when the Cloud agent's
+    /// socket is there and `cmux github setup` succeeds, else `unavailable` and the device flow follows.
+    @Test(arguments: [(true, 0, "cmux-gh: app\n"), (false, 0, "cmux-app: unavailable\n"), (true, 1, "cmux-app: unavailable\n")])
+    func theHelperIsUsedOnlyWithTheAgentAndAWorkingCmux(socket: Bool, cmuxExit: Int, expected: String) throws {
+        let root = URL(fileURLWithPath: "/tmp/cn-gh-app-\(UUID().uuidString.prefix(8))")
+        let bin = root.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seen = root.appendingPathComponent("seen")
+        try Data("#!/bin/sh\necho \"$*\" >>\"$SEEN\"\nexit \(cmuxExit)\n".utf8).write(to: bin.appendingPathComponent("cmux"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bin.appendingPathComponent("cmux").path)
+        let path = root.appendingPathComponent("a.sock").path
+        let listener = socket ? try Self.listen(at: path) : -1
+        defer { if listener >= 0 { close(listener) } }
+        let script = CloudGitHubSetup.appCommand(at: path) + "\necho 'cmux-gh: logged_in'"
+        let ran = try Self.run("/bin/sh", ["-c", script], environment: ["PATH": bin.path + ":/usr/bin:/bin", "SEEN": seen.path])
+        #expect(ran.output == expected + (expected.contains("unavailable") ? "cmux-gh: logged_in\n" : ""))
+        let called = (try? String(contentsOf: seen, encoding: .utf8)) ?? ""
+        #expect(called == (socket ? "github setup\n" : ""))
+    }
+
+    @Test func theAppOutcomeIsOkAndNamesItsMethod() {
+        let outcome = CloudGitHubSetup.parse(exitCode: 0, stdout: "cmux-git: set\ncmux-gh: app\n")
+        #expect(outcome == .init(identity: .set, gitHub: .app))
+        #expect(outcome.ok)
+        let fields = CloudGitHubSetup.fields(outcome, identity: .init(name: "Ann", email: nil),
+                                             fallback: CloudGitHubSetup.fallback(.ready, outcome))
+        #expect(fields == ["ok": .bool(true), "method": .string("app"), "gh_status": .string("app"), "user_name": .string("Ann")])
+        #expect(CloudGitHubSetup.summary(outcome, fallback: nil) == CloudStrings.gitHubAppReady)
+    }
+
+    /// Why the machine signed in itself: the App's check, else a ready App the machine could not use.
+    @Test func theFallbackSaysWhyInPlainWords() {
+        let unavailable = CloudGitHubSetup.parse(exitCode: 0, stdout: "cmux-git: set\ncmux-app: unavailable\ncmux-gh: pending AB12-CD34\n")
+        #expect(unavailable.appNotOnMachine)
+        #expect(unavailable.gitHub == .pending && unavailable.deviceCode == "AB12-CD34")
+        #expect(CloudGitHubSetup.fallback(.ready, unavailable) == .notOnMachine)
+        #expect(CloudGitHubSetup.fallback(.notConnected, unavailable) == .notConnected)
+        #expect(CloudGitHubSetup.fallback(.notConfigured, unavailable) == .notConfigured)
+        #expect(CloudGitHubSetup.fallback(.unknown, unavailable) == .unknown)
+        let summary = CloudGitHubSetup.summary(unavailable, fallback: .notConnected)
+        #expect(summary.hasPrefix(CloudStrings.gitHubFallback(.notConnected)))
+        #expect(summary.hasSuffix(CloudStrings.gitHubEnterCode("AB12-CD34")))
+        #expect(CloudGitHubSetup.fields(unavailable, identity: .init(), fallback: .notOnMachine)["fallback_reason"] == .string("not_on_machine"))
+    }
+
+    @Test func theConfirmSaysWhichWayBeforeAnythingRuns() {
+        let ann = CloudGitHubSetup.GitIdentity(name: "Ann", email: "a@b.c"), none = CloudGitHubSetup.GitIdentity()
+        #expect(CloudGitHubHandlers.confirmBody(ann, app: .ready) == CloudStrings.gitHubAppConfirmBody(name: "Ann", email: "a@b.c"))
+        #expect(CloudGitHubHandlers.confirmBody(none, app: .ready) == CloudStrings.gitHubAppConfirmNoIdentity)
+        #expect(CloudGitHubHandlers.confirmBody(ann, app: .notConnected)
+            == CloudStrings.gitHubFallback(.notConnected) + " " + CloudStrings.gitHubConfirmBody(name: "Ann", email: "a@b.c"))
+        #expect(CloudGitHubHandlers.confirmBody(none, app: .unknown)
+            == CloudStrings.gitHubFallback(.unknown) + " " + CloudStrings.gitHubConfirmNoIdentity)
     }
 
     // MARK: Target
@@ -302,6 +372,23 @@ struct CloudGitHubSetupTests {
     }
 
     // MARK: Helpers
+
+    /// A listening Unix socket at `path` (what `[ -S ]` tests); the caller closes it.
+    static func listen(at path: String) throws -> Int32 {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        guard fd >= 0, bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { throw CocoaError(.fileWriteUnknown) }
+        withUnsafeMutableBytes(of: &address.sun_path) { raw in
+            for (index, byte) in bytes.enumerated() { raw[index] = byte }
+        }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        guard bound == 0, Darwin.listen(fd, 1) == 0 else { close(fd); throw CocoaError(.fileWriteUnknown) }
+        return fd
+    }
 
     nonisolated struct FakeGit: MarkdownGitRunning {
         var values: [String: String]
