@@ -7,7 +7,6 @@ use crate::server::{
     BoundedOutbound, ClientTransport, ConnectionSurfaceScheduler, QueuedSink,
     handle_connection_frame,
 };
-use base64::Engine as _;
 
 fn create(owner: &mut Client, surface: u64, extra: Value) -> Value {
     let mut frame = json!({"cmd":"agent-session-share-create", "surface":surface});

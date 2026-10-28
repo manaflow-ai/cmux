@@ -205,7 +205,7 @@ fn load(directory: Option<&Path>) -> Vec<LinkShare> {
 }
 
 /// The author a guest binds as.
-fn guest_author(share: &LinkShare, guest: &Guest) -> Value {
+fn author_of(share: &LinkShare, guest: &Guest) -> Value {
     json!({"id": format!("{GUEST_PREFIX}{}.{}", share.share_id, guest.guest_id),
         "name": guest.name, "approval": "owner"})
 }
@@ -405,7 +405,7 @@ impl LinkShares {
             if guest.state != GuestState::Active {
                 return Err("share.kicked");
             }
-            Ok(((share.session.clone(), share.surface, guest_author(share, guest)), false))
+            Ok(((share.session.clone(), share.surface, author_of(share, guest)), false))
         })
     }
 
