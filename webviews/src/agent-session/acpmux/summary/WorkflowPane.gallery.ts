@@ -14,12 +14,23 @@ import { workflowFixture, type WorkflowFixtureStage } from "./workflowFixture";
 const PROMPT = "Show me how dynamic workflows work by running a small one";
 const REPLY =
   "I started a small demo workflow. It picks a name for a command-line tool that syncs dotfiles: three agents brainstorm, each brainstorm gets a critic, and a judge picks the winner.";
-type PaneStage = WorkflowFixtureStage | "real-run";
+type PaneStage = WorkflowFixtureStage | "real-run" | "real-running";
 const paneSnapshot = (stage: PaneStage) => {
-  const nodes = (stage === "real-run" ? realWorkflowFixture(GALLERY_NOW) : workflowFixture(stage, GALLERY_NOW)).filter(
-    (node) => node.kind === "workflow",
-  );
-  const started = stage === "running" ? 13 / 60 : stage === "real-run" ? 11 / 60 : 2;
+  const nodes = (
+    stage === "real-run"
+      ? realWorkflowFixture(GALLERY_NOW)
+      : stage === "real-running"
+        ? realWorkflowFixture(GALLERY_NOW, 8_760)
+        : workflowFixture(stage, GALLERY_NOW)
+  ).filter((node) => node.kind === "workflow");
+  const started =
+    stage === "running"
+      ? 13 / 60
+      : stage === "real-running"
+        ? 8.76 / 60
+        : stage === "real-run"
+          ? 10.78 / 60
+          : 2;
   return chat(
     [
       user(PROMPT, started + 0.2),
@@ -29,7 +40,7 @@ const paneSnapshot = (stage: PaneStage) => {
         ? [assistant("The judge picked “dotsync”, with “homebase” as the runner-up.", 0.5)]
         : []),
     ],
-    { isWorking: stage === "running", title: "Dynamic workflows" },
+    { isWorking: stage === "running" || stage === "real-running", title: "Dynamic workflows" },
   );
 };
 /// The app offers Session Info (Debug Settings `agent.inspector`, on by default): it opens shown.
@@ -65,8 +76,15 @@ export default agentPaneEntry({
       play: shown,
     },
     "real-run": {
-      note: "Labs: transcript card and Session Info Background tasks both render a scrubbed replay captured from a real Claude Workflow run: Count 2/2, Report 1/1, 3 completed agents and 11s elapsed.",
+      note: "Labs: transcript card and Session Info Background tasks both render a scrubbed replay captured from a real Claude Workflow run: Count 2/2, Report 1/1, 3 completed agents and 10s elapsed.",
       snapshot: paneSnapshot("real-run"),
+      native,
+      workflowLabs: true,
+      play: shown,
+    },
+    "real-running": {
+      note: "Labs: the transcript card and Session Info Background tasks render the real Claude Workflow replay while Report runs.",
+      snapshot: paneSnapshot("real-running"),
       native,
       workflowLabs: true,
       play: shown,

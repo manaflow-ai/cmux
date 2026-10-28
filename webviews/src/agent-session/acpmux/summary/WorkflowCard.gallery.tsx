@@ -9,15 +9,19 @@ import { configureWorkflowCardOpen, WorkflowCard, type WorkflowCardPresentation 
 import { realWorkflowFixture } from "../realWorkflowFixture";
 import { workflowFixture, type WorkflowFixtureStage } from "./workflowFixture";
 
-type Props = { stage: WorkflowFixtureStage | "real-run"; presentation?: WorkflowCardPresentation };
+type Props = { stage: WorkflowFixtureStage | "real-run" | "real-running"; presentation?: WorkflowCardPresentation };
 
 /// The gallery's cards open nothing, but draw as the chat's do: a button.
 configureWorkflowCardOpen(() => undefined);
 
 function GalleryWorkflowCard({ stage, presentation }: Props) {
-  const nodes = (stage === "real-run" ? realWorkflowFixture(GALLERY_NOW) : workflowFixture(stage)).filter(
-    (node) => node.kind === "workflow",
-  );
+  const nodes = (
+    stage === "real-run"
+      ? realWorkflowFixture(GALLERY_NOW)
+      : stage === "real-running"
+        ? realWorkflowFixture(GALLERY_NOW, 8_760)
+        : workflowFixture(stage)
+  ).filter((node) => node.kind === "workflow");
   return (
     <div className="acpmux-shell" style={{ padding: "16px 20px" }}>
       {nodes.map((node) => (
@@ -60,6 +64,10 @@ export default componentEntry<Props>({
     "real-run": {
       note: "Labs: a scrubbed card replayed from a real Claude Workflow stream. Workflow · 3 agents · 10s, with one dot per completed agent.",
       props: { stage: "real-run" },
+    },
+    "real-running": {
+      note: "Labs: the real Claude Workflow replay while it runs. Workflow · 3 agents · 8s, with the Report agent running.",
+      props: { stage: "real-running" },
     },
   },
 });

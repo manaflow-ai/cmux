@@ -14,8 +14,15 @@ const WORKFLOW = "workflow-session/tool-workflow";
 const RUN = "workflow-run-1";
 const MODEL = "claude-opus-5-5";
 const SCRIPT = "/workspace/workflows/count-files.js";
+const AGENT_TIMES = new Set(["queuedAt", "startedAt", "lastProgressAt"]);
 
-const agent = (index: number, label: string, phase: string, phaseIndex: number, fields: Record<string, unknown> = {}) => ({
+const agent = (
+  index: number,
+  label: string,
+  phase: string,
+  phaseIndex: number,
+  fields: Record<string, unknown> = {},
+) => ({
   index,
   label,
   phase,
@@ -42,7 +49,7 @@ export const REAL_WORKFLOW_RECORDING: readonly WorkflowReplayEvent[] = [
   {
     at: 0,
     update: { sessionUpdate: "subagent_spawned", subagentSessionId: WORKFLOW },
-    subagents: [workflow({ state: "running", task: "Workflow" })],
+    subagents: [{ id: WORKFLOW, parent: null, state: "running" }],
   },
   {
     at: 17,
@@ -54,7 +61,14 @@ export const REAL_WORKFLOW_RECORDING: readonly WorkflowReplayEvent[] = [
       scriptPath: SCRIPT,
       task: "Two agents count files, then one reports the count",
     },
-    subagents: [workflow({ state: "running", runId: RUN, scriptPath: SCRIPT, task: "Two agents count files, then one reports the count" })],
+    subagents: [
+      workflow({
+        state: "running",
+        runId: RUN,
+        scriptPath: SCRIPT,
+        task: "Two agents count files, then one reports the count",
+      }),
+    ],
   },
   {
     at: 40,
@@ -68,7 +82,18 @@ export const REAL_WORKFLOW_RECORDING: readonly WorkflowReplayEvent[] = [
       toolUses: 0,
       elapsedMs: 26,
     },
-    subagents: [workflow({ state: "running", runId: RUN, phases, action: "Two-phase file count", agents: { done: 0, started: 0 }, tokens: 0, toolUses: 0, elapsedMs: 26 })],
+    subagents: [
+      workflow({
+        state: "running",
+        runId: RUN,
+        phases,
+        action: "Two-phase file count",
+        agents: { done: 0, started: 0 },
+        tokens: 0,
+        toolUses: 0,
+        elapsedMs: 26,
+      }),
+    ],
   },
   {
     at: 111,
@@ -96,7 +121,15 @@ export const REAL_WORKFLOW_RECORDING: readonly WorkflowReplayEvent[] = [
       ],
       elapsedMs: 66,
     },
-    subagents: [workflow({ state: "running", runId: RUN, action: "Count: count-a", agents: { done: 0, queued: 1, started: 1 }, elapsedMs: 66 })],
+    subagents: [
+      workflow({
+        state: "running",
+        runId: RUN,
+        action: "Count: count-a",
+        agents: { done: 0, queued: 1, started: 1 },
+        elapsedMs: 66,
+      }),
+    ],
   },
   {
     at: 1954,
@@ -117,7 +150,15 @@ export const REAL_WORKFLOW_RECORDING: readonly WorkflowReplayEvent[] = [
       ],
       elapsedMs: 1940,
     },
-    subagents: [workflow({ state: "running", runId: RUN, action: "Count: count-b", agents: { done: 0, started: 2 }, elapsedMs: 1940 })],
+    subagents: [
+      workflow({
+        state: "running",
+        runId: RUN,
+        action: "Count: count-b",
+        agents: { done: 0, started: 2 },
+        elapsedMs: 1940,
+      }),
+    ],
   },
   {
     at: 2976,
@@ -130,7 +171,17 @@ export const REAL_WORKFLOW_RECORDING: readonly WorkflowReplayEvent[] = [
       toolUses: 1,
       elapsedMs: 2962,
     },
-    subagents: [workflow({ state: "running", runId: RUN, action: "Count: count-a", agents: { done: 0, started: 2 }, tokens: 27557, toolUses: 1, elapsedMs: 2962 })],
+    subagents: [
+      workflow({
+        state: "running",
+        runId: RUN,
+        action: "Count: count-a",
+        agents: { done: 0, started: 2 },
+        tokens: 27557,
+        toolUses: 1,
+        elapsedMs: 2962,
+      }),
+    ],
   },
   {
     at: 4605,
@@ -143,7 +194,17 @@ export const REAL_WORKFLOW_RECORDING: readonly WorkflowReplayEvent[] = [
       toolUses: 2,
       elapsedMs: 4591,
     },
-    subagents: [workflow({ state: "running", runId: RUN, action: "Count: count-b", agents: { done: 0, started: 2 }, tokens: 55096, toolUses: 2, elapsedMs: 4591 })],
+    subagents: [
+      workflow({
+        state: "running",
+        runId: RUN,
+        action: "Count: count-b",
+        agents: { done: 0, started: 2 },
+        tokens: 55096,
+        toolUses: 2,
+        elapsedMs: 4591,
+      }),
+    ],
   },
   {
     at: 5123,
@@ -175,7 +236,17 @@ export const REAL_WORKFLOW_RECORDING: readonly WorkflowReplayEvent[] = [
       ],
       elapsedMs: 5108,
     },
-    subagents: [workflow({ state: "running", runId: RUN, action: "Count: count-a", agents: { done: 1, started: 2 }, tokens: 55592, toolUses: 3, elapsedMs: 5108 })],
+    subagents: [
+      workflow({
+        state: "running",
+        runId: RUN,
+        action: "Count: count-a",
+        agents: { done: 1, started: 2 },
+        tokens: 55592,
+        toolUses: 3,
+        elapsedMs: 5108,
+      }),
+    ],
   },
   {
     at: 6589,
@@ -208,7 +279,17 @@ export const REAL_WORKFLOW_RECORDING: readonly WorkflowReplayEvent[] = [
       ],
       elapsedMs: 6575,
     },
-    subagents: [workflow({ state: "running", runId: RUN, action: "Report: report", agents: { done: 2, started: 3 }, tokens: 56126, toolUses: 4, elapsedMs: 6575 })],
+    subagents: [
+      workflow({
+        state: "running",
+        runId: RUN,
+        action: "Report: report",
+        agents: { done: 2, started: 3 },
+        tokens: 56126,
+        toolUses: 4,
+        elapsedMs: 6575,
+      }),
+    ],
   },
   {
     at: 8760,
@@ -221,7 +302,17 @@ export const REAL_WORKFLOW_RECORDING: readonly WorkflowReplayEvent[] = [
       toolUses: 5,
       elapsedMs: 8745,
     },
-    subagents: [workflow({ state: "running", runId: RUN, action: "Report: report", agents: { done: 2, started: 3 }, tokens: 83572, toolUses: 5, elapsedMs: 8745 })],
+    subagents: [
+      workflow({
+        state: "running",
+        runId: RUN,
+        action: "Report: report",
+        agents: { done: 2, started: 3 },
+        tokens: 83572,
+        toolUses: 5,
+        elapsedMs: 8745,
+      }),
+    ],
   },
   {
     at: 10700,
@@ -234,14 +325,23 @@ export const REAL_WORKFLOW_RECORDING: readonly WorkflowReplayEvent[] = [
       toolUses: 5,
       elapsedMs: 10685,
     },
-    subagents: [workflow({ state: "running", runId: RUN, action: "Report: report", agents: { done: 2, started: 3 }, tokens: 84080, toolUses: 5, elapsedMs: 10685 })],
+    subagents: [
+      workflow({
+        state: "running",
+        runId: RUN,
+        action: "Report: report",
+        agents: { done: 2, started: 3 },
+        tokens: 84080,
+        toolUses: 5,
+        elapsedMs: 10685,
+      }),
+    ],
   },
   {
     at: 10780,
     update: {
       sessionUpdate: "subagent_progress",
       subagentSessionId: WORKFLOW,
-      action: "Report: report",
       agents: { done: 3, started: 3 },
       tokens: 84080,
       toolUses: 5,
@@ -286,7 +386,18 @@ export const REAL_WORKFLOW_RECORDING: readonly WorkflowReplayEvent[] = [
       ],
       workflowAgentsFull: true,
     },
-    subagents: [workflow({ state: "running", runId: RUN, scriptPath: SCRIPT, phases, agents: { done: 3, started: 3 }, tokens: 84080, toolUses: 5, elapsedMs: 10753 })],
+    subagents: [
+      workflow({
+        state: "running",
+        runId: RUN,
+        scriptPath: SCRIPT,
+        phases,
+        agents: { done: 3, started: 3 },
+        tokens: 84080,
+        toolUses: 5,
+        elapsedMs: 10753,
+      }),
+    ],
   },
   {
     at: 10780,
@@ -296,10 +407,22 @@ export const REAL_WORKFLOW_RECORDING: readonly WorkflowReplayEvent[] = [
 ];
 
 /// Feed the captured records through the production SubagentFold, preserving event order and timing.
-export function realWorkflowFixture(now = Date.now()): Subagent[] {
+export function realWorkflowFixture(now = Date.now(), throughAt = REAL_WORKFLOW_RECORDING.at(-1)!.at): Subagent[] {
   const fold = new SubagentFold();
-  const start = now - REAL_WORKFLOW_RECORDING.at(-1)!.at;
-  REAL_WORKFLOW_RECORDING.forEach((record, index) => {
+  const records = REAL_WORKFLOW_RECORDING.filter((record) => record.at <= throughAt);
+  const start = now - throughAt;
+  records.forEach((record, index) => {
+    const update = { ...record.update };
+    if (Array.isArray(update.workflowAgents)) {
+      update.workflowAgents = update.workflowAgents.map((entry) =>
+        Object.fromEntries(
+          Object.entries(entry as Record<string, unknown>).map(([key, value]) => [
+            key,
+            AGENT_TIMES.has(key) && typeof value === "number" ? start + value : value,
+          ]),
+        ),
+      );
+    }
     // acpmux mirrors workflow progress fields in the `_meta.acpmux.subagents` snapshot that the
     // pane consumes. Keep that wire shape here instead of feeding the fold a summary shortcut.
     const mirrored = [
@@ -317,11 +440,11 @@ export function realWorkflowFixture(now = Date.now()): Subagent[] {
       "workflowAgentsFull",
     ];
     const shared = Object.fromEntries(
-      mirrored.flatMap((key) => (record.update[key] === undefined ? [] : [[key, record.update[key]]])),
+      mirrored.flatMap((key) => (update[key] === undefined ? [] : [[key, update[key]]])),
     );
     const subagents = record.subagents.map((change) => ({ ...shared, ...change }));
-    const msg = { method: "session/update", params: { update: record.update, _meta: { acpmux: { subagents } } } };
-    fold.reduce({ seq: index + 1, at: start + record.at, msg }, record.update);
+    const msg = { method: "session/update", params: { update, _meta: { acpmux: { subagents } } } };
+    fold.reduce({ seq: index + 1, at: start + record.at, msg }, update);
   });
   return fold.all();
 }

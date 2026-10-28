@@ -7,6 +7,7 @@
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
+import { GALLERY_NOW } from "../../../gallery/clock";
 import { activity, CWD, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { StartedSession } from "../started/startedSessions";
 import type { SummaryCardControl } from "./cardState";
@@ -120,7 +121,7 @@ const workflow: WorkflowSummary = {
   selectedAgentId: "api",
 };
 const workflowActions: WorkflowActions = { onPause: none, onStop: none, onSave: none, onOpenTranscript: none };
-const [realWorkflow] = createWorkflowAdapter()(realWorkflowFixture(), "gallery-session");
+const [realWorkflow] = createWorkflowAdapter()(realWorkflowFixture(GALLERY_NOW), "gallery-session");
 
 const background = (list: InspectorProcess[]) => ({
   processes: list,
