@@ -388,7 +388,12 @@ async fn run_prompt(
         if let Some(e) = stderr.as_mut() {
             let _ = e.read_to_end(&mut buf).await;
         }
-        let text = crate::stderr::clean_stderr_line(&String::from_utf8_lossy(&buf));
+        let text = String::from_utf8_lossy(&buf)
+            .lines()
+            .map(crate::stderr::clean_stderr_line)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
         let tail: String =
             text.chars().rev().take(600).collect::<Vec<_>>().into_iter().rev().collect();
         tail.trim().to_owned()
