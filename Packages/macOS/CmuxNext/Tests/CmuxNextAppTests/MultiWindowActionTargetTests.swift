@@ -434,6 +434,23 @@ import Testing
         #expect(own != HomeDockTab.windowKey(world.w1.state.id), "window 1 lists the home workspace: its Home is that workspace's dock")
     }
 
+    /// Home asked for in window 2 while window 2's own Home shows Channels: that Home goes back to Messages;
+    /// window 1's dock is left as it was.
+    @Test func homeShowInWindowTwoSwitchesWindowTwosOwnHome() throws {
+        let world = try Self.homeWorld()
+        defer { world.close() }
+        let windows = world.services.windows
+        let shell2 = try #require(world.w2.window)
+        windows.dispatching(eventFrom: shell2) { world.w2.sidebar.activate(.builtIn(.home)) }
+        let own = try #require(HomeDockTab.windowView(world.services, windowID: world.w2.state.id))
+        own.switchTo(.channels)
+        let windowOneKey = HomeDockTab.dockKey(world.services, windowID: world.w1.state.id, page: world.w1.state.page)
+        let windowOneBefore = windowOneKey.flatMap { HomeDockTab.liveView(world.services, key: $0) }?.mode
+        windows.dispatching(eventFrom: shell2) { _ = world.services.registry.perform("home.show", invocation: ActionInvocation(origin: .user)) }
+        #expect(own.mode == .messages, "home.show in window 2 left window 2's Home on \(own.mode)")
+        #expect(windowOneKey.flatMap { HomeDockTab.liveView(world.services, key: $0) }?.mode == windowOneBefore, "home.show in window 2 switched window 1's Home")
+    }
+
     /// Each window marks Home or Channels by the Home it shows: window 2's own Home on Channels marks Channels in
     /// window 2 only; window 1 (the home workspace's dock, on Messages) keeps Home marked.
     @Test func eachWindowMarksChannelsByItsOwnHome() throws {
