@@ -1641,6 +1641,10 @@ impl Hub {
         spec: &crate::agent_host::SpawnSpec,
         tap: crate::agent::Tap,
     ) -> Result<Arc<ChildAgent>, HostStartFailed> {
+        // A start runs only once the session's old host is gone (`ensure_child`), so a host this
+        // build could not speak to no longer counts: cleared before the new host's record is
+        // live, so no off push in between ends the new one for it (#26337).
+        session.floor.unjudged_host.store(false, Ordering::SeqCst);
         let record = crate::agent_host::program_wait::spawn(launcher, spec)
             .await
             .map_err(|error| HostStartFailed { error, started: None })?;
@@ -1660,7 +1664,6 @@ impl Hub {
         // none of its reports waits (`full_access_bound.rs`).
         session.floor.left_host_read.store(false, Ordering::SeqCst);
         session.floor.full_access_end_pending.store(false, Ordering::SeqCst);
-        session.floor.unjudged_host.store(false, Ordering::SeqCst);
         session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
         let attached = ChildAgent::attach_hosted(
             &meta.harness,

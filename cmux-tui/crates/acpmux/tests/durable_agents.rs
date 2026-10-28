@@ -2175,8 +2175,8 @@ async fn an_incompatible_host_ends_under_mdm_off_though_its_log_asks() {
 }
 
 /// https://github.com/manaflow-ai/cmux/issues/26337: with MDM unset, a host this build cannot speak
-/// to runs on, unadoptable, as before; an off pushed later ends it, as nothing this daemon read
-/// says what it runs.
+/// to runs on, unadoptable, as before. An off pushed later still ends it (the adoption hold it
+/// left is cut, and nothing this daemon read says what it runs).
 #[tokio::test]
 async fn an_incompatible_host_runs_on_with_mdm_unset_and_ends_when_mdm_turns_it_off() {
     let (mut daemon, session, harness_pid) = left_incompatible("mdmincompatpush").await;
