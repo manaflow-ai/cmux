@@ -12,7 +12,10 @@ export type QueuedEditDraft = {
   droppedImages: string[];
 };
 
-type Write = { sessionId: string; promptId: string } & ({ draft: QueuedEditDraft } | { revision: string });
+type Write = { sessionId: string; promptId: string } & (
+  | { draft: QueuedEditDraft; clear?: true }
+  | { revision: string }
+);
 const pending = new Map<string, Write>();
 let drain: Promise<void> | undefined;
 holdWebSwap(() => {
@@ -27,8 +30,12 @@ function enqueue(write: Write): void {
   const key = JSON.stringify([write.sessionId, write.promptId]);
   const queued = pending.get(key);
   // An old RPC's acknowledgement cannot replace a newer keystroke waiting for the host.
-  if (!("draft" in write) && queued && "draft" in queued && queued.draft.revision !== write.revision) return;
-  pending.set(key, write);
+  if (!("draft" in write) && queued && "draft" in queued) {
+    if (queued.draft.revision !== write.revision) return;
+    // A discarded revision may not have reached disk. Keep its set before the conditional clear,
+    // otherwise an older persisted revision would survive a successful no-op clear and revive.
+    pending.set(key, { ...queued, clear: true });
+  } else pending.set(key, write);
   void settleQueuedEditWrites();
 }
 
@@ -42,6 +49,16 @@ export function settleQueuedEditWrites(): Promise<void> {
         const [key, write] = pending.entries().next().value!;
         try {
           await postNative("draft" in write ? "chat.queuedEditDrafts.set" : "chat.queuedEditDrafts.clear", write);
+          if ("draft" in write && write.clear && pending.get(key) === write) {
+            // Once the set lands, a refused clear retries only the clear; it must never replay
+            // older text over a newer native edit that arrived while the clear was refused.
+            pending.set(key, {
+              sessionId: write.sessionId,
+              promptId: write.promptId,
+              revision: write.draft.revision,
+            });
+            continue;
+          }
         } catch {
           break;
         }
