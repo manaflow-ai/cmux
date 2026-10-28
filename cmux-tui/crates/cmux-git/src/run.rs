@@ -238,6 +238,8 @@ fn run(
     env: &[(&str, &OsStr)],
     address_space_limit: Option<u64>,
 ) -> Result<GitOutput, GitFailure> {
+    #[cfg(not(unix))]
+    let _ = address_space_limit;
     let deadline = deadline.min(DEADLINE);
     if deadline.is_zero() {
         return Err(GitFailure::TimedOut);
