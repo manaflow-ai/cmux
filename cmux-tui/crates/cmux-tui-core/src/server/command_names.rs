@@ -413,6 +413,7 @@ command_table! {
     CloudConversationUnsubscribe => "cloud-conversation-unsubscribe", Cloud;
     CloudConversationLive => "cloud-conversation-live", Cloud;
     CloudConversationTyping => "cloud-conversation-typing", Cloud;
+    CloudConversationPresence => "cloud-conversation-presence", Cloud;
     CloudMuxSubscribe => "cloud-mux-subscribe", Cloud;
     CloudMuxUnsubscribe => "cloud-mux-unsubscribe", Cloud;
     CloudMuxAck => "cloud-mux-ack", Cloud;

@@ -176,6 +176,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let services, let settings { WorkspaceAutoNameWiring(services: services).start(settings: settings) }  // `workspaces.autoName.variant` persist (hq#1957)
         }
         services.lifetimeFollowers += BrowserOmnibarPreference.follow(settings, cache: services.cache, on: services.mainWork)
+        // `appearance.wallpaperTint` (DesignSettings, applied from the settings) turns the desktop picture's sampling on or off.
+        services.lifetimeFollowers.append(ServiceObservation(.visible, owner: "WallpaperTint.follow", on: services.mainWork) {
+            DesignSettings.shared.wallpaperTint
+        } apply: { BackdropImageStore.shared.desktop.tintEnabled = $0 })
         // The look of the first frame: the loaded theme, background and backdrop art, then each workspace's theme and the app accent.
         order.startup.post(.afterStartup, "AutoArchive.start", on: .main) { [weak services] in services?.autoArchive.start() }  // workspaces.autoArchive: first pass 30 s after launch
         order.startup.post(.critical, "TerminalTheme.follow", on: .main) { services.terminalTheme.follow(settings) }

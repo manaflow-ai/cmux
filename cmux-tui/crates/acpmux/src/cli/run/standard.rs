@@ -620,7 +620,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 // Any size and number: inline when they fit one message with the text, else uploaded
                 // to the chat first and named by reference (`attach.rs`).
                 if !attach.is_empty() {
-                    prompt_id.attachments = crate::attach::blocks_for(&client, &session, &text, &attach, &|line| {
+                    prompt_id.attachments = crate::attach::blocks_for(&*client, &session, &text, &attach, &|line| {
                         eprintln!("{line}");
                     })
                     .await

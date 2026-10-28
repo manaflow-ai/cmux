@@ -134,7 +134,7 @@ public struct RemoteInstaller: Sendable {
     /// `cmux-tui-acpmux-<target>` for `acpmux host update --binary-dir`. Returns the file and the
     /// commit that published it (a tree build's may be an earlier commit).
     public func download(artifact: String, nextTo binary: URL) async throws -> (file: URL, commit: String) {
-        guard let commit = await BundledCmuxTUI.commit(binary: binary) else { throw RemoteInstallError.badCommit }
+        guard let commit = await BundledCmuxTUI.commit(binary: binary, on: work) else { throw RemoteInstallError.badCommit }
         let plan = try await plan(commit: commit, treeKey: BundledCmuxTUI.treeKey(binary: binary), artifact: artifact, remoteBinary: "")
         return (try await localCopy(plan, environment: ProcessInfo.processInfo.environment), plan.commit)
     }

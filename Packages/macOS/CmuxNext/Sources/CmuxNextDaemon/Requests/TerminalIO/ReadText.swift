@@ -18,7 +18,7 @@ public struct WaitForTextRequest: DaemonRequest {
         public var matched: Bool?
         public var text: String
     }
-    public static let command = "wait-for"
+    public static let commandName: DaemonCommandName = "wait-for"
     public var surface: SurfaceID
     public var pattern: String
     public var timeoutMs: Int

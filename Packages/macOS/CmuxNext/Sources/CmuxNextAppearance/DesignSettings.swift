@@ -118,13 +118,9 @@ public final class DesignSettings {
     }
     /// `appearance.wallpaperTint`: where the desktop shows through the window, its tint takes the
     /// desktop picture's hue (``WallpaperTint``), as macOS tints its own windows. Off until the
-    /// setting reaches it (``SettingsApplier``).
-    public var wallpaperTint = false {
-        didSet {
-            guard wallpaperTint != oldValue else { return }
-            BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
-        }
-    }
+    /// setting reaches it (``SettingsApplier``). The app follows it into the desktop picture's watch
+    /// (`BackdropImageStore.desktop.tintEnabled`, CmuxNextDesign), which samples only while it is on.
+    public var wallpaperTint = false
     /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
     public var animationBounce: MotionBounce = .none
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
