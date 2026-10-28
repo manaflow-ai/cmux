@@ -11,7 +11,6 @@ import CmuxNextMacScreen
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
-import CmuxNextWakeups
 
 extension InternalPageID {
     /// Mac Screen: one of the user's devices' screens, or the home page (the

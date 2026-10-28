@@ -49,6 +49,8 @@ pub use clipboard_read::{
 mod callbacks;
 pub use callbacks::{Callbacks, NotifyFn, PtyWriteFn};
 
+mod active_text;
+
 mod clear_history;
 
 mod memory_usage;

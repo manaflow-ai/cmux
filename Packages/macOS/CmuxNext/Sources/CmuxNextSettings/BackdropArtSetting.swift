@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextAppearance
 
 /// The optional public-domain painting in `appearance.backdropArt`.
 public struct BackdropArtSetting: Sendable {

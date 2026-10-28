@@ -1,5 +1,5 @@
 import CmuxNextActions
-import CmuxNextDesign
+import CmuxNextAppearance
 import CmuxNextWakeups
 @testable import CmuxNextSettings
 import Foundation

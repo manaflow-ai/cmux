@@ -8,7 +8,6 @@ import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextWakeups
 import UniformTypeIdentifiers
-import CmuxNextWakeups
 
 extension InternalPageID {
     /// The native Files pane (u2360; `files` is the chat's git tree page).
@@ -117,7 +116,7 @@ final class FilesPaneService: InternalPageProvider {
     }
 
     private func makeTab(_ folder: URL) -> Tab {
-        let model = FileBrowserModel(folder: folder, work: work,
+        let model = FileBrowserModel(folder: folder, work: mainWork, lanes: work,
                                      files: FileOperator(namer: FileNamer(copyWord: FilesPaneView.copyWord, aliasWord: FilesPaneView.aliasWord),
                                                          work: work),
                                      memory: FolderViewMemory(defaults: .standard))

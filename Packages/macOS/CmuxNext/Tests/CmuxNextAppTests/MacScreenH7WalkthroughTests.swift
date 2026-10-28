@@ -4,7 +4,6 @@ import CmuxNextWakeups
 import CryptoKit
 import Foundation
 import Testing
-import CmuxNextWakeups
 
 // Defects from the H7 walkthrough (2026-10-20). Settings › Devices froze the
 // app for 8-20 s at a time: its state getter read each relay's secret from

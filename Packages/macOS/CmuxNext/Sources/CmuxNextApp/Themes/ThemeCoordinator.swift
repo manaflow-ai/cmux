@@ -10,7 +10,6 @@ import CmuxNextTabs
 import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
-import CmuxNextWakeups
 
 /// Room, workspace and terminal themes (plans/cmux-next/data-model.md 6).
 ///

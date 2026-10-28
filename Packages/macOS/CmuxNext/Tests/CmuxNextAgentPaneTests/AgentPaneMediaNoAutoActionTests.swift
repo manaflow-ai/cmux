@@ -9,7 +9,6 @@ import Foundation
 import ImageIO
 import Testing
 import UniformTypeIdentifiers
-import CmuxNextWakeups
 
 /// No automatic fetch and no automatic open from an agent's media (media-safety plan R5 and R7,
 /// leo-workspace#874). Leo 2026-10-21: "we want to make it prompt injection safe as well since

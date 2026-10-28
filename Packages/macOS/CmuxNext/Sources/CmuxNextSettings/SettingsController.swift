@@ -1,6 +1,7 @@
 public import CmuxNextActions
+public import CmuxNextAppearance
 import CmuxNextCompat
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 public import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError

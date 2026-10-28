@@ -4,7 +4,6 @@ import CmuxNextCompat
 import CmuxNextDevices
 import CmuxNextSettings
 import Foundation
-import CmuxNextCompat
 
 /// `debug.device_hub` (development builds): the device hub as Mac Screen and
 /// Settings > Devices see it, and its intents, for live checks. Never a

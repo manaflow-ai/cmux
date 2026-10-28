@@ -31,8 +31,12 @@ nonisolated enum BuildHomeAdoption {
     // the CLI's spawn and output run on AsyncProcess's queues, never on a pool thread.
     static let run: Task<Void, Never> = Task(priority: .userInitiated) {
         let environment = ProcessInfo.processInfo.environment
-        guard applies(bundleID: Bundle.main.bundleIdentifier, environment: environment),
-              let cli = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux") else { return }
+        guard applies(bundleID: Bundle.main.bundleIdentifier, environment: environment) else { return }
+        // No file check first: a missing CLI fails its start (``adopt(cli:environment:processes:clock:)`` logs it).
+        guard let cli = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux") else {
+            logger.error("adoption skipped: no bundled cmux CLI")
+            return
+        }
         var variables = environment
         // The CLI resolves both homes from HOME, as the app does from its home folder.
         variables["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path

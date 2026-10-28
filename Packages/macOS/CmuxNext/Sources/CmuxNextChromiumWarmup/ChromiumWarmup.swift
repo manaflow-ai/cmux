@@ -286,6 +286,7 @@ public final class ChromiumWarmup {
         // The step is posted once the framework is mapped, so CefInitialize never waits on a
         // cold load and then lands in input.
         // task-owner: one warm start per process; CEFEngine owns its lifetime
+        // main-hop-allow: only awaits the framework load CEFEngine runs off main; its resume posts the idle step
         Task { [weak self] in
             await self?.engine.libraryLoadEnded()
             self?.post(.initialize)
@@ -300,6 +301,7 @@ public final class ChromiumWarmup {
         guard self.reason == nil, isAvailable, !engine.isRunning, !stopped else { return }
         self.reason = reason
         // task-owner: one warm start per process; CEFEngine owns its lifetime
+        // main-hop-allow: CefInitialize is main-thread by Chromium's contract (architecture.md 5a); the Host's attach and disk reads run off main (ChromiumHostLaunchSlot)
         Task { [weak self] in
             await self?.engine.warmStart(reason: reason.rawValue)
             self?.warmStarted()
@@ -403,6 +405,7 @@ public final class ChromiumWarmup {
     private func launchCheck() {
         if defaultIsChromium() { return chromiumLikely(.launch) }
         // task-owner: one launch check per process; reads one small file off the main thread
+        // main-hop-allow: only awaits CEFEngine's off-main use record read; its resume maps the framework (preload, off main)
         Task { [weak self] in
             guard let self, await engine.usedRecently(within: policy.recentUse), !stopped else { return }
             engine.preload()

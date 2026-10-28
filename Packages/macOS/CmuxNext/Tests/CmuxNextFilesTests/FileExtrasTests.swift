@@ -112,7 +112,7 @@ struct FileExtrasTests {
         try temp.file("b", bytes: 1)
         try temp.file("a", bytes: 3)
         try temp.file("c", bytes: 2)
-        let model = FileBrowserModel(folder: temp.url, sortOrder: FileSortOrder(field: .size), watcher: NeverWatcher(), work: BackgroundWork())
+        let model = FileBrowserModel(folder: temp.url, work: MainWorkScheduler(budget: MainFrameBudget()), sortOrder: FileSortOrder(field: .size), watcher: NeverWatcher(), lanes: BackgroundWork())
         await model.reload()
         #expect(model.entries.map(\.name) == ["b", "c", "a"])
         model.selectAlphabetically(forward: true)
@@ -129,7 +129,7 @@ struct FileExtrasTests {
     @Test func makeAliasAndCompressFromTheModelSelectTheResult() async throws {
         let temp = try TempFolder()
         try temp.file("x.txt", bytes: 5)
-        let model = FileBrowserModel(folder: temp.url, watcher: NeverWatcher(), work: BackgroundWork())
+        let model = FileBrowserModel(folder: temp.url, work: MainWorkScheduler(budget: MainFrameBudget()), watcher: NeverWatcher(), lanes: BackgroundWork())
         await model.reload()
         model.selection = ["x.txt"]
         await model.makeAliasesOfSelection(kind: .alias)

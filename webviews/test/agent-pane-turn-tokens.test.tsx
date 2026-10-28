@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts and tool titles, not shipped UI.
 // The running turn's line says what the turn has spent so far, as Claude desktop's does: the
-// time, then this turn's tokens ("Working for 5m 54s · 2.1M tokens"). Claude Code
+// time, then this turn's tokens ("Working for 5m · 2.1M tokens"). Claude Code
 // reports each model call's usage as it lands, and acpmux marks those records as one call's
 // (`usage_update` with `_meta.acpmux.call`, claude_stdio/inbound.rs), so the turn's tokens are the
 // sum of the marked calls since its `turn_started`. Every other usage record is the context a
@@ -8,6 +8,7 @@
 // harnesses, whatever their family, report only that. None of those adds up. A chat attached after
 // its turn started has not seen every call; it shows the time alone, even once older pages load.
 import { expect, test } from "bun:test";
+import { fixedPageClock } from "../src/ui/fixedPageClock";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
@@ -445,7 +446,7 @@ const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
 const drawn = (row: AcpmuxRow, value: WorkingCounts) =>
   renderToStaticMarkup(
     <WorkingCountsContext.Provider value={value}>
-      <WorkingFor row={row} now={() => START + 354_000} />
+      <WorkingFor row={row} clock={fixedPageClock(START + 354_000)} />
     </WorkingCountsContext.Provider>,
   )
     .replace(/<[^>]+>/g, " ")
@@ -453,15 +454,13 @@ const drawn = (row: AcpmuxRow, value: WorkingCounts) =>
     .trim();
 
 test("the line reads the time, then the turn's tokens, after the working dots", () => {
-  expect(drawn(status, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s · 2.1M tokens");
-  expect(drawn({ ...status, doing: "bun test" }, counts({ tokens: 840_000 }))).toBe("bun test 5m 54s · 840K tokens");
+  expect(drawn(status, counts({ tokens: 2_140_000 }))).toBe("Working for 5m · 2.1M tokens");
+  expect(drawn({ ...status, doing: "bun test" }, counts({ tokens: 840_000 }))).toBe("bun test 5m · 840K tokens");
   // Before the first call reports, or with no token data, the time stands alone.
-  expect(drawn(status, counts())).toBe("Working for 5m 54s");
-  expect(drawn(status, counts({ tokens: 0 }))).toBe("Working for 5m 54s");
+  expect(drawn(status, counts())).toBe("Working for 5m");
+  expect(drawn(status, counts({ tokens: 0 }))).toBe("Working for 5m");
   // The background counts follow the tokens.
-  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe(
-    "Working for 5m 54s · 2.1M tokens · 2 subagents",
-  );
+  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m · 2.1M tokens · 2 subagents");
 });
 
 test("tokens are compact in the pane's language", () => {

@@ -6,7 +6,6 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextWakeups
 import Foundation
-import CmuxNextWakeups
 
 /// `window.screenshot`, `pane.screenshot` and `tab.screenshot`: a PNG of one
 /// of this app's windows, a pane, or a tab's content, for agents that cannot

@@ -2,7 +2,6 @@ import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
-import CmuxNextCompat
 
 /// Link targets and the `[[` completion list of a file page: relative to the tab's own file,
 /// symlinks resolved before every folder check. The file system work (symlink resolution, the

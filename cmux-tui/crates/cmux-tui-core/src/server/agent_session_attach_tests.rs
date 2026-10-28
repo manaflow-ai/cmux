@@ -16,6 +16,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub(super) const WAIT: Duration = Duration::from_secs(5);

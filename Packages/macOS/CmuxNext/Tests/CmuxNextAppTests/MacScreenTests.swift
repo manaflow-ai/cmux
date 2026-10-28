@@ -10,7 +10,6 @@ import CmuxScreenKit
 import CmuxTheme
 import Foundation
 import Testing
-import CmuxNextWakeups
 
 nonisolated private let deviceID = "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"
 
