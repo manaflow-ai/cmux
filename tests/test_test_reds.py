@@ -67,7 +67,7 @@ class PerTest(unittest.TestCase):
         both = log(failed("a()"), ABORT, "*** Terminating app due to uncaught exception 'NSInternalInconsistencyException'")
         verdict = reds.classify(both, both)
         self.assertTrue(verdict.own)
-        self.assertEqual(verdict.reasons, ["the test process crashed (signal 6)"])
+        self.assertEqual(verdict.reasons[0], "the test process crashed (signal 6)")
 
     def test_truncated_output_is_the_heads_own(self):
         cut = log(failed("a()"), '##[error]no "Test run with" summary line (crash, kill or truncation); swift test '
@@ -94,6 +94,33 @@ class PerTest(unittest.TestCase):
                     "default action", "✔ Test aCrashEndsTheApp() passed after 0.1 seconds.", failed("a()"), SUMMARY)
         self.assertFalse(reds.read(quiet).crashes)
         self.assertFalse(reds.classify(quiet, log(failed("a()"), SUMMARY)).own)
+
+    def test_a_run_cut_off_with_no_marker_is_the_heads_own(self):
+        for cut in (log("◇ Test a() started.", failed("a()"), "✘ Test a() failed after 0.1 seconds with 1 issue.",
+                        "◇ Test b() started."),
+                    log("running 2 tests", "test a ... FAILED", "test b ...")):
+            with self.subTest(cut):
+                verdict = reds.classify(cut, log(failed("a()"), "test a ... FAILED", SUMMARY))
+                self.assertTrue(verdict.own)
+                self.assertIn("per-test results are not whole", verdict.reasons[0])
+
+    def test_a_whole_parameterized_run_is_not_cut_off(self):
+        whole = log('◇ Test f(_:) started.', '◇ Test case passing 1 argument x → 1 to f(_:) started.',
+                    "✔ Test f(_:) with 2 test cases passed after 0.1 seconds.", failed("a()"),
+                    "✘ Test a() failed after 0.1 seconds with 1 issue.", SUMMARY)
+        self.assertEqual(reds.read(whole).truncated, [])
+
+    def test_a_hang_sampler_crash_with_no_report_and_a_shell_abort_count(self):
+        for line in ("##[error]the test helper died on signal 6; crashed thread: no crash report from this run",
+                     "/tmp/run.sh: line 5: 1234 Aborted (core dumped) cargo test"):
+            with self.subTest(line):
+                self.assertTrue(reds.read(log(line)).crashes)
+
+    def test_crash_words_in_a_test_argument_or_odd_symbols_do_not_crash_the_reader(self):
+        start = '◇ Test case passing 1 argument text → "Fatal error: bad input" to parsesDiagnostic(text:) started.'
+        self.assertFalse(reds.read(log(start, "✔ Test parsesDiagnostic(text:) passed after 0.1 seconds.")).crashes)
+        self.assertIsNone(reds.demangle_test("$s5Tests0\u0130"))
+        reds.read(log(ABORT, "  4 CmuxNextPackageTests 0x1 $s5Tests0\u0130 + 3"))
 
     def test_xctest_and_fatal_error_crashes_count(self):
         for line in ("Restarting after unexpected exit, crash, or test timeout in FooTests.testBar(); summary will "

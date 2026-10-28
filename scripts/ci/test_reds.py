@@ -30,7 +30,6 @@ import argparse
 import json
 import re
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 
 # Each line of `gh run view --log` or of the job-logs endpoint starts with its time.
@@ -53,11 +52,12 @@ SIGNAL = re.compile(r"exited with unexpected signal code (\d+)|died on signal (\
 SIGNAL_NAMES = {"SIGABRT": "6", "SIGSEGV": "11", "SIGBUS": "10", "SIGILL": "4", "SIGTRAP": "5", "SIGKILL": "9",
                 "SIGFPE": "8"}
 CRASH = re.compile(r"exited with unexpected signal|died on signal|exited with signal|\(signal: \d+|terminated by signal|"
-                   r"\bEXC_[A-Z_]+|\bFatal error\b|Terminating app due to uncaught exception|"
+                   r"\bEXC_[A-Z_]+|^(?:\S+:\d+: )?Fatal error: |Terminating app due to uncaught exception|"
                    r"terminating due to uncaught exception|Test Case '[^']*' crashed|Thread \d+ Crashed|Restarting after unexpected exit|"
-                   r"Fatal Python error|panicked at .* SIGSEGV")
+                   r"Fatal Python error|panicked at .* SIGSEGV|\bAborted \(core dumped\)|\bSegmentation fault\b|"
+                   r"\bIllegal instruction\b|\bBus error\b|Trace/breakpoint trap")
 # Text that names a crash without one having happened.
-NOT_CRASH = re.compile(r"^\s*\d+ \| |^\s*\[\d+/\d+\] Compiling|\bwarning:|no crash report|[◇✔] Test \w*[Cc]rash")
+NOT_CRASH = re.compile(r"^\s*\d+ \| |^\s*\[\d+/\d+\] Compiling|\bwarning:|^[◇✔↪] Test ")
 XCTEST_RESTART = re.compile(r"(?:Restarting after unexpected exit, crash, or test timeout in|"
                             r"Test Case '-\[)(\S+)[ .](\w+)\]?'? crashed|"
                             r"Restarting after unexpected exit, crash, or test timeout in (\S+?)\.(\w+)\(\)")
@@ -66,24 +66,35 @@ TRUNCATED = re.compile(r"no \"Test run with\" summary line|swift test ended earl
                        r"This log was truncated|log (?:is|was) truncated|\bnever finished\b")
 # Swift Testing's start line, for naming the test a crash stack runs.
 STARTED = re.compile(r"◇ Test (?:case passing .+? to )?(\w+)\((.*?)\) started\.")
-MANGLED = re.compile(r"\$s(\d+)(\w+)")
+# A test's end (Swift Testing; a case of a parameterized test ends with its test), and XCTest's start and end.
+FINISHED = re.compile(r"[✔✘] Test (\w+)\(.*?\)(?: with \d+ test cases?)? (?:passed|failed)\b")
+XC_STARTED = re.compile(r"Test Case '-\[(\S+ \S+)\]' started")
+XC_FINISHED = re.compile(r"Test Case '-\[(\S+ \S+)\]' (?:passed|failed|skipped)")
+CARGO_RUNNING = re.compile(r"^running \d+ tests?$")
+MANGLED = re.compile(r"\$s([0-9]+)(\w+)")
+DIGITS = "0123456789"
+LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
-@dataclass
+# Plain classes, not dataclasses: consumers load this file with exec or importlib without registering it in
+# sys.modules, where a dataclass's string annotations cannot be resolved.
 class Result:
-    """What one job log says about its tests."""
-    ran: bool = False
-    failed: set[str] = field(default_factory=set)
-    crashes: list[str] = field(default_factory=list)  # "<who> crashed (signal N)", one per crash
-    truncated: list[str] = field(default_factory=list)  # why the per-test results are incomplete
+    """What one job log says about its tests: ran, failed (names), crashes ("<who> crashed (signal N)") and
+    truncated (why the per-test results are incomplete)."""
+
+    def __init__(self):
+        self.ran = False
+        self.failed: set = set()
+        self.crashes: list = []
+        self.truncated: list = []
 
 
-@dataclass
 class Verdict:
-    """own: the head's own red. reasons: why (first the crashes, then truncation, then the new failures)."""
-    own: bool
-    reasons: list[str]
-    shared: list[str] = field(default_factory=list)  # failing tests the base fails too
+    """own: the head's own red. reasons: why (first the crashes, then truncation, then the new failures).
+    shared: failing tests the base fails too."""
+
+    def __init__(self, own: bool, reasons: list, shared: list = ()):
+        self.own, self.reasons, self.shared = own, reasons, list(shared)
 
 
 def lines_of(log: str) -> list[str]:
@@ -106,14 +117,14 @@ def _words(text: str, words: list[str]) -> None:
 
 def _identifier(text: str, at: int, words: list[str]) -> tuple[str, int] | None:
     """One mangled identifier at `at` (a literal, or `0` and word substitutions): (name, end)."""
-    if at >= len(text) or not text[at].isdigit():
+    if at >= len(text) or text[at] not in DIGITS:
         return None
     subst = text[at] == "0"
     if subst:
         at += 1
     out = ""
     while True:
-        while subst and at < len(text) and text[at].isalpha():
+        while subst and at < len(text) and text[at] in LETTERS:
             index = ord(text[at].lower()) - ord("a")
             if text[at].isupper():
                 subst = False
@@ -124,7 +135,7 @@ def _identifier(text: str, at: int, words: list[str]) -> tuple[str, int] | None:
         if at < len(text) and text[at] == "0":
             at += 1
             break
-        match = re.match(r"\d+", text[at:])
+        match = re.match(r"[0-9]+", text[at:])
         if not match:
             return (out, at) if out else None
         size = int(match.group())
@@ -143,6 +154,13 @@ def _identifier(text: str, at: int, words: list[str]) -> tuple[str, int] | None:
 def demangle_test(symbol: str) -> tuple[str, str] | None:
     """(type, member) from a mangled Swift symbol in a *Tests module: `$s16CmuxNextAppTests015HomeChiefRosterD0V35no
     SegmentedControlFloatsOverTheChatyyF` is ("HomeChiefRosterTests", "noSegmentedControlFloatsOverTheChat")."""
+    try:
+        return _demangle_test(symbol)
+    except (ValueError, IndexError, OverflowError):
+        return None
+
+
+def _demangle_test(symbol: str) -> tuple[str, str] | None:
     match = MANGLED.match(symbol)
     if not match:
         return None
@@ -216,6 +234,15 @@ def read(log: str | None) -> Result:
         if TRUNCATED.search(text) and not NOT_CRASH.search(text):
             why = re.sub(r"^##\[error\]|^::error[^:]*::", "", text).strip()
             result.truncated.append(why[:200])
+    unfinished = started - {m.group(1) for text in lines for m in [FINISHED.search(text)] if m}
+    unfinished |= ({m.group(1) for text in lines for m in [XC_STARTED.search(text)] if m}
+                   - {m.group(1) for text in lines for m in [XC_FINISHED.search(text)] if m})
+    if unfinished:
+        result.truncated.append(f"{len(unfinished)} test(s) started and never finished: "
+                                + "; ".join(sorted(unfinished)[:5]))
+    running = sum(1 for text in lines if CARGO_RUNNING.match(text))
+    if running > sum(1 for text in lines if text.startswith("test result: ")):
+        result.truncated.append("a cargo test binary printed no `test result:` line")
     if crashed:
         result.ran = True
         who = named or crashed_tests(stack, started) or ["the test process"]
