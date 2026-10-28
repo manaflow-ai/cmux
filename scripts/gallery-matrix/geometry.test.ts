@@ -47,6 +47,23 @@ test("native evidence requires a native frame source", () => {
   }
 });
 
+test("evidence enums reject coerced strings before measurement", async () => {
+  const value = artifact();
+  value.capture.coordinateSpace = "screenshot-pixels";
+  value.capture.deviceScaleFactor = 2;
+  value.elements.forEach((element) => { element.style = { borderRadius: 4 }; });
+  const radius: GeometryRule = { id: "radius", kind: "style-token", group: "icons", tolerancePx: 0, property: "borderRadius", tokensPx: [4] };
+  expect((await lint(parseArtifact(value), [radius])).passed).toBe(false);
+  for (const invalid of [["screenshot-pixels"], { toString: () => "screenshot-pixels" }, new String("screenshot-pixels")]) {
+    expect(() => parseArtifact({ ...value, capture: { ...value.capture, coordinateSpace: invalid } })).toThrow("coordinateSpace");
+  }
+  for (const kind of ["native", "web"]) {
+    for (const source of ["dom-rect", "ax-frame", "view-frame"]) {
+      expect(() => parseArtifact({ ...value, elements: [{ ...value.elements[0], kind, source: [source] }] })).toThrow("source");
+    }
+  }
+});
+
 test("accepted debt needs a reason and a non-negative limit", () => {
   for (const debt of [{ maxDeltaPx: 1, reason: "" }, { maxDeltaPx: 1, reason: "  " }, { maxDeltaPx: -1, reason: "documented" }]) {
     expect(() => parseConfig({ ...config(), acceptedFindings: { existing: debt } })).toThrow("acceptedFindings");
