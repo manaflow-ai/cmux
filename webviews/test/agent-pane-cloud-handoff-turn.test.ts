@@ -115,10 +115,11 @@ test("a page with no hand-off ask, a steer, and a Retry's id that names a turn a
 test("an id that only starts with the prefix names no turn: its send asks for one", async () => {
   const prompts: Record<string, unknown>[] = [];
   const chat = await client(prompts);
-  chat.handoffTurn = async () => 4;
+  let turn = 4;
+  chat.handoffTurn = async () => turn++;
   await chat.send("note", [], "handoff-note");
   await chat.send("zero", [], "handoff-0-p-6");
-  expect(prompts.map(promptIdOf)).toEqual(["handoff-4-handoff-note", "handoff-4-handoff-0-p-6"]);
+  expect(prompts.map(promptIdOf)).toEqual(["handoff-4-handoff-note", "handoff-5-handoff-0-p-6"]);
 });
 
 test("a send while the chat's ask is out asks nothing, goes behind it and under its own id", async () => {
