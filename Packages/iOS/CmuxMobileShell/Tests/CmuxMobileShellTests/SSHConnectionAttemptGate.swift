@@ -1,5 +1,3 @@
-import Testing
-
 /// A transport that deliberately completes after cancellation, on command.
 @MainActor
 final class SSHConnectionAttemptGate {
@@ -27,8 +25,7 @@ final class SSHConnectionAttemptGate {
     func fail() {
         let continuation = result
         result = nil
-        continuation?.resume(throwing: Failure())
+        continuation?.resume(throwing: SSHConnectionAttemptFailure.transport)
     }
 
-    struct Failure: Error {}
 }

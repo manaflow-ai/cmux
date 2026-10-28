@@ -97,7 +97,7 @@ struct MobileSSHConnectionAttemptTests {
         do {
             _ = try await owner.value
             Issue.record("Expected the transport failure")
-        } catch is SSHConnectionAttemptGate.Failure {
+        } catch is SSHConnectionAttemptFailure {
         }
         #expect(harness.failures == 1)
         #expect(!harness.attempts.isConnecting(hostID: harness.hostID))

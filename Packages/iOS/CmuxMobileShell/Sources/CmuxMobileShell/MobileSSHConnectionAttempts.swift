@@ -5,12 +5,7 @@ import Foundation
 /// without starting a server or reading the user's keychain.
 @MainActor
 final class MobileSSHConnectionAttempts<Connection: Sendable> {
-    private struct Attempt {
-        let id: UUID
-        let task: Task<Connection, any Error>
-    }
-
-    private var attempts: [UUID: Attempt] = [:]
+    private var attempts: [UUID: MobileSSHConnectionAttempt<Connection>] = [:]
 
     func isConnecting(hostID: UUID) -> Bool {
         attempts[hostID] != nil
@@ -27,7 +22,7 @@ final class MobileSSHConnectionAttempts<Connection: Sendable> {
         connected: @escaping @MainActor (Connection) -> Void,
         failed: @escaping @MainActor (any Error) -> Void
     ) async throws -> Connection {
-        let attempt: Attempt
+        let attempt: MobileSSHConnectionAttempt<Connection>
         if let existing = attempts[hostID] {
             attempt = existing
         } else {
@@ -54,7 +49,7 @@ final class MobileSSHConnectionAttempts<Connection: Sendable> {
                 connected(connection)
                 return connection
             }
-            attempt = Attempt(id: UUID(), task: task)
+            attempt = MobileSSHConnectionAttempt(id: UUID(), task: task)
             attempts[hostID] = attempt
         }
         defer {
