@@ -1171,7 +1171,7 @@ export function NewTabScreen(props: Props) {
         summary={{
           ...chipSnapshot.summary,
           sessionId: chipSnapshot.summary?.sessionId ?? "",
-          ...(machineHeadlineEnabled ? { peer: projectPeer && !peerRemoved ? projectPeer : undefined } : {}),
+          ...(projectPeer && !peerRemoved ? { peer: projectPeer } : {}),
           ...(askFolder ? { cwd: askFolder } : { cwd: undefined }),
         }}
         sessions={
