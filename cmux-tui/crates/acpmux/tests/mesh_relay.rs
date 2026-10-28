@@ -167,6 +167,7 @@ impl MeshHub for FakeHub {
                 if let Some(r) = s.receipts.get_mut(id) {
                     r.state = serde_json::to_value(ack.state).unwrap().as_str().unwrap().into();
                     (r.prompt_id, r.detail) = (ack.prompt_id.clone(), ack.detail.clone());
+                    r.acked_at = Some(2000);
                 }
             });
             Ok(())
@@ -210,6 +211,9 @@ impl MeshHub for FakeHub {
                     attempt: 0,
                     prompt_id: None,
                     detail: None,
+                    created_at: 1000,
+                    leased_until: None,
+                    acked_at: None,
                 };
                 s.receipts.insert(id.clone(), receipt.clone());
                 s.waiting.push_back(InMessage {
@@ -234,6 +238,9 @@ impl MeshHub for FakeHub {
 
     fn receipt<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async move {
+            if self.down {
+                return Err(HubError::unavailable("the hub is down"));
+            }
             let receipts = &self.state.lock().unwrap().receipts;
             receipts.get(id).cloned().ok_or_else(|| HubError::refused("no such message"))
         })
@@ -536,6 +543,18 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     let status = sender.call("_acpmux/send_status", json!({"deliveryId": delivery})).await;
     assert_eq!(status.pointer("/result/status"), Some(&json!("delivered")), "{status}");
     assert_eq!(status.pointer("/result/accepted/promptId"), Some(&json!(message)), "{status}");
+    // The outbox's status shape: its prompt id and times too.
+    assert_eq!(status.pointer("/result/promptId"), Some(&json!(message)), "{status}");
+    assert_eq!(status.pointer("/result/createdAt"), Some(&json!(1000)), "{status}");
+    assert_eq!(status.pointer("/result/updatedAt"), Some(&json!(2000)), "{status}");
+    // An unknown id is no delivery; a hub that does not answer is "ask again", not "unknown".
+    let unknown = sender.call("_acpmux/send_status", json!({"deliveryId": "mesh:msg_none"})).await;
+    assert_eq!(unknown.pointer("/error/data/reason"), Some(&json!("outbox.unknown")), "{unknown}");
+    let lost = hub();
+    let _ = lost.mesh.set(Arc::new(FakeHub { down: true, ..FakeHub::default() }));
+    let asked =
+        Client::local(&lost).call("_acpmux/send_status", json!({"deliveryId": delivery})).await;
+    assert_eq!(asked.pointer("/error/data/reason"), Some(&json!("mesh.unavailable")), "{asked}");
     let mut on_b = Client::local(&b);
     let mut info = Value::Null;
     for _ in 0..600 {
