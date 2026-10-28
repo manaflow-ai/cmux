@@ -1508,6 +1508,19 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
 }
+/* Split, output first and what the model read second (TurnTokens.tsx): "↓ 12.4K out ↑ 3.9M in". */
+.cv-worked__tokens.is-split {
+  display: inline-flex;
+  gap: 8px;
+}
+/* The turn's time is quieter than its words too, as its tokens are (Leo, 2026-10-21: "shouldnt the
+   token text and maybe time tho be less prominent? darker?"): beside "Thinking" or a call, and
+   inside "Working for 35s" and "Worked for 1m 16s" (TurnTokens.tsx `TimedLabel`). */
+.cv-worked__time,
+.cv-worked__label-time {
+  color: var(--cv-text-dim);
+  font-variant-numeric: tabular-nums;
+}
 .cv-worked__open {
   all: unset;
   min-width: 0;
@@ -1568,10 +1581,6 @@ pre.cv-math-source {
 .cv-worked.is-below {
   height: calc(var(--cv-meta-row) + var(--cv-turn-gap));
   padding-top: calc(var(--cv-live-gap) + 2px);
-}
-/* Its time is quieter than its words, as the tool rows' time is. */
-.cv-worked.is-below .cv-worked__time {
-  color: var(--cv-text-dim);
 }
 /* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line. */
 :is(.cv-worked, .cv-activity) .cv-command__bg {
@@ -1786,6 +1795,8 @@ pre.cv-math-source {
 }
 /* The folded label uses the same row height as tools; full thought text keeps its padding. */
 .cv-thought.is-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   padding-block: 0;
 }

@@ -73,7 +73,8 @@ permissions:
 
 concurrency:
   group: cmux-next-ios-kit-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+  # A new push to a pull request cancels its previous run; feat-cmux-next pushes never cancel.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   kit-tests:

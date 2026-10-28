@@ -730,7 +730,7 @@ path = "tests/test_ci_quota_hold_gate.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_pr_size_advisory.py"
+path = "tests/test_ci_pr_size.py"
 lane = "linux-guard"
 
 [[test]]
@@ -982,6 +982,10 @@ path = "tests/test_tui_publish_workflow_security.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_runs_on_labels.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_vm_scp.py"
 lane = "legacy"
 
@@ -1035,6 +1039,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_helper_prebuild_lifecycle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_killpg_tolerates_eperm.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1433,6 +1441,10 @@ path = "tests/test_base_red_excuse.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_guard_check_isolation.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_release_notes.py"
 lane = "linux-guard"
 
@@ -1806,6 +1818,10 @@ path = "tests/test_merge_freeze.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_gh_pages.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_release_changelog_lines.py"
 lane = "linux-guard"
 
@@ -2083,6 +2099,10 @@ path = "tests/test_ci_linux_compile_runners.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_blacksmith_linux_failover.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_daemon_tests_gate.py"
 lane = "linux-guard"
 
@@ -2108,4 +2128,16 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_dev_landing_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runs_on_values.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_internal_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fleet_rule_lints.py"
 lane = "linux-guard"
