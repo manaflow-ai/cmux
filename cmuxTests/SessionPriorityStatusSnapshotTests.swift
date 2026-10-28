@@ -9,7 +9,8 @@ import Testing
 #endif
 
 /// What `session_priority.get` and `.status` report for one workspace: no target while cmux
-/// leaves the workspace alone, so the CLI shows no arrow to an effort it will not apply.
+/// leaves the workspace or every one of its Claude panes alone, so the CLI shows no arrow to an
+/// effort it will not apply.
 @MainActor
 struct SessionPriorityStatusSnapshotTests {
     private let workspaceId = UUID()
@@ -56,6 +57,17 @@ struct SessionPriorityStatusSnapshotTests {
         #expect(launched.tier == .slow)
         #expect(typed.manualSignal == .userCommandOnScreen)
         #expect(typed.target == nil)
+    }
+
+    /// With two Claude panes and one left alone, cmux still restarts the other to the target.
+    @Test
+    func oneManualPaneOfTwoStillReportsTheTarget() {
+        let mixed = snapshot(panes: [.manual(.launchArgumentEffort), .upToDate])
+        let bothManual = snapshot(panes: [.manual(.launchArgumentEffort), .manual(.userCommandOnScreen)])
+
+        #expect(mixed.manualSignal == .launchArgumentEffort)
+        #expect(mixed.target == SessionPriorityTarget(effort: .medium))
+        #expect(bothManual.target == nil)
     }
 
     @Test

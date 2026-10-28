@@ -146,6 +146,21 @@ struct SessionPriorityStatusRowTests {
         #expect(collapsedKeys() == ["claude_usage_a", "claude_usage_b", "claude_code"])
     }
 
+    /// Like the CLI, the row names no effort that cmux applies to none of the workspace's panes.
+    @Test
+    func rowOmitsTheEffortWhenEveryPaneIsLeftAlone() {
+        let slow = String(localized: "sidebar.sessionPriority.tier.slow", defaultValue: "Slow")
+        let normal = String(localized: "sidebar.sessionPriority.difficulty.normal", defaultValue: "Normal")
+        let manual = String(localized: "sidebar.sessionPriority.state.manual", defaultValue: "not adjusted")
+        let medium = SessionPriorityTarget(effort: .medium)
+
+        let leftAlone = row([.manual(.launchArgumentEffort)], tier: .slow, difficulty: .normal, target: medium)
+        let mixed = row([.manual(.launchArgumentEffort), .upToDate], tier: .slow, difficulty: .normal, target: medium)
+
+        #expect(leftAlone.value == [slow, normal, manual].joined(separator: " · "))
+        #expect(mixed.value == [slow, normal, "medium", manual].joined(separator: " · "))
+    }
+
     @Test
     func effortAndModelSegment() {
         #expect(row(tier: .slow, difficulty: .easy, target: .init(effort: .low, model: "sonnet")).value.hasSuffix("low / sonnet"))
