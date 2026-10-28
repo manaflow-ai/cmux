@@ -87,6 +87,7 @@ import { PresenceClient } from "./multiplayer/presenceClient";
 import { recordedConversationEvents } from "./conversation/exportEvents";
 import { markPullRequestActivityVersion, pullRequestRowKey } from "./summary/transcriptPullRequests";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
+import { HANDOFF_PROMPT_PREFIX, handoffPromptId } from "./cloudHandoffTurn";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -4784,6 +4785,9 @@ export class AcpmuxDirectClient {
   /** A new chat starting (`create`): a Send meanwhile waits for it and goes to the new chat, not to
    *  the session still on screen (a harness pick), and a Send with no session joins it. */
   private creating?: Promise<string | undefined>;
+  /// Opens a chat's Cloud hand-off turn before a prompt that starts one (cloudHandoffTurn.ts); set
+  /// by the page only for a chat on a Cloud machine whose app opens them.
+  handoffTurn?: (sessionId: string) => Promise<number | undefined>;
   async ensureSession(): Promise<string | undefined> {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
@@ -4901,6 +4905,19 @@ export class AcpmuxDirectClient {
     const sessionId = shown ?? (await this.ensureSession());
     // No chat took it: the sender gets the prompt back (a started chat's composer let go of it).
     if (!sessionId) throw new Error(translate("error.notOpen"));
+    // A chat on a Cloud machine: a prompt that starts a turn names the hand-off turn the app opened
+    // for it (cloudHandoffTurn.ts), so the machine reports that turn. Not a steer or a prompt behind
+    // a running turn or the queue (it starts no turn of its own), and never a prompt that already
+    // names one: a Retry keeps its id, so a copy acpmux took runs once.
+    if (
+      this.handoffTurn &&
+      !steer &&
+      !promptId.startsWith(HANDOFF_PROMPT_PREFIX) &&
+      !(shown === sessionId && (this.turnOpen || this.queue.length > 0))
+    ) {
+      const turn = await this.handoffTurn(sessionId);
+      if (turn !== undefined) promptId = handoffPromptId(turn, promptId);
+    }
     // A paste sent as its own block shows in the bubble as acpmux's echo will have it (pastedText.ts).
     const supportsAudio = takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions);
     const sendAttachments = supportsAudio
