@@ -39,6 +39,9 @@ export const foldText = (s: string): string =>
     .replace(LETTER, (c) => LETTERS[c] ?? c)
     .normalize("NFC")
 
+/** Whether one code point is a combining mark the fold drops (an accent, not a kana voicing mark). */
+export const isDroppedMark = (ch: string): boolean => /^\p{M}$/u.test(ch) && foldText(ch) === ""
+
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" })
 
 /** One grapheme folded; a single ASCII character (most text) skips normalization. */

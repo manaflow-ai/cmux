@@ -51,6 +51,8 @@ describe("home.search highlight under folding", () => {
     expect(hitOf(row("がかみ"), "か").ranges).toEqual([{ start: 1, length: 1 }])
     expect(hitOf(row("かがみ"), "が").ranges).toEqual([{ start: 1, length: 1 }])
     expect(foldText("한국어 計画 がぎ")).toBe("한국어 計画 がぎ")
+    // A decomposed が keeps its voicing mark out of a plain match for か, as before.
+    expect(hitOf(row("か\u3099み"), "か").ranges).toEqual([{ start: 0, length: 1 }])
   })
 
   it("prefers the plain match, as Postgres ILIKE matched it, and folds only without one", () => {

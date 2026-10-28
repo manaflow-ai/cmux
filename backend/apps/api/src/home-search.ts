@@ -2,7 +2,7 @@ import { conversation as homeConversation } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
 import { projectionReadMode, shadowRead } from "./projection-reads.ts"
 import type { Env } from "./env.ts"
-import { foldedMatch } from "./home-search-fold.ts"
+import { foldedMatch, isDroppedMark } from "./home-search-fold.ts"
 
 /**
  * `home.search` (home-messaging.md sections 7 and 20): the PlanetScale projection through the
@@ -69,9 +69,9 @@ export const hitOf = (row: { conversation_id: string; title: string | null; seq:
   const needle = [...q.toLowerCase()]
   const chars = [...row.body]
   const at = findMatch(chars, needle)
-  // A plain match ending before combining marks (`cafe` in a decomposed `café`) covers them too.
+  // A plain match ending before accents the fold drops (`cafe` in a decomposed `café`) covers them too.
   let end = at + needle.length
-  while (at >= 0 && end < chars.length && /^\p{M}$/u.test(chars[end]!)) end++
+  while (at >= 0 && end < chars.length && isDroppedMark(chars[end]!)) end++
   const match = at >= 0 ? { start: at, length: end - at } : foldedMatch(row.body, q)
   const { snippet, from, to, lead } = homeConversation.snippetWindow(row.body, match?.start ?? 0, match?.length ?? needle.length)
   // The part of the match the snippet shows, in snippet offsets.
