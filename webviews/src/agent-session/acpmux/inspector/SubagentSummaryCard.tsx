@@ -90,7 +90,7 @@ export function SubagentSummaryCard({
       <span className="acpmux-chat-inspector-agent-summary__body">
         {variant === "line" && (
           <span className="acpmux-chat-inspector-agent-summary__counts">
-            {labels.length > 0 ? labels.join(" · ") : "No agents yet"}
+            {labels.length > 0 ? labels.join(" · ") : t("summary.subagents.noneActive")}
           </span>
         )}
         {variant === "segmented" && (
