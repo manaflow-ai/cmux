@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDesign
@@ -127,6 +128,12 @@ final class FocusEffectApplier: FocusEffectApplying {
                 entry.chrome.perform(.findInPage)
             }
         case .agentPage(let pane, let tab):
+            // A cold New Tab page's stand-in field has the pane's keys until the page's own field is there.
+            if let field = controller.services.keyRouter.newTabInputCoordinator.standIn(inPane: pane, tab: tab), !field.isHidden {
+                blurChildWindowPage()
+                if window.firstResponder !== field { window.makeFirstResponder(field) }
+                return
+            }
             guard case .agent(let view)? = presented(pane: pane, tab: tab) else { return }
             // An agent page in Chromium takes the keys like a Chromium page, in either backend.
             if let page = TabContent.agent(view).chromiumTab { return focusPage(page, in: window) }
