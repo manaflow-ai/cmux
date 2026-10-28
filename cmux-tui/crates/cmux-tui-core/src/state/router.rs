@@ -204,6 +204,20 @@ fn optional_bool(fields: &Map<String, Value>, name: &str) -> Result<Option<bool>
     }
 }
 
+/// `None` when absent; a present field must be a nonnegative integer.
+fn optional_u64(fields: &Map<String, Value>, name: &str) -> Result<Option<u64>, ResourceError> {
+    match fields.get(name) {
+        None => Ok(None),
+        Some(Value::Number(value)) => value.as_u64().map(Some).ok_or_else(|| {
+            validation_error(&format!("{name} must be a nonnegative integer"), json!({"field": name}))
+        }),
+        Some(_) => Err(validation_error(
+            &format!("{name} must be a nonnegative integer"),
+            json!({"field": name}),
+        )),
+    }
+}
+
 /// `None` when absent, `Some(None)` for null; a present value must be a string.
 fn nullable_reason(
     fields: &Map<String, Value>,
@@ -346,7 +360,7 @@ pub(crate) fn dispatch(
                 emulation: None,
                 marked_unread: optional_bool(fields, "marked_unread")?,
                 attention: nullable_reason(fields, "attention")?,
-                attention_clear_at_ms: fields.get("attention_at_ms").and_then(Value::as_u64),
+                attention_clear_at_ms: optional_u64(fields, "attention_at_ms")?,
                 attention_page: None,
             };
             let commit = mux

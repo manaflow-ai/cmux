@@ -108,7 +108,7 @@ import Testing
         let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, tabResourceID: "tab_forked", title: "GitHub")])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: name), name: name, screens: [screen])]))
-        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"attention-test","generation":"g1","capabilities":["state-resources-v1","tab-mark-unread-v1","tab-attention-v1"]}"#.utf8))
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"attention-test","generation":"g1","capabilities":["state-resources-v1","tab-mark-unread-v1","tab-attention-v1","tab-attention-clear-revision-v1"]}"#.utf8))
         store.noteHandshake(identity)
         let workspace = try #require(store.workspaces.first)
         let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
