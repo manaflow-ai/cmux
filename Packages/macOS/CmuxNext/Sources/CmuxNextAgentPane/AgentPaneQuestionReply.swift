@@ -92,8 +92,9 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
             // a malformed flag must not gain the free-text allowance of that default.
             let allowsOther: Bool
             if let raw = item["allowsOther"], !(raw is NSNull) {
-                guard let flag = raw as? Bool else { return false }
-                allowsOther = flag
+                guard let flag = raw as? NSNumber,
+                      CFGetTypeID(flag) == CFBooleanGetTypeID() else { return false }
+                allowsOther = flag.boolValue
             } else { allowsOther = true }
             if !allowsOther {
                 let options = item["options"] as? [[String: Any]] ?? []
