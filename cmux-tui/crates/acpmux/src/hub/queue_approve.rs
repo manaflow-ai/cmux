@@ -134,6 +134,20 @@ impl Hub {
         Ok(())
     }
 
+    /// `transfer.held_prompts` while any prompt of the chat waits for the owner: a move would
+    /// take it to a daemon that may not hold it (`transfer_out.rs`). Approve or decline it first.
+    pub(in crate::hub) fn held_prompts(&self, session: &Session) -> Result<(), RpcError> {
+        let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let held: Vec<&str> =
+            queue.iter().filter(|q| q.awaiting_owner).map(|q| q.prompt_id.as_str()).collect();
+        if held.is_empty() {
+            return Ok(());
+        }
+        let msg = "a prompt waits for the chat's owner: approve or decline it, then move the chat";
+        let data = json!({"promptIds": held});
+        Err(refused(-32000, "transfer.held_prompts", msg, data))
+    }
+
     /// `queue.not_found` for an answer to a prompt that does not wait for the owner, with how its
     /// latest incarnation (the turn id of the last `queued` record under that prompt id, which a
     /// client may reuse) was decided: the last of its decision records, which are logged in the
