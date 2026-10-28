@@ -19,7 +19,7 @@ import Testing
             "displayBackgrounds": .object([first: .string("folder:" + folder), second: "daily"]),
             "displayBackgroundRotations": .object([first: "15m", second: "hourly"]),
         ]]
-        let app = ThemeScope(level: .config)
+        let app = ThemeScope(level: .room)
         app.setBackdropSelection(.art(.degasHalevy))
         let left = ThemeScope(level: .room, parent: app)
         let right = ThemeScope(level: .room, parent: app)
@@ -58,7 +58,7 @@ import Testing
     }
 
     @Test func defaultsOptOutWorkspacePriorityAndCleanup() async {
-        let app = ThemeScope(level: .config)
+        let app = ThemeScope(level: .room)
         app.setBackdropSelection(.art(.degasHalevy))
         let room = ThemeScope(level: .room, parent: app)
         let window = NSWindow()
