@@ -8574,9 +8574,17 @@ function AcpmuxPane() {
             if (session && remembers) rememberStartedProject(folder, callNative);
             return session;
           });
+          if (!asks) {
+            // A blank Agent Return has no prompt to make a deferred switch visible. Preserve the
+            // old immediate transition and observe the unresolved start only to avoid an unhandled
+            // rejection; a later prompt can still reveal the switch through the composer.
+            setNewTab(undefined);
+            void started.catch(() => undefined);
+            return;
+          }
           // Queue the prompt in the same turn as the deferred switch. Waiting for chat.new here
           // deadlocks HarnessSwitch: it waits for a visible prompt before resolving its start.
-          if (asks) await callNative("chat.send", message);
+          await callNative("chat.send", message);
           await started.catch(() => undefined);
           return;
         }
