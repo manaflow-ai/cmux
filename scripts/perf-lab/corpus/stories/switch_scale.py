@@ -2,7 +2,7 @@
 """The switch-at-scale fixture (Lawrence 2026-10-28: "need to make sure changing spaces and screens, when there's a lot of
 workspaces, groups, tabs, terminals, panes etc, is extremely fast"; /Users/lawrence/fun/wt/handoff/switch-scale.md).
 
-A generated layout snapshot, the same bytes on every host and Python (splitmix64 from story_kit, fixed seed):
+A generated layout snapshot, the same bytes on every host and Python 3.9+ (splitmix64 as story_kit's, fixed seed):
 
   * N workspaces (1,000 for the full fixture; 10 and 100 for the curve) in spaces and groups: 10 spaces and 40 groups at
     1,000 (min(10, max(2, N/100)) spaces, max(spaces, N/25) groups), each group in one space (round robin), each
@@ -33,12 +33,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import sys
 from pathlib import Path
-
-HERE = Path(__file__).resolve().parent
 
 SCHEMA = "cmux-layout-snapshot/v2"
 SEED = 0x5C0FE5CA1E2026
@@ -59,18 +56,27 @@ DISPLAYS = 2
 GROUPED_OF_FIVE = 4
 
 
-def _story_kit():
-    name = "perf_lab_story_kit"
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, HERE / "story_kit.py")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[name] = module
-        spec.loader.exec_module(module)
-    return sys.modules[name]
+class Rng:
+    """splitmix64, as story_kit.Rng: the same numbers on every Python (also the macOS command line tools' 3.9, which
+    the in-process bench runs), so the fixture and its digest never move."""
 
+    MASK = (1 << 64) - 1
 
-def Rng(seed: int):  # noqa: N802 (the story kit's class)
-    return _story_kit().Rng(seed)
+    def __init__(self, seed: int):
+        self.state = seed & self.MASK
+
+    def next(self) -> int:
+        self.state = (self.state + 0x9E3779B97F4A7C15) & self.MASK
+        z = self.state
+        z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & self.MASK
+        z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & self.MASK
+        return z ^ (z >> 31)
+
+    def between(self, low: int, high: int) -> int:
+        return low + self.next() % (high - low + 1)
+
+    def choice(self, items):
+        return items[self.next() % len(items)]
 
 
 def spaces_for(workspaces: int) -> int:
