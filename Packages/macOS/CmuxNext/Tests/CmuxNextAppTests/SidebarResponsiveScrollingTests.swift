@@ -133,20 +133,27 @@ struct SidebarResponsiveScrollingTests {
         #expect(list.contentView.bounds.origin != origin, "the held 3 pt reach the list when the gesture ends")
     }
 
+    /// One scroll as the app delivers it: the input tap feeds the paging (`SidebarSwipeFeed`), then AppKit
+    /// dispatches it to the list's `scrollWheel(with:)`.
+    private static func deliver(_ event: NSEvent, to list: SidebarScrollView) {
+        list.swipes.receive(event) { true }
+        list.scrollWheel(with: event)
+    }
+
     @Test(arguments: [true, false])
     func aSwipeOverTheListPagesOneToOneAndKeepsTheClipStill(responsive: Bool) throws {
         let list = Self.sidebar(responsive: responsive).scrollView
         let origin = list.contentView.bounds.origin
         var reports: [(ProfileSwipeTracker.Phase, CGFloat)] = []
         list.onHorizontalScroll = { phase, dx, _ in reports.append((phase, dx)) }
-        list.scrollWheel(with: try Self.event(phase: .mayBegin))
-        list.scrollWheel(with: try Self.event(dx: -3, phase: .began))
+        Self.deliver(try Self.event(phase: .mayBegin), to: list)
+        Self.deliver(try Self.event(dx: -3, phase: .began), to: list)
         #expect(reports.isEmpty, "held until the gesture shows its axis")
-        list.scrollWheel(with: try Self.event(dx: -6, phase: .changed))
-        list.scrollWheel(with: try Self.event(dx: -9, phase: .changed))
-        list.scrollWheel(with: try Self.event(phase: .ended))
-        list.scrollWheel(with: try Self.event(dx: -10, momentum: .begin))
-        list.scrollWheel(with: try Self.event(dx: -4, momentum: .continuous))
+        Self.deliver(try Self.event(dx: -6, phase: .changed), to: list)
+        Self.deliver(try Self.event(dx: -9, phase: .changed), to: list)
+        Self.deliver(try Self.event(phase: .ended), to: list)
+        Self.deliver(try Self.event(dx: -10, momentum: .begin), to: list)
+        Self.deliver(try Self.event(dx: -4, momentum: .continuous), to: list)
         #expect(reports.map(\.0) == [.began, .changed, .ended])
         #expect(reports.map(\.1) == [-6, -9, 0])
         #expect(list.contentView.bounds.origin == origin)
@@ -158,9 +165,9 @@ struct SidebarResponsiveScrollingTests {
         list.onHorizontalScroll = nil
         var steps: [Int] = []
         list.onHorizontalSwipe = { steps.append($0) }
-        list.scrollWheel(with: try Self.event(dx: -10, phase: .began))
-        for _ in 0..<6 { list.scrollWheel(with: try Self.event(dx: -20, phase: .changed)) }
-        list.scrollWheel(with: try Self.event(phase: .ended))
+        Self.deliver(try Self.event(dx: -10, phase: .began), to: list)
+        for _ in 0..<6 { Self.deliver(try Self.event(dx: -20, phase: .changed), to: list) }
+        Self.deliver(try Self.event(phase: .ended), to: list)
         #expect(steps == [1], "one switch per gesture, to the next profile for a leftward swipe")
     }
 
@@ -171,10 +178,10 @@ struct SidebarResponsiveScrollingTests {
         list.onHorizontalScroll = nil
         var steps: [Int] = []
         list.onHorizontalSwipe = { steps.append($0) }
-        list.scrollWheel(with: try Self.event(dx: -2, dy: -2, phase: .began))
-        list.scrollWheel(with: try Self.event(dx: -3, dy: -1, phase: .changed))
-        for _ in 0..<5 { list.scrollWheel(with: try Self.event(dx: -20, phase: .changed)) }
-        list.scrollWheel(with: try Self.event(phase: .ended))
+        Self.deliver(try Self.event(dx: -2, dy: -2, phase: .began), to: list)
+        Self.deliver(try Self.event(dx: -3, dy: -1, phase: .changed), to: list)
+        for _ in 0..<5 { Self.deliver(try Self.event(dx: -20, phase: .changed), to: list) }
+        Self.deliver(try Self.event(phase: .ended), to: list)
         #expect(steps == [1])
     }
 }

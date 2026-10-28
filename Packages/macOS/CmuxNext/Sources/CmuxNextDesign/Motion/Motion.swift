@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// The one source of animation timing for cmux-next chrome
 /// (plans/cmux-next/motion.md). Every animation reads a token here; no
@@ -107,6 +108,8 @@ extension MotionGate {
     public func spring(_ token: MotionSpring) -> SpringParameters { policy.spring(token) }
     public func duration(_ token: MotionFade) -> TimeInterval { policy.duration(token) }
     public func duration(_ token: MotionSpring) -> TimeInterval { policy.duration(token) }
+    /// Seconds of tween `token` in this gate's category; 0 applies at once.
+    public func duration(_ token: MotionTween) -> TimeInterval { policy.duration(token) }
     public func period(_ loop: MotionLoop) -> TimeInterval? { policy.period(loop) }
 
     /// Seconds of a released divider's velocity projected to find a snap; 0

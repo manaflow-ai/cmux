@@ -11,7 +11,7 @@ extension AppServices {
     func postNonPaintServices(on startup: StartupScheduler) {
         serviceStartPosts().post(on: startup)
         let attest = FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), settings: settings, signedIn: { [weak self] in self.map { $0.cloudAuth.isSignedIn || $0.cloudAuth.isRestoring } ?? true })
-        LaunchServicePosts.nonPaint(freeTierAttest: { attest.start() }, ssh: { [weak self] in self?.ssh.start() }, serverReach: { [weak self] in self?.serverReach.start() },
+        LaunchServicePosts.nonPaint(freeTierAttest: { [weak self] in if let self, let follow = attest.start(on: self.mainWork) { self.lifetimeFollowers.append(follow) } }, ssh: { [weak self] in self?.ssh.start() }, serverReach: { [weak self] in self?.serverReach.start() },
                                     updater: { [weak self] in self?.updater.start(); DebugTimings.markLaunch("launch.non_paint_services") },
                                     emptyWorkspaceRepair: { [weak self] in _ = self?.emptyWorkspaces }).post(on: startup)
     }
@@ -23,25 +23,18 @@ extension AppServices {
         LaunchServicePosts.serviceStarts(windowOcclusion: { [weak self] in self?.surfaceInvariant.observeWindowOcclusion() },
                                          inputVerification: { [weak self] in if let self { input.start(services: self) } },
                                          notifications: { [weak self] in self?.notifications.start() },
-                                         updaterWork: { [weak self] in self?.updater.startAttachedWork() },
+                                         updaterWork: { [weak self] in if let self { updater.startAttachedWork(appEvents: appEvents) } },
                                          serverUpdates: { [weak self] in self?.serverUpdates.start() },
                                          browserHost: { [weak self] in self?.startBrowserHost() })
     }
 
-    /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page hosts), the agent tab
+    /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page preloads), the agent tab
     /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already), through
     /// ``LaterTabWarmups`` on this app (`AppServices+LaterTabWarmupHost`). No WebKit view is made by these before
     /// startup completes (p08-startup-042). The warm-up makes no WebKit page when a shown agent tab made its view
     /// or agent pages open in Chromium (`AgentPageWarmup.start(webUI:)` decides when it runs).
     func postLaterTabWarmups(on startup: StartupScheduler) {
         LaterTabWarmups(host: self).posts().post(on: startup)
-    }
-
-    /// The page host pool follows the main windows (``LaterTabWarmupHost``); it makes no host until a page is likely.
-    func followWindowsForPageHosts() {
-        pageHostPool.start(isMainWindow: { [weak self] window in self?.windows.controllers.contains { $0.window === window } == true },
-                           fallback: { [weak self] window in self?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible } },
-                           mainWork: mainWork)
     }
 
     /// The platform services (p08-startup-029). Now, before the windows build and the restore mounts a page:
@@ -54,7 +47,7 @@ extension AppServices {
         seedGlass()
         notifications.preferences = settings.snapshot.notifications
         notifications.followChiefPet(settings)
-        updater.follow(settings)
+        updater.follow(settings, on: mainWork)
         startHibernation(settings: settings)
         // Each start has its own declared type: one expression with every closure inline (and a ternary closure)
         // was too much for the type checker ("failed to produce diagnostic").
@@ -66,13 +59,13 @@ extension AppServices {
         if hotKeys { hotKeyStart = { [weak self] in self?.globalHotKeys.start() } }
         let bordersStart: Start = { [weak self] in self?.observeBorders() }
         let glassStart: Start = { [weak self] in self?.observeGlass() }
-        let keepAwakeStart = with { services, settings in KeepAwakeService.shared.start(settings: settings, store: services.daemon.store) }
+        let keepAwakeStart = with { services, settings in KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, on: services.mainWork) }
         let mobileStart = with { services, settings in services.mobile.follow(settings, launch: services.environment.launch) }
         let notificationsStart = with { services, settings in services.notifications.follow(settings) }
         let macScreenSettingsStart = with { services, settings in services.followMacScreenSettings(settings) }
         let deviceHubStart = with { services, settings in services.startDeviceHub(settings) }
         let computerUseHelperStart = with { services, settings in
-            ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak services] in
+            ComputerUseHelperDaemon.shared.follow(settings, mainWork: services.mainWork, lanes: services.work, disabledByPolicy: { [weak services] in
                 services?.registry.disabledFeatures.contains(.computerUse) ?? true
             })
         }

@@ -74,8 +74,8 @@ async fn jobs_register_only_on_a_started_clock() {
     assert!(matches!(maintenance.register(SPEC, || async {}), Err(MaintenanceError::NotStarted)));
     assert!(maintenance.jobs().await.is_empty());
 
-    maintenance.start(0).unwrap();
-    maintenance.start(0).unwrap();
+    maintenance.start(0, &crate::supervised::embedded()).unwrap();
+    maintenance.start(0, &crate::supervised::embedded()).unwrap();
     let owner = Arc::new(());
     let other = JobSpec { name: "test.other", skippable_in_saver: false, ..SPEC };
     maintenance.register(SPEC, || async {}).unwrap();
@@ -86,7 +86,7 @@ async fn jobs_register_only_on_a_started_clock() {
 #[tokio::test]
 async fn a_job_registered_to_start_now_runs_at_once_through_the_adapter() {
     let maintenance = Maintenance::default();
-    maintenance.start(0).unwrap();
+    maintenance.start(0, &crate::supervised::embedded()).unwrap();
     let (ran_tx, mut ran) = mpsc::unbounded_channel::<()>();
     let owner = Arc::new(ran_tx);
     maintenance

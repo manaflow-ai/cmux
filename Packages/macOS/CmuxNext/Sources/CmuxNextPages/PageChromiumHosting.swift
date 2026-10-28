@@ -1,7 +1,11 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextSettings
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import Foundation
 
 /// Makes Chromium pages for the page host (``PageWebView``). The app implements it with its CEF
@@ -25,6 +29,15 @@ public protocol PageChromiumHosting: AnyObject {
     /// - Parameter page: The page to show.
     /// - Returns: True when a Chromium page can load it.
     func serves(_ page: PageDescriptor) -> Bool
+    /// The origin of a page the launch restored (``PageOpenOrigin/launchRestore``) that starts now: the engine's
+    /// launch order's, ``PageChromiumOrigin/restoreVisible`` when it shows (`isShown`), else
+    /// ``PageChromiumOrigin/restoreHidden``; ``PageChromiumOrigin/user`` once startup completed, or with no launch
+    /// order (feature `cefLaunchOrigin` off).
+    func restoredOrigin(isShown: Bool) -> PageChromiumOrigin
+    /// Runs `start` for a restored page that does not show, at the first of: `node` shows, or startup completes
+    /// (the launch order's afterStartup post); at once when no launch runs. `start` may run twice and must start
+    /// the page once.
+    func startHidden(when node: VisibilityNode, _ start: @escaping @MainActor @Sendable () -> Void)
     /// Makes an empty Chromium page for `page` and returns once its browser exists, before any
     /// document loads, so the host can set the page up
     /// (``ChromiumPageHostBridge/setupCalls(handlers:documentScripts:)``) and then call
@@ -35,10 +48,13 @@ public protocol PageChromiumHosting: AnyObject {
     ///   - chatOpen: The agent chat open the page shows (``PageWebView/chatOpen``): the stages of the Chromium window
     ///     the page gets (its create, created and first contentful paint) go there too; nil for any other page.
     ///   - window: The pane window the page joins (``PageChromiumWindow``); nil gives the page a window of its own.
+    ///   - origin: Why the page starts now; the host passes it on as the engine's tab origin, whose launch order
+    ///     is the only wait (a restored page's start waits there, never in the page).
     /// - Returns: The live page.
     /// - Throws: ``PageChromiumStartError/browserEnded`` when the browser ended with its Chromium Host
     ///   before it existed; another error when Chromium cannot start or the browser is not created.
-    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?) async throws -> any PageChromiumPage
+    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?,
+                  origin: PageChromiumOrigin) async throws -> any PageChromiumPage
     /// What follows the end of a page's Chromium browser (``PageChromiumEvent/ended``): `answer` runs
     /// once Chromium runs again or its supervisor gave up (plans/cmux-next/cef-helper-app-DESIGN.md: a
     /// Chromium Host that ends again within 60 s of its start stays ended). Every page whose browser
@@ -70,8 +86,9 @@ public nonisolated struct PageChromiumWindow: Hashable, Sendable {
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol
-/// (scripts through ``evaluate(_:)``, the rest through the DevTools protocol,
-/// ``devTools(_:params:)``), so a CEF tab or a fake in tests both fit.
+/// (scripts through ``evaluate(_:)``, pictures through ``copySurface(maxPixelSize:done:)``, clicks
+/// and moves through ``sendClick(at:)`` and ``sendMouseMove(at:)``; the DevTools protocol,
+/// ``devTools(_:params:)``, only where the engine has no such path), so a CEF tab or a fake in tests both fit.
 @MainActor
 public protocol PageChromiumPage: AnyObject {
     /// The view to place where the page shows (Chromium's view tracks it).
@@ -83,6 +100,11 @@ public protocol PageChromiumPage: AnyObject {
     /// Chromium asks it for every request under one, and a nil answerer is a 404. The host sets it
     /// before the first ``load(_:)``.
     var resources: (@MainActor (URL) async -> PageChromiumResponse)? { get set }
+    /// The DOM event the page's main frame fires to post to the host on the engine's page channel
+    /// (fork API 29); its posts then arrive as ``PageChromiumEvent/pageHostPost(_:sender:)``. Nil when the
+    /// engine has no page channel: the page calls its DevTools binding, whose calls arrive in
+    /// ``PageChromiumEvent/devTools(_:)`` (``ChromiumPageHostBridge``).
+    var pageHostEvent: String? { get }
     /// Rects in ``contentView``'s coordinates where native UI of the host window shows over the
     /// page. A Chromium page is a child window above the whole host window, so the page window
     /// leaves these rects uncovered: the native view under them shows there and takes the mouse
@@ -117,8 +139,40 @@ public protocol PageChromiumPage: AnyObject {
     /// - Throws: ``PageScriptError/exception(_:)`` when the script throws,
     ///   ``PageScriptError/noResult`` when the answer is not JSON, or the page's error when it is gone.
     func evaluate(_ script: String) async throws -> Any?
+    /// Whether ``copySurface(maxPixelSize:done:)`` can give a picture. False on a fork without the surface
+    /// copy: there a picture someone asks for (a window image, a debug snapshot, a cover) is a DevTools
+    /// `Page.captureScreenshot`, and the hide picture is none.
+    var copiesSurface: Bool { get }
+    /// A left click at `point` (view points from the top-left of ``contentView``) as the person's own,
+    /// with no DevTools agent: the fork's native click (`CefBrowserHost::SendMouseClickEvent`, fork API 29).
+    ///
+    /// - Parameter point: Where to click, in view points.
+    /// - Returns: False when the engine has no native click or the page is gone: the caller then uses
+    ///   DevTools input.
+    func sendClick(at point: CGPoint) -> Bool
+    /// The mouse moves to `point` (view points from the top-left of ``contentView``) with no button held, as the
+    /// person's own, with no DevTools agent: the fork's native move (`CefBrowserHost::SendMouseMoveEvent`).
+    ///
+    /// - Parameter point: Where the pointer goes, in view points.
+    /// - Returns: False when the engine has no native move or the page is gone: the caller then uses DevTools input.
+    func sendMouseMove(at point: CGPoint) -> Bool
+    /// Copies the page's selection to the pasteboard as the person's own Copy (a menu choice backs it):
+    /// `document.execCommand('copy')` with a user gesture, through the fork's `tabEvaluate` on renderer
+    /// paths (fork API 29), so it makes no DevTools call there.
+    func copySelection()
+    /// Whether ``push(_:)`` reaches the page: the engine has the page push channel (`cmuxPageListen`,
+    /// fork API 43) and the app turned it on (feature `pagePushChannel`).
+    var pushesToPage: Bool { get }
+    /// Hands `text` to the receiver the page's document registered with `cmuxPageListen`, as data: no
+    /// script runs for it and nothing answers, as Chrome's WebUI pages get Mojo messages instead of
+    /// `WebUI::CallJavascriptFunction` scripts (content/browser/webui/web_ui_impl.cc). Pushes arrive in
+    /// call order, and the engine keeps them until the document's receiver registers or a frozen page
+    /// runs again. Call it only while ``pushesToPage``; otherwise it does nothing.
+    ///
+    /// - Parameter text: UTF-8 text, no NUL.
+    func push(_ text: String)
     /// Copies the page as it last drew, fitted inside `maxPixelSize` (never scaled up), with no DevTools
-    /// agent: the fork's surface copy (`cmux_tab_copy_surface`, p13-webui-077), as Chrome copies a tab
+    /// agent: the fork's surface copy (`cmux_browser_capture`, p13-webui-077), as Chrome copies a tab
     /// thumbnail (chrome/browser/ui/thumbnails/thumbnail_tab_helper.cc, `RenderWidgetHostView::CopyFromSurface`).
     /// Chromium encodes the picture on its thread pool. The page lifecycle takes it in the turn the page
     /// hides, before any freeze (``PageWebView/keepHideSnapshot(encoder:)``). Never `Page.captureScreenshot`: one
@@ -126,9 +180,10 @@ public protocol PageChromiumPage: AnyObject {
     ///
     /// - Parameters:
     ///   - maxPixelSize: The largest picture, in pixels.
-    ///   - done: Runs once on the main actor with the picture, or nil when the page has no surface or the
-    ///     fork has no surface copy.
-    func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (PageEncodedSnapshot?) -> Void)
+    ///   - done: Runs once on the main actor with the picture as the engine answers it (base64, decoded
+    ///     off the main thread by its users), or nil when the page has no surface or the fork has no
+    ///     surface copy.
+    func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (PageSurfaceCopy?) -> Void)
     /// Loads `url` in the page.
     func load(_ url: URL)
     /// Reloads the document.
@@ -192,6 +247,16 @@ extension PageChromiumPage {
         let reply = try await devTools("Runtime.evaluate", params: ["expression": script, "awaitPromise": true, "returnByValue": true])
         return try await ChromiumPageHostWire.value(devToolsReply: reply)
     }
+
+    /// ``copySurface(maxPixelSize:done:)`` awaited: the request still leaves in the caller's turn.
+    ///
+    /// - Parameter maxPixelSize: The largest picture, in pixels.
+    /// - Returns: The picture, still in base64; nil when there is none.
+    public func copiedSurface(maxPixelSize: CGSize) async -> PageSurfaceCopy? {
+        try? await withOnceContinuation { (done: OnceContinuation<PageSurfaceCopy?, OnceContinuationError>) in
+            copySurface(maxPixelSize: maxPixelSize) { done.resume(returning: $0) }
+        }
+    }
 }
 
 /// A picture of a page, encoded (PNG, alpha kept): what a page keeps of its last frame once it is
@@ -212,7 +277,40 @@ public nonisolated struct PageEncodedSnapshot: Sendable, Equatable {
     }
 }
 
-/// Why a Chromium page did not get ready (``PageChromiumHosting/makePage(_:chatOpen:window:)``,
+/// A page's surface copy as the engine answers it (``PageChromiumPage/copySurface(maxPixelSize:done:)``): the PNG,
+/// alpha kept, still in base64 as the fork's reply carries it. A full window is megabytes of text, so the main actor
+/// only passes it on; ``encoded(fileID:line:)`` decodes it on the `.cpu` lane (the hide picture through
+/// ``PageSnapshotEncoder``, the other pictures in ``PageWebView/chromiumPictureData(of:devToolsParams:)``).
+public nonisolated struct PageSurfaceCopy: Sendable, Equatable {
+    /// The encoded image in base64.
+    public var base64: String
+    /// Its size in pixels.
+    public var pixelSize: CGSize
+
+    /// - Parameters:
+    ///   - base64: The encoded image in base64.
+    ///   - pixelSize: Its size in pixels.
+    public init(base64: String, pixelSize: CGSize) {
+        self.base64 = base64
+        self.pixelSize = pixelSize
+    }
+
+    /// The picture's PNG bytes, decoded from base64 as a checked CPU call: on the main thread, more than
+    /// ``BlockingKind/cpuIntensiveJSONBytes`` of text is a cpu-intensive site. Run it on the `.cpu` lane.
+    ///
+    /// - Parameters:
+    ///   - fileID: The calling code's `#fileID` (names the call site).
+    ///   - line: The calling code's `#line`.
+    /// - Returns: The encoded picture; nil when the text holds no bytes.
+    public func encoded(fileID: StaticString = #fileID, line: UInt = #line) -> PageEncodedSnapshot? {
+        let data = cpuIntensiveCall(size: base64.utf8.count, limit: BlockingKind.cpuIntensiveJSONBytes,
+                                    fileID: fileID, line: line) { Data(base64Encoded: base64) }
+        guard let data, !data.isEmpty else { return nil }
+        return PageEncodedSnapshot(data: data, pixelSize: pixelSize)
+    }
+}
+
+/// Why a Chromium page did not get ready (``PageChromiumHosting/makePage(_:chatOpen:window:origin:)``,
 /// ``PageChromiumPage/devTools(_:params:)``) when the page host must not reopen it in WebKit at once.
 public nonisolated enum PageChromiumStartError: Error, Sendable, Equatable {
     /// The page's browser ended with its Chromium Host while it was made or set up: the page waits
@@ -225,6 +323,10 @@ public nonisolated enum PageChromiumStartError: Error, Sendable, Equatable {
 public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     /// A raw DevTools protocol message (an event of a domain the host turned on).
     case devTools(String)
+    /// The page's main frame posted to the host on the page channel (``PageChromiumPage/pageHostEvent``):
+    /// the text the page script sent, untrusted, and the URL of the document that sent it, which
+    /// the engine's relay read where the page cannot change it.
+    case pageHostPost(String, sender: URL)
     /// A new main-frame document committed at `url`.
     case committed(URL?)
     /// The document finished loading.

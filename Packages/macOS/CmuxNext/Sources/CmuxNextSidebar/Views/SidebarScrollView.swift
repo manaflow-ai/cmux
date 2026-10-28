@@ -1,90 +1,71 @@
 import AppKit
+import CmuxNextInput
 
 /// The sidebar list's scroll view. A two-finger horizontal trackpad swipe
 /// over it switches profiles instead of scrolling; vertical scrolling
 /// is unchanged. One switch per gesture (`ProfileSwipeTracker`). A sideways
 /// mouse wheel (tilt, or Shift) pages the spaces too, one per roll
-/// (`SpaceWheelPager`); up or down always scrolls the list.
+/// (`SpaceWheelPager`); up or down always scrolls the list. Both hear the
+/// app's input tap (`SidebarSwipeFeed`), not `scrollWheel(with:)`.
 ///
-/// This class scrolls on the main thread: every event reaches the override, which pages a horizontal
-/// gesture and hands the rest to `super` event by event. ``ResponsiveSidebarScrollView`` (feature
+/// This class scrolls on the main thread: every event reaches the override, which keeps what the paging
+/// took and hands the rest to `super` event by event. ``ResponsiveSidebarScrollView`` (feature
 /// `responsiveScrolling`) scrolls on AppKit's scrolling thread instead.
 class SidebarScrollView: NSScrollView {
     /// Called with -1 (previous) or +1 (next) once per qualifying swipe.
-    var onHorizontalSwipe: ((Int) -> Void)?
+    var onHorizontalSwipe: ((Int) -> Void)? {
+        get { swipes.onHorizontalSwipe }
+        set { swipes.onHorizontalSwipe = newValue }
+    }
     /// A horizontal gesture 1:1 (R99): its phase, finger dx and time. When
     /// set, it replaces the one-step swipe.
-    var onHorizontalScroll: ((ProfileSwipeTracker.Phase, CGFloat, TimeInterval) -> Void)?
+    var onHorizontalScroll: ((ProfileSwipeTracker.Phase, CGFloat, TimeInterval) -> Void)? {
+        get { swipes.onHorizontalScroll }
+        set { swipes.onHorizontalScroll = newValue }
+    }
     /// A mouse wheel notch paged the spaces: -1 (previous) or +1 (next).
-    var onWheelPage: ((Int) -> Void)?
-    private var tracker = ProfileSwipeTracker()
-    private var wheel = SpaceWheelPager()
+    var onWheelPage: ((Int) -> Void)? {
+        get { swipes.onWheelPage }
+        set { swipes.onWheelPage = newValue }
+    }
+    /// The app's one input tap (the sidebar passes the App's on): the paging hears this window's scrolls there.
+    var inputTap: InputEventTap? {
+        didSet { if inputTap !== oldValue { swipes.follow(tap: inputTap, window: window) } }
+    }
+    private(set) lazy var swipes = SidebarSwipeFeed(view: self, pagesVertically: false)
     private var latch = ScrollAxisLatch<NSEvent>()
-    private var paging = false
 
-    /// The override reads every event of a gesture, so AppKit must not take a gesture over.
+    /// The override keeps every paged event of a gesture from `super`, so AppKit must not take a gesture over.
     override class var isCompatibleWithResponsiveScrolling: Bool { false }
 
-    override func scrollWheel(with event: NSEvent) { // local-monitor-allow: the space swipe reads every scroll event's phase, delta and time in order; the rest goes to super
-        guard event.hasPreciseScrollingDeltas else {
-            if let onWheelPage {
-                switch wheel.feed(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, time: event.timestamp, pagesVertically: false) {
-                case .pass: break
-                case .hold: return
-                case .page(let step): return onWheelPage(step)
-                }
-            }
-            super.scrollWheel(with: event)
-            return
-        }
-        let phase = Self.phase(of: event)
-        if Self.isCompatibleWithResponsiveScrolling { return railed(event, phase: phase) }
-        guard let phase else { return super.scrollWheel(with: event) }
-        let step = tracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase)
-        page(step: step, phase: phase, horizontal: tracker.isHorizontal, event: event)
-        // A horizontal gesture never scrolls the list; the list cannot
-        // scroll horizontally anyway, and elastic bounce would jitter.
-        if !tracker.isHorizontal { super.scrollWheel(with: event) }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        swipes.follow(tap: inputTap, window: window)
     }
 
-    /// AppKit sends `scrollWheel` only until a gesture reaches `super`, then tracks the rest itself. So a
-    /// gesture reaches `super` only once ``ScrollAxisLatch`` has railed it vertical, its held events first;
-    /// a horizontal one never does and stays here for paging.
-    private func railed(_ event: NSEvent, phase: ProfileSwipeTracker.Phase?) {
-        let route = latch.route(event, phase: phase, touchDown: event.phase.contains(.mayBegin),
+    /// Scrolls the list unless the paging took the event (a horizontal gesture, or a sideways wheel roll). When the
+    /// event moves the list up or down, a programmatic scroll's spring stops where it shows first; a sideways
+    /// swipe's end or momentum leaves it running. On responsive scrolling a trackpad gesture goes through
+    /// ``railed(_:)`` instead.
+    override func scrollWheel(with event: NSEvent) { // local-monitor-allow: the tap feeds the paging; this override only keeps a paged event from the list and stops the spring, as the responder AppKit routes it to
+        if Self.isCompatibleWithResponsiveScrolling, event.hasPreciseScrollingDeltas { return railed(event) }
+        if swipes.takes(event) { return }
+        scrollList(event)
+    }
+
+    private func scrollList(_ event: NSEvent) {
+        if event.scrollingDeltaY != 0 { stopContentSpring() }
+        super.scrollWheel(with: event)
+    }
+
+    /// AppKit sends `scrollWheel` only until a gesture reaches `super`, then tracks the rest itself (the paging
+    /// still hears every event on the tap). So a gesture reaches `super` only once ``ScrollAxisLatch`` has railed
+    /// it vertical, its held events first; a horizontal one never does and stays the paging's.
+    private func railed(_ event: NSEvent) {
+        let route = latch.route(event, phase: SidebarSwipeFeed.phase(of: event), touchDown: event.phase.contains(.mayBegin),
                                 deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY))
-        if let phase {
-            let step = tracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase)
-            var horizontal = false
-            if case .horizontal = route { horizontal = true }
-            page(step: step, phase: phase, horizontal: horizontal, event: event)
-        }
-        if case .list(let events) = route {
-            for listEvent in events { super.scrollWheel(with: listEvent) }
-        }
-    }
-
-    /// Pages the spaces for one event of a horizontal gesture; `step` is the swipe tracker's for it.
-    private func page(step: Int?, phase: ProfileSwipeTracker.Phase, horizontal: Bool, event: NSEvent) {
-        if let onHorizontalScroll {
-            if phase == .ended || phase == .momentum {
-                if paging, phase == .ended { onHorizontalScroll(.ended, 0, event.timestamp) }
-                paging = false
-            } else if horizontal {
-                onHorizontalScroll(paging ? .changed : .began, event.scrollingDeltaX, event.timestamp)
-                paging = true
-            }
-        } else if let step, horizontal {
-            onHorizontalSwipe?(step)
-        }
-    }
-
-    private static func phase(of event: NSEvent) -> ProfileSwipeTracker.Phase? {
-        if !event.momentumPhase.isEmpty { return .momentum }
-        if event.phase.contains(.began) { return .began }
-        if event.phase.contains(.changed) { return .changed }
-        if event.phase.contains(.ended) || event.phase.contains(.cancelled) { return .ended }
-        return nil
+        guard case .list(let events) = route else { return }
+        for listEvent in events { scrollList(listEvent) }
     }
 }
 

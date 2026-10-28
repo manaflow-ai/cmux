@@ -50,6 +50,7 @@ SNIFFER_MODULES: frozenset[str] = frozenset(
         "browser_runtime.rs",
         "client_hello.rs",
         "connection_frame/machine_catalog.rs",
+        "debug_crash_inject.rs",
         "fs_wire.rs",
         "loopback_forward.rs",
         "oracle_state_command.rs",

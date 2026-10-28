@@ -79,6 +79,15 @@ pub(super) fn rows(
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
+/// The named columns of one `rows` row; a column the row lacks is `null`,
+/// as SQL `NULL` reads.
+pub(super) fn column_fields(row: &Value, columns: &[&str]) -> serde_json::Map<String, Value> {
+    columns
+        .iter()
+        .map(|column| (column.to_string(), row.get(column).cloned().unwrap_or_default()))
+        .collect()
+}
+
 /// Write `rows` (column maps) into `table`, keeping only the columns the
 /// table has now. A row whose key exists is left as it is.
 pub(super) fn insert_rows(
@@ -148,11 +157,7 @@ pub(crate) fn snapshot_room(connection: &Connection, room: &str) -> anyhow::Resu
             &[&room],
         )?
         .into_iter()
-        .map(|row| json!({
-            "session_id": row["session_id"],
-            "workspace_key": row["workspace_key"],
-            "group_id": row["group_id"],
-        }))
+        .map(|row| Value::Object(column_fields(&row, &["session_id", "workspace_key", "group_id"])))
         .collect::<Vec<_>>(),
     }))
 }
@@ -206,9 +211,9 @@ pub(crate) fn restore_room(
                 "UPDATE personal_workspaces SET group_id = ?3
                  WHERE session_id = ?1 AND workspace_key = ?2 AND group_id IS NULL",
                 params![
-                    row["session_id"].as_str(),
-                    row["workspace_key"].as_str(),
-                    row["group_id"].as_str()
+                    row.get("session_id").and_then(Value::as_str),
+                    row.get("workspace_key").and_then(Value::as_str),
+                    row.get("group_id").and_then(Value::as_str)
                 ],
             )?;
         }

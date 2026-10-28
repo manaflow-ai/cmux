@@ -10,7 +10,10 @@ impl Hub {
     pub(super) async fn resolve_launcher(&self, argv: &[String]) {
         let Some((npx, package)) = crate::config::adapter_package_launch(argv) else { return };
         let key = (npx.to_owned(), package.to_owned());
-        if self.launchers.lock().unwrap().get(&key).is_some_and(|b| Path::new(b).is_file()) {
+        let cached = self.launchers.lock().unwrap().get(&key).cloned();
+        if let Some(bin) = cached
+            && tokio::fs::metadata(&bin).await.is_ok_and(|m| m.is_file())
+        {
             return;
         }
         match crate::config::resolve_adapter_package_bin(npx, package).await {
@@ -27,7 +30,7 @@ impl Hub {
         let bin = crate::config::adapter_package_launch(&argv).and_then(|(npx, package)| {
             self.launchers.lock().unwrap().get(&(npx.to_owned(), package.to_owned())).cloned()
         });
-        match bin.filter(|b| Path::new(b).is_file()) {
+        match bin.filter(|b| cmux_blocking::fs::metadata(b).is_ok_and(|m| m.is_file())) {
             Some(bin) => std::iter::once(bin).chain(argv.into_iter().skip(3)).collect(),
             None => argv,
         }

@@ -9,13 +9,18 @@ impl Surface {
         Ok(())
     }
 
+    /// [`Self::scroll_delta`], returning whether the terminal viewport moved.
+    pub(crate) fn scroll_delta_moved(&self, delta: isize) -> anyhow::Result<bool> {
+        Ok(self.apply_scroll_delta(None, delta)?.is_some_and(|(_, moved)| moved))
+    }
+
     /// Scroll only this placement's in-process frontend viewport. Byte-mode
     /// frontends own the equivalent state in their terminal mirror.
     pub fn view_scroll_delta(&self, delta: isize) -> anyhow::Result<Option<Scrollbar>> {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         let Some(scrollbar) = pty.view_scrollbar_locked(&mut term) else { return Ok(None) };
         let target = if delta < 0 {
             scrollbar.offset.saturating_sub(delta.unsigned_abs() as u64)
@@ -38,7 +43,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         let Some(scrollbar) = pty.view_scrollbar_locked(&mut term) else { return Ok(None) };
         if scrollbar != expected {
             return Ok(None);
@@ -55,7 +60,7 @@ impl Surface {
 
     pub fn view_scrollbar(&self) -> Option<Scrollbar> {
         let pty = self.as_pty()?;
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         pty.view_scrollbar_locked(&mut term)
     }
 
@@ -63,7 +68,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         let Some(scrollbar) = pty.view_scrollbar_locked(&mut term) else { return Ok(false) };
         let bottom = scrollbar.total.saturating_sub(scrollbar.len);
         let changed = scrollbar.offset != bottom;
@@ -78,19 +83,21 @@ impl Surface {
         expected: Scrollbar,
         delta: isize,
     ) -> anyhow::Result<Option<Scrollbar>> {
-        self.apply_scroll_delta(Some(expected), delta)
+        Ok(self.apply_scroll_delta(Some(expected), delta)?.and_then(|(scrollbar, _)| scrollbar))
     }
 
+    /// Scroll the terminal viewport. `None` when `expected` no longer
+    /// matches; otherwise the scrollbar after the move and whether it moved.
     pub(super) fn apply_scroll_delta(
         &self,
         expected: Option<Scrollbar>,
         delta: isize,
-    ) -> anyhow::Result<Option<Scrollbar>> {
+    ) -> anyhow::Result<Option<(Option<Scrollbar>, bool)>> {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         let (scrollbar, changed) = {
-            let mut term = pty.term.lock().unwrap();
+            let mut term = pty.term.lock().recover_poison();
             if expected.is_some_and(|expected| term.scrollbar() != Some(expected)) {
                 return Ok(None);
             }
@@ -112,7 +119,7 @@ impl Surface {
         {
             mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
         }
-        Ok(scrollbar)
+        Ok(Some((scrollbar, changed.is_some())))
     }
 
     pub fn scroll_to_bottom(&self) -> anyhow::Result<()> {
@@ -120,7 +127,7 @@ impl Surface {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         let changed = {
-            let mut term = pty.term.lock().unwrap();
+            let mut term = pty.term.lock().recover_poison();
             let before = terminal_scroll_position(&term);
             term.scroll_to_bottom();
             let after = terminal_scroll_position(&term);
@@ -144,7 +151,7 @@ impl Surface {
 
 pub(super) fn broadcast_render_scroll_locked(pty: &PtySurface, position: (u64, bool)) {
     let (offset, at_bottom) = position;
-    let mut render = pty.render.lock().unwrap();
+    let mut render = pty.render.lock().recover_poison();
     render.taps.retain(|tap| tap.send(RenderAttachFrame::ScrollChanged { offset, at_bottom }));
 }
 

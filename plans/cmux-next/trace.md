@@ -181,8 +181,8 @@ files.
 | `app.key.terminal` (optional: drawn when emitted, not needed for a complete press) | app main (`TerminalSurfaceView.keyDown`) | flow id |
 | `app.io_write` | Ghostty IO thread (`io_write_cb`) | flow id |
 | `app.send` | the same thread (`TerminalAttachment.enqueueInput`; the `send` request gets `flow`) | flow id |
-| `daemon.send.write`, `daemon.send.written` | daemon `mux-control-dispatch` (`cmd_terminal_io::send`) | flow id |
-| `host.pty.write` (host model) or `daemon.pty.write` (holder model: the daemon writes the PTY itself) | `terminal-host-client-input` / `mux-control-dispatch` | terminal |
+| `daemon.send.write`, `daemon.send.written` | daemon `mux-seq-control` pool worker (`cmd_terminal_io::send`) | flow id |
+| `host.pty.write` (host model) or `daemon.pty.write` (holder model: the daemon writes the PTY itself) | `terminal-host-client-input` / `mux-seq-control` | terminal |
 | `host.pty.read` or `holder.pty.read` | `terminal-host-pty` / the holder's poll loop | terminal |
 | `daemon.output.host` or `daemon.output.holder` | `surface-<id>-host` / `surface-<id>-reader` | terminal |
 | `daemon.output.attach` | the same thread (`broadcast_attach_output`) | terminal |
@@ -400,7 +400,7 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
     trace event (base/threading/scoped_blocking_call.cc). Begin arg0: the kind's code in bits 0-7
     (`BlockingKind.traceCode`: 1 file-io, 2 socket-read, 3 socket-write, 4 sync-wait, 5 ipc-reply,
     6 process-wait, 7 process-spawn, 8 lock-wait, 9 system-call, 10 sleep, 11 wrong-lane, 12 cpu-intensive,
-    13 fs-metadata, 14 sqlite, 15 process-reap, 16 system-query, 17 priority-inversion, 18 ffi) and the call's `#line` above them. Begin
+    13 fs-metadata, 14 sqlite, 15 process-reap, 16 system-query, 17 priority-inversion, 18 ffi, 19 xpc-reply) and the call's `#line` above them. Begin
     arg1: FNV-1a 64 of the call's `#fileID` (`Module/File.swift`). The end has no arguments; a written begin
     always gets its end, also when the body throws or the category turns off meanwhile. Only the app's
     `TraceRuntime.shared` routes them, while its `task` bit is on.
@@ -468,7 +468,7 @@ each region's offset, so a decoder never computes one.
 | 8 | 4 | `version` u32 | 1 |
 | 12 | 4 | `header_bytes` u32 | 256 |
 | 16 | 4 | `pid` u32 | the writing process |
-| 20 | 2 | `role` u16 | 1 app, 2 daemon, 3 holder, 4 terminal host, 5 acpmux, 6 Chromium host, 7 CLI |
+| 20 | 2 | `role` u16 | 1 app, 2 daemon, 3 holder, 4 terminal host, 5 acpmux, 6 Chromium host, 7 CLI, 8 agent host, 9 app host, 10 browser host |
 | 22 | 1 | `ring_kind` u8 | 1 black box, 2 recording |
 | 23 | 1 | `clock_domain` u8 | 1 `CLOCK_UPTIME_RAW`, 2 Linux `CLOCK_MONOTONIC`, 3 Windows QPC nanoseconds |
 | 24 | 8 | `start_uptime_ns` u64 | the trace clock when the ring started (a recording ring: when this recording started) |
@@ -728,8 +728,8 @@ one process have the same capacities.
 |---|---|---|---|---|
 | App, daemon | 4096 | 2048 | 512 (512 KiB: at least 4096 records while up to 379 threads hold a chunk) | 32768 (32 MiB: about 1M records) |
 | Chromium host | 4096 | 2048 | 512 (512 KiB) | 8192 (8 MiB: about 254K records) |
-| Holder, acpmux | 2048 | 512 | 256 (256 KiB: at least 4096 records while up to 123 threads hold a chunk) | 8192 (8 MiB: about 254K records) |
-| Terminal host | 1024 | 256 | 64 (64 KiB: at least 512 records while up to 47 threads hold a chunk) | 512 (512 KiB: about 16K records) |
+| Holder, acpmux, agent host, browser host | 2048 | 512 | 256 (256 KiB: at least 4096 records while up to 123 threads hold a chunk) | 8192 (8 MiB: about 254K records) |
+| Terminal host, app host | 1024 | 256 | 64 (64 KiB: at least 512 records while up to 47 threads hold a chunk) | 512 (512 KiB: about 16K records) |
 
 A file adds its header page and tables to the chunks: 64 bytes per name and per thread entry (App: 256 KiB of
 names and 128 KiB of threads), mostly untouched pages. `trace.start` caps the total bytes of the recording rings

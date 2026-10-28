@@ -97,7 +97,7 @@ async fn a_restart_over_long_chats_loads_within_budget_and_keeps_queues_and_tail
     let mailbox = acpmux::mailbox::Mailbox::open(root.join("mailbox")).unwrap();
     // The daemon's start: the hub it answers with, then the chat logs after the ready line.
     let started = Instant::now();
-    let hub = Hub::new_deferred(cfg, store, mailbox);
+    let hub = Hub::new_deferred(cfg, store, mailbox, acpmux::supervised::embedded());
     let ready_ms = started.elapsed().as_millis();
     let logs = Instant::now();
     hub.load_logs_async().await;
