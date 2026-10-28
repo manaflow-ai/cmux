@@ -86,8 +86,9 @@ public final class CmuxDialogView: NSView {
     /// else Cancel (a question with no default: a key typed on must not tick
     /// a check box), else the first control.
     public func focusInitial() {
-        let field = focusables.first { $0 is NSTextField }
-        let fallback = buttonViews.first { $0.button.role == .default } ?? buttonViews.first { $0.button.role == .cancel } ?? focusables.first
+        let available = focusables.filter { !$0.isHiddenOrHasHiddenAncestor && (($0 as? NSControl)?.isEnabled ?? true) }
+        let field = available.first { $0 is NSTextField }
+        let fallback = buttonViews.first { $0.button.role == .default && $0.isEnabled } ?? buttonViews.first { $0.button.role == .cancel && $0.isEnabled } ?? available.first
         guard let target = field ?? fallback else { return }
         window?.makeFirstResponder(target)
     }

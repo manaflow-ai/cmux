@@ -16,6 +16,10 @@ struct CmuxDialogAccessoryTests {
         window.isReleasedWhenClosed = false
         window.contentView = dialog
         defer { window.close() }
+        first.isEnabled = false
+        dialog.focusInitial()
+        #expect(last.currentEditor() === window.firstResponder)
+        first.isEnabled = true
         window.makeFirstResponder(first)
         #expect(dialog.handle(.tab, modifiers: []))
         #expect(last.currentEditor() === window.firstResponder)

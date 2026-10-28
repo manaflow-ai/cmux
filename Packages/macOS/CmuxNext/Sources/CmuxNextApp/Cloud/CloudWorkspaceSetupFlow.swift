@@ -81,10 +81,31 @@ struct CloudWorkspaceSetupFlow {
                     try Task.checkCancellation()
                     guard !creation.isTornDown, cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
                     let scope: CmuxDialogScope = window.flatMap { services.windows.controller(for: $0.id)?.window }.map(CmuxDialogScope.window) ?? .app
-                    let machine = CloudMachineBootstrap.Machine(api: cloud.api.pinningTeam(teamID), machineID: session.machineID)
+                    let api = cloud.api.pinningTeam(teamID), machineID = session.machineID
+                    let current: @MainActor @Sendable () -> Bool = {
+                        !creation.isTornDown && cloud.auth.user?.id == userID && cloud.auth.teamID == teamID
+                    }
+                    let machine = CloudMachineBootstrap.Machine(write: { path, data, mode in
+                        try Task.checkCancellation()
+                        guard await current() else { throw CancellationError() }
+                        try await api.writeFile(machineID, path: path, data: data, mode: mode)
+                    }, exec: { command in
+                        try Task.checkCancellation()
+                        guard await current() else { throw CancellationError() }
+                        return try await api.exec(machineID, command: command, timeoutMs: 20_000)
+                    })
                     let recovered: CloudMachineBootstrap.Completion
                     if let repo = plan.repository {
-                        recovered = try await connector.recover(completion, repo: repo, on: machine, in: scope)
+                        // task-owner: this awaited recovery; the independent watcher cancels it on scope loss.
+                        let recovery = Task { try await connector.recover(completion, repo: repo, on: machine, in: scope) }
+                        // task-owner: the recovery scope; cancelled as soon as recovery ends.
+                        let watcher = Task {
+                            for await valid in ObservationStream(current) where !valid { recovery.cancel(); return }
+                        }
+                        defer { watcher.cancel() }
+                        do {
+                            recovered = try await withTaskCancellationHandler { try await recovery.value } onCancel: { recovery.cancel() }
+                        } catch is CancellationError { return }
                     } else { recovered = completion }
                     try Task.checkCancellation()
                     guard !creation.isTornDown, cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }

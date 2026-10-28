@@ -8,6 +8,7 @@ import CmuxNextDesign
 @MainActor
 final class CloudGitHubConnectorPresentation {
     private var dialogID: Int?
+    private var scopeWatcher: Task<Void, Never>?
     private let center: CmuxDialogCenter
     private let client: any CloudGitHubConnectorClient
     private let isCurrent: @MainActor () -> Bool
@@ -50,7 +51,17 @@ final class CloudGitHubConnectorPresentation {
                 }
                 dialogID = center.present(spec, in: scope, accessory: card.accessory) { [weak self] answer in
                     self?.dialogID = nil
+                    self?.scopeWatcher?.cancel()
+                    self?.scopeWatcher = nil
                     continuation.resume(returning: answer)
+                }
+                // task-owner: this dialog; cancelled by its answer/dismissal, including scope loss.
+                scopeWatcher = Task { [weak self] in
+                    guard let self else { return }
+                    for await valid in ObservationStream({ self.isCurrent() }) where !valid {
+                        if let id = self.dialogID { self.center.dismiss(id) }
+                        return
+                    }
                 }
             }
         } onCancel: { [weak self] in
@@ -60,6 +71,8 @@ final class CloudGitHubConnectorPresentation {
             }
         }
     }
+
+    nonisolated deinit { scopeWatcher?.cancel() }
 
     /// This is also Auto's recovery seam: it accepts an existing machine and repository, never a create closure.
     func recover(_ completion: CloudMachineBootstrap.Completion, repo: CloudMachineRepo,

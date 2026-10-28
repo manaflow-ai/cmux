@@ -11,7 +11,7 @@ public enum CloudGitHubConnectorClientError: Error, Equatable, Sendable {
 
     /// Maps an HTTP response or transport error to the copy the UI needs.
     public static func classify(status: Int? = nil, code: String? = nil, transport: Error? = nil) -> Self {
-        if let transport as URLError,
+        if let transport = transport as? URLError,
            transport.code == .notConnectedToInternet || transport.code == .networkConnectionLost || transport.code == .cannotFindHost {
             return .offline
         }
