@@ -72,8 +72,12 @@ export async function railDragTargetPainted(page: Page, targetRowId: string): Pr
         box.height > 0 &&
         box.bottom > viewport.top &&
         box.top < viewport.bottom &&
+        box.right > viewport.left &&
+        box.left < viewport.right &&
         box.bottom > 0 &&
-        box.top < window.innerHeight
+        box.top < window.innerHeight &&
+        box.right > 0 &&
+        box.left < window.innerWidth
       );
     },
     {
@@ -118,7 +122,7 @@ export async function measureRailDrag(page: Page, options: RailDragOptions): Pro
       type Pending = RailDragSample & { state: "pending" | "painted" | "superseded" | "deadline" };
       const samples: Pending[] = [];
       const frameGaps: number[] = [];
-      let previousFrame = performance.now();
+      let previousFrame: number | undefined;
       let releaseAt: number | null = null;
       let releasePaintAt: number | null = null;
       let startedAt = performance.now();
@@ -137,8 +141,12 @@ export async function measureRailDrag(page: Page, options: RailDragOptions): Pro
           box.height > 0 &&
           box.bottom > viewport.top &&
           box.top < viewport.bottom &&
+          box.right > viewport.left &&
+          box.left < viewport.right &&
           box.bottom > 0 &&
-          box.top < window.innerHeight
+          box.top < window.innerHeight &&
+          box.right > 0 &&
+          box.left < window.innerWidth
         );
       };
       const finish = () => {
@@ -199,7 +207,7 @@ export async function measureRailDrag(page: Page, options: RailDragOptions): Pro
       };
       const stopPaint = window.cmuxAfterPaint((frame) => {
         if (finished) return false;
-        frameGaps.push(frame - previousFrame);
+        if (previousFrame !== undefined) frameGaps.push(frame - previousFrame);
         previousFrame = frame;
         const paintAt = performance.now();
         for (const sample of samples)
