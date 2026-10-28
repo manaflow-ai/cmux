@@ -161,7 +161,7 @@ describe("Run migrations replay onto every starting shape", () => {
       insert into run_events (run_id, attempt_id, sequence, kind)
         values ('00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000020', 1, 'run.cancelled');
       insert into run_artifacts (run_id, attempt_id, name, digest, payload, size_bytes)
-        values ('00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000020', 'a', 'sha256:${"b".repeat(64)}', '{"k":1}', 7);
+        values ('00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000020', 'a', 'sha256:x', '{"k":1}', 7);
     `);
 
     expect(await applyRealFolder(pool)).toBeGreaterThan(0);
@@ -180,6 +180,9 @@ describe("Run migrations replay onto every starting shape", () => {
       join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any(c.conkey)
       where c.conrelid = 'run_attempts'::regclass and c.contype = 'f' and a.attname = 'runtime_id'`);
     expect(runtimeForeignKeys.rows).toEqual([{ conname: "run_attempts_runtime_id_fkey", convalidated: true }]);
+    // main's artifact row breaks next's digest check ('sha256:x'): the row is kept and that check stays NOT VALID.
+    expect((await pool.query(`select conname, convalidated from pg_constraint where conrelid = 'run_artifacts'::regclass and contype = 'c' order by conname`)).rows)
+      .toEqual([{ conname: "run_artifacts_digest_check", convalidated: false }, { conname: "run_artifacts_size_check", convalidated: true }]);
     // next's runtime index exists; next's same-named lease index did not replace main's.
     const indexes = (await pool.query("select indexname, indexdef from pg_indexes where tablename = 'run_attempts'")).rows as Array<{ indexname: string; indexdef: string }>;
     expect(indexes.map((index) => index.indexname)).toContain("run_attempts_runtime_idx");

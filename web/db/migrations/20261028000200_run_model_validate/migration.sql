@@ -19,5 +19,17 @@ BEGIN
     EXECUTE format('ALTER TABLE "run_attempts" VALIDATE CONSTRAINT %I', fk);
   END LOOP;
 END $$;--> statement-breakpoint
-ALTER TABLE "run_artifacts" VALIDATE CONSTRAINT "run_artifacts_size_check";--> statement-breakpoint
-ALTER TABLE "run_artifacts" VALIDATE CONSTRAINT "run_artifacts_digest_check";
+-- main's run_artifacts had neither check, so a row it kept may break one. Such a row is kept as it is and
+-- the check stays NOT VALID, which still holds every new write; a later migration can validate it.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM "run_artifacts" WHERE NOT ("size_bytes" >= 0 and "size_bytes" <= 536870912)) THEN
+    ALTER TABLE "run_artifacts" VALIDATE CONSTRAINT "run_artifacts_size_check";
+  ELSE
+    RAISE NOTICE 'run_artifacts_size_check stays NOT VALID: existing rows break it';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM "run_artifacts" WHERE NOT ("digest" ~ '^sha256:[0-9a-fA-F]{64}$')) THEN
+    ALTER TABLE "run_artifacts" VALIDATE CONSTRAINT "run_artifacts_digest_check";
+  ELSE
+    RAISE NOTICE 'run_artifacts_digest_check stays NOT VALID: existing rows break it';
+  END IF;
+END $$;
