@@ -271,11 +271,13 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_swift_test_main_thread_isolation.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks the swift test job's main-thread-heavy split and its detector; run python3 tests/test_ci_swift_test_main_thread_isolation.py yourself after changing scripts/cmux-next/main-thread-heavy-suites.py or that job (under 10 s, no build)."
 
 [[test]]
 path = "tests/test_ci_swift_test_shards.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that every suite lands in exactly one balanced shard and the build.db start gate; run python3 tests/test_ci_swift_test_shards.py yourself after changing scripts/cmux-next/swift-test-shards.py or the test sources' suite shapes (about 20 s, no build)."
 
 [[test]]
 path = "tests/test_ci_rust_targets_installed_first.py"

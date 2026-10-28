@@ -130,14 +130,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_shallow_dev_fetch.py
 
-      - name: Validate main-thread holders run in their own Swift test process
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_swift_test_main_thread_isolation.py
-
-      - name: Validate the broad Swift test pass runs every selected test in exactly one shard
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_swift_test_shards.py
-
       # Build scripts add a Rust target only when it is missing (rustup target add
       # reaches static.rust-lang.org even for an installed target).
       - name: Validate scripts add only missing Rust targets

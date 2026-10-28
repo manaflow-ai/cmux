@@ -26,13 +26,29 @@ static void sigpipe_caught(int signal) {
     errno = saved;
 }
 
-__attribute__((constructor)) static void cmux_next_test_signal_policy_install(void) {
+void cmux_next_test_signal_policy_install(void) {
     struct sigaction action;
     memset(&action, 0, sizeof action);
     action.sa_handler = sigpipe_caught;
     action.sa_flags = SA_RESTART;
     sigemptyset(&action.sa_mask);
     sigaction(SIGPIPE, &action, NULL);
+}
+
+int cmux_next_test_sigpipe_handler_is_current(void) {
+    struct sigaction current;
+    return sigaction(SIGPIPE, NULL, &current) == 0 && current.sa_handler == sigpipe_caught;
+}
+
+static int installed_at_load;
+
+__attribute__((constructor)) static void cmux_next_test_signal_policy_load(void) {
+    cmux_next_test_signal_policy_install();
+    installed_at_load = cmux_next_test_sigpipe_handler_is_current();
+}
+
+int cmux_next_test_signal_policy_installed_at_load(void) {
+    return installed_at_load;
 }
 
 long cmux_next_test_sigpipes(void) {
