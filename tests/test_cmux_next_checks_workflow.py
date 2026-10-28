@@ -601,8 +601,13 @@ class PathRoutingStructure(unittest.TestCase):
         # The CI target graph is bot-only (#21946): no event checks it.
         self.assertNotIn("ci-target-graph.py --check", runs)
         self.assertNotIn("same-tree-cmux-tui", jobs["generated-files"]["needs"])
-        swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
-        self.assertNotIn("check-action-surfaces.sh", swift_runs)
+        # swift-test runs the checks only where path routing folds them into its own package
+        # build (generated_host, tests/test_cmux_next_generated_fold.py); a PR that skips swift
+        # test still gets the generated-files job.
+        for step in jobs["swift-test"]["steps"]:
+            if "check-action-surfaces.sh" in step.get("run", ""):
+                self.assertIn("env.CMUX_NEXT_FOLD_GENERATED == 'true'", step["if"])
+        self.assertIn("needs.path_route.outputs.generated_host == 'generated-files'", jobs["generated-files"]["if"])
 
     def test_generated_files_use_cached_web_bundles_without_rebuilding(self):
         """A cache hit must install the keyed bundles and skip the source build."""
@@ -727,7 +732,7 @@ class PathRoutingStructure(unittest.TestCase):
         attribution = jobs["push-attribution"]
         self.assertIn("failure()", attribution["if"])
         self.assertIn("github.event_name == 'push'", attribution["if"])
-        for job_id in ("checks", "generated-files", "swift-test", "daemon-test", "release-compile", "cmux-scheme-compile"):
+        for job_id in ("checks", "generated-files", "generated-verdict", "swift-test", "daemon-test", "release-compile", "cmux-scheme-compile"):
             self.assertIn(job_id, attribution["needs"])
 
     def test_push_head_preflight_skips_superseded_macos_jobs(self):
@@ -1635,7 +1640,7 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
 
     MAC_VALUES = {
         "swift-test": ('"swift_targets=$SWIFT_TARGETS"', '"swift_filter=$SWIFT_FILTER"', '"web_bundles=$(',
-                       '"mini=', '"xcode_app=$CMUX_CI_XCODE_APP"'),
+                       '"mini=', '"xcode_app=$CMUX_CI_XCODE_APP"', '"generated_base=$('),
         "generated-files": ('"web_bundles=$(', '"mini=', '"xcode_app=$CMUX_CI_XCODE_APP"', "--base-rev HEAD^1"),
         "release-compile": ('"mini=', '"xcode_app=$CMUX_CI_XCODE_APP"'),
     }
@@ -2450,7 +2455,9 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
     runner (macos-placement).
     """
 
-    TIER_JOBS = ("web-bundles", "swift-canary", "swift-test", "daemon-test", "generated-files",
+    # generated-files is not here: with swift routed, swift-test checks the generated files on its own
+    # package build (path_route's generated_host; tests/test_cmux_next_generated_fold.py).
+    TIER_JOBS = ("web-bundles", "swift-canary", "swift-test", "daemon-test",
                  "release-compile", "cmux-scheme-compile")
 
     def jobs(self) -> dict:
@@ -2476,6 +2483,7 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         }
         for tier in ("macos", "native", "swift_canary", "scheme", "generated", "swift", "daemon"):
             context[f"needs.path_route.outputs.{tier}"] = "true"
+        context["needs.path_route.outputs.generated_host"] = "swift-test"
         if event == "pull_request":
             context.update({"github.event.pull_request.number": "42",
                             "github.event.pull_request.head.repo.full_name": head_repo,
