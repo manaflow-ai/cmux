@@ -121,7 +121,7 @@ extension AppServices {
         return scriptOpeners.openers { keys[ObjectIdentifier($0)] }
     }
 
-    /// The parked workspaces of every window: always at most `SubsystemBudget.parkedWorkspaces` across
+    /// The parked workspaces of every window: with `parkedWorkspaceCap` at most `SubsystemBudget.parkedWorkspaces` across
     /// every window, an LRU whose least recently shown one past the cap is torn down (audit H8: a window
     /// kept every workspace it showed mounted, so 200 visits kept 200), and none at critical memory
     /// pressure, one teardown per release slice (p07-memory-096). The cap is the budget the labs switch
@@ -137,7 +137,10 @@ extension AppServices {
         let held = features.isEnabled(.memoryDiscardParkedWorkspaces)
         return ParkedWorkspaceBudget(
             capacity: held ? budget.parkedWorkspaces : nil,
-            maxParked: budget.parkedWorkspaces,
+            // The always-on cap is the kill switch `parkedWorkspaceCap` (on in DEV and NIGHTLY; rule 5 keeps Release
+            // off for 7 days): it takes back 6f04ec90105's "every workspace stays mounted", so a remote document can
+            // turn it off if the cold mounts past the cap (audit H9) cost more than the memory they save.
+            maxParked: features.isEnabled(.parkedWorkspaceCap) ? budget.parkedWorkspaces : .max,
             idleTimeout: held && features.isEnabled(.memoryDiscardParkedIdleTimeout) ? budget.parkedIdleTimeout : nil,
             deadline: MainDeadline(owner: "ParkedWorkspaceBudget", workClass: .background, scheduler: mainDeadlines),
             memory: memoryCoordinator)

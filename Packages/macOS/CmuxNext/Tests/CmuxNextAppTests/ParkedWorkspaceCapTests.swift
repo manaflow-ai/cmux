@@ -27,6 +27,7 @@ struct ParkedWorkspaceCapTests {
         let bench = try await SpaceSwitchBench(total: cap + over + 1, spaces: 1)
         defer { bench.close() }
         #expect(!bench.services.features.isEnabled(.memoryDiscardParkedWorkspaces), "the switch is not at its default (off)")
+        #expect(bench.services.features.isEnabled(.parkedWorkspaceCap), "the cap's kill switch is not at its DEV default (on)")
         let keys = try #require(bench.keysByRoom[bench.rooms[0]])  // k0 ... k(cap + over), in order
         var sentinels: [String: Sentinel] = [:]
         for key in keys.dropFirst() {

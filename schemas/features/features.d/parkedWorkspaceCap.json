@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "parkedWorkspaceCap",
+  "owner": "PL-memory",
+  "description": "At most the Mac's budget of hidden workspaces (4 to 16 by RAM) stay mounted across all windows; past it the least recently shown one lets its views go and mounts again when shown (audit H8). Off: all stay until critical pressure.",
+  "defaults": { "dev": true, "nightly": true, "release": false },
+  "kind": "killSwitch",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

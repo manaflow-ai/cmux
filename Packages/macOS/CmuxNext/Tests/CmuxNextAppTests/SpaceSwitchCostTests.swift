@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextFeatures
 import Foundation
 import Testing
 
@@ -11,8 +12,15 @@ import Testing
 /// at 500 with 100 workspaces: the switch must not grow with the count of workspaces.
 @MainActor @Suite(.serialized)
 struct SpaceSwitchCostTests {
+    /// The parked benches measure a switch over many MOUNTED parked workspaces, so they turn the parked-workspace
+    /// cap off (`parkedWorkspaceCap`): with it on at most the Mac's budget (4 to 16) stays mounted, and the claim
+    /// "120 parked cost the same as 60" would compare two windows that both hold 16.
     static func measure(_ total: Int, panes: Bool = false, parked: Int = 0, rounds: Int = 8) async throws -> [SpaceSwitchBench.Sample] {
-        let bench = try await SpaceSwitchBench(total: total, panes: panes, parked: parked)
+        let features = parked > 0
+            ? FeatureList(registry: FeatureRegistry(), channel: .dev,
+                          overrides: FeatureOverrides(environmentDisabled: [Feature.parkedWorkspaceCap.name]))
+            : nil
+        let bench = try await SpaceSwitchBench(total: total, panes: panes, parked: parked, features: features)
         defer { bench.close() }
         let samples = try await bench.run(rounds: rounds)
         print(SpaceSwitchBench.summary(total, samples) + " | panes=\(panes) mounted=\(bench.mounted)")

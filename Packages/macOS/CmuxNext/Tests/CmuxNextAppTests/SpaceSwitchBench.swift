@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 @testable import CmuxNextApp
+import CmuxNextFeatures
 @testable import CmuxNextDaemon
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
@@ -38,10 +39,12 @@ final class SpaceSwitchBench {
     ///   - panes: each workspace holds one pane with a terminal tab (shown) and a browser tab.
     ///   - parked: workspaces visited once before the timed switches, so they are parked as in a
     ///     long-running window (`WindowController.park`): the most recently shown ones stay mounted, up to
-    ///     the app's cap (`SubsystemBudget.parkedWorkspaces`), the others mount again when shown.
-    init(total: Int, spaces: Int = 2, panes: Bool = false, parked: Int = 0) async throws {
+    ///     the app's cap (`SubsystemBudget.parkedWorkspaces`, feature `parkedWorkspaceCap`), the others mount
+    ///     again when shown.
+    ///   - features: the app's features (default: the channel defaults).
+    init(total: Int, spaces: Int = 2, panes: Bool = false, parked: Int = 0, features: FeatureList? = nil) async throws {
         _ = NSApplication.shared
-        services = AppServices(environment: AppEnvironment.current([:]))
+        services = AppServices(environment: AppEnvironment.current([:]), features: features)
         let store = services.machines.local.store
         let json = #"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1","capabilities":["profiles-v1","personal-mixed-order-v1"]}"#
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
