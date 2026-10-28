@@ -32,4 +32,41 @@ struct StandInTerminalAdoptionTests {
         #expect(services.cache.terminal(for: other, daemon: services.daemon) !== entry)
         for key in [made.id, other.id] { services.cache.release(key) }
     }
+
+    private final class Presenter: SurfacePresenter {
+        var displaced: [String] = []
+        func surfaceWasDisplaced(_ key: String) { displaced.append(key) }
+        var presentingWindow: NSWindow? { nil }
+        var presentedContentSize: CGSize? { nil }
+    }
+
+    /// The pane withdraws the stand-in before it asks for the daemon tab's content (showSelectionNow): the withdraw
+    /// adopts it then, so a warm-set eviction on that withdraw cannot close the stand-in's lane with keys in it (review
+    /// of a8acc611977, finding C).
+    @Test func aWithdrawnStandInWhoseDaemonTabExistsIsAdoptedNotWithdrawn() throws {
+        _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let store = services.machines.local.store
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
+        store.noteHandshake(identity)
+        store.connectionState = .connected(identity)
+        let terminal = TerminalID.generate()
+        let standIn = TabModel(ProvisionalTab().terminal(terminal, cwd: nil))
+        let entry = services.cache.terminal(for: standIn, daemon: services.daemon)
+        // The daemon's tab arrives in the store.
+        let made = TabSnapshot(surface: SurfaceID(rawValue: 9), tabResourceID: ResourceID(rawValue: "tab_daemon9"), terminalID: terminal, kind: .pty)
+        let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [made])
+        var tree = DaemonTree(registryID: "s-local", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "adopt-ws"), name: "adopt",
+                              screens: [ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(pane.id), panes: [pane])]),
+        ])
+        tree.personal = PersonalState(workspaces: [PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "adopt-ws"), index: 0)])
+        store.apply(snapshot: tree)
+        let daemonTab = try #require(store.tab(terminal: terminal))
+        let presenter = Presenter()
+        services.cache.withdraw(standIn.id, by: presenter)
+        #expect(services.cache.existingTerminal(daemonTab.id) === entry, "the withdraw did not hand the stand-in's terminal to its daemon tab")
+        services.cache.release(daemonTab.id)
+    }
 }

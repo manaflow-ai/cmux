@@ -70,6 +70,9 @@ public final class CreationInputBuffer {
     /// creation resolves.
     public var newestEarlyTab: String? { pending.keys.max().flatMap { earlyTabs[$0] } }
 
+    /// Pending creation tab `key` is the daemon's tab `real` now (a Ctrl-` stand-in its daemon tab adopted).
+    public func rekey(tab key: String, to real: String) {}
+
     /// Whether a pending creation's new terminal view, tab `tab`, takes keys now.
     public func takesKeysEarly(tab: String) -> Bool { earlyTabs.values.contains(tab) }
 

@@ -21,6 +21,8 @@ final class CreationInputCoordinator {
     private var buffers: [Int: CreationInputBuffer] = [:] { didSet { router?.modes.set(.creationCapture, !buffers.isEmpty) } }
     /// Set while a captured key runs again, so it is not captured a second time.
     private var replaying = false
+    /// Held keys run again since launch (tests: a key must never be run into a view it was not typed for).
+    private(set) var replayedCount = 0
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     var holdLimit: Duration = .seconds(2)
 
@@ -149,6 +151,7 @@ final class CreationInputCoordinator {
         let held = buffer.take(), opened = buffer.openedCount
         for (index, key) in held.enumerated() {
             replaying = true
+            replayedCount += 1
             NSApp.sendEvent(key)
             replaying = false
             if buffer.openedCount != opened {
@@ -223,6 +226,7 @@ final class CreationInputCoordinator {
         let pending = buffer.take()
         for (index, event) in pending.enumerated() {
             replaying = true
+            replayedCount += 1
             NSApp.sendEvent(event)
             replaying = false
             // A replayed key started another creation: the rest wait for that one, in order.
