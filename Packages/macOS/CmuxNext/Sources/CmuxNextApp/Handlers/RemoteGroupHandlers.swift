@@ -12,10 +12,7 @@ import CmuxNextSidebar
 @MainActor
 enum RemoteGroupHandlers {
     static func shouldContinueMarking(status: SSHConnectionMachine.Status) -> Bool {
-        switch status {
-        case .authFailed, .hostKeyUntrusted, .installFailed, .offline: false
-        default: true
-        }
+        status != .offline
     }
 
     /// A focus request makes an automated run interactive for this action even

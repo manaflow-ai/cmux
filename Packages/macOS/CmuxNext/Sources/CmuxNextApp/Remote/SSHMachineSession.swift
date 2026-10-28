@@ -19,7 +19,7 @@ final class SSHMachineSession {
     }
 
     static func daemonObservationKey(startup: DaemonStartupState, recoveryAttempt: Int) -> DaemonObservationKey {
-        DaemonObservationKey(startup: startup, recoveryAttempt: 0)
+        DaemonObservationKey(startup: startup, recoveryAttempt: recoveryAttempt)
     }
 
     /// Its route and name; Add Machine may rename it (`SSHHost.named`), never reroute it.
