@@ -249,6 +249,27 @@ test("nested renaming and completion invalidate the parent summary revision", ()
   expect(after.subagents).toEqual([{ id: "b", title: "Renamed", state: "done" }]);
 });
 
+test("running nested tool metadata invalidates the child summary", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "parent", parent: null }] });
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "child", parent: "parent" }] });
+  const child = (update: object) => feed(fold, update, { subagent: "child" });
+  child({ sessionUpdate: "tool_call", toolCallId: "live", title: "Before", kind: "think", status: "in_progress" });
+  expect(sessionSummary(fold.views().child!).subagents).toEqual([{ id: "live", title: "Before", state: "running" }]);
+  child({ sessionUpdate: "tool_call_update", toolCallId: "live", title: "After", status: "in_progress" });
+  expect(sessionSummary(fold.views().child!).subagents).toEqual([{ id: "live", title: "After", state: "running" }]);
+  child({
+    sessionUpdate: "tool_call_update",
+    toolCallId: "live",
+    kind: "execute",
+    title: "npm run dev",
+    rawInput: { command: "npm run dev", description: "Preview", run_in_background: true },
+  });
+  expect(sessionSummary(fold.views().child!).backgroundTasks).toMatchObject([
+    { command: "npm run dev", description: "Preview", state: "running" },
+  ]);
+});
+
 test("mixed child activity and nested streams reuse summaries until completion", () => {
   const fold = new SubagentFold();
   const childUpdate = (update: object) => feed(fold, update, { subagent: "b" });
