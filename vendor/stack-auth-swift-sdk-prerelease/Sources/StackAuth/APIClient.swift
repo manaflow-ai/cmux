@@ -403,8 +403,9 @@ actor APIClient {
             // An empty rejection names nothing the client could fix, so the
             // token is dead. A body that is not JSON (a captive portal or proxy
             // page) did not come from Stack and must not end the session.
-            guard let bodyText = String(data: body, encoding: .utf8),
-                  !bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            // Check the raw bytes: a page in another encoding is not UTF-8
+            // but is still not empty.
+            guard body.contains(where: { !asciiWhitespace.contains($0) }) else {
                 return .sessionEnded
             }
             guard let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else {
@@ -422,6 +423,8 @@ actor APIClient {
             }
             return .sessionEnded
         }
+
+        private static let asciiWhitespace: Set<UInt8> = [0x09, 0x0A, 0x0D, 0x20]
 
         private static func nonEmpty(_ value: String?) -> String? {
             guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
