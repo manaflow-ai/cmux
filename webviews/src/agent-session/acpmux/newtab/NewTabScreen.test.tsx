@@ -148,6 +148,41 @@ test("with Run as Sandboxed, a send goes to the sandbox, not a new chat, with it
   expect((sandboxed[0] as unknown[])[2]).toEqual([expect.objectContaining({ path: "/tmp/notes.txt" })]);
 });
 
+test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat; a refusal is said over the box", async () => {
+  const asks: unknown[][] = [];
+  const clouded: unknown[][] = [];
+  let answer: boolean | string = false;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={(...args) => asks.push(args)}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        onCloud={(...args) => (clouded.push(args), answer)}
+      />,
+    );
+  });
+  const field = container.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
+    setter.call(field, "fix the flaky test");
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  answer = "A Cloud chat takes text only for now.";
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(asks).toEqual([]);
+  expect(clouded.length).toBe(1);
+  expect((clouded[0] as unknown[])[1]).toBe("fix the flaky test");
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe("A Cloud chat takes text only for now.");
+});
+
 test("a Sandboxed New chat that starts nothing leaves New chat and the other creates working", async () => {
   const asks: unknown[][] = [];
   const sandboxed: unknown[][] = [];

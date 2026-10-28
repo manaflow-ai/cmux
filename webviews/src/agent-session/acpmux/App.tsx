@@ -355,6 +355,7 @@ import { PullRequestDock } from "./summary/PullRequestDock";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
+import { cloudPageRefusal, cloudStartToasted, startCloudChat, type CloudStart } from "./cloudRun";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
@@ -5906,6 +5907,19 @@ function AcpmuxPane() {
   /// code (the prompt stays where it was typed); false: nothing was sent.
   const startSandbox = (text: string, attachmentCount: number, harness: string | undefined): string | boolean =>
     sandboxPageRefusal(attachmentCount, harness) ?? sandbox.send(text, sandboxAgent(harness));
+  /// Cloud picked (cloudRun.ts): the first send goes to the host, which opens the chat on a Cloud
+  /// machine and closes this tab. False keeps the prompt in the composer meanwhile; a string is a
+  /// refusal said here. The host says its own progress and failures (toasts).
+  const cloudPicked = sandboxOffered && sandbox.mode === "cloud";
+  const sendToCloud = (text: string, attachmentCount: number, start: Omit<CloudStart, "task">): string | false => {
+    const refused = cloudPageRefusal(attachmentCount);
+    if (refused) return translate("composer.cloudAttachments");
+    void startCloudChat(callNative, { task: text, ...start }).then((answer) => {
+      if (!answer.ok && !cloudStartToasted(answer))
+        directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
+    });
+    return false;
+  };
   /// A chat shows here while the tab's run is out or ended: a notice offers it, and Show opens it in
   /// place of the chat until Back. Whatever Labs says now: a paid run's receipt stays reachable.
   const sandboxElsewhere =
@@ -9264,6 +9278,14 @@ function AcpmuxPane() {
               // While the tab's run holds the chat nothing else sends as Sandboxed (the composer keeps
               // the prompt); a composer kept for a refused draft sends as Persistent once picked.
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
+              if (cloudPicked && !snapshot.sessionId) {
+                const refused = sendToCloud(text, chips?.length ?? 0, {
+                  ...(projectDraft ? { cwd: projectDraft } : {}),
+                  ...heldPick(composerSnapshot),
+                });
+                if (refused) directClient.current?.notice(refused);
+                return false;
+              }
               if (sandboxPickedNotOffered) {
                 sandbox.refuse(text, sandboxNotNow);
                 return false;
@@ -9787,6 +9809,12 @@ function AcpmuxPane() {
                     runMode: sandboxModeRows,
                     // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
                     // the prompt and attachments put back in its composer.
+                    onCloud: (harness: string, text: string, cwd: string | undefined, model: string | undefined, attachments: ComposerAttachment[]) =>
+                      sendToCloud(text, attachments.length, {
+                        harness,
+                        ...(cwd ? { cwd } : {}),
+                        ...(model ? { model } : {}),
+                      }),
                     onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
                       const started = sandboxPickedNotOffered
                         ? sandboxNotNow

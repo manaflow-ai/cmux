@@ -157,6 +157,9 @@ export type NewTabScreenActions = {
   /// Answers true when the send started, false when nothing did (an empty prompt, already sent), or
   /// a refusal code the page shows itself (attachments, an agent a sandbox can't run).
   onSandbox?(harness: string, text: string, attachments: ComposerAttachment[]): boolean | string;
+  /// Cloud is the mode (cloudRun.ts): Enter hands the prompt, its folder and model to `onCloud`,
+  /// which opens the chat on a Cloud machine; a string is a refusal said over the box.
+  onCloud?(harness: string, text: string, cwd: string | undefined, model: string | undefined, attachments: ComposerAttachment[]): boolean | string;
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
@@ -469,6 +472,11 @@ export function NewTabScreen(props: Props) {
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
+    if (props.runMode?.mode === "cloud" && props.onCloud) {
+      const started = props.onCloud(agent, prompt, cwd ?? envFolder, model, attachments);
+      setSandboxRefusal(typeof started === "string" ? started : undefined);
+      return started === true;
+    }
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
       const started = props.onSandbox(agent, prompt, attachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
@@ -1331,6 +1339,11 @@ export function NewTabScreen(props: Props) {
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
             <span role="alert">{t(sandboxFailureKey(sandboxRefusal) ?? "sandbox.error.failed")}</span>
+          </output>
+        )}
+        {sandboxRefusal && props.runMode?.mode === "cloud" && (
+          <output className="acpmux-switch-notice">
+            <span role="alert">{sandboxRefusal}</span>
           </output>
         )}
         {/* Above the box: the project strip (Cards draws it under the field). */}
