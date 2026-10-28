@@ -139,6 +139,22 @@ import Testing
         #expect(added == 1)
     }
 
+    /// The click reaches Add Machine… at its laid-out place (hitTest takes the superview's coordinates),
+    /// and only over its icon and text, not the empty width after them.
+    @Test func addMachineTakesTheClickOnlyOverItsIconAndText() {
+        let view = Self.section()
+        view.update(Self.rows, style: .compact)
+        view.layoutSubtreeIfNeeded()
+        let add = view.addRow
+        add.layoutSubtreeIfNeeded()
+        #expect(add.frame.minY > 0)
+        let overText = NSPoint(x: add.frame.minX + add.label.frame.midX, y: add.frame.midY)
+        #expect(add.hitTest(overText) === add)
+        #expect(view.hitTest(overText) === add)
+        #expect(add.hitTest(NSPoint(x: add.frame.maxX - 2, y: add.frame.midY)) == nil)
+        #expect(add.hitTest(NSPoint(x: overText.x, y: add.frame.minY - 4)) == nil)
+    }
+
     @Test func theSectionAndItsHostImportNoSwiftUI() throws {
         let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appending(path: "Sources")

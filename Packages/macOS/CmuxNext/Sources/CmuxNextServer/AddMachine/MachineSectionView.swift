@@ -466,6 +466,7 @@ final class MachineSectionAddRow: NSView {
     /// Only the icon and the text take the click and the hover, never the empty width after them.
     private var hitRect: NSRect { NSRect(x: 0, y: 0, width: label.frame.maxX + Metrics.space2, height: bounds.height) }
 
+    /// `point` is in the superview's coordinates (NSView's contract), so it is converted to the row's.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
         return hitRect.contains(local) ? self : nil

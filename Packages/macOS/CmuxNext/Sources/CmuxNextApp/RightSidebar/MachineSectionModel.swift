@@ -1,5 +1,7 @@
 import CmuxNextServer
 
+/// Main actor: it reads the machine registry and each daemon's store.
+@MainActor
 extension MachineSectionModel {
     /// The rows of `machines` now, each with its kind, its link state and its last check from `health`;
     /// then the sample machines while `machines.section.fixture` is on.
