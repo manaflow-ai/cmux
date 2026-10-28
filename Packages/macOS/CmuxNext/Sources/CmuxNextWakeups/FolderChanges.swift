@@ -45,8 +45,8 @@ public struct FolderChanges: Sendable {
     }
 
     /// One element after each burst of changes in any watched folder. Ends when the consumer
-    /// stops iterating (the watches are cancelled with it). Returns once every watch is registered,
-    /// or early when the calling task is cancelled.
+    /// stops iterating (the watches are cancelled with it). Returns once every watch is registered;
+    /// a caller cancelled before then gets a finished stream and no watch.
     public func events() async -> AsyncStream<Void> {
         let targets = folders.map(\.path)
         let ledger = ledger, queue = queue
@@ -54,6 +54,12 @@ public struct FolderChanges: Sendable {
         // Armed here, not in the loop: a utility task can start long after this returns under load,
         // and a change made before it armed was never seen (BackdropCatalogStoreTests hung on it).
         let first = await Self.arm(targets, on: queue)
+        // A caller cancelled during the wait may never iterate, and the loop would hold the watch.
+        guard !Task.isCancelled else {
+            first.cancel()
+            continuation.finish()
+            return stream
+        }
         // task-owner: the stream's watch loop; cancelled when the consumer stops iterating
         let loop = Task.detached(priority: .utility) {
             var armed = first
