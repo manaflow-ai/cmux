@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { GuardedCloudDriver } from "../src/cloud-driver.ts"
 import { CLIENT_SESSION_LINUX_USER, ClientIdentityStore, clientSessionTtl, mintClientSessionOn, sweepClientIdentities, type ClientSessionHost } from "../src/cloud-client-session.ts"
 import { ClientIdentityLeft, DriverError } from "../src/providers/contract.ts"
+import { TEAM_MEMBER_LEFT_SOCKETS } from "../src/domains/team-members.ts"
 import { FreestyleCloudProvider } from "../src/providers/freestyle/cloud.ts"
 import { bindBody, bindFile, cloudStub, createdAndBound, installOf, person, post, sessionToken, worker } from "./cloud-bind-support.ts"
 
@@ -246,6 +247,20 @@ describe("CloudDO client sessions", { timeout: 60_000 }, () => {
     await stub.fakeControl({ unset: ["CLOUD_ALLOWED_TEAMS"] })
     expect(await stub.mintClientSession(alice.team, alice.p, machine, 600)).toEqual({ ok: false, refusal: "plan_required" })
     expect(await identities(alice.team)).toHaveLength(1)
+  })
+
+  it("a member leaving the team deletes their client session identities at the provider", async () => {
+    const alice = person()
+    const { machine } = await createdAndBound(alice)
+    const stub = stubOf(alice.team) as Stub & { systemDeliver(e: string, source: string, items: unknown): Promise<{ done: Array<number> }> }
+    expect((await stub.mintClientSession(alice.team, alice.p, machine, 600)).ok).toBe(true)
+    expect(await identities(alice.team)).toHaveLength(1)
+    // Only the team's own TeamDO may say so.
+    await stub.systemDeliver(alice.team, "team:team_other0000000000000", [{ id: 1, op: TEAM_MEMBER_LEFT_SOCKETS, key: "k1", params: { user: alice.user } }])
+    expect(await identities(alice.team)).toHaveLength(1)
+    const done = await stub.systemDeliver(alice.team, `team:${alice.team}`, [{ id: 2, op: TEAM_MEMBER_LEFT_SOCKETS, key: "k2", params: { user: alice.user } }])
+    expect(done.done).toEqual([2])
+    expect(await identities(alice.team)).toEqual([])
   })
 
   it("refuses a machine that is not running yet", async () => {

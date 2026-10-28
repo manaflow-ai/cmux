@@ -81,6 +81,11 @@ export class CloudDO extends CloudIdle {
       if (source !== `team:${entity}` || typeof user !== "string") continue
       this.leftAt.set(user, Date.now())
       if (this.isBound(entity)) this.closeSockets((p) => p.user === user, "left the team")
+      // Their client sessions end now too: the identities (and every token on them) are deleted at the provider.
+      if (this.hasClientIdentities()) {
+        this.clientIdentityStore().forgetUser(user, Date.now())
+        await this.sweepClientIdentities(Date.now()).catch(() => this.retryClientIdentities())
+      }
     }
     const answers = items.filter((i) => i.op === "integration.approval.answered")
     const rest = items.filter((i) => i.op !== "integration.approval.answered" && i.op !== TEAM_MEMBER_LEFT_SOCKETS)
@@ -294,8 +299,12 @@ export class CloudDO extends CloudIdle {
   }
 
   /** Retires gone machines' identities and deletes retired ones; only for a team that ever minted one. */
+  private hasClientIdentities(): boolean {
+    return this.clientIdentities !== null || this.sqlStore.exec<{ n: number }>(`SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'cloud_client_identity'`)[0]?.n === 1
+  }
+
   protected override async sweepClientIdentities(now: number): Promise<void> {
-    if (!this.clientIdentities && this.sqlStore.exec<{ n: number }>(`SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'cloud_client_identity'`)[0]?.n !== 1) return
+    if (!this.hasClientIdentities()) return
     const entity = this.boundEntity()
     if (!entity || !this.isBound(entity)) return
     const rows = this.bind(entity).rows

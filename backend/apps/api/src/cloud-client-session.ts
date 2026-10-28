@@ -107,6 +107,14 @@ export class ClientIdentityStore {
     return this.sql.exec<{ identity: string }>(`SELECT identity FROM cloud_client_identity_retired ORDER BY at LIMIT ?`, limit).map((r) => r.identity)
   }
 
+  /** Retires every identity `user` holds (they left the team) and forgets them. */
+  forgetUser(user: string, at: number): void {
+    this.sql.transaction(() => {
+      for (const r of this.sql.exec<{ identity: string }>(`SELECT identity FROM cloud_client_identity WHERE user = ?`, user)) this.retire(r.identity, at)
+      this.sql.exec(`DELETE FROM cloud_client_identity WHERE user = ?`, user)
+    })
+  }
+
   /** Retires the current identity of (machine, user) and forgets it. */
   forget(machine: string, user: string, at: number): void {
     this.sql.transaction(() => {
