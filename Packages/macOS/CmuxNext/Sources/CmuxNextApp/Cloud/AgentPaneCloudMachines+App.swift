@@ -15,7 +15,7 @@ extension AgentPaneCloudMachines {
             guard let services, services.cloud.isSignedIn else { return Inventory(signedIn: false, loaded: false, machines: []) }
             await services.cloud.refresh(ifOlderThan: age)
             guard services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
-                  age != .zero || services.cloud.lastError == nil else {
+                  age != .zero || (services.cloud.lastError == nil && services.cloud.unavailableReason == nil) else {
                 return Inventory(signedIn: services.cloud.isSignedIn, loaded: false, machines: [])
             }
             let machines = services.machines.cloud.compactMap { session in
