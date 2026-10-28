@@ -41,7 +41,8 @@ test("the turn footer actions sit on the left, and Debug Settings can put them o
 });
 
 test("disclosure rows are keyed by their chat (#21344)", () => {
-  expect(app).toContain("<ToolRows row={row} sessionId={sessionId} />");
+  // Each row renderer has its own module under rows/ (audit P10).
+  expect(read("rows/ToolActivityRow.tsx")).toContain("<ToolRows row={row} sessionId={sessionId} />");
   expect(app).toContain("<EditedFilesCard row={row} sessionId={sessionId} onOpenDiff={onOpenDiff} />");
 });
 

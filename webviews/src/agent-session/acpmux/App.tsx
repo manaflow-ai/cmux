@@ -217,7 +217,6 @@ import {
   type ReferenceScope,
 } from "./conversation/bareReferences";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
-import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { ANCHORED_COLLAPSE_EVENT, foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
@@ -225,8 +224,6 @@ import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./c
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
-import { PlanList } from "./conversation/PlanList";
-import { ActivityLine } from "./conversation/ActivityLine";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./conversation/backgroundTaskOutput";
 import { CompactionNote, FailoverNote, PolicyUnenforcedNote } from "./conversation/CompactionNote";
@@ -276,7 +273,6 @@ import {
 } from "./conversation/turns";
 import { ArrowDown } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
-import { PreviewCard } from "./conversation/PreviewCard";
 import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
@@ -293,13 +289,11 @@ import {
 import { actOnReportedImage } from "./conversation/imageMenuActions";
 import { callChipHost } from "./chips/host";
 import { pullRequestRef } from "./chips/PullRequestCard";
-import { RenderToolCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, useArtifactCoversPane, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
 import { artifactVersions } from "./conversation/artifactVersions";
 import { RenderPages, renderPages, renderVersions } from "./conversation/renderCall";
-import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import {
   FALLBACK_LINK_SCHEME,
@@ -344,10 +338,8 @@ import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { takeBackSteer } from "./conversation/PendingSteer";
-import { Thinking } from "./conversation/Thinking";
-import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
+import { type WorkingCounts, WorkingCountsContext } from "./conversation/WorkingFor";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
-import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosure";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
@@ -450,6 +442,17 @@ import { callNative } from "./callNative";
 import type { MeasurableRenderer, NativeRegistry, OpenDiff, RowProps } from "./rows/rowProps";
 import { resumeAgentPair, editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
 import { MessageRow } from "./rows/MessageRow";
+import { ToolActivityRow } from "./rows/ToolActivityRow";
+import { WorkedRow } from "./rows/WorkedRow";
+import { DateRow } from "./rows/DateRow";
+import { ThinkingRow } from "./rows/ThinkingRow";
+import { WorkingRow } from "./rows/WorkingRow";
+import { ActivityLineRow } from "./rows/ActivityLineRow";
+import { PreviewRow } from "./rows/PreviewRow";
+import { RenderRow } from "./rows/RenderRow";
+import { SummaryRow } from "./rows/SummaryRow";
+import { PlanRow } from "./rows/PlanRow";
+import { NoticeRow } from "./rows/NoticeRow";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -831,150 +834,11 @@ function writeKeysFor(sessionId: string | undefined): WriteKeys | undefined {
 /// The host opens a changed file in a tab beside the agent or in the editor (`file.open`).
 const openChangedFile = (path: string, where: "tab" | "editor") => callNative("file.open", { path, where });
 
-/// Tool calls and thoughts as quiet rows (inside an open "Worked for", or live).
-const ToolActivityRow = memo(
-  function ToolActivityRow({ row, sessionId }: RowProps) {
-    // A finished step of only quiet thoughts draws nothing: no `.cv-tools` box either, so the row's
-    // article is empty and takes no room (model.ts onlyQuietThoughts, conversation.css `:empty`).
-    if (onlyQuietThoughts(row)) return null;
-    return <ToolRows row={row} sessionId={sessionId} />;
-  },
-  (previous, next) =>
-    previous.row.id === next.row.id &&
-    previous.row.version === next.row.version &&
-    previous.sessionId === next.sessionId,
-);
-
-/// "Worked for 15s": opens the turn's commentary and tool calls (turnView in conversation/turns.ts).
-const WorkedRow = memo(
-  function WorkedRow({ row, onToggleActivity, expanded, controls }: RowProps) {
-    return <WorkedFor row={row} expanded={expanded} controls={controls} onToggle={() => onToggleActivity(row.id)} />;
-  },
-  (a, b) =>
-    a.row.id === b.row.id &&
-    a.row.version === b.row.version &&
-    a.expanded === b.expanded &&
-    a.controls === b.controls &&
-    a.onToggleActivity === b.onToggleActivity,
-);
-
-/// "Sun, Sep 13 at 7:55 PM" over a prompt after an hour's gap (turnView in conversation/turns.ts).
-const DateRow = memo(
-  function DateRow({ row }: RowProps) {
-    return <DateLine row={row} />;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.at === b.row.at,
-);
-/// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
-const ThinkingRow = memo(
-  function ThinkingRow({ row }: RowProps) {
-    const queued = row.queued;
-    return (
-      <Thinking
-        status={row.status}
-        since={row.at}
-        doing={row.doing}
-        doingAt={row.doingAt}
-        doingShell={row.doingShell}
-        draft={row.doingDraft}
-        untimed={row.untimed}
-        quietKey={row.quietKey}
-        below={row.below}
-        command={row.doingCommand}
-        onCancel={
-          queued
-            ? () => void window.cmuxAcpmuxActions?.["chat.harness.cancelPrompt"]?.({ promptId: queued })
-            : undefined
-        }
-      />
-    );
-  },
-  // The start status line (version 0) becomes "Thinking" (version 1) in place.
-  (a, b) =>
-    a.row.id === b.row.id &&
-    a.row.version === b.row.version &&
-    a.row.status === b.row.status &&
-    a.row.queued === b.row.queued &&
-    a.row.at === b.row.at &&
-    a.row.doing === b.row.doing &&
-    a.row.doingAt === b.row.doingAt &&
-    a.row.doingShell === b.row.doingShell &&
-    a.row.doingDraft === b.row.doingDraft &&
-    a.row.untimed === b.row.untimed &&
-    a.row.quietKey === b.row.quietKey &&
-    a.row.below === b.row.below &&
-    a.row.doingCommand === b.row.doingCommand,
-);
-const WorkingRow = memo(
-  function WorkingRow({ row, sessionId }: RowProps) {
-    // The session's disclosures say whether the running call's group shows its row (WorkingFor.tsx).
-    return (
-      <TranscriptDisclosureProvider sessionId={sessionId}>
-        <WorkingFor row={row} />
-      </TranscriptDisclosureProvider>
-    );
-  },
-  (a, b) =>
-    a.row.id === b.row.id &&
-    a.row.version === b.row.version &&
-    a.row.at === b.row.at &&
-    a.row.durationMs === b.row.durationMs &&
-    a.row.doing === b.row.doing &&
-    a.row.thinkingNow === b.row.thinkingNow &&
-    a.row.below === b.row.below &&
-    a.row.doingCommand === b.row.doingCommand &&
-    a.row.doingDraft === b.row.doingDraft &&
-    a.row.doingGroup === b.row.doingGroup &&
-    a.row.doingGroupOpen === b.row.doingGroupOpen &&
-    a.sessionId === b.sessionId,
-);
-/// The running turn's activity line under its todo list (agent.sessionStatus, cx-ncc.102).
-const ActivityLineRow = memo(
-  function ActivityLineRow({ row }: RowProps) {
-    return <ActivityLine row={row} />;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.at === b.row.at,
-);
-
 /// How many turns back the header's Preview looks for a page.
 const PREVIEW_TURNS = 8;
 /// How long a running line count's reveal holds a run open while its row draws (WorkingFor.tsx).
 const REVEAL_HOLD_MS = 2_000;
-/// Asks the host for a browser tab on a turn's local web page; a host without one (the quick
-/// panel) refuses, and the card's address still opens outside the pane.
-const openPreview = (url: string) => void callNative("browser.open", { url }).catch(() => undefined);
-/// A turn's local web page, live (conversation/PreviewCard.tsx).
-const PreviewRow = memo(
-  function PreviewRow({ row }: RowProps) {
-    return row.text ? <PreviewCard url={row.text} onOpen={openPreview} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.text === b.row.text,
-);
-/// An ended turn's render call, live (conversation/RenderCard.tsx).
-const RenderRow = memo(
-  function RenderRow({ row }: RowProps) {
-    const tool = row.items?.[0]?.tool;
-    return tool && canRender() ? <RenderToolCard tool={tool} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
 
-const SummaryRow = memo(
-  function SummaryRow({ row }: RowProps) {
-    return <TurnFooter row={row} />;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const PlanRow = memo(
-  function PlanRow({ row }: RowProps) {
-    return row.plan ? (
-      <PlanList entries={row.plan} ended={row.turnEnded} />
-    ) : (
-      <div className="acpmux-muted">{row.text}</div>
-    );
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
 const BackgroundTaskRow = memo(
   function BackgroundTaskRow({ row }: RowProps) {
     return row.backgroundTask ? <BackgroundTaskNote task={row.backgroundTask} /> : null;
@@ -1008,12 +872,6 @@ const AgentPairRow = memo(
 const SessionStartRow = memo(
   function SessionStartRow({ row }: RowProps) {
     return row.sessionStart ? <SessionStartNote start={row.sessionStart} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const NoticeRow = memo(
-  function NoticeRow({ row }: RowProps) {
-    return <div className="acpmux-muted">{row.text}</div>;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
