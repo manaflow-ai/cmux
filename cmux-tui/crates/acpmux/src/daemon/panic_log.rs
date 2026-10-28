@@ -42,10 +42,10 @@ pub(super) fn install_panic_log() -> crate::supervised::Supervisor {
     )]
     if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
         // supervise-allow: debug-only trigger whose unsupervised panic line is what tests/panic_log.rs checks.
-        let _ = std::thread::Builder::new()
-            .name(TEST_PANIC_THREAD.into())
+        let _ = cmux_threads::spawn(TEST_PANIC_THREAD, cmux_threads::ThreadQos::Utility, || {
             // crash-allow: debug-only test trigger for the acpmux panic log
-            .spawn(|| panic!("acpmux test panic"));
+            panic!("acpmux test panic")
+        });
     }
     supervisor
 }

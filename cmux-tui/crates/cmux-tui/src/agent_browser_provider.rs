@@ -499,11 +499,13 @@ impl MuxControl {
         let display = socket.display().to_string();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         // supervise-allow: one connect, joined on every answer; a panic drops `sender`, so the wait below fails as 'stopped without a result'.
-        let connector = std::thread::Builder::new()
-            .name("agent-browser-provider-connect".into())
-            .spawn(move || {
-            let _ = sender.send(UnixStream::connect(socket));
-        })?;
+        let connector = cmux_threads::spawn(
+            "agent-browser-provider-connect",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                let _ = sender.send(UnixStream::connect(socket));
+            },
+        )?;
         let stream = match crate::blocking::sync::recv_timeout(&receiver, remaining) {
             Ok(result) => {
                 let _ = crate::blocking::thread::join(connector);

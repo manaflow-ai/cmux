@@ -33,6 +33,8 @@
 //! last argument. `--version` prints `cmux-tui-host <build identity>`: a macOS
 //! daemon runs this sibling only when it is the daemon's own build.
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
 #![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 
 #[cfg(unix)]

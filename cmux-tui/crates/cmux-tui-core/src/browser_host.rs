@@ -401,12 +401,17 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
     let written = secret_write.write_all(secret.as_bytes());
     drop(secret_write);
     let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
-    let reader =
-        supervised::spawn("browser-host-ready", Fatal, ShutdownBehavior::Continue, move || {
+    let reader = supervised::spawn_at(
+        "browser-host-ready",
+        cmux_threads::ThreadQos::UserInitiated,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
             let mut line = String::new();
             let ok = BufReader::new(stdout).read_line(&mut line).is_ok() && line == "ready\n";
             let _ = ready_tx.send(ok);
-        });
+        },
+    );
     let ready = written.is_ok()
         && reader.is_ok()
         && matches!(ready_rx.recv_timeout(READY_TIMEOUT), Ok(true));
@@ -416,8 +421,9 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
         return Err(format!("the browser host did not start ({status:?})"));
     }
     if let Some((mux, daemon_end)) = link {
-        let served = supervised::spawn(
+        let served = supervised::spawn_at(
             "browser-host-history",
+            cmux_threads::ThreadQos::Utility,
             Fatal,
             ShutdownBehavior::Continue,
             move || crate::browser_host_history::serve(mux, daemon_end, pid),
@@ -431,10 +437,16 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
     }
     let started = Instant::now();
     let watcher = Arc::downgrade(inner);
-    supervised::spawn("browser-host-watch", Fatal, ShutdownBehavior::Continue, move || {
-        let idle_exit = child.wait().is_ok_and(|status| status.success());
-        Inner::host_stopped(&watcher, pid, started.elapsed(), idle_exit);
-    })
+    supervised::spawn_at(
+        "browser-host-watch",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let idle_exit = child.wait().is_ok_and(|status| status.success());
+            Inner::host_stopped(&watcher, pid, started.elapsed(), idle_exit);
+        },
+    )
     .map_err(|error| format!("cannot watch the browser host: {error}"))?;
     let provider = socket.with_file_name(PROVIDER_SOCKET_FILE);
     let listener_pid = if inner.activation.is_bound() { std::process::id() } else { pid };

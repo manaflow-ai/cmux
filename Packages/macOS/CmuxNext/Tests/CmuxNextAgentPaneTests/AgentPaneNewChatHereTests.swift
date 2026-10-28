@@ -1,5 +1,6 @@
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// Leo 2026-10-13: a started chat's folder is fixed; its folder menu's New Chat Here (or another
 /// folder) asks the host for a new chat in that folder (`chat.newHere`), in a tab of its own.
@@ -14,7 +15,7 @@ struct AgentPaneNewChatHereTests {
     @MainActor private final class Opened { var folders: [String] = [] }
 
     private static func pane(_ opened: Opened, sessionId: String? = "chat") -> AgentPaneModel {
-        let model = AgentPaneModel(host: NoHost(), sessionId: sessionId)
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), sessionId: sessionId)
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() }, newChat: {
             opened.folders.append($0)
             return true
