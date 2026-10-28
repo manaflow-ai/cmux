@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextSidebar
@@ -43,6 +44,86 @@ struct CmdWLastTabClosesWorkspaceTests {
             try await PinnedPageTests.until({ store.workspaces.allSatisfy { $0.id != closing } }, report: { "the workspace was not closed" })
             #expect(services.windows.active === window, "the window closed with the workspace")
             #expect(store.workspaces.contains { $0.id == first }, "the other workspace closed too")
+        }
+    }
+
+    /// audit-findings-1 C: the close offers "Workspace closed" with Undo for 5 s, and Cmd-Shift-T brings the workspace
+    /// back, shown in the window.
+    @Test func cmdWOnTheLastTabOffersUndoAndCmdShiftTReopensTheWorkspace() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let store = services.daemon.store
+            let (window, closing, _) = try await Self.secondWorkspace(services)
+            let nsWindow = try #require(window.window)
+
+            #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
+            let toast = { CmuxToastCenter.shared.toasts(in: nsWindow).first { $0.id == "workspace-closed" } }
+            try await PinnedPageTests.until({ toast() != nil }, report: {
+                "no workspace close toast: \(CmuxToastCenter.shared.toasts(in: nsWindow).map { "\($0.id): \($0.message)" })"
+            })
+            let shown = try #require(toast())
+            #expect(shown.message == "Workspace closed")
+            #expect(shown.duration == .seconds(5))
+            #expect(shown.action?.isUndo == true && shown.action?.title.hasPrefix("Undo") == true, "\(String(describing: shown.action))")
+
+            try await PinnedPageTests.until({ store.workspaces.allSatisfy { $0.id != closing } }, report: { "the workspace was not closed" })
+            let before = Set(store.workspaces.map(\.id))
+            #expect(services.registry.perform("reopenClosedBrowserPanel", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({
+                store.workspaces.contains { !before.contains($0.id) } && window.state.workspaceID.map { !before.contains($0) } == true
+            }, report: { "Cmd-Shift-T did not bring the workspace back into the window: shown \(String(describing: window.state.workspaceID))" })
+        }
+    }
+
+    /// audit-findings-1 C, hold-shortcuts-ux.md: key repeat never crosses into a workspace close. A held Cmd-W stops at
+    /// the last tab; a new press closes the workspace.
+    @Test func aHeldCmdWStopsAtTheLastTab() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let (window, closing, _) = try await Self.secondWorkspace(services)
+            let pane = try #require(window.workspaceContent?.focusedPane)
+            let repeatEvent = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+                                                            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: 0, context: nil,
+                                                            characters: "w", charactersIgnoringModifiers: "w", isARepeat: true, keyCode: 13))
+            let dispatching = services.registry.dispatchingInputEvent
+            services.registry.dispatchingInputEvent = { repeatEvent }
+            services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
+            services.registry.dispatchingInputEvent = dispatching
+            #expect(!ClosingWorkspaces.shared.ids.contains(closing), "a key repeat closed the workspace")
+            #expect(window.state.workspaceID == closing, "a key repeat left the workspace")
+            #expect(pane.orderedIDs.count == 1, "a key repeat closed the last tab")
+
+            #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
+            #expect(ClosingWorkspaces.shared.ids.contains(closing), "a new press did not close the workspace")
+        }
+    }
+
+    /// audit-findings-1 C: closing the last workspace of a window keeps the window and shows Home there (not closed,
+    /// not empty). Close Workspace is the close Cmd-W on the last tab runs.
+    @Test func closingTheLastWorkspaceOfAWindowShowsHomeThere() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            services.home.ensureHomeWorkspace(connection)
+            try await PinnedPageTests.until({ services.home.homeWorkspace != nil }, within: .seconds(60),
+                                            report: { "no home workspace: \(services.home.homeWorkspaceStep)" })
+            let home = try #require(services.home.homeWorkspace).id
+            let count = store.workspaces.count
+            #expect(services.registry.perform("newTab", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({ store.workspaces.count == count + 1 }, report: { "no new workspace" })
+            let closing = try #require(store.workspaces.first { $0.id != home && services.windows.active?.state.workspaceID == $0.id }?.id,
+                                       "the new workspace is not shown")
+            let window = try #require(services.windows.openWindow(workspaces: [closing]))
+            let id = window.state.id
+            try #require(services.windows.registry.members(of: id) == [closing], "\(services.windows.registry.members(of: id))")
+
+            #expect(services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: closing)))
+            #expect(window.state.workspaceID == home, "the window does not show Home in the press's turn")
+            try await PinnedPageTests.until({ store.workspaces.allSatisfy { $0.id != closing } }, report: { "the workspace was not closed" })
+            #expect(services.windows.registry.value.window(id)?.isOpen == true, "the window closed with its last workspace")
+            #expect(services.windows.registry.members(of: id) == [home], "\(services.windows.registry.members(of: id))")
+            #expect(window.state.workspaceID == home)
+
+            // Home cannot be closed: Close Workspace on it does nothing.
+            services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: home))
+            #expect(!ClosingWorkspaces.shared.ids.contains(home) && window.state.workspaceID == home, "Close Workspace closed Home")
         }
     }
 }
