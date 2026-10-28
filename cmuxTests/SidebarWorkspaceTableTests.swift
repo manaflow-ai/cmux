@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC.runtime
 import CmuxFoundation
 import CmuxNotifications
 import SwiftUI
@@ -9,6 +10,34 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@MainActor
+private enum SidebarTableHeightNoteProbe {
+    static var callback: ((NSTableView, IndexSet) -> Void)?
+    private static var installed = false
+
+    static func install() {
+        guard !installed,
+              let original = class_getInstanceMethod(
+                  NSTableView.self,
+                  #selector(NSTableView.noteHeightOfRows(withIndexesChanged:))
+              ),
+              let replacement = class_getInstanceMethod(
+                  NSTableView.self,
+                  #selector(NSTableView.cmuxTest_noteHeightOfRows(withIndexesChanged:))
+              ) else { return }
+        method_exchangeImplementations(original, replacement)
+        installed = true
+    }
+}
+
+private extension NSTableView {
+    @objc func cmuxTest_noteHeightOfRows(withIndexesChanged indexSet: IndexSet) {
+        SidebarTableHeightNoteProbe.callback?(self, indexSet)
+        // Swizzling makes this selector invoke AppKit's original implementation.
+        cmuxTest_noteHeightOfRows(withIndexesChanged: indexSet)
+    }
+}
 
 @Suite(.serialized)
 struct SidebarWorkspaceTableTests {
@@ -1844,6 +1873,14 @@ struct SidebarWorkspaceTableTests {
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
 
+        SidebarTableHeightNoteProbe.install()
+        var noted = IndexSet()
+        SidebarTableHeightNoteProbe.callback = { table, indexes in
+            guard table === container.tableView else { return }
+            noted.formUnion(indexes)
+        }
+        defer { SidebarTableHeightNoteProbe.callback = nil }
+
         let originalHeights = (0..<6).map { container.tableView.rect(ofRow: $0).height }
         controller.apply(
             rows: makeRows(workspaceCount: 7),
@@ -1853,8 +1890,10 @@ struct SidebarWorkspaceTableTests {
             selectedScrollTargetWorkspaceId: nil
         )
         await flushStagedTableMutations()
+        #expect(noted.isEmpty)
         #expect((0..<6).map { container.tableView.rect(ofRow: $0).height } == originalHeights)
 
+        noted.removeAll()
         controller.apply(
             rows: makeRows(workspaceCount: 7, longDescriptionAt: 2),
             actions: makeTableActions(),
@@ -1863,6 +1902,7 @@ struct SidebarWorkspaceTableTests {
             selectedScrollTargetWorkspaceId: nil
         )
         await flushStagedTableMutations()
+        #expect(noted == IndexSet(integer: 2))
         let updatedHeights = (0..<6).map { container.tableView.rect(ofRow: $0).height }
         #expect(updatedHeights[2] > originalHeights[2])
         for row in [0, 1, 3, 4, 5] {

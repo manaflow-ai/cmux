@@ -1104,7 +1104,7 @@ extension CloudWelcomeMediaCarousel {
 /// Owns a periodic playhead observer and removes it when the playback model
 /// moves to another movie or is released.
 private final class CloudWelcomePlayheadObservation {
-    private weak var player: AVPlayer?
+    private let player: AVPlayer
     private var token: Any?
 
     init(player: AVPlayer, token: Any) {
@@ -1115,7 +1115,7 @@ private final class CloudWelcomePlayheadObservation {
     func cancel() {
         guard let token else { return }
         self.token = nil
-        player?.removeTimeObserver(token)
+        player.removeTimeObserver(token)
     }
 
     deinit { cancel() }

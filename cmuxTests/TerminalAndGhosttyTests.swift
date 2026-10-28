@@ -5320,7 +5320,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     }
 
     /// Repeated attaches preserve visible state; real changes still apply.
-    func testRepeatedSurfaceAttachPreservesGeometryBackgroundAndBadge() throws {
+    func testRepeatedSurfaceAttachPreservesGeometryBackgroundAndBadge() async throws {
         let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
 
@@ -5357,6 +5357,19 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         let initialFrame = hostedView.surfaceView.frame
         let initialBackground = hostedView.backgroundView.layer?.backgroundColor
+        let diagnostics = MobileHostDiagnostics.log
+        let unchangedMarker = UInt64.random(in: 1...UInt64.max)
+        let changedMarker = UInt64.random(in: 1...UInt64.max)
+
+        func recordDiagnosticMarker(_ traceID: UInt64) async {
+            let target = await diagnostics.processedCount() + 1
+            diagnostics.record(DiagnosticEvent(.error, traceID: traceID))
+            while await diagnostics.processedCount() < target {
+                await Task.yield()
+            }
+        }
+
+        await recordDiagnosticMarker(unchangedMarker)
         for _ in 0..<5 {
             hostedView.attachSurface(surface)
             hostedView.syncKeyStateIndicator(text: surface.currentKeyStateIndicatorText)
@@ -5375,6 +5388,20 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         hostedView.frame.size.width -= 40
         hostedView.attachSurface(surface)
         XCTAssertLessThan(hostedView.surfaceView.frame.width, initialFrame.width)
+        await recordDiagnosticMarker(changedMarker)
+
+        let events = await diagnostics.snapshot().events
+        let startIndex = try XCTUnwrap(events.firstIndex { $0.traceID == unchangedMarker })
+        let endIndex = try XCTUnwrap(events.firstIndex { $0.traceID == changedMarker })
+        let interval = events[(startIndex + 1)..<endIndex]
+        let layoutPasses = interval.filter {
+            $0.code == .terminalWorkStarted && $0.terminalWork?.phase == .layout
+        }
+        XCTAssertEqual(
+            layoutPasses.count,
+            1,
+            "unchanged attachments must skip geometry work; the width change must run one geometry pass"
+        )
     }
 
     func testPreferredScrollerStyleChangePreservesSystemScrollbarStyle() {

@@ -42,6 +42,14 @@ final class PaneMemoryGuardrail {
     private var lastScopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample] = [:]
     @ObservationIgnored
     private var lastScopedScanAt = Date.distantPast
+    @ObservationIgnored
+    private var isReadingSettings = false
+    @ObservationIgnored
+    private let settingsReadQueue = DispatchQueue(
+        label: "com.cmux.pane-memory-guardrail.settings",
+        qos: .utility
+    )
+
     func start() {
         guard timer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
@@ -78,11 +86,16 @@ final class PaneMemoryGuardrail {
     // MARK: Tick
 
     private func tick() async {
+        guard !isReadingSettings else { return }
+        isReadingSettings = true
+        defer { isReadingSettings = false }
         // Read authoritative preferences off main on each tick. A notification
         // cache misses writes by other processes, and preferences can block.
-        let settings = await Task.detached(priority: .utility) {
-            Self.readSettings(in: .standard)
-        }.value
+        let settings = await withCheckedContinuation { continuation in
+            settingsReadQueue.async {
+                continuation.resume(returning: Self.readSettings(in: .standard))
+            }
+        }
         guard settings.isEnabled else {
             clearAll()
             return
