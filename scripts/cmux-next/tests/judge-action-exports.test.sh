@@ -29,6 +29,7 @@ repo() {
   rm -rf "$tmp/r" && mkdir -p "$tmp/r" && cd "$tmp/r"
   git init -q -b feat && mkdir -p "${src%/*}" "${out%/*}"
   printf 'a\nb\nc\nd\ne\n' > "$src" && sed 's/^/action: /' "$src" > "$out" && echo readme > README.md
+  echo md > plans/cmux-next/actions.md
   git add -A && git commit -q -m old
   edit "$1" "$2" && git commit -qam base
   git checkout -q -b pr HEAD~1
@@ -92,4 +93,11 @@ CMUX_ACTION_EXPORTS_BUILD="grep -q '^E$' $src || exit 1; $CMUX_ACTION_EXPORTS_BU
   && fail "(g) passed with an unbuildable base"
 grep -q "does not build here" "$tmp/out.txt" || fail "(g) wrong reason: $(cat "$tmp/out.txt")"
 products_are_heads "(g)"
+
+# (i) A base regenerate that rewrites an export fresh at HEAD: HEAD's bytes are put back.
+repo 's/^a$/A/' no 's/^e$/E/' yes
+CMUX_ACTION_EXPORTS_REGEN="$CMUX_ACTION_EXPORTS_REGEN; grep -q '^E\$' $src || cp $src plans/cmux-next/actions.md" judge \
+  || fail "(i) failed: $(cat "$tmp/out.txt")"
+git diff --quiet -- plans/cmux-next/actions.md || fail "(i) the base's actions.md was left in the checkout"
+products_are_heads "(i)"
 echo "judge-action-exports: ok"

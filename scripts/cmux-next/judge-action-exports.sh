@@ -34,9 +34,10 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(git rev-parse --show-toplevel)"
 package="${1:-$root/Packages/macOS/CmuxNext}"
 temp="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/action-exports.XXXXXX")"
-# The exports the regenerate step writes, and every input the generator reads: the local packages
-# (the catalog and its tests) and plans/cmux-next (the inventory the catalog tests read).
-EXPORTS=(plans/cmux-next)
+# The exports the regenerate step writes (ActionSurfaceParityTests), and every input the generator
+# reads: the local packages (the catalog and its tests) and plans/cmux-next (the inventory the
+# catalog tests read).
+EXPORTS=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md)
 GENERATOR_INPUTS=(Packages plans/cmux-next scripts/cmux-next/regenerate-action-contracts.sh)
 
 check() {
@@ -72,7 +73,13 @@ git -C "$root" cat-file -e 'HEAD^1^{commit}' 2>/dev/null || {
 
 cd "$root"
 mkdir -p "$temp/head" "$temp/base"
-for file in "${stale[@]}"; do mkdir -p "$temp/head/${file%/*}" && cp "$file" "$temp/head/$file"; done
+# HEAD's fresh exports, every one of them: a base regenerate may rewrite an export that is fresh
+# here too, and the restore puts them all back.
+present=()
+for file in "${EXPORTS[@]}"; do
+  [[ -f "$file" ]] || continue
+  present+=("$file"); mkdir -p "$temp/head/${file%/*}" && cp "$file" "$temp/head/$file"
+done
 
 changed=()
 while IFS= read -r path; do [[ -n "$path" ]] && changed+=("$path"); done < <(
@@ -86,10 +93,10 @@ if ((${#changed[@]})); then
   restore() {
     ((restored)) && return 0
     restored=1
-    for path in "${changed[@]}" "${stale[@]}"; do
+    for path in "${changed[@]}" "${stale[@]}" "${EXPORTS[@]}"; do
       if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else restore_absent "$path"; fi
     done
-    for file in "${stale[@]}"; do cp "$temp/head/$file" "$file"; done
+    for file in "${present[@]}"; do cp "$temp/head/$file" "$file"; done
     if build > "$temp/head-build.log" 2>&1; then return 0; fi
     cat "$temp/head-build.log" >&2
     echo "::error::the package could not be rebuilt from HEAD's sources; removing its built products so that nothing runs against the base's binaries" >&2
@@ -119,7 +126,9 @@ for file in "${stale[@]}"; do
   committed="$temp/committed"; based="$temp/based"
   git show "HEAD:$file" > "$committed" 2>/dev/null || : > "$committed"
   git show "HEAD^1:$file" > "$based" 2>/dev/null || : > "$based"
-  # This commit's committed file plus the base's drift (base committed -> base fresh).
+  # This commit's committed file plus the base's drift (base committed -> base fresh). When the base
+  # and this change make the same catalog edit, this commit's inputs equal the base's for it, so its
+  # staleness is the base's too and the base autofix repairs it.
   if git merge-file -p "$committed" "$based" "$temp/base/$file" > "$temp/merged" 2>/dev/null \
       && cmp -s "$temp/merged" "$temp/head/$file"; then
     continue
