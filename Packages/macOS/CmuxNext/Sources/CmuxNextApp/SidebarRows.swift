@@ -72,11 +72,19 @@ final class SidebarRows {
     /// the sidebar document, whose band moves anchor on a drawn neighbour; the
     /// older owner's index ops count the stored layout; the bridge translates
     /// visible item indexes back to stored indexes before sending edits.
-    static func visibleLayout(_ document: SidebarLayoutDocument, window windowID: String, machines: MachineRegistry,
+    static func visibleLayout(_ document: SidebarLayoutDocument, window windowID: String, profile: ProfileID? = nil, machines: MachineRegistry,
                               registry: WindowRegistry, showAppStore: Bool = true) -> SidebarLayoutDocument {
         guard SidebarDocWiring.isActive else { return visibleLayout(document, showAppStore: showAppStore) }
+        return visibleLayout(document, showAppStore: showAppStore)
+            .scopedToWindow(ownedElsewhere: bandHides(window: windowID, profile: profile, machines: machines, registry: registry))
+    }
+
+    /// Whether window `windowID`'s band leaves out the workspace item a layout ref value names: another
+    /// window owns the workspace.
+    static func bandHides(window windowID: String, profile: ProfileID?, machines: MachineRegistry,
+                          registry: WindowRegistry) -> (String) -> Bool {
         let refs = WorkspaceLayoutRefs(machines: machines)
-        return visibleLayout(document, showAppStore: showAppStore).scopedToWindow { refs.ownedElsewhere($0, window: windowID, registry: registry) }
+        return { value in refs.ownedElsewhere(value, window: windowID, registry: registry) }
     }
 
     /// Shows `live` (when given) with the pending edits applied, then the
