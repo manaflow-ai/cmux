@@ -35,16 +35,16 @@ import Testing
     @Test func neverAllAtOnce() {
         let candidates = (0..<50).map { page("t\($0)", minutes: 40 + Double($0)) }
         let plan = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: candidates)
-        #expect(plan.due.count == HibernationPlanner.Pace.normal.perPass)
+        #expect(plan.due.count == HibernationPlanner.normalPace.perPass)
         #expect(plan.due == ["t49", "t48"], "the longest idle go first")
-        #expect(plan.nextCheck == HibernationPlanner.Pace.normal.interval)
+        #expect(plan.nextCheck == HibernationPlanner.normalPace.interval)
     }
 
     @Test func criticalPressureStillGoesInBatches() {
         let candidates = (0..<20).map { page("t\($0)", minutes: 2 + Double($0)) }
         let plan = HibernationPlanner.plan(.fallback, pressure: .critical, candidates: candidates)
-        #expect(plan.due.count == HibernationPlanner.Pace.critical.perPass)
-        #expect(plan.nextCheck == HibernationPlanner.Pace.critical.interval)
+        #expect(plan.due.count == HibernationPlanner.criticalPace.perPass)
+        #expect(plan.nextCheck == HibernationPlanner.criticalPace.interval)
     }
 
     /// A tab the person keeps coming back to outlives one they opened once, hidden as long.
@@ -71,7 +71,7 @@ import Testing
             page("just-left", minutes: 0.2, megabytes: 2_000), page("a", minutes: 3), page("b", minutes: 6),
         ])
         #expect(plan.due == ["b"])
-        #expect(plan.nextCheck == HibernationPlanner.Pace.warning.interval)
+        #expect(plan.nextCheck == HibernationPlanner.warningPace.interval)
     }
 
     /// Without pressure, nothing goes before its timeout, however heavy.

@@ -101,7 +101,7 @@ Code lives in `scripts/perf-lab/`. The design doc is `plans/cmux-next/perf-lab-D
 | --- | --- | --- |
 | waterfall M6 | 2 M6 minis (from the owned cmux15-24 set) | T0 shards A and B, T1 shards. Alerting class. |
 | pinpoint M6 | 2 M6 minis | bisect, culprit verification, A/A, reference runs. They have the same fingerprint as the waterfall hosts. |
-| waterfall + pinpoint (other classes) | cmux20-bench; 1 aws-m4pro on macOS 26 | T1 and T2 (xbench vs-browsers, soak). Bisect for their own class borrows them when idle. |
+| waterfall + pinpoint (other classes) | cmux20-bench; 1 aws-m4pro on macOS 26 | T2 (xbench vs-browsers, soak) on both, T1 on aws-m4pro only (cmux20-bench is the M6 host class; its T1 points would join the M6 series). Bisect for their own class borrows them when idle. |
 
 - Each T0/T1 story is bound to one fixed waterfall host by a generated shard map (`shard_map.json`, bin packing on story seconds), as Chrome does. If the owner host is down, the point is a coverage gap. The story is never moved to another host.
 - A bisect may borrow a waterfall host only when it is idle and its next T0 starts in more than 10 minutes.
@@ -221,6 +221,10 @@ Code lives in `scripts/perf-lab/`. The design doc is `plans/cmux-next/perf-lab-D
 - Checkpoint digests must be identical across 2 replays.
 - Stories: agent-swarm, dev-loop, browse-heavy, stress-recorded, launch-restore, long-day-soak (T2).
 - No user data. The recorder refuses a non-bench bundle id and refuses when `CMUX_NEXT_INPUT_JOURNAL_CHARACTERS` is set. The manifest validator rejects text payloads.
+- Player API (task 115, used by stories that measure around a replay, first `blocking_hangs.py`, task 037, and story main-turn, task 032): `play.py` exposes `replay(manifest, *, app, out, window=None)` next to its CLI.
+  - After the launch and the layout import, it calls `window(bench)` once with its `BenchApp`, and plays the input track inside the context manager that call returns. The measured window is the input track only.
+  - A failed launch raises `bench_launch.LaunchError`, as `BenchApp.launch` does.
+  - `out` gets the replay's own result-v1 files and the `host-env-full-<pid>.json` of each launch.
 
 ### 3.9 Features, remote overrides, safe mode (base::Feature plus Finch)
 
@@ -356,7 +360,7 @@ All queries live in `scripts/perf-lab/queues.py` (task 200). `python3 scripts/pe
 - **MQ4: story commands that do not write result-v1.** `python3 scripts/perf-lab/lab.py stories --lint --format=paths | xargs rg --files-without-match -e 'perf_result|BenchApp|\.record\('`
 - **MQ5: SignpostName cases with no emitter (9 today).**
   `for c in $(rg -o -r '$1' '^\s+case (\w+)$' Packages/macOS/CmuxNext/Sources/CmuxNextSignposts/SignpostName.swift); do n=$(git grep -n -E "(Signposter\.[a-zA-Z]+|signposter|poster)\.[a-zA-Z]+\(\s*\.$c\b|SignpostName\.$c\.staticName" -- Packages/macOS/CmuxNext/Sources ':!Packages/macOS/CmuxNext/Sources/CmuxNextSignposts/SignpostName.swift' | grep -v -E ':[0-9]+:\s*///' | wc -l); [ $n -eq 0 ] && echo $c; done`
-- **MQ6: perf-path tunables not yet features** (Bool and numeric). After 090: `python3 scripts/cmux-next/gen-features.py --unmigrated`. Seed keys: `browserResize.layerHosting`, `browserHost.helperPrototype`, `motion.pane.holdContent`, `sidebar.*slideHoldsContent`, `hibernation.compressedSnapshots`, `hostPressure.enabled`, `agent.pageHost`, `agent.chromium`, and the env switch `CMUX_TUI_TERMINAL_HOST_MODEL`.
+- **MQ6: perf-path tunables not yet features** (Bool and numeric). After 090: `python3 scripts/cmux-next/gen-features.py --unmigrated`. Seed keys: `browserResize.layerHosting`, `browserHost.helper`, `motion.pane.holdContent`, `sidebar.*slideHoldsContent`, `hibernation.compressedSnapshots`, `hostPressure.enabled`, `agent.pageHost`, `agent.chromium`, and the env switch `CMUX_TUI_TERMINAL_HOST_MODEL`.
 - **MQ7: env switches** (85 `CMUX_NEXT_*`, 183 `CMUX_*` in the app, 101 `CMUX_TUI_*` in the daemon). Each name that changes Release behavior on a perf path becomes a feature or is documented as Debug-only. Command: `python3 scripts/features/env_audit.py --unclassified`.
 - **MQ8: fixed targets with no lab story.** `python3 scripts/perf-lab/lab.py targets --uncovered`
 - **MQ9: perf-hot paths whose bench is not a story.** `python3 scripts/perf-lab/lab.py hot-paths --uncovered`
@@ -489,7 +493,7 @@ Size: S <= 150 changed lines, M <= 400, L is a split candidate. Tests run on the
 | 229 | browser macro benchmarks vs Chrome | M | 001, 208 | |
 | 230 | runtime QoS inversion count | M | 226, 037 | MQ8 |
 | 231 | Rust QoS static count | S | 001 | MQ14 |
-| 232 | daemon hang watcher | M | 001 | MQ8 |
+| 232 | daemon hang watcher (diagnostics: `server-stats` `include: ["hangs"]` answers `data.hangs = {over_250ms: count since launch, never reset; records: [{sequence, span, duration_ms}]}`, read by 037) | M | 001 | MQ8 |
 | 234 | builder capacity and per-commit builds | M | 009 | |
 | 235 | try admission and general-fleet try pool | S | 018 | |
 | 236 | bisect into dependency rolls | M | 016 | |

@@ -11,7 +11,7 @@ public struct ZoomPaneRequest: DaemonRequest {
             case zoomedPane = "zoomed_pane"
         }
     }
-    public static let command = "zoom-pane"
+    public static let commandName: DaemonCommandName = "zoom-pane"
     public var pane: PaneID?
     public var mode: Mode?
     public init(pane: PaneID?, mode: Mode? = nil) {

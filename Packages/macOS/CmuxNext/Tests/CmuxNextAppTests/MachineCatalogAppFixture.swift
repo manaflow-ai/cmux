@@ -62,12 +62,14 @@ final class MachineCatalogAppFixture {
         server.connect()
         try await wait("server registry handshake") { server.daemon.connection != nil && server.daemon.identity != nil }
 
-        let transport = DaemonAppsTransport(daemon: local, inventoryRoutes: { [registry] in registry.agentInventoryWatchRoutes() })
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget())
+        let transport = DaemonAppsTransport(daemon: local, mainWork: mainWork,
+                                            inventoryRoutes: { [registry] in registry.agentInventoryWatchRoutes() })
         self.transport = transport
         transport.provider.attach(AppHostCapabilities([AgentCLICapabilityHandler { [registry] in registry.agentInventoryRoutes() }]))
         transport.start()
         try await wait("native provider registration") { transport.provider.isRegistered }
-        let publisher = MachineCatalogPublisher { [registry] in registry.catalogSource() }
+        let publisher = MachineCatalogPublisher(source: { [registry] in registry.catalogSource() }, on: mainWork)
         self.publisher = publisher
         publisher.start()
         try await wait("native catalog acknowledgement") { publisher.publishedSequence != nil }
@@ -136,7 +138,7 @@ final class MachineCatalogAppFixture {
         var configuration = DaemonLauncher.Configuration(binary: binary, session: "appcat-\(name)-\(root.lastPathComponent.suffix(8))",
                                                          stateDirectory: root.appendingPathComponent("\(name)-state"), installKey: installKey)
         configuration.runtimeBase = root.appendingPathComponent("run")
-        return DaemonLauncher(configuration: configuration, environment: { environment })
+        return DaemonLauncher(work: BackgroundWork(label: "test.daemon-launcher"), configuration: configuration, environment: { environment })
     }
 
     private func startOwner(_ launcher: DaemonLauncher) async throws -> DaemonEndpoint {

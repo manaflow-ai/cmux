@@ -38,6 +38,7 @@ pub(crate) fn read_saved_tab_groups(
 
 /// Create or replace a saved tab group in the caller's transaction, keeping
 /// its bar position and room (new records go last, in `record.room`).
+#[track_caller]
 pub(crate) fn put_saved_tab_group_in(
     transaction: &Transaction<'_>,
     record: &SavedTabGroupRecord,

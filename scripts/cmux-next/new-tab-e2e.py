@@ -7,48 +7,66 @@ tab, waits for the next spare, and repeats. Budget: a spare adoption under 16 ms
 of main-thread time at p95, no lost key. Prints the cold opening and each spare's
 WebContent footprint. Run on cmux-lawrence-2 or the fleet, never the laptop.
 
-Launches the tagged app itself (no-activate, automation socket, scratch cmux.json
-and an empty Ghostty config) and kills it at the end.
+Launches the tagged app through bench_launch.BenchApp (no-activate, automation socket, the bench env, scratch
+cmux.json and an empty Ghostty config) and quits it and the tag's daemons at the end.
 
-Usage: new-tab-e2e.py --tag <tag> [--runs 20] [--budget-ms 16] [--bench | --bench-open]
+Percentiles (p50/p95/p99) come from scripts/perf-lab/perf_stats.py (linear interpolation). Every measured series
+is also written as one cmux-perf-result/v1 file into `--out` through BenchApp.record (new_tab_bench_report.py):
+`new_tab_page.light.<leg>.<metric>` with leg cmd_t (--bench-open), cmd_w and bang (--bench), metrics key_ms,
+visible, dropped and longest_frame, and `new_tab_page.light.spare_open.ms` (the default test), each with its
+`.missed_runs`. Lab story: scripts/perf-lab/stories.d/new-tab-page.json (--bench-open).
+
+Usage: new-tab-e2e.py --tag <tag> [--app APP] [--out DIR] [--runs 20] [--budget-ms 16] [--bench | --bench-open]
 
 --bench-open (hqacp-v2 proof, 2026-10-06): Cmd-T through the real key path; fails when a run
 adopts no spare, resizes the spare at adoption (the page then shows at the parked width until
 WebKit lays it out again), misses a display frame, or shows the page and its tab later than the
 first display frame after the key.
 """
-import argparse, glob, json, os, signal, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, json, os, socket, subprocess, sys, tempfile, time
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--tag", required=True)
-parser.add_argument("--runs", type=int, default=20)
-parser.add_argument("--budget-ms", type=float, default=16)
-parser.add_argument("--budget-open-ms", type=float, default=16,
-                    help="--bench-open: p95 main-thread Cmd-T time budget")
-parser.add_argument("--text", default="hello")
-parser.add_argument("--app", help="the tagged app bundle (a fleet-built artifact); default: the tag's DerivedData build")
-parser.add_argument("--bench", action="store_true",
-                    help="R81: Cmd-W and ! latency (main-thread ms, missed frames, span breakdown) instead of the open test")
-parser.add_argument("--bench-open", action="store_true",
-                    help="Cmd-T: first frame, missed frames and spare refit per run, with a pass/fail verdict")
-parser.add_argument("--budget-close-ms", type=float, default=10)
-parser.add_argument("--neighbor", choices=["terminal", "chief"], default="terminal",
-                    help="the tab the bench's new tab pages open beside (Cmd-W shows it again)")
-parser.add_argument("--trace", action="store_true",
-                    help="with --bench: record a Time Profiler trace during the runs and print the main thread's heaviest frames")
-opts = parser.parse_args()
-SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
-APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
-    f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {opts.tag}.app")))), None)
-if not APP:
-    sys.exit(f"no tagged app for {opts.tag}")
-BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
-SCRATCH = tempfile.mkdtemp(prefix=f"newtab-{opts.tag}-")
-CONFIG = os.path.join(SCRATCH, "cmux.json")
-GHOSTTY = os.path.join(SCRATCH, "ghostty")
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from bench_launch import BenchApp  # noqa: E402
+import new_tab_bench_report as results  # noqa: E402
+
+pct = results.pct
+
+def parse(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tag", required=True)
+    parser.add_argument("--runs", type=int, default=20)
+    parser.add_argument("--budget-ms", type=float, default=16)
+    parser.add_argument("--budget-open-ms", type=float, default=16,
+                        help="--bench-open: p95 main-thread Cmd-T time budget")
+    parser.add_argument("--text", default="hello")
+    parser.add_argument("--app", help="the tagged app bundle (a fleet-built artifact); default: the tag's DerivedData build")
+    parser.add_argument("--bench", action="store_true",
+                        help="R81: Cmd-W and ! latency (main-thread ms, missed frames, span breakdown) instead of the open test")
+    parser.add_argument("--bench-open", action="store_true",
+                        help="Cmd-T: first frame, missed frames and spare refit per run, with a pass/fail verdict")
+    parser.add_argument("--budget-close-ms", type=float, default=10)
+    parser.add_argument("--neighbor", choices=["terminal", "chief"], default="terminal",
+                        help="the tab the bench's new tab pages open beside (Cmd-W shows it again)")
+    parser.add_argument("--trace", action="store_true",
+                        help="with --bench: record a Time Profiler trace during the runs and print the main thread's heaviest frames")
+    parser.add_argument("--out", help="the app log and the cmux-perf-result/v1 files (default $NX_ARTIFACTS, else a scratch folder)")
+    parser.add_argument("--story", default=results.NEW_TAB_PAGE_STORY, help="result-v1 story")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
+    return parser.parse_args(argv)
+
+
+SOCKET = None  # the socket the launched app answered on (BenchApp.launch)
 WINDOW_IDS = []  # debug.surfaces window ids by index, for debug.key
-open(GHOSTTY, "w").write("")
-open(CONFIG, "w").write("{}")
+launcher = None
+if __name__ == "__main__":
+    opts = parse()
+    APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
+        f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {opts.tag}.app")))), None)
+    if not APP:
+        sys.exit(f"no tagged app for {opts.tag}")
+    OUT = opts.out or os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix=f"newtab-{opts.tag}-")
 
 
 def rpc(method, params=None):
@@ -119,28 +137,31 @@ def open_and_check(expect_spare, snapshot=None, close=1, window=0):
     return opening
 
 
-def p95(values):
-    values = sorted(values)
-    return values[max(0, int(round(0.95 * len(values))) - 1)] if values else 0
+def shown(value, digits):
+    """A percentile for the log: -1 when there was no value (as the old summary printed for an empty list)."""
+    return f"{-1 if value is None else value:.{digits}f}"
 
 
-def summarize(label, results):
-    keys = [r["key_ms"] for r in results]
-    visible = [r["visible_ms"] for r in results if r.get("visible_ms") is not None]
-    missed = [r["frames"]["missed"] for r in results]
-    worst = [r["frames"]["max_ms"] for r in results]
-    print(f"{label}: key p50={statistics.median(keys):.2f} p95={p95(keys):.2f} ms; "
-          f"visible p50={statistics.median(visible) if visible else -1:.1f} p95={p95(visible):.1f} ms; "
+def summarize(label, runs):
+    keys = [r["key_ms"] for r in runs]
+    visible = [r["visible_ms"] for r in runs if r.get("visible_ms") is not None]
+    missed = [r["frames"]["missed"] for r in runs]
+    worst = [r["frames"]["max_ms"] for r in runs]
+    print(f"{label}: key p50={shown(pct(keys, .5), 2)} p95={shown(pct(keys, .95), 2)} p99={shown(pct(keys, .99), 2)} ms; "
+          f"visible p50={shown(pct(visible, .5), 1)} p95={shown(pct(visible, .95), 1)} "
+          f"p99={shown(pct(visible, .99), 1)} ms; "
           f"missed frames total={sum(missed)} runs-with-misses={sum(1 for m in missed if m)}; "
-          f"worst frame p95={p95(worst):.1f} max={max(worst):.1f} ms", flush=True)
+          f"worst frame p95={shown(pct(worst, .95), 1)} p99={shown(pct(worst, .99), 1)} max={max(worst):.1f} ms",
+          flush=True)
     names = {}
-    for r in results:
+    for r in runs:
         for span in r["spans"]:
             names.setdefault(span["name"], []).append(span["ms"])
-    for name, values in sorted(names.items(), key=lambda kv: -statistics.median(kv[1])):
-        print(f"  span {name}: n={len(values)} p50={statistics.median(values):.2f} p95={p95(values):.2f} ms", flush=True)
+    for name, values in sorted(names.items(), key=lambda kv: -pct(kv[1], .5)):
+        print(f"  span {name}: n={len(values)} p50={shown(pct(values, .5), 2)} p95={shown(pct(values, .95), 2)} "
+              f"p99={shown(pct(values, .99), 2)} ms", flush=True)
     # Where the missed frames fall (ms after the key, interval), to match them with spans.
-    for i, r in enumerate(results):
+    for i, r in enumerate(runs):
         t, misses = 0.0, []
         period = r["frames"]["refresh_ms"] or 8.33
         for interval in r["frames"]["intervals_ms"]:
@@ -213,9 +234,9 @@ def run_bench():
         print(f"neighbor terminal: {rpc('action.run', {'id': 'newSurface'})}", flush=True)
         time.sleep(1.5)  # test harness: the terminal starts
     recorder = None
-    trace = os.path.join(os.environ.get("NX_ARTIFACTS", SCRATCH), "new-tab-bench.trace")
+    trace = os.path.join(OUT, "new-tab-bench.trace")
     if opts.trace:
-        recorder = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(app.pid),
+        recorder = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(launcher.process.pid),
                                      "--time-limit", "40s", "--output", trace], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
         time.sleep(3)  # test harness: the recorder attaches
     for _ in range(opts.runs):
@@ -234,6 +255,8 @@ def run_bench():
     bad = [r for r in closes + bangs if not isinstance(r, dict) or "error" in r]
     if bad:
         sys.exit(f"FAIL bench errors: {bad[:3]}")
+    record(results.new_tab_page_series("cmd_w", closes, story=opts.story)
+           + results.new_tab_page_series("bang", bangs, story=opts.story))
     print(f"recycle refusals on Cmd-W: {[c.get('recycle_refusal') for c in closes]}", flush=True)
     summarize("Cmd-W on the new tab page", closes)
     summarize("! on the new tab page", bangs)
@@ -259,7 +282,8 @@ def run_bench_open():
     if bad:
         sys.exit(f"FAIL bench errors: {bad[:3]}")
     summarize("Cmd-T", opens)
-    key_p95 = p95([r["key_ms"] for r in opens])
+    record(results.new_tab_page_series("cmd_t", opens, story=opts.story))  # before the verdict: a failed run lands too
+    key_p95 = pct([r["key_ms"] for r in opens], .95)
     failures = []
     for i, r in enumerate(opens):
         frames, opening = r["frames"], r.get("opening") or {}
@@ -287,71 +311,74 @@ def run_bench_open():
     print("ok: every Cmd-T adopted a spare at its pane size and showed the page and its tab at the first frame, no missed frame")
 
 
-app = None
-try:
-    if os.path.exists(SOCKET):
-        os.unlink(SOCKET)
-    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-           "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY,
-           "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1100,720"}
-    app = subprocess.Popen([BINARY], env=env, stdout=open(os.path.join(SCRATCH, "app.log"), "a"),
-                           stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-    print(f"launched pid {app.pid}", flush=True)
-    wait("the tagged app comes up", lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 90)
-    print("app is up", flush=True)
-    time.sleep(2)  # test harness: let the first workspace settle
-    if opts.bench:
-        run_bench()
-        sys.exit(0)
-    if opts.bench_open:
-        run_bench_open()
-        sys.exit(0)
-    spare_ms, footprints = [], []
-    for run in range(opts.runs):
-        spares = wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
-        footprints += [s["footprint_mb"] for s in spares if s.get("footprint_mb") is not None]
-        shot = os.path.join(os.environ.get("NX_ARTIFACTS", SCRATCH), "new-tab-spare.png") if run == 0 else None
-        spare_ms.append(open_and_check(True, shot)["ms"])
-    # Cold: two opens back to back, so the second finds the slot empty (the next spare waits
-    # for quiet input); close both tabs.
-    wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
-    rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
-    opening = (rpc("debug.new_tab", {"action": "open_and_type", "text": opts.text}) or {}).get("opening") or {}
-    if opening.get("spare") is not False:
-        sys.exit(f"FAIL the second back-to-back opening should be cold: {opening}")
-    time.sleep(5)  # test harness: let the cold page load before reading its field
-    field = rpc("debug.new_tab", {"action": "field"}) or {}
-    print(f"cold opening: {opening['ms']:.2f} ms main thread; field after 5 s: {field} "
-          f"({'keys kept' if field.get('text') == opts.text else 'KEYS LOST on the cold path'})")
-    for _ in range(2):
-        rpc("debug.key", {"key": "w", "modifiers": ["command"]})
-    p95 = sorted(spare_ms)[max(0, int(round(0.95 * len(spare_ms))) - 1)]
-    print(f"spare openings: n={len(spare_ms)} p50={statistics.median(spare_ms):.2f} ms p95={p95:.2f} ms max={max(spare_ms):.2f} ms")
-    if footprints:
-        print(f"spare WebContent footprint: median={statistics.median(footprints):.1f} MB max={max(footprints):.1f} MB")
-    # One spare per app: a second window adopts the spare parked in the first (a reparent), and a
-    # key-window change moves the parked spare (debug `retarget`, since no-activate windows never
-    # become key).
-    windows_before = len((rpc("debug.surfaces") or {}).get("windows", []))
-    print(f"new window: {rpc('action.run', {'id': 'newWindow'})}", flush=True)
-    wait("a second window", lambda: len((rpc("debug.surfaces") or {}).get("windows", [])) > windows_before, 30)
-    WINDOW_IDS[:] = [w.get("id") for w in (rpc("debug.focus") or {}).get("windows", [])]
-    time.sleep(2)  # test harness: let the new window's workspace settle
-    wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
-    cross = open_and_check(True, window=1)
-    print(f"cross-window adoption: {cross}", flush=True)
-    wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
-    moved = rpc("debug.new_tab", {"action": "retarget", "window": 1}) or {}
-    print(f"key-window change moves the spare: target={moved.get('target_window')} move={moved.get('last_retarget_ms')} ms", flush=True)
-    after = open_and_check(True, window=1)
-    print(f"after the move, same-window adoption: {after}", flush=True)
-    if p95 > opts.budget_ms:
-        sys.exit(f"FAIL p95 {p95:.2f} ms is over the {opts.budget_ms} ms budget")
-    print("ok: no lost key in any run; p95 within budget")
-finally:
-    if app and app.returncode not in (None, 0):
-        print(open(os.path.join(SCRATCH, "app.log")).read()[-3000:])
-    if app and app.poll() is None:
-        app.send_signal(signal.SIGKILL)
-        print(f"killed {app.pid}", flush=True)
+def record(series):
+    """Each series as one cmux-perf-result/v1 file in OUT (BenchApp.record); record_all prints why one was not."""
+    for key, where in results.record_all(launcher, series).items():
+        if not where.startswith("not recorded"):
+            print(f"result-v1 {key}: {where}", flush=True)
+
+
+if __name__ == "__main__":
+    # One launch path (bench_launch.py): it refuses a live app of this tag, unlinks only a socket nothing accepts on,
+    # starts the app with the bench env, a scratch cmux.json and an empty Ghostty config, and says why when it does not
+    # come up.
+    launcher = BenchApp(APP, out=OUT, config={}, window=(40, 40, 1100, 720), screen="last", build_config=opts.build_config)
+    try:
+        launcher.launch(timeout=90)  # ready once debug.windows lists a window
+        SOCKET = launcher.socket
+        print(f"launched pid {launcher.process.pid}; app is up", flush=True)
+        time.sleep(2)  # test harness: let the first workspace settle
+        if opts.bench:
+            run_bench()
+            sys.exit(0)
+        if opts.bench_open:
+            run_bench_open()
+            sys.exit(0)
+        spare_ms, footprints = [], []
+        for run in range(opts.runs):
+            spares = wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
+            footprints += [s["footprint_mb"] for s in spares if s.get("footprint_mb") is not None]
+            shot = os.path.join(OUT, "new-tab-spare.png") if run == 0 else None
+            spare_ms.append(open_and_check(True, shot)["ms"])
+        record(results.spare_open_series(spare_ms, story=opts.story))
+        # Cold: two opens back to back, so the second finds the slot empty (the next spare waits
+        # for quiet input); close both tabs.
+        wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
+        rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
+        opening = (rpc("debug.new_tab", {"action": "open_and_type", "text": opts.text}) or {}).get("opening") or {}
+        if opening.get("spare") is not False:
+            sys.exit(f"FAIL the second back-to-back opening should be cold: {opening}")
+        time.sleep(5)  # test harness: let the cold page load before reading its field
+        field = rpc("debug.new_tab", {"action": "field"}) or {}
+        print(f"cold opening: {opening['ms']:.2f} ms main thread; field after 5 s: {field} "
+              f"({'keys kept' if field.get('text') == opts.text else 'KEYS LOST on the cold path'})")
+        for _ in range(2):
+            rpc("debug.key", {"key": "w", "modifiers": ["command"]})
+        p95 = pct(spare_ms, .95)
+        print(f"spare openings: n={len(spare_ms)} p50={pct(spare_ms, .5):.2f} ms p95={p95:.2f} ms "
+              f"p99={pct(spare_ms, .99):.2f} ms max={max(spare_ms):.2f} ms")
+        if footprints:
+            print(f"spare WebContent footprint: median={pct(footprints, .5):.1f} MB max={max(footprints):.1f} MB")
+        # One spare per app: a second window adopts the spare parked in the first (a reparent), and a
+        # key-window change moves the parked spare (debug `retarget`, since no-activate windows never
+        # become key).
+        windows_before = len((rpc("debug.surfaces") or {}).get("windows", []))
+        print(f"new window: {rpc('action.run', {'id': 'newWindow'})}", flush=True)
+        wait("a second window", lambda: len((rpc("debug.surfaces") or {}).get("windows", [])) > windows_before, 30)
+        WINDOW_IDS[:] = [w.get("id") for w in (rpc("debug.focus") or {}).get("windows", [])]
+        time.sleep(2)  # test harness: let the new window's workspace settle
+        wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
+        cross = open_and_check(True, window=1)
+        print(f"cross-window adoption: {cross}", flush=True)
+        wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
+        moved = rpc("debug.new_tab", {"action": "retarget", "window": 1}) or {}
+        print(f"key-window change moves the spare: target={moved.get('target_window')} move={moved.get('last_retarget_ms')} ms", flush=True)
+        after = open_and_check(True, window=1)
+        print(f"after the move, same-window adoption: {after}", flush=True)
+        if p95 > opts.budget_ms:
+            sys.exit(f"FAIL p95 {p95:.2f} ms is over the {opts.budget_ms} ms budget")
+        print("ok: no lost key in any run; p95 within budget")
+    finally:
+        if launcher.process and launcher.process.poll() not in (None, 0):  # the app ended on its own: show why
+            print(open(launcher.log_path).read()[-3000:])
+        launcher.stop()  # debug.quit, then TERM and KILL of this run's app only, then the tag's daemons

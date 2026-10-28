@@ -1027,6 +1027,17 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
   in one 8 ms bucket → 1 wakeup; precise ones are exact; cancelling all of them cancels the
   bucket.
 - Test phase: fleet AlignedWakeupsTests; bench_idle.py.
+- As built: AlignedWakeups is the placement layer on p14-energy-013's `MainWakeUpQueue` (its one
+  CFRunLoopTimer), not its own sleeps. `AlignedWakeups.Placement` (`.precise`, `.flexible`, `.hidden`)
+  is the resolved form of 011's `TimerAlignment`: `MainDeadline` maps `.whenHidden(node)` to `.hidden`
+  while the node is hidden and not exempt, else to `.flexible`. Hidden entries sit in a second heap
+  that runs only in a fire at or after each entry's whole uptime second, so they never ride an earlier
+  visible fire (Blink fences its throttled queue the same way). Blink also runs tasks that fall due in
+  the 3 ms after the wake-up; cmux holds those for their own second, so a re-arming hidden owner runs at
+  most once per second. DemandTimer sleeps with `WakeLeeway`'s tolerance by default (`.zero` for exact).
+- Follow-up (p06-scheduler-012b, after 011 lands): `MainDeadline` places through `AlignedWakeups` on
+  the composition root's `MainWakeUpQueue`. Until then no production deadline goes through
+  AlignedWakeups, and bench_idle.py measures only the DemandTimer tolerance.
 
 **p06-scheduler-013: FrameInputCoalescer.**
 - Files: `FrameInputCoalescer.swift` (new), `CmuxApplication.swift`,
@@ -1117,6 +1128,15 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
 - Acceptance: one source of window visibility; miniaturize then deminiaturize flips the node
   twice.
 - Test phase: fleet WindowEventsTests, Tabs tests.
+- Decision (review of the first pass; pending PL-switch's OK): WindowDrawPolicy.onScreen does
+  not read the node. It applies the node's own rule (`WindowVisibilitySource.appKitState(of:)`)
+  to AppKit's live state. The draw readers (TerminalSurfaceView, SurfaceInvariantMonitor) observe
+  `didChangeOcclusionState` themselves, and Foundation does not document observer order, so a
+  cached node can be stale in their handler and no second notice corrects it. The app node adds
+  nothing for drawing: AppKit already leaves every window occluded while the app is hidden or
+  the displays sleep. The node's effective state serves the flip subscribers (tab strip,
+  sidebar, workspace nodes). Draw readers can read the node once they subscribe to it instead
+  of the notice (follow-up with PL-ghostty).
 
 **p06-scheduler-023: Workspace nodes.**
 - Files: `CmuxNextApp/WorkspaceContentController.swift`, `Windows/WindowController.swift`.
@@ -1238,6 +1258,17 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
 - Acceptance: 1000 title events across 50 workspaces → recomputeSidebar 0 times; the counters
   prove it.
 - Test phase: fleet DrainCostTests; script-storm-bench `--hidden` drain p99 <= 1 ms.
+- As built: the unread sum (`UnreadLedger`, kept by StoreIndex) and the workspace-list check (an
+  order-free digest in StoreIndex) cost the workspaces that joined, left or changed their own count.
+  `recomputeSidebar` is still O(workspaces), but runs only for a batch that changed the order, the
+  membership or a group; a replayed add, a move to its own place and the lift and restore of an
+  unchanged overlay run none. `debug.drain_cost` reports the histogram (the owner ledger's buckets)
+  and the counters; script-storm-bench `--hidden` reads its p99.
+- Follow-up (p06-scheduler-033b): patch only the sidebar sections a batch touches. Placing a moved
+  workspace inside its section needs its daemon-order position without a walk of the list (an
+  order-statistic index over `workspaces`); until then one flattening is O(workspaces).
+- Follow-up (to p09-observability-000): a `HistogramID` for the drain (in us, owner PL-daemon), so
+  each drain also records through `Metrics`; the catalog is frozen, so DrainCost keeps a local one.
 
 **p06-scheduler-034: Lock admission by class.**
 - Files: `mux/signaled_mutex.rs`, `lock_rank.rs`, `diagnostics.rs` (per-class LockStats), the
@@ -1376,6 +1407,17 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
 - Files: `CmuxNextApp/Control/ControlSnapshotPublisher.swift`, ControlSnapshotLazyPublishTests.
 - Change: publishNow runs as background behind a dirty flag. A fresh-snapshot reader promotes it
   to automation for its request. The 2 tracking loops become `ServiceObservation(.background)`.
+- Deviation (as built): the 2 loops are not `ServiceObservation`s. They are one shared one-shot
+  tracking with a dirty bit (`DirtyTracking` in the publisher file). It arms again only when a
+  publish reads, and it calls the publisher on the first change. `ServiceObservation` is wrong here
+  for 2 reasons. It reads again on every flush, and the topology read is the whole build. It also
+  flushes a person-caused change in the input-response pass, and here the reader's need sets the
+  class, not the cause. A reader that waits raises the pending publish to automation through the
+  store's `waiterAdded` hook, also when it starts to wait after the change (`action.run`,
+  `after: "sync"`). A model change does not mark the store stale. Only a work-queue frame does, so
+  a plain read gets the last published value. `system.ping`, `debug.hangs` and `debug.queue`
+  (`readingLastPublished()`) never wait for a build, and `fresh(deadline:)` is bounded by the
+  request deadline.
 - Acceptance: 50 changes in a frame → 1 publish; never inside an input-response window.
 - Test phase: fleet ControlSnapshotLazyPublishTests; sidebar-churn-typing.py.
 
@@ -1944,3 +1986,23 @@ fixer checked the claim in the code at 772cdfc45ac.
 | Original 111 (Compat observers) | Merged into FG340. |
 | Original 135 and 136 (Q10, Q11) | Merged into the FG sweeps with R-wait and R-index; 051 is kept. |
 | Original 151 | Replaced by 230 (STRESS already exists). |
+
+## 10. Deep review of the landed range (task 161)
+
+Range: the p06-scheduler commits on perf/chrome-parity at bd61faade91. The repo workflow
+`.claude/workflows/cmux-next-deep-review.js` reads and lands only feat-cmux-next, so its lenses
+(correctness, root cause, concurrency, guards, completeness, platform) were applied by hand, with
+the six lenses of task 161. Each row is a fix with its regression test, or the evidence that
+refutes it.
+
+| Lens | Disposition |
+|---|---|
+| Lost updates on show: deferred view work and `whenVisible` events skipped a capture | Fixed in 161. `deferUntilVisible`, `NotificationFanOut` (WindowEvents, AppEvents) and `AppearanceSignals` read `isVisible`, while view observations, frame clients and node queues follow `wantsFrames`. A stay-hidden capture vote (an agent's screenshot or screencast of a hidden tab, screen share) drew views whose recolor, bar reload or missed event had not run. They now follow `wantsFrames`, so the work runs in the vote's turn, as Chromium paints a captured hidden WebContents (`WebContents::IncrementCapturerCount`). Tests: `VisibilityCaptureVoteTests.aVotedHiddenNodeRunsItsDeferredViewWork`, `WindowEventsTests.aCapturedHiddenSubscriberHearsPostsWhileTheVoteHolds`, `AppearanceSignalsTests.aCapturedHiddenSubscriberIsCurrentForTheCapture`. |
+| Side effects lost while hidden | Refuted. The 29 `VisibleObservation` adopters apply only to views and view models. The one deferred engine write, `WebKitTab.progressDidChange`, feeds only the progress bar (`BrowserTabStateMachine` keeps the maximum, and load start, finish and failure arrive as their own events). |
+| Daemon admission bound | Refuted. The 14 `signaled_mutex_class` tests pass (admit gap at most 4 ms, 32 automation threads against 1 frontend on the three locks, the stress run has no deadlock). The rank boost is taken before the admission on all three locks (`SignaledMutex::lock`, the state lock, `RegistryConnection::get_at` and `pin`), so a reserved automation caller that a frontend waits behind runs raised. A caller that holds a rank never waits on the gate. |
+| QoS inversion | Refuted. `LockBoost` raises before the wait and holds until release; a `WorkQos` entered under a boost changes nothing. `cmux-tui-platform` qos (9) and `cmux-threads` qos (7) tests pass. |
+| Waiter timeouts | Refuted. Every `KeyedWaiters` wait has a `.flexible` deadline on the one wake-up queue (rule 6), resumes once and is dropped on cancel. `StoreWaiters` `.loaded` is touched inside the snapshot apply and settled by the publish that ends `withOverlayLifted`; `.connection` settles in its `didSet`. |
+| macOS 14 tracking path | Refuted in code: one `withObservationTracking` path on every macOS, no `#available` branch in the observation types, and the cancel signal drops an armed tracking the same way on 14. The Tart 14 and 15 function run belongs to task 160 (not run). |
+| Class choice (no person change behind automation) | Refuted for the landed range: `ActionOrigin.user` is person, every other origin automation; a completion outside a run is a direct gesture (`ActionCompletion`). Open, not a defect of the range: page-relay requests (Home composer, agent pane) stay automation until task 231 lands. |
+| Cause never used for authorization | Refuted. Rust: `EventCause` is read by the event bus, emit, diagnostics, request QoS and the threads that carry it; `origin_gate`, `app_trust` and the remote relay read the origin, and an envelope's origin claim and `priority` only narrow the cause. Swift: `ObservationCause` is read by scheduling code only; `PageRelayChannel` decides the user claim from the relay context and the gesture, not the cause. |
+| Outside p06 (routed to p02-threads) | On Linux debug at bd61faade91, 10 cmux-tui-core tests fail because the blocking checks panic on sqlite and condvar calls on `surface-N-reader`, `mux-control-dispatch` and `mux-line-out`: `event_cause_of_an_osc_title_is_program`, 2 `connection_qos` tests and 7 `origin_gate` `mutation_actor::legacy` tests. The panics are in `surface/directory.rs`, `cmd_server.rs`, `cmd_frontend.rs` and `bounded_outbound.rs`, not in p06 code. |

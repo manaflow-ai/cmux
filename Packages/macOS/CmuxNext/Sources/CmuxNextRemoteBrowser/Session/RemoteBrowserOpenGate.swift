@@ -1,6 +1,6 @@
 import Foundation
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// When a remote tab sends `rb.open` and `rb.screen`: `rb.open` carries the
 /// pane's real size, so it waits for both the rd session streaming and the
 /// page view's first non-empty layout, whichever comes last (an event, not a

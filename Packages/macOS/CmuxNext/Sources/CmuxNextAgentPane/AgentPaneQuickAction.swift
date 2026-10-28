@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// One chat header quick action as `agent-pane/layout.json` lists it (acpmux
@@ -46,7 +47,7 @@ nonisolated extension AgentPaneCustomization {
         if manager.fileExists(atPath: file.path) {
             // concurrency-allow: documented as blocking; the App calls it from a @concurrent writer.
             let data = try Data(contentsOf: file)
-            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            guard let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else {
                 throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: file.path])
             }
             layout = object

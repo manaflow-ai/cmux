@@ -11,6 +11,7 @@
 //! Without one, the app gives a folderless workspace its own agent-home
 //! folder; that folder is app state, never stored here.
 
+use cmux_threads::checked::fs as files;
 use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde_json::json;
 
@@ -62,7 +63,7 @@ pub(crate) fn validate(path: &str) -> Result<(), String> {
     if !path.starts_with('/') {
         return Err("path must be absolute".into());
     }
-    let canonical = std::fs::canonicalize(path)
+    let canonical = files::canonicalize(path)
         .map_err(|error| format!("path does not name an existing folder: {error}"))?;
     if canonical.as_os_str() != std::ffi::OsStr::new(path) {
         return Err(
@@ -75,7 +76,7 @@ pub(crate) fn validate(path: &str) -> Result<(), String> {
     // The store owns the home rule (cx-9aps): an agent there could read the
     // whole home folder, so neither it nor any folder above it is saved.
     // No known home folder: fail closed.
-    let home = crate::platform::home_dir().and_then(|home| std::fs::canonicalize(home).ok());
+    let home = crate::platform::home_dir().and_then(|home| files::canonicalize(home).ok());
     if canonical.parent().is_none() || home.is_none_or(|home| home.starts_with(&canonical)) {
         return Err("path must not be the home folder or a folder above it".into());
     }
@@ -84,6 +85,7 @@ pub(crate) fn validate(path: &str) -> Result<(), String> {
 
 impl Mux {
     /// `workspace.agent_folder.set`: set or clear (`None`) the folder.
+    #[track_caller]
     pub(crate) fn state_set_agent_folder(
         &self,
         mutation: &WorkspaceMutation,

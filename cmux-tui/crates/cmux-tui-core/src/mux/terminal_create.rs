@@ -3,6 +3,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(super) fn created_terminal_host_id(&self, created_path: &Value) -> anyhow::Result<String> {
         let terminal_id = TerminalPublicId::parse(
             created_path["terminal_id"]
@@ -17,6 +18,7 @@ impl Mux {
             .context("created terminal result has no durable host id")
     }
 
+    #[track_caller]
     pub(crate) fn created_terminal_run_result(
         &self,
         terminal_id: &str,
@@ -61,6 +63,7 @@ impl Mux {
         anyhow::bail!("created running terminal has no placement")
     }
 
+    #[track_caller]
     pub(crate) fn reap_created_terminal_surface(self: &Arc<Self>, surface: Option<SurfaceId>) {
         if let Some(surface) = surface.and_then(|surface| self.surface(surface)) {
             self.reap_if_dead(&surface);
@@ -78,6 +81,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn create_terminal_in_workspace_with_mutation(
         self: &Arc<Self>,
         workspace: WorkspaceId,
@@ -107,6 +111,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn create_terminal_in_workspace_with_mutation_env(
         self: &Arc<Self>,
         workspace: WorkspaceId,
@@ -189,6 +194,7 @@ impl Mux {
         })
     }
 
+    #[track_caller]
     pub(super) fn replayed_terminal_placement(
         &self,
         terminal_id: &str,
@@ -209,6 +215,7 @@ impl Mux {
         })
     }
 
+    #[track_caller]
     pub(super) fn create_terminal_in_workspace_impl(
         self: &Arc<Self>,
         workspace: WorkspaceId,
@@ -433,6 +440,7 @@ impl Mux {
     /// Bind a just-launched hosted surface using the latest durable row, not
     /// the workspace requested before process launch. Holding registry ->
     /// state through projection is the create/move serialization fence.
+    #[track_caller]
     pub(super) fn bind_running_terminal_to_canonical_workspace(
         &self,
         surface: &Arc<Surface>,
@@ -474,6 +482,8 @@ impl Mux {
 /// stray setting cannot wedge a create. Release builds have no seam.
 #[cfg(debug_assertions)]
 fn created_terminal_bind_test_gate(workspace_key: &str) {
+    use cmux_threads::checked::fs as checked_files;
+
     let (Ok(key), Some(folder)) = (
         std::env::var("CMUX_TUI_TEST_CREATE_BIND_GATE_KEY"),
         std::env::var_os("CMUX_TUI_TEST_CREATE_BIND_GATE"),
@@ -484,11 +494,13 @@ fn created_terminal_bind_test_gate(workspace_key: &str) {
         return;
     }
     let folder = std::path::PathBuf::from(folder);
-    if std::fs::write(folder.join("entered"), b"").is_err() {
+    if checked_files::write(folder.join("entered"), b"").is_err() {
         return;
     }
     let deadline = Instant::now() + Duration::from_secs(10);
-    while !folder.join("release").exists() && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
+    while !checked_files::exists(folder.join("release")).unwrap_or(false)
+        && Instant::now() < deadline
+    {
+        crate::request_path::sleep(Duration::from_millis(10));
     }
 }

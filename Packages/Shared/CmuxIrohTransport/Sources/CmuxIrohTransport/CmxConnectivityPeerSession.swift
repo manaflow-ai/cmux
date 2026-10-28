@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSafeConcurrency
 import Foundation
 
 /// Sole owner of dialing, admission, lanes, closure, and redial for one peer.
@@ -34,7 +35,7 @@ actor CmxConnectivityPeerSession {
         let id: UUID
         let ownerID: UUID
         let purpose: CmxTransportSessionPurpose
-        let continuation: CheckedContinuation<Void, Never>
+        let continuation: OnceContinuation<Void, OnceContinuationError>
     }
 
     /// A cancelled FFI dial normally settles immediately. This bound prevents
@@ -67,7 +68,7 @@ actor CmxConnectivityPeerSession {
     // repeated wedges cannot accumulate unowned tasks.
     private var retiredDialCleanupTasks: [UUID: Task<Void, Never>] = [:]
     private var retiredDialWaiters: [
-        UUID: CheckedContinuation<Void, Never>
+        UUID: OnceContinuation<Void, OnceContinuationError>
     ] = [:]
     private var retiredDialWaiterGenerations: [UUID: UInt64] = [:]
     private var retiredDialGeneration: UInt64 = 0
@@ -569,7 +570,7 @@ actor CmxConnectivityPeerSession {
         }
         retiredDialWaiters.removeAll()
         for continuation in waiters {
-            continuation.resume()
+            continuation.resume(returning: ())
         }
     }
 
@@ -598,15 +599,15 @@ actor CmxConnectivityPeerSession {
             retiredDialWaiterGenerations.removeValue(forKey: waiterID)
         }
         await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            _ = try? await withOnceContinuation { continuation in
                 if Task.isCancelled {
                     expiredRetiredDialWaiters.remove(waiterID)
                     retiredDialWaiterGenerations.removeValue(forKey: waiterID)
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 } else if retiredDialDrains.isEmpty {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 } else if expiredRetiredDialWaiters.remove(waiterID) != nil {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 } else {
                     retiredDialWaiters.updateValue(continuation, forKey: waiterID)
                 }
@@ -624,7 +625,7 @@ actor CmxConnectivityPeerSession {
         }
         expiredRetiredDialWaiters.remove(id)
         retiredDialWaiterGenerations.removeValue(forKey: id)
-        continuation.resume()
+        continuation.resume(returning: ())
     }
 
     private func expireRetiredDialWait(id: UUID) {
@@ -633,7 +634,7 @@ actor CmxConnectivityPeerSession {
         }
         guard generation == retiredDialGeneration else {
             if let continuation = retiredDialWaiters.removeValue(forKey: id) {
-                continuation.resume()
+                continuation.resume(returning: ())
             } else {
                 expiredRetiredDialWaiters.insert(id)
             }
@@ -661,7 +662,7 @@ actor CmxConnectivityPeerSession {
             expiredRetiredDialWaiters.insert(id)
         } else {
             for continuation in waiters {
-                continuation.resume()
+                continuation.resume(returning: ())
             }
         }
     }
@@ -680,14 +681,14 @@ actor CmxConnectivityPeerSession {
 
         let waiterID = UUID()
         await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            _ = try? await withOnceContinuation { continuation in
                 guard !Task.isCancelled else {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                     return
                 }
                 if let controlOwner {
                     if controlOwner.id == ownerID {
-                        continuation.resume()
+                        continuation.resume(returning: ())
                     } else {
                         controlWaiters.append(ControlWaiter(
                             id: waiterID,
@@ -699,7 +700,7 @@ actor CmxConnectivityPeerSession {
                 } else {
                     controlOwner = ControlOwner(id: ownerID, purpose: purpose)
                     publishSnapshot()
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 }
             }
         } onCancel: {
@@ -724,7 +725,7 @@ actor CmxConnectivityPeerSession {
         guard let index = controlWaiters.firstIndex(where: { $0.id == id }) else {
             return
         }
-        controlWaiters.remove(at: index).continuation.resume()
+        controlWaiters.remove(at: index).continuation.resume(returning: ())
     }
 
     private func releaseControlOwner(ownerID: UUID) {
@@ -737,7 +738,7 @@ actor CmxConnectivityPeerSession {
         let next = controlWaiters.removeFirst()
         controlOwner = ControlOwner(id: next.ownerID, purpose: next.purpose)
         publishSnapshot()
-        next.continuation.resume()
+        next.continuation.resume(returning: ())
     }
 
     private func cancelControlOwnership() {
@@ -745,7 +746,7 @@ actor CmxConnectivityPeerSession {
         let waiters = controlWaiters
         controlWaiters.removeAll()
         for waiter in waiters {
-            waiter.continuation.resume()
+            waiter.continuation.resume(returning: ())
         }
     }
 

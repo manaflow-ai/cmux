@@ -10,10 +10,10 @@ import CmuxNextDaemon
 /// connection: its menu leaves the rows out, and the palette and CLI are refused.
 enum SSHTargetHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let ssh = context.services.ssh
-        let available: @MainActor () -> String? = { ssh.unavailableReason }
-        CloudHandlers.bind("reconnectWorkspace", registry, reason: available) { ssh.reconnect(try workspaceMachine($0, context)) }
-        CloudHandlers.bind("disconnectWorkspace", registry, reason: available) { ssh.disconnect(try workspaceMachine($0, context)) }
+        // SSH is made on first use (a run, a menu's check), never at binding (p08-startup-021).
+        let available: @MainActor () -> String? = { context.services.ssh.unavailableReason }
+        CloudHandlers.bind("reconnectWorkspace", registry, reason: available) { context.services.ssh.reconnect(try workspaceMachine($0, context)) }
+        CloudHandlers.bind("disconnectWorkspace", registry, reason: available) { context.services.ssh.disconnect(try workspaceMachine($0, context)) }
         CloudHandlers.bind("copyWorkspaceSSHError", registry, reason: available) { invocation in
             let session = try workspaceMachine(invocation, context)
             guard let error = RemoteStrings.sshError(session) else { throw ActionFailure(message: RemoteStrings.noSSHError(session.host.label)) }
@@ -22,7 +22,7 @@ enum SSHTargetHandlers {
         CloudHandlers.bind("disconnectRemoteTab", registry, reason: available) { invocation in
             guard let (tab, _) = context.daemonTab(invocation) else { return }
             guard let session = tabMachine(tab, context.services) else { throw ActionFailure(message: RemoteStrings.tabNotOnSSHMachine) }
-            ssh.disconnect(session)
+            context.services.ssh.disconnect(session)
         }
         for id: ActionID in ["reconnectWorkspace", "disconnectWorkspace", "copyWorkspaceSSHError"] {
             ActionTargetVisibility.hide(id, in: registry) { invocation in
@@ -32,6 +32,7 @@ enum SSHTargetHandlers {
         }
         ActionTargetVisibility.hide("disconnectRemoteTab", in: registry) { invocation in
             guard let target = invocation.target, target.kind == .tab else { return false }
+            // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per menu check, no observation
             return context.services.locateTab(target.id).flatMap { tabMachine($0.0, context.services) } == nil
         }
     }

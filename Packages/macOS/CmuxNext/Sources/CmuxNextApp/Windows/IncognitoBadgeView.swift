@@ -54,6 +54,7 @@ final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
     /// Whether the label draws (tests).
     var showsLabel: Bool { label.alphaValue > 0 }
 
+    // visibility-walk-allow: three color stores (two tints, one layer color), no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

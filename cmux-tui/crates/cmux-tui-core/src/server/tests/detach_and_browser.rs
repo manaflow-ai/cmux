@@ -540,7 +540,9 @@ fn websocket_direct_writer_emits_a_tungstenite_compatible_text_frame() {
     let (server, _) = listener.accept().unwrap();
     let mut writer = SynchronizedTcpStream::new(server);
     let write = std::thread::spawn(move || {
-        writer.write_websocket_text(&"x".repeat(65_536)).unwrap();
+        writer
+            .write_websocket_text(&"x".repeat(65_536), &crate::diagnostics::IpcStats::default())
+            .unwrap();
     });
     let mut websocket =
         WebSocket::from_raw_socket(client, tungstenite::protocol::Role::Client, None);
@@ -915,27 +917,19 @@ fn creation_attachment_identity_rejects_wrong_generation_and_terminal() {
             "attachment_terminal_mismatch",
         ),
     ] {
-        let command = Command::AttachSurface {
-            surface: Some(surface.id),
-            mode: None,
-            cols: None,
-            rows: None,
-            expected_generation: Some(generation),
-            expected_terminal_id: Some(terminal),
-            snapshot: Default::default(),
-        };
+        let command = Command::AttachSurface(attach_params(json!({
+            "surface": surface.id,
+            "expected_generation": generation,
+            "expected_terminal_id": terminal,
+        })));
         let error = handle_command(&mux, client, command, &writer).unwrap_err();
         assert!(error.to_string().contains(expected), "{error:#}");
     }
-    let command = Command::AttachSurface {
-        surface: None,
-        mode: None,
-        cols: None,
-        rows: None,
-        expected_generation: Some(mux.registry_identity().1),
-        expected_terminal_id: Some(terminal),
-        snapshot: Default::default(),
-    };
+    let command = Command::AttachSurface(attach_params(json!({
+        "surface": null,
+        "expected_generation": mux.registry_identity().1,
+        "expected_terminal_id": terminal,
+    })));
     handle_command(&mux, client, command, &writer).unwrap();
     disconnect_client(&mux, client, false);
     mux.shutdown();
@@ -966,15 +960,11 @@ fn guarded_browser_attach_rejects_a_late_capability_upgrade() {
     let attach = handle_command(
         &mux,
         client,
-        Command::AttachSurface {
-            surface: Some(surface.id),
-            mode: None,
-            cols: None,
-            rows: None,
-            expected_generation: None,
-            expected_terminal_id: None,
-            snapshot: Default::default(),
-        },
+        Command::AttachSurface(attach_params(json!({
+            "surface": surface.id,
+            "expected_generation": null,
+            "expected_terminal_id": null,
+        }))),
         &writer,
     );
     mux.shutdown();
@@ -984,4 +974,9 @@ fn guarded_browser_attach_rejects_a_late_capability_upgrade() {
         error.to_string().contains(GUARDED_BROWSER_POINTER_CAPABILITY),
         "late capability upgrade must return the guarded-pointer admission error: {error:#}"
     );
+}
+
+/// `attach-surface` params decoded from their wire JSON, as the daemon reads them.
+fn attach_params(value: Value) -> terminal_io_wire::AttachSurfaceParams {
+    serde_json::from_value(value).unwrap()
 }

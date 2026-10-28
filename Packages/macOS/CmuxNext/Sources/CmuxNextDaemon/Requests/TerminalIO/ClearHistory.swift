@@ -9,7 +9,7 @@ import Foundation
 /// ``fallbackUnrepresentable`` when the program's keyboard mode has no encoding for the key.
 public struct ClearHistoryRequest: DaemonRequest {
     public struct Response: Decodable, Sendable {}
-    public static let command = "clear-history"
+    public static let commandName: DaemonCommandName = "clear-history"
     public var surface: SurfaceID
     public var fallbackKey: DaemonKeyInput?
 
@@ -20,6 +20,10 @@ public struct ClearHistoryRequest: DaemonRequest {
     public init(surface: SurfaceID, fallbackKey: DaemonKeyInput? = nil) {
         self.surface = surface
         self.fallbackKey = fallbackKey
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case surface, fallbackKey = "fallback_key"
     }
 }
 
@@ -33,6 +37,10 @@ public struct DaemonKeyInput: Encodable, Sendable, Equatable {
         public var `super` = false
         public var capsLock = false
         public var numLock = false
+
+        enum CodingKeys: String, CodingKey {
+            case shift, control, alt, `super`, capsLock = "caps_lock", numLock = "num_lock"
+        }
     }
 
     /// Ghostty's kebab-case key name (`k`, `digit-1`, `arrow-left`).
@@ -47,5 +55,10 @@ public struct DaemonKeyInput: Encodable, Sendable, Equatable {
     /// Command plus a lowercase ASCII letter (Cmd-K).
     public static func command(_ letter: Character) -> DaemonKeyInput {
         DaemonKeyInput(key: String(letter), mods: Modifiers(super: true), unshiftedCodepoint: String(letter))
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case key, mods, consumedMods = "consumed_mods", utf8, unshiftedCodepoint = "unshifted_codepoint", action
+        case macosOptionAsAlt = "macos_option_as_alt"
     }
 }

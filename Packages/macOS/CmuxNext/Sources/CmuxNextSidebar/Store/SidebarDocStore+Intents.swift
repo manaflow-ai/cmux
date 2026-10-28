@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 extension SidebarDocStore {
@@ -24,7 +25,7 @@ extension SidebarDocStore {
         }
         func move(_ moving: [String], to target: SidebarDocTarget, title: String) {
             // main-actor-ok: one SidebarDocTarget (section, parent, before, after, index), fixed size.
-            guard !adopt.isEmpty || !undoable, let to = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) else {
+            guard !adopt.isEmpty || !undoable, let to = try? JSONSerialization.blockingJSONObject(with: JSONEncoder().encode(target)) else {
                 return self.move(moving, to: target, title: title)
             }
             send(ops: adopt + [["op": "move", "items": moving, "to": to]], title: title, undoable: undoable)

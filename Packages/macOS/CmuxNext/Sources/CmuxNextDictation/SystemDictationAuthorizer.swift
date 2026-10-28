@@ -1,6 +1,9 @@
 import AVFoundation
 import Foundation
 import Speech
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Production ``DictationAuthorizing`` backed by AVFoundation and Speech.
 ///
@@ -35,10 +38,11 @@ public struct SystemDictationAuthorizer: DictationAuthorizing {
 
     public func requestSpeechRecognitionAuthorization() async -> Bool {
         // The callback API, wrapped at this one seam.
-        await withCheckedContinuation { continuation in
+        // A callback dropped without an answer is no authorization.
+        (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             SFSpeechRecognizer.requestAuthorization { status in
                 continuation.resume(returning: status == .authorized)
             }
-        }
+        }) ?? false
     }
 }

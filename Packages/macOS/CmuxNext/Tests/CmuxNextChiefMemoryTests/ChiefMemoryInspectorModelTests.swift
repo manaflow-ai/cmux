@@ -63,6 +63,19 @@ private final class Person {
         #expect(model.isStale("4+4"))
     }
 
+    /// The page's appear read (`readFirst`) runs once: a gated page tab appears again on each show
+    /// (p06-scheduler-214), and a show must not read the memory again.
+    @Test func theFirstReadRunsOnceAcrossShows() async {
+        let source = FakeMemory()
+        let model = ChiefMemoryInspectorModel(source: source, confirmDelete: { _, _ in true })
+        await model.readFirst()
+        await model.readFirst()
+        await model.readFirst()
+        let statusReads = await source.calls.filter { $0.path == "/api/status" }.count
+        #expect(statusReads == 1, "one read for three appears: \(statusReads)")
+        #expect(model.status?.messages == 64)
+    }
+
     @Test func openingALineZoomsAndBackReturns() async {
         let source = FakeMemory()
         let model = ChiefMemoryInspectorModel(source: source, confirmDelete: { _, _ in true })
@@ -78,6 +91,22 @@ private final class Person {
         #expect(model.detail == nil)
         let names = await source.calls.filter { $0.path == "/api/node" }.map { $0.query["name"] }
         #expect(names == ["0+8", "4+1", "0+8"])
+    }
+
+    /// A tab whose view was discarded (`memoryDiscardInternalPages`, p07-memory-027) opens on the
+    /// node and the search it showed: its first reload reads the node and searches again, so the
+    /// field and the list agree. A query whose hits never showed is not searched.
+    @Test(arguments: [true, false])
+    func aRestoredModelReadsItsNodeAndSearchesAgainOnItsFirstReload(searched: Bool) async {
+        let source = FakeMemory()
+        let model = ChiefMemoryInspectorModel(source: source, confirmDelete: { _, _ in true })
+        model.restore(trail: ["0+8", "4+1"], query: "secret", searched: searched)
+        await model.reload()
+        #expect(model.detail?.message?.text == "hello there", "the last node of the trail shows")
+        #expect(model.hits.map(\.name) == (searched ? ["5+1"] : []))
+        await model.reload()
+        let searches = await source.calls.filter { $0.path == "/api/search" }.map { $0.query["q"] }
+        #expect(searches == (searched ? ["secret"] : []), "only the first reload after a restore searches")
     }
 
     @Test func anEditSendsTheTargetAndTextThenReadsAgain() async {

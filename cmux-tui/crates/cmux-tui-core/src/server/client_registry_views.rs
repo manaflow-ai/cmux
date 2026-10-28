@@ -9,6 +9,7 @@ use super::ClientRegistry;
 use super::ClientSizeUpdate;
 use super::DaemonHandoffReservation;
 use super::DetachedSurface;
+use super::MessageWriter;
 use super::OutboundStream;
 use super::RETIRED_VIEW_LEASE_CAPACITY;
 use super::VIEW_ATTACHMENT_LEASE_CAPABILITY;
@@ -210,6 +211,31 @@ impl ClientRegistry {
             .map(|outbound| (stream, outbound)))
     }
 
+    /// The view lease of `client`'s attach stream `stream` on `surface`
+    /// (`Some(None)` for a view with no lease); `None` when that stream does
+    /// not view `surface`.
+    pub(super) fn stream_view(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        stream: u64,
+    ) -> Option<Option<String>> {
+        let state = self.state.lock().recover_poison();
+        let attached = state.clients.get(&client)?.attached.get(&surface)?;
+        (attached.streams.contains_key(&stream) || attached.pending_streams.contains_key(&stream))
+            .then(|| attached.lease_by_stream.get(&stream).cloned())
+    }
+
+    /// The surface `client`'s attach stream `stream` views.
+    pub(super) fn stream_surface(&self, client: u64, stream: u64) -> Option<SurfaceId> {
+        let state = self.state.lock().recover_poison();
+        state.clients.get(&client)?.attached.iter().find_map(|(surface, attached)| {
+            (attached.streams.contains_key(&stream)
+                || attached.pending_streams.contains_key(&stream))
+            .then_some(*surface)
+        })
+    }
+
     pub(super) fn prepare_view_resize(
         &self,
         client: u64,
@@ -374,6 +400,26 @@ impl ClientRegistry {
                 record.retired_surfaces.remove(&expired);
             }
         }
+    }
+
+    /// The writer of `client` and every attach stream it holds on `surface`,
+    /// committed or pending: the views (leases) of one client that a kick of
+    /// its participant on this terminal ends.
+    pub(super) fn surface_view_streams(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+    ) -> Option<(MessageWriter, Vec<(u64, OutboundStream)>)> {
+        let state = self.state.lock().recover_poison();
+        let record = state.clients.get(&client)?;
+        let attached = record.attached.get(&surface)?;
+        let streams = attached
+            .streams
+            .iter()
+            .chain(&attached.pending_streams)
+            .map(|(stream, outbound)| (*stream, outbound.clone()))
+            .collect();
+        Some((record.writer.clone(), streams))
     }
 
     pub(super) fn detach_surface(
@@ -557,7 +603,7 @@ impl ClientRegistry {
         self.agent_sessions.disconnect(client);
         self.apps.disconnect(client);
         self.scripts.disconnect(client);
-        // Safety: a removal never grants access; on a poisoned registry the
+        // Poison recovery: a removal never grants access; on a poisoned registry the
         // record still goes, so a fail-closed close never panics here.
         let mut state = self.state.lock().recover_poison();
         let record = state.clients.remove(&client)?;
@@ -626,12 +672,14 @@ impl ClientRegistry {
 
     /// Whether any client holds an attach stream on one of `surfaces`, and
     /// the newest attach epoch among them (0 when none was ever attached).
-    pub(crate) fn set_detach_waker(&self, waker: impl Fn() + Send + Sync + 'static) {
-        *self.detach_waker.lock().recover_poison() = Some(Box::new(waker));
+    /// Adds a waker every detach calls (the idle-close reaper, the
+    /// cold-scrollback worker).
+    pub(crate) fn add_detach_waker(&self, waker: impl Fn() + Send + Sync + 'static) {
+        self.detach_wakers.lock().recover_poison().push(Box::new(waker));
     }
 
     pub(super) fn notify_detach(&self) {
-        if let Some(waker) = self.detach_waker.lock().recover_poison().as_ref() {
+        for waker in self.detach_wakers.lock().recover_poison().iter() {
             waker();
         }
     }

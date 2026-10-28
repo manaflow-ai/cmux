@@ -16,6 +16,13 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("editor-csp.test.ts", async () => {
   setDefaultTimeout(120_000);
   const bundle = resolve(import.meta.dir, "../../Resources/markdown-viewer/webviews-app");
+  /** The shared React the bundle imports from cmux-page://cmux.shared/: the app serves it from the
+   *  pages' _shared (PageSharedChunks), this server from its own /__shared/. */
+  const shared = resolve(
+    import.meta.dir,
+    "../../Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/_shared",
+  );
+  const SHARED_ORIGIN = "cmux-page://cmux.shared/";
   /** PageCSP.strict.header, byte for byte. */
   const PAGE_CSP =
     "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:";
@@ -65,10 +72,15 @@ await requireBrowserLane("editor-csp.test.ts", async () => {
           /^\/+/,
           "",
         );
-        const file = join(bundle, relative);
-        if (!file.startsWith(`${bundle}/`) || !existsSync(file) || !statSync(file).isFile())
+        const [root, rest] = relative.startsWith("__shared/") ? [shared, relative.slice(9)] : [bundle, relative];
+        const file = join(root, rest);
+        if (!file.startsWith(`${root}/`) || !existsSync(file) || !statSync(file).isFile())
           return new Response("not found", { status: 404 });
-        return new Response(readFileSync(file), {
+        const bytes = readFileSync(file);
+        const body = /\.(m?js|html)$/.test(file)
+          ? bytes.toString("utf8").replaceAll(SHARED_ORIGIN, "/__shared/")
+          : bytes;
+        return new Response(body, {
           headers: {
             "Content-Type": TYPES[extname(file)] ?? "application/octet-stream",
             "Content-Security-Policy": policy.value,

@@ -12,12 +12,10 @@ extension AgentPaneView {
     /// Stop Agent Turn: the palette, keyboard and composer button use the same guarded stop path.
     public func stopTurn() {
         guard let session = model.sessionId else { return }
-        let json = JSONValue.string(session).compactText
-        deliver([AgentPageEvent(kind: "stopTurn", value: .string(session))],
-                scripts: ["window.cmuxAcpmuxBridge?.command?.(\"stopTurn\",\(json));"])
+        deliver([AgentPageEvent(kind: "stopTurn", value: .string(session))])
     }
     private func send(_ command: String) {
-        deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
+        deliver([.command(command)])
     }
     /// Switch Model… (Ctrl-Cmd-M) and Search Files… (Cmd-P, cx-ncc.69): the page takes the keyboard,
     /// then opens its model picker, or the composer's file search (a pick mentions the file).
@@ -43,7 +41,7 @@ extension AgentPaneView {
                        "permissionRetry", "permissionRevoke", "permissionRefresh"]
         guard allowed.contains(command) else { return }
         // The person's shortcut is the gesture its answer uses; a posted key or script grants nothing.
-        AgentPanePersonInput.record(model.transport.gestures, if: byPerson, answer: true)
+        AgentPanePersonInput.record(model.transport.gestures, input: gestureRouter.input, if: byPerson, answer: true)
         send(command)
     }
 }

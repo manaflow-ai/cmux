@@ -8,14 +8,18 @@
 
 use super::*;
 use crate::Actor;
+use crate::panic_free::{JsonFields, RecoverPoison};
 use crate::resource::BrowserPublicId;
 use crate::workspace_registry::{
     FrontendBrowserRecord, PresentationSnapshot, WorkspaceGroupRecord, WorkspacePresentationUpdate,
     new_workspace_group_id, validate_workspace_group_id,
 };
+use cmux_threads::checked::fs as checked_files;
 use std::ops::Deref;
 
 mod frontend_browser_history;
+mod git_heads;
+pub(crate) use git_heads::GitHeads;
 
 /// Per-snapshot data the tree serializer adds to the live [`State`]:
 /// unread notification markers and the shared presentation metadata.
@@ -80,19 +84,14 @@ pub(crate) struct GitHead {
     detached: bool,
 }
 
-/// A cached HEAD lookup is reused for this long, which bounds both the
-/// filesystem work of a tree snapshot and the staleness of a branch switch
-/// made without changing directory.
-const GIT_HEAD_TTL: Duration = Duration::from_secs(2);
-const GIT_HEAD_CACHE_LIMIT: usize = 4096;
 const GIT_METADATA_MAX_BYTES: u64 = 4096;
 
 fn read_small_file(path: &Path) -> Option<String> {
-    let metadata = std::fs::metadata(path).ok()?;
+    let metadata = checked_files::metadata(path).ok()?;
     if !metadata.is_file() || metadata.len() > GIT_METADATA_MAX_BYTES {
         return None;
     }
-    std::fs::read_to_string(path).ok()
+    checked_files::read_to_string(path).ok()
 }
 
 fn read_git_head_file(git_dir: &Path) -> Option<GitHead> {
@@ -103,8 +102,8 @@ fn read_git_head_file(git_dir: &Path) -> Option<GitHead> {
         let name = reference.strip_prefix("refs/heads/").unwrap_or(reference);
         return (!name.is_empty()).then(|| GitHead { name: name.to_string(), detached: false });
     }
-    (head.len() >= 7 && head.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .then(|| GitHead { name: head[..7].to_string(), detached: true })
+    let short = head.get(..7).filter(|_| head.bytes().all(|byte| byte.is_ascii_hexdigit()))?;
+    Some(GitHead { name: short.to_string(), detached: true })
 }
 
 /// Find the repository containing `directory` and read its HEAD without
@@ -113,7 +112,7 @@ pub(crate) fn read_git_head(directory: &Path) -> Option<GitHead> {
     let mut current = Some(directory);
     while let Some(candidate) = current {
         let dot_git = candidate.join(".git");
-        match std::fs::metadata(&dot_git) {
+        match checked_files::metadata(&dot_git) {
             Ok(metadata) if metadata.is_dir() => return read_git_head_file(&dot_git),
             Ok(metadata) if metadata.is_file() => {
                 let pointer = read_small_file(&dot_git)?;
@@ -205,12 +204,14 @@ pub(crate) fn tab_delta(
 ) -> Option<TreeDelta> {
     let pane = state.pane_of(surface)?;
     let (workspace, screen) = state.screen_of(pane)?;
+    let workspace = state.workspaces.get(workspace)?;
+    let screen = workspace.screens.get(screen)?.id;
     let entity = crate::server::tree_entity_json(state, decorations, kind, surface)?;
     let index = state.panes.get(&pane)?.tabs.iter().position(|candidate| *candidate == surface);
     Some(TreeDelta {
         kind,
-        workspace: state.workspaces[workspace].id,
-        screen: Some(state.workspaces[workspace].screens[screen].id),
+        workspace: workspace.id,
+        screen: Some(screen),
         pane: Some(pane),
         surface: Some(surface),
         index,
@@ -231,23 +232,26 @@ pub struct WorkspaceGroupChange {
 
 impl Mux {
     pub fn presentation_snapshot(&self) -> Arc<PresentationSnapshot> {
-        self.presentation.lock().unwrap().clone()
+        self.presentation.lock().recover_poison().clone()
     }
 
     /// Reload the presentation snapshot from the registry. The caller holds
     /// the registry lock, so no other commit can interleave.
+    #[track_caller]
     pub(crate) fn reload_presentation(&self, registry: &WorkspaceRegistry) -> anyhow::Result<()> {
         let snapshot = registry.presentation_snapshot()?;
-        *self.presentation.lock().unwrap() = Arc::new(snapshot);
+        *self.presentation.lock().recover_poison() = Arc::new(snapshot);
         Ok(())
     }
 
     /// Notifications, presentation, and tab directories for serializing the
-    /// whole tree. Git HEAD lookups run after the state lock is released.
+    /// whole tree. Git HEADs come from memory; a stale one is read off this
+    /// thread and its tabs get a `tab-changed` delta (presentation/git_heads.rs).
+    #[track_caller]
     pub fn tree_decorations(&self) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
         let (notifications, directories) = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             (self.surface_notifications_in_state(&state), surface_directories_in_state(&state))
         };
         let directories = self.resolve_tab_directories(directories, true);
@@ -266,6 +270,7 @@ impl Mux {
     /// The same as [`Self::tree_decorations`] for a caller that already
     /// holds the state lock. It never touches the filesystem, so git HEADs
     /// come from the cache only.
+    #[track_caller]
     pub(crate) fn tree_decorations_in_state(&self, state: &State) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
         let notifications = self.surface_notifications_in_state(state);
@@ -311,29 +316,9 @@ impl Mux {
         result
     }
 
-    fn git_head(&self, cwd: &str, now: Instant, refresh: bool) -> Option<GitHead> {
-        {
-            let cache = self.git_heads.lock().unwrap();
-            if let Some((checked, head)) = cache.get(cwd)
-                && (!refresh || now.saturating_duration_since(*checked) < GIT_HEAD_TTL)
-            {
-                return head.clone();
-            }
-        }
-        if !refresh {
-            return None;
-        }
-        let head = read_git_head(Path::new(cwd));
-        let mut cache = self.git_heads.lock().unwrap();
-        if cache.len() >= GIT_HEAD_CACHE_LIMIT {
-            cache.clear();
-        }
-        cache.insert(cwd.to_string(), (now, head.clone()));
-        head
-    }
-
     /// Tell subscribers that one tab's metadata (pin, directory, git HEAD,
     /// unread marker) changed, with the refreshed tab entity.
+    #[track_caller]
     pub(crate) fn emit_tab_changed(&self, surface: SurfaceId) {
         self.emit_tab_changed_for_transaction(surface, None);
     }
@@ -343,6 +328,7 @@ impl Mux {
     /// carries no transaction), so the client settles its provisional tab. A
     /// tab added to an existing pane carries the transaction on its own
     /// `tab-added` instead and never gets this second one.
+    #[track_caller]
     pub(crate) fn emit_tab_added_for_transaction(&self, surface: SurfaceId, transaction: Arc<str>) {
         let decorations = self.tree_decorations();
         let delta = {
@@ -357,6 +343,7 @@ impl Mux {
 
     /// Refresh the git HEAD for a terminal whose directory changed and emit
     /// `tab-changed` for each of its placements.
+    #[track_caller]
     pub(crate) fn emit_terminal_tabs_changed(&self, terminal: &TerminalPublicId) {
         let placements = self.with_state(|state| {
             state.placements_of_content(&ContentPublicId::Terminal(terminal.clone())).to_vec()
@@ -366,7 +353,7 @@ impl Mux {
         }
         let decorations = self.tree_decorations();
         let deltas = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             placements
                 .iter()
                 .filter_map(|surface| tab_changed_delta(&state, &decorations, *surface))
@@ -382,6 +369,7 @@ impl Mux {
     /// it to the start of the unpinned run. The flag is durable and keyed by
     /// the public tab id, so it survives restarts and cross-pane moves. The
     /// raw command and v2 `tab.pin` share one commit path.
+    #[track_caller]
     pub fn set_tab_pinned_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -415,6 +403,7 @@ impl Mux {
 
     /// Clamp a `move-tab` insertion index so pinned tabs stay ahead of
     /// unpinned ones in the destination pane.
+    #[track_caller]
     pub fn pinned_tab_move_index(&self, surface: SurfaceId, pane: PaneId, index: usize) -> usize {
         let presentation = self.presentation_snapshot();
         self.with_state(|state| {
@@ -443,12 +432,14 @@ impl Mux {
         })
     }
 
+    #[track_caller]
     pub fn workspace_groups(&self) -> Vec<WorkspaceGroupRecord> {
         self.presentation_snapshot().groups.clone()
     }
 
     /// Create a sidebar group. A caller-chosen `id` makes retries
     /// idempotent: the same id and name return the stored group unchanged.
+    #[track_caller]
     pub fn create_workspace_group(
         &self,
         id: Option<String>,
@@ -458,7 +449,7 @@ impl Mux {
         index: Option<usize>,
     ) -> anyhow::Result<WorkspaceGroupChange> {
         let id = id.unwrap_or_else(new_workspace_group_id);
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let (group, changed) =
             registry.create_workspace_group(&id, &name, color.as_deref(), collapsed, index)?;
         self.reload_presentation(&registry)?;
@@ -467,6 +458,7 @@ impl Mux {
     }
 
     /// Rename, recolor (`Some(None)` clears), or collapse a group.
+    #[track_caller]
     pub fn update_workspace_group(
         &self,
         id: &str,
@@ -474,7 +466,7 @@ impl Mux {
         color: Option<Option<String>>,
         collapsed: Option<bool>,
     ) -> anyhow::Result<WorkspaceGroupChange> {
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let before = self.presentation_snapshot().group(id).cloned();
         let group = registry.update_workspace_group(
             id,
@@ -490,8 +482,9 @@ impl Mux {
 
     /// Delete a group. Its workspaces keep their registry order and become
     /// ungrouped. Returns the keys of the ungrouped workspaces.
+    #[track_caller]
     pub fn delete_workspace_group(&self, id: &str) -> anyhow::Result<Vec<String>> {
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let ungrouped = registry.delete_workspace_group(id)?;
         self.reload_presentation(&registry)?;
         drop(registry);
@@ -502,12 +495,13 @@ impl Mux {
 
     /// Move a group to an insertion index among groups (the same
     /// insertion-point rule as `move-workspace`).
+    #[track_caller]
     pub fn move_workspace_group(
         &self,
         id: &str,
         index: usize,
     ) -> anyhow::Result<WorkspaceGroupChange> {
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let before = self.presentation_snapshot().group_index(id);
         registry.move_workspace_group(id, index)?;
         self.reload_presentation(&registry)?;
@@ -521,6 +515,7 @@ impl Mux {
         self.finish_group_change(group, changed)
     }
 
+    #[track_caller]
     fn finish_group_change(
         &self,
         group: WorkspaceGroupRecord,
@@ -549,6 +544,7 @@ impl Mux {
     /// commits one workspace-registry revision, so `origin`/`mutation_id`
     /// retries and `expected_revision` guards work as for `move-workspace`.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn move_workspace_to_group(
         &self,
         workspace: Option<WorkspaceId>,
@@ -569,16 +565,19 @@ impl Mux {
             "group": group,
             "index": index,
         });
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
         }
         let (delta, result) = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state = self.lock_state_pinned(&registry).recover_poison();
             Self::require_workspace_revision(&state, expected_revision)?;
             let old_idx = resolve_workspace_index(&state, workspace, requested_key)?;
-            let workspace_id = state.workspaces[old_idx].id;
-            let key = state.workspaces[old_idx].key.clone();
+            let (workspace_id, key) = state
+                .workspaces
+                .get(old_idx)
+                .map(|workspace| (workspace.id, workspace.key.clone()))
+                .context("resolved workspace is not in the session")?;
             let presentation = self.presentation_snapshot();
             if let Some(group) = &group {
                 anyhow::ensure!(
@@ -587,8 +586,10 @@ impl Mux {
                 );
             }
             let group_of = |index: usize| {
-                presentation
-                    .workspace(&state.workspaces[index].key)
+                state
+                    .workspaces
+                    .get(index)
+                    .and_then(|workspace| presentation.workspace(&workspace.key))
                     .and_then(|record| record.group.as_deref())
             };
             let remaining =
@@ -601,11 +602,11 @@ impl Mux {
             let position_in_remaining = |target: usize| {
                 remaining.iter().position(|candidate| *candidate == target).unwrap_or(old_idx)
             };
-            let new_idx = match (index, members.first(), members.last()) {
-                (Some(index), Some(_), Some(_)) if index < members.len() => {
-                    position_in_remaining(members[index])
-                }
-                (Some(_), Some(_), Some(last)) => position_in_remaining(*last) + 1,
+            let new_idx = match (index, members.last()) {
+                (Some(index), Some(last)) => match members.get(index) {
+                    Some(member) => position_in_remaining(*member),
+                    None => position_in_remaining(*last) + 1,
+                },
                 _ => old_idx,
             }
             .min(state.workspaces.len().saturating_sub(1));
@@ -653,6 +654,10 @@ impl Mux {
             state.workspace_revision = commit.revision;
             state.resource_revision = resource_revision;
             let decorations = self.tree_decorations_in_state(&state);
+            #[allow(
+                clippy::expect_used,
+                reason = "INVARIANT: workspace_id was resolved from this state under the same lock and move_workspace only reorders"
+            )]
             let entity = crate::server::tree_entity_json(
                 &state,
                 &decorations,
@@ -688,6 +693,7 @@ impl Mux {
     /// workspace-registry revision (the registry order is unchanged), so it
     /// takes the durable mutation envelope and emits `workspace-changed`
     /// with the full entity.
+    #[track_caller]
     pub fn set_workspace_metadata(
         &self,
         workspace: Option<WorkspaceId>,
@@ -710,21 +716,24 @@ impl Mux {
         // Only a pin request carries the key, so a retry first sent to a
         // daemon without workspace-pin-v1 still replays.
         if let Some(pinned) = update.pinned {
-            fingerprint["pinned"] = pinned.into();
+            fingerprint.insert("pinned", pinned.into());
         }
         if let Some(marked_unread) = update.marked_unread {
-            fingerprint["marked_unread"] = marked_unread.into();
+            fingerprint.insert("marked_unread", marked_unread.into());
         }
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
         }
         let (delta, result) = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state = self.lock_state_pinned(&registry).recover_poison();
             Self::require_workspace_revision(&state, expected_revision)?;
             let index = resolve_workspace_index(&state, workspace, requested_key)?;
-            let workspace_id = state.workspaces[index].id;
-            let key = state.workspaces[index].key.clone();
+            let (workspace_id, key) = state
+                .workspaces
+                .get(index)
+                .map(|workspace| (workspace.id, workspace.key.clone()))
+                .context("resolved workspace is not in the session")?;
             let before = self.presentation_snapshot().workspace(&key).cloned().unwrap_or_default();
             let mut after = before.clone();
             if let Some(color) = &update.color {
@@ -772,6 +781,10 @@ impl Mux {
             state.workspace_revision = commit.revision;
             state.resource_revision = resource_revision;
             let decorations = self.tree_decorations_in_state(&state);
+            #[allow(
+                clippy::expect_used,
+                reason = "INVARIANT: workspace_id was resolved from this state under the same lock and a metadata change keeps every workspace"
+            )]
             let entity = crate::server::tree_entity_json(
                 &state,
                 &decorations,
@@ -804,10 +817,12 @@ impl Mux {
 impl Mux {
     /// Whether this browser surface's page is rendered by a frontend
     /// (WebKit or CEF) instead of a daemon-attached CDP target.
+    #[track_caller]
     pub(crate) fn is_frontend_browser_surface(&self, surface: &Surface) -> bool {
         self.frontend_browser_id(surface).is_some()
     }
 
+    #[track_caller]
     pub(crate) fn frontend_browser_id(&self, surface: &Surface) -> Option<BrowserPublicId> {
         let identity = surface.resource_identity()?;
         let ContentPublicId::Browser(id) = &identity.content_id else { return None };
@@ -815,6 +830,7 @@ impl Mux {
     }
 
     /// The frontend record of a browser surface, if it is frontend-rendered.
+    #[track_caller]
     pub fn frontend_browser(&self, surface: &Surface) -> Option<FrontendBrowserRecord> {
         let id = self.frontend_browser_id(surface)?;
         self.presentation_snapshot().frontend_browsers.get(id.as_str()).cloned()
@@ -824,6 +840,7 @@ impl Mux {
     /// registered durably before the tab commits, under the browser id the
     /// creation then uses, so neither a live daemon nor a restarted one ever
     /// bootstraps a CDP target for it. A failed creation removes the record.
+    #[track_caller]
     pub fn new_frontend_browser_tab_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -843,6 +860,7 @@ impl Mux {
     /// [`Mux::new_frontend_browser_tab_as`] with a [`FrontendTabPlacement`]: a
     /// background tab (`frontend-browser-activate-v1`) and a slot right
     /// after another tab of the pane (`frontend-browser-insert-after-v1`).
+    #[track_caller]
     pub(crate) fn new_frontend_browser_tab_placed_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -854,7 +872,7 @@ impl Mux {
         record.validate()?;
         let browser_id = BrowserPublicId::random()?;
         {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().recover_poison();
             registry.put_frontend_browser(browser_id.as_str(), &record, None)?;
             self.reload_presentation(&registry)?;
         }
@@ -870,7 +888,7 @@ impl Mux {
                 Ok(surface)
             }
             Err(error) => {
-                let mut registry = self.workspace_registry.lock().unwrap();
+                let mut registry = self.workspace_registry.lock().recover_poison();
                 if registry.delete_frontend_browser(browser_id.as_str()).is_ok() {
                     let _ = self.reload_presentation(&registry);
                 }
@@ -897,12 +915,13 @@ impl Mux {
     /// or selection: clear the shared unread marker of the tab's content
     /// (every view of one terminal shares it) and durably record the
     /// acknowledgement, so a restart does not bring the marker back.
+    #[track_caller]
     pub fn acknowledge_tab_notifications(
         &self,
         surface: SurfaceId,
     ) -> anyhow::Result<TabNotificationAck> {
         let (terminal, placements) = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let runtime = state
                 .surfaces
                 .get(&surface)
@@ -929,6 +948,7 @@ impl Mux {
     /// Durably acknowledge the retained notifications of one terminal, or
     /// of one non-terminal placement, read the tab's local feed items in the
     /// same transaction, and clear its unread marker under the feed lock.
+    #[track_caller]
     pub(crate) fn persist_notification_acks(
         &self,
         terminal: Option<&TerminalPublicId>,
@@ -937,7 +957,7 @@ impl Mux {
         let ids = self
             .notification_ledger
             .lock()
-            .unwrap()
+            .recover_poison()
             .iter()
             .filter(|entry| match terminal {
                 Some(terminal) => entry.terminal_id.as_ref() == Some(terminal),
@@ -962,12 +982,13 @@ impl Mux {
 
     /// Retained notifications, newest first, with whether each was
     /// acknowledged.
+    #[track_caller]
     pub fn notification_rows(
         &self,
         limit: usize,
     ) -> anyhow::Result<Vec<(ResourceNotification, bool)>> {
         let rows = self.resource_notifications(limit);
-        let acked = self.workspace_registry.lock().unwrap().acked_notification_ids()?;
+        let acked = self.workspace_registry.lock().recover_poison().acked_notification_ids()?;
         Ok(rows
             .into_iter()
             .map(|row| {

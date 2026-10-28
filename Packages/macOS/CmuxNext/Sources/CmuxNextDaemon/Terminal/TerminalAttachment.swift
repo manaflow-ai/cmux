@@ -1,13 +1,16 @@
 public import Foundation
 import CmuxNextCompat
+public import CmuxNextTrace
 import CmuxNextWakeups
 import os
 
 /// One attached terminal view on its own connection (v12 has no stream
 /// cancel, and heavy output must not delay tree mutations on the control
-/// connection). Output flows through a bounded `TerminalEventQueue`; after
-/// the attach handshake every command here is fire-and-forget, so a consumer
-/// that stops draining can never deadlock against a blocked reader.
+/// connection). Events flow through a bounded `TerminalEventQueue`; live
+/// output goes from the reader thread straight to the view's lane once one is
+/// set (``setOutputSink(_:)``, ``TerminalEchoRouter``). After the attach
+/// handshake every command here is fire-and-forget, so a consumer that stops
+/// draining can never deadlock against a blocked reader.
 public actor TerminalAttachment: TerminalByteChannel {
     public struct Target: Sendable, Hashable {
         public var surface: SurfaceID
@@ -51,12 +54,10 @@ public actor TerminalAttachment: TerminalByteChannel {
         init(_ surface: SurfaceID) { value = Mutex(surface) }
     }
 
-    /// Snapshot order of this stream; only the reader thread touches it.
-    private final class SequencerBox: Sendable {
-        let value = Mutex(TerminalSnapshotSequencer())
-    }
     private nonisolated let transport: LineTransport
     private nonisolated let queue: TerminalEventQueue
+    /// Snapshot order, and whether live output goes straight to the view's lane.
+    private nonisolated let router: TerminalEchoRouter
     private nonisolated let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.attach")
 
     /// Written by the attach handshake, then read by every command. Guarded
@@ -78,7 +79,7 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     /// A class box, so the reader thread's closure can share the mutex (a `Mutex` cannot be copied).
     private final class ControlBox: Sendable {
-        let value = Mutex(Control())
+        let value = Mutex(Control(), rank: .daemonTerminalAttachmentControl)
     }
 
     private nonisolated let control = ControlBox()
@@ -95,6 +96,12 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// - Parameter snapshotVersion: the view's GHOSTSNP version. When the
     ///   host has ``snapshotCapability`` the attach asks for snapshots; the
     ///   host still answers with a byte replay when its version differs.
+    /// - Parameter hangs: watches the reader's handling of each output line
+    ///   (``LineTransport``'s `daemon.line` scope); nil watches nothing.
+    /// - Parameter createIntent: the `create.tab` intent id of the new tab whose terminal this first attach
+    ///   shows (``NewTerminalTrace/FirstAttach``): its stages are that create's instants. 0: a restore or a
+    ///   reattach, which writes none.
+    /// - Parameter inputQueue: the view's serial input queue; the socket writer drains on it (nil: its own queue).
     public static func attach(
         endpoint: DaemonEndpoint,
         target: Target,
@@ -104,18 +111,20 @@ public actor TerminalAttachment: TerminalByteChannel {
         localHistory: Bool = false,
         images: Bool = false,
         clientName: String = "cmux-next-terminal",
-        device: TerminalSizingDevice? = nil
+        device: TerminalSizingDevice? = nil,
+        hangs: (any HangWatchScoping)? = nil,
+        createIntent: UInt64 = 0,
+        inputQueue: DispatchQueue? = nil
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue) }
-        #endif
-        let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
-        let attachment = TerminalAttachment(transport: transport, surface: target.surface)
+        NewTerminalTrace.shared.attachEvent(.attachStart, surface: target.surface.rawValue, intent: createIntent)
+        let transport = try await LineTransport.open(path: endpoint.socketPath, bridge: endpoint.bridge, role: .terminalAttach,
+                                                     stats: endpoint.wireStats, hangs: hangs, writerTarget: inputQueue)
+        let attachment = TerminalAttachment(transport: transport, surface: target.surface, delivery: .ownConnection)
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
                                       snapshotVersion: snapshotVersion, localHistory: localHistory,
-                                      images: images, clientName: clientName, device: device)
+                                      images: images, clientName: clientName, device: device, createIntent: createIntent)
         } catch {
             transport.close()
             throw error
@@ -123,11 +132,15 @@ public actor TerminalAttachment: TerminalByteChannel {
         return attachment
     }
 
-    private init(transport: LineTransport, surface: SurfaceID) {
+    init(transport: LineTransport, surface: SurfaceID, delivery: Delivery) {
         self.transport = transport
-        resolvedSurface = SurfaceBox(surface)
-        let queue = TerminalEventQueue()
+        let resolvedSurface = SurfaceBox(surface)
+        self.resolvedSurface = resolvedSurface
+        let backpressure = Self.backpressure(for: delivery, transport: transport,
+                                             surface: { resolvedSurface.value.withLock { $0 } })
+        let queue = TerminalEventQueue(backpressure: backpressure, recorder: transport.recorder)
         self.queue = queue
+        router = TerminalEchoRouter(queue: queue)
         events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
     }
 
@@ -136,38 +149,30 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     private func open(target: Target, size: CellSize, claimGeometry: Bool, snapshotVersion: UInt16?,
                       localHistory: Bool, images: Bool, clientName: String,
-                      device: TerminalSizingDevice?) async throws {
+                      device: TerminalSizingDevice?, createIntent: UInt64) async throws {
         let queue = queue
         let control = control
         let resolvedSurface = resolvedSurface
-        let sequencer = SequencerBox()
+        let router = router
+        let decoder = transport.decoder
         transport.start(
             onEvent: { name, line, _ in
                 var surface = resolvedSurface.value.withLock { $0 }
-                if surface == Self.unresolvedSurface, let named = Self.initialSurface(name: name, line: line) {
+                if surface == Self.unresolvedSurface, let named = Self.initialSurface(name: name, line: line, decoder: decoder) {
                     resolvedSurface.value.withLock { $0 = named }
                     surface = named
                 }
-                guard let decoded = Self.decodeAttachLine(name: name, line: line, surface: surface),
-                      let event = sequencer.value.withLock({ $0.admit(decoded) })
-                else { return }
-                if case .sizeState(let state, let selfParticipant) = event {
+                guard let decoded = Self.decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder) else { return }
+                router.receive(decoded) { state, selfParticipant in
                     // Pushed under the same lock that orders generations (see admitSizeState).
                     Self.admitSizeState(state, selfParticipant: selfParticipant, control: control, queue: queue)
-                    return
-                }
-                if case .closed = event {
-                    queue.finish(event)
-                } else {
-                    if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded) }
-                    queue.push(event)
                 }
             },
             onClose: { reason in
                 switch reason {
-                case .closedByClient: queue.finish(.closed(.detachedByClient))
-                case .daemonShutdown: queue.finish(.closed(.connectionLost("daemon shut down")))
-                case .lost(let detail): queue.finish(.closed(.connectionLost(detail)))
+                case .closedByClient: router.finish(.closed(.detachedByClient))
+                case .daemonShutdown: router.finish(.closed(.connectionLost("daemon shut down")))
+                case .lost(let detail): router.finish(.closed(.connectionLost(detail)))
                 }
             }
         )
@@ -181,7 +186,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 capabilities: DaemonCapability.advertised + (device == nil ? [] : [DaemonCapability.sharedSizing.rawValue]),
                 deviceKind: device?.kind, deviceName: device?.name)),
         ], timeout: DaemonConnection.defaultRequestTimeout)
-        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
+        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get())
         _ = try replies[1].get()
         let useIdentity = identity.supports("attach-identity-v1") && target.terminalResourceID != nil
             && target.generation == identity.generation
@@ -200,9 +205,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         )
         // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue) }
-        #endif
+        NewTerminalTrace.shared.attachEvent(.attachReplied, surface: target.surface.rawValue, intent: createIntent)
         control.value.withLock { control in
             control.lease = response.lease
             control.lastReported = size
@@ -224,9 +227,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         }
         queue.arm()
         DaemonLaunchTimings.shared.mark("terminal.attach_end")
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue) }
-        #endif
+        NewTerminalTrace.shared.attachEvent(.attachEnd, surface: target.surface.rawValue, intent: createIntent)
     }
 
     /// Passes `state` on with this view's participant, newest generation only. The participant is
@@ -266,7 +267,7 @@ public actor TerminalAttachment: TerminalByteChannel {
             }) { id in
                 try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data, flow: flow), id: id)
             }
-            TypingLatencyProbe.shared.mark(.socketSubmit)
+            if let flow { TypingLatencyProbe.shared.mark(.socketSubmit, flow: flow) }
         } catch {
             logger.debug("input dropped after close: \(String(describing: error), privacy: .public)")
         }
@@ -275,6 +276,19 @@ public actor TerminalAttachment: TerminalByteChannel {
     public func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
         sendResize(CellSize(cols: cols, rows: rows))
     }
+
+    // MARK: Live output
+
+    /// Any thread: live output goes from the reader thread straight to `sink` (the view's output lane), in
+    /// order with the events still on ``events``: a sink takes output only once the consumer resumed the
+    /// ``TerminalChannelEvent/outputResume(_:)`` marker behind every event queued before it. Nil: output stays
+    /// on ``events``.
+    public nonisolated func setOutputSink(_ sink: TerminalEchoSink?) {
+        router.setSink(sink)
+    }
+
+    /// Whether the next output chunk goes straight to the sink (tests, diagnostics).
+    public nonisolated var routesOutputToSink: Bool { router.routesToLane }
 
     // MARK: Geometry and lifetime
 
@@ -376,20 +390,13 @@ public actor TerminalAttachment: TerminalByteChannel {
             return .some(control.lease)
         }
         guard case .some(let lease) = lease else { return }
+        // Output stays on the stream from here, and a reader waiting for the lane reads on to its end.
+        router.close()
         if let lease { fireAndForget(DetachAttachedViewRequest(surface: surface, lease: lease)) }
         transport.close()
     }
 
     private nonisolated func fireAndForget<R: DaemonRequest>(_ request: R) {
-        let logger = logger
-        do {
-            try transport.sendNoReply(cmd: R.command, onError: { error in
-                logger.error("\(R.command, privacy: .public) failed: \(error.description, privacy: .public)")
-            }) { id in
-                try WireCoding.encodeRequest(request, id: id)
-            }
-        } catch {
-            logger.debug("\(R.command, privacy: .public) dropped after close")
-        }
+        Self.fireAndForget(request, on: transport, logger: logger)
     }
 }

@@ -1,9 +1,13 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextFeed
 import CmuxNextWakeups
 import Foundation
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The feed bridge for agent permission prompts (cx-aocz, D11 on
 /// manaflow-ai/cmux#13742): the person answers an acpmux prompt on the phone,
@@ -41,7 +45,7 @@ import os
 final class AcpmuxPermissionFeedBridge {
 
     /// What one posted feed item stands for.
-    struct Posted: Equatable {
+    struct Posted: Equatable, Sendable {
         let session: String
         let permission: String
         let digest: String
@@ -75,11 +79,18 @@ final class AcpmuxPermissionFeedBridge {
     /// session can register an "ios" install. A deny needs no proof.
     private let presenceKeys: PresenceKeys
     private var connection: AcpmuxCheckedLine?
-    private var reconnect: Task<Void, Never>?
+    /// Each `permission_pending` request from its line until its post task starts.
+    private var requestsToPost: [String: [String: Any]] = [:]
+    /// One backoff wait after a lost or absent socket: background work, nobody waits on it.
+    private let reconnect: MainDeadline
     private var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
+    /// Where acpmux's lines reach the main thread: agents cause them, so they are automation work.
+    private let mainWork: MainWorkScheduler
+    /// Starts the async feed and acpmux exchanges at a stated priority.
+    private let work: BackgroundWork
     private var nextID = 10
     /// Waiting requests by id; a reply is its `result` as JSON bytes (Sendable).
-    private var replies: [Int: CheckedContinuation<Data?, Never>] = [:]
+    private var replies: [Int: OnceContinuation<Data?, OnceContinuationError>] = [:]
     /// Feed item id -> the prompt it carries. This launch only.
     private(set) var posted: [String: Posted] = [:]
     /// Permission ids being posted or posted (one item per prompt).
@@ -88,24 +99,27 @@ final class AcpmuxPermissionFeedBridge {
 
     init(environment: AcpmuxEnvironment, owner: @escaping Owner, isSignedIn: @escaping @MainActor () -> Bool,
          ownInstall: @escaping @Sendable () async -> String?,
-         presenceKeys: @escaping PresenceKeys) {
+         presenceKeys: @escaping PresenceKeys, work: BackgroundWork, deadlines: MainDeadlineScheduler) {
         self.environment = environment
         self.owner = owner
         self.isSignedIn = isSignedIn
         self.ownInstall = ownInstall
         self.presenceKeys = presenceKeys
+        self.work = work
+        mainWork = deadlines.work
+        reconnect = MainDeadline(owner: "AcpmuxFeedBridge.reconnect", workClass: .background, scheduler: deadlines)
     }
 
     /// Starts the watch (idempotent).
     func start() {
-        guard connection == nil, reconnect == nil else { return }
+        guard connection == nil, !reconnect.isScheduled else { return }
         connect()
     }
 
     // Not an isolated deinit: its runtime hop traps when the bridge is released inside an action's
-    // task-local scope (cx-t7hu). Both fields are Sendable, so teardown needs no main actor.
+    // task-local scope (cx-t7hu). The connection is Sendable, so teardown needs no main actor; a released
+    // reconnect deadline never fires.
     nonisolated deinit {
-        reconnect?.cancel()
         connection?.cancel()
     }
 
@@ -114,15 +128,20 @@ final class AcpmuxPermissionFeedBridge {
     /// Connects on a socket whose server peer is checked on that very connection, before its
     /// first frame (``AcpmuxCheckedLine``): a listener that took the path never gets a proof.
     private func connect() {
-        reconnect = nil
+        reconnect.cancel()
         guard FileManager.default.fileExists(atPath: socket) else { return scheduleReconnect() }
         let line = AcpmuxCheckedLine(environment: environment)
         connection = line
+        // Each line is one automation task, in arrival order (one FIFO class queue).
+        let mainWork = mainWork
         line.start(send: Data(acpmuxRequest: 1, method: "initialize", params: [
             "protocolVersion": 1, "clientInfo": ["name": "cmux-next-feed-bridge", "version": "1"],
             "clientCapabilities": [String: Any](),
-        ]), onLine: { [weak self] data in Task { @MainActor in self?.handle(data) } },
-           onClose: { [weak self] in Task { @MainActor in self?.lost(line) } })
+        ]), onLine: { [weak self] data in
+            mainWork.postFromAnyThread(.automation, owner: "AcpmuxFeedBridge.line") { [weak self] in self?.handle(data) }
+        }, onClose: { [weak self] in
+            mainWork.postFromAnyThread(.automation, owner: "AcpmuxFeedBridge.closed") { [weak self] in self?.lost(line) }
+        })
     }
 
     /// The `initialize` reply: the person proof for its challenge as the SECOND request (acpmux
@@ -147,15 +166,7 @@ final class AcpmuxPermissionFeedBridge {
     }
 
     private func scheduleReconnect() {
-        reconnect?.cancel()
-        // task-owner: AcpmuxPermissionFeedBridge.reconnect: one backoff wait after a lost or absent socket.
-        reconnect = Task { [weak self] in
-            guard var backoff = self?.backoff else { return }
-            // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
-            do { try await backoff.wait(owner: "acpmux-feed-bridge.reconnect") } catch { return }
-            self?.backoff = backoff
-            self?.connect()
-        }
+        reconnect.schedule(after: backoff.next()) { [weak self] in self?.connect() }
     }
 
     /// One request on the bridge's own connection; nil when it closed or failed.
@@ -166,15 +177,16 @@ final class AcpmuxPermissionFeedBridge {
         let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
         guard var data = try? JSONSerialization.data(withJSONObject: request) else { return nil }
         data.append(0x0A)
-        let reply: Data? = await withCheckedContinuation { waiter in
+        // A waiter dropped unanswered (the bridge went away) gets no reply, as a lost connection does.
+        let reply = try? await withOnceContinuation { (waiter: OnceContinuation<Data?, OnceContinuationError>) in
             replies[id] = waiter
             connection.send(data)
         }
-        return reply.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+        return reply.flatMap { (try? JSONSerialization.blockingJSONObject(with: $0)) as? [String: Any] }
     }
 
     private func handle(_ data: Data) {
-        guard let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        guard let message = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { return }
         if let id = (message["id"] as? NSNumber)?.intValue {
             if id == 1 {
                 if let connection { initialized(message["result"] as? [String: Any], on: connection) }
@@ -186,7 +198,7 @@ final class AcpmuxPermissionFeedBridge {
                 // Prompts that were pending before this connection.
                 for summary in result["sessions"] as? [[String: Any]] ?? []
                     where (summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0 > 0 {
-                    if let session = summary["sessionId"] as? String { Task { await self.postPending(of: session) } }
+                    if let session = summary["sessionId"] as? String { work.task(.userVisible) { [weak self] in await self?.postPending(of: session) } }
                 }
             } else if let waiter = replies.removeValue(forKey: id) {
                 let result = message["error"] == nil
@@ -200,12 +212,15 @@ final class AcpmuxPermissionFeedBridge {
         case "_acpmux/permission_pending":
             guard let session = params["sessionId"] as? String, let permission = params["permissionId"] as? String,
                   let request = params["request"] as? [String: Any] else { return }
-            Task { await self.post(session: session, permission: permission, request: request) }
+            // The prompt's post: the person waits for it on the phone. The body stays main-actor; the request
+            // (not Sendable) waits on the bridge under its permission id, so the task captures only Sendable values.
+            requestsToPost[permission] = request
+            work.task(.userVisible) { [weak self] in await self?.postWaiting(session: session, permission: permission) }
         case "_acpmux/session_changed":
             let kind = params["kind"] as? String
             if kind == "permission_decision" || kind == "permission_resolved",
                let session = params["sessionId"] as? String {
-                Task { await self.withdrawResolved(in: session) }
+                work.task(.bestEffort) { [weak self] in await self?.withdrawResolved(in: session) }
             }
         default:
             break
@@ -301,6 +316,12 @@ final class AcpmuxPermissionFeedBridge {
         return ["op": "feed.post", "params": params, "idempotency_key": String(key.prefix(200)), "origin": "script"]
     }
 
+    /// Posts the `permission_pending` request that waits under `permission`.
+    private func postWaiting(session: String, permission: String) async {
+        guard let request = requestsToPost.removeValue(forKey: permission) else { return }
+        await post(session: session, permission: permission, request: request)
+    }
+
     private func post(session: String, permission: String, request: [String: Any]) async {
         guard isSignedIn(), postedPermissions.insert(permission).inserted else { return }
         do {
@@ -350,7 +371,9 @@ final class AcpmuxPermissionFeedBridge {
                 logger.info("feed bridge: \(item.id, privacy: .public) closed without an answer; nothing answered")
                 continue
             }
-            Task { await self.answer(item: item.id, entry: entry, decision: decision, record: answer) }
+            // The person's answer from the phone, which an agent waits on.
+            let id = item.id
+            work.task(.userVisible) { [weak self] in await self?.answer(item: id, entry: entry, decision: decision, record: answer) }
         }
     }
 

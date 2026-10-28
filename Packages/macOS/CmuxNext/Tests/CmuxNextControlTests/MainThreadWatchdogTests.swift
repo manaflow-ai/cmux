@@ -85,6 +85,30 @@ import Testing
         #expect(seen.values.withLock { $0 } == [.milliseconds(300)])
     }
 
+    /// A 300 ms and a 120 ms stall: count250 1, count100 2 (the 300 ms one counts in both). A 99 ms
+    /// turn and time asleep count in neither, a stall threshold above both edges changes nothing, and
+    /// a reset starts both at 0 (`debug.hangs` `count100` / `count250`).
+    @MainActor
+    @Test func countsStallsOf100And250MillisecondsWhateverTheThreshold() {
+        let clock = ManualUptime()
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(500), logStalls: false), uptime: clock.read)
+        func turn(_ work: Duration) {
+            watchdog.heartbeat(.afterWaiting)
+            clock.advance(by: work)
+            watchdog.heartbeat(.beforeWaiting)
+            clock.advance(by: .seconds(5)) // asleep
+        }
+        turn(.milliseconds(300))
+        turn(.milliseconds(120))
+        turn(.milliseconds(99))
+        #expect(watchdog.stallCounts == StallCounts(count100: 2, count250: 1))
+        #expect(watchdog.log.summary.count == 0, "no stall reached the 500 ms threshold")
+        watchdog.resetStallCounts()
+        #expect(watchdog.stallCounts == StallCounts())
+        turn(.milliseconds(250))
+        #expect(watchdog.stallCounts == StallCounts(count100: 1, count250: 1), "each edge is inclusive")
+    }
+
     /// AppKit lays out, displays and commits Core Animation in
     /// before-waiting observers (order 2,000,000 for the CA commit). That
     /// work is main-thread time before the loop sleeps; a stall there must

@@ -343,9 +343,13 @@ pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
     }
     let weak = Arc::downgrade(mux);
     let mut events = mux.subscribe_launch_snapshot();
-    let spawned =
-        std::thread::Builder::new().name("mux-host-replica-changes".into()).spawn(move || {
+    let spawned = crate::thread_qos::spawn_raisable(
+        "mux-host-replica-changes",
+        crate::thread_qos::ThreadType::Utility.qos(),
+        None,
+        move || {
             loop {
+                // mq14-allow: this watcher thread waits for its own events.
                 match events.recv() {
                     Ok(_) => while events.try_recv().is_ok() {},
                     // The mailbox overflowed (or the daemon stops): resubscribe and publish again.
@@ -359,15 +363,20 @@ pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
                     replica.mark_changed();
                 }
             }
-        });
+        },
+    );
     if let Err(error) = spawned {
         eprintln!("cmux-tui: host replica change watcher unavailable: {error}");
     }
     let weak = Arc::downgrade(mux);
     let mut chats = mux.subscribe_conversations();
-    let spawned =
-        std::thread::Builder::new().name("mux-host-replica-chief".into()).spawn(move || {
+    let spawned = crate::thread_qos::spawn_raisable(
+        "mux-host-replica-chief",
+        crate::thread_qos::ThreadType::Utility.qos(),
+        None,
+        move || {
             loop {
+                // mq14-allow: this watcher thread waits for its own events.
                 match chats.recv() {
                     Ok(_) => while chats.try_recv().is_ok() {},
                     Err(_) => {
@@ -380,7 +389,8 @@ pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
                     replica.mark_changed();
                 }
             }
-        });
+        },
+    );
     if let Err(error) = spawned {
         eprintln!("cmux-tui: host replica chief watcher unavailable: {error}");
     }

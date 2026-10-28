@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// What an extension's `manifest.json` asks for, as far as the Extensions bubble shows it: the
@@ -26,7 +27,7 @@ nonisolated struct ExtensionManifestFacts: Equatable, Sendable {
     /// Reads a manifest's JSON (Chromium accepts comments and trailing commas); nil when it is no
     /// JSON object.
     init?(json data: Data) {
-        guard let object = try? JSONSerialization.jsonObject(with: data, options: [.json5Allowed]) as? [String: Any] else {
+        guard let object = try? JSONSerialization.blockingJSONObject(with: data, options: [.json5Allowed]) as? [String: Any] else {
             return nil
         }
         let permissions = (object["permissions"] as? [Any])?.compactMap { $0 as? String } ?? []

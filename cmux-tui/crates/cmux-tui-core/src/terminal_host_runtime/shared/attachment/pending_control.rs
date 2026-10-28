@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 
 /// A sent control request whose response has not been read yet. It keeps
 /// the connection's writer and response table, so it outlives a runtime
@@ -88,7 +89,7 @@ impl PendingControlResponse {
         let response = if remaining.is_zero() {
             Err(RecvTimeoutError::Timeout)
         } else {
-            self.receiver.recv_timeout(remaining)
+            waits::recv_timeout(&self.receiver, remaining)
         };
         match response {
             Ok(frame) => Ok(frame.payload),

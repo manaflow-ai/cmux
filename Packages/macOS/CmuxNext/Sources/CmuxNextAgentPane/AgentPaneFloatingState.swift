@@ -31,6 +31,6 @@ extension AgentPaneFloatingState {
     /// Pushes `state` to `view`'s page.
     @MainActor public static func push(_ state: AgentPaneFloatingState, to view: AgentPaneView) {
         let event = AgentPageEvent.floatingState(state)
-        view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyFloatingState?.(\(event.value.compactText));"])
+        view.deliver([event])
     }
 }

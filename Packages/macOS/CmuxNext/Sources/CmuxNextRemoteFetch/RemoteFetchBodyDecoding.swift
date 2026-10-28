@@ -37,7 +37,7 @@ nonisolated struct RemoteFetchChunkedBody {
     mutating func append(_ data: Data) throws(RemoteFetchReplyReader.Refusal) -> Bool {
         pending.append(contentsOf: data)
         var cursor = 0
-        defer { pending.removeFirst(cursor) }
+        defer { if cursor >= pending.count { pending.removeAll(keepingCapacity: true) } else { pending.removeFirst(cursor) } }
         // Each pass consumes received bytes or returns to wait for more.
         while !isComplete {
             switch state {
@@ -168,30 +168,35 @@ nonisolated struct RemoteFetchContentDecoding {
     private static func inflate(_ input: Data.SubSequence, algorithm: compression_algorithm, maximumBody: Int) throws(RemoteFetchReplyReader.Refusal) -> Data {
         let source = [UInt8](input)
         guard !source.isEmpty else { throw RemoteFetchReplyReader.Refusal(reason: "empty compressed body") }
-        let stream = UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
-        defer { stream.deallocate() }
-        guard compression_stream_init(stream, COMPRESSION_STREAM_DECODE, algorithm) == COMPRESSION_STATUS_OK else {
+        // SAFETY: `stream` is this call's own compression_stream, initialized before use, then destroyed and freed
+        // once on return. Its source is `source`'s storage, lent by the outer closure for the whole decode, which
+        // the stream reads src_size bytes of from src_ptr and advances through; each destination is `buffer`'s
+        // storage, lent by the inner closure for the one compression_stream_process call that writes at most
+        // dst_size = chunk = buffer.count bytes to it. No pointer is used after its closure returns.
+        let stream = unsafe UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
+        defer { unsafe stream.deallocate() }
+        guard unsafe compression_stream_init(stream, COMPRESSION_STREAM_DECODE, algorithm) == COMPRESSION_STATUS_OK else {
             throw RemoteFetchReplyReader.Refusal(reason: "decoder")
         }
-        defer { compression_stream_destroy(stream) }
+        defer { unsafe compression_stream_destroy(stream) }
         let chunk = 64 * 1024
         var buffer = [UInt8](repeating: 0, count: chunk)
         var output = Data()
         var failure: RemoteFetchReplyReader.Refusal?
-        source.withUnsafeBufferPointer { src in
-            guard let base = src.baseAddress else { return }
-            stream.pointee.src_ptr = base
-            stream.pointee.src_size = src.count
+        unsafe source.withUnsafeBufferPointer { src in
+            guard let base = unsafe src.baseAddress else { return }
+            unsafe stream.pointee.src_ptr = base
+            unsafe stream.pointee.src_size = src.count
             while failure == nil {
-                let before = stream.pointee.src_size
-                let (status, produced) = buffer.withUnsafeMutableBufferPointer { dst -> (compression_status, Int) in
-                    guard let target = dst.baseAddress else { return (COMPRESSION_STATUS_ERROR, 0) }
-                    stream.pointee.dst_ptr = target
-                    stream.pointee.dst_size = chunk
-                    let status = compression_stream_process(stream, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
-                    return (status, chunk - stream.pointee.dst_size)
+                let before = unsafe stream.pointee.src_size
+                let (status, produced) = unsafe buffer.withUnsafeMutableBufferPointer { dst -> (compression_status, Int) in
+                    guard let target = unsafe dst.baseAddress else { return (COMPRESSION_STATUS_ERROR, 0) }
+                    unsafe stream.pointee.dst_ptr = target
+                    unsafe stream.pointee.dst_size = chunk
+                    let status = unsafe compression_stream_process(stream, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
+                    return unsafe (status, chunk - stream.pointee.dst_size)
                 }
-                let consumed = before - stream.pointee.src_size
+                let consumed = unsafe before - stream.pointee.src_size
                 output.append(contentsOf: buffer[0..<produced])
                 if output.count > maximumBody {
                     failure = RemoteFetchReplyReader.Refusal(reason: "decoded body over the cap", overCap: true)

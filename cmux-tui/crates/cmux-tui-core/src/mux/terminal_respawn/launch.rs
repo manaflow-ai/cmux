@@ -45,6 +45,7 @@ impl Mux {
     /// The lost incarnation's screen: its exit replay, else the output
     /// store's snapshot, else the latest journal checkpoint of the terminal
     /// (registries written before the output store).
+    #[track_caller]
     pub(in crate::mux) fn previous_screen(
         &self,
         registry: &WorkspaceRegistry,

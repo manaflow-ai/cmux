@@ -36,7 +36,7 @@ import CoreGraphics
 ///
 /// ```swift
 /// // The app:
-/// let budget = MainFrameBudget(input: SessionInputPending(), signposts: true)
+/// let budget = MainFrameBudget(input: SessionInputPending(events: WindowServerInputEvents(input: inputTap)), signposts: true)
 /// // A test, with its own window-server times and dispatch record:
 /// let events = FakeSessionEvents()
 /// let input = SessionInputPending(events: events)
@@ -109,15 +109,20 @@ public final class SessionInputPending: InputPendingSource {
     private var undispatchedScrollSeen: TimeInterval?
     /// When a check first saw an undispatched left drag; nil while none is on its way.
     private var undispatchedDragSeen: TimeInterval?
-    private var observing = false
+
+    /// Told after each dispatched event that counts (a key, a mouse button, a scroll, a left drag;
+    /// not moves or modifiers): the composition root ends the idle scheduler's wait for pending
+    /// input there (``IdleScheduler/noteInput()``). Dispatches are observed from the first check.
+    public var onInputDispatched: (@MainActor () -> Void)?
 
     /// - Parameters:
     ///   - events: The window server and AppKit (tests: a fake that reports its own event times,
     ///     dispatches, pointer and refresh interval).
     ///   - latching: How long a dispatched scroll keeps its sequence open.
-    public init(events: any SessionInputEvents = WindowServerInputEvents(), latching: ScrollLatching = ScrollLatching()) {
+    public init(events: any SessionInputEvents, latching: ScrollLatching = ScrollLatching()) {
         self.events = events
         self.latching = latching
+        events.observeDispatch { [weak self] event in self?.dispatched(event) }
     }
 
     /// How long an undispatched event counts as pending: two refresh intervals of the display the
@@ -125,8 +130,9 @@ public final class SessionInputPending: InputPendingSource {
     /// at 48 Hz).
     public var staleAfter: TimeInterval { max(2 * refreshInterval, Self.minimumStaleAfter) }
 
-    /// The display's refresh interval; 60 Hz when it reports none.
-    private var refreshInterval: TimeInterval {
+    /// The display's refresh interval in seconds; 60 Hz when it reports none (the MainJobGate's
+    /// deadline, p04-input-076).
+    public var refreshInterval: TimeInterval {
         let interval = events.refreshInterval
         return interval.isFinite && interval > 0 ? interval : 1.0 / 60
     }
@@ -153,12 +159,17 @@ public final class SessionInputPending: InputPendingSource {
             scrollSequenceOpenUntil = latching.sequenceOpen(after: time, phase: phase, momentum: momentum)
             undispatchedScrollSeen = nil
         case .other:
-            break
+            return
         }
+        onInputDispatched?()
     }
 
     public func hasPendingInput(uptime: TimeInterval) -> Bool {
         !scan(uptime: uptime, firstOnly: true).isEmpty
+    }
+
+    public func hasPendingPointerInput(uptime: TimeInterval) -> Bool {
+        !pendingKinds(uptime: uptime).subtracting(.key).isEmpty
     }
 
     /// Every kind of input pending at `uptime` (seconds since boot), for the pending-input state's
@@ -170,9 +181,6 @@ public final class SessionInputPending: InputPendingSource {
     }
 
     private func scan(uptime: TimeInterval, firstOnly: Bool) -> Kinds {
-        if !observing {
-            observing = events.observeDispatch { [weak self] event in self?.dispatched(event) }
-        }
         guard events.isAppActive else {
             // A gesture or a drag the app lost to another app never sends its end here.
             scrollSequenceOpenUntil = -.infinity
@@ -184,7 +192,7 @@ public final class SessionInputPending: InputPendingSource {
         let stale = staleAfter
         // One query: nothing generated after the last dispatched event, or nothing recent, means
         // nothing that counts is on its way either (the event queue is first in, first out).
-        // Events a tracking loop takes (a drag, a menu) never reach the monitor, so during one
+        // Events a tracking loop takes (a drag, a menu) never reach the input tap, so during one
         // this answers "maybe" and the per-type queries decide.
         guard Self.isPending(age: events.secondsSinceLastInput(), after: lastDispatchedAny, now: uptime, staleAfter: stale) else {
             undispatchedScrollSeen = nil

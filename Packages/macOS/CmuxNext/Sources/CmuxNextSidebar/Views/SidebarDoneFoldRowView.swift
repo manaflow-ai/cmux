@@ -15,7 +15,18 @@ final class SidebarDoneFoldRowView: SidebarRowView {
         addSubview(name)
     }
 
+    private struct Content: Hashable {
+        var key: SidebarRowKey
+        var childCount: Int
+        var collapsed: Bool
+        var fontSize: CGFloat
+        var iconSize: CGFloat
+    }
+
     func configure(_ row: SidebarRow) {
+        let content = Content(key: row.key, childCount: row.childCount, collapsed: row.isCollapsed,
+                              fontSize: SidebarStyle.headerFont.pointSize, iconSize: Metrics.smallIconSize)
+        guard needsConfigure(content) else { return }
         if case .showMore = row.key {
             name.setString(row.isCollapsed ? Strings.showMore(row.childCount) : Strings.showFewer)
         } else {
@@ -28,6 +39,7 @@ final class SidebarDoneFoldRowView: SidebarRowView {
         setAccessibilityRole(.disclosureTriangle)
         setAccessibilityLabel(name.stringValue)
         setAccessibilityExpanded(!row.isCollapsed)
+        // invalidate: the content changed (`needsConfigure` above).
         needsLayout = true
     }
 
@@ -41,9 +53,9 @@ final class SidebarDoneFoldRowView: SidebarRowView {
         chevron.frame = NSRect(x: start, y: (b.height - icon.height) / 2, width: icon.width, height: icon.height)
         let x = chevron.frame.maxX + Metrics.space1
         name.frame = NSRect(x: x, y: (b.height - h) / 2, width: max(0, b.width - x - Metrics.space2), height: h)
-        needsDisplay = true
     }
 
+    /// Layer colors only: `layerContentsRedrawPolicy` (.onSetNeedsDisplay, SidebarRowView) runs it on needsDisplay, never on a resize.
     override func updateLayer() {
         performWithTheme {
             name.setColor(Palette.textSecondary)

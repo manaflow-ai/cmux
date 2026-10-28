@@ -183,6 +183,7 @@ impl Mux {
     /// split off it as its closed pane was (`split`, from
     /// [`pane_placement`]). Returns the new pane; None when the split
     /// fails, and the tab stays in `neighbor`.
+    #[track_caller]
     pub(super) fn split_closed_pane_again(
         self: &Arc<Self>,
         actor: &Actor,

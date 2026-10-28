@@ -1,6 +1,8 @@
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextChromiumRuntime
+import CmuxNextInput
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -76,7 +78,7 @@ import Testing
 
     @Test func downloadStatesReachTheEngineAndTheInstallSwitchesItToChromium() throws {
         let (service, _) = launch(pin("aaaaaaaaaaaaaaaa"))
-        let engine = CEFEngine(source: service.source, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks())
+        let engine = CEFEngine(source: service.source, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())
         service.apply(.waitingForNetwork)
         #expect(engine.unavailableReason == .downloading(fraction: nil))
         service.apply(.downloading(received: 25, total: 100))
@@ -112,16 +114,16 @@ import Testing
 
     /// A sanitizer app (reload.sh --config asan|tsan|ubsan) starts with no Chromium (p10-stability-012).
     @Test func aSanitizerBuildStartsWithNoChromiumRuntime() {
-        let service = ChromiumRuntimeService.make(environment: [:], applicationSupport: nil,
-                                                  sanitizer: SanitizerRuntime(kind: .asan, chromiumRequested: false))
+        let service = ChromiumRuntimeService.make(work: BackgroundWork(label: "test.chromium-runtime.sanitizer"), environment: [:],
+                                                  applicationSupport: nil, sanitizer: SanitizerRuntime(kind: .asan, chromiumRequested: false))
         #expect(service.origin == .sanitizer)
         #expect(service.source.layout == nil)
         #expect(service.pinnedKey == nil)
     }
 
     @Test func aSanitizerBuildThatAsksForChromiumPicksARuntimeAsUsual() {
-        let service = ChromiumRuntimeService.make(environment: [:], applicationSupport: nil,
-                                                  sanitizer: SanitizerRuntime(kind: .asan, chromiumRequested: true))
+        let service = ChromiumRuntimeService.make(work: BackgroundWork(label: "test.chromium-runtime.sanitizer"), environment: [:],
+                                                  applicationSupport: nil, sanitizer: SanitizerRuntime(kind: .asan, chromiumRequested: true))
         #expect(service.origin != .sanitizer)
     }
 }
@@ -134,7 +136,9 @@ private struct OfflineDownloader: ChromiumRuntimeDownloading, ChromiumRuntimeUnp
     }
     func entries(of archive: URL) async throws(ChromiumRuntimeInstallError) -> [String] { throw .unpack("offline") }
     func unpack(_ archive: URL, into directory: URL) async throws(ChromiumRuntimeInstallError) { throw .unpack("offline") }
-    func check(_ item: URL, teamID: String) async throws(ChromiumRuntimeInstallError) { throw .signature("offline") }
+    func check(_ item: URL, teamID: String, priority: ChromiumRuntimeInstaller.Priority) async throws(ChromiumRuntimeInstallError) {
+        throw .signature("offline")
+    }
     func isUsable(allowsExpensive: Bool) async -> Bool { false }
     func waitUntilUsable(allowsExpensive: Bool) async throws { throw CancellationError() }
 }

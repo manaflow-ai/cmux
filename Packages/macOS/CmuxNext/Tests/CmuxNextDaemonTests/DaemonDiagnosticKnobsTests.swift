@@ -9,9 +9,12 @@ struct DaemonDiagnosticKnobsTests {
             "CMUX_NEXT_TRACE_FLOWS": "/tmp/flows",
             "CMUX_NEXT_TUI_DEBUG_SPANS": "",
             "CMUX_TUI_DEBUG_SPANS": "/tmp/stale",
+            "CMUX_NEXT_TUI_TERMINAL_HOST_MODEL": "holder",
+            "CMUX_NEXT_TUI_HOST_EXE_DIR": "/tmp/hx",
             "PATH": "/usr/bin",
         ])
-        #expect(knobs.daemonEnvironment == ["CMUX_TRACE_FLOWS": "/tmp/flows"])
+        #expect(knobs.daemonEnvironment == ["CMUX_TRACE_FLOWS": "/tmp/flows", "CMUX_TUI_TERMINAL_HOST_MODEL": "holder",
+                                            "CMUX_TUI_HOST_EXE_DIR": "/tmp/hx"])
     }
 
     @Test func noKnobsPassNothing() {

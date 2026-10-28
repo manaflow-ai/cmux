@@ -38,6 +38,9 @@
          location = "group:CmuxFeedPushCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxFuzzSupport">
+      </FileRef>
+      <FileRef
          location = "group:CmuxGhosttyKit">
       </FileRef>
       <FileRef

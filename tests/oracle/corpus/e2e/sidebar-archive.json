@@ -1,0 +1,163 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "sidebar-archive",
+  "suite": "e2e",
+  "title": "Archive and Unarchive a grouped workspace, a loose workspace and a group: each toggle runs, and the workspace keeps its group and its tabs",
+  "priority": "P1",
+  "surface": "cmux-next-native",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 1440, "height": 900}},
+  "fixture": {"seed": "e2e-sidebar-archive-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window, one workspace, one terminal tab",
+    "the daemon's sidebar document is active (SidebarDocStore.current), as it is on a fresh local launch",
+    "no workspace group before group-alpha: the home session serves personal groups and has none"
+  ],
+  "requires": ["actions", "gui"],
+  "platforms": ["mac"],
+  "steps": [
+    {
+      "id": "launched",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "layout", "intents"]},
+      "settleMaxMs": 5000,
+      "note": "the scenario of scripts/cmux-next/sidebar-archive-e2e.py (kept), without its restart, palette and Cmd-Z legs"
+    },
+    {
+      "id": "make-alpha",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "newTab", "params": {"name": "Alpha"}, "entrypoint": "script"},
+      "expect": {"outcome": "ok", "noReceiptReason": "a setup step: the case checks the archive actions, not its setup"},
+      "settleMaxMs": 10000,
+      "note": "New Workspace from a script caller: filed in the window, not shown; created/0 is its public ws_ id (ControlRouter+ActionRun)"
+    },
+    {
+      "id": "make-beta",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "newTab", "params": {"name": "Beta"}, "entrypoint": "script"},
+      "expect": {"outcome": "ok", "noReceiptReason": "a setup step: the case checks the archive actions, not its setup"},
+      "settleMaxMs": 10000
+    },
+    {
+      "id": "group-alpha",
+      "op": "action.run",
+      "target": {"workspace": "$step:make-alpha#/created/0"},
+      "args": {"action": "workspace.moveToNewGroup", "params": {"name": "Proj"}, "entrypoint": "script"},
+      "expect": {"outcome": "ok", "noReceiptReason": "a setup step: the case checks the archive actions, not its setup"},
+      "settleMaxMs": 10000
+    },
+    {
+      "id": "alpha-peer",
+      "op": "action.run",
+      "target": {"workspace": "$step:make-alpha#/created/0"},
+      "args": {"action": "workspace.newBelow", "entrypoint": "script"},
+      "expect": {"outcome": "ok", "noReceiptReason": "a setup step: the case checks the archive actions, not its setup"},
+      "settleMaxMs": 10000,
+      "note": "a second member: New Workspace Below a grouped workspace files the new one in the same group"
+    },
+    {
+      "id": "grouped",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "intents"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "archive-grouped",
+      "op": "action.run",
+      "target": {"workspace": "$step:make-alpha#/created/0"},
+      "args": {"action": "workspace.toggleArchive", "entrypoint": "script"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "settleMaxMs": 10000,
+      "note": "SidebarArchiveActions: the mark is the sidebar document item's extra.archived; Alpha stays in Proj"
+    },
+    {
+      "id": "archived-grouped",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "intents"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "unarchive-grouped",
+      "op": "action.run",
+      "target": {"workspace": "$step:make-alpha#/created/0"},
+      "args": {"action": "workspace.toggleArchive", "entrypoint": "script"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "settleMaxMs": 10000
+    },
+    {
+      "id": "archive-loose",
+      "op": "action.run",
+      "target": {"workspace": "$step:make-beta#/created/0"},
+      "args": {"action": "workspace.toggleArchive", "entrypoint": "script"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "settleMaxMs": 10000,
+      "note": "an ungrouped workspace: it moves to the end of its section's top level"
+    },
+    {
+      "id": "unarchive-loose",
+      "op": "action.run",
+      "target": {"workspace": "$step:make-beta#/created/0"},
+      "args": {"action": "workspace.toggleArchive", "entrypoint": "script"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "settleMaxMs": 10000
+    },
+    {
+      "id": "read-group",
+      "op": "cli",
+      "readOnly": true,
+      "args": {"argv": ["--json", "app", "call", "snapshot.get"]},
+      "expect": {"outcome": "ok"},
+      "note": "topology/workspace_groups/0/id is Proj's id: the launch has no group, and group-alpha made the only one"
+    },
+    {
+      "id": "archive-group",
+      "op": "cli",
+      "target": {"workspace": "$step:make-alpha#/created/0"},
+      "args": {"argv": ["--json", "action", "run", "workspaceGroup.toggleArchive", "--target", "$step:read-group#/stdout/topology/workspace_groups/0/id"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a cli step: the driver reads the cli's exit and output, not the ActionEffect kind; the toggle answering ok is the check"},
+      "settleMaxMs": 10000,
+      "note": "the action takes a workspace-group target and case-v1 has none, so the cli names Proj by its bare id (ControlRouter.target: a bare id is the action's first target kind); target names Alpha, the member the toggle touches"
+    },
+    {
+      "id": "archived-group",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "intents"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "unarchive-group",
+      "op": "cli",
+      "target": {"workspace": "$step:make-alpha#/created/0"},
+      "args": {"argv": ["--json", "action", "run", "workspaceGroup.toggleArchive", "--target", "$step:read-group#/stdout/topology/workspace_groups/0/id"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a cli step: the driver reads the cli's exit and output, not the ActionEffect kind; the toggle answering ok is the check"},
+      "settleMaxMs": 10000
+    },
+    {
+      "id": "restored",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "layout", "intents"]},
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "every toggle answers ok: on the parent of fdb69742b25 workspace.toggleArchive and workspaceGroup.toggleArchive are no actions (control.not_found, and the cli exits nonzero)",
+    "the group toggles name Proj as a workspace-group target, the kind workspaceGroup.toggleArchive takes (WorkspaceActionCatalog targets: [.workspaceGroup]); a workspace target is control.invalid_params",
+    "topology at archived-grouped, archived-group and restored equals topology at grouped, but for sequence and generation: an archive closes, moves out of its group or hides no workspace, tab or group (the mark lives in the sidebar document, not in the workspace list)",
+    "intents.totals.refused does not grow from grouped to restored",
+    "every mutation has one receipt or one typed error (I1)",
+    "ids stay stable unless the step created or closed them (I2)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "the archived row's place (last in its group or section) and its dimmed look, and Unarchive putting it back: the sidebar facet (p15-oracle-036) has no provider on the base and its rows carry no archived field (p15-oracle-271)",
+    "the row menu reading Archive or Unarchive (debug.sidebar_rows menu_x/menu_y): no facet records menu titles",
+    "the archives surviving an app restart: driver_app has no restart step (p15-oracle-023)",
+    "the palette's archive as one undo step and Cmd-Z: with no archived field a facet cannot see the undo"
+  ]
+}

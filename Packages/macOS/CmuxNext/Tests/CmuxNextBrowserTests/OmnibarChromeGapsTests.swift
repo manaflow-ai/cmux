@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The Chrome omnibox gaps left after the first parity pass (u2573,
 /// PARITY.md): tab to search, Opt-Cmd-F search, Always Show Full URLs,
@@ -102,7 +103,7 @@ struct OmnibarChromeGapsTests {
     /// The address bar starts the search once focus lands (the focus
     /// coordinator focuses it first).
     @Test func beginSearchWaitsForTheFocus() {
-        let bar = AddressBarView()
+        let bar = AddressBarView(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
         bar.frame = NSRect(x: 10, y: 20, width: 600, height: 34)
         window.contentView!.addSubview(bar)
@@ -133,7 +134,7 @@ struct OmnibarChromeGapsTests {
     @Test func theBarFollowsTheSetting() {
         let engine = OmniboxSuggestionEngine()
         engine.apply(OmniboxConfiguration(showFullURLs: true))
-        let bar = AddressBarView(suggestionEngine: engine)
+        let bar = AddressBarView(suggestionEngine: engine, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         bar.update(url: URL(string: "https://example.com/"), security: .none)
         #expect(bar.state.fieldText == "https://example.com/")
     }
@@ -141,7 +142,7 @@ struct OmnibarChromeGapsTests {
     /// The right-click menu has both items; the toggle asks the App to
     /// write the setting, the other opens search engine settings.
     @Test func theMenuTogglesFullURLsAndManagesEngines() throws {
-        let bar = AddressBarView()
+        let bar = AddressBarView(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         var written: [Bool] = []
         var managed = 0
         bar.suggestionEngine.display.setShowsFullURLs = { written.append($0) }

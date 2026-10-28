@@ -2,36 +2,40 @@
 
 use super::*;
 
+/// The payload of an `Output`, `FlowOutput` or `OutputWithColors`
+/// [`HostedTransition`].
+pub(super) struct HostedOutput {
+    pub(super) output: Vec<u8>,
+    pub(super) colors: Option<TerminalColorOverrides>,
+    /// The key press this output echoes, as the host stamped its PTY read.
+    pub(super) flow: u64,
+}
+
 impl HostedReader {
-    /// Apply one `Output` or `OutputWithColors` transition to the mirror.
+    /// Apply one output transition to the mirror.
     pub(super) fn apply_output(
         &mut self,
         surface: &Arc<Surface>,
         pty: &PtySurface,
-        transition: HostedTransition,
+        HostedOutput { output, colors, flow }: HostedOutput,
         journal_target: &mut Option<(Arc<Mux>, Arc<TerminalPublicId>)>,
         journal_update: &mut Option<TerminalJournalUpdateGuard<'_>>,
     ) -> Flow {
         let mux = self.mux.clone();
         if let Some(delay) = self.output_apply_delay {
-            std::thread::sleep(delay);
+            crate::request_path::sleep(delay);
         }
-        let (output, colors) = match transition {
-            HostedTransition::Output(output) => (output, None),
-            HostedTransition::OutputWithColors { output, colors } => (output, Some(colors)),
-            _ => unreachable!(),
-        };
         if crate::debug_spans::following() {
             follow_marks(pty, &output);
         }
-        cmux_flow_trace::hop("daemon.output.host", 0, pty.flow_terminal_id());
+        cmux_flow_trace::hop("daemon.output.host", flow, pty.flow_terminal_id());
         let mut scroll_changed = None;
         let mut title_update = None;
         let terminal_notifications;
         let finished_commands;
         let defaults = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let generation = {
-            let mut term = pty.term.lock().unwrap();
+            let mut term = pty.term.lock().recover_poison();
             if let Some(update) = journal_update.as_mut()
                 && !update.activate()
             {
@@ -75,27 +79,28 @@ impl HostedReader {
                 // violated the producer's iff contract.
                 return Flow::Break;
             }
-            pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+            pty.mouse_encoders.lock().recover_poison().sync_from_terminal(&term);
             let after = terminal_scroll_position(&term);
             // The parser already contains the complete
             // coupled state before any attach observer can
             // see the Output or ColorsChanged callback.
             let journal_output = if colors.is_some() {
                 let journal_output = journal_enabled.then(|| output.clone());
-                pty.broadcast_attach_frame(AttachFrame::OutputWithColors {
+                pty.broadcast_attach_frame(AttachFrame::output_with_colors(
                     output,
-                    colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
-                });
+                    Box::new(pty.terminal_colors_locked(&term, defaults)),
+                    flow,
+                ));
                 journal_output
             } else {
-                pty.broadcast_attach_output(&output);
+                pty.broadcast_attach_output_flow(&output, flow);
                 journal_enabled.then_some(output)
             };
             if self.title_changed.swap(false, Ordering::Relaxed) {
                 // A program that rewrites the same title (a spinner's
                 // resting frame, a prompt redraw) announces nothing.
                 let title = crate::terminal_title::read(&term);
-                let mut stored = pty.title.lock().unwrap();
+                let mut stored = pty.title.lock().recover_poison();
                 if *stored != title {
                     *stored = title.clone();
                     title_update = Some(title);
@@ -120,8 +125,7 @@ impl HostedReader {
             pty.record_output(journal_target, &journal_output);
         }
         drop(journal_update.take());
-        surface.publish_pending_directory();
-        surface.publish_pending_progress();
+        surface.post_pending_publications();
         pty.stream_progress.notify();
         pty.request_frame(generation);
         if let Some(title) = title_update
@@ -134,10 +138,8 @@ impl HostedReader {
         {
             mux.emit_terminal_scroll(surface.id, offset, at_bottom);
         }
-        if !terminal_notifications.is_empty()
-            && let Some(mux) = mux.upgrade()
-        {
-            mux.post_terminal_notifications(surface.id, terminal_notifications);
+        if !terminal_notifications.is_empty() {
+            surface.post_output_notifications(terminal_notifications);
         }
         if !finished_commands.is_empty()
             && let Some(mux) = mux.upgrade()

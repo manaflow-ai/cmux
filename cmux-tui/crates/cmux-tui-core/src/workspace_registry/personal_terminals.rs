@@ -28,6 +28,7 @@ pub fn validate_personal_terminal_key(value: &str) -> anyhow::Result<()> {
 impl WorkspaceRegistry {
     /// Set (or with `None` remove) the own theme of one terminal. Returns
     /// the stored row (`None` once removed) and whether anything changed.
+    #[track_caller]
     pub fn set_personal_terminal(
         &mut self,
         session: &str,

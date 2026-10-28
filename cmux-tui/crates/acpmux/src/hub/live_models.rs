@@ -88,16 +88,27 @@ impl Hub {
         self.live_models.lock().unwrap_or_else(PoisonError::into_inner).get(harness).cloned()
     }
 
-    /// Serves the cached lists whose programs are unchanged. Daemon start,
-    /// before the login environment and the probes.
-    pub(super) async fn load_live_cache(&self) {
-        let cached = tokio::task::spawn_blocking(|| Cache::new(Cache::default_dir()).load_all())
+    /// Serves the cached lists whose programs are unchanged: at daemon start,
+    /// before the login environment and the probes, and after memory
+    /// pressure emptied them (`memory_consumers.rs`). Whether it added a list.
+    pub(super) async fn load_live_cache(&self) -> bool {
+        let cached = crate::daemon::spawn_blocking(|| Cache::new(Cache::default_dir()).load_all())
             .await
             .unwrap_or_default();
+        self.add_live_lists(cached)
+    }
+
+    /// Adds each list for a harness that has none; whether it added one.
+    pub(super) fn add_live_lists(&self, lists: BTreeMap<String, Vec<LiveModel>>) -> bool {
         let mut live = self.live_models.lock().unwrap_or_else(PoisonError::into_inner);
-        for (harness, models) in cached {
-            live.entry(harness).or_insert(models);
+        let mut added = false;
+        for (harness, models) in lists {
+            if let std::collections::hash_map::Entry::Vacant(slot) = live.entry(harness) {
+                slot.insert(models);
+                added = true;
+            }
         }
+        added
     }
 
     /// Probes every live-list harness at once; with `wait`, returns when all
@@ -137,7 +148,7 @@ impl Hub {
         self.wait_startup().await;
         let program = target.argv.first().map(std::path::PathBuf::from);
         // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
-        let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
+        let cwd = crate::daemon::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await
             .unwrap_or_else(|_| std::env::temp_dir());
         let started = std::time::Instant::now();
@@ -146,7 +157,7 @@ impl Hub {
                 .await;
         // A list call that started a session leaves no transcript behind.
         let folder = cwd.clone();
-        let _ = tokio::task::spawn_blocking(move || {
+        let _ = crate::daemon::spawn_blocking(move || {
             crate::probe_cleanup::remove_probe_transcripts(&folder)
         })
         .await;
@@ -167,7 +178,7 @@ impl Hub {
         self.probe_errors.lock().unwrap_or_else(PoisonError::into_inner).remove(&harness);
         if let Some(key) = program.as_deref().and_then(CacheKey::of) {
             let (name, list) = (harness.clone(), models.clone());
-            let _ = tokio::task::spawn_blocking(move || {
+            let _ = crate::daemon::spawn_blocking(move || {
                 Cache::new(Cache::default_dir()).store(&name, &key, &list)
             })
             .await;
@@ -185,7 +196,7 @@ impl Hub {
 
     /// `_acpmux/harnesses_changed` with the current harness names: a model
     /// list changed, so watchers read `_acpmux/models` again.
-    async fn announce_harnesses(&self) {
+    pub(super) async fn announce_harnesses(&self) {
         let cfg = self.config.read().await;
         let names: Vec<&String> = cfg.harnesses.keys().collect();
         self.send_harness_change(

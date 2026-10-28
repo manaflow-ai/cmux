@@ -67,12 +67,12 @@ fn config(chunks: u32, dir: &Path) -> TracerConfig {
         recording: sizes(chunks),
         // Records stamp small times; a ring that starts at 0 keeps them.
         clocks: StartClocks { uptime_ns: zero, ..StartClocks::SYSTEM },
-        ..TracerConfig::for_process(dir, Role::Daemon, &CATALOG)
+        ..TracerConfig::for_process(dir, Role::Daemon)
     }
 }
 
 fn tracer(chunks: u32) -> Tracer {
-    Tracer::new(config(chunks, &std::env::temp_dir()))
+    Tracer::with_catalog(config(chunks, &std::env::temp_dir()), &CATALOG)
 }
 
 fn scratch_dir(name: &str) -> PathBuf {
@@ -286,7 +286,7 @@ fn a_thousand_short_lived_threads_reuse_the_thread_table() {
 #[test]
 fn heap_records_move_into_the_file_and_later_writes_land_there() {
     let dir = scratch_dir("adopt");
-    let tracer = Tracer::new(config(16, &dir));
+    let tracer = Tracer::with_catalog(config(16, &dir), &CATALOG);
     let read = InternedName::new("cmux.io.read", 6);
     let mut writer = Writer::new(&tracer, identity(1));
     for index in 0..100 {
@@ -341,7 +341,7 @@ fn adoption_while_eight_threads_write_doubles_nothing_and_keeps_every_later_reco
     const BEFORE: u64 = 50_000;
     const AFTER: u64 = 1_000;
     let dir = scratch_dir("adopt-live");
-    let tracer = Tracer::new(config(32768, &dir));
+    let tracer = Tracer::with_catalog(config(32768, &dir), &CATALOG);
     let adopted = Barrier::new(9);
     std::thread::scope(|scope| {
         for thread in 1..=8u32 {
@@ -383,7 +383,7 @@ fn a_full_disk_keeps_the_black_box_on_the_heap() {
         Err(std::io::Error::other("no space left on device"))
     }
     let dir = scratch_dir("full");
-    let tracer = Tracer::new(TracerConfig { reserve: full, ..config(16, &dir) });
+    let tracer = Tracer::with_catalog(TracerConfig { reserve: full, ..config(16, &dir) }, &CATALOG);
     let mut writer = Writer::new(&tracer, identity(1));
     writer.write(checked(1, 0));
     assert!(tracer.adopt_file().is_err());
@@ -402,7 +402,7 @@ fn a_full_disk_keeps_the_black_box_on_the_heap() {
 #[test]
 fn start_record_stop_and_restart_move_writes_between_the_rings() {
     let dir = scratch_dir("recording");
-    let tracer = Tracer::new(config(16, &dir));
+    let tracer = Tracer::with_catalog(config(16, &dir), &CATALOG);
     tracer.adopt_file().expect("adopts");
     let read = InternedName::new("cmux.io.read", 6);
     let mut writer = Writer::new(&tracer, identity(1));
@@ -514,25 +514,28 @@ fn golden_bytes() -> Vec<u8> {
     }
     let mut build_version = [0u8; 32];
     build_version[..18].copy_from_slice(b"1.2.3 (45) abcdef0");
-    let tracer = Tracer::new(TracerConfig {
-        blackbox: sizes(4),
-        recording: sizes(4),
-        clocks: StartClocks {
-            uptime_ns: uptime,
-            unix_ns: unix,
-            continuous_ns: continuous,
-            domain: ClockDomain::UptimeRaw,
+    let tracer = Tracer::with_catalog(
+        TracerConfig {
+            blackbox: sizes(4),
+            recording: sizes(4),
+            clocks: StartClocks {
+                uptime_ns: uptime,
+                unix_ns: unix,
+                continuous_ns: continuous,
+                domain: ClockDomain::UptimeRaw,
+            },
+            identity: ProcessIdentity {
+                pid: 4242,
+                process_start_unix_us: 1_699_999_999_000_000,
+                boot_session_uuid: std::array::from_fn(|index| 0x10 + index as u8),
+                build_uuid: std::array::from_fn(|index| 0x20 + index as u8),
+                build_version,
+            },
+            read_slow_identity: |_| {},
+            ..TracerConfig::for_process("/nonexistent", Role::Daemon)
         },
-        identity: ProcessIdentity {
-            pid: 4242,
-            process_start_unix_us: 1_699_999_999_000_000,
-            boot_session_uuid: std::array::from_fn(|index| 0x10 + index as u8),
-            build_uuid: std::array::from_fn(|index| 0x20 + index as u8),
-            build_version,
-        },
-        read_slow_identity: |_| {},
-        ..TracerConfig::for_process("/nonexistent", Role::Daemon, &CATALOG)
-    });
+        &CATALOG,
+    );
     let read = InternedName::new("cmux.io.read", 6);
     let record =
         |t_ns, name, phase, flags, arg0, arg1| Record { t_ns, name, phase, flags, arg0, arg1 };

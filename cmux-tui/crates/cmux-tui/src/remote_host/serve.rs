@@ -5,11 +5,11 @@ use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, anyhow, bail};
+use cmux_process::{Command, Stdio};
 use serde_json::{Value, json};
 
 use super::admit::{self, Decision};
@@ -121,6 +121,9 @@ fn plain_ip(addr: SocketAddr) -> IpAddr {
 
 pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
     let ready = super::service::take_ready_signal();
+    if let Some(note) = super::service::upgrade_installed_role() {
+        eprintln!("cmux host: {note}");
+    }
     let config = config::load()?;
     if !config.enabled {
         eprintln!("cmux host: remote hosting is disabled (run `cmux host enable`)");
@@ -380,7 +383,6 @@ pub(crate) fn ensure_session(exe: &Path, session: &str) -> anyhow::Result<PathBu
         let _ = (&mut stdout).take(1024 * 1024).read_to_end(&mut buf);
         buf
     });
-    use wait_timeout::ChildExt as _;
     let status = match child.wait_timeout(ENSURE_BOUND)? {
         Some(status) => status,
         None => {
