@@ -18,13 +18,34 @@ import { refused, type PlatformCall, type PlatformReply } from "./cloud-platform
  * PLATFORM_MACHINES is "on" (development today): elsewhere every call is refused before any lookup.
  */
 export class PlatformMachines extends WorkerEntrypoint<Env> {
-  boot(caller: PlatformCaller, name: string, snapshot?: string | null): Promise<PlatformReply<{ id: string }>> {
+  boot(caller: PlatformCaller, name: string, snapshot?: string | null, shape?: PlatformShape): Promise<PlatformReply<{ id: string }>> {
     if (snapshot !== undefined && snapshot !== null && !matches(SNAPSHOT, snapshot)) return invalid("snapshot")
-    return this.call(caller, { op: "boot", name, ...(snapshot ? { snapshot } : {}) }) as Promise<PlatformReply<{ id: string }>>
+    if (shape !== undefined && !validShape(shape)) return invalid("shape")
+    return this.call(caller, { op: "boot", name, ...(snapshot ? { snapshot } : {}), ...(shape ? { shape } : {}) }) as Promise<PlatformReply<{ id: string }>>
   }
 
   find(caller: PlatformCaller, name: string): Promise<PlatformReply<{ id: string } | null>> {
     return this.call(caller, { op: "find", name }) as Promise<PlatformReply<{ id: string } | null>>
+  }
+
+  get(caller: PlatformCaller, machine: string): Promise<PlatformReply<PlatformMachine>> {
+    return this.call(caller, { op: "get", machine }) as Promise<PlatformReply<PlatformMachine>>
+  }
+
+  shape(caller: PlatformCaller, machine: string): Promise<PlatformReply<PlatformShape>> {
+    return this.call(caller, { op: "shape", machine }) as Promise<PlatformReply<PlatformShape>>
+  }
+
+  pause(caller: PlatformCaller, machine: string): Promise<PlatformReply<{ id: string }>> {
+    return this.call(caller, { op: "pause", machine }) as Promise<PlatformReply<{ id: string }>>
+  }
+
+  resume(caller: PlatformCaller, machine: string): Promise<PlatformReply<{ id: string }>> {
+    return this.call(caller, { op: "resume", machine }) as Promise<PlatformReply<{ id: string }>>
+  }
+
+  fork(caller: PlatformCaller, machine: string, name: string): Promise<PlatformReply<{ id: string }>> {
+    return this.call(caller, { op: "fork", machine, name }) as Promise<PlatformReply<{ id: string }>>
   }
 
   exec(caller: PlatformCaller, machine: string, command: string, stdin: string | null, timeoutMs: number): Promise<PlatformReply<{ exitCode: number; stdout: string; stderr: string }>> {
@@ -63,6 +84,18 @@ export interface PlatformCaller {
   readonly user: string
 }
 
+export interface PlatformShape {
+  readonly vcpu: number
+  readonly memGiB: number
+  readonly diskGiB: number
+}
+
+export interface PlatformMachine {
+  readonly id: string
+  readonly state: string
+  readonly region: "global"
+}
+
 const TEAM = /^team_[A-Za-z0-9]{1,64}$/
 const USER = /^user_[A-Za-z0-9]{1,64}$/
 /** The caller's name for a builder or snapshot (one per environment and attempt): it keys the op, so a retry reaches the same one. */
@@ -73,4 +106,9 @@ const MAX_COMMAND = 64 * 1024
 const MAX_STDIN = 64 * 1024
 /** Only a string matches: an RPC caller can pass any structured value. */
 const matches = (re: RegExp, v: unknown): v is string => typeof v === "string" && re.test(v)
+const validShape = (shape: PlatformShape): boolean =>
+  shape !== null && typeof shape === "object" &&
+  Number.isSafeInteger(shape.vcpu) && shape.vcpu > 0 &&
+  Number.isSafeInteger(shape.memGiB) && shape.memGiB > 0 &&
+  Number.isSafeInteger(shape.diskGiB) && shape.diskGiB > 0
 const invalid = (what: string) => Promise.resolve(refused("validation.invalid", `invalid ${what}`, false))
