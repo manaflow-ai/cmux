@@ -166,8 +166,8 @@ import Testing
         #expect(await calls.opens.count == 1)
     }
 
-    /// The button counts the names the list shows, not only the rows' conversation titles: a Chief
-    /// renamed to "Chief" whose conversation is still titled otherwise takes that name.
+    /// The button counts the names the list shows (records and renames being saved), not only the
+    /// rows' conversation titles: a name only the list shows is not given to the new Chief.
     @MainActor @Test(.timeLimit(.minutes(1))) func theNewChiefButtonSkipsANameTheListShows() async throws {
         let calls = Calls()
         let (opened, open) = AsyncStream<Void>.makeStream()
@@ -183,7 +183,9 @@ import Testing
                 return "conv_named02"
             })
         }
-        services.home.chiefRenames.rename(ConversationID("conv_renamed"), to: HomeStrings.chiefName, record: "Scout")
+        // A Chief the list shows as "Chief" (a rename being saved) while no row is titled so.
+        services.home.chiefRenames.rename(ConversationID("conv_renamed"), to: HomeStrings.chiefName, record: nil)
+        #expect(services.home.chiefNames[ConversationID("conv_renamed")] == HomeStrings.chiefName)
         let page = TopHomePageView(services: services, windowKey: { "new-chief-shown-names" })
         page.list.newChief.performClick(nil)
         var iterator = opened.makeAsyncIterator()
