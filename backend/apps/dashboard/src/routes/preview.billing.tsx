@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useLocale } from "../lib/approval-strings"
-import { BILLING_STATE_NAMES, BILLING_STATES } from "./-billing-fixtures"
+import { AUTO_RELOAD_SAMPLE, BILLING_STATE_NAMES, BILLING_STATES } from "./-billing-fixtures"
 import { BillingView } from "./-billing-view"
 
 /**
@@ -25,7 +25,7 @@ function Preview() {
       {states.map((s) => (
         <section key={s} data-state={s} style={{ marginBottom: 48 }}>
           <p className="muted mono">{s}: {BILLING_STATES[s]!.note}</p>
-          <BillingView data={BILLING_STATES[s]!.data} locale={locale} onTopUp={() => {}} />
+          <BillingView data={BILLING_STATES[s]!.data} locale={locale} onTopUp={() => {}} autoReload={AUTO_RELOAD_SAMPLE} onSaveAutoReload={async () => null} />
         </section>
       ))}
     </div>

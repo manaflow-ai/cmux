@@ -124,12 +124,12 @@ export type ApiResult<T> = { readonly status: number; readonly body: T }
 const postImpl = <T,>(path: string, payload: unknown, team?: string): Promise<ApiResult<T>> => callImpl<T>("POST", path, payload, team)
 
 /** One API call with the cookie's access token (GET sends no body); refreshes once on a missing token or a 401. */
-const callImpl = async <T,>(method: "GET" | "POST", path: string, payload: unknown, team?: string): Promise<ApiResult<T>> => {
+const callImpl = async <T,>(method: "GET" | "POST" | "PUT", path: string, payload: unknown, team?: string): Promise<ApiResult<T>> => {
   const send = async (token: string) => {
     const res = await fetch(`${apiUrl()}${path}`, {
       method,
-      headers: { ...(method === "POST" ? { "content-type": "application/json" } : {}), authorization: `Bearer ${token}`, ...teamHeaders(team) },
-      ...(method === "POST" ? { body: JSON.stringify(payload) } : {})
+      headers: { ...(method !== "GET" ? { "content-type": "application/json" } : {}), authorization: `Bearer ${token}`, ...teamHeaders(team) },
+      ...(method !== "GET" ? { body: JSON.stringify(payload) } : {})
     })
     return { status: res.status, body: (await res.json().catch(() => ({}))) as T }
   }
@@ -204,4 +204,15 @@ export const creditsTopup = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     requireSameOrigin()
     return callImpl<{ ok: boolean; value?: { url: string }; error?: { code: string; message: string } }>("POST", "/v1/credits/topup", { usd: data.usd }, data.team)
+  })
+
+/** GET or PUT /v1/credits/auto-reload (paid-plans-DESIGN.md §6.3); `settings` absent reads. */
+export const creditsAutoReload = createServerFn({ method: "POST" })
+  .validator((d: { team?: string; settings?: { enabled: boolean; threshold_usd: number; amount_usd: number; monthly_cap_usd: number } }) => d)
+  .handler(async ({ data }) => {
+    requireSameOrigin()
+    if (!data.settings) return callImpl<{ ok: boolean; value?: Json; error?: { code: string; message: string } }>("GET", "/v1/credits/auto-reload", null, data.team)
+    const s = data.settings
+    if (s.amount_usd <= 0 || s.monthly_cap_usd <= 0) return { status: 400, body: { ok: false, error: { code: "validation.invalid", message: "amounts" } } }
+    return callImpl<{ ok: boolean; value?: Json; error?: { code: string; message: string } }>("PUT", "/v1/credits/auto-reload", s, data.team)
   })

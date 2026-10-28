@@ -8,7 +8,7 @@ const free: BillingSummary = {
   personal: true,
   plan: { id: null, name: "Free", paid: false },
   usage: null,
-  credits: { available_usd: 0, balance_usd: 0, held_usd: 0, entries: [], topup_amounts_usd: [10, 20, 50, 100] },
+  credits: { available_usd: 0, balance_usd: 0, held_usd: 0, entries: [], topup_amounts_usd: [10, 20, 50, 100], topup_min_usd: 5, topup_max_usd: 2500 },
   upgrade: [
     { id: "pro", name: "cmux Pro", usd: 50, checkout_url: "#checkout-pro" },
     { id: "max", name: "cmux Max", usd: 200, checkout_url: "#checkout-max" }
@@ -38,3 +38,6 @@ export const BILLING_STATES: Record<string, { note: string; data: BillingSummary
   unknown: { note: "The plan service did not answer", data: { ...free, plan: { id: null, name: "Free", paid: false, unavailable: true } } }
 }
 export const BILLING_STATE_NAMES = Object.keys(BILLING_STATES)
+
+/** The auto-reload panel's sample (on, one reload this month). */
+export const AUTO_RELOAD_SAMPLE = { enabled: true, threshold_usd: 10, amount_usd: 20, monthly_cap_usd: 100, month_reloaded_usd: 20, last_error: null }

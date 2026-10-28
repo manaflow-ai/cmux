@@ -18,6 +18,8 @@ export interface BillingSummary {
     readonly held_usd: number
     readonly entries: ReadonlyArray<{ readonly kind: string; readonly usd: number; readonly at: number }>
     readonly topup_amounts_usd: ReadonlyArray<number>
+    readonly topup_min_usd?: number
+    readonly topup_max_usd?: number
   } | null
   readonly upgrade: ReadonlyArray<{ readonly id: string; readonly name: string; readonly usd: number; readonly checkout_url: string | null }>
   readonly manage_url: string
@@ -69,4 +71,32 @@ export const billingModel = (s: BillingSummary): BillingModel => {
       ? []
       : s.upgrade.map((p, i) => ({ id: p.id, name: p.name, usd: p.usd, href: p.checkout_url ?? s.pricing_url, recommended: status === "free" && i === 0 }))
   return { status, meter, offers, canTopUp: (s.credits?.topup_amounts_usd.length ?? 0) > 0 }
+}
+
+/** Why a typed amount cannot be a top-up: not a number, not whole cents, or outside the range; null when it can. */
+export const topupError = (input: string, min: number, max: number): "number" | "cents" | "range" | null => {
+  const t = input.trim()
+  if (!/^\d+(\.\d+)?$/.test(t)) return "number"
+  if (!/^\d+(\.\d{1,2})?$/.test(t)) return "cents"
+  const v = Number(t)
+  return v < min || v > max ? "range" : null
+}
+
+/** The auto-reload form as typed. */
+export interface AutoReloadForm {
+  readonly enabled: boolean
+  readonly threshold: string
+  readonly amount: string
+  readonly cap: string
+}
+
+/** The first field of an enabled form that cannot be saved; null when it can (an off form saves as is). */
+export const autoReloadError = (f: AutoReloadForm, min: number, max: number): "threshold" | "amount" | "cap" | null => {
+  if (!f.enabled) return null
+  const n = (v: string) => (/^\d+(\.\d{1,2})?$/.test(v.trim()) ? Number(v) : NaN)
+  const threshold = n(f.threshold), amount = n(f.amount), cap = n(f.cap)
+  if (!(threshold >= 0 && threshold <= max)) return "threshold"
+  if (!(amount >= min && amount <= max)) return "amount"
+  if (!(cap >= amount && cap <= max * 20)) return "cap"
+  return null
 }
