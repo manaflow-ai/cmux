@@ -1123,6 +1123,157 @@ class ImplicitWindowRuleTests(Fixture):
         self.assertIn("escape: // window-allow: <why the window is explicit here>", listing)
 
 
+class KeyReplayRuleTests(Fixture):
+    """key-replay (hold-class rule part (c)): an added line that re-dispatches a key event (NSApp/window
+    `sendEvent`, `NSApp.postEvent`, a keyboard CGEvent or its post) in Sources is refused outside the InputReplay
+    seam; mouse and scroll re-dispatch is not covered; `// key-replay-allow:` escapes it; key-replay-record keeps
+    scripts/cmux-next/key-replay-baseline.tsv's per-file counts going down only."""
+
+    APP_FILE = f"{APP}/Focus/KeyRouter+Held.swift"
+    RECORD = "scripts/cmux-next/key-replay-baseline.tsv"
+    MOUSE_CLICK = ("func click(at point: NSPoint, in window: NSWindow) {\n"
+                   "    for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {\n"
+                   "        guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,\n"
+                   "                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0,\n"
+                   "                                             clickCount: 1, pressure: 1) else { continue }\n"
+                   "        {call}\n    }\n}\n")
+
+    def refused_lines(self):
+        return [(rule, lines) for rule, lines in self.refused() if rule.startswith("key-replay")]
+
+    def add(self, text, path=None, message="adds a replay"):
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(path or self.APP_FILE, text)
+        self.commit(message)
+        return self.refused_lines()
+
+    def test_every_key_replay_is_refused(self):
+        # Before this rule, an added `NSApp.sendEvent(key)` passed every guardrail (the red half of this test).
+        cases = {
+            "NSApp.sendEvent(event)": "func flush(_ held: [NSEvent]) {\n    for event in held where event.type == .keyDown {\n"
+                                      "        NSApp.sendEvent(event)\n    }\n}\n",
+            "window.sendEvent(event)": "func replay(_ event: NSEvent, in window: NSWindow) {\n    window.sendEvent(event)\n}\n",
+            "NSApplication.shared.sendEvent(key)": "func replay(_ key: NSEvent) {\n    NSApplication.shared.sendEvent(key)\n}\n",
+            "NSApp.postEvent(event, atStart: false)": "func resend(_ event: NSEvent) {\n    NSApp.postEvent(event, atStart: false)\n}\n",
+            "var resendKey: (NSEvent) -> Void = { NSApp.sendEvent($0) }":
+                "final class Surface {\n    var resendKey: (NSEvent) -> Void = { NSApp.sendEvent($0) }\n}\n",
+            "shell.sendEvent(event)": "func drain(_ event: NSEvent) {\n    if !router.interceptKeyDown(event, in: shell) {\n"
+                                      "        shell.sendEvent(event)\n    }\n}\n",
+            "let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true)":
+                "func press() {\n    let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true)\n}\n",
+        }
+        for code, text in cases.items():
+            with self.subTest(code=code):
+                self.assertEqual(self.add(text), [("key-replay", [f"KeyRouter+Held.swift: {code}"])])
+
+    def test_a_keyboard_cgevent_post_counts_both_lines(self):
+        text = ("func press() {\n    let down = CGEvent(keyboardEventSource: nil, virtualKey: 55, keyDown: true)\n"
+                "    down?.post(tap: .cghidEventTap)\n}\n")
+        self.assertEqual(self.add(text), [("key-replay", [
+            "KeyRouter+Held.swift: let down = CGEvent(keyboardEventSource: nil, virtualKey: 55, keyDown: true)",
+            "KeyRouter+Held.swift: down?.post(tap: .cghidEventTap)"])])
+
+    def test_mouse_and_scroll_redispatch_is_not_covered(self):
+        cases = {
+            "a synthesized click": self.MOUSE_CLICK.replace("{call}", "window.sendEvent(event)"),
+            "a posted click": self.MOUSE_CLICK.replace("{call}", "NSApp.postEvent(event, atStart: false)"),
+            "a forwarded mouse event": ("private func forward(_ event: NSEvent) {\n    guard let parent = window?.parent,\n"
+                                        "          let forwarded = NSEvent.mouseEvent(with: event.type, location: .zero,\n"
+                                        "              modifierFlags: [], timestamp: 0, windowNumber: parent.windowNumber,\n"
+                                        "              context: nil, eventNumber: 0, clickCount: event.clickCount, pressure: 1)\n"
+                                        "    else { return }\n    parent.sendEvent(forwarded)\n}\n"),
+            "a click-through": ("override func sendEvent(_ event: NSEvent) {\n"
+                                "    guard let parent, let forwarded = clickThrough(event, to: parent) else { return super.sendEvent(event) }\n"
+                                "    parent.sendEvent(forwarded)\n}\n"),
+            "a scroll": ("func scroll(in window: NSWindow) {\n"
+                         "    guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: 4, wheel2: 0, wheel3: 0),\n"
+                         "          let nsEvent = NSEvent(cgEvent: event) else { return }\n    NSApp.sendEvent(nsEvent)\n}\n"),
+            "a posted mouse CGEvent": ("func move(to point: CGPoint) {\n"
+                                       "    let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)\n"
+                                       "    move?.post(tap: .cghidEventTap)\n}\n"),
+            "an override passing to super": "override func sendEvent(_ event: NSEvent) {\n    note(event)\n    super.sendEvent(event)\n}\n",
+            "a look-alike": "func f() {\n    let mouse = sendEvents\n    analytics.track(\"sendEvent\")\n}\n",
+        }
+        for how, text in cases.items():
+            with self.subTest(how=how):
+                self.assertEqual(self.add(text), [])
+
+    def test_debug_and_bench_handlers_count_and_tests_do_not(self):
+        text = "func f(_ event: NSEvent) {\n    NSApp.sendEvent(event)\n}\n"
+        self.assertEqual(self.add(text, f"{APP}/Control/DebugKeyBench.swift"),
+                         [("key-replay", ["DebugKeyBench.swift: NSApp.sendEvent(event)"])])
+        self.assertEqual(self.add(text, f"{PKG}/Tests/CmuxNextAppTests/ReplayTests.swift"), [])
+
+    def test_the_escape_in_the_standard_window(self):
+        reason = "// key-replay-allow: held_by=launch-picture, 50 ms limit, measured as debug.input hold stage"
+        for how, text in (("above", f"func f(_ event: NSEvent) {{\n    {reason}\n    NSApp.sendEvent(event)\n}}\n"),
+                          ("trailing", f"func f(_ event: NSEvent) {{\n    NSApp.sendEvent(event) {reason}\n}}\n")):
+            with self.subTest(how=how):
+                self.assertEqual(self.add(text), [])
+        for how, text in (("no reason", "func f(_ event: NSEvent) {\n    // key-replay-allow:\n    NSApp.sendEvent(event)\n}\n"),
+                          ("another tag", "func f(_ event: NSEvent) {\n    // window-allow: the event's window\n"
+                                          "    NSApp.sendEvent(event)\n}\n")):
+            with self.subTest(how=how):
+                self.assertEqual(self.add(text), [("key-replay", ["KeyRouter+Held.swift: NSApp.sendEvent(event)"])])
+
+    def test_only_the_seam_file_may_replay(self):
+        seam = f"{APP}/Focus/InputReplay.swift"
+        text = "func replay(_ event: NSEvent, heldBy: String) {\n    NSApp.sendEvent(event)\n}\n"
+        self.assertEqual(self.add(text, seam), [("key-replay", ["InputReplay.swift: NSApp.sendEvent(event)"])])
+        with mock.patch.object(guardrails, "KEY_REPLAY_SEAMS", (seam,)):
+            self.assertEqual(self.refused_lines(), [])
+            self.assertEqual(self.add(text, f"{APP}/Focus/Other.swift"),
+                             [("key-replay", ["Other.swift: NSApp.sendEvent(event)"])])
+
+    def test_base_debt_is_not_new_and_lowering_passes(self):
+        old = "func f(_ event: NSEvent) {\n    window.sendEvent(event)\n}\n"
+        self.rebase_on({self.APP_FILE: old, self.RECORD: "# path\tcount\n" + f"{self.APP_FILE}\t1\n"}, "base replay")
+        self.write(self.APP_FILE, old.replace("window.", "self.window.") + "func g() {}\n")
+        self.commit("edits the old replay")
+        self.assertEqual(self.refused_lines(), [])
+        self.write(self.APP_FILE, "func f(_ event: NSEvent) {\n    route(event, to: terminalID)\n}\n")
+        self.commit("routes by id instead")
+        refusals, warnings = self.check()
+        self.assertEqual([r.id for r, _ in refusals], [])
+        self.assertEqual([kind for kind, text in warnings if "key re-dispatches 1 -> 0" in text], ["key-replay-record"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(guardrails.main(["--repo", str(self.repo), "--key-replay-update"]), 0)
+        self.assertEqual(guardrails.record_rows((self.repo / self.RECORD).read_text()), {})
+        self.commit("lowers the record")
+        self.assertEqual(self.check()[0], [])
+
+    def test_the_record_never_rises(self):
+        other = f"{APP}/Focus/Other.swift"
+        self.rebase_on({self.APP_FILE: "func f(_ event: NSEvent) {\n    window.sendEvent(event)\n}\n", other: "func g() {}\n",
+                        self.RECORD: "# path\tcount\n" + f"{self.APP_FILE}\t1\n"}, "base replay")
+        self.write(self.RECORD, "# path\tcount\n" + f"{self.APP_FILE}\t2\n")
+        self.commit("raises a row by hand")
+        self.assertEqual([rule for rule, _ in self.refused_lines()], ["key-replay-record"])
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(self.APP_FILE, "func f() {}\n")
+        self.write(other, "func g(_ event: NSEvent) {\n    window.sendEvent(event)\n}\n")
+        self.commit("moves the replay")
+        self.assertEqual([rule for rule, _ in self.refused_lines()], ["key-replay-record"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(guardrails.main(["--repo", str(self.repo), "--key-replay-update"]), 0)
+        self.commit("records the move")
+        self.assertEqual(self.refused_lines(), [])
+
+    def test_the_checked_in_record_matches_the_tree(self):
+        rows = {p: n for p, (n, _) in guardrails.record_rows((SOURCE / self.RECORD).read_text()).items()}
+        tree = guardrails.KEY_REPLAY_RECORD.tree(SOURCE, "HEAD")
+        self.assertEqual({p: n for p, n in tree.items() if n > rows.get(p, 0)}, {}, "a file over its row")
+
+    def test_listed_with_its_escape(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(guardrails.main(["--list"]), 0)
+        listing = "\n" + out.getvalue()
+        self.assertIn("\nkey-replay: ", listing)
+        self.assertIn("\nkey-replay-record: ", listing)
+        self.assertIn("escape: // key-replay-allow: <held_by, the <= 50 ms limit and its measured stage>", listing)
+
+
 class AppSizeTests(Fixture):
     """`app-size`: a push grows CmuxNextApp's root only by its wiring budget and adds App files only as moves
     (refusals); App growth is a warning (guardrails.py "app-size"), in source lines."""
