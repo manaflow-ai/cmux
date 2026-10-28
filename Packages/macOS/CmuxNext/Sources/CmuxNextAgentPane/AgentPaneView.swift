@@ -68,6 +68,8 @@ public final class AgentPaneView: NSView {
     /// go without its teardown (2026-10-28: AppKit's teardown of its Chromium page then aborted the app). A report
     /// only; nothing else changes.
     public var onFreedUnclosed: (@MainActor (AgentPaneMaker) -> Void)?
+    /// ``close()`` ran.
+    private(set) var isClosed = false
     let pageEvents: AgentPageProvider
     let warmup: AgentPageWarmup? // the app's agent page WebKit warm-up (init's `warmup`)
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
@@ -268,6 +270,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             sessionStatusObservation?.cancel()
+            if !isClosed { onFreedUnclosed?(maker) }
         }
     }
 
@@ -314,6 +317,7 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        isClosed = true
         rateReapply?.cancel()
         motionObservation = nil
         iconFamilyObservation = nil
