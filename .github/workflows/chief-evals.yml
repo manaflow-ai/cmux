@@ -1,6 +1,8 @@
 # Chief fast evals (plans/cmux-next/agent-evals-DESIGN.md, "Chief fast evals"):
-# every push that touches Chief code gets a score. GitHub-hosted Linux, never
-# Blacksmith (Lawrence 2026-10-26). Deterministic cases (tests/eval_*.rs) gate;
+# every push that touches Chief code gets a score. Blacksmith Linux: no job in
+# manaflow-ai selects a GitHub-hosted runner, so a GitHub billing block or a
+# hosted queue never stops it (tests/test_ci_self_hosted_guard.sh,
+# check_no_github_hosted_runners). Deterministic cases (tests/eval_*.rs) gate;
 # model cases (evals/cases/*.json) run through the team subrouter on the tailnet
 # and are reported in the job summary. When the model route is down they are
 # skipped with a warning, so a subrouter outage never reads as a Chief failure.
@@ -32,7 +34,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   evals:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

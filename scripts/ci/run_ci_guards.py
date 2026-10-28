@@ -20,7 +20,11 @@ guard (cmuxterm-hq tools/agent-guards) accepts in place of the CI check:
 before them), in seconds. `--root DIR` runs another checkout's ci-guards.yml
 and tests with this runner, and `--results FILE` writes each step's outcome as
 JSON; guard_attribution.py uses the three to find the commit that first fails
-a step. `--json PATH` writes the full plan and every step's result, which
+a step. A step that runs several independent checks (tests/test_ci_self_hosted_guard.sh)
+reports each one through $CMUX_GUARD_CHECK_RESULTS ("<passed 0|1><TAB><check>"
+lines), and --results lists each as "<step> :: <check>" beside the step, so
+guards_new_reds.py compares checks, not just steps: one check red on the base
+cannot mask a different check red on the change. `--json PATH` writes the full plan and every step's result, which
 scripts/ci/merge_main.py uses to tell a failure the branch inherited from main
 from one it introduced.
 """
@@ -158,6 +162,25 @@ class StepResult:
     ok: bool | None  # None: skipped on this platform
     seconds: float
     output: str
+    # The step's own checks, when it reports them (CHECK_RESULTS_ENV).
+    checks: dict[str, bool] = dataclasses.field(default_factory=dict)
+
+
+CHECK_RESULTS_ENV = "CMUX_GUARD_CHECK_RESULTS"
+CHECK_SEPARATOR = " :: "
+
+
+def read_check_results(path: Path) -> dict[str, bool]:
+    """A step's per-check outcomes: "<passed 0|1><TAB><check>" lines."""
+    checks: dict[str, bool] = {}
+    if not path.exists():
+        return checks
+    for line in path.read_text(errors="replace").splitlines():
+        passed, sep, name = line.partition("\t")
+        if sep and name.strip() and passed in ("0", "1"):
+            name = name.strip()
+            checks[name] = checks.get(name, True) and passed == "1"
+    return checks
 
 
 def load_yaml(path: Path):
@@ -363,8 +386,12 @@ def run_steps(
                     results.append(StepResult(unit, step, None, 0.0, ""))
                     continue
                 step = dataclasses.replace(step, run=PORTABLE_SUBSTITUTES[step.name])
+            check_file = temp_path / "step-checks.tsv"
+            check_file.unlink(missing_ok=True)
+            step_env[CHECK_RESULTS_ENV] = str(check_file)
             returncode, output = run_step(step, cwd, step_env, temp_path / "step.log")
-            results.append(StepResult(unit, step, returncode == 0, time.monotonic() - started, output))
+            results.append(StepResult(unit, step, returncode == 0, time.monotonic() - started, output,
+                                      read_check_results(check_file)))
             if returncode != 0 and not keep_going:
                 break
     return results
@@ -542,6 +569,7 @@ def write_results(path: str, head_sha: str, base_sha: str, units: list[Unit],
                 "status": "skipped" if r.ok is None else ("pass" if r.ok else "fail"),
                 "seconds": round(r.seconds, 2),
                 "output_tail": "\n".join(r.output.rstrip().splitlines()[-40:]) if r.ok is False else "",
+                "checks": dict(sorted(r.checks.items())),
             }
             for r in results
         ],
@@ -678,6 +706,9 @@ def main(argv: list[str]) -> int:
         for result in results:
             if result.ok is not None:
                 outcome[result.step.name] = outcome.get(result.step.name, True) and bool(result.ok)
+                for check, ok in result.checks.items():
+                    key = f"{result.step.name}{CHECK_SEPARATOR}{check}"
+                    outcome[key] = outcome.get(key, True) and ok
         Path(args.results).write_text(json.dumps(outcome, indent=2, sort_keys=True) + "\n")
     print(f"cmux guards: {passed} steps passed, {len(failed)} failed, {len(skipped)} skipped (Linux only) in {seconds:.1f}s")
     if args.json_path:
