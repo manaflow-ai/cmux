@@ -37,23 +37,29 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
     await vite?.close();
   });
 
-  test("cold 3k-row upward wheels preserve the visible row's position", async () => {
+  test("cold 3k-turn upward wheels preserve the visible row's position", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
     try {
       await installPaintedFrames(page);
       await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
       await page.waitForFunction(() => "__debug" in window);
-      await page.evaluate(`window.__debug.seedRows(3000)`);
-      // turnView also inserts a date row before the synthetic transcript's 3,000 source rows.
+      // Three source rows per synthetic turn: user, assistant and summary.
+      const seeded = (await page.evaluate(`window.__debug.seedRows(9000)`)) as { rows: number };
+      expect(seeded.rows).toBe(9_000);
       await page.waitForFunction(
-        () => Number(document.querySelector(".acpmux-row")?.getAttribute("aria-setsize")) >= 3_000,
+        () => Number(document.querySelector(".acpmux-row")?.getAttribute("aria-setsize")) >= 9_000,
+      );
+      const shownRows = await page.evaluate(() =>
+        Number(document.querySelector(".acpmux-row")?.getAttribute("aria-setsize")),
       );
       // No warm fling: rows encountered above the viewport must still have estimated heights.
       const steps = Array.from({ length: 240 }, (_, frame) => -[18.25, 42.5, 27.75, 56.125][frame % 4]!);
       const result = await page.evaluate(traceUpwardAnchors, { steps });
       // Preserve the complete row-id/y trace in the hosted log, on both a pass and a failure.
-      console.log(`transcript-upward-anchor: ${JSON.stringify(result)}`);
+      console.log(
+        `transcript-upward-anchor: ${JSON.stringify({ sourceRows: seeded.rows, turns: seeded.rows / 3, shownRows, ...result })}`,
+      );
       expect(result.cancelledWheels).toBe(0);
       expect(result.wheelPixels).toBeLessThan(-8_000);
       expect(result.compared).toBe(result.frames);
