@@ -75,6 +75,15 @@ extension AgentPaneTransport {
             }
         }
 
+        /// Only subscription metadata, read from the checked frame before either send path.
+        func questionLifecycle() -> (method: String?, session: String?, watchEnabled: Bool?) {
+            frame.withLock { object in
+                let params = object["params"] as? [String: Any]
+                return (object["method"] as? String, params?["sessionId"] as? String,
+                        params?["enabled"] as? Bool)
+            }
+        }
+
         /// Replaces the frame with the parse of `text`; false when `text` is not one JSON object.
         func replace(withJSON text: String) -> Bool {
             frame.withLock { object in

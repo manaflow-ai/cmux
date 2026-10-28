@@ -69,6 +69,15 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     func pageFrameNotSent(method: String?) {
         replacements.notSent(method: method, connection: connection)
     }
+
+    func questionRequest(method: String?, session: String?, watchEnabled: Bool?, token: Int?) {
+        pendingQuestions.request(method: method, session: session, watchEnabled: watchEnabled,
+                                 token: token, connection: connection)
+    }
+
+    func questionRequestCancelled(token: Int) {
+        pendingQuestions.snapshotRequestCancelled(token: token, connection: connection)
+    }
     private let ids: AcpmuxRequestIds
     /// Sends a reply in place on (``AgentPaneAgentReply``); nil refuses every one.
     private let agentReplies: AgentPaneAgentReply.Send?
@@ -188,7 +197,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     enqueue(page, awaited: awaited)
                     state.withLock { $0.processing = false }
                     return close(code: 1008, reason: "duplicate key", error: .duplicateKey)
-                case .page(let fresh, let object, let method):
+                case .page(let fresh, let object, let method, let requestToken):
                     if method == AcpmuxPaneMethods.initialize { readChallenge(object) }
                     // The observers read the same parse the page gets.
                     options.observe(object, replyTo: method)
@@ -196,7 +205,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     sessions.observeFolder(object, replyTo: method)
                     if wire != nil { sessions.observeTabSession(object, replyTo: method) }
                     decisions.observe(object, replyTo: method)
-                    pendingQuestions.observe(object, replyTo: method, connection: connection)
+                    pendingQuestions.observe(object, replyTo: method, connection: connection,
+                                               snapshotRequestToken: requestToken)
                     replacements.observe(object, replyTo: method, connection: connection)
                     if Self.pageWaits(on: object) { awaited += 1 }
                     page.append(fresh)

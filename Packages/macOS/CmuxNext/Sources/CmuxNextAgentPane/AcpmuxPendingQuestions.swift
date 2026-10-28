@@ -30,6 +30,9 @@ public nonisolated final class AcpmuxPendingQuestions: Sendable {
         var pending: [String: Entry] = [:]
         var retired: [String: UInt64] = [:]
         var snapshotSeq: UInt64?
+        /// Highest daemon sequence observed for this session. It survives lag so an old
+        /// in-flight snapshot cannot resurrect a request from before the gap.
+        var observedSeq: UInt64?
         var retiredThrough: UInt64?
         var suspended = false
     }
@@ -38,6 +41,10 @@ public nonisolated final class AcpmuxPendingQuestions: Sendable {
         var connection: Int?
         var sessions: [String: Session] = [:]
         var requiresSnapshot = false
+        /// Epoch increments on a lag. Snapshot replies must be correlated to a request
+        /// issued after that epoch; a method name alone cannot distinguish an old reply.
+        var recoveryEpoch: UInt64 = 0
+        var snapshotRequests: [Int: UInt64] = [:]
     }
 
     // Keep tombstones until a complete snapshot covers them. At the bound, stop granting new
@@ -82,42 +89,59 @@ public nonisolated final class AcpmuxPendingQuestions: Sendable {
         }
     }
 
+    /// Subscription metadata from the checked outbound frame, for both free and gesture paths.
+    /// Detach/watch-off immediately revoke authority even if the daemon later refuses them.
+    func request(method: String?, session: String?, watchEnabled: Bool?, token: Int?, connection: Int) {
+        state.withLock { state in
+            guard state.connection == connection else { return }
+            if method == "_acpmux/detach", let id = Self.identifier(session) {
+                Self.suspend([id], in: &state)
+            } else if method == "_acpmux/watch", watchEnabled == false {
+                Self.suspend(nil, in: &state)
+            } else if method == "_acpmux/attach" || method == "_acpmux/watch", let token,
+                      state.snapshotRequests.count < Self.limit {
+                state.snapshotRequests[token] = state.recoveryEpoch
+            }
+        }
+    }
+
+    /// A request that failed before reaching the daemon cannot redeem a recovery epoch.
+    func snapshotRequestCancelled(token: Int, connection: Int) {
+        state.withLock { state in
+            guard state.connection == connection else { return }
+            state.snapshotRequests[token] = nil
+        }
+    }
+
     /// Called from the socket's ordered parse, before any of this frame reaches page script.
-    func observe(_ object: [String: Any], replyTo method: String?, connection: Int) {
+    func observe(_ object: [String: Any], replyTo method: String?, connection: Int,
+                 snapshotRequestToken: Int? = nil) {
         state.withLock { state in
             guard state.connection == connection else { return }
             if object["method"] as? String == "_acpmux/lagged" {
-                let params = object["params"] as? [String: Any]
-                if let ids = params?["sessionIds"] as? [String], !ids.isEmpty {
-                    for id in ids {
-                        guard state.sessions[id] != nil || state.sessions.count < Self.limit else {
-                            state.requiresSnapshot = true
-                            continue
-                        }
-                        var session = state.sessions[id] ?? Session()
-                        session.pending = [:]
-                        session.suspended = true
-                        state.sessions[id] = session
-                    }
-                } else {
-                    state.requiresSnapshot = true
-                    for id in state.sessions.keys {
-                        state.sessions[id]?.pending = [:]
-                        state.sessions[id]?.suspended = true
-                    }
-                }
+                let ids = (object["params"] as? [String: Any])?["sessionIds"] as? [String]
+                Self.suspend(ids?.isEmpty == false ? ids : nil, in: &state)
                 return
             }
             if object["method"] as? String == "_acpmux/session_changed",
                let params = object["params"] as? [String: Any],
-               let id = Self.identifier((params["session"] as? [String: Any])?["sessionId"] ?? params["sessionId"]),
-               params["kind"] as? String == "purged" || (params["session"] as? [String: Any])?["status"] as? String == "closed" {
-                var session = state.sessions[id] ?? Session()
-                session.pending = [:]
-                session.suspended = true
-                session.retiredThrough = max(session.retiredThrough ?? 0, Self.sequence(params["seq"]) ?? .max)
-                if state.sessions[id] != nil || state.sessions.count < Self.limit { state.sessions[id] = session }
-                return
+               let id = Self.identifier((params["session"] as? [String: Any])?["sessionId"] ?? params["sessionId"]) {
+                guard state.sessions[id] != nil || state.sessions.count < Self.limit else { return }
+                if let seq = Self.sequence(params["seq"]) {
+                    guard Self.observeSequence(seq, session: id, in: &state) else { return }
+                }
+                let kind = params["recordKind"] as? String ?? params["kind"] as? String
+                let closed = (params["session"] as? [String: Any])?["status"] as? String == "closed"
+                let settlement = kind == "permission_decision" || kind == "permission_resolved" || kind == "permission_auto"
+                    || kind == "turn_end" || kind == "turn_result" || kind == "turn_error"
+                if kind == "purged" || closed || settlement {
+                    // A watcher summary has only pendingPermissions, not permission ids. Retire
+                    // every locally live proof and require a complete post-notice read.
+                    Self.suspend([id], in: &state)
+                    state.sessions[id]?.retiredThrough = max(state.sessions[id]?.retiredThrough ?? 0,
+                                                             Self.sequence(params["seq"]) ?? .max)
+                    return
+                }
             }
             if object["method"] as? String == "_acpmux/permission_pending",
                let params = object["params"] as? [String: Any],
@@ -130,12 +154,20 @@ public nonisolated final class AcpmuxPendingQuestions: Sendable {
                 return
             }
             // Only matched daemon replies are snapshots. Agent/model result objects are never read.
-            guard object["method"] == nil, let result = object["result"] as? [String: Any] else { return }
+            guard object["method"] == nil else { return }
+            let tokenEpoch = snapshotRequestToken.flatMap { state.snapshotRequests.removeValue(forKey: $0) }
+            guard let result = object["result"] as? [String: Any] else { return }
             if method == "_acpmux/attach" || method == "_acpmux/watch" {
+                // Every opening snapshot must answer a native relay id issued in this epoch.
+                guard tokenEpoch == state.recoveryEpoch else { return }
                 let snapshots = (result["sessions"] as? [[String: Any]] ?? [])
                     + [result["session"] as? [String: Any]].compactMap { $0 }
                 for snapshot in snapshots {
-                    Self.snapshot(snapshot, fallbackSeq: result["lastSeq"], connection: connection, in: &state)
+                    if snapshot["pending"] is [[String: Any]] {
+                        Self.snapshot(snapshot, fallbackSeq: result["lastSeq"], connection: connection, in: &state)
+                    } else {
+                        Self.summary(snapshot, in: &state)
+                    }
                 }
             }
             if ["_acpmux/attach", "_acpmux/watch", "_acpmux/events"].contains(method ?? ""),
@@ -150,6 +182,7 @@ public nonisolated final class AcpmuxPendingQuestions: Sendable {
                                 connection: Int, in state: inout State, snapshot: Bool = false) {
         guard let permission = identifier(params["permissionId"]) else { return }
         guard state.sessions[id] != nil || state.sessions.count < limit else { return }
+        guard Self.observeSequence(seq, session: id, in: &state) else { return }
         var session = state.sessions[id] ?? Session(suspended: state.requiresSnapshot)
         guard snapshot || !session.suspended else { return }
         if let retired = session.retired[permission], seq <= retired { return }
@@ -185,7 +218,9 @@ public nonisolated final class AcpmuxPendingQuestions: Sendable {
               let prompts = snapshot["pending"] as? [[String: Any]], prompts.count <= limit,
               state.sessions[id] != nil || state.sessions.count < limit else { return }
         var session = state.sessions[id] ?? Session()
+        if let observed = session.observedSeq, seq < observed { return }
         if let known = session.snapshotSeq, seq < known { return }
+        session.observedSeq = max(session.observedSeq ?? 0, seq)
         let present = Set(prompts.compactMap { identifier($0["permissionId"]) })
         for (permission, entry) in session.pending where entry.seq <= seq && !present.contains(permission) {
             session.pending[permission] = nil
@@ -203,15 +238,18 @@ public nonisolated final class AcpmuxPendingQuestions: Sendable {
     }
 
     private static func record(_ record: [String: Any], connection: Int, in state: inout State) {
+        guard let id = identifier(record["sessionId"]), let seq = sequence(record["seq"]),
+              state.sessions[id] != nil || state.sessions.count < limit,
+              observeSequence(seq, session: id, in: &state) else { return }
+        // Every event direction raises the monotonic floor, but only daemon mux records
+        // carry membership changes. Model output never supplies pending request authority.
         guard record["dir"] as? String == "mux", let kind = record["kind"] as? String,
-              let id = identifier(record["sessionId"]), let seq = sequence(record["seq"]),
-              let message = record["msg"] as? [String: Any],
-              state.sessions[id] != nil || state.sessions.count < limit else { return }
+              let message = record["msg"] as? [String: Any] else { return }
         var session = state.sessions[id] ?? Session(suspended: state.requiresSnapshot)
         if kind == "permission_decision", let permission = identifier(message["permissionId"]) {
             if let current = session.pending[permission], seq < current.seq { return }
             retire(permission, seq: seq, session: &session)
-        } else if kind == "turn_end" || kind == "turn_result"
+        } else if kind == "turn_end" || kind == "turn_result" || kind == "turn_error"
             || (kind == "status" && message["status"] as? String == "closed")
             || (kind == "permission_decision" && message["permissionId"] == nil) {
             session.pending = session.pending.filter { $0.value.seq > seq }
@@ -222,6 +260,45 @@ public nonisolated final class AcpmuxPendingQuestions: Sendable {
             return
         } else { return }
         state.sessions[id] = session
+    }
+
+    /// No ids are present in a normal watch summary. Zero proves absence only; a positive
+    /// count cannot choose which locally retained question is still pending.
+    private static func summary(_ summary: [String: Any], in state: inout State) {
+        guard let id = identifier(summary["sessionId"]), let seq = sequence(summary["lastSeq"]),
+              sequence(summary["pendingPermissions"]) == 0,
+              state.sessions[id] != nil || state.sessions.count < limit,
+              observeSequence(seq, session: id, in: &state) else { return }
+        state.sessions[id]?.pending = [:]
+        state.sessions[id]?.snapshotSeq = seq
+        state.sessions[id]?.retiredThrough = max(state.sessions[id]?.retiredThrough ?? 0, seq)
+    }
+
+    private static func suspend(_ ids: [String]?, in state: inout State) {
+        // Invalidate all in-flight reads before clearing entries. Tokens never survive a gap,
+        // detach, watch-off, or a watcher settlement; only a later complete read can reopen.
+        state.recoveryEpoch &+= 1
+        state.snapshotRequests.removeAll()
+        if ids == nil { state.requiresSnapshot = true }
+        for id in ids ?? Array(state.sessions.keys) {
+            guard state.sessions[id] != nil || state.sessions.count < limit else {
+                state.requiresSnapshot = true
+                continue
+            }
+            var session = state.sessions[id] ?? Session()
+            session.pending = [:]
+            session.suspended = true
+            state.sessions[id] = session
+        }
+    }
+
+    private static func observeSequence(_ seq: UInt64, session id: String,
+                                         in state: inout State) -> Bool {
+        var session = state.sessions[id] ?? Session(suspended: state.requiresSnapshot)
+        if let observed = session.observedSeq, seq < observed { return false }
+        session.observedSeq = max(session.observedSeq ?? 0, seq)
+        state.sessions[id] = session
+        return true
     }
 
     private static func retire(_ permission: String, seq: UInt64, session: inout Session) {

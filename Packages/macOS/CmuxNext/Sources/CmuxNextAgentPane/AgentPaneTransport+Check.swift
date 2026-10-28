@@ -164,7 +164,12 @@ extension AgentPaneTransport {
     /// page's bytes.
     nonisolated static func sendNow(_ box: FrameBox, relayID: Int?, socket: AcpmuxPaneSocket) -> AgentPaneTransportError? {
         guard let text = box.encoded(id: relayID) else { return .invalidFrame }
-        return socket.send(text)
+        let lifecycle = box.questionLifecycle()
+        socket.questionRequest(method: lifecycle.method, session: lifecycle.session,
+                               watchEnabled: lifecycle.watchEnabled, token: relayID)
+        let error = socket.send(text)
+        if error != nil, let relayID { socket.questionRequestCancelled(token: relayID) }
+        return error
     }
 
     /// A refused frame: answered when it is a request, the socket closed when it was the first.

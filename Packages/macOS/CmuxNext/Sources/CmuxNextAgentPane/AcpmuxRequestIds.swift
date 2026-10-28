@@ -73,7 +73,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
     nonisolated enum Inbound {
         /// To the page: the fresh serialization, the parsed frame (its id the page's) for the
         /// observers, and the request a reply answers.
-        case page(String, object: [String: Any], replyTo: String?)
+        case page(String, object: [String: Any], replyTo: String?, requestToken: Int?)
         /// A reply in place that acpmux answered: the host finishes it (``AgentPaneAgentReply``);
         /// acpmux's answer never reaches the page as it is.
         case complete(object: [String: Any], pageID: String, subject: String?)
@@ -98,7 +98,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
                 promptAccepted(promptId)
             }
             guard let fresh = Self.encode(object) else { return .drop }
-            return .page(fresh, object: object, replyTo: nil)
+            return .page(fresh, object: object, replyTo: nil, requestToken: nil)
         }
         guard let relayID = object["id"].flatMap(AcpmuxPaneMethods.rawID).flatMap({ Int($0) }) else { return .drop }
         state.withLock { $0.answered.removeValue(forKey: relayID) }?()
@@ -114,10 +114,11 @@ nonisolated final class AcpmuxRequestIds: Sendable {
             return .complete(object: object, pageID: entry.pageID, subject: entry.subject)
         }
         if let shape = AcpmuxPaneMethods.replyShapes[entry.method] {
-            return .page(AcpmuxPaneMethods.filteredReply(object, shape: shape, pageID: entry.pageID), object: object, replyTo: entry.method)
+            return .page(AcpmuxPaneMethods.filteredReply(object, shape: shape, pageID: entry.pageID), object: object,
+                         replyTo: entry.method, requestToken: relayID)
         }
         guard let fresh = Self.encode(object) else { return .drop }
-        return .page(fresh, object: object, replyTo: entry.method)
+        return .page(fresh, object: object, replyTo: entry.method, requestToken: relayID)
     }
 
     /// A raw JSON id back to its value.
