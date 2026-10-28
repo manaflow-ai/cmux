@@ -191,12 +191,15 @@ struct SidebarSelectionBatchCloseTests {
             @MainActor func question() -> CmuxDialogCenter.Record? { dialogs.records.first { $0.spec.identifier == "cmux.dialog.confirmation" } }
             let clock = sidebar.userIntentClock
             defer { sidebar.userIntentClock = clock }
+            // The host's Reduce Motion must not stand in for the regression (it snaps every row).
+            Motion.reduceMotionOverride = false
+            defer { Motion.reduceMotionOverride = nil }
 
             sidebar.send(.close([CmuxNextSidebar.WorkspaceID(id)]))
             try await PinnedPageTests.until({ question() != nil }, within: .seconds(20))
             sidebar.userIntentClock = { clock() + .seconds(3) }
             #expect(!sidebar.followsUserIntent, "the press's mark still counts 3 s later: the test proves nothing")
-            let animates = SidebarInsertWhileDisplayAsleepTests.animatesHere()
+            let animates = SidebarInsertWhileDisplayAsleepTests.animatesHere() && Motion.sidebar.animatesMovement
             var closingSeen = false, intentAtHide = false
             _ = dialogs.press(try #require(question()).id, button: DestructiveConfirmation.confirmID)
             try await PinnedPageTests.until({
