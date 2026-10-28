@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test"
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { FsBucket } from "../src/fs-bucket.ts"
+import { FsBucket, FsBucketError } from "../src/fs-bucket.ts"
 
 describe("self-hosted attachment bucket", () => {
   it("streams resumable multipart objects and keeps listing cursors valid across deletes", async () => {
@@ -117,6 +117,44 @@ describe("self-hosted attachment bucket", () => {
       const c = await gaps.uploadPart(5, "c")
       await gaps.complete([a, c])
       expect(await new Response((await bucket.get("home/v1/gaps"))!.body!).text()).toBe("ac")
+      expect(readdirSync(join(root, ".multipart"))).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+  it("answers NoSuchUpload for an unknown upload before it checks the part number, and InvalidPart for a real upload", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const mine = await bucket.createMultipartUpload("home/v1/mine")
+      const theirs = await bucket.createMultipartUpload("home/v1/theirs")
+      const closed = await bucket.createMultipartUpload("home/v1/closed")
+      await closed.abort()
+      const unknown = [
+        bucket.resumeMultipartUpload("home/v1/mine", "0".repeat(32)),
+        bucket.resumeMultipartUpload("home/v1/mine", theirs.uploadId),
+        bucket.resumeMultipartUpload("home/v1/closed", closed.uploadId)
+      ]
+      const badNumbers = [0, 10_001, 1.5, -1, Number.NaN, "1" as unknown as number]
+      // The upload id and key are checked first: an upload that does not exist for this key is
+      // NoSuchUpload whatever part number it names, so a caller can't tell a bad number from a bad id.
+      for (const upload of unknown) {
+        for (const number of [...badNumbers, 1]) {
+          const error = await upload.uploadPart(number, "x").catch((e: unknown) => e)
+          expect(error).toBeInstanceOf(FsBucketError)
+          expect((error as FsBucketError).code).toBe("NoSuchUpload")
+        }
+      }
+      // A real upload names a bad part number as InvalidPart, and writes nothing for it.
+      for (const number of badNumbers) {
+        const error = await mine.uploadPart(number, "x").catch((e: unknown) => e)
+        expect(error).toBeInstanceOf(FsBucketError)
+        expect((error as FsBucketError).code).toBe("InvalidPart")
+      }
+      const part = await mine.uploadPart(1, "kept")
+      await mine.complete([part])
+      expect(await new Response((await bucket.get("home/v1/mine"))!.body!).text()).toBe("kept")
+      await theirs.abort()
       expect(readdirSync(join(root, ".multipart"))).toEqual([])
     } finally {
       rmSync(root, { recursive: true, force: true })
