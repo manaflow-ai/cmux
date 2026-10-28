@@ -137,9 +137,15 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       variant: "no-project",
       card: ".acpmux-composer-box",
     },
-    // The strip heads the New Tab card in the top-of-page templates (Threads here); Cards draws it
-    // under its pill field and Default's stage layout in the footer under the box.
-    { name: "the New Tab composer", entry: "agent-pane.new-tab", variant: "template-threads", card: ".nt-box" },
+    // The strip heads the New Tab card in the Default template with Claude's quiet row: Cards draws it
+    // under its pill field, and since #24519 (2026-10-27, one quiet row) every other template with
+    // Claude's plain footer draws it in the quiet row under the box (NewTabScreen.tsx locationInFooter).
+    {
+      name: "the New Tab composer",
+      entry: "agent-pane.new-tab",
+      variant: "layout-claude-chips-below",
+      card: ".nt-box",
+    },
   ];
   for (const surface of surfaces)
     for (const width of [420, 720])
@@ -583,7 +589,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const strip = marks.strip!;
       const tail = marks.tail!;
       // The head takes the ellipsis ("atl…"); the last word stays whole and inside the strip.
-      expect(marks.head).toEqual({ clipped: cut, text: "atlas-" });
+      // The fixture's folder (composerStrip.gallery.ts mid-folder) is sized to the strip's step: the
+      // strip became chips over the card (#25304), so "atlas-web-checkout" now sits on it.
+      expect(marks.head).toEqual({ clipped: cut, text: "atlas-web-" });
       expect(marks.tailText).toBe("checkout");
       expect(tail.width).toBeGreaterThan(0);
       expect(tail.right).toBeLessThanOrEqual(strip.right);
@@ -612,8 +620,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(marks.branchClipped).toBe(false);
   });
 
-  // Focus draws no ring (Leo 2026-10-19): a focused footer control leaves the strip's rim at rest.
-  test("focusing a footer control changes neither the strip rim nor its geometry", async () => {
+  // Focus draws no ring (Leo 2026-10-19): a focused strip control keeps the strip's geometry, and its
+  // edge takes the composer's focused tone, as the card's does (#21241; #23745: a step brighter).
+  test("focusing a strip control steps the strip's edge tone and keeps its geometry", async () => {
     const page = await open("agent-pane.composer-strip", "project", 420);
     await installPaintedFrames(page);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
@@ -636,8 +645,14 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
       };
     });
+    const focusEdge = await page.evaluate(() =>
+      getComputedStyle(document.querySelector<HTMLElement>(".acpmux-composer")!)
+        .getPropertyValue("--acpmux-composer-edge-focus")
+        .trim(),
+    );
     await page.close();
-    expect(after.edge).toBe(before.edge);
+    expect(after.edge.replace(/\s+/g, "")).toBe(focusEdge.replace(/\s+/g, ""));
+    expect(after.edge).not.toBe(before.edge);
     expect(after.rect).toEqual(before.rect);
   });
   test("long environment menu scrolls to its last machine", async () => {
