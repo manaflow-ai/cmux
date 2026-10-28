@@ -56,6 +56,7 @@ export function ComposerContext({
   environments = false,
   started = false,
   onProject,
+  onComputer,
   projectChoices,
   onBrowseProject,
   onNewWorktree,
@@ -82,6 +83,8 @@ export function ComposerContext({
   environments?: boolean;
   started?: boolean;
   onProject?(cwd: string, peer?: string): void;
+  /// A controlled new-page machine pick, including machines with no known folder.
+  onComputer?(id: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
@@ -197,6 +200,7 @@ export function ComposerContext({
   const pickComputer = (id: string) => {
     if (!readOnly && id !== selectedComputer) {
       setSelectedComputer(id);
+      if (onComputer) return onComputer(id);
       const folder = availableFolders(summary, sessions, id)[0]?.id;
       if (folder) onProject?.(folder, id === "local" ? undefined : id);
     }

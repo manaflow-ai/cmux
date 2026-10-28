@@ -88,6 +88,8 @@ type RenderOptions = {
   snapshot?: AcpmuxSnapshot;
   environments?: boolean;
   savedEnvironments?: SavedEnvironmentHost;
+  onNewWorktree?: (cwd: string) => Promise<string | undefined>;
+  onBrowseProject?: () => Promise<string | undefined>;
 };
 
 async function render(
@@ -115,6 +117,8 @@ async function render(
         onOpenChat={noop}
         onCreate={noop}
         onAsk={options.onAsk ?? noop}
+        {...(options.onNewWorktree ? { onNewWorktree: options.onNewWorktree } : {})}
+        {...(options.onBrowseProject ? { onBrowseProject: options.onBrowseProject } : {})}
         {...(options.headlineOff ? { headlineOff: true } : {})}
         {...(options.machineName ? { machineName: options.machineName } : {})}
         {...(options.environments ? { environments: true } : {})}
@@ -171,7 +175,11 @@ test("the toggle draws a useful headline: what to work on, with the project as a
   // The host's start folder is the project the composer's strip names, so the headline names it too.
   let root = await render("minimal", ["greeting"], "/Users/you/src/atlas");
   try {
-    expect(parts()).toMatchObject({ minimal: true, headline: "What should we work on in atlas?", strip: 1 });
+    expect(parts()).toMatchObject({
+      minimal: true,
+      headline: "What should we work on in atlas?",
+      strip: 1,
+    });
     // The project's name is the picker, inside the question (ProjectChooser inline).
     const picker = host.querySelector<HTMLButtonElement>(".nt-headline-text .acpmux-project-button");
     expect(picker?.textContent).toBe("atlas");
@@ -414,6 +422,135 @@ test("switching machines clears a picked saved environment", async () => {
   }
 });
 
+test("a removed saved SSH peer clears its folder before sending and permits a fresh machine pick", async () => {
+  const snapshot = noChat([
+    {
+      sessionId: "old",
+      cwd: "/old",
+      harness: "claude",
+      status: "idle",
+      turnCount: 1,
+      updatedAt: Date.now(),
+      peer: "oldbox",
+      host: "oldbox",
+    },
+  ]);
+  snapshot.peers = ["oldbox", "devbox"];
+  snapshot.peerKinds = { oldbox: "ssh", devbox: "ssh" };
+  const asked: unknown[][] = [];
+  const savedEnvironments: SavedEnvironmentHost = {
+    list: async () => [{ id: "old", name: "Old box", kind: "ssh", host: "oldbox", folder: "/old", updatedAt: 1 }],
+    save: async (draft) => ({ ...draft, id: "new", updatedAt: 2 }),
+    remove: async () => undefined,
+  };
+  const options = {
+    machineName: "studio",
+    snapshot,
+    environments: true,
+    savedEnvironments,
+    onAsk: (...args: unknown[]) => asked.push(args),
+  };
+  const root = await render("minimal", ["greeting"], undefined, options);
+  try {
+    const computer = [
+      ...host.querySelectorAll<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button'),
+    ].at(-1)!;
+    await act(async () => computer.click());
+    const savedRow = [...window.document.querySelectorAll<HTMLElement>(".acpmux-menu-label")].find((row) =>
+      row.textContent?.includes("Old box"),
+    )!;
+    await act(async () => savedRow.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    expect(host.querySelector(".nt-location")?.textContent).toContain("Old box");
+    expect(parts().headline).toBe("What should we work on on studio?");
+    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    await act(async () => {
+      setValue.call(field, "use the current machine");
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    // Retain the historical session, remove only live availability, then send immediately.
+    await render(
+      "minimal",
+      ["greeting"],
+      undefined,
+      { ...options, snapshot: { ...snapshot, peers: ["devbox"] } },
+      root,
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
+    expect(asked[0]?.[6]).toBeUndefined();
+    expect(asked[0]?.[2]).toBeUndefined();
+    expect(asked[0]?.[4]).toBe(true);
+    expect(host.querySelector(".nt-location")?.textContent).not.toContain("Old box");
+    await act(async () => host.querySelector<HTMLElement>(".nt-headline-machine-label")!.click());
+    const machine = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
+      row.textContent?.includes("devbox"),
+    )!;
+    await act(async () => machine.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
+    expect(asked[1]?.[6]).toEqual({ peer: "devbox" });
+    expect(asked[1]?.[2]).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("switching the headline machine invalidates a pending saved-environment worktree send", async () => {
+  const snapshot = noChat([]);
+  snapshot.peers = ["devbox"];
+  snapshot.peerKinds = { devbox: "ssh" };
+  const asked: unknown[][] = [];
+  let finish: (cwd: string) => void = () => {};
+  const pending = new Promise<string>((resolve) => {
+    finish = resolve;
+  });
+  const savedEnvironments: SavedEnvironmentHost = {
+    list: async () => [
+      { id: "worktree", name: "Local worktree", kind: "local", folder: "/repo", worktree: true, updatedAt: 1 },
+    ],
+    save: async (draft) => ({ ...draft, id: "new", updatedAt: 2 }),
+    remove: async () => undefined,
+  };
+  const root = await render("minimal", ["greeting"], undefined, {
+    machineName: "studio",
+    snapshot,
+    environments: true,
+    savedEnvironments,
+    onNewWorktree: () => pending,
+    onAsk: (...args) => asked.push(args),
+  });
+  try {
+    const computer = [
+      ...host.querySelectorAll<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button'),
+    ].at(-1)!;
+    await act(async () => computer.click());
+    const savedRow = [...window.document.querySelectorAll<HTMLElement>(".acpmux-menu-label")].find((row) =>
+      row.textContent?.includes("Local worktree"),
+    )!;
+    await act(async () => savedRow.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    await act(async () => {
+      setValue.call(field, "start some work");
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
+    expect(asked).toHaveLength(0);
+    await act(async () => host.querySelector<HTMLElement>(".nt-headline-machine-label")!.click());
+    const machine = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
+      row.textContent?.includes("devbox"),
+    )!;
+    await act(async () => machine.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    expect(host.querySelector(".nt-location")?.textContent).toContain("devbox");
+    await act(async () => finish("/repo/old-worktree"));
+    expect(asked).toHaveLength(0);
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
+    expect(asked[0]?.[6]).toEqual({ peer: "devbox" });
+    expect(asked[0]?.[2]).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("optional time, warm greeting, stopwatch and quote widgets are independently opt-in", async () => {
   let root = await render("minimal", []);
   try {
@@ -486,7 +623,11 @@ test("Minimal keeps the old greeting's room over the composer, except for a gree
   ] as const) {
     const root = await render("minimal", widgets, undefined, { headlineOff });
     try {
-      expect({ widgets, headlineOff, slots: slots() }).toEqual({ widgets, headlineOff, slots: expected });
+      expect({ widgets, headlineOff, slots: slots() }).toEqual({
+        widgets,
+        headlineOff,
+        slots: expected,
+      });
     } finally {
       await act(async () => root.unmount());
     }
@@ -504,7 +645,13 @@ test("Minimal's widgets turned on take Default's stage around the composer", asy
   }
   root = await render("minimal", ["chats"]);
   try {
-    expect(parts()).toMatchObject({ minimal: false, headline: null, stage: 1, projects: 0, actions: 0 });
+    expect(parts()).toMatchObject({
+      minimal: false,
+      headline: null,
+      stage: 1,
+      projects: 0,
+      actions: 0,
+    });
     expect(parts().chats).toBeGreaterThan(0);
   } finally {
     await act(async () => root.unmount());
@@ -515,7 +662,13 @@ test("Minimal with the quick actions alone (the second dot) draws the pills unde
   // The second dot on Settings' defaults: the actions on, no headline.
   const root = await render("minimal", ["actions"]);
   try {
-    expect(parts()).toMatchObject({ minimal: true, headline: null, stage: 0, projects: 0, chats: 0 });
+    expect(parts()).toMatchObject({
+      minimal: true,
+      headline: null,
+      stage: 0,
+      projects: 0,
+      chats: 0,
+    });
     expect(host.querySelector(".nt-suggest")).toBeNull();
     const pills = [...host.querySelectorAll<HTMLElement>(".nt-create.ui-ghost-row [data-create]")];
     expect(pills.map((pill) => pill.dataset.create)).toEqual(["terminal", "browser", "chat"]);
