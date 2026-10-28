@@ -294,7 +294,9 @@ test("Classic New Tab restores attachments and persists an ordinary edit", async
       <NewTabPage
         snapshot={noChat()}
         initialDraft="saved text"
-        initialAttachments={[{ id: "shot", kind: "image", name: "shot.png", mimeType: "image/png", size: 4, data: "dGVzdA==" }]}
+        initialAttachments={[
+          { id: "shot", kind: "image", name: "shot.png", mimeType: "image/png", size: 4, data: "dGVzdA==" },
+        ]}
         onDraftChanged={(...args) => writes.push(args)}
         onSubmit={() => {}}
         onOpenSession={() => {}}
@@ -310,16 +312,10 @@ test("Classic New Tab restores attachments and persists an ordinary edit", async
     setValue.call(input, "saved text plus edit");
     input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
   });
-  expect(writes.at(-1)).toEqual([
-    "saved text plus edit",
-    [expect.objectContaining({ id: "shot", name: "shot.png" })],
-  ]);
+  expect(writes.at(-1)).toEqual(["saved text plus edit", [expect.objectContaining({ id: "shot", name: "shot.png" })]]);
   setValue.call(input, "final before quit");
   await act(async () => window.dispatchEvent(new window.Event("pagehide")));
-  expect(writes.at(-1)).toEqual([
-    "final before quit",
-    [expect.objectContaining({ id: "shot", name: "shot.png" })],
-  ]);
+  expect(writes.at(-1)).toEqual(["final before quit", [expect.objectContaining({ id: "shot", name: "shot.png" })]]);
 });
 
 test("a page that goes with an unsent draft hands it over; an untouched page hands nothing", async () => {

@@ -423,7 +423,7 @@ export function NewTabScreen(props: Props) {
   );
   // The draft as it is now, for `onLeaveDraft` when the page goes.
   const leaving = useRef({ text, attachments, location: location ?? "", onLeaveDraft: props.onLeaveDraft });
-  const flushed = useRef<string>();
+  const flushed = useRef<string | undefined>(undefined);
   leaving.current = { text, attachments, location: location ?? "", onLeaveDraft: props.onLeaveDraft };
   const flushDraft = useCallback((leavingPage: boolean) => {
     const draft = leaving.current;
@@ -434,8 +434,7 @@ export function NewTabScreen(props: Props) {
     const key = JSON.stringify([liveText, draft.attachments.map((attachment) => attachment.id)]);
     if (flushed.current === key) return;
     flushed.current = key;
-    if (leavingPage && (liveText.trim() || draft.attachments.length))
-      draft.onLeaveDraft?.(liveText, draft.attachments);
+    if (leavingPage && (liveText.trim() || draft.attachments.length)) draft.onLeaveDraft?.(liveText, draft.attachments);
     else draftChanged.current?.(liveText, draft.attachments);
   }, []);
   // A normal app quit/update can pagehide without unmounting React. Persist before native closes.

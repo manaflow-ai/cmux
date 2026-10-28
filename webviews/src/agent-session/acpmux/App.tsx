@@ -7130,7 +7130,7 @@ function AcpmuxPane() {
         }
         // A restored unsent New Tab is a new chat until its first prompt. Its chips go to that composer.
         if (!reconnect && !host.newTab && Array.isArray(host.draftAttachments) && host.draftAttachments.length) {
-          const kept = { ...(pendingWake.current ?? {}), attachments: host.draftAttachments };
+          const kept = { ...pendingWake.current, attachments: host.draftAttachments };
           if (composerHandle.current) composerHandle.current.wake(kept);
           else pendingWake.current = kept;
         }
@@ -7825,7 +7825,9 @@ function AcpmuxPane() {
               let timeout: ReturnType<typeof setTimeout> | undefined;
               await Promise.race([
                 pending,
-                new Promise<void>((resolve) => { timeout = setTimeout(resolve, DRAFT_SETTLE_MS); }),
+                new Promise<void>((resolve) => {
+                  timeout = setTimeout(resolve, DRAFT_SETTLE_MS);
+                }),
               ]);
               if (timeout) clearTimeout(timeout);
             }
