@@ -161,6 +161,19 @@ struct CloudSignedOutCreationContinuationTests {
     }
 
     @Test(arguments: [["other", "team"], ["user", "other"], ["user", nil], [nil, nil]])
+    @Test func nilUserTeamHydrationCannotResumeAnewSignIn() async {
+        let handoff = CloudSignedOutCreationContinuation()
+        let gate = CloudSignInTestGate()
+        var resumes = 0
+        let pending = handoff.replace(signIn: { await gate.wait() }, resume: { resumes += 1 })
+        await gate.waitUntilRequested()
+        handoff.scopeDidChange(from: [nil, nil], to: [nil, "team"])
+        gate.resolve(true)
+        await pending.value
+        #expect(resumes == 0)
+        #expect(!handoff.isPending)
+    }
+
     @Test func staleTeamRestorationCannotResumeAnewSignIn() async {
         let handoff = CloudSignedOutCreationContinuation()
         let gate = CloudSignInTestGate()
