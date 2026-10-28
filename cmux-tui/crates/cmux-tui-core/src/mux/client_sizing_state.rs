@@ -103,6 +103,9 @@ pub(crate) struct ClientSizingIdentity {
     pub(crate) device_kind: TerminalDeviceKind,
     pub(crate) device_name: Option<String>,
     pub(crate) device_id: Option<String>,
+    /// A phone's spliced lane (cmux-mobile-host sets it): never one of this
+    /// host's own views for the host sizing policy. Never published.
+    pub(crate) remote: bool,
 }
 
 /// Where a size-state publication goes after the sizing lock is released.
@@ -132,6 +135,11 @@ pub(super) struct ClientSizingState {
     /// detach. The connection stays attached; its view is not a participant
     /// until `reattach-view`.
     pub(super) detached_views: HashSet<(u64, SurfaceId)>,
+    /// The host sizing policy (`host-size-policy-v1`) from the settings
+    /// owner; `None` until the owner read the settings file.
+    pub(super) host_policy: Option<host_policy::HostSizePolicy>,
+    /// The settings revision `host_policy` was read at.
+    pub(super) host_policy_revision: Option<u64>,
 }
 
 /// Host participant id of one client's view of one terminal placement. The

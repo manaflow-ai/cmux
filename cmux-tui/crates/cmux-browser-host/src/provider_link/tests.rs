@@ -87,33 +87,29 @@ impl FakeApp {
     }
 }
 
-/// The refusal text the password lead fixed (2026-10-04), the same in
-/// the app's control path (`AppBrowserPage.agentExtensionRefusal`).
-const REFUSAL_TEXT: &str = "the tab's profile has an enabled extension with access to this page; \
-    open the tab with openBrowser profile \"agent\" (a profile without extensions), or ask the \
-    person to allow agents in this tab";
-
-fn assert_refused(result: Result<Value, DriverError>) -> DriverError {
-    let error = result.expect_err("the call must be refused");
-    assert_eq!(error.code, crate::protocol::ErrorCode::Forbidden, "{error}");
-    assert_eq!(error.error_name.as_deref(), Some("extension_host_access"), "{error}");
-    let wire = error.to_json();
-    assert_eq!(wire["data"]["reason"], "extension_host_access", "{wire}");
-    assert!(wire["data"]["extensions"].is_array(), "{wire}");
-    error
+/// Lawrence (2026-10-22, #24413): all agents can use all tabs by default.
+/// An enabled extension with access to the page is not an access gate: the
+/// call reaches the app, and the person's sign-in state is the point of
+/// handing a tab over. Coordination between agents is the lease's job.
+fn assert_reached(app: &FakeApp, driver: &ProviderDriver, method: &str, target: &str) {
+    let result = driver.call(method, &json!({"targetId": target}));
+    assert_eq!(result.expect("an agent may drive the tab")["method"], method);
+    assert!(app.saw(method, target), "{method} never reached the app");
 }
 
 #[test]
-fn the_refusal_uses_the_agreed_text_and_names_the_extensions_in_data() {
+fn an_extension_with_access_to_the_page_never_refuses_an_agent() {
     let (app, driver) = FakeApp::start(vec![tab("C", "cef"), tab("W", "webkit")]);
     app.access(&driver, "C", true, false);
-    let error = assert_refused(driver.call("tab.info", &json!({"targetId": "C"})));
-    assert_eq!(error.message, REFUSAL_TEXT);
-    assert_eq!(
-        error.to_json()["data"],
-        json!({"reason": "extension_host_access", "extensions": ["Pass Keeper"]})
-    );
-    // Before the app reports the tab: same reason, no names.
+    for method in ["tab.info", "frame.evaluate", "input.mouse", "tab.screenshot", "tabs.close"] {
+        assert_reached(&app, &driver, method, "C");
+    }
+}
+
+#[test]
+fn cef_tabs_need_no_access_report_before_an_agent_drives_them() {
+    let (app, driver) = FakeApp::start(vec![tab("C", "cef"), tab("W", "webkit")]);
+    assert_reached(&app, &driver, "tab.navigate", "C");
     app.send(
         &driver,
         Frame::Event {
@@ -121,50 +117,7 @@ fn the_refusal_uses_the_agreed_text_and_names_the_extensions_in_data() {
             payload: serde_json::to_value(tab("C2", "cef")).unwrap(),
         },
     );
-    let unreported = assert_refused(driver.call("tab.info", &json!({"targetId": "C2"})));
-    assert_eq!(unreported.to_json()["data"]["extensions"], json!([]));
-    assert!(unreported.message.ends_with("or ask the person to allow agents in this tab"));
-}
-
-#[test]
-fn cef_tabs_are_refused_until_the_app_reports_clean_access() {
-    let (app, driver) = FakeApp::start(vec![tab("C", "cef"), tab("W", "webkit")]);
-    // No tab.access frame yet: fail closed, and the app never sees the call.
-    assert_refused(
-        driver.call("tab.navigate", &json!({"targetId": "C", "url": "https://b.test/"})),
-    );
-    assert!(!app.saw("tab.navigate", "C"));
-    // An enabled extension holds host access on the page.
-    app.access(&driver, "C", true, false);
-    let named = assert_refused(driver.call("tab.info", &json!({"targetId": "C"})));
-    assert_eq!(named.to_json()["data"]["extensions"], json!(["Pass Keeper"]), "{named}");
-    for method in ["frame.evaluate", "input.mouse", "tab.screenshot", "cdp", "tabs.close"] {
-        assert_refused(driver.call(method, &json!({"targetId": "C"})));
-        assert!(!app.saw(method, "C"), "{method} reached the app");
-    }
-    // The profile is clean now.
-    app.access(&driver, "C", false, false);
-    assert_eq!(driver.call("tab.info", &json!({"targetId": "C"})).unwrap()["method"], "tab.info");
-    // An extension gains access again: refused from the next call.
-    app.access(&driver, "C", true, false);
-    assert_refused(driver.call("tab.info", &json!({"targetId": "C"})));
-}
-
-#[test]
-fn the_override_comes_only_from_the_app() {
-    let (app, driver) = FakeApp::start(vec![tab("C", "cef"), tab("W", "webkit")]);
-    app.access(&driver, "C", true, false);
-    // Override fields in the agent's own params change nothing.
-    assert_refused(driver.call(
-        "tab.info",
-        &json!({"targetId": "C", "user_override": true, "extension_host_access": false}),
-    ));
-    // The person confirmed in the app: the tab may be driven.
-    app.access(&driver, "C", true, true);
-    assert_eq!(driver.call("tab.info", &json!({"targetId": "C"})).unwrap()["method"], "tab.info");
-    // The app withdraws the override.
-    app.access(&driver, "C", true, false);
-    assert_refused(driver.call("tab.info", &json!({"targetId": "C"})));
+    assert_reached(&app, &driver, "tab.info", "C2");
 }
 
 #[test]
@@ -173,36 +126,6 @@ fn webkit_tabs_and_tab_less_calls_need_no_access_report() {
     assert_eq!(driver.call("tab.info", &json!({"targetId": "W"})).unwrap()["method"], "tab.info");
     assert_eq!(driver.call("tabs.list", &json!({})).unwrap()["method"], "tabs.list");
     assert!(app.saw("tab.info", "W"));
-}
-
-#[test]
-fn announced_tabs_follow_their_engine_and_unknown_tabs_fail_closed() {
-    let (app, driver) = FakeApp::start(vec![tab("W", "webkit")]);
-    // A tab the app never announced: refused, like a CEF tab.
-    assert_refused(driver.call("tab.info", &json!({"targetId": "X"})));
-    // tab.announced registers a WebKit tab: no report needed.
-    app.send(
-        &driver,
-        Frame::Event {
-            name: "tab.announced".into(),
-            payload: serde_json::to_value(tab("W2", "webkit")).unwrap(),
-        },
-    );
-    assert_eq!(driver.call("tab.info", &json!({"targetId": "W2"})).unwrap()["method"], "tab.info");
-    // A new CEF tab needs its report.
-    app.send(
-        &driver,
-        Frame::Event {
-            name: "tab.announced".into(),
-            payload: serde_json::to_value(tab("C2", "cef")).unwrap(),
-        },
-    );
-    assert_refused(driver.call("tab.info", &json!({"targetId": "C2"})));
-    app.access(&driver, "C2", false, false);
-    assert_eq!(driver.call("tab.info", &json!({"targetId": "C2"})).unwrap()["method"], "tab.info");
-    // tab.gone forgets the tab and its report.
-    app.send(&driver, Frame::Event { name: "tab.gone".into(), payload: target_payload("C2") });
-    assert_refused(driver.call("tab.info", &json!({"targetId": "C2"})));
 }
 
 fn assert_browser_page(result: Result<Value, DriverError>) {

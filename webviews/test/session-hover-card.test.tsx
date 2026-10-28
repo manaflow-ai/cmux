@@ -2,7 +2,7 @@
 // session id in a reply show the session as a row of Claude Code's PR list does, the title over
 // `Status · repo #N`, then its folder and branch, beside the chip (above it when more of the reply runs under
 // it), after a short rest of the pointer, at once for keyboard focus, and a click on it opens it.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, jest, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
@@ -217,8 +217,6 @@ afterAll(() => {
   dom.window.close();
 });
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 test("a name chip's card waits for the pointer, shows at once for focus, takes ArrowDown and Escape, and opens on click", async () => {
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
@@ -246,63 +244,69 @@ test("a name chip's card waits for the pointer, shows at once for focus, takes A
   const chip = rootElement.querySelector<HTMLButtonElement>(".acpmux-started-chip")!;
   const card = () => rootElement.querySelector<HTMLElement>(".acpmux-session-hover-card");
   const pointer = (type: string) => chip.dispatchEvent(new dom.window.PointerEvent(type, { bubbles: true }));
+  // A fake clock: the delays are the behavior, so they run exactly, never on a busy runner's wall clock.
+  jest.useFakeTimers();
+  const wait = (ms: number) => void jest.advanceTimersByTime(ms);
+  try {
+    // The pointer passing over: nothing until the delay has passed; then the card.
+    await act(async () => {
+      pointer("pointerover");
+      pointer("pointerenter");
+      wait(SESSION_HOVER_DELAY - 1);
+    });
+    expect(card()).toBeNull();
+    await act(async () => wait(1));
+    expect(card()?.getAttribute("role")).toBe("dialog");
+    expect(card()?.getAttribute("aria-label")).toBe("Switch gh-merge-green to merge-freeze issues");
+    expect(card()?.textContent).toBe("Switch gh-merge-green to merge-freeze issuesRunningcmux");
+    expect(chip.getAttribute("aria-describedby")).toBe(card()?.id ?? "missing");
 
-  // The pointer passing over: nothing yet; resting past the delay: the card.
-  await act(async () => {
-    pointer("pointerover");
-    pointer("pointerenter");
-    await wait(SESSION_HOVER_DELAY / 3);
-  });
-  expect(card()).toBeNull();
-  await act(async () => wait(SESSION_HOVER_DELAY));
-  expect(card()?.getAttribute("role")).toBe("dialog");
-  expect(card()?.getAttribute("aria-label")).toBe("Switch gh-merge-green to merge-freeze issues");
-  expect(card()?.textContent).toBe("Switch gh-merge-green to merge-freeze issuesRunningcmux");
-  expect(chip.getAttribute("aria-describedby")).toBe(card()?.id ?? "missing");
+    // Pointer away: the card goes after its grace.
+    await act(async () => {
+      pointer("pointerout");
+      pointer("pointerleave");
+      wait(400);
+    });
+    expect(card()).toBeNull();
 
-  // Pointer away: the card goes after its grace.
-  await act(async () => {
-    pointer("pointerout");
-    pointer("pointerleave");
-    await wait(400);
-  });
-  expect(card()).toBeNull();
+    // Keyboard: focus shows it at once, ArrowDown moves into it, Escape hands focus back.
+    await act(async () => chip.focus());
+    expect(card()).not.toBeNull();
+    await act(async () => {
+      chip.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    });
+    const inside = card()!.querySelector<HTMLButtonElement>(".acpmux-session-hover")!;
+    expect(dom.window.document.activeElement).toBe(inside);
+    // The pointer drifting off while focus is in the card keeps it.
+    await act(async () => {
+      pointer("pointerover");
+      pointer("pointerenter");
+      pointer("pointerout");
+      pointer("pointerleave");
+      wait(400);
+    });
+    expect(card()).not.toBeNull();
+    expect(dom.window.document.activeElement).toBe(inside);
+    // One Escape closes the card and hands focus back; the refocus does not show it again.
+    await act(async () => {
+      inside.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      wait(400);
+    });
+    expect(dom.window.document.activeElement).toBe(chip);
+    expect(card()).toBeNull();
+    expect(chip.hasAttribute("aria-describedby")).toBe(false);
 
-  // Keyboard: focus shows it at once, ArrowDown moves into it, Escape hands focus back.
-  await act(async () => chip.focus());
-  expect(card()).not.toBeNull();
-  await act(async () => {
-    chip.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
-  });
-  const inside = card()!.querySelector<HTMLButtonElement>(".acpmux-session-hover")!;
-  expect(dom.window.document.activeElement).toBe(inside);
-  // The pointer drifting off while focus is in the card keeps it.
-  await act(async () => {
-    pointer("pointerover");
-    pointer("pointerenter");
-    pointer("pointerout");
-    pointer("pointerleave");
-    await wait(400);
-  });
-  expect(card()).not.toBeNull();
-  expect(dom.window.document.activeElement).toBe(inside);
-  // One Escape closes the card and hands focus back; the refocus does not show it again.
-  await act(async () => {
-    inside.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    await wait(400);
-  });
-  expect(dom.window.document.activeElement).toBe(chip);
-  expect(card()).toBeNull();
-  expect(chip.hasAttribute("aria-describedby")).toBe(false);
-
-  // A click on the card opens the session.
-  await act(async () => {
-    chip.blur();
-    await wait(400);
-    chip.focus();
-  });
-  await act(async () => card()!.querySelector<HTMLButtonElement>(".acpmux-session-hover")!.click());
-  expect(opened).toEqual([ID]);
+    // A click on the card opens the session.
+    await act(async () => {
+      chip.blur();
+      wait(400);
+      chip.focus();
+    });
+    await act(async () => card()!.querySelector<HTMLButtonElement>(".acpmux-session-hover")!.click());
+    expect(opened).toEqual([ID]);
+  } finally {
+    jest.useRealTimers();
+  }
   await act(async () => root.unmount());
 });
 

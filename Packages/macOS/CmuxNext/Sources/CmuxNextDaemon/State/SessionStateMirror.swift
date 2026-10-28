@@ -67,6 +67,11 @@ public struct SessionStateMirror: Sendable, Hashable {
     public var terminalProgramStatus: [ResourceID: [ProgramStatusRecord]] = [:]
     /// When each terminal's running shell command started; a terminal at a prompt is absent.
     public var terminalBusySinceMs: [ResourceID: UInt64] = [:]
+    /// Since when each terminal's shell sits at its prompt; absent while a command runs and without
+    /// shell integration.
+    public var terminalPromptSinceMs: [ResourceID: UInt64] = [:]
+    /// When each terminal last printed.
+    public var terminalLastOutputMs: [ResourceID: UInt64] = [:]
 
     /// The daemon keeps the newest 50 closed items.
     public static let closedLimit = 50
@@ -82,6 +87,8 @@ public struct SessionStateMirror: Sendable, Hashable {
         case tab(ResourceID)
         case terminal(ResourceID)
         case closed
+        /// A stash (`stash-v1`): the mirror keeps none, so readers list the stashes again.
+        case stash
     }
 
     /// Applies one ordered batch of changes in place.
@@ -123,14 +130,17 @@ public struct SessionStateMirror: Sendable, Hashable {
             guard tabs[id] != record else { return }
             tabs[id] = record
             touched.insert(.tab(id))
-        case .terminal(let id, let progress, let programStatus, let busySinceMs):
+        case .terminal(let id, let progress, let programStatus, let busySinceMs, let promptSinceMs, let lastOutputMs):
             let status = programStatus.isEmpty ? nil : programStatus
-            guard terminalProgress[id] != progress || terminalProgramStatus[id] != status || terminalBusySinceMs[id] != busySinceMs else {
+            guard terminalProgress[id] != progress || terminalProgramStatus[id] != status || terminalBusySinceMs[id] != busySinceMs
+                || terminalPromptSinceMs[id] != promptSinceMs || terminalLastOutputMs[id] != lastOutputMs else {
                 return
             }
             terminalProgress[id] = progress
             terminalProgramStatus[id] = status
             terminalBusySinceMs[id] = busySinceMs
+            terminalPromptSinceMs[id] = promptSinceMs
+            terminalLastOutputMs[id] = lastOutputMs
             touched.insert(.terminal(id))
         case .closed(let item):
             let before = closed
@@ -167,6 +177,8 @@ public struct SessionStateMirror: Sendable, Hashable {
         case .screenGroupRemoved(let id):
             guard let old = screenGroups.removeValue(forKey: id) else { return }
             touched.insert(.workspace(old.workspaceID))
+        case .stash:
+            touched.insert(.stash)
         case .sidebarBatch:
             // The sidebar document has its own mirror (SessionStateStore.onSidebarBatch).
             break

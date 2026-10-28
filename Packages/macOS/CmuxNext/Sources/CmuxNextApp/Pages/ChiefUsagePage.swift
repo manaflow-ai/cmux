@@ -12,8 +12,7 @@ extension InternalPageID {
 /// `cmux action run`) shows it: in the home workspace a page tab lands in the column beside the
 /// Chief dock (`pageTabPane`), which is Home's right column. Unavailable in a build without a
 /// local Chief (Release and RC bundle none).
-@MainActor
-final class ChiefUsagePageTab: InternalPageProvider {
+enum ChiefUsagePageTab {
     static let actionID: ActionID = "chief.openUsage"
     /// The Chief row menu's item title in Home ("Usage…").
     static var menuTitle: String { ChiefUsagePageProvider.menuTitle }
@@ -23,41 +22,20 @@ final class ChiefUsagePageTab: InternalPageProvider {
         // The bundle and the environment do not change while the app runs: resolved once.
         let tool = ChiefUsageTool.resolve()
         let hasLocalChief = tool != nil || HomeBrainHost.canStart()
-        services.pages.register(ChiefUsagePageTab(services: services, tool: tool)) // at launch, so a restored tab finds it
+        // at launch, so a restored tab finds it; one `optchat-chief usage` run per call, off the
+        // main actor, and no tool answers unavailable.
+        services.pages.register(WebPageTab(.chiefUsage, symbol: "dollarsign.circle", title: ChiefUsagePageProvider.title) { [weak services] in
+            let muxHome = HomeBrainHost.muxHome(tag: services?.environment.tag)
+            let provider = ChiefUsagePageProvider { arguments in
+                guard let tool else { return nil }
+                return try await tool.run(arguments, muxHome: muxHome)
+            }
+            return PageWebView(descriptor: .chiefUsage, routes: [PageRoute(prefix: "cmux.chief_usage.", provider: provider)])
+        })
         registry.bind(actionID, unavailable: {
             hasLocalChief ? nil : ChiefUsagePageProvider.noLocalChief
         }, invoke: { [weak services] invocation in
             if let services { _ = services.pages.show(.chiefUsage, in: services.windows.active, focus: invocation.allowsViewChange) }
         })
     }
-
-    private weak var services: AppServices?
-    private let tool: ChiefUsageTool?
-    private var pages: [String: PageWebView] = [:]
-
-    init(services: AppServices, tool: ChiefUsageTool?) {
-        self.services = services
-        self.tool = tool
-    }
-
-    var page: InternalPageID { .chiefUsage }
-    var title: String { ChiefUsagePageProvider.title }
-    var symbol: String { "dollarsign.circle" }
-
-    func makeView(for key: String, in window: WindowController?) -> NSView {
-        // One `optchat-chief usage` run per call, off the main actor; no tool answers unavailable.
-        let tool = tool
-        let muxHome = HomeBrainHost.muxHome(tag: services?.environment.tag)
-        let provider = ChiefUsagePageProvider { arguments in
-            guard let tool else { return nil }
-            return try await tool.run(arguments, muxHome: muxHome)
-        }
-        guard let view = PageWebView(descriptor: .chiefUsage, routes: [PageRoute(prefix: "cmux.chief_usage.", provider: provider)]) else {
-            return NSView()
-        }
-        pages[key] = view
-        return view
-    }
-
-    func tabClosed(_ key: String) { pages.removeValue(forKey: key)?.close() }
 }

@@ -527,6 +527,9 @@ final class RowCell: UICollectionViewCell {
     /// frame rounded to whole device pixels in the window, as Messages clips its bubble (clipTypingBody).
     let typingClip = CALayer()
     var dots: [CALayer] = []
+    // cmux: working is a constant-opacity spinner, never dots or a breathing bubble.
+    let typingSpinner = RowCell.makeTypingSpinner()
+    var typingSpinnerActive = false
     /// The typing bubble's tail discs (RowDraw.typingDiscs): on macOS beside the scaled bubble in the
     /// row's content (they move on their own, Springs.typingDiscFrom); on iOS in the bubble's container.
     let typingDiscs = [CALayer(), CALayer()]
@@ -615,6 +618,16 @@ final class RowCell: UICollectionViewCell {
     /// typing clip use it. The window view sets it before each configure (decorate) and on its setRenderScale; a cell
     /// that no window view placed yet (iOS) keeps the process value.
     var renderScale: CGFloat = Fixture.renderScale
+    /// cmux: the zoom `renderScale` includes (a zoomed Chief chat, HostView.contentZoom; 1 otherwise), set with it.
+    var contentZoom: CGFloat = 1
+    /// The window's device pixels per window point, which the snaps (snapRow, snapTyping) round to.
+    var pixelScale: CGFloat { max(1, renderScale / contentZoom) }
+    /// The inactive-window state of the window view that shows this cell (MessagesWindowView.inactive; cx-3cb
+    /// inactive-per-view): the typing indicator's colours follow it (Fixture.typingColors). The window view sets it
+    /// before each configure (decorate), as `renderScale`; a cell no window view placed yet (iOS) keeps false.
+    var inactive = false
+    /// The state this cell's typing colours were set for (configure repaints the row when `inactive` differs).
+    private var appliedInactive = false
     /// The scale this cell's layers were set for (configure sets them again when `renderScale` differs).
     private var appliedScale: CGFloat = 0
     /// Runs `body` with `Fixture.renderScale` = this cell's scale (the static drawing it calls reads it).
@@ -655,7 +668,8 @@ final class RowCell: UICollectionViewCell {
         // ends). UIBezierPath(roundedRect:cornerRadius:) curves continuously at this radius: no flat part at all.
         let r = RowDraw.typingBubble.height / 2
         typingBody.path = CGPath(roundedRect: typingBody.bounds, cornerWidth: r, cornerHeight: r, transform: nil)
-        typingBody.fillColor = Fixture.typingFill.cgColor
+        let typing = Fixture.typingColors(inactive: inactive)
+        typingBody.fillColor = typing.fill.cgColor
         connector.fillColor = nil
         connector.strokeColor = Fixture.connector.cgColor
         connector.lineWidth = 2.6
@@ -670,24 +684,7 @@ final class RowCell: UICollectionViewCell {
         // uses them: fewer layers per new cell during a fast fling.
         contentView.layer.addSublayer(fillContainer)
         contentView.layer.addSublayer(bitmap)
-        for i in 0..<3 {
-            let d = CALayer()
-            d.actions = noActions
-            // Dot levels (Fixture.typingDotDim / typingDotLit; tintTypingDiscs follows a palette change).
-            d.backgroundColor = Fixture.typingDotDim.cgColor
-            d.cornerRadius = 3.25
-            let hi = CALayer()
-            hi.actions = noActions
-            hi.backgroundColor = Fixture.typingDotLit.cgColor
-            hi.cornerRadius = 3.25
-            hi.opacity = 0
-            hi.name = "hi"
-            d.addSublayer(hi)
-            let c = RowDraw.typingDotCenter(i)
-            d.frame = CGRect(x: c.x - 3.25, y: c.y - 3.25, width: 6.5, height: 6.5)
-            hi.frame = d.bounds
-            dots.append(d)
-        }
+        // cmux: the shared working arc replaces the upstream dots.
         for (l, r) in zip(typingDiscs, RowDraw.typingDiscs) {
             l.actions = noActions
             l.frame = r
@@ -735,6 +732,7 @@ final class RowCell: UICollectionViewCell {
         // A tiled body's container gets only a received thread reply's fade (ledger .bubble: its curve and hold).
         if let c = tiled?.container { for k in c.animationKeys() ?? [] where k.contains(".opacity.") || k.hasPrefix("hold.") { c.removeAnimation(forKey: k) } }
         dots.forEach { $0.sublayers?.first?.removeAllAnimations() }
+        stopTypingSpinner() // cmux: recycle/offscreen rows own no working loop.
         typingInsertedAt = -.infinity
     }
 
@@ -805,12 +803,15 @@ final class RowCell: UICollectionViewCell {
         // new palette, new scale or new content) before anything changes.
         let showingThisRow = key == spec.key && bitmap.contents != nil
         let rescaled = appliedScale != renderScale
-        let repaint = palette != Fixture.paletteGeneration || rescaled
+        // A key state change of this cell's own window view repaints the row as a palette change did when the state
+        // was process-wide (the typing colours follow it; host custom rows read their window's key state again).
+        let repaint = palette != Fixture.paletteGeneration || rescaled || appliedInactive != inactive
         if key != spec.key { clearAnimations(); applied = []; motionChecked = -1; key = spec.key; fillReachBelow = 0; setSelectionHighlight(nil) }
         if let w = pendingWant, w != spec { dropWant() }
         if repaint {
             palette = Fixture.paletteGeneration
             appliedScale = renderScale
+            appliedInactive = inactive
             CATransaction.begin(); CATransaction.setDisableActions(true)
             // A scale change: every layer this cell owns follows its window view's scale.
             for l in [fillContainer, fillGradient, fillMask, fillMaskImage, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld, selectionHighlight] {
@@ -1093,10 +1094,12 @@ final class RowCell: UICollectionViewCell {
     /// change the previous bitmap stays until the new one lands: the discs and dots change with it, not before).
     private func tintTypingDiscs() {
         guard case .typing? = spec?.kind else { return }
-        let c = Fixture.typingFill.cgColor
+        let t = Fixture.typingColors(inactive: inactive)
+        let c = t.fill.cgColor
         for d in typingDiscs { d.backgroundColor = c }
         typingBody.fillColor = c
-        let dim = Fixture.typingDotDim.cgColor, lit = Fixture.typingDotLit.cgColor
+        typingSpinner.strokeColor = t.dotLit.cgColor // cmux: keep the typing palette.
+        let dim = t.dotDim.cgColor, lit = t.dotLit.cgColor
         for d in dots {
             d.backgroundColor = dim
             d.sublayers?.first { $0.name == "hi" }?.backgroundColor = lit
@@ -1109,7 +1112,7 @@ final class RowCell: UICollectionViewCell {
         // The typing bubble fades in on the row's content (bubble, dots and discs as one layer group: the
         // large disc overlaps the bubble). Other rows keep the layer's own setting.
         contentView.layer.allowsGroupOpacity = on || contentGroupOpacity
-        guard on else { return }
+        guard on else { stopTypingSpinner(); return } // cmux: idle rows cannot keep a working loop.
         if typingContainer.superlayer == nil { contentView.layer.addSublayer(typingContainer) }
         // macOS: scale about RowDraw.typingAnchor (Messages' growth point, near the bubble's upper
         // left). The iOS app (ios/Sources/ChatColumn.swift, typing.pop) scales about the small tail
@@ -1140,7 +1143,8 @@ final class RowCell: UICollectionViewCell {
             typingContainer.insertSublayer(typingClip, at: 0)
         }
 #endif
-        dots.forEach { if $0.superlayer == nil { typingContainer.addSublayer($0) } }
+        // cmux: use the working spinner in the same bubble and layer order.
+        if typingSpinner.superlayer == nil { typingContainer.addSublayer(typingSpinner) }
 #if os(iOS) && !targetEnvironment(macCatalyst)
         let discParent = typingContainer
 #else
@@ -1168,7 +1172,7 @@ final class RowCell: UICollectionViewCell {
     private func snapTyping() {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         guard case .typing? = spec?.kind else { return }
-        let s = max(1, renderScale)
+        let s = pixelScale
         // In the row's content, which snapRow already moved by rowSnap.
         let top = windowY + rowSnap.y + RowDraw.typingBubble.minY, left = layer.frame.minX + rowSnap.x + RowDraw.typingBubble.minX
         guard top.isFinite, left.isFinite else { return }
@@ -1395,6 +1399,7 @@ final class RowCell: UICollectionViewCell {
     /// layer tree (o: the window view's origin there, k: the window's length of one view point along the axis, +1 or
     /// -1 when not scaled), rounded at `scale`. A tie (exactly half a pixel off) rounds up in the window, the same in
     /// every pass.
+    /// `scale` is the window's device pixels per window point (cmux: `pixelScale`, not a zoomed chat's `renderScale`).
     static func snap(_ v: CGFloat, _ o: CGFloat, _ k: CGFloat, scale s: CGFloat) -> CGFloat {
         guard abs(k) > 1e-6 else { return 0 }
         let r = o + k * v
@@ -1440,7 +1445,7 @@ final class RowCell: UICollectionViewCell {
     /// Moves the content to the snapped place; true when the snap changed.
     @discardableResult private func snapRow() -> Bool {
 #if !os(iOS) || targetEnvironment(macCatalyst)
-        let s = max(1, renderScale)
+        let s = pixelScale
         let x = RowCell.anchorX(spec, layer.frame)
         guard windowY.isFinite, x.isFinite else { return false }
         let d = CGPoint(x: RowCell.snap(x, windowPlace.origin.x, windowPlace.axis.x, scale: s),
@@ -1664,8 +1669,10 @@ final class RowCell: UICollectionViewCell {
         // 0 after snapTyping), read from the window's layer tree.
         let o = typingContainer.convert(CGPoint(x: r.minX, y: r.minY), to: nil)
         let o1 = typingContainer.convert(CGPoint(x: r.minX + 1, y: r.minY + 1), to: nil)
+        // cmux: the rest place is in window points, so its pixel offset is at the window's pixels (pixelScale).
+        let px = Double(pixelScale)
         func rest(_ v: CGFloat, _ v1: CGFloat) -> Double {
-            let g = Double(v) * s, k = Double(v1 - v)
+            let g = Double(v) * px, k = Double(v1 - v)
             guard g.isFinite, k.isFinite, abs(k) > 1e-6 else { return 0 }
             let f = (g - (g + 1e-6).rounded()) * (k < 0 ? -1 : 1)
             return abs(f) > 1e-6 ? f : 0

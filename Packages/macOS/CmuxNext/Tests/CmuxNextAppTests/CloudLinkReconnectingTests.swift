@@ -19,7 +19,7 @@ struct CloudLinkReconnectingTests {
                                                  headerFields: ["Content-Type": "application/json"]) else { return }
             let body: String
             if url.path.hasSuffix("/attach-endpoint") {
-                body = #"{"transport":"cmux-remote","route":"ws://10.9.0.2:1337/v1/link","session":"s","trustedCarrier":false,"invitation":{"uri":"cmux://enroll/inv_test?secret=test-secret","invitationId":"inv_test","expiresAtUnix":2000000000}}"#
+                body = #"{"transport":"cmux-remote","route":"ws://10.9.0.2:1337/v1/link","session":"s","trustedCarrier":false,"vmKind":"owner","invitation":{"uri":"cmux://enroll/inv_test?secret=test-secret","invitationId":"inv_test","expiresAtUnix":2000000000}}"#
             } else if url.path.hasSuffix("/cmux-remote/approve") {
                 body = #"{"approved":true,"state":"approved","deviceFingerprint":"device-test"}"#
             } else {
@@ -34,7 +34,8 @@ struct CloudLinkReconnectingTests {
 
     /// A short temp root with a stand-in `cmux-tui`: `wg hub` reports ready, and `remote connect`
     /// prints the link's snapshots: connected, reconnecting once `drop` exists, connected once
-    /// `back` exists.
+    /// `back` exists; it ends once `gone` exists before `drop`. The attach answer says the
+    /// caller owns the machine.
     struct Fixture {
         let root: URL
         let hub: CloudTunnelHub
@@ -62,7 +63,7 @@ struct CloudLinkReconnectingTests {
                   : > "$S"
                   snap() { printf '{"event":"connection-snapshot","local_socket":"%s","connection":{"session_id":"s","generation":1,"state":"%s","lane_bindings":[],"physical_link_count":1,"transport":{"provider":"cloud","route":"ws://10.9.0.2:1337/v1/link"}}}\\n' "$S" "$1"; }
                   snap connected
-                  until [ -e '\(root.path)/drop' ]; do sleep 0.05; done; snap reconnecting
+                  until [ -e '\(root.path)/drop' ]; do [ -e '\(root.path)/gone' ] && exit 0; sleep 0.05; done; snap reconnecting
                   until [ -e '\(root.path)/back' ]; do sleep 0.05; done; snap connected
                   exec sleep 60 ;;
                 esac
@@ -99,6 +100,18 @@ struct CloudLinkReconnectingTests {
             return status
         }
 
+        /// Settings' mirror of the link's owner answer once `condition` holds, or after 5 s.
+        func owns(until condition: (Bool) -> Bool) async -> Bool {
+            let ownership = link.ownership
+            let deadline = ContinuousClock.now + .seconds(5)
+            var owns = await ownership.callerOwnsVM
+            while !condition(owns), ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(50))
+                owns = await ownership.callerOwnsVM
+            }
+            return owns
+        }
+
         func remove() async {
             await link.stop()
             await hub.stop()
@@ -117,6 +130,49 @@ struct CloudLinkReconnectingTests {
 
         fixture.mark("back")
         #expect(await fixture.waitFor { $0 == .connected } == .connected)
+        await fixture.remove()
+    }
+
+    /// The owner answer lives only as long as its link process: Settings > Machines stops
+    /// showing the VM switch when the link ends, and a start authorized on one link never
+    /// counts on the next (``CloudMachineLink/ownerLink``).
+    @Test func aLinkThatEndsNoLongerSaysTheCallerOwnsTheMachine() async throws {
+        let fixture = try Fixture()
+        _ = try await fixture.link.socketPath()
+        let first = await fixture.link.ownerLink
+        #expect(first != nil)
+        #expect(await fixture.owns { $0 })
+
+        fixture.mark("gone")
+        #expect(await fixture.owns { !$0 } == false, "Settings keeps the VM switch after the link process ended")
+        #expect(await fixture.link.ownerLink == nil)
+
+        try FileManager.default.removeItem(at: fixture.root.appendingPathComponent("gone"))
+        _ = try await fixture.link.socketPath()
+        let second = await fixture.link.ownerLink
+        #expect(second != nil && second != first, "an owner answer carried over to the next link")
+        await fixture.remove()
+    }
+
+    /// Move to Cloud's owner word names the link process it came from (`--to-pid`), so the pump
+    /// sends it only over a connection that process serves: none once that link ends, and the
+    /// replacement's own pid after it comes up.
+    @Test func theOwnerWordNamesTheLinkProcessItCameFrom() async throws {
+        let fixture = try Fixture()
+        _ = try await fixture.link.socketPath()
+        let first = try #require(await fixture.link.ownerPID)
+        let firstPID = await fixture.link.pid
+        #expect(first == firstPID)
+
+        fixture.mark("gone")
+        #expect(await fixture.owns { !$0 } == false)
+        #expect(await fixture.link.ownerPID == nil, "an ended link still names a process for the owner word")
+
+        try FileManager.default.removeItem(at: fixture.root.appendingPathComponent("gone"))
+        _ = try await fixture.link.socketPath()
+        let second = try #require(await fixture.link.ownerPID)
+        let secondPID = await fixture.link.pid
+        #expect(second != first && second == secondPID)
         await fixture.remove()
     }
 }

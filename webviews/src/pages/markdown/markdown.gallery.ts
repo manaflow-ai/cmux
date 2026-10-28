@@ -243,6 +243,28 @@ export default markdownPageEntry({
       text: "# Review links\n\nFollow #18325 and manaflow-ai/cmux#18321.\n\n`#18325`\n\n```text\n#18321\n```\n",
       githubRepository: "manaflow-ai/cmux",
     },
+    "edit-cue-rich": {
+      note: "Chosen version: the default rich editor has a compact Edit button beside its save status.",
+      path: "/Users/you/src/atlas-web/README.md",
+      text: README,
+    },
+    "edit-cue-source": {
+      note: "Comparison version: source mode keeps the existing Rich text / Source toggle while editing.",
+      path: "/Users/you/src/atlas-web/README.md",
+      text: README,
+      settings: { defaultMode: "source" },
+    },
+    // The link editor (Cmd-K, or Edit link in the bubble): a liquid glass popover whose one edge is
+    // the glass rim (test/glass-one-edge.test.ts).
+    "link-editor": {
+      note: "The link editor popover, open on a link: Text, URL, Remove and Apply.",
+      path: "/Users/you/src/atlas-web/LINKS.md",
+      text: "# Links\n\nRead the [docs link](https://example.com/docs) before you start.\n",
+      play: async (ctx) => {
+        await ctx.click({ text: "docs link" });
+        await ctx.click({ role: "button", name: "Edit link" });
+      },
+    },
     "tasks-checked": {
       note: "Checked task-list items.",
       path: "/Users/you/src/atlas-web/TASKS.md",

@@ -63,6 +63,14 @@ export const Expand = (p: CvIconProps) => (
   </Svg>
 );
 
+/** Open in tab: a window with its right side split off, where the new tab opens. */
+export const OpenTab = (p: CvIconProps) => (
+  <Svg {...p}>
+    <rect x="2.5" y="3.5" width="11" height="9" rx="1.5" />
+    <path d="M9 3.5v9" />
+  </Svg>
+);
+
 export const ChevronDown = (p: CvIconProps) => (
   <Svg {...p}>
     <path d="M4.25 6.25 8 10l3.75-3.75" />
@@ -140,6 +148,15 @@ export const Retry = (p: CvIconProps) => (
   </Svg>
 );
 
+/** A failure's mark: a circle with an exclamation (a failed turn's card). */
+export const AlertCircle = (p: CvIconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.75" />
+    <path d="M8 5.25v3.25" />
+    <circle cx="8" cy="10.75" r=".4" fill="currentColor" />
+  </Svg>
+);
+
 export const Lock = (p: CvIconProps) => (
   <Svg {...p}>
     <rect x="3.25" y="7" width="9.5" height="7" rx="2" />
@@ -163,6 +180,34 @@ export const Plus = (p: CvIconProps) => (
 export const Check = (p: CvIconProps) => (
   <Svg {...p}>
     <path d="M4.2 8.3 6.8 10.9 11.8 5.2" />
+  </Svg>
+);
+
+/** Two checks, the second offset: a delivered message to another agent (MessageCard), as a messaging
+ *  app marks one, and a prompt the agent has read (a message's read receipt). */
+export const DoubleCheck = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M1.75 8.4 4.3 10.9 9.2 5.2" />
+    <path d="M7.4 10.6l.3.3 4.9-5.7" />
+  </Svg>
+);
+
+/** A pushpin, filled when the message is pinned. */
+export const Pin = ({ filled, ...p }: CvIconProps & { filled?: boolean }) => (
+  <Svg {...p}>
+    <path
+      d="M9.6 2.4 13.6 6.4 12.5 7.2 10.4 9.3 10.5 11.6 9.6 12.5 3.5 6.4 4.4 5.5 6.7 5.6 8.8 3.5Z"
+      fill={filled ? "currentColor" : "none"}
+    />
+    <path d="M6.5 9.5 2.5 13.5" />
+  </Svg>
+);
+
+/** A speaker with sound waves: Read aloud. */
+export const Speaker = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M2.75 6.25h2l3-2.5v8.5l-3-2.5h-2Z" />
+    <path d="M10.25 6.1a2.6 2.6 0 0 1 0 3.8M12 4.4a5 5 0 0 1 0 7.2" />
   </Svg>
 );
 
@@ -208,8 +253,17 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** Open-ended ring used as the "working" spinner. `cv-spinner` turns it (conversation.css). */
-export const Spinner = ({ size = 16, className, style, strokeWidth = 1.5 }: CvIconProps) => (
+/** The running mark of a transcript row. Agent work (the default) draws the working look the
+ * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning ring,
+ * or a still dot while the row's words shimmer. `loading` (a check or a page loading, not agent
+ * work) always draws the turning ring. `cv-spinner` turns the ring on the shared clock. */
+export const Spinner = ({
+  size = 16,
+  className,
+  style,
+  strokeWidth = 1.5,
+  loading = false,
+}: CvIconProps & { loading?: boolean }) => (
   <svg
     className={className ? `cv-spinner ${className}` : "cv-spinner"}
     style={style}
@@ -218,8 +272,16 @@ export const Spinner = ({ size = 16, className, style, strokeWidth = 1.5 }: CvIc
     viewBox="0 0 16 16"
     fill="none"
     aria-hidden="true"
+    data-working={loading ? undefined : ""}
   >
-    <path d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" />
+    <path
+      className="cv-spinner__arc"
+      d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+    />
+    {!loading && <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />}
   </svg>
 );
 
@@ -374,6 +436,19 @@ export const Envelope = (p: CvIconProps) => (
   <Svg strokeWidth={1.1} {...p}>
     <rect x="2.25" y="3.75" width="11.5" height="8.5" rx="1.75" />
     <path d="m2.75 4.75 5.25 4 5.25-4" />
+  </Svg>
+);
+
+/** A small bot: another agent's message to this chat when its harness has no mark (IncomingMessageCard.tsx). */
+export const Bot = (p: CvIconProps) => (
+  <Svg strokeWidth={1.1} {...p}>
+    <rect x="2.75" y="5.25" width="10.5" height="7.5" rx="2.5" />
+    <path d="M8 5.25V3.5" />
+    <circle cx="8" cy="2.9" r="0.6" />
+    <path d="M1.75 8.25v1.5M14.25 8.25v1.5" />
+    <circle cx="6" cy="8.75" r="0.5" fill="currentColor" />
+    <circle cx="10" cy="8.75" r="0.5" fill="currentColor" />
+    <path d="M6.75 10.75c.75.4 1.75.4 2.5 0" />
   </Svg>
 );
 

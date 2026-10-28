@@ -1,9 +1,10 @@
 @testable import CmuxNextApp
 import Testing
 
-/// "Move Chief to…" targets (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac,
+/// "Move Chief To…" targets (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac,
 /// every SSH or server remote group, and cmux Cloud while signed in, each mapped to one `--to` value.
-/// A paired server is listed but not a target yet; an offline host is listed but greyed out; a host
+/// A paired server moves over SSH like an SSH host; one with no SSH route is listed but greyed out;
+/// an offline host is listed but greyed out; a host
 /// that is not a remote group is not listed. `--to cloud` is the account's Cloud Chief, not a Cloud
 /// VM, so a Cloud VM's group is not a target and Cloud is one entry.
 struct ChiefMoveTargetsTests {
@@ -11,7 +12,9 @@ struct ChiefMoveTargetsTests {
         .init(machineID: "ssh-mini", name: "cmux-mini", kind: .ssh(destination: "lawrence@cmux-mini"), isOnline: true, isRemoteGroup: true),
         .init(machineID: "ssh-gcp", name: "gcp-linux-1", kind: .ssh(destination: "gcp-linux-1"), isOnline: false, isRemoteGroup: true),
         .init(machineID: "ssh-plain", name: "plain", kind: .ssh(destination: "plain"), isOnline: true, isRemoteGroup: false),
-        .init(machineID: "srv", name: "brain-box", kind: .server, isOnline: true, isRemoteGroup: true),
+        .init(machineID: "srv", name: "brain-box", kind: .server(destination: "brain-box"), isOnline: true, isRemoteGroup: true),
+        .init(machineID: "srv-off", name: "brain-off", kind: .server(destination: "me@brain-off"), isOnline: false, isRemoteGroup: true),
+        .init(machineID: "srv-noroute", name: "???", kind: .server(destination: nil), isOnline: true, isRemoteGroup: true),
         .init(machineID: "vm-1", name: "a cloud vm", kind: .cloud(staging: false), isOnline: true, isRemoteGroup: true),
     ]
 
@@ -41,10 +44,20 @@ struct ChiefMoveTargetsTests {
         #expect(signedOut.first { $0.machineID == ChiefMoveTargets.cloudID }?.disabledReason == .signInNeeded)
     }
 
-    @Test func offlineAndServerTargetsAreListedButGreyedOut() {
+    @Test func offlineTargetsAreListedButGreyedOut() {
         #expect(target("ssh-gcp")?.disabledReason == .offline)
-        #expect(target("srv")?.disabledReason == .notSupportedYet)
-        #expect(target("srv")?.to == nil)
+        #expect(target("srv-off")?.disabledReason == .offline)
+        #expect(target("srv-off")?.to == "ssh:me@brain-off")
+    }
+
+    @Test func aPairedServerMovesOverSSHLikeAnSSHHost() {
+        #expect(target("srv")?.to == "ssh:brain-box")
+        #expect(target("srv")?.disabledReason == nil)
+    }
+
+    @Test func aServerWithNoSSHRouteIsGreyedOut() {
+        #expect(target("srv-noroute")?.to == nil)
+        #expect(target("srv-noroute")?.disabledReason == .noSSHRoute)
     }
 
     @Test func aHostThatIsNotARemoteGroupIsNotListed() {
@@ -62,6 +75,13 @@ struct ChiefMovePlanTests {
         #expect(plan.dryRun == ["chief", "move", "--to", "ssh:cmux-mini", "--dry-run"])
         #expect(plan.move == ["chief", "move", "--to", "ssh:cmux-mini"])
         #expect(plan.reach == .remote(["ssh", "-o", "BatchMode=yes", "cmux-mini", "optchat-chief", "move", "reach", "--home", "~/.cmux/chief/default"]))
+    }
+
+    @Test func aServerRunsTheSameStepsAsAnSSHHost() {
+        let plan = ChiefMovePlan(to: "ssh:brain-box", kind: .server(destination: "brain-box"), targetHome: "~/.cmux/chief/default", tokenFile: nil)
+        #expect(plan.dryRun == ["chief", "move", "--to", "ssh:brain-box", "--dry-run"])
+        #expect(plan.move == ["chief", "move", "--to", "ssh:brain-box"])
+        #expect(plan.reach == .remote(["ssh", "-o", "BatchMode=yes", "brain-box", "optchat-chief", "move", "reach", "--home", "~/.cmux/chief/default"]))
     }
 
     @Test func aLocalHomeReachesThroughTheCLI() {

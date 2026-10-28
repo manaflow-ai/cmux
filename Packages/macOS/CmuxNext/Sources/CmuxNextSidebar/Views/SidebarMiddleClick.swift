@@ -6,6 +6,15 @@ struct SidebarPress {
     var key: SidebarRowKey
     var point: NSPoint
     var deferredClick: WorkspaceID?
+    /// A plain press on a workspace row with `sidebar.multiView` on: it navigates only if the button comes up on
+    /// the same row without a drag.
+    var clickOnRelease: WorkspaceID?
+    /// A plain press that switched on mouse-down (the default, `sidebar.multiView` off): what was shown and
+    /// selected before it, put back if the press becomes a drag.
+    var switchedOnPress: (shown: WorkspaceID?, selection: Set<WorkspaceID>)?
+    /// A plain press on the shown workspace's row while it lists tabs: the release on that row without a drag
+    /// folds or opens them, as a click on a Chrome tab group's header does (`SidebarListView.foldTabs`).
+    var foldsTabs: WorkspaceID?
     var cancelled = false
     /// An item row that switched on mouse-down (`LayoutItemRef.activatesOnPress`): its release does not run it again.
     var activatedOnPress = false

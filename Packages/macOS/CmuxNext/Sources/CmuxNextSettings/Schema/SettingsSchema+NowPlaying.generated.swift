@@ -5,17 +5,26 @@ extension NowPlayingSettings {
     /// `sidebar.nowPlaying.enabled`: Off by default. Off: no Now Playing card in the sidebar; a tab playing sound shows only its speaker in the tab strip. The New Tab page's player is tabs.newTabNowPlaying.
     public nonisolated static let enabledPath = ["sidebar", "nowPlaying", "enabled"]
     public nonisolated static let enabledDefault = false
+    /// `sidebar.nowPlaying.otherApps`: Off by default (Lawrence 2026-10-21). Off: the sidebar card and the New Tab player show only what plays in cmux (its browser tabs and its player), and macOS Now Playing is not read. On: another app that plays (Spotify, Music, another browser) shows too.
+    public nonisolated static let otherAppsPath = ["sidebar", "nowPlaying", "otherApps"]
+    public nonisolated static let otherAppsDefault = false
 }
 
 extension NowPlayingSettings {
-    /// `tabs.newTabNowPlaying`: On by default (Leo 2026-10-19), apart from the sidebar card (sidebar.nowPlaying.enabled, off by default). Off: no player on the New Tab page and no space kept for it.
+    /// `tabs.newTabNowPlaying`: Off by default since 2026-10-21 (Lawrence), as the sidebar card (sidebar.nowPlaying.enabled) is. Off: no player on the New Tab page and no space kept for it. A cmux.json without the key gets the new default; a true written by the user stays.
     public nonisolated static let newTabPath = ["tabs", "newTabNowPlaying"]
-    public nonisolated static let newTabDefault = true
+    public nonisolated static let newTabDefault = false
+}
+
+extension NowPlayingSettings {
+    /// `media.pictureInPicture.enabled`: On by default. Off: cmux offers no Picture in Picture of its own: the tab and media card menus, the palette, the CLI and MCP action, the Now Playing card's button and the media hub's button are gone. A site's own video controls are unchanged.
+    public nonisolated static let pictureInPicturePath = ["media", "pictureInPicture", "enabled"]
+    public nonisolated static let pictureInPictureDefault = true
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum NowPlayingSettingsSchema {
-    /// The Now Playing player (Austin's idea, Leo 2026-10-18): off by default since 2026-10-19 (Lawrence did not want the card in the sidebar); the user can turn it on.
+    /// The Now Playing player (Austin's idea, Leo 2026-10-18): off by default since 2026-10-19 (Lawrence did not want the card in the sidebar); the user can turn it on. Only cmux's own tabs and player feed it unless sidebar.nowPlaying.otherApps is on (Lawrence 2026-10-21: it showed his other browser's audio).
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
@@ -29,10 +38,20 @@ nonisolated enum NowPlayingSettingsSchema {
                 default: .bool(NowPlayingSettings.enabledDefault),
                 keywords: ["music", "now playing", "player", "media", "spotify", "song", "sidebar"]
             ),
+            SettingDescriptor(
+                NowPlayingSettings.otherAppsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.nowPlaying.otherApps", "Include Other Apps in Now Playing"),
+                help: SettingsText.keyed("settings.sidebar.nowPlaying.otherApps.help", "Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux."),
+                kind: .toggle,
+                default: .bool(NowPlayingSettings.otherAppsDefault),
+                keywords: ["music", "now playing", "player", "media", "spotify", "other apps", "browser", "chrome", "safari"]
+            ),
         ]
     }
 
-    /// The New Tab page's Now Playing player (Leo 2026-10-19: "disableable"): on by default; its right-click menu's Hide Now Playing turns it off.
+    /// The New Tab page's Now Playing player (Leo 2026-10-19: "disableable"): off by default since 2026-10-21 (Lawrence: "get rid of music player thing by default"); its right-click menu's Hide Now Playing turns it off.
     static var newTabDescriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.tabs", "Tabs")
         return [
@@ -45,6 +64,23 @@ nonisolated enum NowPlayingSettingsSchema {
                 kind: .toggle,
                 default: .bool(NowPlayingSettings.newTabDefault),
                 keywords: ["music", "now playing", "player", "media", "spotify", "song", "new tab", "new chat"]
+            ),
+        ]
+    }
+
+    /// cmux's own Picture in Picture entry points for a web page's video: on by default (today's behavior).
+    static var pictureInPictureDescriptors: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.media", "Media")
+        return [
+            SettingDescriptor(
+                NowPlayingSettings.pictureInPicturePath,
+                section: .browser,
+                group: group,
+                title: SettingsText.keyed("settings.media.pictureInPicture.enabled", "Picture in Picture"),
+                help: SettingsText.keyed("settings.media.pictureInPicture.enabled.help", "Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected."),
+                kind: .toggle,
+                default: .bool(NowPlayingSettings.pictureInPictureDefault),
+                keywords: ["pip", "picture in picture", "video", "float", "floating", "pop out", "media", "now playing"]
             ),
         ]
     }

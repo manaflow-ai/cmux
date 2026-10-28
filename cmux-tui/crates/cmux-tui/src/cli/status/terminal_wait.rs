@@ -122,7 +122,7 @@ fn parse(words: &[String]) -> Result<(Until, Option<Duration>), UsageError> {
 }
 
 /// `500ms`, `30s` (or `30`), `5m`, `1h`.
-pub(super) fn duration(text: &str) -> Result<Duration, UsageError> {
+pub(in crate::cli) fn duration(text: &str) -> Result<Duration, UsageError> {
     let invalid = || {
         UsageError::new(format!(
             "--timeout takes a duration such as 500ms, 30s, 5m or 1h, not {text:?}"
@@ -166,10 +166,6 @@ fn wait(global: &GlobalArgs, selector: &str, until: Until, timeout: Option<Durat
         eprintln!("cmux: {error}");
         return 2;
     }
-    let Some(params) = plan.params.as_object().cloned() else {
-        eprintln!("cmux: request params are not an object");
-        return 2;
-    };
     let (socket, derived) = match wire::resolve_socket_or_report(global) {
         Ok(resolved) => resolved,
         Err(code) => return code,
@@ -188,7 +184,13 @@ fn wait(global: &GlobalArgs, selector: &str, until: Until, timeout: Option<Durat
         .and_then(|stream| {
             let _ = stream.set_read_timeout(Some(ANSWER_TIMEOUT));
             let mut reader = BufReader::new(stream);
-            let route = SocketRoute { path: &socket, derived };
+            let route = SocketRoute::new(&socket, derived, global);
+            // `terminal current wait` waits on the caller's own terminal.
+            let caller_route = global.socket.is_none() && global.session.is_none();
+            resolve::apply(&mut reader, &mut plan, caller_route, &route)?;
+            let params = plan.params.as_object().cloned().ok_or_else(|| {
+                Failure::Transport("cmux: request params are not an object".into())
+            })?;
             hold(&mut reader, &route, &params, until, deadline, timeout)
         });
     match held {

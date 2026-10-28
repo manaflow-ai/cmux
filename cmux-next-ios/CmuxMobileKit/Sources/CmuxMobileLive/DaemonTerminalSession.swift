@@ -1,3 +1,4 @@
+import CmuxMobileModel
 import CmuxMobileTerminal
 import CmuxMobileTransport
 import Foundation
@@ -12,14 +13,29 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "terminal")
 ///   live `output` chunks are fed to the local Ghostty mirror in order; a
 ///   `resized` event (protocol 6+) resets the mirror (`ESC c`) and replays.
 ///   `detached` ends the session.
-/// - Input: `send {surface, bytes}` (base64), in order, batched while a
-///   request is out, on its own `daemon` channel on the link's input lane
+/// - Input: `send {surface, bytes}` (base64), in order, one per main-queue
+///   turn and batched while one is being written, several unanswered at
+///   once (``drainInput()``), on its own `daemon` channel on the link's input lane
 ///   (PROTOCOL.md "Lanes"), so a keystroke or ^C never waits behind the
 ///   output it should interrupt. Until that channel is open (or when it
 ///   fails) input goes on the attach channel.
 /// - Size: `resize-surface {surface, cols, rows}` with the phone's TUI grid,
 ///   on the attach channel (the daemon gives geometry authority to the
-///   attaching client).
+///   attaching client), only while the terminal is on screen
+///   (``setClaimsSize(_:)``). Hidden, it sends `release-surface-size` and no
+///   size until it is shown again; stopped, it releases before the channel
+///   closes; while it claims, it refreshes the Mac's size lease
+///   (`size-lease-v1`) every ``sizeLeaseRefresh`` (PROTOCOL.md, "Terminal
+///   size claims").
+///
+/// - Shared sizing (`shared-sizing-v1`, PROTOCOL.md "Terminal sizing
+///   policy"): the attach reply and `size-state` events feed ``sizing``, the
+///   terminal's live size state (who is connected, the size each one asks
+///   for, who sets the grid). Typing, pasting or tapping the terminal sends
+///   `note-size-activity` (at most once a second, only while this view does
+///   not set the grid), so the Mac's "Prefer the Active Device" can pick the
+///   phone: keystrokes go on the input lane, another connection, and never
+///   count as this view's activity by themselves.
 ///
 /// The alternate screen flag is derived from the bytes (no event carries it).
 ///
@@ -41,8 +57,39 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The Mac terminal's rows (`vt-state`, `resized`), else the size asked for.
     public var remoteRows: Int? { reportedRows ?? lastSize?.rows ?? 24 }
     private var reportedRows: Int?
+    /// The Mac's grid changed since the screen was last told (``TerminalSessionEvent/hostGrid(columns:rows:)``).
+    private var hostGridChanged = false
+    /// The Mac terminal's columns (`vt-state`, `resized`); nil before the
+    /// first attach. The screen renders this grid when it is not the phone's.
+    public var remoteColumns: Int? { reportedColumns }
+    /// The owner the screen was last told (``TerminalSessionEvent/hostGridOwner(_:)``).
+    private var toldHostGridOwner: String??
+
+    /// Tells the screen when the device that sets the grid changed.
+    private func noteHostGridOwner() {
+        let name = hostGridOwnerName
+        guard toldHostGridOwner != .some(name) else { return }
+        toldHostGridOwner = .some(name)
+        handler?(.hostGridOwner(name))
+    }
+
+    /// The device that sets the Mac's grid, when it is not this phone.
+    public var hostGridOwnerName: String? {
+        guard let state = sizing.state, !sizing.selfIsOwner, let owner = state.owners.first,
+              let row = state.participants.first(where: { $0.id == owner }) else { return nil }
+        return row.deviceName ?? row.displayName
+    }
     /// The last attach or send failure (shown nowhere yet; logged).
     public private(set) var lastError: String?
+    /// The terminal's shared size state, live while attached to a daemon
+    /// with `shared-sizing-v1`.
+    public let sizing = TerminalSizingLive()
+    /// The daemon takes `note-size-activity` (it listed `shared-sizing-v1`).
+    private var sharedSizing = false
+    /// When the last `note-size-activity` went out (``now``'s clock).
+    private var lastActivityNote: TimeInterval?
+    /// At most one activity note per this many seconds.
+    static let activityNoteInterval: TimeInterval = 1
 
     private let open: @Sendable () async throws -> DaemonClient
     private let clientInfo: [String: String]
@@ -51,7 +98,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The input-lane channel for `send`, once open.
     private var inputClient: DaemonClient?
     /// Keystrokes not yet sent, with when they were typed; sent as one
-    /// `send` while none is out. Keys older than `inputHoldLimit` when the
+    /// `send` (``drainInput()``). Keys older than `inputHoldLimit` when the
     /// terminal can take them are dropped, never sent late (termfix-r13 D5:
     /// a command typed during an outage ran 15.4 minutes later).
     private var input: [(bytes: Data, at: TimeInterval, detached: Bool)] = []
@@ -64,7 +111,41 @@ public final class DaemonTerminalSession: TerminalSession {
     public static let inputHoldLimit: TimeInterval = 2
     /// The clock the hold is measured on (tests inject one).
     var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
-    private var inputDraining = false
+    /// A `send` is being written (writes go one after another, in order).
+    private var inputWriting = false
+    /// Sends written and not yet answered, all on `inputTarget`.
+    private var inputInFlight = 0
+    private var inputTarget: DaemonClient?
+    /// A send failed: no new one until the others on its channel settle.
+    private var inputRecovering = false
+    /// The input lane given up because a `send` got no answer: its other
+    /// unanswered sends are not sent again either.
+    private var abandonedInputLane: DaemonClient?
+    /// Unanswered sends allowed at once: about a second of scroll frames, so
+    /// a lost reply does not stop input (later sends keep both directions
+    /// moving, and the loss is repaired by duplicate ACKs).
+    static let maxInputInFlight = 64
+    /// How long a `send` may go unanswered before ``armTailProbe()`` writes
+    /// `ping`s behind it: many round trips, well under the 1 s RTO.
+    var tailProbeDelay: Duration = .milliseconds(150)
+    /// Writes and answers so far: a probe fires only if none came since it was armed.
+    private var inputProgress = 0
+    private var tailProbe: Task<Void, Never>?
+    /// When each unanswered send went out, by batch number.
+    private var inputWrittenAt: [Int: TimeInterval] = [:]
+    /// No new send while the oldest unanswered one is older than this
+    /// (seconds): a stalled link holds typed keys in `input`, where the hold
+    /// rules apply, instead of writing up to `maxInputInFlight` of them to
+    /// arrive late. Scrolling keeps many in flight; a stall does not.
+    var inputStallLimit: TimeInterval = 0.5
+    /// Sends written and not yet answered (tests).
+    var inputsInFlight: Int { inputInFlight }
+    /// A tail probe is armed (tests).
+    var tailProbeArmed: Bool { tailProbe != nil }
+    private var nextInputBatch = 0
+    /// Batches of the failed channel, held until its sends all settle.
+    private var inputFailed: [(number: Int, bytes: Data, at: TimeInterval, written: Bool)] = []
+    private var inputDrainScheduled = false
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
     /// Decodes lines given to `handle(_:)` (the attach stream has its own, off the main actor).
     private var lineParser: DaemonTerminalEventParser
@@ -76,7 +157,22 @@ public final class DaemonTerminalSession: TerminalSession {
 
     private enum Outgoing: Sendable {
         case size(columns: Int, rows: Int)
+        /// `release-surface-size`: the terminal left the screen.
+        case release
     }
+
+    /// Whether this phone's size should count on the Mac now (the terminal
+    /// is on screen in the foreground app). Set by ``setClaimsSize(_:)``.
+    private var claimsSize = true
+    /// The Mac holds a size of this session's now (a sized attach or a
+    /// `resize-surface` went out, and no release after it).
+    private var sizeClaimed = false
+    /// The daemon lists `size-lease-v1`: a claim lasts only while refreshed.
+    private var leased = false
+    /// How often a claimed size is sent again while the daemon leases it.
+    /// The daemon's lease is 45 s.
+    var sizeLeaseRefresh: Duration = .seconds(15)
+    private var leaseTask: Task<Void, Never>?
     private var draining = false
     private var pendingSize: (columns: Int, rows: Int)?
     /// The grid last asked for, put back after a reattach.
@@ -164,7 +260,8 @@ public final class DaemonTerminalSession: TerminalSession {
         }
         input.append((bytes, now(), !attached))
         if attached {
-            drainInput()
+            scheduleInputDrain()
+            noteInteraction()
         } else {
             // Dropped once they are too old to send, not at the reattach:
             // the screen says so while the person still remembers typing.
@@ -205,6 +302,13 @@ public final class DaemonTerminalSession: TerminalSession {
 
     public func resize(columns: Int, rows: Int) {
         guard columns > 0, rows > 0 else { return }
+        // Hidden: remembered for when the terminal is shown, never sent
+        // (it would make the Mac's pane the phone's size again).
+        guard claimsSize else {
+            lastSize = (columns, rows)
+            pendingSize = (columns, rows)
+            return
+        }
         // A no-op resize never reaches the Mac (each one makes it reset the
         // mirror and replay, and an inline TUI redraw its whole transcript).
         if attached, let last = lastSize, last.columns == columns, last.rows == rows { return }
@@ -217,6 +321,30 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
+    /// The terminal is on screen in the foreground app (true), or it left
+    /// (false: another tab, the grid, a sheet over it, the app in the
+    /// background). Leaving releases the phone's size on the Mac at once, so
+    /// the Mac's pane gets its own size back; coming back claims the last
+    /// size again.
+    public func setClaimsSize(_ claims: Bool) {
+        guard claims != claimsSize else { return }
+        claimsSize = claims
+        outbox.removeAll { if case .size = $0 { true } else { false } }
+        if claims {
+            if attached, let size = lastSize {
+                log.notice("surface \(self.surface, privacy: .public): shown again, claiming \(size.columns, privacy: .public)x\(size.rows, privacy: .public)")
+                enqueue(.size(columns: size.columns, rows: size.rows))
+            }
+        } else {
+            stopLeaseRefresh()
+            if attached, sizeClaimed {
+                log.notice("surface \(self.surface, privacy: .public): left the screen, releasing its size")
+                enqueue(.release)
+            }
+            sizeClaimed = false
+        }
+    }
+
     public func stop() {
         eventTask?.cancel()
         eventTask = nil
@@ -224,13 +352,31 @@ public final class DaemonTerminalSession: TerminalSession {
         inbox = nil
         outputPaused = false
         handler = nil
-        // The Mac drops this attach (a tab cooled out of the warm set, or gone).
-        if let client { Task { await client.close() } }
+        stopLeaseRefresh()
+        // The Mac drops this attach (a tab cooled out of the warm set, or
+        // gone). The size is released first and answered, so the Mac never
+        // reads the close as a dropped link (which holds its grid for 30 s).
+        if let client {
+            // A claimed size, or a release still waiting behind another request.
+            let release = attached && (sizeClaimed || outbox.contains { if case .release = $0 { true } else { false } })
+            let surface = surface
+            Task {
+                if release {
+                    _ = try? await Self.within(.seconds(2)) {
+                        try await client.request("release-surface-size", params: ["surface": surface])
+                    }
+                }
+                await client.close()
+            }
+        }
+        sizeClaimed = false
         attached = false
         client = nil
         dropInputLane()
         outbox.removeAll()
         input.removeAll()
+        tailProbe?.cancel()
+        tailProbe = nil
     }
 
     /// Attaches again after a dropped link. A no-op while attached or
@@ -288,6 +434,33 @@ public final class DaemonTerminalSession: TerminalSession {
         emitText("\r\n\u{1B}[2m\(line)\u{1B}[0m\r\n")
         handler?(.connection(.attached))
         handler?(.exited(code: Int32(clamping: exitCode ?? 0)))
+    }
+
+    // MARK: Shared sizing
+
+    /// The person typed, pasted or tapped the terminal: tells the Mac this
+    /// view is the active one (`note-size-activity`), at most once per
+    /// ``activityNoteInterval`` and only while it does not set the grid
+    /// already. A no-op against a daemon without shared sizing.
+    public func noteInteraction() {
+        guard attached, sharedSizing, claimsSize, let client, !sizing.selfIsOwner else { return }
+        let at = now()
+        if let last = lastActivityNote, at - last < Self.activityNoteInterval { return }
+        lastActivityNote = at
+        let surface = surface
+        Task {
+            if let reply = try? await client.request("note-size-activity", params: ["surface": surface]),
+               let error = Self.error(in: reply) {
+                log.error("note-size-activity failed: \(error, privacy: .public)")
+            }
+        }
+    }
+
+    /// The size state and own participant of an attach reply (shared sizing).
+    nonisolated static func attachSizing(_ reply: Data) -> (TerminalSizeState?, String?) {
+        guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+              let data = object["data"] as? [String: Any] else { return (nil, nil) }
+        return (TerminalSizeState.decode(data["size_state"]), data["participant"] as? String)
     }
 
     // MARK: Attach
@@ -362,13 +535,20 @@ public final class DaemonTerminalSession: TerminalSession {
                 }
             }
             attachedWithSize = nil
-            // One write: the client info (when given) and identify.
+            sizeClaimed = false
+            // One write: the client info (it opts into the size lease) and identify.
+            var info: [String: Any] = clientInfo
+            info["capabilities"] = Self.clientCapabilities
             let setup = await client.requests(
-                (clientInfo.isEmpty ? [] : [(cmd: "set-client-info", params: clientInfo as [String: Any])])
-                    + [(cmd: "identify", params: [:])]
+                [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
             )
             let identify = try? setup.last?.get()
-            let initialSize = identify.map(Self.acceptsInitialSize) ?? false
+            // Hidden: attach without a size, so the attach claims none.
+            let initialSize = claimsSize && (identify.map(Self.acceptsInitialSize) ?? false)
+            leased = identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false
+            sharedSizing = identify.map { Self.lists(Self.sharedSizingCapability, $0) } ?? false
+            sizing.clear()
+            lastActivityNote = nil
             // The mirror is not reset yet: a reattach that fails (a Mac host
             // that just restarted answers "unknown surface" for a moment) keeps
             // the last frame on screen under the reconnecting badge, instead
@@ -380,9 +560,14 @@ public final class DaemonTerminalSession: TerminalSession {
             // replayed the whole history a second time (user report 2026-10-14).
             var reply: Data
             if initialSize, everAttached, let size = lastSize ?? pendingSize, let overruled,
-               overruled.asked.columns == size.columns, overruled.asked.rows == size.rows {
-                // The Mac kept its own size for this request last time: attach
-                // at that size (no PTY resize), and do not ask again.
+               overruled.asked.columns == size.columns, overruled.asked.rows == size.rows,
+               overruled.mac.columns <= size.columns, overruled.mac.rows <= size.rows {
+                // The Mac kept its own size for this request last time, and it
+                // fits in this phone's grid: attach at that size (no PTY
+                // resize), and do not ask again. A larger Mac grid is never
+                // claimed: the phone renders into its own grid, so the daemon
+                // must know the phone's real size (a wider PTY overprinted
+                // and cut every row, 2026-10-23).
                 log.notice("surface \(self.surface, privacy: .public): reattach at the Mac's \(overruled.mac.columns, privacy: .public)x\(overruled.mac.rows, privacy: .public) (asked \(size.columns, privacy: .public)x\(size.rows, privacy: .public) was overruled)")
                 reply = try await client.request("attach-surface", params: ["surface": surface, "cols": overruled.mac.columns, "rows": overruled.mac.rows])
                 if Self.error(in: reply) != nil {
@@ -404,6 +589,9 @@ public final class DaemonTerminalSession: TerminalSession {
             }
             if let error = Self.error(in: reply) { throw LinkError(code: "attach", message: error) }
             guard self.client === client else { heldEvents = nil; return }
+            let (sizeState, participant) = Self.attachSizing(reply)
+            sizing.apply(sizeState, selfParticipant: participant)
+            noteHostGridOwner()
             // The replay rebuilds the screen and scrollback. The reset also
             // tells the screen where the Mac's screen starts in its taller
             // mirror (TerminalRowShift).
@@ -425,10 +613,18 @@ public final class DaemonTerminalSession: TerminalSession {
             handler?(.connection(.attached))
             lastError = nil
             pendingSize = nil
-            if let size = lastSize, attachedWithSize.map({ $0.columns != size.columns || $0.rows != size.rows }) ?? true {
+            outbox.removeAll { if case .release = $0 { true } else { false } }
+            if attachedWithSize != nil { sizeClaimed = true }
+            // Hidden while the attach was out: the size it carried goes back.
+            if !claimsSize, sizeClaimed {
+                outbox.insert(.release, at: 0)
+                sizeClaimed = false
+            }
+            if claimsSize, let size = lastSize, attachedWithSize.map({ $0.columns != size.columns || $0.rows != size.rows }) ?? true {
                 outbox.removeAll { if case .size = $0 { true } else { false } }
                 outbox.insert(.size(columns: size.columns, rows: size.rows), at: 0)
             }
+            if sizeClaimed { startLeaseRefresh() }
             drain()
             drainInput()
             openInputLane(for: client)
@@ -470,6 +666,7 @@ public final class DaemonTerminalSession: TerminalSession {
         self.client = nil
         dropInputLane()
         attached = false
+        stopLeaseRefresh()
         markInputDetached()
         draining = false
         guard handler != nil, !ended else { return }
@@ -490,9 +687,16 @@ public final class DaemonTerminalSession: TerminalSession {
         case .alternateScreen(let on):
             setAlternate(on)
         case .columns(let columns):
+            // Told with the rows that follow on the same line.
+            if reportedColumns != columns { hostGridChanged = true }
             reportedColumns = columns
         case .rows(let rows):
+            if reportedRows != rows { hostGridChanged = true }
             reportedRows = rows
+            if hostGridChanged, let columns = reportedColumns {
+                hostGridChanged = false
+                handler?(.hostGrid(columns: columns, rows: rows))
+            }
             // The Mac answered a size other than the one asked for (another
             // view of this terminal, the Mac's own window, sets the grid): the
             // request was overruled. A reattach then keeps the Mac's size
@@ -513,6 +717,9 @@ public final class DaemonTerminalSession: TerminalSession {
             ended(reason: reason)
         case .sameGridResize(let columns, let rows):
             log.notice("surface \(self.surface, privacy: .public): resized event at the mirrored grid \(columns, privacy: .public)x\(rows, privacy: .public): kept, no reset")
+        case .sizeState(let state, let participant):
+            sizing.apply(state, selfParticipant: participant)
+            noteHostGridOwner()
         }
     }
 
@@ -562,7 +769,12 @@ public final class DaemonTerminalSession: TerminalSession {
                 case .size(let columns, let rows):
                     cmd = "resize-surface"
                     log.notice("surface \(surface, privacy: .public): resize-surface sent \(columns, privacy: .public)x\(rows, privacy: .public) cause=\(self.everAttached && self.attachRetries == 0 ? "requested" : "attach", privacy: .public)")
+                    sizeClaimed = true
+                    startLeaseRefresh()
                     reply = try await client.request(cmd, params: ["surface": surface, "cols": columns, "rows": rows])
+                case .release:
+                    cmd = "release-surface-size"
+                    reply = try await client.request(cmd, params: ["surface": surface])
                 }
                 if let error = Self.error(in: reply) {
                     lastError = error
@@ -616,60 +828,203 @@ public final class DaemonTerminalSession: TerminalSession {
         Task { await lane.close() }
     }
 
-    /// Sends queued keystrokes as one `send`, one request at a time, on the
-    /// input lane when open, else on the attach channel. Keys that waited
-    /// longer than `inputHoldLimit` are dropped first.
+    /// Sends queued keystrokes as one `send`, on the input lane when open,
+    /// else on the attach channel. Keys that waited longer than
+    /// `inputHoldLimit` are dropped first.
+    ///
+    /// The next batch goes out once this one is written, not when its reply
+    /// comes (TUI fast scroll), up to `maxInputInFlight` unanswered. One
+    /// small request at a time stalled a flick for the link's whole
+    /// retransmission timeout (1 s, then 2 s) whenever a segment was lost on
+    /// a relayed path; with later segments behind it, the duplicate ACKs
+    /// repair the loss within a few segments. Writes stay in order (each
+    /// waits for the last), and several are unanswered on one channel only:
+    /// requests on two channels could reach the terminal out of order.
+    ///
+    /// When a channel fails, its other requests settle before anything new
+    /// goes out (``inputSettled()``). A batch that was written may already
+    /// have been typed on the Mac, and a doubled Return runs a command
+    /// twice: it is never sent again, and neither is anything after it.
     private func drainInput() {
-        guard attached, !inputDraining else { return }
+        guard attached, !inputWriting else { return }
         expireInput()
         guard !input.isEmpty, let target = inputClient ?? client else { return }
-        inputDraining = true
+        if inputInFlight > 0, inputRecovering || inputTarget !== target || inputInFlight >= Self.maxInputInFlight { return }
+        if let oldest = inputWrittenAt.values.min(), now() - oldest > inputStallLimit { return }
+        inputWriting = true
+        inputInFlight += 1
+        inputTarget = target
+        let number = nextInputBatch
+        nextInputBatch += 1
+        inputWrittenAt[number] = now()
         let typedAt = input[0].at
         let batch = input.reduce(into: Data()) { $0.append($1.bytes) }
         input.removeAll()
         let surface = surface
+        let onLane = target !== client
         Task { [weak self] in
             guard let self else { return }
+            var written = false
             do {
-                let encoded = batch.base64EncodedString()
-                let request: @Sendable () async throws -> Data = { try await target.request("send", params: ["surface": surface, "bytes": encoded]) }
-                // A lane request gets an answer within seconds or the lane is
-                // given up. The batch is not sent again then: the Mac may
-                // already have typed it, and a doubled Return runs a command
-                // twice.
+                let submit: @Sendable () async throws -> String = {
+                    try await target.submit("send", params: ["surface": surface, "bytes": batch.base64EncodedString()])
+                }
+                // A lane request gets written and answered within seconds or
+                // the lane is given up.
+                let id: String
+                if onLane {
+                    guard let submitted = try await Self.within(.seconds(10), submit) else {
+                        abandonInputLane(target, number: number, bytes: batch.count, wasWriting: true)
+                        return
+                    }
+                    id = submitted
+                } else {
+                    id = try await submit()
+                }
+                written = true
+                inputWriting = false
+                inputProgress += 1
+                armTailProbe()
+                drainInput()
                 let reply: Data
-                if target !== client {
-                    guard let answer = try await Self.within(.seconds(10), request) else {
-                        log.error("send on the input lane got no answer; using the attach channel")
-                        if inputClient === target { dropInputLane() }
-                        inputDraining = false
-                        drainInput()
+                if onLane {
+                    guard let answer = try await Self.within(.seconds(10), { try await target.reply(to: id) }) else {
+                        abandonInputLane(target, number: number, bytes: batch.count, wasWriting: false)
                         return
                     }
                     reply = answer
                 } else {
-                    reply = try await request()
+                    reply = try await target.reply(to: id)
                 }
                 if let error = Self.error(in: reply) {
                     lastError = error
                     log.error("send failed: \(error, privacy: .public)")
                 }
             } catch {
-                // Keep the keystrokes: retry on the attach channel when the
-                // lane failed, or after the reattach when the link dropped.
+                if !written { inputWriting = false }
                 lastError = LinkController.reason(error)
-                input.insert((batch, typedAt, true), at: 0)
-                markInputDetached()
+                inputRecovering = true
+                if written || target === abandonedInputLane {
+                    inputFailed.append((number, batch, typedAt, written: true))
+                } else {
+                    // Never written: safe to send again (on the attach channel
+                    // when the lane failed, or after the reattach).
+                    inputFailed.append((number, batch, typedAt, written: false))
+                }
                 if inputClient === target {
                     dropInputLane()
                 } else if self.client === target {
                     self.client = nil
                     inputClient = nil
                     attached = false
+                    // Fails this channel's other unanswered sends, which
+                    // otherwise wait on a channel nobody reads.
+                    Task { await target.close() }
                     handler?(.connection(connectionState))
                 }
             }
-            inputDraining = false
+            inputWrittenAt[number] = nil
+            inputSettled()
+        }
+    }
+
+    /// The input lane gave no answer in time (`wasWriting`: the batch's
+    /// write itself hung): given up, and the batch is not sent again (the
+    /// Mac may already have typed it).
+    private func abandonInputLane(_ lane: DaemonClient, number: Int, bytes: Int, wasWriting: Bool) {
+        log.error("send on the input lane got no answer; using the attach channel")
+        abandonedInputLane = lane
+        inputRecovering = true
+        inputFailed.append((number, Data(count: bytes), now(), written: true))
+        if wasWriting { inputWriting = false }
+        inputWrittenAt[number] = nil
+        if inputClient === lane { dropInputLane() }
+        inputSettled()
+    }
+
+    /// A `send` was answered, failed or given up: the next batch may go.
+    /// Once a failed channel's sends have all settled, its failed batches go
+    /// back before newer keys, in order, unless one of them may have been
+    /// typed already: then all of them are dropped and the screen is told.
+    private func inputSettled() {
+        inputInFlight -= 1
+        inputProgress += 1
+        guard inputInFlight == 0 else {
+            armTailProbe()
+            return drainInput()
+        }
+        tailProbe?.cancel()
+        tailProbe = nil
+        inputWrittenAt.removeAll()
+        inputTarget = nil
+        abandonedInputLane = nil
+        if inputRecovering {
+            inputRecovering = false
+            let failed = inputFailed.sorted { $0.number < $1.number }
+            inputFailed.removeAll()
+            if failed.contains(where: \.written) {
+                // The keys typed since go too: no part of a command may run
+                // after an earlier part that may be lost.
+                let bytes = failed.reduce(0) { $0 + $1.bytes.count } + input.reduce(0) { $0 + $1.bytes.count }
+                input.removeAll()
+                log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes not sent again (the Mac may have typed them before the channel failed)")
+                handler?(.inputNotSent(bytes: bytes))
+            } else if !failed.isEmpty {
+                input.insert(contentsOf: failed.map { ($0.bytes, $0.at, true) }, at: 0)
+                markInputDetached()
+            }
+        }
+        drainInput()
+    }
+
+    /// TUI scroll tail: when a `send` stays unanswered for
+    /// ``tailProbeDelay`` with no other progress, three `ping`s go behind it
+    /// on the same channel (twice at most per stall). A segment lost at the
+    /// end of a flick has nothing behind it to produce duplicate ACKs, so it
+    /// waited out the 1 s retransmission timeout; the pings' segments (or
+    /// their replies, for a lost reply) bring the three duplicate ACKs that
+    /// retransmit it at once. Nothing typed is ever sent twice.
+    private func armTailProbe() {
+        tailProbe?.cancel()
+        guard attached, inputInFlight > 0, !inputRecovering, let target = inputTarget else {
+            tailProbe = nil
+            return
+        }
+        let mark = inputProgress
+        let delay = tailProbeDelay
+        tailProbe = Task { [weak self] in
+            for _ in 0..<2 {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled, self?.tailProbeStillDue(mark: mark, target: target) == true else { return }
+                var ids: [String] = []
+                for _ in 0..<3 where !Task.isCancelled {
+                    guard let id = try? await target.submit("ping") else { break }
+                    ids.append(id)
+                }
+                // Collect the replies so none is left waiting in the client
+                // (they end with the channel if it never answers).
+                let sent = ids
+                Task { for id in sent { _ = try? await target.reply(to: id) } }
+            }
+        }
+    }
+
+    /// Nothing was written or answered since the probe was armed, and the
+    /// stalled sends are still on `target`.
+    private func tailProbeStillDue(mark: Int, target: DaemonClient) -> Bool {
+        guard attached, inputProgress == mark, inputInFlight > 0, !inputRecovering, inputTarget === target else { return false }
+        log.info("surface \(self.surface, privacy: .public): send unanswered for \(self.tailProbeDelay, privacy: .public); tail probe")
+        return true
+    }
+
+    /// One main-queue turn's input goes out as one `send`: Ghostty writes a
+    /// scroll frame's wheel reports one by one.
+    private func scheduleInputDrain() {
+        guard !inputDrainScheduled else { return }
+        inputDrainScheduled = true
+        Task { [weak self] in
+            guard let self else { return }
+            inputDrainScheduled = false
             drainInput()
         }
     }
@@ -677,21 +1032,25 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `operation`'s result, or nil when it takes longer than `limit`. Does
     /// not wait for `operation` to notice cancellation (a request on a dead
     /// channel never does).
-    private static func within(_ limit: Duration, _ operation: @escaping @Sendable () async throws -> Data) async throws -> Data? {
+    private static func within<T: Sendable>(_ limit: Duration, _ operation: @escaping @Sendable () async throws -> T) async throws -> T? {
         let once = RaceOnce()
-        let result: Result<Data?, any Error> = await withCheckedContinuation { continuation in
+        let result: Result<T?, any Error> = await withCheckedContinuation { continuation in
+            let timer = TaskBox()
             let work = Task {
-                let result: Result<Data?, any Error>
+                let result: Result<T?, any Error>
                 do { result = .success(try await operation()) } catch { result = .failure(error) }
-                if once.claim() { continuation.resume(returning: result) }
-            }
-            Task {
-                try? await Task.sleep(for: limit)
                 if once.claim() {
+                    timer.cancel()
+                    continuation.resume(returning: result)
+                }
+            }
+            timer.set(Task {
+                try? await Task.sleep(for: limit)
+                if !Task.isCancelled, once.claim() {
                     work.cancel()
                     continuation.resume(returning: .success(nil))
                 }
-            }
+            })
         }
         return try result.get()
     }
@@ -735,6 +1094,53 @@ public final class DaemonTerminalSession: TerminalSession {
         return tree.terminals.values.contains { $0.resourceID == terminalID || $0.id == terminalID }
     }
 
+    // MARK: Size lease
+
+    /// Listed in `set-client-info` and by the daemon in `identify`.
+    static let sizeLeaseCapability = "size-lease-v1"
+    /// Shared sizing: `size-state` on the attach stream, `note-size-activity`.
+    static let sharedSizingCapability = "shared-sizing-v1"
+    /// `host-grid-view-v1`: this phone renders a Mac grid larger than its
+    /// own (pans, letterboxes), so the daemon need not cap the PTY at it.
+    static let hostGridViewCapability = "host-grid-view-v1"
+    /// What the attach channel lists in `set-client-info`.
+    static let clientCapabilities = [sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability]
+
+    /// While the size is claimed and the daemon leases it: the same size
+    /// again every `sizeLeaseRefresh` (a same-size `resize-surface` renews
+    /// the lease and never resizes the terminal). One refresher at a time.
+    private func startLeaseRefresh() {
+        guard leased, claimsSize, leaseTask == nil else { return }
+        let interval = sizeLeaseRefresh
+        // The lease's own cadence (an intentional bounded delay), not a sync wait.
+        leaseTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                guard !Task.isCancelled, let self else { return }
+                self.refreshLease()
+            }
+        }
+    }
+
+    private func stopLeaseRefresh() {
+        leaseTask?.cancel()
+        leaseTask = nil
+    }
+
+    private func refreshLease() {
+        guard attached, claimsSize, sizeClaimed, let size = lastSize else { return }
+        // A refresh already queued, or a resize on its way, renews it too.
+        guard !outbox.contains(where: { if case .size = $0 { true } else { false } }) else { return }
+        enqueue(.size(columns: size.columns, rows: size.rows))
+    }
+
+    nonisolated static func lists(_ capability: String, _ identify: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: identify) as? [String: Any],
+              let data = object["data"] as? [String: Any],
+              let capabilities = data["capabilities"] as? [String] else { return false }
+        return capabilities.contains(capability)
+    }
+
     /// Whether the daemon takes the viewer's size in `attach-surface`.
     nonisolated static func acceptsInitialSize(_ identify: Data) -> Bool {
         guard let object = try? JSONSerialization.jsonObject(with: identify) as? [String: Any],
@@ -748,5 +1154,28 @@ public final class DaemonTerminalSession: TerminalSession {
         if object["ok"] as? Bool == false { return (object["error"] as? String) ?? "refused" }
         if let error = object["error"] as? String { return error }
         return nil
+    }
+}
+
+/// A task another task may cancel once it is set (``DaemonTerminalSession/within``).
+private final class TaskBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: Task<Void, Never>?
+    private var cancelled = false
+
+    func set(_ task: Task<Void, Never>) {
+        let cancelNow = lock.withLock { () -> Bool in
+            self.task = task
+            return cancelled
+        }
+        if cancelNow { task.cancel() }
+    }
+
+    func cancel() {
+        let task = lock.withLock { () -> Task<Void, Never>? in
+            cancelled = true
+            return self.task
+        }
+        task?.cancel()
     }
 }

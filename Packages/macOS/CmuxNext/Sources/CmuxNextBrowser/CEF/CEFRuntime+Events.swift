@@ -40,6 +40,20 @@ let cefKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
     }
 }
 
+/// C entry after the page left a key down unhandled: the host's held shortcut runs.
+let cefUnhandledKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
+    // Keys arrive on the main thread; off it, Chromium keeps the key.
+    guard let context, let nsEvent, Thread.isMainThread else { return 0 }
+    let address = UInt(bitPattern: context)
+    let eventAddress = UInt(bitPattern: nsEvent)
+    return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread in the guard above
+        guard let runtime = CEFRuntime.from(address),
+              let pointer = UnsafeMutableRawPointer(bitPattern: eventAddress) else { return 0 }
+        let event = Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue()
+        return runtime.routeUnhandledKey(event, browser: browser) ? 1 : 0
+    }
+}
+
 /// C entry before a DevTools browser sees a key down; `browser` is the
 /// inspected page.
 let cefDevToolsKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
@@ -66,6 +80,12 @@ extension CEFRuntime {
         UnsafeMutableRawPointer(bitPattern: address).map { Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue() }
     }
 
+    /// The pump's cross-thread gate behind a callback context, from any thread (a `nonisolated let`
+    /// of the runtime, which lives for the rest of the process once started).
+    nonisolated static func pumpGate(at address: UInt) -> CEFPumpCrossThreadGate? {
+        UnsafeMutableRawPointer(bitPattern: address).map { Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue().pumpGate }
+    }
+
     func handle(_ event: CEFShimEvent) {
         switch event {
         case .contextInitialized:
@@ -83,6 +103,20 @@ extension CEFRuntime {
         case .beforeUnloadDialog(let browser, let token, let isReload):
             // A page with no tab to ask in never keeps its unload waiting: it leaves.
             if let tab = tabsByBrowser[browser] { tab.beforeUnloadAsked(token: token, isReload: isReload) } else { _ = shim?.beforeUnloadReply(token, 1) }
+        case .pageResource(let browser, let token, let url):
+            answerPageResource(token: token, url: url, tab: tabsByBrowser[browser])
+        case .pageMessage(let browser, let mainFrame, let channel, let payload):
+            // Untrusted: a compromised renderer can post anything (`CEFPageMessage`).
+            if let tab = tabsByBrowser[browser], let message = CEFPageMessage(channel: channel, payload: payload, mainFrame: mainFrame) {
+                tab.agentRelay.pageMessage(message)
+            }
+        case .evaluateResult(let token, let status, let value):
+            evaluationAnswered(token: token, CEFEvaluationResult(status: status, text: value))
+        case .pageDragEnter(let browser, let pathsJSON):
+            if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
+        case .fileDialog(let browser, let dialogID, let mode, _, let defaultPath):
+            // Only while an agent's file offer stands (`CEFRuntime+FileDialogs`).
+            answerFileDialog(dialogID, mode: mode, defaultPath: defaultPath, tab: tabsByBrowser[browser])
         case .devToolsResult(let browser, let messageID, let success, let json):
             let key = CEFDevToolsKey(browser: browser, message: messageID)
             let result: Result<String, any Error> = success ? .success(json) : .failure(BrowserTabError.javaScript(json))
@@ -112,7 +146,7 @@ extension CEFRuntime {
         case .omniboxSuggestions(let requestID, let extensionID, let json):
             omniboxKeywords.suggestionsArrived(requestID: requestID, extensionID: extensionID, json: json)
         case .authCallback(let browser, let url):
-            CEFSignInCallbacks.shared.stopped(browser: browser, url: url)
+            signInCallbacks.stopped(browser: browser, url: url)
         case .bookmarks(let json, let path):
             CEFBookmarkBridge.shared.arrived(json: json, cachePath: path)
         case .unknown:
@@ -139,9 +173,17 @@ extension CEFRuntime {
         }
         guard !event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
               tab.keyRouter?.pageOwnsAllKeys(tab) != true else { return false }
-        let store = extensionStores.store(for: tab.profileID)
+        let store = extensionStores.readyStore(for: tab.profileID)
         guard let command = store.command(matching: event) else { return false }
         return store.run(command, in: tab)
+    }
+
+    /// The page left a Command or Control chord unhandled: the host runs the shortcut it held
+    /// back for the page (Find after a page without its own search), else Chromium goes on.
+    func routeUnhandledKey(_ event: NSEvent, browser: Int32) -> Bool {
+        guard event.type == .keyDown, !event.modifierFlags.isDisjoint(with: [.command, .control]),
+              let tab = tabsByBrowser[browser], let router = tab.keyRouter else { return false }
+        return router.browserTab(tab, unhandledKeyEquivalent: event)
     }
 
     func routeDevToolsKey(_ event: NSEvent, inspected browser: Int32) -> Bool {
@@ -153,6 +195,13 @@ extension CEFRuntime {
     // MARK: Browser lifetime
 
     private func browserCreated(_ browser: Int32, request: Int32, window: Int32, created: CEFCreatedBy) {
+        if shutdownSequence != nil {
+            // Its creation was under way when quit closed every browser (`shutdown`): close it
+            // too, or the wait for Chromium's windows runs out and CefShutdown is skipped.
+            pendingWindows[request] = nil
+            shim?.close(browser)
+            return
+        }
         if request != 0, let host = pendingWindows.removeValue(forKey: request) {
             host.windowCreated(browser: browser, request: request)
             return
@@ -168,12 +217,17 @@ extension CEFRuntime {
     }
 
     func register(_ tab: CEFTab, browser: Int32) {
-        windowRequests.linkClicks.onGesture = { [weak self] browser in self?.tabsByBrowser[browser]?.automaticDownloads.userGesture() }
+        windowRequests.linkClicks.onGesture = { [weak self] browser in
+            guard let tab = self?.tabsByBrowser[browser] else { return }
+            tab.automaticDownloads.userGesture()
+            tab.pageUserInput?(ProcessInfo.processInfo.systemUptime)
+        }
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
         swipeNavigation.start()
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
-        CEFSignInCallbacks.shared.attached(tab)
+        accessibility.attached(browser)
+        signInCallbacks.attached(tab)
     }
 
     private func browserClosed(_ browser: Int32) {
@@ -186,7 +240,10 @@ extension CEFRuntime {
         }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
-        shutdownSequence?.browserClosed(remaining: tabsByBrowser.count)
+        failEvaluations(of: browser)
+        // The fork counts a browser's window until its destructor, after this close.
+        if let shim { shutdownSequence?.windowsOpen(Int(shim.windowCount())) }
+        shutdownSequence?.browserClosed(remaining: tabsByBrowser.count + pendingWindows.count)
         shutdownProgressed()
         pump?.scheduleNow()
     }
@@ -277,6 +334,15 @@ extension CEFRuntime {
 
     // MARK: Quit
 
+    /// False once quit began to stop Chromium: CEF aborts making a browser after its shutdown
+    /// began. AppKit still closes the windows after CefShutdown, and a hidden tab's view unhid
+    /// there created one (crash on quit, NIGHTLY 1.0.0-nightly.3953614980201).
+    var acceptsNewBrowsers: Bool { Self.acceptsNewBrowsers(state: state, stopping: shutdownSequence != nil) }
+
+    static func acceptsNewBrowsers(state: State, stopping: Bool) -> Bool {
+        state != .shutDown && !stopping
+    }
+
     /// Closes every browser, waits (without blocking the main thread) until
     /// the Chromium windows are destroyed or `timeout` passes, then calls
     /// CefShutdown. The App awaits this from `applicationShouldTerminate`
@@ -289,7 +355,9 @@ extension CEFRuntime {
         }
         // A second quit while the first waits would replace its waiter.
         guard state == .ready, shutdownSequence == nil, let shim else { return }
-        var sequence = CEFShutdownSequence(liveBrowsers: tabsByBrowser.count, windows: Int(shim.windowCount()))
+        // A pane's browser still being made (`pendingWindows`) counts as live: Chromium makes it after
+        // `closeAll`, and `browserCreated` closes it.
+        var sequence = CEFShutdownSequence(liveBrowsers: tabsByBrowser.count + pendingWindows.count, windows: Int(shim.windowCount()))
         sequence.begin()
         shutdownSequence = sequence
         shim.closeAll()
@@ -320,10 +388,13 @@ extension CEFRuntime {
         logger.notice("CEF shutdown complete")
     }
 
-    /// Called after every close/destroy event during shutdown.
+    /// Called after every close/destroy event during shutdown. A pane's browser still being made
+    /// (`pendingWindows`) holds it too, while its Chromium window may not exist yet: its browser is
+    /// closed when Chromium makes it (`browserCreated`), and `shutdown`'s timeout bounds the wait.
+    /// Without it, no open window let quit call CefShutdown under the creation.
     func shutdownProgressed() {
         guard shutdownSequence != nil else { return }
-        if let shim, shim.windowCount() == 0, tabsByBrowser.isEmpty {
+        if let shim, shim.windowCount() == 0, tabsByBrowser.isEmpty, pendingWindows.isEmpty {
             shutdownSequence?.windowDestroyed(remaining: 0)
         }
         if shutdownSequence?.phase == .readyToShutdown { resumeShutdownWaiter() }
@@ -348,9 +419,11 @@ extension CEFShimEvent {
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
-             .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b):
+             .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
+             .fileDialog(let b, _, _, _, _),
+             .pageMessage(let b, _, _, _):
             b
-        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .unknown:
+        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .unknown:
             nil
         }
     }

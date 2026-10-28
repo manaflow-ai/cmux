@@ -393,7 +393,9 @@ impl Editor {
         Ok(())
     }
 
-    /// Appends one record and syncs it before the database write it covers.
+    /// Appends one record and syncs it before the database write it covers. The
+    /// line goes out in one write, so a reader never sees half of it beside a
+    /// whole one (the rebuild worker appends while the inspector reads).
     fn journal(&self, record: &Value) -> Result<(), (u16, String)> {
         use std::os::unix::fs::OpenOptionsExt;
         let path = self.dir.join(JOURNAL);
@@ -403,7 +405,7 @@ impl Editor {
                 .append(true)
                 .mode(0o600)
                 .open(&path)?;
-            writeln!(f, "{record}")?;
+            f.write_all(format!("{record}\n").as_bytes())?;
             f.sync_all()
         };
         write().map_err(|e| (500, format!("writing the change journal: {e}")))

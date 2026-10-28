@@ -44,5 +44,11 @@ pub const CLOUD_CONVERSATIONS_CAPABILITY: &str = "cloud-conversations-v1";
 /// `cloud-attachment-read`, `cloud-attachment-link`).
 pub const CLOUD_ATTACHMENTS_CAPABILITY: &str = "cloud-attachments-v1";
 
+/// Advertised with `cloud-conversations-v1`: a self-hosted chat server on
+/// the tailnet (plans/cmux-next/dm-group-chat-DESIGN.md 4.5):
+/// `cloud-session-set` with `auth: "tailscale"` (no token, tailnet origins
+/// only, no Authorization header) and `cloud-selfhost-info`.
+pub const CLOUD_SELFHOST_CAPABILITY: &str = "cloud-selfhost-v1";
+
 #[cfg(feature = "test-support")]
 pub mod testing;

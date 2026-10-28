@@ -6,6 +6,8 @@
 //! `overrides`), pathspecs are literal, and each run has a deadline and
 //! bounded output.
 
+use std::cell::Cell;
+use std::ffi::OsStr;
 use std::io::{ErrorKind, Read};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -77,7 +79,61 @@ pub fn run_git_within(
     max_stdout: usize,
     deadline: Duration,
 ) -> Result<GitOutput, GitFailure> {
-    run(directory, overrides, arguments, max_stdout, deadline, None)
+    run(directory, overrides, arguments, max_stdout, deadline, None, &[])
+}
+
+/// [`run_git_within`] whose new objects go to `scratch`, an empty folder the
+/// caller owns and removes, never into the repository: `objects` (the
+/// repository's object folder) is only read, as an alternate. For a read
+/// that has to write to answer, `git merge-tree --write-tree`: run on every
+/// worktree of a big repository, its trees were thousands of loose objects
+/// in the shared object folder, each one a file event for every watcher of
+/// the repository.
+pub fn run_git_scratch_objects_within(
+    directory: &Path,
+    overrides: &[Override],
+    arguments: &[&str],
+    max_stdout: usize,
+    deadline: Duration,
+    objects: &Path,
+    scratch: &Path,
+) -> Result<GitOutput, GitFailure> {
+    let alternate = alternate_entry(objects);
+    let env = [
+        ("GIT_OBJECT_DIRECTORY", scratch.as_os_str()),
+        ("GIT_ALTERNATE_OBJECT_DIRECTORIES", alternate.as_os_str()),
+    ];
+    run(directory, overrides, arguments, max_stdout, deadline, None, &env)
+}
+
+/// `path` as one entry of `GIT_ALTERNATE_OBJECT_DIRECTORIES`, a
+/// colon-separated list: C-quoted (git's `unquote_c_style`) when a `:`, a
+/// quote, a backslash or a control character would otherwise split or bend
+/// it.
+#[cfg(unix)]
+pub(crate) fn alternate_entry(path: &Path) -> std::ffi::OsString {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let bytes = path.as_os_str().as_bytes();
+    let plain = !bytes.starts_with(b"\"")
+        && !bytes.iter().any(|b| matches!(b, b':' | b'\\') || *b < 0x20 || *b == 0x7f);
+    if plain {
+        return path.as_os_str().to_os_string();
+    }
+    let mut quoted = vec![b'"'];
+    for &byte in bytes {
+        match byte {
+            b'"' | b'\\' => quoted.extend([b'\\', byte]),
+            0..0x20 | 0x7f => quoted.extend(format!("\\{byte:03o}").into_bytes()),
+            _ => quoted.push(byte),
+        }
+    }
+    quoted.push(b'"');
+    std::ffi::OsString::from_vec(quoted)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn alternate_entry(path: &Path) -> std::ffi::OsString {
+    path.as_os_str().to_os_string()
 }
 
 /// [`run_git_within`] for NUL-terminated output that keeps only the records
@@ -91,8 +147,69 @@ pub fn run_git_records_within(
     deadline: Duration,
     keep: fn(&[u8]) -> bool,
 ) -> Result<GitOutput, GitFailure> {
-    run(directory, overrides, arguments, max_kept, deadline, Some(keep))
+    run(directory, overrides, arguments, max_kept, deadline, Some(keep), &[])
 }
+
+thread_local! {
+    static BACKGROUND: Cell<bool> = const { Cell::new(false) };
+}
+
+/// While held, every git this thread starts runs as background work: on
+/// macOS `PRIO_DARWIN_BG` (lowest CPU priority, throttled disk I/O), elsewhere
+/// nice 19. For housekeeping (the worktree cleanup pass) that would
+/// otherwise compete with the person at the machine; ends when dropped.
+#[must_use = "background work ends when the guard is dropped"]
+pub struct Background {
+    previous: bool,
+}
+
+/// Marks this thread's git runs as background work until the guard drops.
+pub fn background() -> Background {
+    Background { previous: BACKGROUND.with(|flag| flag.replace(true)) }
+}
+
+impl Drop for Background {
+    fn drop(&mut self) {
+        let previous = self.previous;
+        BACKGROUND.with(|flag| flag.set(previous));
+    }
+}
+
+/// Whether this thread holds a [`background`] guard.
+pub fn in_background() -> bool {
+    BACKGROUND.with(Cell::get)
+}
+
+/// Lowers `pid` (a process this thread just started) to background priority
+/// when this thread holds a [`background`] guard. Best effort: a process
+/// that has already exited only makes it fail.
+pub fn lower_if_background(pid: u32) {
+    if in_background() {
+        lower(pid);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn lower(pid: u32) {
+    // <sys/resource.h>: PRIO_DARWIN_PROCESS and PRIO_DARWIN_BG.
+    const PRIO_DARWIN_PROCESS: libc::c_int = 4;
+    const PRIO_DARWIN_BG: libc::c_int = 0x1000;
+    // SAFETY: setpriority(2) on a child this process started.
+    unsafe {
+        libc::setpriority(PRIO_DARWIN_PROCESS, pid as libc::id_t, PRIO_DARWIN_BG);
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn lower(pid: u32) {
+    // SAFETY: setpriority(2) on a child this process started.
+    unsafe {
+        libc::setpriority(libc::PRIO_PROCESS as _, pid as libc::id_t, 19);
+    }
+}
+
+#[cfg(not(unix))]
+fn lower(_pid: u32) {}
 
 fn run(
     directory: &Path,
@@ -101,6 +218,7 @@ fn run(
     max_stdout: usize,
     deadline: Duration,
     keep: Option<fn(&[u8]) -> bool>,
+    env: &[(&str, &OsStr)],
 ) -> Result<GitOutput, GitFailure> {
     let deadline = deadline.min(DEADLINE);
     if deadline.is_zero() {
@@ -120,12 +238,15 @@ fn run(
         // Client paths are file names, never pathspec magic such as `:(top)`.
         .env("GIT_LITERAL_PATHSPECS", "1")
         .env("LC_ALL", "C");
+    // After `confine_read`, which drops every inherited `GIT_*` variable.
+    command.envs(env.iter().copied());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
     let mut child = command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
+    lower_if_background(child.id());
     // Both are piped above; a missing one is a spawn failure, not a panic.
     let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
         stop(&mut child);
@@ -315,4 +436,32 @@ fn drain(mut reader: impl Read, limit: usize) -> (Vec<u8>, bool) {
         }
     }
     (kept, truncated)
+}
+
+#[cfg(test)]
+mod background_tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn an_alternate_with_a_colon_or_quote_is_c_quoted() {
+        assert_eq!(alternate_entry(Path::new("/r/.git/objects")), "/r/.git/objects");
+        assert_eq!(alternate_entry(Path::new("/r:copy/objects")), "\"/r:copy/objects\"");
+        assert_eq!(alternate_entry(Path::new("/a\"b\\c\nd")), "\"/a\\\"b\\\\c\\012d\"");
+    }
+
+    #[test]
+    fn background_holds_for_the_guard_and_this_thread_only() {
+        assert!(!in_background());
+        {
+            let _outer = background();
+            assert!(in_background());
+            {
+                let _inner = background();
+            }
+            assert!(in_background(), "an inner guard restores the outer one's state");
+            assert!(!thread::spawn(in_background).join().unwrap());
+        }
+        assert!(!in_background());
+    }
 }

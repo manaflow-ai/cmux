@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextWakeups
 
 extension PageHostPool {
@@ -69,12 +70,9 @@ extension PageHostPool {
     }
 
     private func watchMemoryPressure() {
-        guard memoryPressure == nil else { return }
-        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
-        source.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in self?.dropSpare() }
+        guard pressureObservation == nil else { return }
+        pressureObservation = memoryPressure.observe { [weak self] level in
+            if level != .normal { self?.dropSpare() }
         }
-        source.resume()
-        memoryPressure = source
     }
 }

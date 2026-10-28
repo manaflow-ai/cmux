@@ -4,6 +4,10 @@ import Foundation
 enum Strings {
     static var axStrip: String { String(localized: "tabs.ax.strip", defaultValue: "Tabs", bundle: .module) }
     static var axNewTab: String { String(localized: "tabs.ax.newTab", defaultValue: "New Tab", bundle: .module) }
+    /// The + button's tooltip: a click opens a tab, holding it opens the new tab menu.
+    static var newTabHoldHint: String {
+        String(localized: "tabs.newTab.holdHint", defaultValue: "New Tab (hold for more)", bundle: .module)
+    }
     /// A pane's "…" at the tab bar's trailing end (`PaneToolbarView`).
     static var paneMore: String { String(localized: "paneToolbar.more", defaultValue: "More", bundle: .module) }
     static var axClose: String { String(localized: "tabs.ax.close", defaultValue: "Close Tab", bundle: .module) }
@@ -33,6 +37,8 @@ enum Strings {
     static var axFailure: String { String(localized: "tabs.ax.failure", defaultValue: "Failed", bundle: .module) }
     static var hoverWorking: String { String(localized: "tabs.hoverCard.working", defaultValue: "Working", bundle: .module) }
     static var hoverIdle: String { String(localized: "tabs.hoverCard.idle", defaultValue: "Idle", bundle: .module) }
+    /// A shell at its prompt that printed in the last minute ("Output · 12s").
+    static var hoverOutput: String { String(localized: "tabs.hoverCard.output", defaultValue: "Output", bundle: .module) }
     static var hoverHibernated: String { String(localized: "tabs.hoverCard.hibernated", defaultValue: "Hibernated", bundle: .module) }
     static func hoverHibernatedWasUsing(_ memory: String) -> String {
         String(format: String(localized: "tabs.hoverCard.hibernatedWasUsing", defaultValue: "Hibernated · was using %@", bundle: .module), memory)

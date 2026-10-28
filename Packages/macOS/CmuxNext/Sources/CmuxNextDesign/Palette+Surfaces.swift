@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxTheme
+public import CmuxNextDesignTokens
 
 extension Palette {
     /// The user's background for `kind` (`appearance.surfaces`, R55) in the

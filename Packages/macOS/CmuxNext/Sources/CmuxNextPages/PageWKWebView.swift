@@ -79,6 +79,11 @@ final class PageWKWebView: WKWebView {
         noteUserActivation(at: event.timestamp > 0 ? event.timestamp : ProcessInfo.processInfo.systemUptime)
     }
 
+    /// A choice in a host-owned native menu is real input even when the menu outlived the opener.
+    func noteNativeMenuSelection(at uptime: TimeInterval) {
+        noteUserActivation(at: uptime)
+    }
+
     /// Drops the recorded activation and the opened menu: the view now shows another document
     /// (a pooled view rebound or parked), which must not use a gesture made in the old one.
     func forgetUserActivation() {
@@ -146,6 +151,14 @@ final class PageWKWebView: WKWebView {
         menuAutoFill.hidesInputContext() ? nil : super.inputContext
     }
 
+    /// No caret accessory on a cmux page. Since macOS 14 the system draws a small glass bubble
+    /// beside the caret of the focused field (the input source, Caps Lock, dictation); in the
+    /// composer the caret of an empty prompt sits just above the + button, which the bubble covered
+    /// (Leo, 2026-10-21). AppKit asks the focused `NSTextInputClient` (this view) for its placement
+    /// and draws nothing for `.invisible`. Browser tabs use their own views and keep the bubble;
+    /// Chromium's view of a cmux page answers the same (`ChromiumPageTextAccessory`).
+    @objc var preferredTextAccessoryPlacement: NSTextCursorAccessoryPlacement { .invisible }
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         openedMenu = menu
         menuAutoFill.menuWillOpen()
@@ -182,6 +195,11 @@ final class PageWKWebView: WKWebView {
     /// Reads the first file URL of a drag's pasteboard: a round trip to the pasteboard server.
     var readDroppedFileURL: @MainActor (NSPasteboard) -> URL? = { pasteboard in
         pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])?.first as? URL
+    }
+
+    /// Reads every file URL of a drop's pasteboard, once, as the page takes the drop.
+    var readDroppedFileURLs: @MainActor (NSPasteboard) -> [URL] = { pasteboard in
+        pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
     }
 
     /// The answer for the current drag: its pasteboard does not change during the drag, and AppKit
@@ -228,17 +246,32 @@ final class PageWKWebView: WKWebView {
         return WebKitDrag.updated ? super.draggingUpdated(sender) : []
     }
 
-    /// Files dropped on the page itself (not a ``fileDrop`` the host opens): a real gesture page script can't make.
-    var onFilesDropped: (@MainActor () -> Void)?
+    /// Files dropped on the page itself (not a ``fileDrop`` the host opens), with their URLs: a real
+    /// gesture page script can't make. It runs before WebKit hands the files to the page.
+    var onFilesDropped: (@MainActor ([URL]) -> Void)?
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let url = droppedFile(sender)
         dragAnswer = nil
         guard let url, let fileDrop else {
-            if sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) { onFilesDropped?() }
+            if let onFilesDropped {
+                let urls = readDroppedFileURLs(sender.draggingPasteboard)
+                if !urls.isEmpty { onFilesDropped(urls) }
+            }
             return WebKitDrag.perform ? super.performDragOperation(sender) : false
         }
         fileDrop.open(url)
         return true
+    }
+
+    // MARK: Paste
+
+    /// A paste (Cmd-V, Edit > Paste, a page's own Paste item) is about to reach the page; WebKit
+    /// pastes right after.
+    var onPaste: (@MainActor () -> Void)?
+
+    @objc func paste(_ sender: Any?) {
+        onPaste?()
+        webKitPaste(sender)
     }
 }

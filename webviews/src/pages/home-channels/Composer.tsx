@@ -9,6 +9,7 @@
 // (POLISH.md right-click contract): Cut, Copy, Paste, Paste as Plain Text, Attach Files… and
 // Insert Mention; the edits run in the app (composerEdit.ts).
 import { useContext, useEffect, useRef, useState, type RefObject } from "react";
+import { pasteIsOnlyFileNames } from "../../agent-session/acpmux/attachments";
 import { PromptEditor, type PromptEditorHandle } from "../../agent-session/acpmux/composer/PromptEditor";
 import type { MarkdownFormat } from "../../agent-session/acpmux/markdownFormat";
 import type { EmojiTable } from "../../icon-picker/emojiData";
@@ -23,6 +24,7 @@ import { MAX_ATTACHMENTS, attachmentClass, attachmentType, refusal, type Attachm
 import { Avatar } from "./Avatar";
 import { EmojiPicker, loadEmoji } from "./EmojiPicker";
 import { HomeIcon, type HomeIconName } from "./icons";
+import { useWebSwapHold } from "../shared/useWebSwapHold";
 import type { HomeAttachment, HomeParticipant } from "./types";
 
 export interface ComposerProps {
@@ -106,6 +108,9 @@ export function Composer({
   const nextFile = useRef(1);
   const ready = files.filter((item) => item.part).map((item) => item.part as HomeAttachment);
   const uploading = files.some((item) => !item.part && !item.error);
+  // WEB-SWAP: staged files live only in this composer (an upload aborts on unmount), so a web
+  // update's reload waits for them to be sent or removed (pages/shared/webSwap.ts).
+  useWebSwapHold(uploading ? "home.uploading" : files.length ? "home.attachments" : null);
   const empty = !value.trim() && ready.length === 0;
   const patchFile = (id: string, patch: Partial<PendingAttachment>) =>
     setFiles((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
@@ -316,11 +321,7 @@ export function Composer({
         // Pasted files (a screenshot, files copied in a file manager) attach; text still pastes as text.
         if (!attachments || event.clipboardData.files.length === 0) return;
         // A file copied in a file manager also carries its name (or path) as text: drop that text.
-        const text = event.clipboardData.getData("text/plain");
-        const names = [...event.clipboardData.files].map((file) => file.name);
-        const onlyNames =
-          !text || event.clipboardData.types.includes("text/uri-list") || names.some((name) => text.includes(name));
-        if (onlyNames) event.preventDefault();
+        if (pasteIsOnlyFileNames(event.clipboardData)) event.preventDefault();
         addFiles(event.clipboardData.files);
       }}
     >

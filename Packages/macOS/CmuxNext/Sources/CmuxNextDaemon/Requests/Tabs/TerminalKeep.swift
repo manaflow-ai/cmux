@@ -27,7 +27,7 @@ public struct SetTerminalKeepRequest: DaemonRequest {
     }
 
     public static let command = "set-terminal-keep"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.terminalReap
+    public static let requiredCapability: String? = DaemonCapability.terminalReap.rawValue
     public var target: Target
     public var keep: Bool
 

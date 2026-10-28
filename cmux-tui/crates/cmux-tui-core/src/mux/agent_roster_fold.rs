@@ -28,7 +28,13 @@ impl Mux {
         {
             return Ok(());
         }
-        let Some(state) = agent_state_for_hook_kind(&ingress.kind) else { return Ok(()) };
+        use crate::journal_reducers::hook_roster_state;
+        let native_event =
+            ingress.payload.get("native_event").and_then(Value::as_str).unwrap_or_default();
+        // Only a kind that moves a terminal under some current state gets past this guard.
+        if hook_roster_state(&ingress.kind, native_event, Some(AgentState::Blocked)).is_none() {
+            return Ok(());
+        }
         let Some(terminal_subject) =
             ingress.subjects.iter().find(|subject| subject.kind == "terminal")
         else {
@@ -36,6 +42,12 @@ impl Mux {
         };
         let terminal_id = TerminalPublicId::parse(&terminal_subject.id)
             .with_context(|| format!("invalid terminal subject {:?}", terminal_subject.id))?;
+        // A completed tool call resumes only a blocked agent, so the roster's state decides it.
+        let current =
+            self.agent_records.lock().unwrap().get(&terminal_id).map(|record| record.state);
+        let Some(state) = hook_roster_state(&ingress.kind, native_event, current) else {
+            return Ok(());
+        };
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else {
             // A durable terminal that is still live may be between journal
             // commit and host materialization. A missing or tombstoned
@@ -53,9 +65,26 @@ impl Mux {
                 "terminal {terminal_id} is not available for agent hook projection"
             )));
         };
-        // How the CLI was started is read once, while it runs, at its session
-        // start; before the fences lock, which serializes every terminal's hooks.
-        let job = (ingress.kind == "agent.session.started")
+        // How the CLI was started is read once, while it runs, at the first
+        // hook of its session this terminal applies: its start, or a later
+        // hook when that one was applied first (each hook is its own
+        // connection, and the fence then drops the older start). Read before
+        // the fences lock, which serializes every terminal's hooks.
+        let first_of_session = ingress.kind == "agent.session.started" || {
+            let session_id = ingress
+                .payload
+                .get("normalized")
+                .and_then(|value| value.get("agent_session_id"))
+                .and_then(Value::as_str)
+                .filter(|session_id| !session_id.is_empty());
+            let fences = self.agent_hook_fences.lock().unwrap();
+            session_id.is_some_and(|session_id| {
+                fences
+                    .get(&terminal_id)
+                    .is_none_or(|fence| fence.ended || fence.session_id != session_id)
+            })
+        };
+        let job = first_of_session
             .then(|| {
                 self.state
                     .lock()
@@ -227,7 +256,9 @@ impl Mux {
             }
             (deltas, host.cursor, host.roster.snapshot().to_string())
         };
-        if let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+        // The connection alone, never the workspace registry lock, so state
+        // commits do not wait behind the snapshot write (issue 23038).
+        if let Err(error) = self.registry_connection.put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
             cursor,

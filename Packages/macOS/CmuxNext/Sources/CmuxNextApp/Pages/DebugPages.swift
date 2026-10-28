@@ -24,6 +24,8 @@ import Foundation
 // - `scrollers`: `data-scrollers` and every element that shows a scroller at rest under "Always"
 //   (overflowing auto/scroll boxes with their overflow in pixels; SCROLLBARS-THIN audit);
 // - `click` (`selector`, `context_menu`?): clicks (or right-clicks) the first element matching the CSS selector;
+// - `hover` (`selector`): moves the mouse onto the first matching element (a capture slot's window
+//   never activates, so no pointer reaches its pages): `{hovered, native, x, y}`;
 // - `query` (`selector`): each matching element's data-* attributes, classes and text, in document order;
 // - `type` (`text`, `selector`?): inserts text as typed input in the matching (else the focused) element;
 // - `call` (`op`, `params`): one call message through the page's router, exactly as the page's
@@ -32,7 +34,7 @@ import Foundation
 // The control router's deadline bounds every action.
 extension AppControl {
     func registerPageDebugMethods(_ services: AppServices) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         service?.router.register([
             .async("debug.page") { [weak services] call in await DebugPages.handle(call.params, services: services) },
         ])
@@ -40,7 +42,7 @@ extension AppControl {
     }
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 enum DebugPages {
     /// Hidden pages `call` made (kept alive for later calls).
     @MainActor private static var made: [PageWebView] = []
@@ -95,6 +97,9 @@ enum DebugPages {
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
             return ["clicked": .bool(await page.debugClick(selector, metaKey: params["meta"]?.boolValue == true,
                                                            contextMenu: params["context_menu"]?.boolValue == true))]
+        case "hover":
+            guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
+            return await page.debugHover(selector)
         case "query":
             return await page.debugQuery(params["selector"]?.stringValue ?? "*")
         case "route":

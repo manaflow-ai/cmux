@@ -2,38 +2,58 @@
 """Guard against unannounced default changes (Leo 2026-10-13).
 
 A default is what someone gets without configuring anything: an action's
-default keys, a setting's default value, a Ghostty keybind cmux writes (an
-unbind takes a chord from Ghostty), a feature flag compiled on or off. Changing
-one changes what everyone gets, so it needs a call.
+default keys, a setting's default value, a Debug Tunable's `default:`, a
+Ghostty keybind cmux writes (an unbind takes a chord from Ghostty), a feature
+flag compiled on or off. Changing one changes what everyone gets, so it needs
+a call.
 
 schemas/defaults/<app>.json is the golden snapshot of every default, made from
 the sources of truth with no hand list:
 - cmux NEXT: plans/cmux-next/action-surfaces.json (each action's default
   shortcut, chord and aliases, exported from the catalog by Swift) and
   schemas/settings/settings-schema.json (each setting's default), both kept
-  current by the generated-files check; the Ghostty `keybind = ...` lines and
-  the `static let ...Enabled = true|false` flags in the app's Swift sources.
+  current by the generated-files check; the Ghostty `keybind = ...` lines, the
+  `static let ...Enabled = true|false` flags and each
+  `Tunable<T>.choice|toggle|number|color|spring("key", ..., default: ...)` in
+  the app's Swift sources. Tunable initializers/helpers and their symbolic source
+  dependencies also have conservative declaration fingerprints (not whole-file hashes),
+  so helper, interpolated-key and nonliteral defaults cannot silently remain unchanged
+  when their defining declaration changes. An edit to a tracked declaration's help text
+  also needs review; comments and formatting do not.
 
   python3 scripts/ci/defaults_guard.py snapshot           # regenerate it
   python3 scripts/ci/defaults_guard.py check-fresh        # it matches the sources
 
-check-fresh also recomputes the source stamp: SettingsSchemaExportTests writes
-schemas/settings-export/settings-schema.sources.sha256 with the schema, one
-`sha256  path` entry per CmuxNextSettings source it exported from and per export
-test, a blank line apart (outside schemas/settings, which is a web bundle input).
-A stamp that still conflicts after a merge is regenerated, never hand-merged. The schema and docs/mdm come
-from a Swift test, so committed files can agree with each other and still be
-stale against Swift (e190c402850c); a stamp that differs from the sources says so.
+The settings exports' source stamp is derived, never committed (Leo 2026-10-21):
+`source-stamp [--ref REF]` prints one `sha256  path` entry per CmuxNextSettings
+source and export test at REF, a blank line apart. Base autofix compares the
+stamp of the commit its exports were made at with the tip's: equal means the
+exports' inputs did not move. A committed copy changed in every pull request that
+touched a settings source and conflicted on nearly every base move (#22674); the
+exports themselves are checked against a fresh Swift export (the generated files
+job of cmux-next.yml).
   python3 scripts/ci/defaults_guard.py check --base B --head H [--pr N --repo R]
 
-`check` compares the snapshot at the merge base with the one at the head (the
-trees are read with git as data; nothing from the head runs). A change passes
-only with an approving review, on the head commit, from a call owner in
-.github/defaults-call-owners.json who is not the pull request's author: the
-`needs a call` label alone never passes, and a push after the approval needs
-a new one. The workflow (pull_request_target only) runs this script and reads
-the owners file from the base branch, so a pull request cannot approve itself
-by editing either.
+`check` compares the defaults at the merge base with the ones at the head, each
+computed from that tree's exports and sources (the trees are read with git as
+data; nothing from the head runs). The snapshot is bot-only (#21946): the base
+autofix rewrites it after a merge, no pull request commits it, and `check`
+never reads it, so a hand-edited copy hides nothing.
+
+A setting the pull request adds whose default is off (false, null, "off",
+"never", "none", "disabled" or empty) keeps the behavior from before it
+existed (new things ship off), so it passes on its own (Leo 2026-10-21); it
+stays listed. Any other change passes with an independent review receipt on
+the head: a comment or review whose first line is
+`Review (<reviewer>): SHIP at <full head sha>` from a member (OWNER, MEMBER or
+COLLABORATOR, a user, not a bot), not a self-review, the grammar
+scripts/ci/risk_tier.py reads. The newest verdict naming the head decides, so
+a later BLOCK beats an earlier SHIP, and a push needs a new receipt. An
+approving review of the head from a call owner in
+.github/defaults-call-owners.json other than the author still passes too. The
+`needs a call` label alone never passes. The workflow (pull_request_target
+only) runs this script and reads the owners file from the base branch, so a
+pull request cannot approve itself by editing either.
 """
 
 from __future__ import annotations
@@ -57,17 +77,13 @@ OWNERS = ".github/defaults-call-owners.json"
 ACTION_SURFACES = "plans/cmux-next/action-surfaces.json"
 SETTINGS_SCHEMA = "schemas/settings/settings-schema.json"
 SWIFT_SOURCES = "Packages/macOS/CmuxNext/Sources"
-# The settings exporter's inputs and its stamp. Keep in step with
-# SettingsSchemaExportTests.sourceStamp (Swift), which writes the stamp.
-SETTINGS_STAMP = "schemas/settings-export/settings-schema.sources.sha256"
+# The settings exporter's inputs, which the source stamp hashes.
 SETTINGS_SOURCE_DIR = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
 SETTINGS_SOURCE_SUFFIXES = (".swift", ".xcstrings")
 SETTINGS_EXPORTER_FILES = (
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
 )
-STALE_EXPORTS = ("settings exports are stale against CmuxNextSettings sources: run the fleet export "
-                 "(REPAIR.md row 'generated settings export stale after a safe-push merge')")
 # Default bindings that step aside in a context (a code editor, a focused terminal): a change to
 # one changes what a key does there.
 KEY_BINDING_DEFAULTS = "Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift"
@@ -93,6 +109,17 @@ MODIFIER_ORDER = ("ctrl", "opt", "shift", "cmd")
 KEYBIND_RE = re.compile(r'"keybind\s*=\s*([^"=]+?)\s*=\s*([^"]*)"')
 YIELDS_RE = re.compile(r"static\s+let\s+(yieldsTo\w+)\s*:\s*Set<ActionID>\s*=\s*\[(.*?)\]", re.S)
 FLAG_RE = re.compile(r"\bstatic\s+(?:let|var)\s+(\w*Enabled)\s*(?::\s*Bool\s*)?=\s*(true|false)\b")
+# A Debug Tunable with a constant default. The call parser below handles commas and
+# parentheses in nested arguments and string literals; interpolated keys are skipped.
+TUNABLE_RE = re.compile(r'\bTunable<[\w.?]+>\s*\.(choice|toggle|number|color|spring)\(\s*"([^"\\]+)"')
+# An independent review's verdict on the exact head, on a comment's or review's first line:
+# "Review (subagent, correctness first): SHIP at <full head sha>". Same grammar as
+# scripts/ci/risk_tier.py RECEIPT (and next_autoland, merge_audit).
+RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
+                     re.I)
+TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
+# Default values that read as "off": a new setting with one of them changes nothing for anyone.
+OFF_WORDS = ("off", "never", "none", "disabled", "")
 
 
 # MARK: Reading a tree
@@ -276,6 +303,12 @@ def defaults(tree: Tree) -> dict[str, object]:
                 found[f"ghostty.{trigger.strip()}"] = action.strip()
     for name, block in YIELDS_RE.findall(tree.read(KEY_BINDING_DEFAULTS) or ""):
         found[f"steps-aside.{name}"] = sorted(re.findall(r'"([^"]+)"', block))
+    sources = sorted(name for name in tree.files(SWIFT_SOURCES) if name.endswith(".swift"))
+    swift = {name: text.decode("utf-8") for name, text in tree.read_bytes(sources).items()}
+    found.update(tunable_source_defaults(swift))
+    for text in swift.values():
+        for key, value in tunables(text):
+            found[f"tunable.{key}"] = value
     for name, line in tree.grep(r"static +(let|var) +[A-Za-z0-9_]*Enabled *(: *Bool *)?= *(true|false)", SWIFT_SOURCES):
         for flag, value in FLAG_RE.findall(line):
             # The file's path under the sources keeps two `isEnabled` flags apart; a second one in
@@ -286,6 +319,200 @@ def defaults(tree: Tree) -> dict[str, object]:
                 key, n = f"{base}#{n}", n + 1
             found[key] = value == "true"
     return dict(sorted(found.items()))
+
+
+def call_arguments(text: str, start: int) -> list[str]:
+    """Return top-level arguments in a Swift call whose arguments start at ``start``."""
+    args, depth, current, i = [], 0, [], start
+    while i < len(text):
+        char = text[i]
+        if char == '"':
+            end = i + 1
+            while end < len(text) and text[end] not in '"\n':
+                end += 2 if text[end] == "\\" else 1
+            current.append(text[i:end + 1])
+            i = end + 1
+            continue
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif char == "," and depth == 0:
+            args.append("".join(current))
+            current = []
+            i += 1
+            continue
+        current.append(char)
+        i += 1
+    return [argument.strip() for argument in [*args, "".join(current)]]
+
+
+def strip_swift_comments(text: str) -> str:
+    """Replace Swift comments with spaces while preserving literals and newlines.
+
+    The defaults guard reads source as data, so it must not treat an example in a comment as a
+    live Tunable. Keeping string bytes and line breaks intact also means a quoted default retains
+    its exact contents when it is reported.
+    """
+    output, i, block_depth = [], 0, 0
+    while i < len(text):
+        if block_depth:
+            if text.startswith("/*", i):
+                block_depth += 1
+                output.extend("  ")
+                i += 2
+            elif text.startswith("*/", i):
+                block_depth -= 1
+                output.extend("  ")
+                i += 2
+            else:
+                output.append("\n" if text[i] == "\n" else " ")
+                i += 1
+            continue
+        if text.startswith("//", i):
+            output.extend("  ")
+            i += 2
+            while i < len(text) and text[i] != "\n":
+                output.append(" ")
+                i += 1
+            continue
+        if text.startswith("/*", i):
+            block_depth = 1
+            output.extend("  ")
+            i += 2
+            continue
+        if text[i] == '"':
+            end = i + 1
+            while end < len(text):
+                if text[end] == "\\":
+                    end += 2
+                elif text[end] == '"':
+                    end += 1
+                    break
+                else:
+                    end += 1
+            output.append(text[i:end])
+            i = end
+            continue
+        output.append(text[i])
+        i += 1
+    return "".join(output)
+
+
+# Source fingerprints complement the readable literal values. Swift defaults may be built by a
+# helper or depend on other declarations; reading an unchanged expression is not its value.
+# Track those declarations and their dependencies instead of evaluating untrusted Swift.
+SWIFT_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|[A-Za-z_]\w*|[^\s]', re.S)
+STATIC_DECL = re.compile(r"\bstatic\s+(let|var|func)\s+(`?\w+`?)")
+
+
+def static_declarations(text: str) -> list[tuple[str, str, list[str]]]:
+    """Static initializer/function tokens; comments and formatting do not change a stamp."""
+    text = strip_swift_comments(text)
+    found = []
+    # A help string may contain a Swift example; only actual declarations count.
+    syntax = SWIFT_TOKEN.sub(lambda match: " " * len(match.group())
+                             if match.group().startswith('"') else match.group(), text)
+    for match in STATIC_DECL.finditer(syntax):
+        kind, name = match.groups()
+        name = name.strip("`")
+        tokens = [kind, name]
+        depth, started, previous_end = 0, False, match.end()
+        for token in SWIFT_TOKEN.finditer(text, match.end()):
+            value = token.group()
+            gap = text[previous_end:token.start()]
+            if depth == 0 and started:
+                if value in ("}", ";"):
+                    break
+                if "\n" in gap and tokens[-1] not in ("=", ",", ".", ":", "+", "-", "*", "/", "%", "&", "|", "?", "??") and value not in (".", "{", "(", "+", "-", "*", "/", "%", "&", "|", "?", "=", "<", ">", "!"):
+                    break
+            if value in ("(", "[", "{"):
+                depth += 1
+            elif value in (")", "]", "}"):
+                if depth == 0:
+                    break
+                depth -= 1
+            if value == "=" or (value == "{" and kind in ("func", "var")):
+                started = True
+            tokens.append(value)
+            previous_end = token.end()
+        if started:
+            found.append((kind, name, tokens))
+    return found
+
+
+def tunable_source_defaults(sources: Mapping[str, str]) -> dict[str, object]:
+    """Fingerprint tunable initializers, their helpers and symbolic source dependencies.
+
+    This is conservative source tracking, not a Swift interpreter: editing a selected declaration's
+    help text or implementation also needs review. Unrelated declarations in its file do not.
+    Same-file names and qualified Type.member references resolve to all possible source declarations
+    (including extensions); ambiguity adds evidence rather than silently choosing one definition.
+    """
+    nodes, by_file_name, types = {}, {}, {}
+    for path, text in sources.items():
+        for type_name in re.findall(r"\b(?:enum|struct|class|extension)\s+(\w+)", strip_swift_comments(text)):
+            types.setdefault(type_name, set()).add(path)
+        for kind, name, tokens in static_declarations(text):
+            key = f"tunable-source.{path.removeprefix(SWIFT_SOURCES + '/')}:{name}"
+            while key in nodes:
+                key += "#"
+            nodes[key] = (path, kind, name, tokens)
+            by_file_name.setdefault((path, name), set()).add(key)
+    selected = {key for key, (_, _, _, tokens) in nodes.items()
+                if any(re.fullmatch(r"(?:Derived)?Tunable|\w+Tunable", token) for token in tokens)}
+    # A helper returning Tunable (e.g. points) has callers whose initializer has no Tunable token.
+    helper_names = {name for key, (_, kind, name, _) in nodes.items()
+                    if key in selected and kind == "func"}
+    for key, (_, _, _, tokens) in nodes.items():
+        if any(token in helper_names for token in tokens):
+            selected.add(key)
+    pending = list(selected)
+    while pending:
+        key = pending.pop()
+        path, _, _, tokens = nodes[key]
+        dependencies = set()
+        for i, token in enumerate(tokens):
+            dependencies.update(by_file_name.get((path, token), ()))
+            if i + 2 < len(tokens) and tokens[i + 1] == ".":
+                for owner in types.get(token, ()):
+                    dependencies.update(by_file_name.get((owner, tokens[i + 2]), ()))
+        for dependency in dependencies - selected:
+            selected.add(dependency)
+            pending.append(dependency)
+    return {key: hashlib.sha256(json.dumps(nodes[key][3], ensure_ascii=False).encode()).hexdigest()
+            for key in sorted(selected)}
+
+
+def tunables(text: str) -> list[tuple[str, object]]:
+    """Return (key, default) for Tunables with a literal default value."""
+    text = strip_swift_comments(text)
+    found = []
+    for match in TUNABLE_RE.finditer(text):
+        kind, key = match.groups()
+        value = next((argument.partition(":")[2].strip()
+                      for argument in call_arguments(text, match.end())
+                      if re.match(r"^default\s*:", argument)), None)
+        if value is None:
+            continue
+        if kind == "toggle" and value in ("true", "false"):
+            found.append((key, value == "true"))
+            continue
+        if value.startswith('"') and value.endswith('"'):
+            try:
+                found.append((key, json.loads(value)))
+                continue
+            except json.JSONDecodeError:
+                pass
+        if re.fullmatch(r"\.[A-Za-z_]\w*", value):
+            found.append((key, value[1:]))
+        elif re.fullmatch(r"-?\d+(?:\.\d+)?", value):
+            found.append((key, float(value)))
+        # Nonliteral defaults are covered by tunable-source dependency fingerprints above.
+        # Never present an expression such as devDefault as though it were the default value.
+    return found
 
 
 def render_snapshot(values: Mapping[str, object]) -> str:
@@ -358,6 +585,16 @@ def changes(old: Mapping[str, object], new: Mapping[str, object]) -> list[Change
     return found
 
 
+def is_off(value: object) -> bool:
+    return value is None or value is False or value == [] or value == {} or \
+        (isinstance(value, str) and value.lower() in OFF_WORDS)
+
+
+def exempt(found: list[Change], before: Mapping[str, object]) -> list[Change]:
+    """The settings the head adds with an off default: what everyone got before the setting existed."""
+    return [c for c in found if c.id.startswith("setting.") and c.id not in before and is_off(c.new)]
+
+
 def guard_changes(base: Tree, head: Tree) -> list[Change]:
     found = []
     for path in GUARD_FILES:
@@ -378,6 +615,8 @@ class Approval:
     head: str
     approvers: list[str] = field(default_factory=list)
     stale: list[str] = field(default_factory=list)
+    shipped: str | None = None  # the reviewer whose SHIP receipt is the newest verdict on the head
+    blocked: str | None = None  # the reviewer whose BLOCK receipt is
 
     @property
     def eligible(self) -> list[str]:
@@ -385,7 +624,28 @@ class Approval:
 
     @property
     def approved(self) -> bool:
-        return bool(self.approvers)
+        return bool(self.approvers) or self.shipped is not None
+
+
+def receipt_verdict(pull: Mapping[str, object], head: str) -> tuple[str, str] | None:
+    """("ship" or "block", reviewer) of the newest receipt naming the full head sha on the first line
+    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie."""
+    found = []
+    items = [(c, c.get("createdAt")) for c in (pull.get("comments") or {}).get("nodes") or []]
+    items += [(r, r.get("submittedAt")) for r in (pull.get("reviews") or {}).get("nodes") or []]
+    for item, at in items:
+        author = item.get("author") or {}
+        if author.get("__typename") != "User" or item.get("authorAssociation") not in TRUSTED:
+            continue
+        first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
+        line = RECEIPT.match(first)
+        if head and line and "self" not in line.group(1).lower() and head in first:
+            verdict = "ship" if line.group(2).lower() == "ship" else "block"
+            found.append((str(at or ""), verdict == "block", verdict, f"review ({line.group(1).strip()})"))
+    if not found:
+        return None
+    _, _, verdict, who = max(found)
+    return verdict, who
 
 
 def owners_for(text: str | None) -> list[str]:
@@ -412,6 +672,12 @@ def approval(owners: list[str], pull: Mapping[str, object]) -> Approval:
             result.approvers.append(owner)
         else:
             result.stale.append(owner)
+    receipt = receipt_verdict(pull, head)
+    if receipt:
+        if receipt[0] == "ship":
+            result.shipped = receipt[1]
+        else:
+            result.blocked = receipt[1]
     return result
 
 
@@ -420,8 +686,8 @@ query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       author { login } headRefOid merged mergeCommit { oid }
-      reviews(last: 100) { nodes { author { login } state commit { oid } } }
-      comments(last: 100) { nodes { databaseId body author { login } } }
+      reviews(last: 100) { nodes { author { login __typename } authorAssociation state body submittedAt commit { oid } } }
+      comments(last: 100) { nodes { databaseId body createdAt authorAssociation author { login __typename } } }
     }
   }
 }
@@ -445,7 +711,13 @@ def fetch_pull(repo: str, number: int) -> dict:
 # MARK: Report
 
 
-def comment_body(found: list[Change], verdict: Approval | None, head: str, merged: str | None = None) -> str:
+def signed(verdict: Approval) -> str:
+    who = [f"@{a}" for a in verdict.approvers] + ([f"`{plain(verdict.shipped)}`"] if verdict.shipped else [])
+    return ", ".join(who)
+
+
+def comment_body(found: list[Change], verdict: Approval | None, head: str, merged: str | None = None,
+                 free: list[Change] | None = None) -> str:
     lines = [MARKER, "## Default changes"]
     if not found:
         lines.append(f"No defaults change at `{head[:12]}`.")
@@ -453,22 +725,31 @@ def comment_body(found: list[Change], verdict: Approval | None, head: str, merge
     lines.append(f"This pull request changes {len(found)} default{'s' if len(found) != 1 else ''} at `{head[:12]}` "
                  "(what everyone gets without configuring anything):")
     lines.append("")
-    lines += [f"- {code(c.id)}: {code(c.detail)}" for c in found]
+    free = free or []
+    lines += [f"- {code(c.id)}: {code(c.detail)}" + (" (a new setting, off by default: passes on its own)" if c in free else "")
+              for c in found]
     lines.append("")
-    if verdict is not None:
+    if all(c in free for c in found):
+        lines.append("Every change is a new setting that defaults to off, the behavior from before it existed.")
+    elif verdict is not None:
         if verdict.approved:
-            lines.append(f"Approved on this commit by {', '.join('@' + a for a in verdict.approvers)}.")
+            lines.append(f"Signed off on this commit by {signed(verdict)}.")
         else:
             who = " or ".join(f"@{o}" for o in verdict.eligible) or "(no eligible call owner)"
-            lines.append(f"**Needs a call.** It passes only with an approving review on this commit from {who} "
-                         f"(the call owners in `{OWNERS}`, never the author). The `needs a call` label alone does not pass, "
-                         "and a new push needs a new approval.")
+            if verdict.blocked:
+                lines.append(f"The newest verdict on this commit is a BLOCK from `{plain(verdict.blocked)}`.")
+            lines.append(f"**Needs a review.** It passes with an independent review receipt on this commit: a comment "
+                         f"or review whose first line is `Review (<reviewer>): SHIP at {head}`, from a member, not a "
+                         "self-review (the newest verdict naming the head decides; a later BLOCK beats an earlier "
+                         f"SHIP), or with an approving review on this commit from {who} (the call owners in `{OWNERS}`, "
+                         "never the author). A receipt posted as a review re-runs this check; after a plain comment, "
+                         "re-run it. The `needs a call` label alone does not pass, and a new push needs a new receipt.")
             if verdict.stale:
                 lines.append(f"Earlier approvals on an older commit: {', '.join('@' + s for s in verdict.stale)}.")
     if merged:
         lines += ["", f"**Merge receipt:** merged as `{merged[:12]}` with these defaults changed"
-                  + (f", approved by {', '.join('@' + a for a in verdict.approvers)}." if verdict and verdict.approved
-                     else ", WITHOUT an approving call owner review on its head.")]
+                  + (f", signed off by {signed(verdict)}." if verdict and verdict.approved
+                     else ", WITHOUT a SHIP receipt or an approving call owner review on its head.")]
     lines += ["", f"Regenerate the snapshot with `{REGENERATE}`."]
     return "\n".join(lines) + "\n"
 
@@ -522,11 +803,10 @@ def freshness(tree: Tree) -> list[str]:
 
 
 def settings_source_stamp(tree: Tree) -> str:
-    """SettingsSchemaExportTests.sourceStamp in Python: one `sha256  path` entry per exporter input
+    """The settings exports' source stamp: one `sha256  path` entry per exporter input
     (lowercase hex of the file's bytes, two spaces, the repository-relative path) in UTF-8 path
-    order, with a blank line between entries and a newline at the end. An entry per file, apart,
-    means two pull requests that edit different sources change lines git merges cleanly, and the
-    merged stamp is exactly the merged sources' (#21946)."""
+    order, with a blank line between entries and a newline at the end. It is derived for a
+    commit, never committed."""
     paths = list(SETTINGS_EXPORTER_FILES) + [
         path for path in tree.files(SETTINGS_SOURCE_DIR) if PurePosixPath(path).suffix in SETTINGS_SOURCE_SUFFIXES]
     paths.sort(key=lambda path: path.encode("utf-8"))
@@ -534,73 +814,32 @@ def settings_source_stamp(tree: Tree) -> str:
     return "\n\n".join(f"{hashlib.sha256(contents[path]).hexdigest()}  {path}" for path in paths) + "\n"
 
 
-def stamp_entries(stamp: str) -> dict[str, str]:
-    """path -> digest for each `sha256  path` line of a stamp."""
-    entries = {}
-    for line in stamp.splitlines():
-        digest, separator, path = line.partition("  ")
-        if separator:
-            entries[path] = digest
-    return entries
-
-
-def stamp_freshness(tree: Tree) -> tuple[list[str], list[str]]:
-    """(problems, notes) for the settings export stamp of `tree`."""
-    stamp = tree.read(SETTINGS_STAMP)
-    if stamp is None and SETTINGS_STAMP.rsplit("/", 1)[1] in (tree.read(SETTINGS_EXPORTER_FILES[1]) or ""):
-        # The tree's exporter writes the stamp, so a missing stamp is a deleted or never-run export.
-        return [f"DEFAULTS exports: {SETTINGS_STAMP} is missing; {STALE_EXPORTS}"], []
-    if stamp is None:
-        return [], [f"note: {SETTINGS_STAMP} is missing (a commit before the first stamped export); "
-                    "the settings exports are not checked against the Swift sources"]
-    actual = settings_source_stamp(tree)
-    if stamp == actual:  # exactly what SettingsSchemaExportTests writes and expects
-        return [], []
-    stored, current = stamp_entries(stamp), stamp_entries(actual)
-    if not stored:
-        return [f"DEFAULTS exports: {STALE_EXPORTS}",
-                f"  {SETTINGS_STAMP} is a single digest from before the per-source stamp"], []
-    moved = sorted((path for path in stored.keys() | current.keys() if stored.get(path) != current.get(path)),
-                   key=lambda path: path.encode("utf-8"))
-    lines = [f"  {path}: {'not stamped' if path not in stored else 'gone' if path not in current else 'changed'}"
-             for path in moved[:20]]
-    if len(moved) > 20:
-        lines.append(f"  and {len(moved) - 20} more")
-    if not moved:
-        lines = [f"  {SETTINGS_STAMP} lists the right digests but is not in the exporter's format"]
-    return [f"DEFAULTS exports: {STALE_EXPORTS}", *lines], []
-
-
 def command_check_fresh(args: argparse.Namespace) -> int:
     tree = Tree.named(args.ref) if args.ref else Tree(None)
     problems = freshness(tree)
-    stamp_problems, notes = stamp_freshness(tree)
-    problems += stamp_problems
-    for note in notes:
-        print(note)
     for problem in problems:
         print(problem)
     return 1 if problems else 0
 
 
-def command_check_stamp(args: argparse.Namespace) -> int:
-    """Only the settings export stamp: exit 1 when the exports need the Swift export."""
-    problems, notes = stamp_freshness(Tree.named(args.ref) if args.ref else Tree(None))
-    for line in notes + problems:
-        print(line)
-    return 1 if problems else 0
+def command_source_stamp(args: argparse.Namespace) -> int:
+    """The stamp the settings sources of a commit give. Base autofix compares the stamp of the commit
+    its exports were made at with the tip's: equal means the exports' inputs did not move."""
+    sys.stdout.write(settings_source_stamp(Tree.named(args.ref) if args.ref else Tree(None)))
+    return 0
 
 
 def command_check(args: argparse.Namespace) -> int:
     base, head = Tree.named(args.base), Tree.named(args.head)
     head_sha = args.head_sha or args.head
-    # A pull request branched before the snapshot existed is judged by its sources alone.
-    adopted = base.read(SNAPSHOT) is not None or head.read(SNAPSHOT) is not None
-    problems = freshness(head) if adopted else []
-    # The base's snapshot, or (before the first snapshot lands) its sources.
-    before = snapshot_of(base) or defaults(base)
-    after = snapshot_of(head) or defaults(head)
+    # Both sides are judged by their sources and exports, never by a committed
+    # snapshot: the snapshot is bot-only (#21946), so a pull request does not
+    # commit it, and a hand-edited copy could hide a change.
+    problems: list[str] = []
+    before = defaults(base)
+    after = defaults(head)
     found = changes(before, after) + guard_changes(base, head)
+    free = exempt(found, before)
     trusted = Tree(None)  # the base checkout the workflow runs from
     owners = owners_for(trusted.read(OWNERS))
     pull = None
@@ -618,7 +857,7 @@ def command_check(args: argparse.Namespace) -> int:
     if pull is not None and verdict is not None and verdict.head != head_sha:
         problems.append(f"DEFAULTS head: the pull request's head is {verdict.head[:12]}, not {head_sha[:12]}; re-run on the new head")
     merged = str((pull.get("mergeCommit") or {}).get("oid") or "") if pull and pull.get("merged") else None
-    body = comment_body(found, verdict, head_sha, merged)
+    body = comment_body(found, verdict, head_sha, merged, free)
     annotate(found)
     for problem in problems:
         print(f"::error title=Defaults snapshot::{command_text(problem)}" if not problem.startswith("  ") else plain(problem))
@@ -632,9 +871,12 @@ def command_check(args: argparse.Namespace) -> int:
             print(f"::warning title=Defaults comment not posted::{error}")
     if problems:
         return 1
-    if found and not (verdict and verdict.approved):
+    needed = [c for c in found if c not in free]
+    if needed and not (verdict and verdict.approved):
         who = " or ".join(verdict.eligible) if verdict else "a call owner"
-        print(f"::error title=Default changes need a call::{len(found)} default(s) changed; needs an approving review on {head_sha[:12]} from {who}")
+        print(f"::error title=Default changes need a review::{len(needed)} default(s) changed; needs a comment or review "
+              f"whose first line is `Review (<reviewer>): SHIP at {head_sha}` from a member (not a self-review), "
+              f"or an approving review on {head_sha[:12]} from {who}")
         return 1
     return 0
 
@@ -643,12 +885,12 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("snapshot", help="regenerate the golden snapshot from the sources").set_defaults(run=command_snapshot)
-    fresh = sub.add_parser("check-fresh", help="the committed snapshot matches the sources, and the settings export stamp matches the CmuxNextSettings sources")
+    fresh = sub.add_parser("check-fresh", help="the committed snapshot matches the sources")
     fresh.add_argument("--ref", help="a commit to check instead of the working tree")
     fresh.set_defaults(run=command_check_fresh)
-    stamp = sub.add_parser("check-stamp", help="only the settings export stamp matches the CmuxNextSettings sources")
-    stamp.add_argument("--ref", help="a commit to check instead of the working tree")
-    stamp.set_defaults(run=command_check_stamp)
+    source = sub.add_parser("source-stamp", help="print the settings export stamp the CmuxNextSettings sources give")
+    source.add_argument("--ref", help="a commit to read instead of the working tree")
+    source.set_defaults(run=command_source_stamp)
     check = sub.add_parser("check", help="list changed defaults between two commits and judge the approval")
     check.add_argument("--base", required=True, help="the merge base: a commit, or a directory checked out at it")
     check.add_argument("--head", required=True, help="the head: a commit, or a directory checked out at it")

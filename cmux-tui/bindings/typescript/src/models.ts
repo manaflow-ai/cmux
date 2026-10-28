@@ -495,6 +495,22 @@ export interface LayoutColumn {
   readonly root: LayoutNode;
   /** The column's dock flag (dock-columns-v1); absent while it scrolls. */
   readonly dock?: LayoutColumnDock;
+  /**
+   * The column's rows top to bottom (rows-v1); absent for a column with one
+   * row. Row 2..n's `rowId` is its compat chain split in `root`. In
+   * `applyLayout` absent keeps the stored rows and `[]` leaves one row.
+   */
+  readonly rows?: readonly LayoutRow[];
+}
+
+/**
+ * One row of a column (rows-v1): its stable id and its height in permille of
+ * the column's viewport height (100 to 1000). Only row 1 may omit `rowId`,
+ * in a document sent to `applyLayout`.
+ */
+export interface LayoutRow {
+  readonly rowId?: SplitId;
+  readonly height: number;
 }
 
 export interface LayoutViewport {

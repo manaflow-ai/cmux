@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextLayout
 import os
@@ -23,7 +24,15 @@ extension AppActionContext {
         registry.refusalObserver = { reason, quiet in
             Self.logger.notice("action refused: \(reason, privacy: .public)")
             guard Self.showsNotice(quiet: quiet, hasCaller: registry.refusalHasCaller) else { return }
+            // Keyed by the key event that ran the refused action, so the burst bench matches it to its press.
+            services.burstTrace.mark(.refusal, input: registry.dispatchingInputEvent()?.timestamp)
             services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
+        }
+        // An action's local change was rolled back because the daemon refused it: say so where
+        // refusals show, so the change does not just vanish.
+        registry.remoteFailureObserver = { action, notice in
+            Self.logger.notice("action \(action.rawValue, privacy: .public) rolled back: \(notice, privacy: .public)")
+            services.refusalHUD.show(notice, in: services.windows.active?.window ?? NSApp.keyWindow)
         }
     }
 
@@ -60,6 +69,27 @@ extension AppActionContext {
     func notFound<T>(_ reason: String) -> T? {
         registry.refuseNotFound(reason)
         return nil
+    }
+
+    /// Sets `id`'s target reason (after its bind): while `reason` returns a string, the
+    /// invocation's menu row is disabled and every run (palette, CLI, MCP, keyboard) is refused
+    /// with it. The lookups in `reason` never refuse on their own.
+    func setTargetReason(_ id: ActionID, _ reason: @escaping @MainActor (ActionInvocation) -> String?) {
+        ActionTargetReasons.set(id, in: registry) { [weak registry] invocation in
+            registry?.withoutRefusals { reason(invocation) }
+        }
+    }
+
+    /// Runs an action's asynchronous work and reports its failure: a capturing caller (the CLI,
+    /// MCP) awaits it and answers it; a palette, menu or keyboard run shows it when it comes.
+    func report(_ work: @escaping @MainActor () async -> ActionWorkFailure?) {
+        let task = Task { @MainActor in await work() }
+        if registry.isCapturingWork {
+            registry.track(task)
+        } else {
+            // task-owner: a run nobody awaits; the refusal shows when the work ends.
+            Task { @MainActor [weak registry] in if let failure = await task.value { registry?.refuse(failure.message) } }
+        }
     }
 
     /// Statement form: `guard ... else { return ctx.refuse("why") }`.

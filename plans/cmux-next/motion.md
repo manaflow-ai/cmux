@@ -9,6 +9,30 @@ Cmd-Shift-D splits applied in one frame until 2026-10-10, when Leo asked
 for panes that grow from their edge (cx-f6i7); the sidebar is only
 shown or hidden; tab animations must be fast and smooth.
 
+## Scale (Leo 2026-10-20)
+
+Leo: "animations all around are a bit slow". Every animation now keeps to one
+short scale, `schemas/motion-scale/motion-scale.json` (generated into
+`MotionScale`, the webviews' `--cmux-motion-*` and `scale.generated.ts`):
+quick 80 ms (hover and pressed fills, focus rings, anything leaving), micro
+120 ms, standard 180 ms, large 240 ms, the ceiling. Every timed fade default
+is a step or 0, and every spring ends visibly (within 0.5%,
+`perceivedDuration`) by 240 ms; entering eases out, and nothing delays input.
+Off-scale fades went to the nearest step that is not longer (focus and
+crossfade, the Reduce Motion cap, 80 ms; paneDim and theme 120 ms; clickPulse,
+cursorHide, hibernateIcon, the attention swell and the agent cursor glide limit
+240 ms). The color change is a user setting
+(`appearance.colorTransition.duration`, 200 ms) and keeps its default. Springs over the
+ceiling kept their damping and got a shorter response: zoom 0.2 (was 0.30,
+354 ms visible), exit 0.2 (0.24, 283 ms), split 0.23 (0.28, 287 ms), popover
+0.24 (0.25, 248 ms), pinDrag 0.215 (0.351, 390 ms); scroll and screen 0.2,
+panel 0.165 and popoverClose 0.15 now end by 180 ms. `settle` stays at 235 ms
+(it carries the release velocity). Exceptions: the long ambient fades
+`highlight` (1.2 s) and `hibernateRing` (1 s), loops, and hover-intent
+delays (tooltip, hover card aim and grace, marquee, launch), which are waits,
+not animations. `MotionScaleTests` holds all of this; where the tables below
+disagree, the code and this paragraph win.
+
 ## Redesign (hq-1d, 2026-10-12)
 
 Lawrence: "new tab animation and new workspace animation needs to be redone
@@ -203,6 +227,7 @@ nxmot (MacBook Pro, 120 Hz).
 | `hoverOut` | 0 s | a hover or pressed fill clearing: instant, as in Edge, so a fast sweep leaves no trail (about 0.12 s in Debug Settings leaves a short one). A press shows at once. Sidebar rows are the exception: their fill and hover buttons fade out with `hover` too, in place (Leo 2026-10-13: moving between workspace rows snapped). Instant under Reduce Motion |
 | `focus` | 0.10 s | pane focus ring |
 | `paneDim` | 0.15 s | the veil over an unfocused pane easing in and out when focus moves (Leo 2026-10-21: a short ease, not a jump) |
+| `focusFlash` | 0.50 s | the focus ring shown at once on a pane focus moved to without a click (a link open, the pane after a close, an agent handoff), fading out; Debug toggle `focus.flashOnMove`, off by default |
 | `fadeIn` | 0.12 s | palette, find bar, notices, hover card, group editor, sidebar pill appear |
 | `fadeOut` | 0.08 s | palette close (with a shrink to `Motion.panelCloseScale` 0.98 about the center), find bar, notices, hover card, sidebar pill hide |
 | `crossfade` | 0.10 s | hover card thumbnail swap; the Reduce Motion ceiling |

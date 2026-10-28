@@ -5,9 +5,10 @@ import Foundation
 public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     public var id: GroupID
     public var name: String
-    /// The palette token; grey (none) when `custom` is set.
+    /// The palette token; grey when `custom` is set.
     public var color: GroupColor
-    /// A color picked outside the palette, as `#RRGGBB` (cx-25az): it draws instead of `color`.
+    /// A color picked outside the palette, as `#RRGGBB` (cx-25az), or `none` for a group with no
+    /// color (`GroupTint.none`): it draws instead of `color`.
     public var custom: String?
     public var isCollapsed: Bool
     /// Pinned (saved) group: it survives closing its workspaces, like a
@@ -25,6 +26,8 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     public var parent: GroupID?
     /// Group levels above this one: 0 at the top level.
     public var depth = 0
+    /// Archived in the sidebar document: its header draws dimmed (its members too). Set by `arrange`.
+    public var isArchived = false
 
     /// Every member in document order: the workspaces, with each item after
     /// the workspace it follows (first when it follows none; last when that
@@ -93,7 +96,10 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
         get { custom.flatMap(GroupTint.init(wire:)) ?? .palette(color) }
         set {
             color = newValue.token
-            if case .custom = newValue { custom = newValue.wire } else { custom = nil }
+            switch newValue {
+            case .custom, .none: custom = newValue.wire
+            case .palette: custom = nil
+            }
         }
     }
 
@@ -119,6 +125,22 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
             }
         }
         return StatusStack.resolve(loading.map { StatusReport(id: $0.id.rawValue, source: .explicit, state: $0.activity, style: $0.activityStyle) }).state
+    }
+
+    /// The one state the group's header shows by default, open or collapsed: its members' most
+    /// urgent row state, red over orange over blue (Lawrence msg 11983: "blue, orange/yellow for
+    /// needs attention, and red for errors"). An error, else needs you (`waiting`), else something
+    /// unread or done (`success`, the blue dot); with none of those a collapsed header shows its
+    /// members' loading (``loadingActivity``, Lawrence 2026-10-20) and an open one nothing, its
+    /// rows show their own spinners. Each member counts as its row draws it (`WorkspaceRowBadges`).
+    /// - Parameter collapsed: Whether the header is collapsed (its members hidden).
+    /// - Returns: The state the header's status glyph draws.
+    public func statusRollUp(collapsed: Bool) -> StatusIndicatorState {
+        let states = workspaces.compactMap { WorkspaceRowBadges(unread: $0.unread, activity: $0.activity, detailed: false).first }
+        if states.contains(.error) { return .error }
+        if states.contains(where: { if case .waiting = $0 { true } else { false } }) { return .waiting }
+        if states.contains(.success) { return .success }
+        return collapsed ? loadingActivity : .idle
     }
 
     /// Strongest activity among children, shown on a collapsed group header
@@ -196,6 +218,8 @@ public nonisolated struct SidebarListItem: Hashable, Sendable {
     public var title: String
     /// The page icon address of a link (stored on the item, else the site's own).
     public var iconAddress: String?
+    /// Archived in the sidebar document: the row draws dimmed. Set by `arrange`.
+    public var isArchived = false
 
     public init(id: String, ref: LayoutItemRef, title: String, iconAddress: String? = nil) {
         self.id = id

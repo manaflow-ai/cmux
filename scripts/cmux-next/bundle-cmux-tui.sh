@@ -27,6 +27,10 @@
 #      release installer cache slice, with a warning. With none of these it
 #      keeps an existing bundled copy, or warns and exits 0.
 #
+# It then writes bin/daemon-capabilities.json from the placed binary
+# (write-daemon-capabilities.sh): the cmux-tui and acpmux capabilities the web
+# pages check before they rely on a daemon surface.
+#
 # Every non-Release bundle then runs scripts/cmux-next/check-daemon-capabilities.sh
 # on the bundled binary: a capability the app relies on that it does not serve
 # fails the build.
@@ -53,6 +57,11 @@
 # (CMUX_NEXT_TERMINAL_HOST_BIN; tree state cmux-tui-host.sha256; the pin has no
 # fields for it, so pin mode bundles none): a macOS daemon runs every terminal
 # host from it when it reports the daemon's build, else from a copy of bin/cmux.
+# The terminal holder goes beside bin/cmux as bin/cmux-holder by the same rules
+# (CMUX_NEXT_HOLDER_BIN; tree state cmux-holder.sha256; no pin fields, so pin
+# mode bundles none): the daemon starts every holder from a content-addressed
+# copy of it when it answers --version with a wire range the daemon speaks, else
+# runs the holder built into bin/cmux-tui-host.
 # Release signing (sign-cmux-bundle-helpers.sh)
 # signs every Mach-O in bin/ the same way as bin/cmux, and
 # check-bundled-browser-host.sh checks the placed copy.
@@ -60,6 +69,17 @@ set -euo pipefail
 
 dest_dir="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}/bin"
 dest="$dest_dir/cmux"
+stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/bundle-cmux-tui.stamp"
+on_exit() {
+  status=$?
+  if (( status == 0 )); then
+    mkdir -p "$(dirname "$stamp")"
+    printf 'completed\n' > "$stamp"
+  fi
+  exit "$status"
+}
+trap on_exit EXIT
+rm -f "$stamp"
 aliases=(cmux-tui acpmux)
 
 # Names other than the real file point at it, relative so the bundle stays
@@ -164,13 +184,13 @@ elif [[ -z "$src" ]]; then
     echo "warning: bundling release cmux-tui $src, which lacks the cmux-next daemon capabilities"
   fi
   if [[ -z "$src" ]]; then
-    # Pin mode bundles no screen detector (below): drop one a dev build left.
-    rm -f "$dest_dir/cmux-agent-screen-detection"
-    if [[ -x "$dest" && ! -L "$dest" ]]; then
-      echo "note: no cmux-tui source configured; keeping bundled $dest"
-      link_aliases
-      exit 0
-    fi
+    # There is no source to validate. Clear every output owned by this phase;
+    # keeping a prior binary would let a successful dependency stamp preserve
+    # companions from a different tree, architecture, or mode.
+    rm -f "$dest" "$dest_dir/cmux-tui" "$dest_dir/acpmux" \
+      "$dest_dir/cmux-app-host" "$dest_dir/cmux-cloud" "$dest_dir/cmux-browser-host" \
+      "$dest_dir/cmux-tui-host" "$dest_dir/cmux-holder" "$dest_dir/cmux-agent-screen-detection" \
+      "$dest_dir/cmux-tui.version" "$dest_dir/daemon-capabilities.json"
     echo "warning: no cmux-tui binary to bundle. Run scripts/cmux-next/pin-cmux-tui.sh fetch --pin, or set CMUX_NEXT_TUI_BIN."
     exit 0
   fi
@@ -238,6 +258,8 @@ companion_source cmux-browser-host "${CMUX_NEXT_BROWSER_HOST_BIN:-}" browser_hos
 browser_host_src="$companion_src"
 companion_source cmux-tui-host "${CMUX_NEXT_TERMINAL_HOST_BIN:-}" terminal_host_sha256
 terminal_host_src="$companion_src"
+companion_source cmux-holder "${CMUX_NEXT_HOLDER_BIN:-}" holder_sha256
+holder_src="$companion_src"
 # Pin mode (Release) bundles no screen detector until its third-party notices
 # are mapped (notices/bundle-map.json; check_bundle_notices.py fails a release
 # on an unmapped Mach-O) and the pin carries agent_screen_detection_* fields.
@@ -260,6 +282,7 @@ app_host_sha256=${app_host_src:+$(sha256_of "$app_host_src")}
 cloud_server_sha256=${cloud_server_src:+$(sha256_of "$cloud_server_src")}
 browser_host_sha256=${browser_host_src:+$(sha256_of "$browser_host_src")}
 terminal_host_sha256=${terminal_host_src:+$(sha256_of "$terminal_host_src")}
+holder_sha256=${holder_src:+$(sha256_of "$holder_src")}
 agent_screen_detection_sha256=${agent_screen_detection_src:+$(sha256_of "$agent_screen_detection_src")}
 "
 
@@ -294,10 +317,21 @@ place_companion "$app_host_src" cmux-app-host
 place_companion "$cloud_server_src" cmux-cloud
 place_companion "$browser_host_src" cmux-browser-host
 place_companion "$terminal_host_src" cmux-tui-host
+place_companion "$holder_src" cmux-holder
 place_companion "$agent_screen_detection_src" cmux-agent-screen-detection
 if [[ ! -f "$version_file" ]] || [[ "$(cat "$version_file")" != "${version_text%$'\n'}" ]]; then
   printf '%s' "$version_text" > "$version_file"
 fi
+# bin/daemon-capabilities.json, from the binary just placed. A build of this
+# checkout must print its list; an override, pin or cache binary, or a pull
+# request's fallback tree (CMUX_TUI_TREE_KEY, an older published tree), may
+# predate the command.
+require_capabilities=""
+if [[ "$source_kind" == tree-local-build ]] || { [[ "$source_kind" == tree-hosted ]] &&
+    { [[ -z "${CMUX_TUI_TREE_KEY:-}" ]] || [[ "$CMUX_TUI_TREE_KEY" == "$("$pin_script" key --rev HEAD)" ]]; }; }; then
+  require_capabilities="--require"
+fi
+"$repo_root/scripts/cmux-next/write-daemon-capabilities.sh" ${require_capabilities:+"$require_capabilities"} "$dest_dir"
 
 if [[ "${CONFIGURATION:-Debug}" != Release ]]; then
   "$repo_root/scripts/cmux-next/check-daemon-capabilities.sh" --binary "$dest_dir/cmux-tui"

@@ -3,6 +3,16 @@ import type { Choice } from "./ComposerPickers";
 import type { ReasoningSliderStyle } from "./composerSettings";
 import { useT } from "./i18n";
 
+/** The normalized position of a discrete stop, including the track endpoints. */
+export function effortStopShare(index: number, stopCount: number): number {
+  return stopCount > 1 ? index / (stopCount - 1) : 0;
+}
+
+/** The x-coordinate of a thumb or stop center. Both use this endpoint-inclusive geometry. */
+export function effortStopCenterX(trackLeft: number, trackWidth: number, index: number, stopCount: number): number {
+  return trackLeft + trackWidth * effortStopShare(index, stopCount);
+}
+
 /// The effort's stepped slider: a native range input (arrow keys, Home and End step it), drawn
 /// as a track with one stop per level the agent offers (a click on the track jumps to the
 /// nearest stop), over its ends (Faster, Smarter) and the level the model recommends. The model
@@ -12,7 +22,7 @@ export function EffortTrack({
   current,
   onPick,
   onEscape,
-  autoFocus = false,
+  focusOnMount = false,
   fallback,
   onRangeKey,
   onRangeClick,
@@ -30,15 +40,18 @@ export function EffortTrack({
   onRangeKey?(event: React.KeyboardEvent<HTMLInputElement>): void;
   /// A click on the slider, after any change it made (the reasoning menu commits the resting level).
   onRangeClick?(): void;
-  autoFocus?: boolean;
+  /// Focus the native range after its popup mounts so keyboard stepping starts on the slider.
+  focusOnMount?: boolean;
   /// Visual treatment for the opt-in reasoning slider.
   sliderStyle?: ReasoningSliderStyle;
 }) {
   const t = useT();
   const range = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (autoFocus) range.current?.focus();
-  }, [autoFocus]);
+    if (!focusOnMount) return;
+    const frame = requestAnimationFrame(() => range.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [focusOnMount]);
   const at = (id: string | undefined) => efforts.findIndex((choice) => choice.id === id);
   const level = Math.max(0, at(current) >= 0 ? at(current) : at(fallback));
   const name = efforts[level]?.name ?? t("effort.title");
@@ -47,7 +60,7 @@ export function EffortTrack({
     const choice = efforts[index];
     if (choice && choice.id !== current) onPick(choice.id);
   };
-  const share = efforts.length > 1 ? level / (efforts.length - 1) : 0;
+  const share = effortStopShare(level, efforts.length);
   return (
     <>
       <div
@@ -62,7 +75,7 @@ export function EffortTrack({
               key={choice.id}
               className="acpmux-effort-stop"
               aria-hidden="true"
-              style={{ "--acpmux-stop": efforts.length > 1 ? index / (efforts.length - 1) : 0 } as React.CSSProperties}
+              style={{ "--acpmux-stop": effortStopShare(index, efforts.length) } as React.CSSProperties}
             />
           ),
         )}

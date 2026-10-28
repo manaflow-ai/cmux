@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// How strong the pane attention ring (the notification highlight) draws
 /// (Debug Settings `notifications.attention.look`, cx-epgo). Lawrence on the
@@ -10,8 +11,8 @@ public import AppKit
 /// in the choice list, so TunableStore drops it at load and the look is the
 /// `subtle` default.
 public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// The default. A blink or pulse runs, then the ring rests faint; the steady
-    /// ring (opt-in; blink is the default style) swells in once and rests clearly visible.
+    /// The default. The steady ring (the default style) swells in once and rests clearly
+    /// visible; a blink or pulse runs, then the ring rests faint.
     case subtle
     /// The ring flashes and rests at full strength (the look before cx-epgo).
     case strong
@@ -35,7 +36,7 @@ public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, 
         }
     }
 
-    /// The steady ring's opacity (an opt-in style; blink is the default): clearly visible,
+    /// The steady ring's opacity (the default style): clearly visible,
     /// since it has no blink to catch the eye (Leo, 2026-10-14).
     public var steadyOpacity: Float {
         switch self {
@@ -53,8 +54,10 @@ public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, 
         }
     }
 
-    /// The ring color when neither the source nor `notifications.attention.color` sets one.
-    @MainActor public var defaultColor: NSColor { Palette.notificationBlue }
+    /// The ring color when neither the source nor `notifications.attention.color` sets one: the
+    /// theme accent (Leo, 2026-10-21), never a fixed blue. The sidebar's unread dot keeps the
+    /// notification blue.
+    @MainActor public var defaultColor: NSColor { Palette.accentFill }
 
     public static let tunable = Tunable<AttentionHighlightLook>.choice(
         "notifications.attention.look", .status, "Notification highlight",

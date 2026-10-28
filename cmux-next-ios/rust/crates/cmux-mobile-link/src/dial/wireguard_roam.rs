@@ -253,9 +253,29 @@ impl Session {
     /// When the current TURN allocation's stream to its server dies, take a
     /// new allocation (retrying with backoff while the session lives).
     fn monitor_turn(self: &Arc<Self>, mut dead: watch::Receiver<bool>) {
+        self.retry_turn("TURN stream lost; taking a new allocation", async move {
+            dead.wait_for(|dead| *dead).await.is_ok()
+        });
+    }
+
+    /// The dial asked for a TURN allocation and its server did not answer in
+    /// time: take one now, with the same backoff. Until then the peer may have
+    /// no route to this side at all (its plain UDP lost), and the tunnel's
+    /// handshake retries would only run out the dial's timeout.
+    pub(super) fn retry_missing_turn(self: &Arc<Self>) {
+        self.retry_turn("no TURN allocation at dial; taking one", async { true });
+    }
+
+    /// Once `start` says so, take a new TURN allocation, retrying with backoff
+    /// while the session lives.
+    fn retry_turn(
+        self: &Arc<Self>,
+        why: &'static str,
+        start: impl std::future::Future<Output = bool> + Send + 'static,
+    ) {
         let weak = Arc::downgrade(self);
         let task = tokio::spawn(async move {
-            if dead.wait_for(|dead| *dead).await.is_err() {
+            if !start.await {
                 return;
             }
             for wait in TURN_RETRIES {
@@ -264,7 +284,7 @@ impl Session {
                 if session.closed.load(Ordering::Relaxed) {
                     return;
                 }
-                tracing::info!(session = session.session_id, "TURN stream lost; taking a new allocation");
+                tracing::info!(session = session.session_id, "{why}");
                 if session.replace_turn().await {
                     return;
                 }
@@ -283,7 +303,8 @@ impl Session {
         let Some(turn) = TurnCarrier::allocate(&self.options).await else { return false };
         let _one_at_a_time = self.roaming.lock().await;
         if self.roams.load(Ordering::Relaxed) != roams || self.closed.load(Ordering::Relaxed) {
-            // A roam took its own allocation on the new network.
+            // A roam took its own allocation on the new network, or started
+            // its own retry.
             return true;
         }
         let Ok(net) = self.net() else { return true };
@@ -481,14 +502,19 @@ impl Session {
         let mut endpoints = host_endpoints(port, &self.options);
         self.announce(offered(endpoints.iter().copied(), &self.options), Vec::new(), Vec::new());
         // On the transport the new network allows: UDP, else TLS.
-        let keeps_turn = self.keeps_turn.load(Ordering::Relaxed);
+        let mut keeps_turn = self.keeps_turn.load(Ordering::Relaxed);
         let turn = async { if keeps_turn { TurnCarrier::allocate(&self.options).await } else { None } };
         let reflexive = async {
-            let deadline = Instant::now() + STUN_WAIT;
+            let mut deadline = Instant::now() + STUN_WAIT;
             let mut found = Vec::new();
             while found.len() < asked {
                 match tokio::time::timeout_at(deadline, reflexive_rx.recv()).await {
-                    Ok(Some(address)) => found.push(address),
+                    Ok(Some(address)) => {
+                        found.push(address);
+                        // One answered: a silent server (port 53 on a cellular
+                        // network) gets only a short grace (STUN_GRACE).
+                        deadline = deadline.min(Instant::now() + STUN_GRACE);
+                    }
                     _ => break,
                 }
             }
@@ -497,11 +523,11 @@ impl Session {
         let (mut turn, reflexive) = tokio::join!(turn, reflexive);
         if turn.is_none() && !keeps_turn && asked > 0 && reflexive.is_empty() {
             // A Mac roamed onto a network that answers no STUN (it drops
-            // UDP): from now on it keeps a TURN allocation.
+            // UDP): from now on it keeps a TURN allocation, and keeps asking
+            // below when this one misses.
+            keeps_turn = true;
+            self.keeps_turn.store(true, Ordering::Relaxed);
             turn = TurnCarrier::allocate(&self.options).await;
-            if turn.is_some() {
-                self.keeps_turn.store(true, Ordering::Relaxed);
-            }
         }
         let known = endpoints.len();
         for address in reflexive {
@@ -521,7 +547,15 @@ impl Session {
             self.install_turn(turn, (relayed.clone(), relayed_tls.clone()));
             let _ = net.refresh().await;
         } else {
-            *lock(&self.relayed) = (Vec::new(), Vec::new());
+            // The old network's relayed address is dead: stop offering it
+            // (a relay-only roam above announced nothing in its place).
+            let (old, _) = std::mem::take(&mut *lock(&self.relayed));
+            lock(&self.endpoints).retain(|endpoint| !old.contains(endpoint));
+            if missed_turn(keeps_turn, None, &self.options) {
+                // The new network's TURN server did not answer in time: keep
+                // asking (this also replaces a retry started on the old one).
+                self.retry_turn("roam took no TURN allocation; taking one", async { true });
+            }
         }
         if endpoints.len() != known {
             self.announce(offered(endpoints, &self.options), relayed, relayed_tls);
@@ -775,6 +809,12 @@ pub fn roam_timeline(session_id: &str) -> Option<Timeline> {
 pub async fn roam_session(session_id: &str, dialer: bool) -> Option<Timeline> {
     let session = find(session_id, dialer)?;
     Some(session.roam().await)
+}
+
+/// Test support: the endpoints one side of `session_id` last told its peer.
+#[doc(hidden)]
+pub fn session_endpoints(session_id: &str, dialer: bool) -> Option<Vec<String>> {
+    find(session_id, dialer).map(|session| lock(&session.endpoints).clone())
 }
 
 /// Debug and tests: the current network of one side of `session_id` (or of

@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { webkit, type Browser } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -45,17 +46,18 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
   /// the bench's 60 fps fling does.
   const steppedFling = async ({ steps, down }: { steps: number[]; down: boolean }) => {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-    const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
     const end = () => scroller.scrollHeight - scroller.clientHeight;
     scroller.scrollTop = down ? 0 : end();
-    await frame();
-    await frame();
+    await window.cmuxPaintFrame();
+    await window.cmuxPaintFrame();
     let blank = 0;
     let frames = 0;
     for (const step of steps) {
-      await frame();
-      const by = step * scroller.clientHeight;
-      scroller.scrollTop = down ? Math.min(end(), scroller.scrollTop + by) : Math.max(0, scroller.scrollTop - by);
+      // The frame's callback moves the view; the view is read as that frame painted it.
+      await window.cmuxPaintFrame(() => {
+        const by = step * scroller.clientHeight;
+        scroller.scrollTop = down ? Math.min(end(), scroller.scrollTop + by) : Math.max(0, scroller.scrollTop - by);
+      });
       // Mounted rows in runs of consecutive positions; one run has to hold the whole view.
       const view = scroller.getBoundingClientRect();
       const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
@@ -77,6 +79,7 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
   test("fast flings and uneven drags keep the view covered", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await installPaintedFrames(page);
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
     await page.waitForFunction(() => "__debug" in window);
     await page.evaluate(`window.__debug.seedRows(3000)`);

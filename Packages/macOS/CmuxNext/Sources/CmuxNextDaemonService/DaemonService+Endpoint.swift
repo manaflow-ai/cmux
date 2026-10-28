@@ -19,7 +19,7 @@ extension DaemonService {
 extension DaemonService {
     /// Keys typed into a terminal being created go to this daemon at once (cx-wb5.78): the local
     /// daemon only, whose give-backs the app listens to.
-    public var queuesCreatingInput: Bool { isLocal && supports(DaemonCapabilities.shared.terminalInputWhileCreating) }
+    public var queuesCreatingInput: Bool { isLocal && supports(DaemonCapability.terminalInputWhileCreating.rawValue) }
 
     /// The input of a view whose terminal `terminalID` is still being created goes to this daemon
     /// by that id until `targetKnown` (cx-wb5.78); nil when the daemon does not queue such input.

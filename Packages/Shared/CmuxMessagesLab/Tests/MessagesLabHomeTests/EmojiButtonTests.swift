@@ -94,6 +94,57 @@ import Testing
         #expect(opened == 1)
     }
 
+    /// The picked emoji goes in at the person's caret in the middle of the draft, or over the
+    /// words they selected, not at the end (Leo 2026-10-21). The system picker inserts a pick
+    /// through the text input client it opened for, with no replacement range; that client must
+    /// be the box, still holding the caret it had before the button took the click.
+    @Test(arguments: ["caret", "selection"])
+    func thePickedEmojiGoesInAtTheCaret(_ place: String) async {
+        let p = pane()
+        p.window.makeFirstResponder(p.field)
+        p.field.insertText("Hello world", replacementRange: p.field.selectedRange())
+        let before = place == "caret" ? NSRange(location: 5, length: 0) : NSRange(location: 6, length: 5)
+        p.field.setSelectedRange(before)
+        p.window.makeFirstResponder(p.controller.host.scrollView.document)
+        var client: NSTextInputClient?
+        p.controller.openEmojiPalette = { [weak window = p.window] in client = window?.firstResponder as? NSTextInputClient }
+
+        p.controller.host.fieldChrome.onEmoji()
+        await nextTurn()
+        // The pick, as the system picker sends it.
+        client?.insertText("😀", replacementRange: NSRange(location: NSNotFound, length: 0))
+
+        let expected = place == "caret" ? "Hello😀 world" : "Hello 😀"
+        #expect((client as AnyObject?) === p.field)
+        #expect(p.field.string == expected)
+        #expect(p.controller.store?.state.ui.draft.text == expected)
+        #expect(p.field.selectedRange() == NSRange(location: before.location + ("😀" as NSString).length, length: 0))
+    }
+
+    /// The picker opens at the button, its arrow on it (Leo 2026-10-20: it opened at the left
+    /// corner of the screen). The system picker places itself at the rect the focused field
+    /// reports for its text; during the open that is the emoji button's rect, and the next
+    /// selection change (the chosen emoji going in) gives the field its own rect back.
+    @Test func thePickerOpensAtTheButton() async {
+        let p = pane()
+        p.window.makeFirstResponder(p.controller.host.scrollView.document)
+        var reported: [NSRect] = []
+        p.controller.openEmojiPalette = { [weak field = p.field] in
+            guard let field else { return }
+            reported.append(field.firstRect(forCharacterRange: field.selectedRange(), actualRange: nil))
+        }
+
+        p.controller.host.fieldChrome.onEmoji()
+        await nextTurn()
+
+        let glass = p.controller.host.fieldChrome.emojiGlass
+        let button = p.window.convertToScreen(glass.convert(glass.bounds, to: nil))
+        #expect(button.width > 0)
+        #expect(reported == [button])
+        p.field.setSelectedRange(NSRange(location: 0, length: 0))
+        #expect(p.field.firstRect(forCharacterRange: NSRange(location: 0, length: 0), actualRange: nil) != button)
+    }
+
     /// While the Chief works the round button is Stop: it never opens the picker.
     @Test func whileWorkingTheButtonStops() async {
         let p = pane()
@@ -107,5 +158,22 @@ import Testing
 
         #expect(stops == 1)
         #expect(opened == 0)
+    }
+
+    /// Option-click on Stop is the host's Stop all agents; a plain click
+    /// stops only the Chief's turn (coordinator 2026-10-20).
+    @Test func optionClickOnStopStopsAllAgents() async {
+        let p = pane()
+        var stops = 0, all = 0
+        p.controller.onStop = { stops += 1 }
+        p.controller.onStopAll = { all += 1 }
+        p.controller.isWorking = true
+
+        p.controller.roundButtonClicked(option: true)
+        #expect(all == 1)
+        #expect(stops == 0)
+        p.controller.roundButtonClicked(option: false)
+        #expect(all == 1)
+        #expect(stops == 1)
     }
 }

@@ -176,7 +176,7 @@ enum RowDraw {
         guard case let .part(p) = spec.kind, p.outgoing else { return false }
         switch p.part {
         case .text: return true
-        case let .attachment(a): return !["image", "video"].contains(a.kind)
+        case let .attachment(a): return !["image", "video"].contains(a.kind) && !HomeFileCard.isCard(a) // cmux: file cards are neutral (#26395)
         case let .custom(c): return CustomRows.needsFill(c, outgoing: true)
         default: return false
         }
@@ -280,9 +280,10 @@ enum RowDraw {
     /// circles against the bubble's pixel edges; window places within 0.04 pt of cx-3cb typing-breath's).
     static let typingDiscs = [CGRect(x: 24.78 - 4.59, y: typingBubble.maxY - 2.27 - 4.59, width: 9.18, height: 9.18),
                               CGRect(x: 19.00 - 2.375, y: typingBubble.maxY + 3.40 - 2.375, width: 4.75, height: 4.75)]
+    /// iOS only (its row bitmap): one palette there, so the active colours (no view state reaches a bitmap).
     static func drawTypingBubble(_ ctx: CGContext, top: CGFloat) {
         let b = CGRect(x: typingBubble.minX, y: top, width: typingBubble.width, height: typingBubble.height)
-        Fixture.typingFill.setFill()
+        Fixture.typingColors(inactive: false).fill.setFill()
         UIBezierPath(roundedRect: b, cornerRadius: b.height / 2).fill()
     }
     static func typingDotCenter(_ i: Int) -> CGPoint {
@@ -467,6 +468,8 @@ enum PartRenderer {
             TextDraw.line(d, font: HomeFonts.monospacedDigit(ofSize: 11, weight: .regular), color: fg, x: body.maxX - 36, // HomeFonts (cx-qpqs)
                           baseline: body.midY + 4, in: ctx)
         default:
+            // cmux: a file is a neutral card with its type's icon and kind (HomeFileCard, #26395).
+            if HomeFileCard.isCard(a) { HomeFileCard.draw(ctx, a, shape: shape, body: body); return }
             fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
             let fg: UIColor = p.outgoing ? Fixture.outgoingText : Fixture.incomingText  // cmux: themed (white by default)
             let icon = CGRect(x: body.minX + 10, y: body.minY + 10, width: 28, height: 36)
@@ -612,7 +615,9 @@ enum PartRenderer {
     /// `ThreadPreview.quoteOpacity` so the text does not show the fill through it. Replaces the 1 pt outline with
     /// blue or gray text and a full-size tail on a 24 pt body, which did not match the quoted message.
     static func drawQuoteBubble(_ ctx: CGContext, _ pv: ThreadPreview, box: CGRect) {
-        let out = pv.outgoing
+        var out = pv.outgoing
+        // cmux: a quoted file card keeps the card's neutral fill on either side (HomeFileCard, #26395).
+        if case let .attachment(a) = pv.part, HomeFileCard.isCard(a) { out = false }
         let fill = out ? Fixture.outgoing : Fixture.incoming
         let ink = out ? Fixture.outgoingText : Fixture.incomingText
         let shape = BubblePath.balloon(frame: box, row: pv.shapeRow)

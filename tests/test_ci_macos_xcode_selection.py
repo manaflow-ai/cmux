@@ -42,22 +42,21 @@ EXEMPT = {
         "Zig-only Ghostty CLI helper, built against the macOS 15 image's SDK 15 "
         "default like the helper in ci-macos.yml",
     ("nightly.yml", "build-nightly-ghostty-cli-helper"):
-        "Zig-only Ghostty CLI helper, built against the macOS 15 image's SDK 15 "
-        "default like the helper in ci-macos.yml",
+        "Zig-only Ghostty CLI helper, built with the submodule's Zig against "
+        "the macOS 26 runner's default SDK; its cache key names that SDK",
     ("relay-tls.yml", "system-keychain"):
         "runs the relay TLS verifier under Xcode 16.2 / Swift 6, below the "
         "floor on purpose",
     ("remote-daemon.yml", "remote-daemon-macos-tests"): "Go only; no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
-    ("cmux-tui-artifacts.yml", "cmux-next-daemon-tests"):
-        "Rust only; no Xcode (the cmux_next_ tests gating the tree publication)",
+    ("cmux-next-daemon-macos-shadow.yml", "cmux-next-daemon-macos-shadow"):
+        "Rust only; no Xcode (the macOS-only daemon tests, a non-blocking shadow "
+        "of the Linux promotion gate)",
     ("cmux-tui.yml", "cdp-browser-smoke"): "Rust only; no Xcode",
     ("cmux-tui.yml", "macos"):
         "Rust and Zig only (cargo clippy/test with libghostty-vt from Zig); no "
         "Swift or xcodebuild, like the lint and test jobs it combines (#17051)",
-    ("cmux-tui.yml", "macos-relay"):
-        "Rust only (cargo test -p chatmux-relay); no Swift, Zig or xcodebuild",
     ("cmux-next-source-archive.yml", "archive"):
         "Zig and Python only: Zig fetch lists and the source archive, and link "
         "sets read from the pinned xcframework; the CLI helper fetch list must "
@@ -67,11 +66,33 @@ EXEMPT = {
         "as the nightly and release callers always have; pinning it would "
         "change published artifacts",
     ("relay-publish-npm.yml", "smoke"): "npm package smoke test; no Xcode",
-    ("signing-keychain-macos.yml", "bash32-syntax"):
-        "parses shell scripts with the system /bin/bash 3.2; no Xcode",
-    ("nightly.yml", "nightly-next-macos15-launch"):
-        "launches the published, signed app on a macOS 15 runner; builds "
-        "nothing, so no Xcode",
+    ("nightly.yml", "decide"):
+        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
+        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+    ("nightly.yml", "resolve-nightly-cmux-tui-client"):
+        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
+        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+    ("nightly.yml", "resolve-nightly-ghostty-cli-helper"):
+        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
+        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+    ("nightly.yml", "pick-nightly-build-runner"):
+        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
+        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+    ("nightly.yml", "prepare-nightly-variant"):
+        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
+        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+    ("nightly.yml", "pick-nightly-sign-runner"):
+        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
+        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+    ("nightly.yml", "find-nightly-next-recovery"):
+        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
+        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+    ("nightly.yml", "prepare-nightly-variant-primary"):
+        "takes Blacksmith macOS only while Blacksmith Linux overflow is off; builds nothing, only "
+        "lipo -thin, whose bytes match llvm-lipo's on Linux whatever the Xcode",
+    ("nightly.yml", "prepare-nightly-variant-fallback"):
+        "takes Blacksmith macOS only while Blacksmith Linux overflow is off; builds nothing, only "
+        "lipo -thin, whose bytes match llvm-lipo's on Linux whatever the Xcode",
     ("cmux-next-batch.yml", "build"):
         "submits the stack to the build fleet and waits; the build runs on a "
         "fleet worker, never with this runner's Xcode",
@@ -158,7 +179,12 @@ def is_macos(job: str) -> bool:
 
 def check_workflow(name: str, text: str) -> list[str]:
     errors = []
-    for job_id, job in jobs(text).items():
+    workflow_jobs = jobs(text)
+    # A hyphenated job id such as swift-canary-fleet (in `needs.` or a message) names a job, not the toolchain.
+    # A path such as scripts/build-x.sh keeps its name even when a job shares it.
+    job_ids = [job_id for job_id in workflow_jobs if "-" in job_id]
+    job_id_token = re.compile(r"(?<![\w/-])(" + "|".join(map(re.escape, job_ids)) + r")(?![\w-])") if job_ids else None
+    for job_id, job in workflow_jobs.items():
         key = (name, job_id)
         if not is_macos(job) or key in EXEMPT:
             continue
@@ -180,7 +206,8 @@ def check_workflow(name: str, text: str) -> list[str]:
                 errors.append(f"{label} chooses an Xcode itself; run {SELECTOR} instead")
             if BELOW_FLOOR in body and (name, job_id, step_name) not in BELOW_FLOOR_STEPS:
                 errors.append(f"{label} sets {BELOW_FLOOR}; only the SDK 15 helper may")
-            uses_toolchain = TOOLCHAIN.search(re.sub(r".*select-ci-xcode\.sh.*", "", body))
+            scanned = re.sub(r".*select-ci-xcode\.sh.*", "", body)
+            uses_toolchain = TOOLCHAIN.search(job_id_token.sub("", scanned) if job_id_token else scanned)
             if uses_toolchain and first_select is not None and index < first_select:
                 errors.append(f"{label} uses the toolchain ({uses_toolchain.group(0)}) before {SELECTOR} runs")
     return errors
@@ -291,6 +318,21 @@ def check_detects_regressions() -> list[str]:
                 "    strategy:\n      matrix:\n        os: [macos-15]\n    runs-on: ${{ matrix.os }}\n",
             ).replace("./scripts/select-ci-xcode.sh", "echo skipped"),
             ["never runs"],
+        ),
+        "job id is not the toolchain": (
+            base.replace(
+                "      - name: Select Xcode\n",
+                "      - name: Report\n        if: ${{ needs.swift-check.outputs.ok == 'true' }}\n"
+                "        run: echo \"swift-check passed\"\n      - name: Select Xcode\n",
+            ) + "  swift-check:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n",
+            [],
+        ),
+        "toolchain beside a job id": (
+            base.replace(
+                "      - name: Select Xcode\n",
+                "      - name: Report\n        run: swift --version  # for swift-check\n      - name: Select Xcode\n",
+            ) + "  swift-check:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n",
+            ["before scripts/select-ci-xcode.sh runs"],
         ),
         "indirect Swift": (
             base.replace("./scripts/select-ci-xcode.sh", "echo skipped").replace(

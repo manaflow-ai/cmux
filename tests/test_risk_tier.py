@@ -61,6 +61,7 @@ class ClassifyTests(unittest.TestCase):
             "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/TokenStores/FileStackTokenStore.swift",
             "Packages/Shared/CMUXAuthCore/Sources/CMUXAuthCore/Models/Session.swift",
             NEXT + "CmuxNextApp/WebAuth/WebAuthSession.swift",
+            NEXT + "CmuxNextPopups/WebAuth/WebAuthSessionBroker.swift",
             "web/services/auth/hexclave/verify.ts",
             "cmux.nightly.entitlements",
             NEXT + "CmuxNextControl/ControlAuthorizer.swift",
@@ -198,6 +199,47 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.tier(wf, patches={wf: "+    if: github.event_name == 'pull_request_target'"}), "normal")
         self.assertEqual(self.tier(wf, patches={wf: "+  push:  # not pull_request_target"}), "normal")
 
+    def test_agent_pane_host_ops_and_allowlists_are_high(self):
+        # #22646 added the page op chat.asks.pending, whose handler read another chat's permission
+        # asks over the host's own acpmux connection and reached a peer daemon until review caught it.
+        # It graded normal by path. What a pane page may make the host do or read is access policy.
+        pane = NEXT + "CmuxNextAgentPane/"
+        for path in (
+            pane + "AgentPageProvider.swift",
+            pane + "AcpmuxPaneMethods.swift",
+            pane + "AcpmuxPaneMethods+Params.swift",
+            pane + "AcpmuxPaneMethods+Answers.swift",
+            pane + "AgentPaneEnvironmentRequest.swift",
+            pane + "AgentPaneReplyRequest.swift",
+            pane + "AgentPaneTransport+Check.swift",
+            pane + "AcpmuxPathPolicy.swift",
+            pane + "AgentPanePendingAsks.swift",
+            pane + "AgentPaneTransport+Frames.swift",
+            pane + "AgentPaneGestureIntent.swift",
+            pane + "AgentPaneUserGestures.swift",
+            pane + "AgentPaneModel+Actions.swift",
+            pane + "AgentPaneTransport+RelayedAllow.swift",
+            pane + "AgentPaneTransport+PickedFolder.swift",
+            pane + "AgentPaneTransport+FullAccess.swift",
+            "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+            "cmux-tui/crates/cmux-agent-pane-policy/src/params.rs",
+            "cmux-tui/crates/acpmux/src/server/remote_guard.rs",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "high")
+
+    def test_ordinary_agent_pane_ui_and_policy_tests_stay_below_high(self):
+        pane = NEXT + "CmuxNextAgentPane/"
+        for path in (pane + "AgentPaneView.swift", pane + "AgentPageProvider+Scroll.swift",
+                     pane + "AgentPaneModel+Composer.swift", pane + "AgentPaneTransportPacer.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "normal")
+        for path in ("cmux-tui/crates/cmux-agent-pane-policy/tests/cases/params.json",
+                     "cmux-tui/crates/cmux-agent-pane-policy/tests/swift.rs",
+                     "cmux-tui/crates/acpmux/tests/remote_guard.rs"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "low")
+
     def test_audit_sample_of_real_pull_requests(self):
         # Each case is a merged pull request from the audit (docs/ci/risk-tiers.md), with its files.
         cases = {
@@ -255,6 +297,43 @@ class ClassifyTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(path), expected)
+
+    def test_an_update_channel_setting_is_normal_and_the_update_path_stays_high(self):
+        # Leo, 2026-10-21: a settings-only channel toggle that reuses the signed feeds is normal;
+        # updater install, signing and feed-verification code stays high.
+        setting = ("Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+                   NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
+                   NEXT + "CmuxNextSettings/UpdatesSettings.swift",
+                   NEXT + "CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift",
+                   "schemas/settings/source/updates.json", "schemas/settings/settings-schema.json",
+                   NEXT + "CmuxNextSettings/Localizable.xcstrings")
+        self.assertEqual(self.tier(*setting), "normal")
+        # UpdateTrack decides whether Sparkle runs at all, so it is the update path, not a setting.
+        for path in ("UpdateTrack.swift", "AppcastParser.swift", "AppcastSelector.swift", "UpdateProber.swift",
+                     "UpdaterService+Flow.swift",
+                     "UpdateInstallPreflight.swift", "RollbackSwap.swift", "UpdateTransfer.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(*setting, NEXT + "CmuxNextUpdater/" + path), "high")
+
+    def test_the_cmux_updater_package_is_the_update_path(self):
+        # Signature verification, the feed resolver, the Sparkle driver and the install code must never
+        # grade normal; only the ring above is a setting. Its tests stay low.
+        updater = "Packages/macOS/CmuxUpdater/"
+        for path in ("Sources/CmuxUpdater/ChannelSwitch/AppSignatureVerification.swift",
+                     "Sources/CmuxUpdater/ChannelSwitch/SecurityAppSignatureInspector.swift",
+                     "Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitcher.swift",
+                     "Sources/CmuxUpdater/UpdateFeedResolver.swift",
+                     "Sources/CmuxUpdater/UpdateDriver.swift",
+                     "Sources/CmuxUpdater/UpdateDriver+SPUUpdaterDelegate.swift",
+                     "Sources/CmuxUpdater/UpdateDriver+BackgroundInstall.swift",
+                     "Sources/CmuxUpdater/UpdateController+InstallAttempt.swift",
+                     "Sources/CmuxUpdater/UpdateController+BackgroundInstall.swift",
+                     "Sources/CmuxUpdater/InstallWatchdog.swift",
+                     "Package.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(updater + path), "high")
+        self.assertEqual(self.tier(updater + "Sources/CmuxUpdater/UpdateRing.swift"), "normal")
+        self.assertEqual(self.tier(updater + "Tests/CmuxUpdaterTests/UpdateFeedResolverTests.swift"), "low")
 
     def test_highest_path_wins(self):
         self.assertEqual(self.tier("docs/x.md", NEXT + "CmuxNextSidebar/A.swift",
@@ -333,9 +412,22 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(risk.missing_evidence("low"), [])
         self.assertEqual(risk.missing_evidence("normal", body=""), [])
 
-    def test_high_waits_for_a_person_and_nothing_else(self):
-        self.assertEqual(len(risk.missing_evidence("high")), 1)
+    def test_high_is_held_only_by_a_block_on_the_head_and_warns_without_a_verdict(self):
+        # No verdict yet: a warning, not a hold (the check passes and says so).
+        self.assertEqual(risk.missing_evidence("high"), [])
+        self.assertIn("no review verdict", risk.pending_review("high"))
+        # A BLOCK or FIX that is the newest verdict on the head holds it.
+        self.assertEqual(len(risk.missing_evidence("high", blocked=True)), 1)
+        self.assertEqual(risk.pending_review("high", blocked=True), "")
+        # A sign-off clears both; low and normal never warn.
         self.assertEqual(risk.missing_evidence("high", human_ok=True), [])
+        self.assertEqual(risk.pending_review("high", human_ok=True), "")
+        self.assertEqual(risk.pending_review("normal"), "")
+
+    def test_the_evidence_command_fails_only_on_a_block(self):
+        self.assertEqual(risk.main(["evidence", "--tier", "high"]), 0)
+        self.assertEqual(risk.main(["evidence", "--tier", "high", "--blocked"]), 1)
+        self.assertEqual(risk.main(["evidence", "--tier", "high", "--blocked", "--human-ok"]), 0)
 
     def test_a_takeback_holds_any_tier_until_the_description_owns_it(self):
         self.assertEqual(len(risk.missing_evidence("low", taken_back=[21369])), 1)
@@ -354,19 +446,180 @@ class EvidenceTests(unittest.TestCase):
         self.assertIsNone(risk.last_labeler([added, removed], "risk:human-ok"))
 
     def test_only_a_person_other_than_the_author_approving_the_head_counts(self):
-        def review(login, state="APPROVED", sha=HEAD, kind="User", assoc="MEMBER"):
+        def review(login, state="APPROVED", sha=HEAD, kind="User", assoc="MEMBER", at="2026-10-21T20:00:00Z"):
             return {"user": {"login": login, "type": kind}, "state": state, "commit_id": sha,
-                    "author_association": assoc}
-        self.assertEqual(risk.approver([review("lawrencecchen")], HEAD, "teamleaderleo"), "lawrencecchen")
-        self.assertIsNone(risk.approver([review("teamleaderleo")], HEAD, "teamleaderleo"))
-        self.assertIsNone(risk.approver([review("lawrencecchen", sha="f" * 40)], HEAD, "teamleaderleo"))
-        self.assertIsNone(risk.approver([review("coderabbitai[bot]", kind="Bot")], HEAD, "teamleaderleo"))
-        self.assertIsNone(risk.approver([review("drive-by", assoc="NONE")], HEAD, "teamleaderleo"))
+                    "author_association": assoc, "submitted_at": at, "body": ""}
+
+        def signed(*reviews):
+            return risk.signed_off([], list(reviews), HEAD, "teamleaderleo")
+        self.assertEqual(signed(review("lawrencecchen")), "@lawrencecchen")
+        self.assertIsNone(signed(review("teamleaderleo")))
+        self.assertIsNone(signed(review("lawrencecchen", sha="f" * 40)))
+        self.assertIsNone(signed(review("coderabbitai[bot]", kind="Bot")))
+        self.assertIsNone(signed(review("drive-by", assoc="NONE")))
         # A later request for changes withdraws the approval; a comment doesn't.
-        self.assertIsNone(risk.approver([review("lawrencecchen"), review("lawrencecchen", "CHANGES_REQUESTED")],
-                                        HEAD, "teamleaderleo"))
-        self.assertEqual(risk.approver([review("lawrencecchen"), review("lawrencecchen", "COMMENTED")],
-                                       HEAD, "teamleaderleo"), "lawrencecchen")
+        self.assertIsNone(signed(review("lawrencecchen"),
+                                 review("lawrencecchen", "CHANGES_REQUESTED", at="2026-10-21T20:05:00Z")))
+        self.assertEqual(signed(review("lawrencecchen"),
+                                review("lawrencecchen", "COMMENTED", at="2026-10-21T20:05:00Z")), "@lawrencecchen")
+
+
+class ShipReceiptTests(unittest.TestCase):
+    def comment(self, body, at="2026-10-21T20:00:00Z", association="MEMBER", kind="User"):
+        return {"body": body, "created_at": at, "author_association": association,
+                "user": {"login": "teamleaderleo", "type": kind}}
+
+    def review(self, body="", state="COMMENTED", at="2026-10-21T20:00:00Z", login="lawrencecchen"):
+        return {"body": body, "state": state, "commit_id": HEAD, "submitted_at": at,
+                "author_association": "MEMBER", "user": {"login": login, "type": "User"}}
+
+    def test_an_independent_ship_at_the_full_head_signs_off(self):
+        comments = [self.comment(f"Review (subagent, correctness first): SHIP at {HEAD}\n\ndetails")]
+        self.assertEqual(risk.signed_off(comments, [], HEAD), "review (subagent, correctness first)")
+
+    def test_a_short_sha_another_head_or_a_self_review_does_not(self):
+        for line in (f"Review (subagent): SHIP at {HEAD[:12]}", "Review (subagent): SHIP at " + "f" * 40,
+                     f"Review (self): SHIP at {HEAD}", f"Addressed review: nothing blocking at {HEAD}"):
+            self.assertIsNone(risk.signed_off([self.comment(line)], [], HEAD), line)
+
+    def test_the_receipt_must_lead_the_comment(self):
+        self.assertIsNone(risk.signed_off([self.comment(f"Notes\nReview (subagent): SHIP at {HEAD}")], [], HEAD))
+
+    def test_a_newer_block_beats_an_earlier_ship(self):
+        comments = [self.comment(f"Review (subagent): SHIP at {HEAD}", at="2026-10-21T20:00:00Z"),
+                    self.comment(f"Review (codex): BLOCK at {HEAD}: races", at="2026-10-21T20:05:00Z")]
+        self.assertIsNone(risk.signed_off(comments, [], HEAD))
+        comments.append(self.comment(f"Review (codex): SHIP at {HEAD}", at="2026-10-21T20:10:00Z"))
+        self.assertEqual(risk.signed_off(comments, [], HEAD), "review (codex)")
+
+    def test_a_block_in_a_review_body_or_a_change_request_beats_an_earlier_ship(self):
+        ship = [self.comment(f"Review (subagent): SHIP at {HEAD}", at="2026-10-21T20:00:00Z")]
+        later = "2026-10-21T20:05:00Z"
+        self.assertIsNone(risk.signed_off(ship, [self.review(f"Review (codex): BLOCK at {HEAD}", at=later)], HEAD))
+        self.assertIsNone(risk.signed_off(ship, [self.review(state="CHANGES_REQUESTED", at=later)], HEAD))
+        self.assertEqual(risk.signed_off(ship, [self.review(f"Review (codex): SHIP at {HEAD}", at=later)], HEAD),
+                         "review (codex)")
+
+    def test_a_newer_block_comment_beats_an_approval(self):
+        approval = [self.review(state="APPROVED", at="2026-10-21T20:00:00Z")]
+        block = [self.comment(f"Review (subagent): BLOCK at {HEAD}", at="2026-10-21T20:05:00Z")]
+        self.assertIsNone(risk.signed_off(block, approval, HEAD, "teamleaderleo"))
+
+    def test_a_block_wins_a_tie(self):
+        comments = [self.comment(f"Review (codex): BLOCK at {HEAD}"), self.comment(f"Review (subagent): SHIP at {HEAD}")]
+        self.assertIsNone(risk.signed_off(comments, [], HEAD))
+
+    def test_bots_and_outside_accounts_do_not_count(self):
+        line = f"Review (subagent): SHIP at {HEAD}"
+        self.assertIsNone(risk.signed_off([self.comment(line, kind="Bot")], [], HEAD))
+        self.assertIsNone(risk.signed_off([self.comment(line, association="CONTRIBUTOR")], [], HEAD))
+
+
+class DescriptionVerdictTests(unittest.TestCase):
+    """A review verdict in the PR description, so a review needs no receipt comment."""
+
+    def pr(self, body, association="MEMBER", kind="User"):
+        return {"body": body, "author_association": association, "head": {"sha": HEAD},
+                "user": {"login": "teamleaderleo", "type": kind}, "labels": []}
+
+    def comment(self, body, at="2026-10-21T20:00:00Z"):
+        return {"body": body, "created_at": at, "author_association": "MEMBER",
+                "user": {"login": "teamleaderleo", "type": "User"}}
+
+    def state(self, body, comments=(), **pr):
+        """(signed off, blocked, warning) as pr_mode grades a high pull request, without the API."""
+        pull = self.pr(body, **pr)
+        found = risk.head_verdicts(list(comments), [], HEAD, "teamleaderleo", pull)
+        who = risk.signed_off(list(comments), [], HEAD, "teamleaderleo", pull) if found else None
+        blocked = bool(found) and who is None
+        return who, blocked, risk.missing_evidence("high", who is not None, body, blocked=blocked), \
+            risk.pending_review("high", who is not None, blocked)
+
+    def test_a_ship_line_at_the_head_in_the_description_signs_off(self):
+        body = f"## Summary\nFixes the gate.\n\nReview (codex gpt-6-astra xhigh): SHIP at {HEAD}\n"
+        who, blocked, missing, pending = self.state(body)
+        self.assertEqual(who, "review (codex gpt-6-astra xhigh) in the description")
+        self.assertEqual((blocked, missing, pending), (False, [], ""))
+        # A list item or quote around it still counts.
+        self.assertIsNotNone(self.state(f"- Review (codex): SHIP at {HEAD}")[0])
+
+    def test_a_ship_at_an_older_head_is_no_verdict_and_only_warns(self):
+        who, blocked, missing, pending = self.state("Review (codex): SHIP at " + "f" * 40)
+        self.assertEqual((who, blocked, missing), (None, False, []))
+        self.assertIn("no review verdict", pending)
+        # Nor does a short sha, a self-review, or a line inside an HTML comment.
+        for body in (f"Review (codex): SHIP at {HEAD[:12]}", f"Review (self): SHIP at {HEAD}",
+                     f"<!--\nReview (codex): SHIP at {HEAD}\n-->"):
+            self.assertEqual(self.state(body)[:3], (None, False, []), body)
+
+    def test_a_fix_or_block_at_the_head_holds(self):
+        for word in ("FIX", "BLOCK"):
+            who, blocked, missing, pending = self.state(f"Review (codex): {word} at {HEAD}: races")
+            self.assertEqual((who, blocked, pending), (None, True, ""), word)
+            self.assertEqual(len(missing), 1, word)
+        # A FIX and a SHIP in the same description: the block wins the tie.
+        self.assertTrue(self.state(f"Review (a): SHIP at {HEAD}\nReview (b): FIX at {HEAD}")[1])
+
+    def test_no_verdict_only_warns(self):
+        self.assertEqual(self.state("## Summary\nNothing about a review here.")[:3], (None, False, []))
+
+    def test_a_comment_ship_still_signs_off_and_a_later_comment_block_beats_the_description(self):
+        ship = self.comment(f"Review (subagent): SHIP at {HEAD}")
+        self.assertEqual(self.state("no verdict here", [ship])[0], "review (subagent)")
+        block = self.comment(f"Review (codex): BLOCK at {HEAD}: races")
+        self.assertTrue(self.state(f"Review (codex): SHIP at {HEAD}", [block])[1])
+        # And a comment SHIP clears a FIX line left in the description.
+        self.assertEqual(self.state(f"Review (codex): FIX at {HEAD}", [ship])[0], "review (subagent)")
+
+    def test_the_description_author_is_trusted_like_a_commenter(self):
+        line = f"Review (codex): SHIP at {HEAD}"
+        self.assertIsNone(self.state(line, association="CONTRIBUTOR")[0])
+        self.assertIsNone(self.state(line, association="NONE")[0])
+        self.assertIsNone(self.state(line, kind="Bot")[0])
+
+    def test_the_grade_passes_with_a_warning_and_holds_on_a_block(self):
+        """pr_mode end to end with the API stubbed: ready is false only for a BLOCK or FIX on the head."""
+        def grade(body, comments=()):
+            pull = dict(self.pr(body), base={"sha": "b" * 40})
+            answers = {
+                "repos/o/r/pulls/7/files?per_page=100": [{"filename": "scripts/ci/risk_tier.py", "patch": ""}],
+                "repos/o/r/issues/7/comments?per_page=100": None if comments is None else list(comments),
+                "repos/o/r/pulls/7/reviews?per_page=100": [],
+                "repos/o/r/issues/7/events?per_page=100": [],
+            }
+            saved = risk.gh_items, risk.gh_json
+
+            def items(endpoint):
+                if answers[endpoint] is None:
+                    raise subprocess.CalledProcessError(1, ["gh", "api", endpoint])
+                return answers[endpoint]
+            risk.gh_items = items
+            risk.gh_json = lambda *args: pull
+            try:
+                with tempfile.TemporaryDirectory() as tmp:
+                    out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+                    risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
+                               "--summary", str(summary)])
+                    return out.read_text(), summary.read_text()
+            finally:
+                risk.gh_items, risk.gh_json = saved
+
+        out, summary = grade(f"Review (codex): SHIP at {HEAD}")
+        self.assertIn("tier=high", out)
+        self.assertIn("ready=true", out)
+        self.assertIn("Signed off: review (codex) in the description shipped", summary)
+        out, summary = grade("no verdict")
+        self.assertIn("ready=true", out)
+        self.assertIn("Warning: no review verdict", summary)
+        out, summary = grade(f"Review (codex): FIX at {HEAD}")
+        self.assertIn("ready=false", out)
+        out, _ = grade("no verdict", [self.comment(f"Review (subagent): SHIP at {HEAD}")])
+        self.assertIn("ready=true", out)
+        # An unreadable comment read could hide a BLOCK: it holds, and never only warns.
+        out, summary = grade("no verdict", None)
+        self.assertIn("ready=false", out)
+        self.assertIn("could not be read", summary)
+        self.assertNotIn("Warning:", summary)
 
 
 if __name__ == "__main__":

@@ -44,7 +44,14 @@ public nonisolated struct HomeChiefHarnesses: Sendable {
     /// The effective harness of each Chief in `chiefs` (participant ids) that has one; a
     /// Chief on the brain's own default is left out. Reads files off the main actor.
     public func read(chiefs: Set<String>) async -> [String: String] {
-        let records = Self.recordHarnesses(await list())
+        await readWithDeleted(chiefs: chiefs).harnesses
+    }
+
+    /// ``read(chiefs:)`` and, from the same `chief.profile.list`, the ids of this Mac's deleted
+    /// Chiefs (nil when the list could not be read), whose conversations Home hides.
+    public func readWithDeleted(chiefs: Set<String>) async -> (harnesses: [String: String], deleted: Set<String>?) {
+        let listed = await list()
+        let records = Self.recordHarnesses(listed)
         // brainHome is main-actor isolated: the paths are made here, the files read off it.
         let homes = await Self.brainHomes(muxHome: muxHome, chiefs: chiefs)
         let saved = await Task.detached { () -> [String: String] in
@@ -58,7 +65,17 @@ public nonisolated struct HomeChiefHarnesses: Sendable {
         for chief in chiefs {
             if let harness = saved[chief] ?? records[chief] { harnesses[chief] = harness }
         }
-        return harnesses
+        return (harnesses, Self.deletedIDs(listed))
+    }
+
+    /// The deleted Chiefs' ids of a `chief.profile.list` result (`deleted`); nil when there is no
+    /// result or the owner does not list them (an older daemon), so the ids known stay.
+    static func deletedIDs(_ listed: JSONValue?) -> Set<String>? {
+        guard case .object(let reply)? = listed else { return nil }
+        var object = reply
+        if case .object(let value)? = reply["value"] { object = value }
+        guard case .array(let ids)? = object["deleted"] else { return nil }
+        return Set(ids.compactMap { if case .string(let id) = $0 { id } else { nil } })
     }
 
     /// Each record's `engine.harness` by Chief id, from a `chief.profile.list` result.

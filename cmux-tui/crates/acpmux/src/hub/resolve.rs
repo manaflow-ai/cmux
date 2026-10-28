@@ -215,17 +215,32 @@ pub(super) fn session_profile(
     cwd: &Path,
     remote: bool,
 ) -> Result<HarnessProfile, String> {
+    session_profile_checked(cfg, harness, cwd, remote).map_err(|e| e.message)
+}
+
+/// `session_profile` with the refusal's reason (`data.reason`) kept, for a
+/// caller that records or answers it: a held prompt whose agent may not start
+/// ends with the reason (`queue.rs` `resume_queues`).
+pub(super) fn session_profile_checked(
+    cfg: &crate::config::Config,
+    harness: &str,
+    cwd: &Path,
+    remote: bool,
+) -> Result<HarnessProfile, RpcError> {
     let profile = if let Some(p) = cfg.profile(harness) {
         p.clone()
     } else {
         match folder_profiles::resolve_for_session(cfg, harness, cwd, remote) {
-            Some(found) => found.map(|(profile, _)| profile).map_err(|e| e.message),
-            None => Err(format!("unknown harness {harness:?}")),
+            Some(found) => found.map(|(profile, _)| profile).map_err(folder_refusal),
+            None => Err(RpcError::invalid_params(format!("unknown harness {harness:?}"))),
         }?
     };
     if remote {
         crate::web_modes::remote_start_for_config(cfg, harness, &profile).map_err(|_| {
-            "this harness has no reviewed asking mode for a remote WebSocket connection".to_owned()
+            RpcError::invalid_params(
+                "this harness has no reviewed asking mode for a remote WebSocket connection",
+            )
+            .with_data(json!({"reason": "remote.mode_not_asking", "harness": harness}))
         })?;
     }
     Ok(profile)
@@ -279,6 +294,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         name: String::new(),
         harness: d.agent.into(),
         harness_argv: d.profile.argv.clone(),
+        spawn_argv: None,
         family: Some(d.family.to_owned()),
         preset: d.preset,
         model_request: d.model_request,
@@ -293,20 +309,28 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         agent_info: None,
         agent_capabilities: None,
         steering: false,
+        html_previews: false,
         modes: None,
+        mode_set_by_cmux: None,
         config_options: None,
         models: None,
         permission_policy: d.policy.map(|p| p.to_string()),
+        policy_source: d.policy.map(|_| super::policy_source::SET.to_owned()),
         title: None,
         title_source: None,
         title_prompt: None,
         title_asking: false,
         title_failures: 0,
+        title_thin: false,
         last_prompt: None,
         preview: None,
         event_count: 0,
         turn_count: 0,
         usage: None,
+        context_breakdown: None,
+        usage_limits: None,
+        available_commands: None,
+        goal: None,
         permission_rules: None,
         tags: Default::default(),
         unread: false,
@@ -314,11 +338,13 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         claude_profile: None,
         last_turn: None,
         remote_origin: d.remote,
+        vm_boundary: false,
         session_env: Default::default(),
         workspace_id: None,
         chat_store: None,
         adopted_cwd: None,
         harness_roots: vec![],
+        watching: None,
         composer_draft: None,
         preset_mode_approval: None,
         bookmarks: Default::default(),
@@ -329,7 +355,10 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         pull_requests: vec![],
         git_branch: None,
         git_head: None,
+        worktree: None,
         subsession: None,
         subsession_limits: Default::default(),
+        lineage: None,
+        subagent_retry_open: false,
     }
 }

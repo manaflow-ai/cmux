@@ -51,6 +51,18 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
         }
     }
 
+    /// The move the app sends once the daemon reports new workspace `id`, or nil when the daemon's
+    /// create already put it at ``slot(for:section:in:home:)``: the daemon places every new workspace
+    /// by `workspaces.newPlacement` in the commit that creates it (first below Home under `top`,
+    /// last under `bottom`), so a second write would be a second state change and a second render
+    /// for the same order (plans/cmux-next/sidebar-ordering-DESIGN.md). Only a slot the daemon does
+    /// not know is moved to: inside the current workspace's group, after the window's current one.
+    func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?) -> WorkspaceSlot? {
+        guard let slot = slot(for: id, section: section, in: sections, home: home) else { return nil }
+        if slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
+        return slot
+    }
+
     /// First in the section, below a leading home row.
     private static func top(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?) -> WorkspaceSlot {
         let first = sections.first { $0.id == section }?.nodes.lazy.compactMap { node -> String? in
@@ -82,7 +94,7 @@ enum NewWorkspacePlacements {
     /// `windowID` (nil: the window that lists it): now when it is mirrored,
     /// else once the daemon reports it. `then` runs after, with the sidebar.
     static func expect(_ id: String, in windowID: String?, slot: WorkspaceSlot? = nil, byDefault: NewWorkspaceDefaultSlot?,
-                       then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil, windows: WindowManager) {
+                       then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil, windows: WindowManager) {
         guard slot != nil || byDefault != nil || then != nil else { return }
         windows.pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, byDefault: byDefault, then: then)
         if windows.services.machines.workspace(id: id) != nil { windows.applyPendingPlacements(live: [id]) }
@@ -92,4 +104,13 @@ enum NewWorkspacePlacements {
     static func home(_ machines: MachineRegistry) -> String? {
         machines.local.store.workspaces.first { $0.kind == SidebarMapping.homeKind }?.id
     }
+
+    /// The index a group formed for a new workspace takes (`createGroup`'s `index`, New Workspace in
+    /// New Group): first under `workspaces.newPlacement` `top` (the default), else last (`Int.max`).
+    /// The same rule as the Chief's subagent groups (`new_group_index` in optchat-chief workspaces.rs).
+    static func newGroupIndex(_ services: AppServices) -> Int {
+        newGroupIndex(for: services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback)
+    }
+
+    static func newGroupIndex(for placement: NewWorkspacePlacement) -> Int { placement == .top ? 0 : .max }
 }

@@ -283,6 +283,11 @@ export async function promoteAttemptToRuntime(input: {
       throw new RuntimeAttemptConflictError("only terminal attempts can be promoted");
     }
     if (attempt.runtimeId === input.runtimeId) return attempt;
+    // The retention reaper has claimed this attempt and is destroying its VM (repository.ts
+    // claimExpiredAttemptCleanups); a runtime promoted now would own a VM that is about to go.
+    if (attempt.cleanupLeaseExpiresAt && attempt.cleanupLeaseExpiresAt > now()) {
+      throw new RuntimeAttemptConflictError("run attempt's VM is being cleaned up");
+    }
     const [moved] = await tx.update(runAttempts).set({
       runtimeId: input.runtimeId,
       updatedAt: now(),

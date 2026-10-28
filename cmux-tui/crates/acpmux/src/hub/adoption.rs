@@ -4,7 +4,9 @@
 //! conversation's recorded cwd, one id gets one session, and an agent that
 //! started fresh instead of resuming fails creation. A conversation live in
 //! another process is refused (`adopt.live`) unless `ifLive` forks it or
-//! opens it anyway (`adopt_live.rs`).
+//! opens it anyway (`adopt_live.rs`); a Claude Code that this acpmux's own
+//! agent host runs for one of its sessions is not another process: that
+//! session opens.
 
 use super::*;
 use crate::adopt::{AdoptRequest, IfLive};
@@ -75,7 +77,10 @@ impl Hub {
                 "only Claude Code chats fork on adopt; open this {family} chat anyway or close it where it runs"
             )));
         }
-        if let Some(existing) = self.adopted_session(family, &a.agent_session_id) {
+        // A fork is a new conversation, never the chat that already adopted (or views) this one.
+        if a.if_live != IfLive::Fork
+            && let Some(existing) = self.adopted_session(family, &a.agent_session_id)
+        {
             return Ok(Adoption::Existing(existing));
         }
         // The store the resuming harness reads: its spawn env's home, else
@@ -83,9 +88,21 @@ impl Hub {
         // store walk, the record read and the holder check are blocking I/O.
         let homes = self.harness_homes.lock().unwrap().with_env(env);
         let index = self.chats.get().filter(|_| !remote).cloned();
-        let (fam, id, check) =
-            (family.to_owned(), a.agent_session_id.clone(), a.if_live == IfLive::Refuse);
-        let ((found, store), live) = tokio::task::spawn_blocking(move || {
+        if a.watch && !matches!(family, "claude" | "codex") {
+            return Err(RpcError::invalid_params(format!(
+                "only Claude Code and Codex chats can be watched, not {family}"
+            )));
+        }
+        // A watch forks nothing: Take Over chooses that, for a chat still live in its app.
+        if a.watch && a.if_live == IfLive::Fork {
+            return Err(RpcError::invalid_params(
+                "a watched chat is forked by Take Over, not when it opens",
+            ));
+        }
+        // Watching starts nothing on the conversation, so it may watch one that runs elsewhere.
+        let check = a.if_live == IfLive::Refuse && !a.watch;
+        let (fam, id) = (family.to_owned(), a.agent_session_id.clone());
+        let ((found, store), live, own) = tokio::task::spawn_blocking(move || {
             let others = indexed_stores(index.as_deref(), &fam, &id);
             let (found, store) = crate::adopt::find_any(&fam, &id, &homes, &others)?;
             // The holder the harness records in the store that holds the chat; one that has
@@ -106,11 +123,35 @@ impl Hub {
                     _ => None,
                 })
                 .flatten();
-            Ok::<_, String>(((found, store), live))
+            // A Claude Code that one of this home's agent hosts runs is this acpmux's own
+            // harness, not the chat open elsewhere (every acpmux home shares the registry).
+            let own = match &live {
+                Some(crate::adopt_live::LiveUse::Registered { pid }) => {
+                    crate::adopt_live::own_host_session(
+                        *pid,
+                        &own_hosts(),
+                        &crate::adopt_live::processes(),
+                    )
+                }
+                _ => None,
+            };
+            Ok::<_, String>(((found, store), live, own))
         })
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?
         .map_err(RpcError::invalid_params)?;
+        // This acpmux's own Claude Code session runs the chat: it opens, as for an adopt of
+        // the id it records (one chat, one session).
+        if let Some(existing) = own
+            .and_then(|own| {
+                self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&own).cloned()
+            })
+            .filter(|s| s.meta().family.as_deref() == Some("claude"))
+        {
+            return Ok(Adoption::Existing(existing));
+        }
+        // Any other holder (another home's, a host whose session is gone but whose harness
+        // still runs) may still write the chat: refused.
         if let Some(live) = live {
             return Err(RpcError::invalid_params(live.refusal(family, &a.agent_session_id))
                 .with_data(json!({"reason": "adopt.live", "details": live.details(family)})));
@@ -177,6 +218,24 @@ impl Hub {
         let message = failed.msg.get("error").and_then(Value::as_str).unwrap_or_default();
         Some(format!("{message} {}", failed.msg.get("data").unwrap_or(&Value::Null)))
     }
+}
+
+/// This home's agent hosts that may still run (a live or unproven liveness
+/// lock), for `adopt_live::own_host_session`.
+fn own_hosts() -> Vec<crate::adopt_live::OwnHost> {
+    use crate::agent_host::{self, Liveness};
+    let dir = agent_host::hosts_dir();
+    let Ok((good, _)) = agent_host::load_records(&dir) else { return Vec::new() };
+    good.into_iter()
+        .filter(|(_, r)| {
+            agent_host::liveness(&dir, &r.session_id, &r.start_nonce) != Liveness::Dead
+        })
+        .map(|(_, r)| crate::adopt_live::OwnHost {
+            session_id: r.session_id,
+            host_pid: r.host_pid,
+            harness_pid: r.harness_pid,
+        })
+        .collect()
 }
 
 /// The stores acpmux's chat index holds the `family` chat `id` in (none
@@ -436,7 +495,8 @@ impl Hub {
                 m.title = Some(short_text(first.trim(), 80));
             }
             if let Some(last) = turns.last() {
-                m.last_prompt = Some(short_text(&last.prompt, 200));
+                let line = super::prompt_line::prompt_line(&last.prompt, "adopt", None);
+                m.last_prompt = Some(short_text(&line, 200));
             }
             m.turn_count += turns.len() as u64;
         }

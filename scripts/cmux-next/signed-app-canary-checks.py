@@ -74,6 +74,40 @@ def visible_window(socket_path):
     return next((w for w in windows if w.get("visible") is True), None)
 
 
+def agent_turn(acpmux_home, harness, cwd, timeout):
+    """Start a session of the test agent in the app's own acpmux and prompt it once; the
+    session id once the agent's reply is in the session's events."""
+    acp = soak.Acpmux(soak.acpmux_socket(acpmux_home))
+    if not wait(lambda: "error" not in (acp.call("_acpmux/status", timeout=3) or {"error": 1}), timeout, 1):
+        raise Failed(f"the app's acpmux did not answer within {timeout:.0f}s")
+    acp.call("_acpmux/reload_config")
+    acp.call("acp.trust.set", {"cwd": cwd, "level": "trusted"})
+    created = acp.call("session/new", {"cwd": cwd, "mcpServers": [],
+                                       "_meta": {"acpmux": {"harness": harness}}}) or {}
+    session = created.get("sessionId")
+    if not session:
+        raise Failed(f"session/new: {str(created)[:400]}")
+    print(f"ok: agent session {session} started")
+    answered = acp.call("session/prompt", {"sessionId": session, "prompt": [{"type": "text", "text": PROMPT}]},
+                        timeout=timeout) or {}
+    if "error" in answered:
+        raise Failed(f"session/prompt: {str(answered)[:400]}")
+
+    def reply():
+        page = acp.call("_acpmux/events", {"sessionId": session}) or {}
+        text = []
+        for event in page.get("events", []) if isinstance(page, dict) else []:
+            msg = event.get("msg") or {}
+            update = msg.get("params", {}).get("update") or msg.get("update") or {}
+            if update.get("sessionUpdate") == "agent_message_chunk":
+                text.append((update.get("content") or {}).get("text", ""))
+        return PROMPT in "".join(text)
+    if not wait(reply, 20):
+        raise Failed("the agent's reply is not in the session's events")
+    print(f"ok: the agent answered the prompt (stopReason {answered.get('stopReason')})")
+    return session
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--socket", required=True)
@@ -100,34 +134,7 @@ def main(argv=None):
         tab = next(iter(new.values()))
         print(f"ok: New Tab {tab.get('id')} (kind {tab.get('kind')}, page {tab.get('page')}, title {tab.get('title')!r})")
 
-        acp = soak.Acpmux(soak.acpmux_socket(args.acpmux_home))
-        if not wait(lambda: "error" not in (acp.call("_acpmux/status", timeout=3) or {"error": 1}), args.timeout, 1):
-            raise Failed(f"the app's acpmux did not answer within {args.timeout:.0f}s")
-        acp.call("_acpmux/reload_config")
-        acp.call("acp.trust.set", {"cwd": args.cwd, "level": "trusted"})
-        created = acp.call("session/new", {"cwd": args.cwd, "mcpServers": [],
-                                           "_meta": {"acpmux": {"harness": args.harness}}}) or {}
-        session = created.get("sessionId")
-        if not session:
-            raise Failed(f"session/new: {str(created)[:400]}")
-        print(f"ok: agent session {session} started")
-        answered = acp.call("session/prompt", {"sessionId": session, "prompt": [{"type": "text", "text": PROMPT}]},
-                            timeout=args.timeout) or {}
-        if "error" in answered:
-            raise Failed(f"session/prompt: {str(answered)[:400]}")
-
-        def reply():
-            page = acp.call("_acpmux/events", {"sessionId": session}) or {}
-            text = []
-            for event in page.get("events", []) if isinstance(page, dict) else []:
-                msg = event.get("msg") or {}
-                update = msg.get("params", {}).get("update") or msg.get("update") or {}
-                if update.get("sessionUpdate") == "agent_message_chunk":
-                    text.append((update.get("content") or {}).get("text", ""))
-            return PROMPT in "".join(text)
-        if not wait(reply, 20):
-            raise Failed("the agent's reply is not in the session's events")
-        print(f"ok: the agent answered the prompt (stopReason {answered.get('stopReason')})")
+        agent_turn(args.acpmux_home, args.harness, args.cwd, args.timeout)
     except (Failed, OSError, ValueError, subprocess.TimeoutExpired) as error:
         print(f"FAIL: {error}", file=sys.stderr)
         return 1

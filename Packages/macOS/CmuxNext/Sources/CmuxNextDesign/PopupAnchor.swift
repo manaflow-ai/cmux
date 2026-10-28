@@ -54,21 +54,45 @@ public struct PopupAnchor: Sendable, Equatable {
 
     /// The frame of a card of `size` under the control, in screen coordinates (y up).
     ///
-    /// The card lines up with ``edge``; with no room under the control in `visible` it opens
-    /// above it, and it slides sideways to stay inside `visible`.
+    /// The card lines up with ``edge``; with no room under the control it opens above it. When
+    /// the card's side leaves no room, it lines up with the control's other edge, and it slides
+    /// sideways, then up or down, to stay inside the area it keeps to: the window on each axis
+    /// the card fits in (sidebar sweep 2026-10-21: an editor wider than the sidebar hung past
+    /// the window's edge), else the screen.
     /// - Parameters:
     ///   - size: The card's size.
-    ///   - visible: The screen's visible frame; nil places the card without clamping.
+    ///   - visible: The screen's visible frame; nil (no screen, as on a machine with no display)
+    ///     keeps the card to `window` alone, and with no window either places it without clamping.
+    ///   - window: The frame of the window the card opens over, in the same coordinates.
     /// - Returns: The card's frame.
-    public func cardFrame(size: CGSize, visible: CGRect?) -> CGRect {
+    public func cardFrame(size: CGSize, visible: CGRect?, window: CGRect? = nil) -> CGRect {
         var origin = CGPoint(x: edge == .leading ? rect.minX : rect.maxX - size.width, y: rect.minY - gap - size.height)
-        if let visible {
-            if origin.y < visible.minY + margin, rect.maxY + gap + size.height <= visible.maxY - margin {
-                origin.y = rect.maxY + gap
-            }
-            origin.x = min(max(origin.x, visible.minX + margin), visible.maxX - size.width - margin)
+        guard let area = area(for: size, visible: visible, window: window) else { return CGRect(origin: origin, size: size) }
+        if origin.y < area.minY + margin, rect.maxY + gap + size.height <= area.maxY - margin {
+            origin.y = rect.maxY + gap
         }
+        origin.y = min(max(origin.y, area.minY + margin), area.maxY - size.height - margin)
+        let lowest = area.minX + margin, highest = area.maxX - size.width - margin
+        let other = edge == .leading ? rect.maxX - size.width : rect.minX
+        if !(lowest...max(lowest, highest)).contains(origin.x), (lowest...max(lowest, highest)).contains(other) {
+            origin.x = other
+        }
+        origin.x = min(max(origin.x, lowest), highest)
         return CGRect(origin: origin, size: size)
+    }
+
+    /// Where a card of `size` keeps to: on each axis the window's part of the screen when the
+    /// card fits in it with its margins, else the screen (with no screen, no bound on that
+    /// axis); nil with neither a screen nor a window.
+    private func area(for size: CGSize, visible: CGRect?, window: CGRect?) -> CGRect? {
+        guard visible != nil || window != nil else { return nil }
+        let visible = visible ?? .infinite
+        guard let window else { return visible }
+        let inside = window.intersection(visible)
+        guard !inside.isNull else { return visible }
+        let fitsX = size.width + 2 * margin <= inside.width, fitsY = size.height + 2 * margin <= inside.height
+        return CGRect(x: fitsX ? inside.minX : visible.minX, y: fitsY ? inside.minY : visible.minY,
+                      width: fitsX ? inside.width : visible.width, height: fitsY ? inside.height : visible.height)
     }
 
     /// The point `NSMenu.popUp(positioning:at:in:)` takes to open a menu of `size` under the

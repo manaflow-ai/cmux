@@ -55,7 +55,11 @@
   border-radius: 50%;
   background: transparent;
   color: var(--agent-muted);
-  cursor: default;
+}
+/* The chat bar's mic slot is one inline-flex part (composerLocation.css .acpmux-fit-mic) with no gap
+   of its own: the finish key keeps the cluster's 4px from the mic. New Tab's row has its own gap. */
+.acpmux-fit-mic .acpmux-dictation-finish {
+  margin-inline-end: 4px;
 }
 .nt-pickers .acpmux-dictation-finish {
   width: 24px;

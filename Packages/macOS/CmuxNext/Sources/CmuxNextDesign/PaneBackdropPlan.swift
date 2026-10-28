@@ -1,3 +1,4 @@
+public import CmuxNextDesignTokens
 /// What one pane draws for its background, from one pure resolver
 /// (plans/cmux-next/pane-backgrounds-DESIGN.md): its own copy of the art, a plain cover over the
 /// window's art, and a marker tint. ``none`` (the common case) means the pane draws nothing and
@@ -38,7 +39,9 @@ public nonisolated struct PaneBackdropPlan: Equatable, Sendable {
             // One art layer and one tint per pane; the window keeps the one glass view.
             art.material = .translucent
             plan.art = art
-        } else if own == .none, inheritedHasArt {
+        } else if own == .none || backdrop.isOpaque, inheritedHasArt {
+            // Its own None, or its own Opacity at 100% (an opaque scope): the pane hides the
+            // window's art under its plain background instead of drawing nothing over it.
             plan.cover = true
         }
         return plan

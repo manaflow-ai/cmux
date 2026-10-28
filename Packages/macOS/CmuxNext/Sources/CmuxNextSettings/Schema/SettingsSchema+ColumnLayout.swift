@@ -15,7 +15,8 @@ nonisolated enum ColumnLayoutSettingsSchema {
                     SettingChoice(SplitSizing.even.rawValue, SettingsText.keyed("settings.choice.splitEven", "Even")),
                     SettingChoice(SplitSizing.halve.rawValue, SettingsText.keyed("settings.choice.splitHalve", "Halve the Pane")),
                 ]),
-                default: .string(ColumnLayoutSettings.splitSizingFallback.rawValue), keywords: ["split", "equal", "size"]
+                default: .string(ColumnLayoutSettings.splitSizingFallback.rawValue),
+                keywords: ["split", "equal", "size", "autobalance", "balance", "equalize"]
             ),
             SettingDescriptor(
                 ColumnLayoutSettings.newColumnWidthPath, section: .general, group: columns,
@@ -82,6 +83,19 @@ nonisolated enum ColumnLayoutSettingsSchema {
                 summary: SettingsText.keyed("settings.layout.scrollAreas.summary", "Splits scroll instead of squashing"),
                 kind: .toggle, default: .bool(ColumnLayoutSettings.scrollAreasFallback),
                 keywords: ["scroll", "area", "split", "squash", "dock", "horizontal", "overflow"]
+            ),
+            SettingDescriptor(
+                ColumnLayoutSettings.scrollModifierPath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.scrollModifier", "Scroll Columns and Rows With"),
+                help: SettingsText.keyed("settings.layout.scrollModifier.help",
+                                        "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them."),
+                summary: SettingsText.keyed("settings.layout.scrollModifier.summary", "Command + Scroll moves columns and rows"),
+                kind: .choice([
+                    SettingChoice(LayoutScrollModifier.command.rawValue, SettingsText.keyed("settings.choice.scrollModifierCommand", "Command + Scroll")),
+                    SettingChoice(LayoutScrollModifier.noModifier.rawValue, SettingsText.keyed("settings.choice.scrollModifierNone", "Scroll Without a Modifier")),
+                ]),
+                default: .string(ColumnLayoutSettings.scrollModifierFallback.rawValue),
+                keywords: ["scroll", "command", "modifier", "wheel", "trackpad", "columns", "rows", "strip", "pan", "horizontal"]
             ),
             SettingDescriptor(
                 ColumnLayoutSettings.minimumPaneWidthPath, section: .general, group: columns,

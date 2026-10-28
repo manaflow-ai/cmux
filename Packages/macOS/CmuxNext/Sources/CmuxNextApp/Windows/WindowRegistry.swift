@@ -32,8 +32,10 @@ struct WindowRegistry: Equatable, Sendable {
     struct Window: Equatable, Sendable, Identifiable {
         let id: String
         /// Owned workspace ids (`WorkspaceModel.id`), in daemon sidebar
-        /// order after `reconcile`. Never empty for a registered window.
-        /// The daemon owns the order; this mirrors it.
+        /// order as of the last membership transition. Never empty for a
+        /// registered window. The daemon owns the order; this mirrors it when
+        /// membership changes, not on every move (the sidebar draws its own
+        /// order): a move must not cost a pass over every workspace.
         var workspaceIDs: [String]
         /// AppKit screen frame (bottom-left origin).
         var frame: CGRect?

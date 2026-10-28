@@ -16,8 +16,9 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { PNG } from "pngjs";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -50,8 +51,11 @@ await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     for (const [name, type] of engines) browsers.set(name, await type.launch({ headless: true }));
+    await warmGalleryFrame(vite, "pages.markdown", {
+      browser: browsers.get("chromium") ?? browsers.get("webkit"),
+      params: { variant: "table-editing" },
+    });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -60,7 +64,7 @@ await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
 
   const url = () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
-    return `http://127.0.0.1:${port}/gallery/frame.html?entry=pages.markdown&variant=table-editing`;
+    return `http://127.0.0.1:${port}${galleryFrame("pages.markdown", { variant: "table-editing" })}`;
   };
 
   const load = async (page: Page) => {
@@ -82,6 +86,7 @@ await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
       deviceScaleFactor: scale,
     });
     const page = await context.newPage();
+    await installPaintedFrames(page);
     await load(page);
     return page;
   };
@@ -195,7 +200,15 @@ await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
           style.setProperty("--cmux-md-table-header-background", "rgba(0, 0, 0, 0.08)");
           (document.activeElement as HTMLElement | null)?.blur();
         });
-        await page.waitForTimeout(100);
+        // A frame painted with the new colors, once any ease into them has run out.
+        await page.waitForFunction(() =>
+          document
+            .getAnimations()
+            .every(
+              (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+            ),
+        );
+        await page.evaluate(() => window.cmuxPaintFrame());
         const shot = PNG.sync.read(await page.screenshot());
         const scale = 2;
         /** The strongest border pixel (lowest red) in a window around a CSS point. */

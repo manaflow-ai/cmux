@@ -22,7 +22,8 @@ export type ChiefMascot =
   | "machine-blue"
   | "moon"
   | "moon-blue"
-  | "fox";
+  | "fox"
+  | "mochi";
 
 const CHIEF_MASCOTS: Record<ChiefMascot, string> = {
   orb: new URL("./mascots/ChiefMascotOrb.png", import.meta.url).href,
@@ -34,6 +35,7 @@ const CHIEF_MASCOTS: Record<ChiefMascot, string> = {
   moon: new URL("./mascots/ChiefMascotMoon.png", import.meta.url).href,
   "moon-blue": new URL("./mascots/ChiefMascotMoonBlue.png", import.meta.url).href,
   fox: new URL("./mascots/ChiefMascotFox.png", import.meta.url).href,
+  mochi: new URL("./mascots/ChiefMascotMochi.png", import.meta.url).href,
 };
 
 export type ChiefDockProps = {
@@ -77,9 +79,8 @@ const status = (session: AcpmuxSessionEntry, selected: boolean): ChiefStatus => 
   return "idle";
 };
 
-const STATUS_ICONS: Record<Exclude<ChiefStatus, "idle">, string> = {
+const STATUS_ICONS: Record<Exclude<ChiefStatus, "idle" | "attention">, string> = {
   streaming: "status.running",
-  attention: "status.needsinput",
   error: "status.disconnected",
   complete: "status.complete",
   unread: "status.dot",
@@ -170,6 +171,7 @@ export function ChiefDock({
                   id: "move-to-tab",
                   label: t("floating.moveToTab"),
                   icon: <Icon name="link.open.newtab" size={14} />,
+                  symbol: "link.open.newtab",
                   onSelect: () => onMoveToTab(session.sessionId),
                 },
               ];
@@ -202,7 +204,12 @@ export function ChiefDock({
                         <strong>
                           {cardStatus !== "idle" && (
                             <span className="acpmux-chief-dock-status" data-status={cardStatus} aria-hidden="true">
-                              <Icon name={STATUS_ICONS[cardStatus]} size={20} row />
+                              {cardStatus === "attention" ? (
+                                // The one Needs you mark (needsYou/needsYou.css), as the sidebar draws it.
+                                <span className="acpmux-needs-you-dot" />
+                              ) : (
+                                <Icon name={STATUS_ICONS[cardStatus]} size={20} row />
+                              )}
                             </span>
                           )}
                           <span className="acpmux-chief-card-title">{title}</span>
@@ -218,7 +225,7 @@ export function ChiefDock({
                         aria-label={t("floating.moveToTab")}
                         onClick={() => onMoveToTab(session.sessionId)}
                       >
-                        <Icon name="action.go" size={18} />
+                        <Icon name="link.open.newtab" size={20} />
                       </button>
                     </div>
                     <button
@@ -227,7 +234,7 @@ export function ChiefDock({
                       aria-label={t("render.collapse")}
                       onClick={fold}
                     >
-                      <span aria-hidden="true">×</span>
+                      <Icon name="action.close" size={20} />
                     </button>
                   </article>
                 </ContextMenu>
@@ -267,13 +274,7 @@ export function ChiefDock({
               aria-pressed={!attached}
               onClick={() => setAttached((value) => !value)}
             >
-              <span className="acpmux-chief-dock-wave" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-                <i />
-                <i />
-              </span>
+              <Icon name="link.open.newtab" size={20} />
             </button>
             <button
               type="button"
@@ -282,7 +283,7 @@ export function ChiefDock({
               aria-expanded={expanded}
               onClick={() => setExpanded((value) => !value)}
             >
-              <Icon name="disclosure.collapsed" size={18} className="acpmux-chief-dock-collapse-mark" />
+              <Icon name="disclosure.collapsed" size={20} className="acpmux-chief-dock-collapse-mark" />
             </button>
           </div>
         </div>

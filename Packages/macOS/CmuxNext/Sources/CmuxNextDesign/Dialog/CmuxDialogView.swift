@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The one cmux dialog view: an overlay panel (Liquid Glass, opaque under
 /// Reduce Transparency) with the title, the asking origin, the lines, the

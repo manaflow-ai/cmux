@@ -7,7 +7,13 @@ enum IntentUndo: Equatable {
     case moveTab(surface: SurfaceID, fromPane: PaneID, fromIndex: Int, toPane: PaneID)
     case tabName(surface: SurfaceID, name: String?)
     case tabPinned(surface: SurfaceID, pinned: Bool)
+    case paneName(pane: PaneID, name: String?)
+    case screenName(screen: ScreenID, name: String?)
+    case screenColor(screen: ScreenID, color: String?)
+    case screenIcon(screen: ScreenID, icon: String?)
+    case screenPinned(screen: ScreenID, pinned: Bool)
     case workspaceName(key: WorkspaceKey, name: String)
+    case workspaceColor(key: WorkspaceKey, color: String?)
     /// The workspace's daemon-order index and group before the apply.
     case workspacePlace(key: WorkspaceKey, index: Int, group: WorkspaceGroupID?)
     case workspaceGroupCollapsed(WorkspaceGroupID, collapsed: Bool)
@@ -57,6 +63,9 @@ struct PendingIntent {
     /// Due, but what it shows has not reached the daemon's records yet (a split's pane, cx-ry0y):
     /// it leaves the log once they hold it, or with the next snapshot.
     var awaitsRecords = false
+    /// A split's daemon pane reached the records (its `pane-added`): once it
+    /// leaves them, the split has nothing left to place (``ProvisionalSplit/paneGone(_:in:)``).
+    var daemonPaneSeen = false
     /// The person closed what it creates before the daemon made it (``CancelledCreation``): it
     /// shows nothing, hides the daemon's tab or pane, and leaves once the records drop it.
     var closeWhenCreated = false
@@ -66,6 +75,9 @@ struct PendingIntent {
     var replySurface: SurfaceID?
     /// Closes of a cancelled creation's daemon surface sent so far (a timed-out close is sent again).
     var closeAttempts = 0
+    /// A script batch's intent held back by its ``StoreStage``: in the log (ordered with the rest)
+    /// but not shown, and never due, until the stage commits.
+    var held = false
 }
 
 /// The ordered log of pending intents. Pure bookkeeping: the store applies
@@ -95,10 +107,25 @@ struct IntentLog {
 
     /// Appends a new intent. False when the transaction is already pending
     /// or already settled (an id is never reused).
-    mutating func append(_ intent: Intent, transaction: ClientTransactionID) -> Bool {
+    mutating func append(_ intent: Intent, transaction: ClientTransactionID, held: Bool = false) -> Bool {
         guard !contains(transaction), !wasSettled(transaction) else { return false }
-        entries.append(PendingIntent(transaction: transaction, kind: intent))
+        var entry = PendingIntent(transaction: transaction, kind: intent)
+        entry.held = held
+        entries.append(entry)
         return true
+    }
+
+    /// Whether any intent is held by a stage.
+    var hasHeld: Bool { entries.contains(where: \.held) }
+
+    /// Shows the held intents with the rest (their stage committed): the next overlay restore
+    /// applies them in log order.
+    mutating func releaseHeld() {
+        entries = entries.map { entry in
+            var entry = entry
+            entry.held = false
+            return entry
+        }
     }
 
     /// Records the sequence that settles `transaction`; keeps the smaller
@@ -169,6 +196,8 @@ struct IntentLog {
     }
 
     private static func isDue(_ intent: PendingIntent, appliedSequence: UInt64, snapshot: Bool) -> Bool {
+        // A held intent never showed: it leaves only after its stage released it.
+        if intent.held { return false }
         if snapshot, intent.settlesAtSnapshot { return true }
         return intent.settleSequence.map { appliedSequence >= $0 } ?? false
     }
@@ -204,6 +233,14 @@ struct IntentLog {
     /// `limit` sends in all). False when it is not pending or is out of attempts.
     mutating func allowCloseRetry(_ transaction: ClientTransactionID, limit: Int) -> Bool {
         entries.modifyFirst(where: { $0.transaction == transaction && $0.closeAttempts < limit }) { $0.closeRequested = false }
+    }
+
+    /// The daemon reported the pane under public id `paneID`: the split that mints it saw its pane.
+    mutating func noteDaemonPane(_ paneID: String) {
+        entries.modifyFirst(where: { entry in
+            guard case .splitPane(_, _, _, let provisional) = entry.kind else { return false }
+            return provisional.paneID == paneID
+        }) { $0.daemonPaneSeen = true }
     }
 
     mutating func noteReplySurface(_ transaction: ClientTransactionID, surface: SurfaceID) {

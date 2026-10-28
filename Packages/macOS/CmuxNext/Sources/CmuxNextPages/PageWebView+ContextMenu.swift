@@ -15,6 +15,11 @@ extension PageWebView {
         PageWKWebView.keepDesktopItems(in: menu)
     }
 
+    /// The title of Copy in a Chromium page's menu (WebKit titles its own).
+    public static var copyTitle: String {
+        String(localized: "pages.chromiumMenu.copy", defaultValue: "Copy", bundle: .module)
+    }
+
     /// A menu item titled `title` that runs `handler` (the item keeps the handler alive).
     public static func menuItem(_ title: String, handler: @escaping () -> Void) -> NSMenuItem {
         PageMenuAction.item(title, handler: handler)

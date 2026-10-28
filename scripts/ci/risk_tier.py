@@ -9,8 +9,11 @@ The policy, and the regression audit behind every rule, is docs/ci/risk-tiers.md
           checks, then auto-merge. Nothing here waits for a person.
   high    auth and credentials, socket and relay access policy, stored-data migrations, release,
           signing, notarization and the updater, the risk gate itself, code that adds a delete
-          of user data, and a workflow that adds a pull_request_target or workflow_run trigger. A person looks first: an approving review on the head commit, or
-          `risk:human-ok` from a maintainer.
+          of user data, and a workflow that adds a pull_request_target or workflow_run trigger. Read for
+          a review verdict on the head: an independent review's `Review (<reviewer>): SHIP at <full
+          head sha>` line in the description or leading a comment, an approving review on the head
+          commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head holds it; no verdict
+          yet is a warning, not a hold.
 
 Size is not a rule: in the audit, the changes that broke things were as often small as large.
 Separately from the tier, a pull request that takes back what another pull request merged in the
@@ -19,7 +22,7 @@ or merges its base and stops taking it back. An agent clears that; no person is 
 
 Usage:
   risk_tier.py classify --files FILE [--patches FILE] [--json]
-  risk_tier.py evidence --tier TIER [--human-ok]
+  risk_tier.py evidence --tier TIER [--human-ok] [--blocked]
   risk_tier.py pr --repo OWNER/REPO --number N [--repo-dir DIR] [--github-output FILE] [--summary FILE]
 """
 
@@ -43,6 +46,13 @@ OLD_LABELS = ("risk:medium",)
 HUMAN_OK_LABEL = "risk:human-ok"
 # The earlier name for the same maintainer sign-off; still honored.
 WAIVED_LABEL = "risk:waived"
+# An independent review's verdict on the exact head, on a comment's first line: "Review (subagent, correctness
+# first): SHIP at <full head sha>", the form next_autoland.py and merge_audit.py read. A self-review doesn't
+# count, and the newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP. The same line
+# also counts anywhere in the description (outside <!-- comments -->), where it ranks below every comment.
+RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
+                     re.I)
+TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 NEXT = "Packages/macOS/CmuxNext/Sources/"
 
 # Ordered: the first matching rule wins, so the high paths sit above the broad low ones.
@@ -92,16 +102,48 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "services/iroh-relay-minter/*", "web/services/relay/*", "daemon/remote/cmd/cmuxd-remote/*peer*",
         r"re:(?i)relay[-_]?(command[-_]?)?polic", r"re:(?i)(socket|control)[-_]?(access|auth)",
     )),
+    # What an agent pane's web page may make the host do or read: the page ops (AgentPageOps), the
+    # _acpmux methods and params it may relay, the frame check, the gesture rule (the tickets, which
+    # methods a click's ticket redeems, and the decision that spends one), the app actions a page may
+    # run, the folder policy and the folders a person picks, the relayed-allow proof, the full-access
+    # refusal, the Rust mirror, acpmux's guard on non-local connections, and host ops
+    # that open their own daemon connection for a page. #22646's chat.asks.pending graded normal here
+    # and reached a peer daemon until review caught it. A new op edits AgentPageProvider.swift's list.
+    # Pane UI stays normal.
+    ("high", "agent pane host op or allowlist", (
+        NEXT + "CmuxNextAgentPane/AgentPageProvider.swift", NEXT + "CmuxNextAgentPane/AcpmuxPaneMethods*.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneEnvironmentRequest.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneReplyRequest.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneTransport+Check.swift", NEXT + "CmuxNextAgentPane/AcpmuxPathPolicy.swift",
+        NEXT + "CmuxNextAgentPane/AgentPanePendingAsks.swift", NEXT + "CmuxNextAgentPane/AgentPaneTransport+Frames.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneGestureIntent.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneUserGestures.swift", NEXT + "CmuxNextAgentPane/AgentPaneModel+Actions.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneTransport+RelayedAllow.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneTransport+PickedFolder.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneTransport+FullAccess.swift",
+        "cmux-tui/crates/cmux-agent-pane-policy/*", "cmux-tui/crates/acpmux/src/server/remote_guard*",
+    )),
     # Stored data other builds read back: a bad migration loses user data on every machine that
     # runs it, and a revert doesn't bring the data back.
     ("high", "stored-data migration", (
         "migrations/*", "*/migrations/*", "*/drizzle/*", "*/migrate/*", "*[Mm]igrat*.swift", "*[Mm]igrat*.rs",
         "*[Mm]igrat*.ts", "web/convex/schema*", "backend/db/schema*",
     )),
+    # The update channel and preference values: which ring of the existing signed feeds to follow
+    # (UpdateRing, the `updates.channel` setting), and when to install or notify. Picking a ring reuses
+    # feeds the release pipeline already signs, and Sparkle still verifies every download, so it is
+    # normal (Leo, 2026-10-21, after #22781). UpdateTrack is not here: it decides whether Sparkle runs
+    # at all. Parsing, probing, installing and verifying an update stay high below.
+    ("normal", "update channel or preference setting", (
+        "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+        NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
+    )),
     # Shipping. A broken updater also breaks the safety net every other tier relies on: nightly
-    # auto-update is how a fix forward reaches users.
+    # auto-update is how a fix forward reaches users. CmuxUpdater holds the Sparkle driver, the
+    # install code, the feed resolver and the channel switch's signature check.
     ("high", "release, signing, notarization or update path", (
-        ".github/workflows/nightly*.yml", RELEASE_WORDS, NEXT + "CmuxNextUpdater/*", "scripts/ci/lib/*",
+        ".github/workflows/nightly*.yml", RELEASE_WORDS, NEXT + "CmuxNextUpdater/*", "Packages/macOS/CmuxUpdater/*",
+        "scripts/ci/lib/*",
     )),
     # The gate grades every other pull request, so a change to it gets a person.
     ("high", "the risk gate itself", (
@@ -251,15 +293,25 @@ def classify(files: list[str], patches: dict[str, str] | None = None) -> Grade:
     return Grade(TIERS[rank], reasons)
 
 
+SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from an independent review, in the "
+                f"description or leading a comment, an approving review from someone other than the author, or "
+                f"`{HUMAN_OK_LABEL}` added by a maintainer (agents never add it)")
+
+
 def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
-                     taken_back: list[int] | None = None) -> list[str]:
-    """What still holds the merge. Empty means nothing does. Low and normal never wait for a
-    person; high waits for one. A takeback holds any tier until the description owns it."""
+                     taken_back: list[int] | None = None, blocked: bool = False,
+                     unread: bool = False) -> list[str]:
+    """What still holds the merge. Empty means nothing does. A high pull request is held only by a
+    BLOCK (or FIX, or a change request) that is the newest verdict on its head; with no verdict yet
+    it gets a warning (pending_review), not a hold. A takeback holds any tier until the description
+    owns it."""
     missing = []
-    if tier == "high" and not human_ok:
-        missing.append(
-            f"a person's look: an approving review on the head commit from someone other than the "
-            f"author, or `{HUMAN_OK_LABEL}` added by a maintainer (agents never add it)")
+    if tier == "high" and unread and not human_ok:
+        missing.append("the review verdicts on the head commit could not be read (a GitHub API error), so a "
+                       "BLOCK may be hidden. Re-run this check")
+    elif tier == "high" and blocked and not human_ok:
+        missing.append(f"the newest review verdict on the head commit is a BLOCK, FIX or change request. "
+                       f"Address it and push; a review of the new head clears it: {SIGN_OFF_HOW}")
     acknowledged = {int(n) for n in TAKES_BACK.findall(strip_comments(body or ""))}
     for number in sorted(set(taken_back or [])):
         if number not in acknowledged:
@@ -267,6 +319,13 @@ def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
                 f"this takes back #{number}'s change from the last {RECENT_DAYS} days. If the base is stale, "
                 f"merge it and push; if it's on purpose, add a line `Takes back #{number}: <why>`")
     return missing
+
+
+def pending_review(tier: str, human_ok: bool = False, blocked: bool = False) -> str:
+    """The warning for a high pull request with no verdict on its head yet ("" when it needs none)."""
+    if tier != "high" or human_ok or blocked:
+        return ""
+    return f"no review verdict on the head commit yet. Land after an independent review passes: {SIGN_OFF_HOW}"
 
 
 def strip_comments(body: str) -> str:
@@ -453,15 +512,20 @@ def pr_mode(args: argparse.Namespace) -> int:
             grade.reasons.setdefault("note: the takeback check couldn't read these in time, so check them by hand",
                                      []).extend(sorted(set(unread)))
     # Only looked up for high, so low and normal cost no extra API calls.
-    signed = None
+    signed, blocked, unread = None, False, False
     if grade.tier == "high":
         try:
-            signed = human_ok_by(args.repo, args.number, pr)
+            signed, blocked = human_ok_by(args.repo, args.number, pr)
         except (subprocess.CalledProcessError, json.JSONDecodeError):
-            signed = None
-    missing = missing_evidence(grade.tier, signed is not None, pr.get("body") or "", list(undone))
-    report = render(grade, missing, signed)
+            # An unreadable comment, review or label read could hide a BLOCK: hold, never warn.
+            signed, blocked, unread = None, False, True
+    missing = missing_evidence(grade.tier, signed is not None, pr.get("body") or "", list(undone), blocked,
+                               unread)
+    pending = pending_review(grade.tier, signed is not None, blocked or unread)
+    report = render(grade, missing, signed, pending)
     print(report)
+    if pending:
+        print(f"::warning::risk:high: {pending}")
     if args.summary:
         Path(args.summary).open("a").write(report + "\n")
     if args.github_output:
@@ -484,30 +548,73 @@ def last_labeler(events: list[dict], name: str) -> str | None:
     return actor
 
 
-def approver(reviews: list[dict], head_sha: str, author: str) -> str | None:
-    """A person, not the author or a bot, whose latest review approves the head commit."""
-    latest: dict[str, dict] = {}
+def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
+                  author: str, pr: dict | None = None) -> list[tuple[str, str, str]]:
+    """(at, "ship" or "block", who) for every trusted verdict on the head, one timeline as
+    next_autoland reads it: an approval (not the author's) or change request of the head commit, a
+    receipt line naming the full head sha that leads a comment or a review body, and such a line
+    anywhere in the description. The description has no time of its own, so its lines rank below
+    every comment and review (at ""): a later BLOCK comment still beats a SHIP line in it. Its author
+    must be trusted the same way a commenter must."""
+    found = []
+
+    def verdict(text: str, at: str, where: str = "") -> None:
+        line = RECEIPT.match(text)
+        if line and "self" not in line.group(1).lower() and head_sha in text:
+            found.append((at, "ship" if line.group(2).lower() == "ship" else "block",
+                          f"review ({line.group(1).strip()}){where}"))
+
+    def receipt(item: dict, at: str) -> None:
+        verdict(next((line for line in (item.get("body") or "").splitlines() if line.strip()), ""), at)
+
+    def trusted(item: dict) -> bool:
+        user = item.get("user") or {}
+        return user.get("type") == "User" and item.get("author_association") in TRUSTED
+
+    if pr and trusted(pr):
+        for text in strip_comments(pr.get("body") or "").splitlines():
+            verdict(text, "", " in the description")
+
     for review in reviews:
-        user = review.get("user") or {}
-        login = user.get("login") or ""
-        if review.get("state") in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
-            latest[login] = review
-    for login, review in latest.items():
-        user = review.get("user") or {}
-        if (review.get("state") == "APPROVED" and review.get("commit_id") == head_sha and login != author
-                and user.get("type") == "User" and not login.endswith("[bot]")
-                and review.get("author_association") in ("OWNER", "MEMBER", "COLLABORATOR")):
-            return login
-    return None
+        if not trusted(review):
+            continue
+        at, login = review.get("submitted_at") or "", (review.get("user") or {}).get("login") or ""
+        if review.get("commit_id") == head_sha:
+            if review.get("state") == "APPROVED" and login != author:
+                found.append((at, "ship", f"@{login}"))
+            elif review.get("state") == "CHANGES_REQUESTED":
+                found.append((at, "block", f"@{login}"))
+        receipt(review, at)
+    for comment in comments:
+        if trusted(comment):
+            receipt(comment, comment.get("created_at") or "")
+    return found
 
 
-def human_ok_by(repo: str, number: str, pr: dict) -> str | None:
-    """Who signed off on a high pull request, else None: an approving review on the head, or the
-    sign-off label added by a maintainer (admin or maintain role)."""
+def signed_off(comments: list[dict], reviews: list[dict], head_sha: str, author: str = "",
+               pr: dict | None = None) -> str | None:
+    """Who passed the head, or None: the newest verdict on it must be a SHIP, so a later BLOCK or
+    change request beats an earlier SHIP or approval, and a BLOCK wins a tie."""
+    found = head_verdicts(comments, reviews, head_sha, author, pr)
+    if not found:
+        return None
+    _, verdict, who = max(found, key=lambda f: (f[0], f[1] == "block"))
+    return who if verdict == "ship" else None
+
+
+def human_ok_by(repo: str, number: str, pr: dict) -> tuple[str | None, bool]:
+    """(who signed off, blocked) for a high pull request. Signed off: the newest verdict on the head
+    (an independent review's receipt in a comment, a review or the description, an approval or a
+    change request) is a SHIP, or, with no verdict on the head, the sign-off label added by a
+    maintainer (admin or maintain role). Blocked: the newest verdict on the head is not a SHIP. The
+    green compile is required on every tier by the merge path, not here."""
+    head_sha = pr["head"]["sha"]
+    comments = gh_items(f"repos/{repo}/issues/{number}/comments?per_page=100")
     reviews = gh_items(f"repos/{repo}/pulls/{number}/reviews?per_page=100")
-    login = approver(reviews, pr["head"]["sha"], (pr.get("user") or {}).get("login") or "")
-    if login:
-        return f"@{login} approved the head commit"
+    author = (pr.get("user") or {}).get("login") or ""
+    if head_verdicts(comments, reviews, head_sha, author, pr):
+        who = signed_off(comments, reviews, head_sha, author, pr)
+        return (f"{who} shipped {head_sha[:12]}", False) if who else (None, True)
     labels = {label["name"] for label in pr.get("labels", [])}
     for name in (HUMAN_OK_LABEL, WAIVED_LABEL):
         if name not in labels:
@@ -516,8 +623,8 @@ def human_ok_by(repo: str, number: str, pr: dict) -> str | None:
         if actor:
             role = (gh_json("api", f"repos/{repo}/collaborators/{actor}/permission") or {}).get("role_name")
             if role in ("admin", "maintain"):
-                return f"`{name}` is set by @{actor}"
-    return None
+                return f"`{name}` is set by @{actor}", False
+    return None, False
 
 
 def printable(path: str) -> str:
@@ -529,17 +636,19 @@ def printable(path: str) -> str:
 ORDER = {"held": 3, "high": 2, "normal": 1, "low": 0, "note": -1}
 
 
-def render(grade: Grade, missing: list[str], signed: str | None = None) -> str:
+def render(grade: Grade, missing: list[str], signed: str | None = None, pending: str = "") -> str:
     out = [f"## Risk tier: {grade.tier}", ""]
     for reason, paths in sorted(grade.reasons.items(), key=lambda kv: -ORDER.get(kv[0].split(":")[0], 0)):
         shown = ", ".join(f"`{printable(p)}`" for p in paths[:5]) + (f" and {len(paths) - 5} more" if len(paths) > 5 else "")
         out.append(f"- {reason}: {shown}")
     out.append("")
     if signed:
-        out.append(f"A person looked: {signed}.")
+        out.append(f"Signed off: {signed}.")
     if missing:
         out.append("Before merge:")
         out += [f"- {item}" for item in missing]
+    elif pending:
+        out.append(f"Warning: {pending}")
     elif grade.tier == "high":
         out.append("Nothing holds this pull request.")
     else:
@@ -582,6 +691,7 @@ def main(argv: list[str] | None = None) -> int:
     e = sub.add_parser("evidence")
     e.add_argument("--tier", choices=TIERS, required=True)
     e.add_argument("--human-ok", action="store_true")
+    e.add_argument("--blocked", action="store_true", help="the newest verdict on the head is a BLOCK or FIX")
     p = sub.add_parser("pr")
     p.add_argument("--repo", required=True)
     p.add_argument("--number", required=True)
@@ -597,7 +707,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(grade.as_json(), indent=2) if args.json else grade.tier)
         return 0
     if args.mode == "evidence":
-        missing = missing_evidence(args.tier, args.human_ok)
+        missing = missing_evidence(args.tier, args.human_ok, blocked=args.blocked)
         for item in missing:
             print(f"missing: {item}")
         return 1 if missing else 0

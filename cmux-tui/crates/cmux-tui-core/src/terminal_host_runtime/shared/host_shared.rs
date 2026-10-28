@@ -3,6 +3,7 @@
 //! behind `sys` seams: the accept waker, the PTY drain waker stream, the
 //! adopted session id, and process-group signals (`GroupSignal`).
 
+use crate::panic_free::RecoverPoison;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -94,7 +95,7 @@ pub(crate) struct HostShared {
 
 impl HostShared {
     pub(crate) fn mark_launch_owner_stream_ready(&self) {
-        let _gate = self.launch_owner_stream_gate.0.lock().unwrap();
+        let _gate = self.launch_owner_stream_gate.0.lock().recover_poison();
         if !self.launch_owner_stream_ready.swap(true, Ordering::AcqRel) {
             self.launch_owner_stream_gate.1.notify_all();
         }
@@ -105,14 +106,14 @@ impl HostShared {
         if self.launch_owner_stream_ready.load(Ordering::Acquire) {
             return;
         }
-        let mut gate = self.launch_owner_stream_gate.0.lock().unwrap();
+        let mut gate = self.launch_owner_stream_gate.0.lock().recover_poison();
         while !self.launch_owner_stream_ready.load(Ordering::Acquire) {
-            gate = self.launch_owner_stream_gate.1.wait(gate).unwrap();
+            gate = self.launch_owner_stream_gate.1.wait(gate).recover_poison();
         }
     }
 
     pub(crate) fn note_parser_progress(&self) {
-        let mut generation = self.parser_progress.0.lock().unwrap();
+        let mut generation = self.parser_progress.0.lock().recover_poison();
         *generation = generation.wrapping_add(1);
         self.parser_progress.1.notify_all();
     }
@@ -122,9 +123,9 @@ impl HostShared {
         timeout: Duration,
     ) -> anyhow::Result<std::sync::MutexGuard<'_, Terminal>> {
         let deadline = Instant::now() + timeout;
-        let mut generation = self.parser_progress.0.lock().unwrap();
+        let mut generation = self.parser_progress.0.lock().recover_poison();
         loop {
-            let term = self.term.lock().unwrap();
+            let term = self.term.lock().recover_poison();
             if term.vt_stream_is_ground() {
                 drop(generation);
                 return Ok(term);
@@ -147,7 +148,7 @@ impl HostShared {
                 .wait_timeout_while(generation, deadline - now, |current| {
                     *current == observed && !self.dead.load(Ordering::Acquire)
                 })
-                .unwrap();
+                .recover_poison();
             generation = next;
             if wait.timed_out() && *generation == observed {
                 anyhow::bail!(
@@ -182,8 +183,8 @@ impl HostShared {
         // explicit resync marker with PTY bytes, then apply the defaults
         // on the FIFO parser worker before advancing its snapshot
         // boundary. Legacy mirrors retain their coupled color update.
-        let _source_order = self.source_order_lock.lock().unwrap();
-        if *self.default_colors.lock().unwrap() == colors {
+        let _source_order = self.source_order_lock.lock().recover_poison();
+        if *self.default_colors.lock().recover_poison() == colors {
             return;
         }
         let source_cursor = self.smart.publish(Frame::new(MessageKind::ResyncRequired, Vec::new()));
@@ -197,7 +198,7 @@ impl HostShared {
             return;
         }
         if applied.recv().is_ok() {
-            *self.default_colors.lock().unwrap() = colors;
+            *self.default_colors.lock().recover_poison() = colors;
         } else {
             self.smart.mark_applied(source_cursor);
         }
@@ -209,7 +210,7 @@ impl HostShared {
         source_cursor: u64,
     ) -> TerminalColorOverrides {
         let resolved = {
-            let mut term = self.term.lock().unwrap();
+            let mut term = self.term.lock().recover_poison();
             term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
             replace_ghostty_cursor_defaults(&mut term, colors);
@@ -242,8 +243,8 @@ impl HostShared {
             // command in the same FIFO as PTY output while holding source
             // order so neither already-read nor later bytes can cross the
             // emulator-only transition.
-            let (result, acknowledgement) = {
-                let _source_order = self.source_order_lock.lock().unwrap();
+            let result = {
+                let _source_order = self.source_order_lock.lock().recover_poison();
                 let (response, applied) = sync_channel(1);
                 if self
                     .parser_commands
@@ -267,12 +268,10 @@ impl HostShared {
                     .map_err(|error| {
                         ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(error))
                     })?;
-                let acknowledgement = match &result {
-                    ParserClearHistoryResult::Cleared(clear) => {
-                        let marker = Frame::new(MessageKind::ResyncRequired, Vec::new());
-                        let (source_cursor, acknowledgement) = if let Some((request_id, target)) =
-                            smart_ack
-                        {
+                if let ParserClearHistoryResult::Cleared(clear) = &result {
+                    let marker = Frame::new(MessageKind::ResyncRequired, Vec::new());
+                    let (source_cursor, acknowledgement) =
+                        if let Some((request_id, target)) = smart_ack {
                             let mut payload = Vec::with_capacity(1 + clear.len());
                             payload.push(CLEAR_HISTORY_ACK_OK);
                             payload.extend_from_slice(clear);
@@ -291,32 +290,26 @@ impl HostShared {
                         } else {
                             (self.smart.publish(marker), ClearHistoryAckDisposition::Pending)
                         };
-                        self.smart.mark_applied(source_cursor);
-                        Some(acknowledgement)
-                    }
-                    _ => None,
-                };
-                (result, acknowledgement)
+                    self.smart.mark_applied(source_cursor);
+                    return Ok(acknowledgement);
+                }
+                result
             };
             match result {
-                ParserClearHistoryResult::Cleared(_) => {
-                    return Ok(acknowledgement
-                        .expect("a cleared parser transition has an acknowledgement"));
-                }
-                ParserClearHistoryResult::Noop => {
+                // A cleared transition returned its acknowledgement above.
+                ParserClearHistoryResult::Cleared(_) | ParserClearHistoryResult::Noop => {
                     return Ok(ClearHistoryAckDisposition::Pending);
                 }
                 ParserClearHistoryResult::Blocked => {
-                    let deadline = stream_wait
-                        .get_or_insert_with(|| {
-                            self.stream_progress
-                                .begin_clear_history_wait(CLEAR_HISTORY_STREAM_WAIT_TIMEOUT)
-                        })
-                        .deadline();
+                    let wait = stream_wait.get_or_insert_with(|| {
+                        self.stream_progress
+                            .begin_clear_history_wait(CLEAR_HISTORY_STREAM_WAIT_TIMEOUT)
+                    });
+                    let deadline = wait.deadline();
                     let Some(progress) =
                         self.stream_progress.wait_for_change(observed_progress, deadline)
                     else {
-                        stream_wait.as_mut().unwrap().mark_timed_out();
+                        wait.mark_timed_out();
                         return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
                             CLEAR_HISTORY_STREAM_TIMEOUT_ERROR
                         )));
@@ -324,8 +317,8 @@ impl HostShared {
                     observed_progress = progress;
                 }
                 ParserClearHistoryResult::EncodedFallback(encoded) => {
-                    let mut writer = self.writer.lock().unwrap();
-                    let master = self.master.lock().unwrap();
+                    let mut writer = self.writer.lock().recover_poison();
+                    let master = self.master.lock().recover_poison();
                     return write_clear_history_fallback(
                         master.as_ref(),
                         writer.as_mut(),
@@ -341,7 +334,7 @@ impl HostShared {
         &self,
         fallback_key: Option<&KeyInput>,
     ) -> anyhow::Result<ParserClearHistoryResult> {
-        let mut term = self.term.lock().unwrap();
+        let mut term = self.term.lock().recover_poison();
         Ok(match apply_clear_history_transition(&mut term, fallback_key)? {
             ClearHistoryTransition::Cleared(clear) => {
                 // Legacy mirrors consume this replay directly. The
@@ -361,7 +354,7 @@ impl HostShared {
 
     pub(crate) fn remove_client(&self, client: u64) {
         self.release_clipboard_owner(client);
-        self.taps.lock().unwrap().remove(&client);
+        self.taps.lock().recover_poison().remove(&client);
         self.smart.remove(client);
         let _ = mutate_viewer_sizes(
             &self.viewer_sizes,
@@ -371,12 +364,14 @@ impl HostShared {
     }
 
     pub(crate) fn write_input(&self, payload: &[u8], request_id: u64, target: &HostTap) -> bool {
+        // Marked before the writer lock, so the mark never runs under it.
+        cmux_flow_trace::hop_id("host.pty.write", 0, self.terminal_id.as_bytes());
         let delivered = {
-            let mut writer = self.writer.lock().unwrap();
+            let mut writer = self.writer.lock().recover_poison();
             // Receipted input certifies delivery, so none of it is dropped. The master is
             // held only to read the queue, never across a write that can block.
             let admitted = request_id != 0 || {
-                let master = self.master.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let master = self.master.lock().recover_poison();
                 crate::pty_input_room::admits(&**master, payload)
             };
             !admitted || writer.write_all(payload).and_then(|()| writer.flush()).is_ok()
@@ -391,7 +386,7 @@ impl HostShared {
         }
         let mut response = Frame::new(MessageKind::InputAck, Vec::new());
         response.request_id = request_id;
-        let _broadcast = self.broadcast_lock.lock().unwrap();
+        let _broadcast = self.broadcast_lock.lock().recover_poison();
         target.try_send(response)
     }
 
@@ -403,8 +398,8 @@ impl HostShared {
     ) -> bool {
         let mut response = Frame::new(MessageKind::DetachAck, Vec::new());
         response.request_id = request_id;
-        let _source_order = self.source_order_lock.lock().unwrap();
-        self.taps.lock().unwrap().remove(&client);
+        let _source_order = self.source_order_lock.lock().recover_poison();
+        self.taps.lock().recover_poison().remove(&client);
         self.smart.remove(client);
         target.try_send(response)
     }

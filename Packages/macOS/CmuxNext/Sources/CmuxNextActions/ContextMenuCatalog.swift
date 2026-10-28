@@ -22,6 +22,7 @@ public nonisolated struct ContextMenuCatalog: Sendable {
     public static let shared = Self(descriptors: ActionCatalog.all)
 
     private let menus: [ActionMenuContext: [ContextMenuEntry]]
+    private let selectionMenus: [ActionMenuContext: [ContextMenuEntry]]
     private let labels: [ActionMenuContext: [ActionID: String]]
 
     public init(descriptors: [ActionDescriptor]) {
@@ -37,11 +38,20 @@ public nonisolated struct ContextMenuCatalog: Sendable {
             let entries = Self.topLevel(rows)
             return (context, ContextMenuEssentials.menus[context].map { ContextMenuEssentials.apply($0, to: entries) } ?? entries)
         })
+        selectionMenus = Dictionary(uniqueKeysWithValues: ContextMenuEssentials.selectionMenus.map { context, essentials in
+            (context, ContextMenuEssentials.apply(essentials, to: Self.topLevel(rows[context] ?? [])))
+        })
         self.labels = labels
     }
 
     public func entries(for context: ActionMenuContext) -> [ContextMenuEntry] {
         menus[context] ?? []
+    }
+
+    /// The menu for `context` opened on one of several selected rows
+    /// (``ContextMenuEssentials/selectionMenus``); the one-row menu where it has none.
+    public func selectionEntries(for context: ActionMenuContext) -> [ContextMenuEntry] {
+        selectionMenus[context] ?? entries(for: context)
     }
 
     /// The menu-only row titles of `context` (``ContextMenuPlacement/label``).
@@ -74,7 +84,7 @@ public nonisolated struct ContextMenuCatalog: Sendable {
         Self.removing(hidden, from: entries(for: context))
     }
 
-    static func removing(_ hidden: Set<ActionID>, from entries: [ContextMenuEntry]) -> [ContextMenuEntry] {
+    public static func removing(_ hidden: Set<ActionID>, from entries: [ContextMenuEntry]) -> [ContextMenuEntry] {
         var result: [ContextMenuEntry] = []
         for entry in entries {
             switch entry {

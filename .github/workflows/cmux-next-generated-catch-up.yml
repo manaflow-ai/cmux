@@ -7,7 +7,11 @@ name: cmux-next generated catch-up
 # On each feat-cmux-next move this merges the base into every same-repository
 # PR whose only conflicts are those files, rebuilds them
 # (scripts/cmux-next/regenerate-web-bundles.sh) and pushes the merge. A PR with
-# any authored conflict is left to its author.
+# any authored conflict is left to its author. The merge uses the base's
+# key-wise drivers too (string catalogs, ratchet baselines, the Xcode project,
+# daemon capabilities), so entries both sides added are no conflict. It pushes only to Leo's agent
+# PRs (author teamleaderleo) and to PRs labeled generated-catch-up: never to a
+# teammate's PR they did not opt in.
 #
 # Dry run until the repo variable CMUX_NEXT_GENERATED_CATCH_UP is 1: it merges
 # and rebuilds, and the summary says what it would push.
@@ -31,7 +35,7 @@ jobs:
   select:
     if: github.repository == 'manaflow-ai/cmux'
     name: select conflicting PRs
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: reads pull requests; ephemeral Blacksmith VM, reads no variable
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: reads pull requests; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 5
     permissions:
       contents: read
@@ -60,11 +64,14 @@ jobs:
     needs: select
     if: needs.select.outputs.prs != '' && needs.select.outputs.prs != '[]'
     name: catch up #${{ matrix.pr.number }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a write token for a pull request branch; ephemeral Blacksmith VM, reads no variable
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a write token for a pull request branch; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 20
     strategy:
       fail-fast: false
-      max-parallel: 4
+      # Each matrix entry has its own checkout and branch, so entries do not
+      # contend on a workspace. Sixteen 2-vCPU Blacksmith jobs fill a 32-vCPU
+      # pool instead of serializing a populated selector into four-job waves.
+      max-parallel: 16
       matrix:
         pr: ${{ fromJSON(needs.select.outputs.prs) }}
     steps:
@@ -78,6 +85,12 @@ jobs:
           sparse-checkout: |
             scripts/cmux-next/generated_catch_up.py
             .gitattributes
+            scripts/merge-xcstrings.py
+            scripts/merge-pbxproj.py
+            scripts/merge-baseline.py
+            scripts/merge-daemon-capabilities.py
+            scripts/ci/merge_main_resolver.py
+            scripts/normalize-pbxproj.py
           sparse-checkout-cone-mode: false
 
       - name: Check out the pull request
@@ -101,6 +114,21 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config merge.cmux-generated-v1.name "keep this branch's generated file"
           git config merge.cmux-generated-v1.driver true
+          # The key-wise drivers (.gitattributes; scripts/install-git-hooks.sh registers the
+          # same per clone), from the base's copy: GitHub ignores them, so a catalog or a
+          # baseline both sides added entries to conflicts on every PR. Each one still
+          # leaves a real conflict (the same key changed on both sides) for the author.
+          # The sparse checkout above also holds the helpers merge-pbxproj.py loads
+          # from beside itself, as install-git-hooks.sh installs them.
+          trusted="$(cd ../trusted && pwd)"
+          printf -v xcstrings '%q -I %q %%O %%A %%B %%P %%L' python3 "$trusted/scripts/merge-xcstrings.py"
+          printf -v pbxproj '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-pbxproj.py"
+          printf -v baseline '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-baseline.py"
+          printf -v capabilities '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-daemon-capabilities.py"
+          git config merge.xcstrings-v2.driver "$xcstrings"
+          git config merge.pbxproj-v1.driver "$pbxproj"
+          git config merge.cmux-baseline-v1.driver "$baseline"
+          git config merge.cmux-capabilities-v1.driver "$capabilities"
           git fetch --quiet origin "$BASE_SHA"
           if git merge --no-commit --no-ff "$BASE_SHA" >/dev/null 2>&1; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -125,13 +153,13 @@ jobs:
         if: steps.merge.outputs.skip != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Setup Node
         if: steps.merge.outputs.skip != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
 
       # The PR's own code builds here, before any write token exists.
       - name: Rebuild the generated files
@@ -151,7 +179,7 @@ jobs:
             echo "::error::paths are still unmerged after the rebuild"; git diff --name-only --diff-filter=U; exit 1
           fi
           git commit --quiet -m "Merge feat-cmux-next into $BRANCH" \
-            -m "Only generated files conflicted; CI kept this branch's copies and rebuilt them (scripts/cmux-next/regenerate-web-bundles.sh): $RUN_URL"
+            -m "Only generated files conflicted; CI kept this branch's copies and rebuilt them (scripts/cmux-next/regenerate-web-bundles.sh). The base's key-wise drivers merged catalogs, baselines and the Xcode project: $RUN_URL"
           git show --stat --oneline HEAD | sed -n '1,40p' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Mint the catch-up token

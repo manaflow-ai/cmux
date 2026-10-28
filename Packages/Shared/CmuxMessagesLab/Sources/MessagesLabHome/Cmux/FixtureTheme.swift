@@ -3,8 +3,11 @@ import CmuxHomeRender
 
 /// The cmux theme as MessagesLab's `Fixture` colours (`Fixture.theme`). The
 /// host builds `HomePalette`s from the cmux-next theme (the Ghostty theme and
-/// the user's accent, `HomeThemePalette`) for the key and the non-key window;
-/// this maps their roles onto the Fixture names the vendored drawing reads.
+/// the user's accent, `HomeThemePalette`), the key window's palette for every
+/// window and state (as Messages on macOS 27, a non-key window draws the same
+/// bubbles; the per-view inactive state greys only the typing indicator,
+/// MessagesLab 806ef0c); this maps its roles onto the Fixture names the
+/// vendored drawing reads.
 /// Geometry, fonts and motion stay MessagesLab's.
 struct FixtureTheme: Equatable {
     struct Colors: Equatable {
@@ -32,6 +35,8 @@ struct FixtureTheme: Equatable {
         let waveform: NSColor
         let caret: NSColor
         let chipFill: NSColor
+        /// The field's hairline edge on a light theme (palette `composeStroke`, 3:1 on the page).
+        let fieldEdge: NSColor
 
         /// `measured`: the iMessage style, whose dark caret is Messages' own; the theme's look keeps the theme's caret.
         init(_ p: HomePalette, measured: Bool = true) {
@@ -64,6 +69,7 @@ struct FixtureTheme: Equatable {
             placeholder = light ? c(p.placeholder) : NSColor(white: 1, alpha: 0.316)
             waveform = light ? c(p.placeholder) : NSColor(white: 212 / 255, alpha: 0.556)
             caret = light || !measured ? c(p.caret) : Fixture.p3(63, 143, 247)
+            fieldEdge = c(p.composeStroke)
             chipFill = light ? NSColor(white: 0, alpha: 0.08) : NSColor(white: 1, alpha: 0.12)
         }
 
@@ -71,14 +77,12 @@ struct FixtureTheme: Equatable {
     }
 
     let active: Colors
-    let inactive: Colors
     /// The theme names no accent: sent bubbles keep MessagesLab's measured
     /// blue and gradient (Fixture.outgoing, gradientStops) and white text.
     let measuredAccent: Bool
 
-    init(active: HomePalette, inactive: HomePalette, measuredAccent: Bool = false) {
+    init(active: HomePalette, measuredAccent: Bool = false) {
         self.active = Colors(active, measured: measuredAccent)
-        self.inactive = Colors(inactive, measured: measuredAccent)
         self.measuredAccent = measuredAccent
     }
 }

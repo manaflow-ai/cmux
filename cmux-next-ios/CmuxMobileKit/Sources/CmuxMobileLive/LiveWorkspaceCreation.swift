@@ -33,6 +33,11 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         self.acpmux = acpmux
     }
 
+    /// The Mac's acpmux client, once it exists (a Mac session makes both).
+    func attach(acpmux: AcpmuxHub) {
+        self.acpmux = acpmux
+    }
+
     public func canCreate(on macID: String) -> Bool {
         link.target?.macID == macID && link.phase.isConnected && sync.daemon != nil && sync.macID == macID
     }
@@ -171,7 +176,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             case .browser:
                 guard let url = tab.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
                 return .browser(url: url.absoluteString)
-            case .agent:
+            case .agent, .simulator:
                 return nil
             }
         }
@@ -551,6 +556,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             case .browser:
                 let url = tab.url.flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0.absoluteString : nil }
                 reply = try await client.request("new-browser-tab", params: ["url": url ?? "about:blank", "pane": place.pane])
+            case .simulator:
+                throw WorkspaceCreationError("Duplicate phone tabs on your Mac.", isForPerson: true)
             case .agent:
                 // The Mac's Duplicate Tab on a chat opens a second tab of the same chat
                 // (`PaneController.duplicateAgentTab`), never a copy of the conversation.
@@ -660,7 +667,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             if let title = clean(tab.title), !shells.contains(title.hasPrefix("-") ? String(title.dropFirst()) : title) { return title }
             let folder = tab.subtitle.map { ($0 as NSString).lastPathComponent }
             return clean(folder == "/" || folder == "~" ? nil : folder)
-        case .agent:
+        case .agent, .simulator:
             return clean(tab.title)
         }
     }

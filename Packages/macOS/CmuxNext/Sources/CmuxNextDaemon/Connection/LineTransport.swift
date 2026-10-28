@@ -177,7 +177,7 @@ final class LineTransport: Sendable {
     /// late reply is dropped when it comes (architecture.md 5a).
     func request(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
         let slot = ReplySlot()
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // A traced new terminal: the request naming its id, and that request's reply.
         var traced: String?
         let submitted: Result<UInt64, any Error>
@@ -198,7 +198,7 @@ final class LineTransport: Sendable {
         let timer = DemandTimer(owner: "LineTransport.deadline")
         defer { timer.cancel() }
         if let timeout { timer.schedule(after: timeout) { [weak self] in self?.expire(id: id, after: timeout) } }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         let response = try await slot.value()
         if let traced { NewTerminalTrace.shared.mark(.reply, terminal: traced) }
         return response

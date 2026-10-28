@@ -12,6 +12,14 @@ public nonisolated protocol AcpmuxPaneWire: Sendable {
     func send(_ text: String, completion: @escaping @Sendable (Bool) -> Void)
     /// Ends the path (the host's decision).
     func cancel(code: Int, reason: String)
+    /// Reads one image from a remote chat's owning host. Local socket wires have no such route.
+    func loadRemoteImage(_ path: String) async throws -> Data
+}
+
+public extension AcpmuxPaneWire {
+    func loadRemoteImage(_ path: String) async throws -> Data {
+        throw AgentSessionRemoteError(code: "remote.unsupported", message: "remote media is unavailable")
+    }
 }
 
 /// A chat whose acpmux runs on another machine: the host's socket for it is a wire this route

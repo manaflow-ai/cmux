@@ -15,16 +15,21 @@
 //! and refuses every other call, from a script too.
 
 mod action_tools;
+mod agent_dispatch_tools;
 mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
 mod browser_tools;
+mod caller_scope;
 mod code_mode;
+mod computer_use_gate;
 mod config;
 mod keybinding_tools;
 mod messages;
+mod placement;
 mod render_tool;
 mod schema;
+mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
 mod transport;
@@ -99,9 +104,15 @@ pub(super) const MAX_RESULT_BYTES: usize = 256 << 10;
 const INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its session daemon. \
     Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, win_…) that the \
     *_list tools report; a unique prefix works, and <session>:<id> reaches another session. \
+    `current` is this chat's own workspace or pane; `focused` is the one the person looks at. \
     A change takes idempotency_key: when a call fails with state in_progress, retry it with the \
     key from the error so it cannot apply twice. Tools never move the user's focus unless the \
-    call passes focus: true or the tool's purpose is focus.";
+    call passes focus: true or the tool's purpose is focus. \
+    Name workspaces and tabs to the person by their titles, never by an id they cannot see. \
+    When the person must act in a tab (log in, confirm, approve, pick), mark it: tab_update \
+    {tab, attention: \"reason\"}; when they ask to go there, tab_focus it. \
+    In a cmux chat reply, show UI rather than describe it: ![alt](/abs/path.png), a bare image \
+    path or an https image address draws as a thumbnail, and two in one paragraph sit side by side.";
 
 /// A catalog entry that is not a tool, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -141,6 +152,37 @@ pub(super) trait Backend {
         request: browser_tools::Request,
         mutation: bool,
     ) -> Result<Value, CallFailure>;
+    /// One harness-agnostic agent dispatch request. The acpmux daemon owns
+    /// target selection, brief persistence and sender attribution; this
+    /// surface deliberately carries no shell command or remote path.
+    fn acpmux(
+        &self,
+        _method: &str,
+        _params: Value,
+        _timeout: Duration,
+        _idempotency_key: Option<&str>,
+        _mutation: bool,
+    ) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "acpmux.unavailable",
+            "this server cannot reach acpmux agent dispatch",
+        ))
+    }
+    /// App calls that may run on another thread: a computer use call's
+    /// setup card waits with the call, not on this server's thread
+    /// (`computer_use_gate`). `None`: the call runs without the card.
+    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
+        None
+    }
+    /// The app's `system.identify` (`caller`, `beside`); `None` with no caller (placement.rs).
+    fn identity(&self) -> Result<Option<Value>, CallFailure> {
+        Ok(None)
+    }
+    /// The app's focus from `snapshot.get` (placement.rs).
+    fn focus(&self) -> Result<Option<Value>, CallFailure> {
+        Ok(None)
+    }
     /// Holds the session daemon's `session.events` stream open until
     /// `deadline` and calls `on_wake` with each item (the initial snapshot
     /// first, or with `cursor` the journal batches after it), and with
@@ -207,6 +249,21 @@ impl Backend for LiveBackend {
         transport::resource(&self.routed(session)?, plan, prefixes)
     }
 
+    fn identity(&self) -> Result<Option<Value>, CallFailure> {
+        placement::app_identity(&self.global)
+    }
+
+    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
+        let global = self.global.clone();
+        Some(std::sync::Arc::new(move |method: &str, params: Value, timeout: Duration| {
+            transport::app_method(&global, method, params, timeout, None, false)
+        }))
+    }
+
+    fn focus(&self) -> Result<Option<Value>, CallFailure> {
+        placement::app_focus(&self.global)
+    }
+
     fn session_events(
         &self,
         session: Option<&str>,
@@ -235,6 +292,17 @@ impl Backend for LiveBackend {
         mutation: bool,
     ) -> Result<Value, CallFailure> {
         transport::browser_host(request.method, request.params, request.timeout, mutation)
+    }
+
+    fn acpmux(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        idempotency_key: Option<&str>,
+        mutation: bool,
+    ) -> Result<Value, CallFailure> {
+        agent_dispatch_tools::acpmux_request(method, params, timeout, idempotency_key, mutation)
     }
 
     fn chat(
@@ -305,6 +373,15 @@ fn allowed_tools(value: Option<std::ffi::OsString>) -> Option<BTreeSet<String>> 
 pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
     let agent_chat = std::env::var_os(AGENT_SESSION_ENV).is_some_and(|v| !v.is_empty());
     refusal_for(path, agent_chat)
+}
+
+/// The settings file, and whether it turns `serve` on for a client outside
+/// a cmux agent chat (Claude Code or Codex started in a terminal), or why
+/// it cannot be read (`cmux setup mcp`).
+pub(super) fn outside_chats() -> (PathBuf, Result<bool, String>) {
+    let path = config::path();
+    let on = config::setting(&path).map(|setting| setting == Some(true));
+    (path, on)
 }
 
 fn refusal_for(path: &std::path::Path, agent_chat: bool) -> Option<String> {
@@ -412,8 +489,12 @@ pub(super) struct Server<B> {
     /// While a `cmux_exec` script runs: its time limit, which also bounds a
     /// proxied call it makes (the script holds this thread).
     call_cap: Option<Duration>,
+    /// While a `cmux_exec` script runs: when its time limit ends.
+    call_deadline: Option<Instant>,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
+    /// The ids `render` returned in this process: a render may update only one of these.
+    renders: std::collections::HashSet<String>,
 }
 
 impl<B: Backend> Server<B> {
@@ -431,7 +512,9 @@ impl<B: Backend> Server<B> {
             allowed: None,
             upstreams: Vec::new(),
             call_cap: None,
+            call_deadline: None,
             notes: None,
+            renders: std::collections::HashSet::new(),
         }
     }
 
@@ -535,9 +618,11 @@ impl<B: Backend> Server<B> {
         tools.push(action_tools::window_list_tool());
         tools.push(super::agents::snapshot_tool());
         tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
+        tools.extend(agent_dispatch_tools::descriptors());
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
         tools.push(agent_events_tool::descriptor());
+        tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
@@ -622,10 +707,12 @@ impl<B: Backend> Server<B> {
             let mut tools = None;
             let mut images = Vec::new();
             self.call_cap = Some(self.script_limits.total);
+            self.call_deadline = Some(Instant::now() + self.script_limits.total);
             let answered = code_mode::exec(&arguments, self.script_limits, &mut |request| {
                 self.script_request(request, &mut tools, &mut images)
             });
             self.call_cap = None;
+            self.call_deadline = None;
             let mut result = answered.unwrap_or_else(|message| {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
             });
@@ -729,6 +816,9 @@ impl<B: Backend> Server<B> {
         if let Some(tool) = agent_tools::find(name) {
             return Ok(tool.call(&self.backend, &arguments));
         }
+        if let Some(tool) = agent_dispatch_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
+        }
         if name == agent_wait_tool::NAME {
             let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
             return Ok(agent_wait_tool::call(&self.backend, &arguments, progress));
@@ -736,8 +826,15 @@ impl<B: Backend> Server<B> {
         if name == agent_events_tool::NAME {
             return Ok(agent_events_tool::call(&self.backend, &arguments));
         }
+        if name == terminal_talk_tools::LIST {
+            return Ok(terminal_talk_tools::call_list(&self.backend, &arguments));
+        }
+        if name == terminal_talk_tools::SEND {
+            let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
+            return Ok(terminal_talk_tools::call_send(&self.backend, &arguments, progress));
+        }
         if name == render_tool::NAME {
-            return Ok(match render_tool::receipt(&arguments) {
+            return Ok(match render_tool::receipt(&arguments, &mut self.renders) {
                 Ok(receipt) => success(receipt, false),
                 Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
             });
@@ -803,10 +900,17 @@ impl<B: Backend> Server<B> {
     }
 
     fn call_v2(&self, tool: &v2_tools::V2Tool, arguments: &Map<String, Value>) -> Value {
-        let call = match tool.plan(arguments) {
+        let arguments = match self.place_beside(tool, arguments) {
+            Ok(arguments) => arguments,
+            Err(answer) => return answer,
+        };
+        let mut call = match tool.plan(&arguments) {
             Ok(call) => call,
             Err(error) => return tool_error(envelope(error, "not_run", None)),
         };
+        if let Err(error) = self.place_caller(&mut call) {
+            return tool_error(envelope(error, "not_run", None));
+        }
         let page = call.page;
         match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
             Ok(value) => success(
@@ -857,7 +961,11 @@ fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
         "protocolVersion": version,
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
-        "instructions": if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
+        "instructions": format!(
+            "{} {}",
+            if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
+            acpmux::agent_tools::ASKING_RULE
+        ),
     })
 }
 

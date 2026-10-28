@@ -40,19 +40,27 @@ enum CmuxStrings {
     static func turnRanSearches(_ n: Int) -> String {
         String(localized: "home.turn.ranSearches", defaultValue: "Ran \(n) searches", table: "CmuxHome", bundle: .module)
     }
-    /// Finished steps of other kinds, alone in the row.
-    static func turnSteps(_ n: Int) -> String {
-        String(localized: "home.turn.steps", defaultValue: "\(n) steps", table: "CmuxHome", bundle: .module)
-    }
-    /// Finished steps of other kinds, after a folded kind ("Ran 3 commands · 2 more steps").
-    static func turnMoreSteps(_ n: Int) -> String {
-        String(localized: "home.turn.moreSteps", defaultValue: "\(n) more steps", table: "CmuxHome", bundle: .module)
-    }
 
     /// The message menu's permalink item (tree threads, cx-och3h).
     /// The remove button on an attachment in the message box (its help and accessibility label).
     static var removeAttachment: String {
         String(localized: "home.compose.removeAttachment", defaultValue: "Remove Attachment", table: "CmuxHome", bundle: .module)
+    }
+    /// The mic button in the message box at rest (its help and accessibility label).
+    static var dictate: String {
+        String(localized: "home.compose.dictate", defaultValue: "Dictate", table: "CmuxHome", bundle: .module)
+    }
+    /// The mic button while it records (a click stops and keeps the words).
+    static var stopDictation: String {
+        String(localized: "home.compose.stopDictation", defaultValue: "Stop Dictation", table: "CmuxHome", bundle: .module)
+    }
+    /// The return-key button beside the waveform while dictating: stop and keep the words.
+    static var finishDictation: String {
+        String(localized: "home.compose.finishDictation", defaultValue: "Finish Dictation", table: "CmuxHome", bundle: .module)
+    }
+    /// The empty message box while dictating, before any words arrive.
+    static var listening: String {
+        String(localized: "home.compose.listening", defaultValue: "Listening…", table: "CmuxHome", bundle: .module)
     }
     /// The compose field's send button (its help and accessibility label).
     static var send: String {
@@ -127,6 +135,18 @@ enum CmuxStrings {
 
     static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", table: "CmuxHome", bundle: .module) }
     static var pauseVideo: String { String(localized: "home.video.pause", defaultValue: "Pause Video", table: "CmuxHome", bundle: .module) }
+    /// An attachment's Copy (the file and an image's pixels): Messages' own Copy title.
+    static var copyAttachment: String { Strings.menuCopy }
+    static var saveAttachmentAs: String {
+        String(localized: "home.attachment.saveAs", defaultValue: "Save As…", table: "CmuxHome", bundle: .module)
+    }
+    /// A link's Open Link and Copy Link Address rows (a link in text, a link card, a link preview).
+    static var openLink: String {
+        String(localized: "home.menu.openLink", defaultValue: "Open Link", table: "CmuxHome", bundle: .module)
+    }
+    static var copyLinkAddress: String {
+        String(localized: "home.menu.copyLinkAddress", defaultValue: "Copy Link Address", table: "CmuxHome", bundle: .module)
+    }
     static var openInDefaultApp: String {
         String(localized: "home.menu.openInDefaultApp", defaultValue: "Open in Default App", table: "CmuxHome", bundle: .module)
     }
@@ -143,13 +163,12 @@ enum CmuxStrings {
 
     // MARK: The Chief's plan card (HomeTableRowProvider.swift)
 
-    /// The card's header: "Plan · 6 steps", or "Plan · 6 steps, 3 active" while some still run.
+    /// The card's header: "Plan", or "Plan · 3 active" while some steps still run. Never a step count.
     static func planHeader(steps: Int, active: Int) -> String {
         if active == 0 {
-            return String(format: String(localized: "home.plan.steps", defaultValue: "Plan · %lld steps", table: "CmuxHome", bundle: .module), steps)
+            return String(localized: "home.plan.title", defaultValue: "Plan", table: "CmuxHome", bundle: .module)
         }
-        return String(format: String(localized: "home.plan.stepsActive", defaultValue: "Plan · %1$lld steps, %2$lld active", table: "CmuxHome", bundle: .module),
-                      steps, active)
+        return String(format: String(localized: "home.plan.activeCount", defaultValue: "Plan · %lld active", table: "CmuxHome", bundle: .module), active)
     }
 
     /// A step's state pill.

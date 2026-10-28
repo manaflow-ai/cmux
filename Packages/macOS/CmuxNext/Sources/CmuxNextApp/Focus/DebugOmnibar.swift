@@ -57,7 +57,7 @@ enum DebugOmnibar {
             "pressed_row": pressed, "pointer": entry(params, services: services).flatMap { JSONValue(foundation: $0.chrome.debugPointerObject(probeX: params["probe_x"]?.doubleValue, probeY: params["probe_y"]?.doubleValue)) } ?? .null,
             "card": bar.debugCard.map { card in
                 .object([
-                    "pane_layer": .bool(card.paneLayer), "flush_under_bar": .bool(card.isFlushUnderBar),
+                    "pane_layer": .bool(card.paneLayer), "flush_under_bar": .bool(card.isFlushUnderBar), "flush_above_bar": .bool(card.isFlushAboveBar),
                     "card_in_window": rect(card.cardInWindow), "bar_in_window": rect(card.barInWindow),
                     "row_kinds": .array(card.rowKinds.map(JSONValue.string)),
                 ])
@@ -69,7 +69,7 @@ enum DebugOmnibar {
         .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Params: `character` (index the press lands on), optional `drag_to`,
     /// `click_count` (1-3), `button` (`left` or `right`; a right-click skips
     /// the context menu), `pane`, `window`.

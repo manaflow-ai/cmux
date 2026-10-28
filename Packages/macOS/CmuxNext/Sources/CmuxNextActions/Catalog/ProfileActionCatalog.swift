@@ -17,14 +17,14 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 id: "space.newWindow",
                 title: String(localized: "action.space.newWindow", defaultValue: "New Window in Space…", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "window"], category: .workspace, symbol: "macwindow.badge.plus",
-                surfaces: [.palette, .menu, .contextMenu], arguments: [CatalogArgument.roomRoom], targets: [.profile],
+                surfaces: [.palette, .menu, .contextMenu], arguments: [CatalogArgument.roomRoom.suppliedByTarget], targets: [.profile],
                 cliName: "space new-window", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "space.newWorkspace",
                 title: String(localized: "action.space.newWorkspace", defaultValue: "New Workspace in Space…", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "workspace"], category: .workspace, symbol: "plus.rectangle.on.rectangle",
-                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.roomRoom], targets: [.profile],
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.roomRoom.suppliedByTarget], targets: [.profile],
                 cliName: "space new-workspace", startsTerminal: true
             ),
             ActionDescriptor(
@@ -122,6 +122,12 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 targets: [.profile], cliName: "space set-defaults"
             ),
             ActionDescriptor(
+                id: "space.clearDefaults",
+                title: String(localized: "action.space.clearDefaults", defaultValue: "Clear Space Terminal Defaults…", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "directory", "cwd", "environment", "env", "reset", "clear", "remove"], category: .workspace,
+                symbol: "eraser", surfaces: [.palette, .contextMenu], targets: [.profile], cliName: "space clear-defaults", destructive: true
+            ),
+            ActionDescriptor(
                 id: "space.newGroup",
                 title: String(localized: "action.space.newGroup", defaultValue: "New Group in Space", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "group", "folder", "create"], category: .workspace, symbol: "folder.badge.plus",
@@ -178,7 +184,7 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 id: "space.switch",
                 title: String(localized: "action.space.switch", defaultValue: "Switch to Space…", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "space", "switch"], category: .workspace, symbol: "circle.grid.2x1",
-                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.roomRoom], targets: [.profile, .window],
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.roomRoom.suppliedByTarget], targets: [.profile, .window],
                 cliName: "space switch"
             ),
             ActionDescriptor(

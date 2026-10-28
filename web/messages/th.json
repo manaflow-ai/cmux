@@ -54,7 +54,7 @@
     "recreateRequired": {
       "title": "สร้างเครื่องนี้ใหม่",
       "message": "เครื่องนี้สร้างขึ้นก่อนการอัปเดต Cloud จึงเชื่อมต่อไม่ได้",
-      "action": "สร้างเครื่องใหม่ คัดลอกไฟล์ด้วย cmux vm pull และ cmux vm push แล้วลบเครื่องนี้"
+      "action": "สร้างเครื่องใหม่ เตรียมปลายทาง SCP ด้วย `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"` แล้วคัดลอกไฟล์ผ่าน SCP ก่อนลบเครื่องนี้"
     },
     "guestUnresponsive": {
       "title": "เครื่องไม่ตอบสนอง",
@@ -64,7 +64,7 @@
     "inProgress": {
       "title": "ยังดำเนินการอยู่",
       "message": "ผู้ให้บริการคลาวด์ยังทำการเปลี่ยนแปลงนี้ไม่เสร็จ และอาจเสร็จในภายหลัง",
-      "action": "ตรวจสอบสถานะของเครื่องด้วย cmux vm ls หรือในรายการเครื่องก่อนลองอีกครั้ง"
+      "action": "ตรวจสอบสถานะของเครื่องด้วย cmux cloud list-machines หรือในรายการเครื่องก่อนลองอีกครั้ง"
     },
     "providerTimeout": {
       "title": "ผู้ให้บริการคลาวด์ตอบสนองช้า",
@@ -79,7 +79,7 @@
     "stateConflict": {
       "title": "เครื่องไม่ว่าง",
       "message": "เครื่องนี้กำลังเริ่มทำงาน กำลังหยุดชั่วคราว หรือไม่ได้ทำงาน จึงทำสิ่งนี้ไม่ได้ในตอนนี้",
-      "action": "รอสักครู่แล้วลองอีกครั้ง ตรวจสอบสถานะของเครื่องด้วย cmux vm ls และให้ทำงานต่อก่อนหากเครื่องหยุดชั่วคราวอยู่"
+      "action": "รอสักครู่แล้วลองอีกครั้ง ตรวจสอบสถานะของเครื่องด้วย cmux cloud list-machines และให้ทำงานต่อก่อนหากเครื่องหยุดชั่วคราวอยู่"
     },
     "networkRuleCapacity": {
       "title": "กฎเครือข่ายเต็มความจุ",
@@ -102,15 +102,15 @@
       "action": {
         "snapshot": "อย่าลองใหม่ งานบนประเภทเครื่องนี้จะเก็บไว้ในโฮมวอลุ่มถาวร",
         "restore": "อย่าลองใหม่ งานบนประเภทเครื่องนี้จะเก็บไว้ในโฮมวอลุ่มถาวร",
-        "fork": "อย่าลองใหม่ สร้าง VM ใหม่ด้วย `cmux vm new`",
-        "openPort": "อย่าลองอีกครั้ง ให้เข้าถึงบริการจากภายในเครื่องด้วย `cmux vm exec` หรือใช้ประเภทเครื่องที่เปิดพอร์ตได้",
-        "default": "อย่าลองใหม่ เรียกใช้ `cmux vm ls` หรือติดต่อฝ่ายสนับสนุนหากคิดว่านี่เป็นข้อผิดพลาด"
+        "fork": "อย่าลองใหม่ สร้าง VM ใหม่ด้วย `cmux cloud new-machine`",
+        "openPort": "อย่าลองอีกครั้ง ให้เข้าถึงบริการจากภายในเครื่องด้วย `cmux cloud exec --target machine:<id> --command <command>` หรือใช้ประเภทเครื่องที่เปิดพอร์ตได้",
+        "default": "อย่าลองใหม่ เรียกใช้ `cmux cloud list-machines` หรือติดต่อฝ่ายสนับสนุนหากคิดว่านี่เป็นข้อผิดพลาด"
       }
     },
     "requiresPro": {
-      "title": "ต้องใช้ cmux Pro",
-      "message": "Cloud VM ต้องใช้แผน cmux Pro",
-      "action": "อัปเกรดเป็น cmux Pro ที่ {upgradeUrl} เพื่อสร้าง Cloud VM"
+      "title": "ต้องใช้ cmux {plan}",
+      "message": "Cloud VM ต้องใช้แผน cmux {plan}",
+      "action": "อัปเกรดเป็น cmux {plan} ที่ {upgradeUrl} เพื่อสร้าง Cloud VM"
     },
     "displayName": {
       "title": "ชื่อเครื่องไม่ถูกต้อง",
@@ -120,35 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "เครื่องขนาด {memory} GiB ต้องใช้ cmux {plan} แผนของคุณรองรับสูงสุด {max} GiB",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "ไม่สามารถตรวจสอบขนาด RAM ของเครื่องต้นทางได้",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "ขนาดเครื่องนี้ไม่พร้อมใช้งาน โปรดเลือกขนาดไม่เกิน {max} GiB",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go รวม VM ที่บันทึกไว้สองเครื่อง รวมเครื่องที่กำลังทำงานด้วย",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go ใช้งาน VM ได้ครั้งละหนึ่งเครื่อง",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go ใช้เวลา VM ครบ 40 ชั่วโมงในเดือนนี้แล้ว VM ที่บันทึกไว้จะใช้ได้อีกครั้งในรอบบิลถัดไป",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go รองรับ 2 vCPU, RAM 4 GiB และดิสก์ 16 GiB",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
       "computeTitle": "ใช้โควตาการประมวลผลของ {plan} หมดแล้ว",
       "computeMessage": "แพ็กเกจ {plan} ของคุณใช้ชั่วโมงประมวลผล {included} ชั่วโมงของรอบการเรียกเก็บเงินนี้หมดแล้ว หนึ่งชั่วโมงประมวลผลคือ 1 vCPU พร้อมหน่วยความจำ 2 GB ทำงานหนึ่งชั่วโมง เครื่องของคุณจะเริ่มทำงานได้อีกครั้งในวันที่ {resetDate}",
       "computeAction": "เครื่องที่หยุดชั่วคราวจะเก็บไฟล์ไว้ โปรดติดต่อฝ่ายสนับสนุนหากต้องการการประมวลผลเพิ่มก่อนวันที่ {resetDate}",
-      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "ใช้โควตาดิสก์ของ {plan} หมดแล้ว",
       "storageMessage": "แพ็กเกจ {plan} ของคุณมีดิสก์รวม {included} GB สำหรับเครื่องที่บันทึกไว้ทั้งหมด เครื่องที่บันทึกไว้ใช้ {used} GB และคำขอนี้ต้องการ {requested} GB",
-      "storageAction": "cmux vm ls\ncmux vm rm <id>",
-      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "ทรัพยากร Cloud VM ไม่พอ",

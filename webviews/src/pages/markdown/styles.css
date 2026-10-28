@@ -3,7 +3,7 @@
    markdown/theme.css comes last). Defaults sit at zero specificity (`:where(:root)`) so settings
    and theme.css always win. The shared base (page colors, one background) is shared/pageBase.css. */
 :where(:root) {
-  --cmux-md-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --cmux-md-font-family: var(--font-ui);
   --cmux-md-font-size: 16px;
   --cmux-md-font-weight: 400;
   --cmux-md-line-height: 1.6;
@@ -128,6 +128,10 @@ body {
   border-radius: 4px;
   background: var(--cmux-md-accent-background);
   color: var(--cmux-md-muted-color);
+}
+
+.md-edit-button {
+  font-weight: 600;
 }
 
 .md-mode {
@@ -778,16 +782,18 @@ body {
   z-index: 20;
   max-width: min(560px, calc(100vw - 16px));
   padding: 6px 10px;
-  border: 1px solid var(--cmux-md-border-color);
   border-radius: 8px;
-  background: var(--cmux-md-popover-background);
-  box-shadow: var(--cmux-md-popover-shadow);
   color: var(--cmux-md-text-color);
   font-family: var(--cmux-md-font-family);
   font-size: var(--cmux-md-popover-font-size);
 }
 
+/* The edit form is a glass popover (ui Popover): the glass rim is its one edge and .ui-popup gives
+   it no border and its elevation, so it sets neither (test/glass-one-edge.test.ts). */
 .md-link-bubble {
+  border: 1px solid var(--cmux-md-border-color);
+  background: var(--cmux-md-popover-background);
+  box-shadow: var(--cmux-md-popover-shadow);
   min-width: 220px;
   padding: 4px 4px 6px 8px;
   pointer-events: auto;
@@ -1076,6 +1082,7 @@ body {
   font-size: var(--text-caption);
   line-height: 1;
   cursor: default;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .md-width-stepper button:hover {
@@ -1092,6 +1099,7 @@ body {
   color: var(--page-text-3);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .md-reading-check {
@@ -1391,6 +1399,7 @@ body {
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   box-shadow: var(--elevation-2);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .cmux-comment-card blockquote {

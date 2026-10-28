@@ -17,10 +17,11 @@ import Testing
         return steps
     }
 
+    /// The indicator for `lines` with the raw `thought`, headlined the way the live book publishes it.
     static func progress(_ lines: [String], thought: String? = nil, style: HomeTurnProgressStyle = .narrated) -> HomeTurnProgress {
         let steps = steps(lines)
         let current = HomeLiveActivity(line: lines.last ?? "Thinking", since: t0.addingTimeInterval(Double(lines.count - 1) * 10))
-        return HomeTurnProgress(steps: steps.steps, current: current, thought: thought,
+        return HomeTurnProgress(steps: steps.steps, current: current, thought: thought?.thoughtHeadline,
                                 now: current.since.addingTimeInterval(5), style: style)
     }
 
@@ -41,11 +42,19 @@ import Testing
         #expect(progress.summary == [CmuxStrings.turnReadFiles(2), CmuxStrings.turnRanCommands(2), "Telling a31"].joined(separator: " · ") + " ›")
     }
 
-    @Test func otherStepsCountAsSteps() {
+    @Test func genericStepsAreNeverCounted() {
         let progress = Self.progress(["Telling a31", "Starting 2 agents", "Checking on a31", "Checking on a7"])
-        #expect(progress.summary == CmuxStrings.turnSteps(3) + " ›")
+        #expect(progress.summary == "›")
         let mixed = Self.progress(["Running ls", "Running pwd", "Telling a31", "Starting 2 agents", "Checking on a31"])
-        #expect(mixed.summary == CmuxStrings.turnRanCommands(2) + " · " + CmuxStrings.turnMoreSteps(2) + " ›")
+        #expect(mixed.summary == CmuxStrings.turnRanCommands(2) + " ›")
+        for text in [progress.summary, mixed.summary].compactMap({ $0 }) {
+            #expect(!text.localizedCaseInsensitiveContains("step"))
+        }
+    }
+
+    @Test func planHeaderNeverCountsSteps() {
+        #expect(!CmuxStrings.planHeader(steps: 6, active: 0).contains("6"))
+        #expect(!CmuxStrings.planHeader(steps: 6, active: 3).localizedCaseInsensitiveContains("step"))
     }
 
     @Test func thinkingAndWritingAreNotSteps() {
@@ -68,6 +77,14 @@ import Testing
         #expect(steps.rows == ["Telling a31 ›", "Checking on a31 · 5s"])
         let line = Self.progress(["Telling a31", "Checking on a31"], thought: "**Waiting**", style: .line)
         #expect(line.rows == ["Checking on a31 · 5s"])
+    }
+
+    @Test func thePublishedHeadlineShowsAsItIs() {
+        // A heading with a sentence end inside it stays whole: the indicator does not headline it again.
+        let progress = Self.progress(["Telling a31", "Checking on a31"], thought: "**Checking a31. Then a7**")
+        #expect(progress.narration == "Checking a31. Then a7")
+        let done = Self.progress(["Telling a31", "Checking on a31"], thought: "**Done!**")
+        #expect(done.narration == "Done!")
     }
 
     @Test func whileThinkingTheThoughtIsTheStepNow() {
@@ -100,7 +117,7 @@ import Testing
         line.dispatch = { shown.append($0) }
         let activity = HomeLiveActivity(line: "Checking on a31", since: Self.t0)
         line.show(activity)
-        line.show(activity, thought: "**Waiting for the tests**")
+        line.show(activity, thought: "Waiting for the tests")
         #expect(shown.last == "Waiting for the tests\nChecking on a31")
         line.stop()
     }
@@ -116,12 +133,13 @@ import Testing
                                                                activity: HomeLiveActivity(line: "Checking on a31", since: Date())))))
         rig.store.handle(.live(.delta(HomeLiveDelta(conversation: conversation, author: rig.chief, run: "r1", step: "thought:0",
                                                     isTalk: false, seq: 0, text: "**Waiting for a31**", isFinal: false))))
-        #expect(rig.store.liveRun(in: conversation)?.thought == "**Waiting for a31**")
+        // The store publishes the thought's headline, not its whole text.
+        #expect(rig.store.liveRun(in: conversation)?.thought == "Waiting for a31")
         // Its last frame ends the step; the thought stays the run's narration until the next one.
         rig.store.handle(.live(.delta(HomeLiveDelta(conversation: conversation, author: rig.chief, run: "r1", step: "thought:0",
-                                                    isTalk: false, seq: 1, text: "\n\nIt runs its tests.", isFinal: true))))
-        #expect(rig.store.liveRun(in: conversation)?.thought == "**Waiting for a31**\n\nIt runs its tests.")
+                                                    isTalk: false, seq: 1, text: "\n\n**Reading its test log**", isFinal: true))))
+        #expect(rig.store.liveRun(in: conversation)?.thought == "Reading its test log")
         rig.frame()
-        #expect(rig.view.debugStatusLine?.components(separatedBy: "\n").first == "Waiting for a31")
+        #expect(rig.view.debugStatusLine?.components(separatedBy: "\n").first == "Reading its test log")
     }
 }
