@@ -12,7 +12,7 @@
 use anyhow::{Context as _, Result};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::io::{BufRead as _, Read as _, Write as _};
+use std::io::{BufRead as _, Read as _, Write};
 use std::path::{Path, PathBuf};
 
 pub(super) type Key = (String, String);
