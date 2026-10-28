@@ -60,6 +60,18 @@ test("an older app host falls back when the advertised native action is unknown"
   expect(f.opened).toEqual(["side"]);
 });
 
+test("a stale selection does not start a legacy side after an old host rejects inline", async () => {
+  const f = fixture(new Set([BTW_INLINE]));
+  let reject!: (error: unknown) => void;
+  f.actions.inline = () => new Promise<string>((_resolve, fail) => { reject = fail; });
+  const answer = askBtwQuestion(f.client, "why?", "main", f.actions);
+  f.client.selectionToken += 2;
+  reject({ code: "native.invalid_request" });
+  await expect(answer).rejects.toThrow("stale");
+  expect(f.legacy).toEqual([]);
+  expect(f.opened).toEqual([]);
+});
+
 test("a daemon without the id gets a legacy question and its side session opens", async () => {
   const f = fixture();
   const answer = askBtwQuestion(f.client, "why?", "main", f.actions);

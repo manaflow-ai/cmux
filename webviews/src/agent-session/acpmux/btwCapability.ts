@@ -39,6 +39,7 @@ export async function askBtwQuestion(
       // the native operation yet. Keep the request useful across that version
       // skew by using the legacy side-session shape in that one case.
       if (!isUnsupportedNativeAction(error)) throw error;
+      if (!current()) throw new Error(actions.staleMessage());
     }
   }
   // Older daemons ignore `inline`: use only the legacy request shape.
