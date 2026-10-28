@@ -19,6 +19,7 @@ public struct MobileHostRouteSnapshot: Sendable {
 public final class MobileRouteResolver: @unchecked Sendable {
     private static let tailscaleRouteCacheTTL: TimeInterval = 30
 
+    /// Creates a resolver with an empty, independently refreshed route cache.
     public init() {}
 
     private let cacheLock = NSLock()
