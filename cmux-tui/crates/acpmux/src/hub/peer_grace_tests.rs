@@ -30,8 +30,10 @@ async fn short_peer_flap_keeps_rows_and_emits_no_status_events() {
     send(&hub, &peer, PeerNotice::Disconnected("reset".into())).await;
     tokio::time::advance(Duration::from_secs(9)).await;
     assert_eq!(hub.resolve_remote("live").unwrap().2["status"], "ready");
-    hub.peer_notices.send((peer.name.clone(), peer.generation, PeerNotice::Sessions(rows)))
-        .await.unwrap();
+    hub.peer_notices
+        .send((peer.name.clone(), peer.generation, PeerNotice::Sessions(rows)))
+        .await
+        .unwrap();
     send(&hub, &peer, PeerNotice::Connected).await;
     tokio::time::advance(Duration::from_secs(2)).await;
     tokio::task::yield_now().await;

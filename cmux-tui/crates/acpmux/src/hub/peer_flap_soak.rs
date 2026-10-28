@@ -59,10 +59,11 @@ mod tests {
         }
         // SAFETY: getrusage returned success above.
         let usage = unsafe { usage.assume_init() };
-        usage.ru_utime.tv_sec as f64
-            + usage.ru_utime.tv_usec as f64 / 1_000_000.0
-            + usage.ru_stime.tv_sec as f64
-            + usage.ru_stime.tv_usec as f64 / 1_000_000.0
+        let user_seconds: f64 = usage.ru_utime.tv_sec as _;
+        let user_micros: f64 = usage.ru_utime.tv_usec as _;
+        let system_seconds: f64 = usage.ru_stime.tv_sec as _;
+        let system_micros: f64 = usage.ru_stime.tv_usec as _;
+        user_seconds + user_micros / 1_000_000.0 + system_seconds + system_micros / 1_000_000.0
     }
 
     fn row(peer: usize, session: usize) -> Value {
@@ -78,10 +79,7 @@ mod tests {
     fn setup() -> Arc<Hub> {
         let mut cfg = Config::default();
         cfg.store.mode = crate::config::StoreMode::Memory;
-        Hub::new(
-            cfg.clone(),
-            crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap(),
-        )
+        Hub::new(cfg.clone(), crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap())
     }
 
     async fn sample() -> Sample {
@@ -90,13 +88,7 @@ mod tests {
         let mut peers = Vec::with_capacity(PEERS);
         for peer_no in 0..PEERS {
             let name = format!("flap-{peer_no}");
-            let peer = Peer::new(
-                &name,
-                "ws://127.0.0.1:9",
-                None,
-                None,
-                hub.peer_notices.clone(),
-            );
+            let peer = Peer::new(&name, "ws://127.0.0.1:9", None, None, hub.peer_notices.clone());
             let generation = peer.generation;
             hub.peers.lock().unwrap().insert(name.clone(), peer.clone());
             let rows = (0..ROWS_PER_PEER).map(|s| row(peer_no, s)).collect();
@@ -116,7 +108,8 @@ mod tests {
         let started = tokio::time::Instant::now();
         let deadline = started + Duration::from_secs(duration_secs);
         for flap in 0..flaps {
-            tokio::time::sleep_until(started + Duration::from_secs(flap_secs * (flap as u64 + 1))).await;
+            tokio::time::sleep_until(started + Duration::from_secs(flap_secs * (flap as u64 + 1)))
+                .await;
             let mut settled = peers.iter().map(|(_, _, p)| p.settled()).collect::<Vec<_>>();
             for (name, generation, _) in &peers {
                 hub.peer_notices

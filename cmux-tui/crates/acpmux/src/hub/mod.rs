@@ -135,6 +135,7 @@ pub mod approvers;
 pub mod mac_approvers;
 mod own_host;
 mod peer_cache;
+mod peer_grace;
 #[cfg(test)]
 mod peer_flap_soak;
 #[cfg(test)]
