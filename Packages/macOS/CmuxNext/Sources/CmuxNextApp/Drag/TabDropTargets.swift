@@ -106,8 +106,9 @@ final class SidebarTabDropTarget: TabDropTargetProviding {
 
 /// The workspace layout: pane edge zones (new split), pane centers (join
 /// that pane's strip at the end), and column gaps (new strip column). Reads
-/// the window's current content on every call, so a spring-loaded
-/// workspace switch mid-drag is picked up. It answers for every point of
+/// the workspace on screen under the point on every call (the focused one,
+/// or one shown beside it), so a spring-loaded workspace switch mid-drag is
+/// picked up. It answers for every point of
 /// its window that no surface before it took (the title bar, the window
 /// edges): the point is moved to the nearest point of the layout, so a
 /// drop anywhere in a window previews and lands somewhere (tab-dnd).
@@ -122,17 +123,15 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
         self.window = window
     }
 
-    var layoutView: LayoutRootView? { window?.content?.layoutView }
-
     /// When the pane edge under a resting pointer arms its split; nil when none is pending.
     var dwellDeadline: CFTimeInterval? { touched?.tabDragDwellDeadline }
 
     func dropHitTest(screenPoint: CGPoint, payload: TabDragPayload) -> TabDropProposal? {
-        proposal(screenPoint: screenPoint, dragKey: payload.dragID) { controller in
-            // A tab dropped on its own pane keeps its tab group (the end of
-            // its own strip is not a group change).
-            guard case .tab(let id, _) = payload else { return nil }
-            return controller.stripModel.orderedTabs.first { $0.id.rawValue == id }?.groupID?.rawValue
+        // A terminal tab's own pane: the facing edge of the pane beside it joins that pane (bonsplit, #22287).
+        let source = window?.content(atScreen: screenPoint)?.panes.values.first { $0.pane.tabs.contains { $0.id == payload.dragID && $0.kind == .pty } }
+        return proposal(screenPoint: screenPoint, dragKey: payload.dragID, joinsFrom: source?.layoutPaneID) {
+            // A drop on the tabs' own pane body leaves them where they are (bonsplit, #22287).
+            payload.ownPlace(in: $0.stripModel.orderedTabs)
         }
     }
 
@@ -141,16 +140,18 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
     /// rest of the window keeps the workspace's own drops). Its tabs join
     /// no tab group.
     func workspaceHitTest(screenPoint: CGPoint, workspaceID: String) -> TabDropProposal? {
-        guard let layout = layoutView, let nsWindow = layout.window,
+        guard let layout = window?.content(atScreen: screenPoint)?.layoutView, let nsWindow = layout.window,
               layout.bounds.contains(layout.convert(nsWindow.convertPoint(fromScreen: screenPoint), from: nil)) else { return nil }
         return proposal(screenPoint: screenPoint, dragKey: workspaceID) { _ in nil }
     }
 
     /// The layout's target under `screenPoint` for a drag keyed `dragKey`;
-    /// `ownGroup` is the group a center drop on `controller` keeps.
-    private func proposal(screenPoint: CGPoint, dragKey: String,
-                          ownGroup: (PaneController) -> String?) -> TabDropProposal? {
-        guard let content = window?.content, case let layout = content.layoutView, let nsWindow = layout.window,
+    /// `ownPlace` is the dragged tabs' display index and group in
+    /// `controller` when they are in it: a center drop there keeps them.
+    private func proposal(screenPoint: CGPoint, dragKey: String, joinsFrom: LayoutPaneID? = nil,
+                          ownPlace: (PaneController) -> (index: Int, group: String?)?) -> TabDropProposal? {
+        // The workspace under the point: with `sidebar.multiView`, one shown beside the focused one takes its drops.
+        guard let content = window?.content(atScreen: screenPoint), case let layout = content.layoutView, let nsWindow = layout.window,
               !layout.bounds.isEmpty else { return nil }
         let local = layout.convert(nsWindow.convertPoint(fromScreen: screenPoint), from: nil)
         let inside = layout.bounds.insetBy(dx: 0.5, dy: 0.5)
@@ -159,7 +160,7 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
         if touched !== layout { touched?.cancelTabDrag() }
         touched = layout
         guard let target = layout.updateTabDrag(LayoutTabID(dragKey), locationInWindow: windowPoint, removing: removingPane,
-                                                edgeDwell: DragTunables.splitDwell.value) else {
+                                                joinsFrom: joinsFrom, edgeDwell: DragTunables.splitDwell.value) else {
             return nil
         }
         // The ghost lands on the rect the layout's preview shows (R47).
@@ -167,8 +168,8 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
         switch target {
         case .pane(let pane, .center):
             guard let controller = content.panes[pane] else { return nil }
-            return TabDropProposal(kind: .strip(stripID: controller.stripModel.stripID, index: controller.pane.tabs.count,
-                                                groupID: ownGroup(controller)),
+            let own = ownPlace(controller) ?? (controller.pane.tabs.count, nil)
+            return TabDropProposal(kind: .strip(stripID: controller.stripModel.stripID, index: own.index, groupID: own.group),
                                    highlightFrame: preview)
         case .pane(let pane, let zone):
             guard let edge = zone.edge else { return nil }
@@ -183,7 +184,7 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
     /// Outlines a strip's insert slot (`screenRect`) in this layout's
     /// overlay, so one outline moves between pane zones and strip slots.
     func outline(screenRect: CGRect) {
-        guard let layout = layoutView else { return }
+        guard let layout = window?.content(atScreen: CGPoint(x: screenRect.midX, y: screenRect.midY))?.layoutView else { return }
         if touched !== layout { touched?.cancelTabDrag() }
         touched = layout
         layout.showTabDragOutline(screenRect: screenRect)
@@ -206,18 +207,6 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
 
     func dropEnded(committed: TabDropProposal?) {
         dropExited()
-    }
-}
-
-extension PaneDropZone {
-    var edge: TabDropEdge? {
-        switch self {
-        case .left: .left
-        case .right: .right
-        case .top: .top
-        case .bottom: .bottom
-        case .center: nil
-        }
     }
 }
 

@@ -50,6 +50,15 @@ public final class PersonalStore {
         return sessionIndex[id]
     }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
+    /// The group the sidebar-document group item `id` names, as the daemon reads it: `itm_g_<id>` first.
+    public func group(item id: String) -> WorkspaceGroupModel? {
+        Self.legacyGroupID(item: id).flatMap(group) ?? group(WorkspaceGroupID(rawValue: id))
+    }
+    /// The group a sidebar-document group item `itm_g_<id>` names (the daemon's `legacy_group_id`):
+    /// a group migrated or synced from this store. A group the document made keeps its own id.
+    public nonisolated static func legacyGroupID(item: String) -> WorkspaceGroupID? {
+        item.hasPrefix("itm_g_") ? WorkspaceGroupID(rawValue: String(item.dropFirst(6))) : nil
+    }
 
     public func workspace(session: String, key: String) -> PersonalWorkspace? {
         _ = workspaces
@@ -68,11 +77,11 @@ private func personalWorkspaceIndex(_ workspaces: [PersonalWorkspace]) -> [Strin
 
 extension DaemonStore {
     /// Whether this daemon serves personal state (`profiles-v1`).
-    public var supportsProfiles: Bool { identity?.supports(DaemonCapabilities.shared.profiles) ?? false }
+    public var supportsProfiles: Bool { identity?.supports(DaemonCapability.profiles.rawValue) ?? false }
 
     /// Whether personal groups carry a place among the loose workspaces
     /// (`personal-mixed-order-v1`).
-    public var supportsPersonalMixedOrder: Bool { identity?.supports(DaemonCapabilities.shared.personalMixedOrder) ?? false }
+    public var supportsPersonalMixedOrder: Bool { identity?.supports(DaemonCapability.personalMixedOrder.rawValue) ?? false }
 
     func applyPersonal(_ state: PersonalState?) {
         guard let state else {

@@ -214,12 +214,16 @@ describe("one subtle elevation scale", () => {
 
   // The surfaces the sweep covered, and the step each takes.
   const surfaces: [file: string, selector: string, token: (typeof ELEVATIONS)[number]][] = [
-    ["ui/ui.css", ".ui-popup", "--elevation-2"],
+    // A popup is liquid glass: its drop is the glass's --glass-elevation (ui/glass/glass.css draws it
+    // into the box-shadow), set once on .ui-popup. The pane's menus and popovers (.nt-popover,
+    // .acpmux-menu) are .ui-popup and cast that one.
+    ["ui/popupSurface.css", ".ui-popup", "--elevation-2"],
     ["ui/ui.css", ".ui-sheet", "--elevation-2"],
     // A tooltip is small and close to its control: elevation 1 (--tooltip-shadow, TooltipSurface.shadow).
     ["pages/shared/desktop.css", ".ui-title-tooltip", "--elevation-1"],
     ["pages/shared/pageBase.css", ".page-menu", "--elevation-2"],
-    ["pages/markdown/styles.css", ".md-link-popover", "--elevation-2"],
+    // The link editor (.md-link-popover) is a ui/Popover, so .ui-popup casts its drop; the hover bubble is solid.
+    ["pages/markdown/styles.css", ".md-link-bubble", "--elevation-2"],
     ["pages/cloud/styles.css", ".cloud-create-sheet", "--elevation-2"],
     ["pages/home-channels/ledger.css", ".lg-palette", "--elevation-2"],
     ["pages/home-channels/ledger.css", ".lg-form", "--elevation-2"],
@@ -228,7 +232,6 @@ describe("one subtle elevation scale", () => {
     ["icon-picker/styles.css", ".icon-bar-pill", "--elevation-2"],
     ["viewer-empty/styles.css", ".ve-picker", "--elevation-2"],
     ["styles.css", ".toolbar-menu", "--elevation-2"],
-    ["styles.css", "#diff-find-bar", "--elevation-2"],
     ["styles.css", ".file-tree-context-menu", "--elevation-2"],
     ["styles.css", ".comment-card", "--elevation-1"],
     // The composer: --elevation-1 in a light theme, none in a dark one (newtab-quiet-focus.test.ts).
@@ -239,15 +242,13 @@ describe("one subtle elevation scale", () => {
       "--elevation-2",
     ],
     ["agent-session/acpmux/newtab/screen.css", ".nt-box", "--elevation-1"],
-    ["agent-session/acpmux/newtab/screen.css", ".nt-popover", "--elevation-2"],
     ["agent-session/acpmux/styles.css", ".acpmux-newtab-box", "--elevation-2"],
     ["agent-session/acpmux/styles.css", ".acpmux-newtab-kind.is-selected", "--elevation-1"],
-    ["agent-session/acpmux/styles.css", ".acpmux-menu", "--elevation-2"],
     ["agent-session/acpmux/styles.css", ".acpmux-file-search", "--elevation-2"],
-    ["agent-session/acpmux/styles.css", ".acpmux-shell[data-sidebar=open] .acpmux-sidebar", "--elevation-2"],
-    ["agent-session/acpmux/conversation/conversation.css", ".acpmux-find__bar", "--elevation-2"],
+    // Every find bar (Find in Chat, Find in Diff) is the shared find pill.
+    ["ui/findPill.css", ".find-pill", "--elevation-2"],
     ["agent-session/acpmux/conversation/conversation.css", ".acpmux-jump-latest", "--elevation-2"],
-    ["agent-session/acpmux/threadMinimap/threadMinimap.css", ".acpmux-minimap__popover", "--elevation-2"],
+    ["agent-session/acpmux/threadMinimap/threadMinimap.css", ".acpmux-minimap__card", "--elevation-2"],
     ["agent-session/acpmux/summary/summary.css", ".acpmux-summary-card", "--elevation-2"],
     ["agent-session/acpmux/addProject.css", ".acpmux-add-project-dialog", "--elevation-2"],
     ["agent-session/acpmux/composerAttachments.css", ".acpmux-pdf-viewer", "--elevation-2"],
@@ -279,7 +280,8 @@ describe("one subtle elevation scale", () => {
       const found = declarations.filter(
         (declaration) =>
           declaration.file === file &&
-          declaration.property === "box-shadow" &&
+          // A glass surface names its drop in --glass-elevation; glass.css casts it.
+          (declaration.property === "box-shadow" || declaration.property === "--glass-elevation") &&
           declaration.selector.split(/\s*,\s*/).includes(selector),
       );
       expect({ selector, rules: found.length > 0 }).toEqual({ selector, rules: true });

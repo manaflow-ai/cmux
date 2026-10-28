@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0. */
+/* cmux-tui mux protocol 12, IR 6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -22,6 +22,8 @@ export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "runnin
 export type AgentRecord = {
   /** Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports. */
   "agent"?: (string) | null;
+  /** The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this. */
+  "agent_session_id"?: (string) | null;
   /** The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted. */
   "last_prompt"?: (string) | null;
   "session": (string) | null;
@@ -204,7 +206,14 @@ export type CloseTerminalResult = {
   "terminal_revision": bigint;
 };
 
+export type CloudConversationPresenceParticipant = {
+  "participant": string;
+  "viewing": boolean;
+};
+
 export type ColorHex = string;
+
+export type ColumnMoveDirection = "left" | "right";
 
 export type ColumnPin = {
   "edge": string;
@@ -480,6 +489,11 @@ export type GetCellPixelsResult = {
   "width_px": number;
 };
 
+export type GetHostSizePolicyResult = {
+  "mac_participants": Array<string>;
+  "policy": HostSizePolicy;
+};
+
 export type GetSizeStateResult = {
   "self_participant": (string) | null;
   "state": SizeState;
@@ -538,6 +552,18 @@ export type HomeInboxRow = {
   "unread": bigint;
 };
 
+export type HostSizeMode = "smallest" | "mac" | "latest" | "priority";
+
+export type HostSizePolicy = {
+  "mode": HostSizeMode;
+  "order": Array<string>;
+};
+
+export type HostSizePolicyRequest = {
+  "mode": HostSizeMode;
+  "order"?: (Array<string>) | null;
+};
+
 export type Id = bigint;
 
 export type IdMapping = {
@@ -551,6 +577,7 @@ export type IdentifyResult = {
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
+  "build_time"?: (bigint) | null;
   "capabilities"?: Array<string>;
   "cli_path"?: (string) | null;
   "crate_version"?: (string) | null;
@@ -705,7 +732,9 @@ export type NameSource = "user" | "auto";
 
 export type NewRowResult = {
   "pane": Id;
+  "pane_id"?: string;
   "surface": Id;
+  "tab_id"?: string;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "transaction"?: string;
@@ -976,6 +1005,10 @@ export type Screen = {
   "zoomed_pane": (Id) | null;
 };
 
+export type SendExpectAgent = {
+  "session"?: (string) | null;
+};
+
 export type ServerStatsConnections = {
   "accepted": bigint;
   "active": bigint;
@@ -1080,6 +1113,10 @@ export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";
 export type SetCellPixelsResult = {
   "failures": Array<CellPixelFailure>;
   "resizes": Array<CellPixelResize>;
+};
+
+export type SetHostSizePolicyResult = {
+  "policy": HostSizePolicy;
 };
 
 export type SetSizeCountsResult = {
@@ -1426,6 +1463,23 @@ export type TerminalPlacement = {
   "workspace": (Id) | null;
 };
 
+export type TerminalPortsListener = {
+  /** The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1. */
+  "bound": string;
+  /** The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, [::1], ... */
+  "host": string;
+  "port": number;
+  /** The printed URL, or http://HOST:PORT/ when the text had no scheme. */
+  "url": string;
+};
+
+export type TerminalPortsResult = {
+  /** Ports the text names that refused the connect. */
+  "closed": Array<number>;
+  "listeners": Array<TerminalPortsListener>;
+  "surface": Id;
+};
+
 export type TerminalReadRangeResult = {
   "surface": Id;
   "text": string;
@@ -1478,6 +1532,11 @@ export type TerminalResourcesResult = {
   "missing": Array<Id>;
   "sampled_at_ns": bigint;
   "terminals": Array<TerminalResources>;
+};
+
+export type TerminalResumeCommandResult = {
+  "command": (string) | null;
+  "terminal_id": string;
 };
 
 export type Tree = {

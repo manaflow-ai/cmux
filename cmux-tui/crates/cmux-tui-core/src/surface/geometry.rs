@@ -22,7 +22,10 @@ impl Surface {
             Surface::Pty(pty) => {
                 #[cfg(any(unix, windows))]
                 {
-                    matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::Hosted(_))
+                    matches!(
+                        &*pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+                        PtyRuntime::Hosted(_)
+                    )
                 }
                 #[cfg(not(any(unix, windows)))]
                 {
@@ -88,10 +91,58 @@ impl Surface {
         let desired = (cols.max(1), rows.max(1));
         match self {
             Surface::Pty(pty) => {
-                let geometry = *pty.geometry.lock().unwrap();
+                let geometry =
+                    *pty.geometry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 (geometry.cols, geometry.rows) != desired
             }
             Surface::Browser(browser) => browser.resize_needed(desired.0, desired.1),
+        }
+    }
+
+    /// Wait, at most until `deadline`, until a hosted PTY's mirror has
+    /// applied every grid asked of its host. A hosted resize returns once the
+    /// size is sent; the host's resize arrives later on its stream. An attach
+    /// that sized the grid waits here so its replay is built at the new grid
+    /// instead of being followed by a second, `resized` replay. Returns
+    /// whether the mirror is settled (always for a local or idle PTY).
+    pub(crate) fn settle_hosted_viewer_size(&self, deadline: Instant) -> bool {
+        let Surface::Pty(pty) = self else { return true };
+        #[cfg(any(unix, windows))]
+        {
+            // Only the request is sent under the runtime lock; the wait is not.
+            let barrier =
+                match &*pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
+                    PtyRuntime::Hosted(host) => host.begin_viewer_size_barrier(),
+                    _ => return true,
+                };
+            if let Some(acknowledged) = barrier {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                return acknowledged.recv_timeout(remaining).is_ok();
+            }
+            // A host without viewer size acknowledgements: wait for the
+            // mirror to reach the size last asked.
+            loop {
+                let observed = pty.stream_progress.revision();
+                let target =
+                    match &*pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
+                        PtyRuntime::Hosted(host) => host.viewer_size(),
+                        _ => None,
+                    };
+                let Some(target) = target else { return true };
+                let geometry =
+                    *pty.geometry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if (geometry.cols, geometry.rows) == target {
+                    return true;
+                }
+                if pty.stream_progress.wait_for_change_until(observed, Some(deadline)).is_none() {
+                    return false;
+                }
+            }
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = (pty, deadline);
+            true
         }
     }
 
@@ -163,7 +214,8 @@ impl Surface {
     pub fn size(&self) -> (u16, u16) {
         match self {
             Surface::Pty(pty) => {
-                let geometry = *pty.geometry.lock().unwrap();
+                let geometry =
+                    *pty.geometry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 (geometry.cols, geometry.rows)
             }
             Surface::Browser(browser) => browser.size(),
@@ -187,7 +239,8 @@ impl Surface {
     pub(crate) fn cell_pixel_size(&self) -> (u16, u16) {
         match self {
             Surface::Pty(pty) => {
-                let geometry = *pty.geometry.lock().unwrap();
+                let geometry =
+                    *pty.geometry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 (geometry.cell_width, geometry.cell_height)
             }
             Surface::Browser(browser) => browser.cell_pixel_size(),

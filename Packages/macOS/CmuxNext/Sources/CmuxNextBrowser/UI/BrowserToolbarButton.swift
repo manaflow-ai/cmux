@@ -113,6 +113,9 @@ public nonisolated struct BrowserToolbarButtonState: Hashable, Sendable {
     public var isActive: Bool
     /// Hover shows `label` as a tooltip (`BrowserToolbarPolicy.toolTipInforms`).
     public var showsToolTip = true
+    /// A progress ring around the icon (Downloads while one runs): 0...1, or
+    /// a negative value for a running download of unknown size; nil draws none.
+    public var progress: Double?
 
     public init(icon: IconName, label: String, isEnabled: Bool = true, isActive: Bool = false) {
         self.icon = icon

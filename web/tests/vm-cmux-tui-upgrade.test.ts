@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runChild } from "./helpers/run-child";
@@ -53,7 +53,7 @@ canary_crash_loop
     }
   }, 20000);
 
-  test.each(["absent", "untrusted", "trusted"])("no daemon is skipped with a %s supervisor", async (mode) => {
+  test.each(["absent", "unsupported", "trusted", "client-grant"])("cloud auth gate handles a %s supervisor", async (mode) => {
     const root = mkdtempSync(path.join(tmpdir(), "cmux-upgrade-gate-"));
     const run = path.join(root, "run");
     mkdirSync(run);
@@ -67,19 +67,119 @@ ${functions}
       daemon_pid() { ${mode === "absent" ? ":" : "echo 77"}; }
       sleep() { :; }
       pgrep() { ${mode === "absent" ? "return 1" : "return 0"}; }
-      daemon_has_trusted_carrier() { ${mode === "trusted" ? ":" : "return 1"}; }
+      daemon_has_supported_cloud_entry() { ${mode === "trusted" || mode === "client-grant" ? ":" : "return 1"}; }
       canary_crash_loop() { finish "OK fixture-canary"; }
 ${script.slice(gateStart, gateEnd)}
-[ "${mode}" = trusted ] && canary_crash_loop
+[ "${mode}" = trusted ] || [ "${mode}" = client-grant ] && canary_crash_loop
 `;
       const result = await runChild("/bin/sh", ["-c", fixture, "fixture", "target-sha", "target-commit", run], { timeout: 5000 });
       expect(result.status).toBe(0);
       expect(readFileSync(path.join(run, "result"), "utf8").trim()).toBe(
-        mode === "absent" ? "SKIP no-daemon" : mode === "untrusted" ? "SKIP no-trusted-carrier" : "OK fixture-canary",
+        mode === "absent" ? "SKIP no-daemon" : mode === "unsupported" ? "SKIP unsupported-cloud-auth" : "OK fixture-canary",
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   }, 20000);
 
+});
+
+// A pid the kernel reuses after a terminal host or the daemon exits must never pass for it: the
+// host check compares start times, and stop_child signals only a process that is still the daemon.
+// Real processes under /proc and pidfd: Linux only.
+const describeOnLinux = process.platform === "linux" ? describe : describe.skip;
+describeOnLinux("Cloud daemon upgrade and reused pids", () => {
+  const sleeper = (args: string) => `python3 -c 'import time; time.sleep(30)' ${args} & `;
+  async function runFixture(body: string): Promise<string> {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-upgrade-pids-"));
+    const run = path.join(root, "run");
+    mkdirSync(run);
+    try {
+      const fixture = `flock() { return 0; }\n${functions}\n${body}`;
+      const result = await runChild("/bin/sh", ["-c", fixture, "fixture", "target-sha", "target-commit", run], { timeout: 15000 });
+      expect(result.status).toBe(0);
+      return result.stdout;
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  test("a host whose pid now belongs to another process is not counted as surviving", async () => {
+    const out = await runFixture(`${sleeper("")}host=$!
+s=$(proc_start "$host")
+host_alive "$host:$s" && echo same-process-alive
+host_alive "$host:$((s + 1))" || echo reused-pid-lost
+LOST=""; for p in "$host:$((s + 1))"; do host_alive "$p" || LOST="$LOST \${p%%:*}"; done; echo "lost=[\${LOST# }]"
+kill "$host"
+`);
+    expect(out).toContain("same-process-alive");
+    expect(out).toContain("reused-pid-lost");
+    expect(out).toMatch(/lost=\[\d+\]/);
+  }, 20000);
+
+  test("stop_child signals only the daemon, never a process that took its pid", async () => {
+    const out = await runFixture(`${sleeper("")}other=$!
+${sleeper("server start --session cloud")}daemon=$!
+stop_child "$other"; kill -0 "$other" 2>/dev/null && echo other-untouched
+stop_child "$daemon"; wait "$daemon" 2>/dev/null; kill -0 "$daemon" 2>/dev/null || echo daemon-stopped
+kill "$other" 2>/dev/null || true
+`);
+    expect(out).toContain("other-untouched");
+    expect(out).toContain("daemon-stopped");
+  }, 20000);
+});
+
+describe("Cloud daemon upgrade from the app", () => {
+  // The app's automatic update writes the commit it judged older to <run-dir>/expect-build; a
+  // binary updated since (maybe to a newer build), or one that names no commit, is left alone
+  // under the lock before anything changes, and the run holds the in-place updater's lock
+  // (apply.rs) too. Without the file (the fleet runner) neither applies.
+  test.each(["absent", "same", "changed", "no-commit", "in-place-busy"])("expect-build %s", async (mode) => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-upgrade-expect-"));
+    const run = path.join(root, "run");
+    mkdirSync(run);
+    try {
+      const seen = "1".repeat(40);
+      const now = mode === "changed" ? "2".repeat(40) : seen;
+      writeFileSync(
+        path.join(run, "cmux-tui"),
+        mode === "no-commit" ? "#!/bin/sh\necho 'cmux 1.0.0'\n" : `#!/bin/sh\necho 'cmux 1.0.0 (${now}; ghostty ${"9".repeat(40)})'\n`,
+        { mode: 0o755 },
+      );
+      if (mode !== "absent") writeFileSync(path.join(run, "expect-build"), `${seen}\n`);
+      const guards = script.split("\n").filter((line) => line.startsWith("hold_inplace_lock ||") || line.startsWith("still_expected ||"));
+      expect(guards.length).toBe(2);
+      const fixture = `flock() { ${mode === "in-place-busy" ? '[ "$2" = 8 ] && return 1; return 0' : "return 0"}; }
+${functions}
+sudo() { while [ "$1" != env ]; do shift; done; "$@"; }
+chown() { :; }
+H="$RUN"
+BIN="$RUN/cmux-tui"
+${guards.join("\n")}
+finish "OK passed"
+`;
+      const result = await runChild("/bin/sh", ["-c", fixture, "fixture", "target-sha", "target-commit", run], { timeout: 5000 });
+      expect(result.status).toBe(0);
+      const expected = {
+        absent: "OK passed",
+        same: "OK passed",
+        changed: `SKIP changed binary=${"2".repeat(40)} expected=${seen}`,
+        "no-commit": `SKIP changed binary= expected=${seen}`,
+        "in-place-busy": "SKIP busy an in-place update of this machine is running",
+      }[mode];
+      expect(readFileSync(path.join(run, "result"), "utf8").trim()).toBe(expected);
+      // The in-place updater's lock file exists only for an app run that expects a build.
+      expect(existsSync(path.join(run, ".cmux-tui.update.lock"))).toBe(mode !== "absent");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 20000);
+
+  test("the app's copy of the guest script is this script", () => {
+    const appCopy = readFileSync(
+      path.join(import.meta.dirname, "../../Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/cmux-tui-upgrade.sh"),
+      "utf8",
+    );
+    expect(appCopy).toBe(script);
+  });
 });

@@ -1,0 +1,271 @@
+<!doctype html>
+<!-- l10n-allow-file: design gallery, not shipped UI. -->
+<html lang="en" data-theme="dark" data-motion="on">
+<head>
+<meta charset="utf-8">
+<title>What's New · 8 changelog variations (Conductor-inspired)</title>
+<style>
+  :root {
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    --accent: #0a84ff; --new: #30d158; --improved: #64d2ff; --fixed: #ff9f0a; --security: #ff453a;
+    font-family: var(--sans);
+  }
+  html[data-theme="dark"] {
+    --bg: #161618; --page: #1c1c1f; --pop: rgba(44,44,48,.96);
+    --text: #ececef; --text-2: rgba(236,236,239,.72); --text-3: rgba(236,236,239,.48);
+    --hover: rgba(255,255,255,.07); --sel: rgba(255,255,255,.14); --sep: rgba(255,255,255,.1);
+    --chip: rgba(255,255,255,.06); --chip-border: rgba(255,255,255,.14);
+    color-scheme: dark;
+  }
+  html[data-theme="light"] {
+    --bg: #ececee; --page: #ffffff; --pop: rgba(250,250,252,.97);
+    --text: #1d1d1f; --text-2: rgba(29,29,31,.72); --text-3: rgba(29,29,31,.48);
+    --hover: rgba(0,0,0,.05); --sel: rgba(0,0,0,.09); --sep: rgba(0,0,0,.1);
+    --chip: rgba(0,0,0,.04); --chip-border: rgba(0,0,0,.12);
+    --new: #1f9d48; --improved: #0a7fb0; --fixed: #c46a00; --security: #d22a1f;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+  header.g { padding: 24px 28px 8px; max-width: 1560px; }
+  header.g h1 { font-size: 20px; margin: 0 0 6px; font-weight: 650; }
+  header.g p { margin: 4px 0; color: var(--text-2); max-width: 1000px; }
+  .controls { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+  .controls span { color: var(--text-3); font-size: 12px; margin-left: 8px; }
+  .controls button { background: var(--hover); color: var(--text); border: 1px solid var(--sep); border-radius: 7px; height: 26px; padding: 0 10px; font: inherit; font-size: 12px; }
+  .controls button[aria-pressed="true"] { background: var(--sel); border-color: var(--chip-border); }
+  .variants { padding: 12px 28px 80px; max-width: 1560px; display: flex; flex-direction: column; gap: 40px; }
+  .v-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+  .v-num { font: 600 12px var(--mono); color: var(--text-3); }
+  .v-name { font-weight: 650; font-size: 15px; }
+  .v-tag { font-size: 11px; font-weight: 650; border-radius: 5px; padding: 1px 7px; background: var(--chip); border: 1px solid var(--chip-border); color: var(--text-2); }
+  .v-tag.rec { background: #30d158; color: #062b12; border-color: transparent; }
+  .v-note { color: var(--text-3); font-size: 12px; margin: 0 0 10px; max-width: 980px; }
+  .v-row { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+  .frame { background: var(--page); border: 1px solid var(--sep); border-radius: 12px; overflow: auto; position: relative; }
+  .frame.page { width: 900px; max-width: 100%; height: 640px; }
+  .frame.popwrap { width: 340px; padding: 14px; background: transparent; border: 1px dashed var(--sep); overflow: visible; }
+  .frame-cap { font-size: 11px; color: var(--text-3); margin: 0 0 6px; }
+  img.shot { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; object-position: left top; border-radius: 10px; border: 1px solid var(--sep); background: var(--hover); }
+  .ph { aspect-ratio: 16/9; border-radius: 10px; border: 1px solid var(--sep); background: repeating-linear-gradient(135deg, var(--hover) 0 10px, transparent 10px 20px); }
+  a { color: inherit; }
+  button.link { all: unset; color: var(--accent); cursor: default; font-size: 12px; }
+  .pop { background: var(--pop); border: 1px solid var(--sep); border-radius: 12px; padding: 12px 14px; box-shadow: 0 12px 32px rgba(0,0,0,.28); }
+  .muted { color: var(--text-3); }
+  .cat-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+  .c-new { background: var(--new); } .c-improved { background: var(--improved); } .c-fixed { background: var(--fixed); } .c-security { background: var(--security); }
+  .ct-new { color: var(--new); } .ct-improved { color: var(--improved); } .ct-fixed { color: var(--fixed); } .ct-security { color: var(--security); }
+
+  /* motion: one gate, like the app's Motion setting; Reduce Motion always wins */
+  html[data-motion="on"] .anim { transition: opacity .18s ease, transform .18s ease, background-color .12s ease; }
+  html[data-motion="on"] .reveal { animation: rise .28s ease both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .anim, .reveal { transition: none !important; animation: none !important; } }
+
+  /* 01 Ledger (Conductor) */
+  .led { max-width: 640px; margin: 0 0 0 200px; padding: 48px 32px 80px 0; }
+  .led article { position: relative; padding-bottom: 44px; margin-bottom: 44px; border-bottom: 1px solid var(--sep); }
+  .led article:last-child { border-bottom: 0; }
+  .led .gut { position: absolute; left: -168px; top: 0; bottom: 0; width: 140px; }
+  .led .gut-in { position: sticky; top: 24px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .led .ver { font: 500 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); background: var(--chip); border: 1px solid var(--chip-border); border-radius: 3px; padding: 1px 5px; }
+  .led .date { color: var(--text-3); font-size: 12px; }
+  .led .now { font-size: 11px; color: var(--accent); }
+  .led h2 { font-size: 24px; line-height: 1.25; font-weight: 650; letter-spacing: -.01em; margin: 0 0 12px; }
+  .led .intro { font-size: 14px; color: var(--text); margin: 0 0 14px; }
+  .led h3 { font-size: 15px; font-weight: 650; margin: 22px 0 6px; }
+  .led ul { margin: 0; padding-left: 22px; }
+  .led li { margin: 6px 0; font-size: 14px; }
+  .led li b { font-weight: 600; }
+  .led li .s { color: var(--text-2); }
+  .led .shot { margin: 4px 0 14px; }
+
+  /* 02 Index (Conductor index) */
+  .idx { max-width: 720px; margin: 0 auto; padding: 48px 24px; }
+  .idx h1 { font-size: 26px; font-weight: 650; margin: 0 0 24px; }
+  .idx .rel { border-bottom: 1px solid var(--sep); }
+  .idx summary { list-style: none; display: grid; grid-template-columns: 220px 1fr auto; gap: 14px; padding: 11px 4px; align-items: baseline; cursor: default; }
+  .idx summary::-webkit-details-marker { display: none; }
+  .idx summary:hover { background: var(--hover); }
+  .idx .v { font: 12px var(--mono); color: var(--text-3); }
+  .idx .t { font-size: 14px; font-weight: 550; }
+  .idx .d { color: var(--text-3); font-size: 12px; white-space: nowrap; }
+  .idx .body { padding: 2px 4px 16px 238px; }
+  .idx .body ul { list-style: none; padding: 0; margin: 0 0 6px; }
+  .idx .body li { margin: 4px 0; }
+
+  /* 03 Showcase (Conductor release with media first) */
+  .sc { max-width: 680px; margin: 0 auto; padding: 40px 24px; }
+  .sc article { margin-bottom: 56px; }
+  .sc .shot { margin-bottom: 18px; }
+  .sc .meta { display: flex; gap: 10px; align-items: center; font: 11px var(--mono); color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; }
+  .sc h2 { font-size: 26px; font-weight: 700; letter-spacing: -.015em; margin: 8px 0 10px; }
+  .sc .intro { font-size: 15px; color: var(--text-2); margin: 0 0 18px; }
+  .sc .feat { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
+  .sc .feat div { padding: 12px; border: 1px solid var(--sep); border-radius: 10px; }
+  .sc .feat b { display: block; margin-bottom: 4px; }
+  .sc .fixes { color: var(--text-2); }
+  .sc .fixes li { margin: 3px 0; }
+
+  /* 04 Split TOC */
+  .toc { display: grid; grid-template-columns: 1fr 200px; gap: 32px; padding: 40px 32px; }
+  .toc main { max-width: 620px; }
+  .toc nav { position: sticky; top: 20px; align-self: start; font-size: 12px; }
+  .toc nav div { padding: 5px 10px; border-left: 2px solid var(--sep); color: var(--text-3); }
+  .toc nav div.on { border-left-color: var(--text); color: var(--text); font-weight: 600; }
+  .toc nav .navv { font: 10px var(--mono); display: block; color: var(--text-3); }
+  .toc article { margin-bottom: 44px; }
+  .toc h2 { font-size: 22px; font-weight: 650; margin: 4px 0 10px; }
+  .toc .meta { font-size: 12px; color: var(--text-3); }
+  .toc .cat { display: grid; grid-template-columns: 88px 1fr; gap: 8px; padding: 8px 0; border-top: 1px solid var(--sep); }
+  .toc .cat > span { font-size: 12px; font-weight: 600; }
+  .toc .cat ul { margin: 0; padding: 0; list-style: none; }
+  .toc .cat li { margin: 0 0 6px; }
+
+  /* 05 Timeline */
+  .tl { padding: 36px 32px 36px 56px; max-width: 760px; }
+  .tl article { position: relative; padding-left: 28px; margin-bottom: 30px; }
+  .tl article::before { content: ""; position: absolute; left: 5px; top: 18px; bottom: -30px; width: 2px; background: var(--sep); }
+  .tl article:last-child::before { display: none; }
+  .tl .node { position: absolute; left: 0; top: 6px; width: 12px; height: 12px; border-radius: 50%; background: var(--page); border: 2px solid var(--accent); }
+  .tl .when { font-size: 12px; color: var(--text-3); }
+  .tl h2 { font-size: 18px; margin: 2px 0 10px; font-weight: 650; }
+  .tl .card { border: 1px solid var(--sep); border-radius: 12px; padding: 4px 14px; }
+  .tl .it { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--sep); }
+  .tl .it:last-child { border-bottom: 0; }
+  .tl .pill { flex: none; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; border-radius: 4px; padding: 2px 6px; height: 18px; border: 1px solid currentColor; }
+
+  /* 06 Bento */
+  .bn { padding: 32px; }
+  .bn article { margin-bottom: 40px; }
+  .bn header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+  .bn h2 { font-size: 22px; margin: 0; font-weight: 700; }
+  .bn .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .bn .tile { border: 1px solid var(--sep); border-radius: 14px; padding: 14px; background: var(--hover); min-height: 120px; }
+  .bn .tile.big { grid-column: span 2; grid-row: span 2; }
+  .bn .tile b { display: block; margin-bottom: 6px; font-size: 14px; }
+  .bn .tile p { margin: 0; color: var(--text-2); font-size: 12px; }
+  .bn .tile .shot { margin-top: 12px; }
+  html[data-motion="on"] .bn .tile:hover { transform: translateY(-2px); }
+  .bn .foot { margin-top: 12px; color: var(--text-3); font-size: 12px; }
+
+  /* 07 Terminal log */
+  .tm { padding: 28px 32px; font: 12.5px/1.6 var(--mono); }
+  .tm .hdr { color: var(--text-3); }
+  .tm .commit { color: var(--fixed); }
+  .tm h2 { font: 600 13px var(--mono); margin: 2px 0 8px; }
+  .tm .ln { display: grid; grid-template-columns: 18px 1fr; }
+  .tm .ln .s { color: var(--text-3); }
+  .tm .rel { margin-bottom: 26px; }
+  .tm .cursor { display: inline-block; width: 7px; height: 14px; background: var(--text-2); vertical-align: -2px; }
+  html[data-motion="on"] .tm .cursor { animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* 08 Spotlight */
+  .sp { padding: 44px 40px; max-width: 820px; }
+  .sp article { margin-bottom: 60px; }
+  .sp .eyebrow { font-size: 12px; font-weight: 600; color: var(--accent); }
+  .sp h2 { font-size: 34px; line-height: 1.1; font-weight: 750; letter-spacing: -.02em; margin: 6px 0 14px; }
+  .sp .intro { font-size: 16px; color: var(--text-2); max-width: 60ch; }
+  .sp ol { counter-reset: n; list-style: none; padding: 0; margin: 22px 0; }
+  .sp ol li { counter-increment: n; display: grid; grid-template-columns: 40px 1fr; padding: 12px 0; border-top: 1px solid var(--sep); }
+  .sp ol li::before { content: counter(n, decimal-leading-zero); font: 600 13px var(--mono); color: var(--text-3); }
+  .sp details summary { color: var(--text-2); cursor: default; }
+
+  /* popovers */
+  .p-led .ver { font: 500 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); background: var(--chip); border: 1px solid var(--chip-border); border-radius: 3px; padding: 0 4px; }
+  .p-led .top { display: flex; gap: 8px; align-items: center; color: var(--text-3); font-size: 11px; }
+  .p-led h4 { margin: 8px 0 6px; font-size: 14px; font-weight: 650; }
+  .p-led .grp { font-size: 11px; font-weight: 650; margin: 10px 0 2px; }
+  .p-led ul { margin: 0; padding-left: 16px; }
+  .p-led li { margin: 3px 0; }
+  .p-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--sep); }
+</style>
+</head>
+<body>
+<header class="g">
+  <h1>What's New · 8 changelog variations</h1>
+  <p>Each variation shows the full What's New page and the compact popover of the Update Ready card. Entries are the real cmux-next highlights in <code>release-notes/next/highlights</code> (83 files); how they split into four nightlies is illustrative. Variations 01–04 follow <b>conductor.build/changelog</b>: a sticky version tag and date in the left margin, a plain title, an intro paragraph, Improvements and Fixes as bullet lists, and a one-line-per-release index. 05–08 go in other directions.</p>
+  <p><b>Recommended: 01 Ledger.</b> It reads like Conductor, keeps one column, has no animation, and needs nothing the release notes don't already have.</p>
+  <div class="controls">
+    <button data-theme-btn="dark" aria-pressed="true">Dark</button>
+    <button data-theme-btn="light" aria-pressed="false">Light</button>
+    <span>Motion</span>
+    <button data-motion-btn="on" aria-pressed="true">On</button>
+    <button data-motion-btn="off" aria-pressed="false">Off</button>
+    <span>Reduce Motion in System Settings turns off all motion here too.</span>
+  </div>
+</header>
+<div class="variants" id="variants"></div>
+<script src="data.js"></script>
+<script>
+const R = window.CHANGELOG;
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const md = (s) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");
+const theme = () => document.documentElement.dataset.theme;
+const shot = (it) => it.media ? `<img class="shot" alt="${esc(it.title)}" src="workspace-groups-${theme()}.jpg">` : "";
+const first = (s) => { const m = s.match(/^.*?[.!?](\s|$)/); return m ? m[0].trim() : s; };
+const day = (d, long) => new Date(d + "T12:00:00").toLocaleDateString("en-US", long ? { month: "long", day: "numeric", year: "numeric" } : { month: "short", day: "numeric" });
+const short = (v) => { const m = /nightly\.(\d+)/.exec(v); return m ? "nightly " + m[1].slice(0, 7) : v; };
+const CATS = [["new", "New"], ["improved", "Improvements"], ["fixed", "Fixes"], ["security", "Security"]];
+const by = (r, c) => r.items.filter((i) => i.category === c);
+const lead = (r) => r.items.find((i) => i.media) || by(r, "new")[0] || r.items[0];
+const pop = R[0];
+const popTop = pop.items.filter((i) => i.category !== "fixed").slice(0, 3);
+const more = pop.items.length - 3;
+
+const V = [
+  { name: "Ledger", tag: "Recommended · Conductor", note: "Conductor's release layout: the version as a small mono tag and the date sit sticky in the left margin; the release title, one intro paragraph, the lead picture, then New, Improvements, Fixes and Security as bullet lists with a bold lead-in. Hairlines between releases. No animation.",
+    page: () => `<div class="led">${R.map((r, n) => `<article><div class="gut"><div class="gut-in"><span class="ver">${esc(short(r.version))}</span><span class="date">${day(r.date, true)}</span>${n === 0 ? '<span class="now">Installed</span>' : ""}</div></div>
+      <h2>${esc(r.title)}</h2><p class="intro">${esc(r.intro)}</p>${shot(lead(r))}
+      ${CATS.map(([c, l]) => by(r, c).length ? `<h3>${l}</h3><ul>${by(r, c).map((i) => `<li><b>${md(i.title)}.</b> <span class="s">${md(first(i.body))}</span></li>`).join("")}</ul>` : "").join("")}</article>`).join("")}</div>`,
+    pop: () => `<div class="pop p-led"><div class="top"><span class="ver">${esc(short(pop.version))}</span><span>${day(pop.date, true)}</span></div><h4>${esc(pop.title)}</h4>
+      <div class="grp">New</div><ul>${popTop.map((i) => `<li>${md(i.title)}</li>`).join("")}</ul>
+      <div class="p-foot"><span class="muted">${more} more changes</span><button class="link">See all changes →</button></div></div>` },
+  { name: "Index", tag: "Conductor", note: "Conductor's index page: one line per release, version, title and date, newest first. Click a line to open it in place. The fastest scan of many nightlies; a long run of nightlies fits on one screen.",
+    page: () => `<div class="idx"><h1>What's New</h1>${R.map((r, n) => `<details class="rel" ${n === 0 ? "open" : ""}><summary class="anim"><span class="v">${esc(r.version.replace("1.0.0-", ""))}</span><span class="t">${esc(r.title)}</span><span class="d">${day(r.date)}</span></summary>
+      <div class="body ${n === 0 ? "" : "reveal"}"><ul>${r.items.slice(0, 6).map((i) => `<li><span class="cat-dot c-${i.category}"></span>${md(i.title)}</li>`).join("")}</ul><span class="muted">${r.items.length - 6} more</span></div></details>`).join("")}</div>`,
+    pop: () => `<div class="pop"><div style="font:11px var(--mono);color:var(--text-3)">${esc(pop.version.replace("1.0.0-", ""))} · ${day(pop.date)}</div><div style="font-weight:650;margin:4px 0 8px">${esc(pop.title)}</div>
+      ${popTop.map((i) => `<div style="padding:4px 0;border-top:1px solid var(--sep)">${md(i.title)}</div>`).join("")}<div class="p-foot"><span class="muted">+${more}</span><button class="link">Open What's New →</button></div></div>` },
+  { name: "Showcase", tag: "Conductor", note: "Conductor's release with a big picture: the 16:9 screenshot first, a mono version line, a large title, an intro, then the top four changes as two-by-two tiles and the fixes as a quiet list.",
+    page: () => `<div class="sc">${R.map((r) => `<article>${lead(r).media ? shot(lead(r)) : '<div class="ph"></div>'}<div class="meta" style="margin-top:14px"><span>${esc(short(r.version))}</span><span>·</span><span>${day(r.date, true)}</span></div>
+      <h2>${esc(r.title)}</h2><p class="intro">${esc(r.intro)}</p><div class="feat">${r.items.filter((i) => i.category !== "fixed").slice(0, 4).map((i) => `<div><b>${md(i.title)}</b><span class="muted">${md(first(i.body))}</span></div>`).join("")}</div>
+      <div class="fixes"><b>Fixes</b><ul>${by(r, "fixed").slice(0, 5).map((i) => `<li>${md(i.title)}</li>`).join("")}</ul></div></article>`).join("")}</div>`,
+    pop: () => `<div class="pop" style="padding:0;overflow:hidden">${shot({ media: 1, title: "" }).replace('class="shot"', 'class="shot" style="border-radius:0;border:0"')}<div style="padding:10px 14px"><div class="muted" style="font:10px var(--mono);text-transform:uppercase;letter-spacing:.06em">${esc(short(pop.version))}</div>
+      <div style="font-weight:700;font-size:15px;margin:4px 0">${esc(pop.title)}</div><div class="muted">${popTop.map((i) => md(i.title)).join(" · ")}</div><div class="p-foot"><span class="muted">${more} more</span><button class="link">See all →</button></div></div></div>` },
+  { name: "Split TOC", tag: "Conductor", note: "Conductor's single column with a release list on the right: the current release is bold as you scroll. Changes sit in labeled rows (New, Improved, Fixed) instead of headings, so a release reads as one table.",
+    page: () => `<div class="toc"><main>${R.map((r) => `<article><div class="meta">${day(r.date, true)} · <span style="font-family:var(--mono)">${esc(short(r.version))}</span></div><h2>${esc(r.title)}</h2>
+      ${CATS.map(([c, l]) => by(r, c).length ? `<div class="cat"><span class="ct-${c}">${l.replace("Improvements", "Improved").replace("Fixes", "Fixed")}</span><ul>${by(r, c).slice(0, 5).map((i) => `<li>${md(i.title)}</li>`).join("")}${by(r, c).length > 5 ? `<li class="muted">${by(r, c).length - 5} more</li>` : ""}</ul></div>` : "").join("")}</article>`).join("")}</main>
+      <nav>${R.map((r, n) => `<div class="${n === 0 ? "on" : ""}"><span class="navv">${esc(short(r.version))}</span>${esc(r.title)}</div>`).join("")}</nav></div>`,
+    pop: () => `<div class="pop"><div style="font-weight:650">What's new in ${esc(short(pop.version))}</div>${[["new", "New"], ["improved", "Improved"], ["fixed", "Fixed"]].map(([c, l]) => `<div style="display:grid;grid-template-columns:64px 1fr;gap:6px;padding:6px 0;border-top:1px solid var(--sep);margin-top:6px"><span class="ct-${c}" style="font-weight:600;font-size:12px">${l}</span><span>${md((by(pop, c)[0] || { title: "—" }).title)}</span></div>`).join("")}<div class="p-foot"><span class="muted">${more} more</span><button class="link">See all →</button></div></div>` },
+  { name: "Timeline", tag: "Different", note: "A vertical line with one node per release and its changes in one card, each with a colored New / Improved / Fixed tag. Good when people want to see how often cmux ships.",
+    page: () => `<div class="tl">${R.map((r) => `<article><span class="node"></span><div class="when">${day(r.date, true)} · ${esc(short(r.version))}</div><h2>${esc(r.title)}</h2><div class="card">${r.items.slice(0, 7).map((i) => `<div class="it"><span class="pill ct-${i.category}">${i.category}</span><div><b>${md(i.title)}</b><div class="muted">${md(first(i.body))}</div></div></div>`).join("")}<div class="it muted">${r.items.length - 7} more changes</div></div></article>`).join("")}</div>`,
+    pop: () => `<div class="pop">${popTop.map((i, n) => `<div style="display:flex;gap:10px;padding:6px 0"><span class="cat-dot c-${i.category}" style="margin-top:6px"></span><div><b>${md(i.title)}</b><div class="muted">${md(first(i.body))}</div></div></div>`).join("")}<div class="p-foot"><span class="muted">${short(pop.version)}</span><button class="link">See all →</button></div></div>` },
+  { name: "Bento", tag: "Different", note: "Each release as a tile grid, Apple-event style: the lead change large with its picture, the next ones as tiles, the fixes counted in one line under it. Tiles lift by 2 pt on hover only when Motion is on.",
+    page: () => `<div class="bn">${R.map((r) => `<article><header><h2>${esc(r.title)}</h2><span class="muted">${day(r.date)} · ${esc(short(r.version))}</span></header><div class="grid">
+      ${r.items.filter((i) => i.category !== "fixed").slice(0, 5).map((i, n) => `<div class="tile anim ${n === 0 ? "big" : ""}"><span class="cat-dot c-${i.category}"></span><b style="display:inline">${md(i.title)}</b><p style="margin-top:6px">${md(n === 0 ? i.body : first(i.body))}</p>${n === 0 ? shot({ media: 1, title: i.title }) : ""}</div>`).join("")}</div>
+      <div class="foot">and ${by(r, "fixed").length} fixes: ${by(r, "fixed").slice(0, 3).map((i) => md(i.title)).join(" · ")}…</div></article>`).join("")}</div>`,
+    pop: () => `<div class="pop"><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${popTop.concat(by(pop, "fixed").slice(0, 1)).map((i) => `<div style="background:var(--hover);border-radius:9px;padding:8px;font-size:12px"><span class="cat-dot c-${i.category}"></span>${md(i.title)}</div>`).join("")}</div><div class="p-foot"><span class="muted">${more} more</span><button class="link">See all →</button></div></div>` },
+  { name: "Terminal log", tag: "Different", note: "cmux is a terminal: the changelog as a git log. Monospace, a hash-like build line, + for new, ~ for improved, ! for fixed. The cursor blinks only when Motion is on.",
+    page: () => `<div class="tm">${R.map((r) => `<div class="rel"><div class="commit">build ${esc(r.version.split(".").pop())} <span class="hdr">(${esc(r.version)})</span></div><div class="hdr">Date:   ${day(r.date, true)}</div><h2>    ${esc(r.title)}</h2>
+      ${r.items.map((i) => `<div class="ln"><span class="ct-${i.category}">${{ new: "+", improved: "~", fixed: "!", security: "#" }[i.category]}</span><span>${md(i.title)} <span class="s">— ${md(first(i.body))}</span></span></div>`).join("")}</div>`).join("")}<span class="hdr">$ </span><span class="cursor"></span></div>`,
+    pop: () => `<div class="pop" style="font:12px/1.55 var(--mono)"><div class="muted">$ cmux whats-new ${esc(short(pop.version).split(" ")[1])}</div>${popTop.map((i) => `<div><span class="ct-${i.category}">${{ new: "+", improved: "~", fixed: "!" }[i.category]}</span> ${md(i.title)}</div>`).join("")}<div class="muted">… ${more} more</div><div class="p-foot" style="font-family:var(--sans)"><span></span><button class="link">See all changes →</button></div></div>` },
+  { name: "Spotlight", tag: "Different", note: "A magazine story per release: a big title, an intro, the top five changes numbered 01–05 with their text, and every fix folded under one line. Most readable for stable releases, heavy for nightlies.",
+    page: () => `<div class="sp">${R.map((r) => `<article><div class="eyebrow">${day(r.date, true)} · ${esc(short(r.version))}</div><h2>${esc(r.title)}</h2><p class="intro">${esc(r.intro)}</p>${shot(lead(r))}
+      <ol>${r.items.filter((i) => i.category !== "fixed").slice(0, 5).map((i) => `<li><div><b>${md(i.title)}</b><div class="muted">${md(i.body)}</div></div></li>`).join("")}</ol>
+      <details><summary>${by(r, "fixed").length} fixes and ${Math.max(0, r.items.length - 5 - by(r, "fixed").length)} more improvements</summary><ul>${by(r, "fixed").map((i) => `<li>${md(i.title)}</li>`).join("")}</ul></details></article>`).join("")}</div>`,
+    pop: () => `<div class="pop"><div style="color:var(--accent);font-size:11px;font-weight:600">${esc(short(pop.version))}</div><div style="font-size:18px;font-weight:750;line-height:1.15;margin:4px 0 8px">${esc(pop.title)}</div>${popTop.map((i, n) => `<div style="display:grid;grid-template-columns:24px 1fr;padding:4px 0"><span class="muted" style="font:600 11px var(--mono)">0${n + 1}</span><span>${md(i.title)}</span></div>`).join("")}<div class="p-foot"><span class="muted">${more} more</span><button class="link">See all →</button></div></div>` },
+];
+
+function render() {
+  document.getElementById("variants").innerHTML = V.map((v, n) => `<section id="v${n + 1}"><div class="v-head"><span class="v-num">${String(n + 1).padStart(2, "0")}</span><span class="v-name">${v.name}</span><span class="v-tag ${v.tag.startsWith("Recommended") ? "rec" : ""}">${v.tag}</span></div>
+    <p class="v-note">${v.note}</p><div class="v-row"><div><p class="frame-cap">What's New page</p><div class="frame page">${v.page()}</div></div><div><p class="frame-cap">Update Ready popover</p><div class="frame popwrap">${v.pop()}</div></div></div></section>`).join("");
+}
+for (const b of document.querySelectorAll("[data-theme-btn]")) b.onclick = () => { document.documentElement.dataset.theme = b.dataset.themeBtn; document.querySelectorAll("[data-theme-btn]").forEach((x) => x.setAttribute("aria-pressed", x === b)); render(); };
+for (const b of document.querySelectorAll("[data-motion-btn]")) b.onclick = () => { document.documentElement.dataset.motion = b.dataset.motionBtn; document.querySelectorAll("[data-motion-btn]").forEach((x) => x.setAttribute("aria-pressed", x === b)); };
+const q = new URLSearchParams(location.search);
+if (q.get("theme")) document.querySelector(`[data-theme-btn="${q.get("theme")}"]`)?.click(); else render();
+</script>
+</body>
+</html>

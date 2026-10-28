@@ -1,3 +1,4 @@
+import agentKeys from "../../migrations/0016_cmux_vm_agent_keys.sql?raw";
 /**
  * The snapshot store against migrations 0001, 0002 and 0003
  * on an in-process Postgres (PGlite). No network database is involved.
@@ -8,6 +9,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import ownership from "../../migrations/0001_cmux_vm_ownership.sql?raw";
 import s2 from "../../migrations/0002_cmux_vm_display_name_audit.sql?raw";
 import snapshots from "../../migrations/0003_cmux_vm_snapshot_parent.sql?raw";
+import uncommittedCreations from "../../migrations/0012_cmux_vm_uncommitted_creations.sql?raw";
 import { ApiKeyAdminStore, sqlApiKeyAdminStoreLayer } from "../../src/db/api-keys.ts";
 import { sqlSnapshotStoreLayer, SnapshotStore, type SnapshotPage } from "../../src/db/snapshots.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
@@ -29,6 +31,8 @@ beforeEach(async () => {
   await pg.exec(ownership);
   await pg.exec(s2);
   await pg.exec(snapshots);
+  await pg.exec(uncommittedCreations);
+  await pg.exec(agentKeys);
   const sql = Layer.succeed(SqlClient, {
     query: (operation, text, params) =>
       Effect.tryPromise({
@@ -39,7 +43,7 @@ beforeEach(async () => {
   layer = Layer.mergeAll(sqlSnapshotStoreLayer, sqlStoresLayer, sqlApiKeyAdminStoreLayer).pipe(Layer.provide(sql));
 });
 
-const record = (tenantId: TenantId, minute: number, labels: Record<string, string> = {}, sourceVmId = newVmId()) =>
+const record = (tenantId: TenantId, minute: number, labels: Record<string, string> = {}, sourceVmId = newVmId(), createdBy = "key:test") =>
   Effect.gen(function* () {
     const store = yield* SnapshotStore;
     const id = newSnapshotId();
@@ -50,7 +54,7 @@ const record = (tenantId: TenantId, minute: number, labels: Record<string, strin
       sourceVmId,
       displayName: `snap ${minute}`,
       labels,
-      createdBy: "key:test",
+      createdBy,
       createdAt: new Date(Date.UTC(2026, 9, 1, 0, minute)),
     });
     return id;
@@ -66,11 +70,49 @@ describe("migration 0003", () => {
       "cmux_vm.api_keys",
       "cmux_vm.audit_log",
       "cmux_vm.resources",
+      "cmux_vm.vm_client_sessions",
     ]);
   });
 });
 
 describe("snapshot store", () => {
+  it("replays the same ownership write and rejects identity changes or resurrection", async () => {
+    const value = { tenantId: TENANT_A, id: newSnapshotId(), sourceVmId: newVmId(), upstreamId: UpstreamId.make("sh-capture"),
+      createdBy: "service:cloud", displayName: "capture", labels: { role: "cloud" }, createdAt: new Date("2026-10-18T00:00:00Z") };
+    const write = (input: typeof value) => run(Effect.flatMap(SnapshotStore, (store) => store.record(input)));
+    await write(value); await write(value);
+    for (const change of [{ tenantId: TENANT_B }, { upstreamId: UpstreamId.make("sh-different") }, { sourceVmId: newVmId() },
+      { createdBy: "service:different" }, { labels: { role: "different" } }, { displayName: "different" }, { createdAt: new Date() }]) {
+      await expect(write({ ...value, ...change })).rejects.toThrow();
+    }
+    await run(Effect.flatMap(SnapshotStore, (store) => store.markDeleted(TENANT_A, value.id, new Date())));
+    await expect(write(value)).rejects.toThrow();
+    const inspected = await run(Effect.flatMap(SnapshotStore, (store) => store.inspect(TENANT_A, value.id)));
+    expect(Option.isSome(inspected) && inspected.value).toMatchObject({ id: value.id, deleted: true, createdBy: "service:cloud" });
+    expect(Option.isNone(await run(Effect.flatMap(SnapshotStore, (store) => store.inspect(TENANT_B, value.id))))).toBe(true);
+  });
+
+  it("intersects creator, tenant, source, labels, allowlist and deletion before paging", async () => {
+    const vm = newVmId();
+    const one = await run(record(TENANT_A, 1, { role: "cloud" }, vm, "service:cloud"));
+    const two = await run(record(TENANT_A, 2, { role: "cloud" }, vm, "service:cloud"));
+    const other = await run(record(TENANT_A, 3, { role: "cloud" }, vm, "key:other"));
+    await run(record(TENANT_B, 4, { role: "cloud" }, vm, "service:cloud"));
+    await run(record(TENANT_A, 5, { role: "other" }, vm, "service:cloud"));
+    await run(record(TENANT_A, 6, { role: "cloud" }, newVmId(), "service:cloud"));
+    const deleted = await run(record(TENANT_A, 7, { role: "cloud" }, vm, "service:cloud"));
+    await run(Effect.flatMap(SnapshotStore, (store) => store.markDeleted(TENANT_A, deleted, new Date())));
+    const base: SnapshotPage = { limit: 1, after: null, sourceVmId: vm, labels: { role: "cloud" }, only: [one, two, other, deleted], createdBy: "service:cloud" };
+    const list = (page: SnapshotPage) => run(Effect.flatMap(SnapshotStore, (store) => store.list(TENANT_A, page)));
+    const first = await list(base);
+    expect(first.map((snapshot) => snapshot.id)).toEqual([two]);
+    const last = first[0];
+    if (last === undefined) throw new Error("empty creator page");
+    expect((await list({ ...base, after: { createdAt: last.createdAt, id: last.id } })).map((snapshot) => snapshot.id)).toEqual([one]);
+    expect(await list({ ...base, only: [other, deleted] })).toEqual([]);
+    expect(first[0]).not.toHaveProperty("createdBy");
+  });
+
   it("records rows the ownership store resolves for the owner only", async () => {
     const id = await run(record(TENANT_A, 1));
     const own = await run(Effect.flatMap(OwnershipStore, (store) => store.find(TENANT_A, "snapshot", id)));

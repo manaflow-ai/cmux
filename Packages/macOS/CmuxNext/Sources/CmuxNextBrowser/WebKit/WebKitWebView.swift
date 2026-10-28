@@ -4,6 +4,7 @@ import WebKit
 /// `WKWebView` with cmux context menu wording. App shortcuts reach the host
 /// before the page: the host routes system and navigation keys app-wide and
 /// content keys in its window, before any view (the page is in-window).
+// webview-allow: the WebKit browser engine; BrowserEngineResolver picks it
 final class WebKitWebView: WKWebView {
     weak var owner: WebKitTab?
     /// The last mouse-down or key-down the user gave this view: a page may
@@ -82,7 +83,7 @@ final class WebKitWebView: WKWebView {
             owner.emit(.contextMenu(BrowserContextMenuRequest(
                 items: [], target: hit, location: .zero,
                 insertLeading: { [weak menu] rows in if let menu { WebKitContextHit.insert(rows, into: menu) } },
-                completion: { _ in }
+                completion: nil
             )))
         }
         for item in menu.items {

@@ -7,7 +7,7 @@ extension MessagesWindowView {
         guard !threadOpen else { return nil }
         for case let cell as RowCell in collection.visibleCells where !cell.isHidden {
             guard let spec = cell.spec, case let .notice(text) = spec.kind else { continue }
-            let width = TextDraw.width(text, font: HomeFonts.system(ofSize: 11))
+            let width = min(HomeNoticeRows.width(text), max(spec.metrics.receiptRight - RowDraw.noticeLeft, 0))
             let rect = CGRect(x: RowDraw.noticeLeft, y: RowDraw.margin, width: width, height: spec.height)
             return cell.convert(rect, to: self).insetBy(dx: -4, dy: -3)
         }

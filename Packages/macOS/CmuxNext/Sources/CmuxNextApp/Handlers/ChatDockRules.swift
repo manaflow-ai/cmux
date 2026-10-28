@@ -12,6 +12,22 @@ enum ChatDockRules {
         columns.first { $0.root.contains(pane) }?.dock?.role == .agentChat
     }
 
+    /// Whether a chat dock with flag `dock` takes only agent chats: every chat dock but Home's pinned
+    /// dock while it takes tabs (`allow_tabs`), which takes any tab dragged in (Leo 2026-10-21: "JUST
+    /// MAKE THE TAB THING SHOW UP ON THE MAIN PANE TOO"). It still never splits (`splitRoom`).
+    nonisolated static func takesOnlyChats(_ dock: DockColumn?) -> Bool {
+        guard let dock, dock.role == .agentChat else { return false }
+        return !(dock.isPinned && dock.allowsTabs)
+    }
+
+    /// Whether `pane` is a shown pane of a chat dock that takes only agent chats (``takesOnlyChats(_:)``).
+    @MainActor private static func takesOnlyChats(_ pane: PaneModel, services: AppServices) -> Bool {
+        guard let controller = services.paneController(for: pane), let content = controller.workspace,
+              let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return false }
+        let layoutPane = controller.layoutPaneID
+        return takesOnlyChats(ChatColumnPlacement.columns(of: screen, containing: layoutPane).first { $0.root.contains(layoutPane) }?.dock)
+    }
+
     /// Whether `pane` is a shown pane in the chat dock.
     @MainActor static func isChatDock(_ pane: PaneModel, services: AppServices) -> Bool {
         guard let controller = services.paneController(for: pane), let content = controller.workspace,
@@ -20,19 +36,19 @@ enum ChatDockRules {
         return isChatDock(layoutPane, ChatColumnPlacement.columns(of: screen, containing: layoutPane))
     }
 
-    /// Refuses (and reports) a non-chat tab moving into the chat dock. A
+    /// Refuses (and reports) a non-chat tab moving into a chat dock that takes only chats. A
     /// reorder inside the dock is not a move into it.
     @MainActor static func refusesMove(_ tab: TabModel, to pane: PaneModel, services: AppServices) -> Bool {
         guard services.locateTab(tab.id)?.1 !== pane, !ChatColumnPlacement.isChat(tab, services: services),
-              isChatDock(pane, services: services) else { return false }
+              takesOnlyChats(pane, services: services) else { return false }
         services.registry.refuse(RefusalStrings.chatDockTakesOnlyChats)
         return true
     }
 
-    /// Refuses (and reports) a tab group moving into the chat dock: a group
+    /// Refuses (and reports) a tab group moving into a chat dock that takes only chats: a group
     /// is a set of tools, never a chat.
     @MainActor static func refusesGroupMove(to pane: PaneModel, services: AppServices) -> Bool {
-        guard isChatDock(pane, services: services) else { return false }
+        guard takesOnlyChats(pane, services: services) else { return false }
         services.registry.refuse(RefusalStrings.chatDockTakesOnlyChats)
         return true
     }

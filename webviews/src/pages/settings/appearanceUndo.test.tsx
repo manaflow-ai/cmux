@@ -89,17 +89,17 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
 
   test("picking a background is undoable and redoable, and the buttons name the step", async () => {
     page = await renderPage({ path: "/settings/appearance" });
-    const tile = page.container.querySelector<HTMLButtonElement>('.backdrop-tile[aria-label="Shuffle Daily"]')!;
+    const tile = page.container.querySelector<HTMLButtonElement>('.backdrop-tile[aria-label="Shuffle Paintings"]')!;
     await click(tile);
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "appearance.background", value: "daily" }]);
     expect(undoButton().disabled).toBe(false);
-    expect(undoButton().getAttribute("aria-label")).toBe("Undo: Background → Shuffle Daily");
+    expect(undoButton().getAttribute("aria-label")).toBe("Undo: Background → Shuffle Paintings");
 
     await click(undoButton());
     expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key: "appearance.background" }]);
     expect(page.store.getSnapshot().rows.get("appearance.background")?.customized).toBe(false);
     expect(redoButton().disabled).toBe(false);
-    expect(redoButton().getAttribute("aria-label")).toBe("Redo: Background → Shuffle Daily");
+    expect(redoButton().getAttribute("aria-label")).toBe("Redo: Background → Shuffle Paintings");
 
     await click(redoButton());
     expect(page.store.getSnapshot().rows.get("appearance.background")?.value).toBe("daily");
@@ -116,7 +116,7 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
 
   test("Reset to Defaults asks inline, resets every appearance key set, and is itself undoable", async () => {
     page = await renderPage({ path: "/settings/appearance" });
-    await run(() => page!.store.set("appearance.background", "goya-saturn"));
+    await run(() => page!.store.set("appearance.background", "friedrich-forest-moonlight"));
     await run(() => page!.store.set("appearance.backgroundOpacity", 0.5));
     await run(() => page!.store.resetAppearanceToDefaults());
     const rows = page.store.getSnapshot().rows;
@@ -125,21 +125,21 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     expect(page.store.appearance.nextUndo?.label).toBe("Appearance defaults");
     await run(() => page!.store.undoAppearance());
     const back = page.store.getSnapshot().rows;
-    expect(back.get("appearance.background")?.value).toBe("goya-saturn");
+    expect(back.get("appearance.background")?.value).toBe("friedrich-forest-moonlight");
     expect(back.get("appearance.backgroundOpacity")?.value).toBe(0.5);
   });
 
   test("Restore How It Was puts back what Appearance showed when it opened", async () => {
     page = await renderPage({
       path: "/settings/appearance",
-      mock: { values: { "appearance.background": "goya-saturn" } },
+      mock: { values: { "appearance.background": "friedrich-forest-moonlight" } },
     });
     await run(() => page!.store.set("appearance.background", "daily"));
     await run(() => page!.store.set("appearance.backgroundOpacity", 0.4));
     expect(page.store.appearanceChangedSinceOpened()).toBe(true);
     await run(() => page!.store.restoreAppearanceOpened());
     const rows = page.store.getSnapshot().rows;
-    expect(rows.get("appearance.background")?.value).toBe("goya-saturn");
+    expect(rows.get("appearance.background")?.value).toBe("friedrich-forest-moonlight");
     expect(rows.get("appearance.backgroundOpacity")?.customized).toBe(false);
     expect(page.store.appearanceChangedSinceOpened()).toBe(false);
     expect(page.store.appearance.nextUndo?.label).toBe("Appearance as opened");

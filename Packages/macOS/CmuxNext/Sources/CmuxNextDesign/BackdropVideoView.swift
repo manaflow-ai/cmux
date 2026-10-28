@@ -1,6 +1,7 @@
 public import AppKit
 public import AVFoundation
 import CmuxNextWakeups
+public import CmuxNextDesignTokens
 
 /// A video wallpaper behind a window's content (cx-14vdf): the file loops, muted, through
 /// `AVPlayerLayer`, filling the window as the art does. It plays only while someone can see it
@@ -105,7 +106,7 @@ public final class BackdropVideoView: NSView {
     /// Everything ``wantsPlayback`` asks but coverage, which is sampled only while this holds.
     private var seen: Bool {
         let lowPower = lowPowerOverride ?? ProcessInfo.processInfo.isLowPowerModeEnabled
-        let reduced = reduceMotionOverride ?? !Motion.animatesLoops
+        let reduced = reduceMotionOverride ?? !Motion.panes.animatesLoops
         let hot = ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
         return onScreen && !lowPower && !hot && !reduced
     }
@@ -135,7 +136,7 @@ public final class BackdropVideoView: NSView {
     /// (a released decoder) hide at once, leaving the poster below.
     private func showFrames(_ ready: Bool) {
         if ready, playerLayer.opacity == 0, window != nil {
-            Motion.set(playerLayer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
+            Motion.panes.set(playerLayer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
             return
         }
         CATransaction.begin()

@@ -45,7 +45,7 @@ struct SidebarNewRowInPlaceTests {
             Motion.reduceMotionOverride = false
             defer { Motion.reduceMotionOverride = nil }
             // With the animation speed off every scroll is instant, and this would pass with the slide.
-            try #require(Motion.animatesMovement, "animation speed is off on this host")
+            try #require(Motion.sidebar.animatesMovement, "animation speed is off on this host")
             model.sections = after
             model.activeWorkspaceID = added
             sidebar.list.reload(animated: true)

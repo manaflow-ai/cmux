@@ -48,11 +48,12 @@ fn no_offered_app_cli_name_is_shadowed_by_the_mux_grammar() {
     );
 }
 
-/// `cmux servers add --code CODE [--chief] [--name N]` approves a server's
-/// pairing code (a Chief brain's `optchat-chief cloud pair`): the app offers
-/// `server.addServer` under that CLI name, the mux grammar (its `server`
-/// scope is the local session owner) does not take the words, and the flags
-/// arrive as the action's `code`, `chief` and `name` arguments.
+/// `cmux servers add --code CODE --words "W1 W2 W3 W4" [--chief] [--name N]`
+/// still serializes the legacy action request so old clients get the app's
+/// stable person-only refusal. The mux grammar (its `server` scope is the local
+/// session owner) does not take the words, and the flags arrive as the action's
+/// `code`, `words`, `chief` and `name` arguments. Enrollment itself is available
+/// only through the in-app Add Server flow.
 #[test]
 fn servers_add_runs_the_add_server_action_with_its_arguments() {
     let surfaces = action_surfaces();
@@ -68,7 +69,15 @@ fn servers_add_runs_the_add_server_action_with_its_arguments() {
     assert!(parse(&words, Surface::Cmux).is_err(), "the mux grammar must not shadow `servers add`");
     let command = app::run_action(
         "servers add",
-        &strings(&["--code", "K0Q5-1M6C", "--chief", "--name", "cmux-lawrence"]),
+        &strings(&[
+            "--code",
+            "K0Q5-1M6C",
+            "--words",
+            "copper lantern meadow violet",
+            "--chief",
+            "--name",
+            "cmux-lawrence",
+        ]),
         app::ActionName::Cli,
     )
     .expect("flags parse");
@@ -78,6 +87,74 @@ fn servers_add_runs_the_add_server_action_with_its_arguments() {
     assert_eq!(params["cli"], true);
     assert_eq!(
         params["args"],
-        serde_json::json!({ "code": "K0Q5-1M6C", "chief": true, "name": "cmux-lawrence" })
+        serde_json::json!({ "code": "K0Q5-1M6C", "words": "copper lantern meadow violet", "chief": true, "name": "cmux-lawrence" })
     );
+}
+
+/// `cmux chat create --members "Chief, Unii, aziz@manaflow.com" --title T --replies all` starts a
+/// Home group with Chiefs (plans/cmux-next/chief-group-chats-DESIGN.md): the app offers
+/// `home.createGroup` under that CLI name and the mux grammar leaves the words alone; `cmux chat
+/// replies` is `home.setChiefReplies`.
+#[test]
+fn chat_create_and_replies_run_the_home_group_actions() {
+    let surfaces = action_surfaces();
+    let actions = surfaces["actions"].as_array().expect("actions array");
+    for (id, cli) in [("home.createGroup", "chat create"), ("home.setChiefReplies", "chat replies")]
+    {
+        let action = actions
+            .iter()
+            .find(|action| action["id"] == id)
+            .unwrap_or_else(|| panic!("{id} is exported"));
+        assert_eq!(action["cli"], "offered", "{id}");
+        assert_eq!(action["cli_name"], cli, "{id}");
+        let words = cli.split(' ').map(str::to_owned).collect::<Vec<_>>();
+        assert!(parse(&words, Surface::Cmux).is_err(), "the mux grammar must not shadow `{cli}`");
+    }
+    let command = app::run_action(
+        "chat create",
+        &strings(&["--members", "Chief, Unii", "--title", "Ship it", "--replies", "all"]),
+        app::ActionName::Cli,
+    )
+    .expect("flags parse");
+    let app::AppCommand::Call { params, .. } = command else { panic!("expected a call") };
+    assert_eq!(params["action"], "chat create");
+    assert_eq!(
+        params["args"],
+        serde_json::json!({ "members": "Chief, Unii", "title": "Ship it", "replies": "all" })
+    );
+}
+
+/// `cmux pane open-files-as` and `cmux pane open-find-as` are verbs (and so MCP
+/// tools): the app offers Open Files / Find as Pane under those CLI names, the
+/// mux grammar leaves the words alone, and `--path` reaches the action as an
+/// absolute folder of the caller's working directory.
+#[test]
+fn pane_open_files_and_find_as_run_their_actions_with_a_path() {
+    let surfaces = action_surfaces();
+    let actions = surfaces["actions"].as_array().expect("actions array");
+    for (id, cli) in [
+        ("palette.openFilesPane", "pane open-files-as"),
+        ("palette.openFindPane", "pane open-find-as"),
+    ] {
+        let action = actions
+            .iter()
+            .find(|action| action["id"] == id)
+            .unwrap_or_else(|| panic!("{id} is exported"));
+        assert_eq!(action["cli"], "offered", "{id}");
+        assert_eq!(action["mcp"], "offered", "{id}");
+        assert_eq!(action["cli_name"], cli, "{id}");
+        let words = cli.split(' ').map(str::to_owned).collect::<Vec<_>>();
+        assert!(parse(&words, Surface::Cmux).is_err(), "the mux grammar must not shadow `{cli}`");
+        assert_eq!(action_hint::non_verb_action(cli), None, "`{cli}` is a verb, not a hint");
+        let command = app::run_action(cli, &strings(&["--path", "src"]), app::ActionName::Cli)
+            .expect("flags parse");
+        let app::AppCommand::Call { method, params, .. } = command else {
+            panic!("expected a call")
+        };
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], cli);
+        assert_eq!(params["cli"], true);
+        let cwd = std::env::current_dir().expect("cwd");
+        assert_eq!(params["args"]["path"], cwd.join("src").to_string_lossy().as_ref());
+    }
 }

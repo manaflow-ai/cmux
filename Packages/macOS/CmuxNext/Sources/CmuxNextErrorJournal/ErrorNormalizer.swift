@@ -27,7 +27,10 @@ public struct ErrorNormalizer {
             (#"\d+(?:\.\d+)?"#, "<n>"),
             (#"\s+"#, " "),
         ]
-        rules = patterns.map { (try! NSRegularExpression(pattern: $0.0), $0.1) } // swiftlint:disable:this force_try
+        // Constant patterns (ErrorJournalTests); one that failed to compile is skipped, not a crash.
+        rules = patterns.compactMap { pattern, replacement in
+            (try? NSRegularExpression(pattern: pattern)).map { ($0, replacement) }
+        }
         self.maxBytes = maxBytes
     }
 

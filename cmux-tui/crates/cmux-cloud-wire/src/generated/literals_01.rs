@@ -5,6 +5,10 @@
 use super::*;
 
 wire_literal! {
+    LitAgent = "agent"
+}
+
+wire_literal! {
     LitAgentPrompt = "agent_prompt"
 }
 
@@ -21,6 +25,10 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitChief = "chief"
+}
+
+wire_literal! {
     LitCloud = "cloud"
 }
 
@@ -30,6 +38,10 @@ wire_literal! {
 
 wire_literal! {
     LitCode = "code"
+}
+
+wire_literal! {
+    LitConfirmed = "confirmed"
 }
 
 wire_literal! {
@@ -65,6 +77,10 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitMachine = "machine"
+}
+
+wire_literal! {
     LitManual = "manual"
 }
 
@@ -94,6 +110,10 @@ wire_literal! {
 
 wire_literal! {
     LitPresence = "presence"
+}
+
+wire_literal! {
+    LitReserved = "reserved"
 }
 
 wire_literal! {

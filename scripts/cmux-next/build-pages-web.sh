@@ -25,7 +25,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-PAGES="history apps coderouter cloud keybindings icon-picker settings passwords changelog files stats mobile-pairing chief-inspector home-channels debug-settings"
+PAGES="history apps coderouter cloud keybindings icon-picker settings passwords changelog files stats chief-usage chief-views mobile-pairing chief-inspector home-channels debug-settings"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"
@@ -33,6 +33,7 @@ SPLIT_STRINGS="settings"
 SHIKI_PAGES="home-channels"
 
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the pages" >&2; exit 1; }
+"$ROOT/scripts/check-webviews-bun-version.sh"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -41,7 +42,7 @@ cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 
 # The strings tables are build output (#21946), made from the commit's catalogs; a missing
-# translation fails.
+# translation fails, unless CMUX_STRINGS_BEST_EFFORT=1 (the autofix export jobs only).
 bun scripts/pages/gen-strings.mjs
 
 # No CSP meta: the scheme handler sends each page's policy as a header (PageCSP, strict unless a
@@ -87,5 +88,11 @@ for page in $PAGES; do
     echo "wrote $out ($(wc -c < "$out" | tr -d ' ') bytes)"
   fi
 done
+# The native interface version the bundles need (webviews/src/web-abi.json, plans/cmux-next/web-ota.md):
+# the app compares a web update's abi with this copy before it serves the update.
+if [ "$MODE" != "--check" ]; then
+  mkdir -p "$OUT_ROOT"
+  cp "$ROOT/webviews/src/web-abi.json" "$OUT_ROOT/web-abi.json"
+fi
 [ "$MODE" = "--check" ] && [ "$status" -eq 0 ] && echo "page bundles build"
 exit "$status"

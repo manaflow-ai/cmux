@@ -4,7 +4,7 @@ import CmuxNextIcons
 import QuartzCore
 
 final class SectionHeaderRowView: SidebarRowView {
-    private let glyph = NSImageView()
+    private let glyph = DecorativeImageView()
     /// The machine's own icon (`SidebarMachine.icon`) before the name; hidden without one.
     private let machineIcon = SidebarIconView()
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
@@ -12,21 +12,26 @@ final class SectionHeaderRowView: SidebarRowView {
     /// "Update needed" after the status dot, for a machine whose cmux-tui
     /// is too old (the tooltip says why).
     private let badge = SidebarRowView.label(font: SidebarStyle.headerFont)
-    private var badgeText: String?
-    private let chevron = NSImageView()
+    private(set) var badgeText: String?
+    private let chevron = DecorativeImageView()
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.newWorkspace)
     /// The machine status dot's color, resolved in `updateLayer`.
-    private enum StatusTone { case success, attention, quiet, danger }
-    private var statusTone: StatusTone?
+    enum StatusTone { case success, attention, quiet, danger }
+    private(set) var statusTone: StatusTone?
     private var collapsed = false
     /// No workspaces: nothing to fold, so hover shows no chevron (cx-odqn).
     private var isEmpty = false
+    /// The status part of the tooltip, and a Cloud machine's cost, kept so a
+    /// hover rewrites the running time and estimate as of that moment.
+    private var statusTip: String?
+    private var cost: SidebarMachine.Cost?
     var onAdd: (() -> Void)?
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
         layer?.addSublayer(status)
         [glyph, machineIcon, name, badge, chevron, addButton].forEach(addSubview)
+        // The header's label and AXExpanded say what the glyph and chevron draw.
         addButton.onPress = { [weak self] in self?.onAdd?() }
     }
 
@@ -36,6 +41,7 @@ final class SectionHeaderRowView: SidebarRowView {
         // The section's kind, not its nodes: comparing 1,000 children per
         // reload would defeat the point.
         var kind: SidebarSection.Kind
+        var isHostGroup: Bool
         var titlesProjects: Bool
         var collapsed: Bool
         var isEmpty: Bool
@@ -43,12 +49,70 @@ final class SectionHeaderRowView: SidebarRowView {
         var iconSize: CGFloat
     }
 
+    /// A machine's state in words, for the header's label and the dot's tooltip.
+    static func statusWords(_ status: SidebarMachine.Status) -> String {
+        switch status {
+        case .connected: Strings.statusConnected
+        case .connecting: Strings.statusConnecting
+        case .reconnecting: Strings.statusReconnecting
+        case .offline: Strings.statusOffline
+        case .updateAvailable: Strings.statusUpdateAvailable
+        case .updateRequired: Strings.statusUpdateRequired
+        case .installRequired: Strings.statusInstallRequired
+        case .installing: Strings.statusInstalling
+        case .authFailed: Strings.statusAuthFailed
+        case .unreachable: Strings.statusUnreachable
+        case .failed: Strings.statusFailed
+        case .paused: Strings.statusPaused
+        case .pausedIdle: Strings.statusPausedIdle
+        }
+    }
+
+    /// The header's tooltip: what a bare status dot means in words ("Offline"). Where the words
+    /// already show beside the dot (a remote group, an update state) or no dot draws (This Mac),
+    /// only the detail an update state carries.
+    static func statusToolTip(words: String, detail: String?, bareDot: Bool) -> String? {
+        guard bareDot else { return detail }
+        guard let detail, !detail.isEmpty else { return words }
+        return words + " — " + detail
+    }
+
+    /// The status text beside a machine header's dot. A remote group (remote-groups-DESIGN.md slice 5)
+    /// names every state, Connected and Offline included; another machine only what needs attention.
+    static func statusText(_ status: SidebarMachine.Status, hostGroup: Bool) -> String? {
+        switch status {
+        case .connected: hostGroup ? Strings.statusConnected : nil
+        case .connecting: hostGroup ? Strings.statusConnecting : nil
+        case .offline: hostGroup ? Strings.statusOffline : nil
+        // Never on the header: an optional update reads as connected (the tooltip says it).
+        case .updateAvailable: hostGroup ? Strings.statusConnected : nil
+        case .reconnecting: Strings.statusReconnecting
+        case .updateRequired: Strings.statusUpdateRequired
+        case .installRequired: Strings.statusInstallRequired
+        case .installing: Strings.statusInstalling
+        case .authFailed: Strings.statusAuthFailed
+        case .unreachable: Strings.statusUnreachable
+        case .failed: Strings.statusFailed
+        case .paused: Strings.statusPaused
+        case .pausedIdle: Strings.statusPausedIdle
+        }
+    }
+
+    /// The header's tooltip: the status words or detail, then a Cloud
+    /// machine's cost and the account's cap (`SidebarMachine.Cost.lines`) as of `now`.
+    static func machineToolTip(status: String?, cost: SidebarMachine.Cost?, now: Date) -> String? {
+        let lines = [status].compactMap { $0?.isEmpty == false ? $0 : nil } + (cost?.lines(now: now) ?? [])
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
     func configure(_ section: SidebarSection, row: SidebarRow) {
         let content = Content(
-            kind: section.kind, titlesProjects: row.titlesProjects, collapsed: row.isCollapsed, isEmpty: section.nodes.isEmpty,
+            kind: section.kind, isHostGroup: section.isHostGroup, titlesProjects: row.titlesProjects, collapsed: row.isCollapsed, isEmpty: section.nodes.isEmpty,
             fontSize: SidebarStyle.headerFont.pointSize, iconSize: Metrics.smallIconSize
         )
         guard needsConfigure(content) else { return }
+        statusTip = nil
+        cost = nil
         collapsed = row.isCollapsed
         isEmpty = content.isEmpty
         let symbol: IconName
@@ -78,39 +142,21 @@ final class SectionHeaderRowView: SidebarRowView {
             ownIcon = machine.icon
             switch (machine.kind, machine.status) {
             case (.local, .connected): statusTone = nil
-            case (_, .connected), (_, .updateAvailable): statusTone = .success
+            // An optional update is not the sidebar's to say (Lawrence 2026-10-21: "wtf is chief
+            // update available"): the header reads as connected, and the tooltip says it.
+            case (_, .updateAvailable): statusTone = section.isHostGroup ? .success : nil
+            case (_, .connected): statusTone = .success
             case (_, .connecting), (_, .reconnecting), (_, .installing), (_, .installRequired): statusTone = .attention
-            case (_, .offline): statusTone = .quiet
+            case (_, .offline), (_, .paused), (_, .pausedIdle): statusTone = .quiet
             case (_, .updateRequired), (_, .authFailed), (_, .unreachable), (_, .failed): statusTone = .danger
             }
-            var label = machine.name
-            switch machine.status {
-            case .connected: label += ", " + Strings.statusConnected
-            case .connecting: label += ", " + Strings.statusConnecting
-            case .reconnecting: label += ", " + Strings.statusReconnecting
-            case .offline: label += ", " + Strings.statusOffline
-            case .updateAvailable: label += ", " + Strings.statusUpdateAvailable
-            case .updateRequired: label += ", " + Strings.statusUpdateRequired
-            case .installRequired: label += ", " + Strings.statusInstallRequired
-            case .installing: label += ", " + Strings.statusInstalling
-            case .authFailed: label += ", " + Strings.statusAuthFailed
-            case .unreachable: label += ", " + Strings.statusUnreachable
-            case .failed: label += ", " + Strings.statusFailed
-            }
-            badgeText = switch machine.status {
-            case .updateAvailable: Strings.statusUpdateAvailable
-            case .reconnecting: Strings.statusReconnecting
-            case .updateRequired: Strings.statusUpdateRequired
-            case .installRequired: Strings.statusInstallRequired
-            case .installing: Strings.statusInstalling
-            case .authFailed: Strings.statusAuthFailed
-            case .unreachable: Strings.statusUnreachable
-            case .failed: Strings.statusFailed
-            default: nil
-            }
-            themedToolTip = machine.detail
-            setAccessibilityLabel(label)
-            setAccessibilityHelp(machine.detail)
+            let words = Self.statusWords(machine.status)
+            badgeText = Self.statusText(machine.status, hostGroup: section.isHostGroup)
+            statusTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: badgeText == nil && (statusTone != nil || machine.status == .updateAvailable))
+            cost = machine.kind == .cloud ? machine.cost : nil
+            themedToolTip = Self.machineToolTip(status: statusTip, cost: cost, now: Date())
+            setAccessibilityLabel(machine.name + ", " + words)
+            setAccessibilityHelp(cost == nil ? machine.detail : themedToolTip)
         }
         // The only machine needs no name or status: the header heads the
         // workspace list, apart from the destinations above it.
@@ -119,6 +165,8 @@ final class SectionHeaderRowView: SidebarRowView {
             ownIcon = nil
             statusTone = nil
             badgeText = nil
+            statusTip = nil
+            cost = nil
             themedToolTip = nil
             setAccessibilityHelp(nil)
         }
@@ -133,6 +181,13 @@ final class SectionHeaderRowView: SidebarRowView {
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
         setAccessibilityExpanded(!collapsed)
+        let sectionID = switch section.id {
+        case .pinned: "pinned"
+        case let .machine(machine): "machine.\(machine.rawValue)"
+        case let .custom(custom): "custom.\(custom)"
+        }
+        setAccessibilityIdentifier("cmux.sidebar.section.\(sectionID)")
+        addButton.setAccessibilityIdentifier("cmux.sidebar.section.\(sectionID).newWorkspace")
         addButton.isHidden = true
         needsLayout = true
         needsDisplay = true
@@ -217,6 +272,8 @@ final class SectionHeaderRowView: SidebarRowView {
 
     override func hoverChanged() {
         super.hoverChanged()
+        // The running time and estimate move with the clock: a hover reads them now.
+        if isHovered, cost != nil { themedToolTip = Self.machineToolTip(status: statusTip, cost: cost, now: Date()) }
         needsLayout = true
     }
 

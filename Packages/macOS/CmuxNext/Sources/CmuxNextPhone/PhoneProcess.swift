@@ -2,7 +2,8 @@ import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 
-/// One `xcrun` child. Exit is observed with the termination handler (no
+/// One child process: `xcrun <arguments>`, or `arguments[0]` itself when
+/// the runner has no launcher (the Android SDK's `adb` and `emulator`). Exit is observed with the termination handler (no
 /// polling); a one-shot `DemandTimer` kills it at its deadline.
 final class PhoneProcess: PhoneRunningCommand, Sendable {
     private struct State {
@@ -21,10 +22,16 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
     private let state = Mutex(State())
     private let killTimer = DemandTimer(owner: "phone.process.deadline")
 
-    init(arguments: [String], stdin: Data?, stdoutFile: URL?, captureStdout: Bool) throws {
+    init(launcher: URL?, arguments: [String], stdin: Data?, stdoutFile: URL?, captureStdout: Bool) throws {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = arguments
+        if let launcher {
+            process.executableURL = launcher
+            process.arguments = arguments
+        } else {
+            guard let tool = arguments.first else { throw PhoneError.commandFailed(command: "(empty)", status: -1, stderr: "") }
+            process.executableURL = URL(fileURLWithPath: tool)
+            process.arguments = Array(arguments.dropFirst())
+        }
         self.process = process
         let errPipe = Pipe()
         process.standardError = errPipe

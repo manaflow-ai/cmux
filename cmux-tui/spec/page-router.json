@@ -4,11 +4,12 @@
   "description": "The daemon page router (page-router.md): what each cmux page may call and which subscribe events it hears, and which v2 operation namespaces the daemon routes to an owner outside the operation catalog. The one source: the daemon embeds this file, and bindings/codegen/page_router.py generates the page clients' table from it.",
   "pages": {
     "home-channels": {
-      "description": "Channels (Home). It reads conversations through the raw conversation commands of its authenticated WebSocket, and the participants' pictures with participant.avatar.get. A web link the person clicks in the Chief chat opens on the right side of the home workspace with workspace.open_url, only on the person's gesture (a host confirmation on the page relay); its WebSocket has no confirmation, so it is refused there. It manages the person's Chiefs (chief-profile-ws-v1): it lists and reads them and changes display_name, role and the avatar; create, delete, instructions, personality and the grant (tools, harnesses, engine, self_edit) need the person's gesture. Its WebSocket keeps its raw subscribe; a page relay of this page gets no event stream.",
+      "description": "Channels (Home). It reads conversations through the raw conversation commands of its authenticated WebSocket, and the participants' pictures with participant.avatar.get. A web link the person clicks in the Chief chat opens on the right side of the home workspace with workspace.open_url, only on the person's gesture (a host confirmation on the page relay); its WebSocket has no confirmation, so it is refused there. It manages the person's Chiefs (chief-profile-ws-v1): it lists and reads them and changes display_name, role and the avatar; create, delete, undo, instructions, personality, the lock and the grant (tools, harnesses, engine, self_edit) need the person's gesture; it reads a Chief's kept revisions (chief.profile.history). Its WebSocket keeps its raw subscribe; a page relay of this page gets no event stream.",
       "read": [
         "chief.profile.avatar.get",
         "chief.profile.avatar.set",
         "chief.profile.get",
+        "chief.profile.history",
         "chief.profile.list",
         "chief.profile.update",
         "participant.avatar.get"
@@ -16,6 +17,7 @@
       "gesture": [
         "chief.profile.create",
         "chief.profile.delete",
+        "chief.profile.undo",
         "workspace.open_url"
       ],
       "confirm": [],

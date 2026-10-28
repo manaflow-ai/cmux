@@ -1,4 +1,4 @@
-public import CmuxNextFileGrid
+import CmuxNextFileGrid
 public import Foundation
 
 /// One folder the Screenshots pane lists, with the rule for which of its
@@ -13,7 +13,7 @@ public nonisolated struct ScreenshotSource: Sendable, Hashable, Identifiable {
     /// Where it came from.
     public var origin: ScreenshotSourceOrigin
     /// Which files it lists.
-    public var rule: FileGridScanRule
+    public var rule: ScreenshotScanRule
 
     /// Makes a source.
     ///
@@ -23,7 +23,7 @@ public nonisolated struct ScreenshotSource: Sendable, Hashable, Identifiable {
     ///   - folder: the folder.
     ///   - origin: where it came from.
     ///   - rule: which files it lists.
-    public init(id: String, label: String, folder: URL, origin: ScreenshotSourceOrigin, rule: FileGridScanRule) {
+    public init(id: String, label: String, folder: URL, origin: ScreenshotSourceOrigin, rule: ScreenshotScanRule) {
         self.id = id
         self.label = label
         self.folder = folder

@@ -48,8 +48,9 @@ final class HomeTurnStatusPopover: NSObject, NSPopoverDelegate {
         popover.performClose(nil)
     }
 
-    nonisolated func popoverDidClose(_ notification: Notification) {
-        MainActor.assumeIsolated { onClosed?() }
+    /// AppKit calls it on the main actor (NSPopoverDelegate's `NS_SWIFT_UI_ACTOR`).
+    func popoverDidClose(_ notification: Notification) {
+        onClosed?()
     }
 }
 
@@ -127,7 +128,7 @@ final class HomeTurnStatusView: NSView {
 
     private func label(_ text: String, size: CGFloat, weight: NSFont.Weight, color: NSColor, mono: Bool = false) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = mono ? .monospacedDigitSystemFont(ofSize: size, weight: weight) : .systemFont(ofSize: size, weight: weight)
+        field.font = mono ? HomeFonts.monospacedDigit(ofSize: size, weight: weight) : HomeFonts.system(ofSize: size, weight: weight)
         field.textColor = color
         field.setAccessibilityElement(false)
         return field

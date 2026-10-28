@@ -1,6 +1,7 @@
 public import AppKit
 import CCmuxMotionFFI
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// How every theme and color change animates (`appearance.colorTransition.*`, cx-3rf4z; Lawrence
 /// 2026-10-15: "always smooth animation (that can be configured, fully ... or even just instant").
@@ -219,14 +220,14 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
 }
 
 extension ColorTransition {
-    /// The transition in effect now: `appearance.colorTransition.*` under `ui.animationSpeed` and
-    /// Reduce Motion.
+    /// The transition in effect now: `appearance.colorTransition.*` under the `feedback` motion
+    /// category (`ui.animations.feedback`, the master switch, `ui.animationSpeed`) and Reduce Motion.
     /// Instant until the Ghostty config first reached the windows, so a launch shows its first
     /// colors at once. `ui.animationSpeed: normal` does not lengthen it: the duration is the
     /// user's own number.
     @MainActor
     public static var current: ColorTransition {
-        guard ThemeStore.shared.hasAppliedConfig else { return ColorTransition(enabled: false) }
-        return DesignSettings.shared.colorTransition.resolved(speedOff: Motion.speed == .off, systemReduceMotion: Motion.reduceMotion)
+        guard ThemeScope.app.store.hasAppliedConfig else { return ColorTransition(enabled: false) }
+        return DesignSettings.shared.colorTransition.resolved(speedOff: !Motion.feedback.isEnabled, systemReduceMotion: Motion.reduceMotion)
     }
 }

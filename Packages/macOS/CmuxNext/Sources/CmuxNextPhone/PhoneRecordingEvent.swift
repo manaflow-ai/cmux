@@ -2,7 +2,8 @@
 public struct PhoneRecordingEvent: Sendable, Hashable, Codable {
     /// Seconds since the recording started; lines up with the video.
     public var at: Double
-    /// "tap", "swipe", "text", "button", "open-url", "pasteboard".
+    /// "tap", "swipe", "text", "button", "open-url", "pasteboard", "appearance", "location", "locale", "install", "launch",
+    /// "software-keyboard".
     public var kind: String
     public var point: PhonePoint?
     public var to: PhonePoint?
@@ -18,7 +19,12 @@ public struct PhoneRecordingEvent: Sendable, Hashable, Codable {
         case .text(let text): detail = text
         case .button(let button): detail = button.rawValue
         case .openURL(let url): detail = url.absoluteString
-        case .pasteboard: break
+        case .pasteboard, .softwareKeyboard: break
+        case .appearance(let appearance): detail = appearance.rawValue
+        case .location(let latitude, let longitude): detail = "\(latitude),\(longitude)"
+        case .locale(let identifier): detail = identifier
+        case .install(let app): detail = app.lastPathComponent
+        case .launch(let app): detail = app
         }
     }
 }

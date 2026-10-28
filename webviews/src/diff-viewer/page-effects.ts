@@ -12,8 +12,8 @@ function setDataset(dataset: DOMStringMap, key: string, value: string): void {
 
 export function usePageDataAttributes(state: AppState) {
   // The files panel shows and hides through its motion (files-panel-motion.ts),
-  // which flips `data-files-hidden` in this commit's frame and slides the
-  // panel on the compositor afterwards.
+  // which slides the panel on the compositor at once and flips
+  // `data-files-hidden` two frames after the toggle.
   const filesPanelMotion = useRef<FilesPanelMotion | null>(null);
   useLayoutEffect(() => {
     filesPanelMotion.current ??= createFilesPanelMotion({
@@ -46,6 +46,13 @@ export function usePageDataAttributes(state: AppState) {
       setDataset(body, "streamFlushCount", String(state.metrics.flushCount ?? 0));
       setDataset(body, "streamMaxBatchSize", String(state.metrics.maxBatchSize ?? 0));
       setDataset(body, "streamTreeRefreshCount", String(state.metrics.treeRefreshCount ?? 0));
+      if (state.metrics.firstBatchAt != null) {
+        setDataset(
+          body,
+          "streamFirstBatchMs",
+          String(Math.round(state.metrics.firstBatchAt - state.metrics.startedAt)),
+        );
+      }
       if (Number.isFinite(state.metrics.completedAt) && state.metrics.completedAt > 0) {
         setDataset(body, "streamElapsedMs", String(Math.round(state.metrics.completedAt - state.metrics.startedAt)));
       }

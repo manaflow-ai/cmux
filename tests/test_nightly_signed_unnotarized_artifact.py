@@ -4,7 +4,10 @@
 When Apple's notary queue is slow, nightly.yml waits up to 20m (nightly-next)
 or 40m per run and the feed does not move. Teammates still need the build, so
 build-sign-notarize-nightly uploads the Developer ID-signed app as a run
-artifact right after signing and before the notarization wait. Diagnostic
+artifact. Since 2026-10-20 the zip is made during Apple's wait, on the copy of
+the app taken right after signing (signed-app-checks.sh), and uploaded after
+the notarization step, once the checks passed, even when that step failed or
+handed the submission to a later run: the wait no longer holds about 2.5 min of checks. Diagnostic
 notary builds and builds held by NIGHTLY_NEXT_NOTARY_PAUSED (the browser-data import)
 never upload an app: the repository is public. A failed upload never blocks
 notarization.
@@ -28,18 +31,23 @@ def index(name: str) -> int:
     return next(i for i, s in enumerate(steps()) if s.get("name") == name)
 
 
-class SignedUnnotarizedArtifactTests(unittest.TestCase):
-    ZIP = "Zip the signed app before notarization"
-    UPLOAD = "Upload the signed app before notarization"
+CHECKS = ROOT / "scripts/ci/signed-app-checks.sh"
 
-    def test_uploads_after_signing_and_before_the_notarization_wait(self):
-        self.assertLess(index("Codesign apps"), index(self.ZIP))
-        # The launch smokes run in verify-signed-nightly, a job without secrets
-        # (#21024), so the zip no longer waits for them; it follows the signed
-        # app's handoff to that job.
-        self.assertLess(index("Upload signed app for the verify job"), index(self.ZIP))
-        self.assertLess(index(self.ZIP), index(self.UPLOAD))
-        self.assertLess(index(self.UPLOAD), index("Notarize app ticket through final DMG"))
+
+class SignedUnnotarizedArtifactTests(unittest.TestCase):
+    START = "Start the signed-app checks (they run during notarization)"
+    FINISH = "Finish the signed-app checks"
+    UPLOAD = "Upload the signed unnotarized app"
+
+    def test_zipped_during_the_wait_and_uploaded_after_it(self):
+        self.assertLess(index("Codesign apps"), index(self.START))
+        self.assertLess(index(self.START), index("Notarize app ticket through final DMG"))
+        self.assertLess(index("Notarize app ticket through final DMG"), index(self.FINISH))
+        self.assertLess(index(self.FINISH), index(self.UPLOAD))
+        # A failed or pending notarization still uploads the zip, but only an
+        # app that passed the checks: the repository is public.
+        self.assertTrue(steps()[index(self.UPLOAD)]["if"].startswith(
+            "!cancelled() && steps.signed-app-checks.outcome == 'success' && "))
 
     def test_artifact_name_retention_and_contents(self):
         upload = steps()[index(self.UPLOAD)]
@@ -47,19 +55,23 @@ class SignedUnnotarizedArtifactTests(unittest.TestCase):
         self.assertEqual(upload["with"]["name"], "cmux-nightly-signed-unnotarized-${{ matrix.variant }}")
         self.assertEqual(upload["with"]["retention-days"], 7)
         self.assertEqual(upload["with"]["if-no-files-found"], "error")
-        zip_run = steps()[index(self.ZIP)]["run"]
-        # ditto keeps the bundle's symlinks and signature intact.
-        self.assertIn('ditto -c -k --sequesterRsrc --keepParent "$CHANNEL_APP_PATH"', zip_run)
+        # ditto keeps the bundle's symlinks and signature intact; the copy is
+        # the app as Codesign apps left it.
+        self.assertIn('ditto -c -k --sequesterRsrc --keepParent "$app"', CHECKS.read_text())
+        self.assertIn('ditto "$app" "$copy"', CHECKS.read_text())
 
     def test_never_for_fast_notary_test_or_paused_builds(self):
-        for name in (self.ZIP, self.UPLOAD):
-            condition = steps()[index(name)]["if"]
+        conditions = (
+            steps()[index(self.START)]["env"]["PACKAGE_UNNOTARIZED_ZIP"],
+            steps()[index(self.UPLOAD)]["if"],
+        )
+        for condition in conditions:
             self.assertIn("needs.decide.outputs.fast_build != 'true'", condition)
             self.assertIn("needs.decide.outputs.notary_test != 'true'", condition)
             self.assertIn("needs.decide.outputs.import_paused != 'true'", condition)
             # A submissions pause (Apple's queue stuck) is exactly when teammates need it.
             self.assertNotIn("notary_paused", condition)
-            self.assertTrue(steps()[index(name)].get("continue-on-error"), name)
+        self.assertTrue(steps()[index(self.UPLOAD)].get("continue-on-error"))
 
     def test_fast_dogfood_upload_does_not_depend_on_notarization(self):
         condition = steps()[index("Upload fast arm64 dogfood artifact")]["if"]

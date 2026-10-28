@@ -27,6 +27,7 @@ impl Brain {
         match event {
             AgentEvent::Up(sessions) => {
                 self.agents_up = true;
+                self.reap_closed_compactor_sessions(&sessions);
                 self.reconcile_spawns(&sessions);
                 // Only the Chief's own children: the compactor and turn
                 // sessions come and go by the thousand.
@@ -40,7 +41,7 @@ impl Brain {
                         let _ = self.agents.end_session(&id);
                     }
                 }
-                self.adopt_orphans();
+                self.adopt_orphans(false);
                 self.reconcile_children();
                 self.maybe_start_turn();
                 self.prewarm_next_turn();
@@ -92,14 +93,91 @@ impl Brain {
                     .map(String::as_str)
                     == Some(crate::approval::ASK);
                 if self.is_child(&session) && ask {
-                    // Spawned under the ask floor: a person answers.
+                    // Spawned under the spawn floor: refused at once.
                     self.child_permission(&session, permission_id, request);
                 } else if self.is_child(&session) {
                     let text = permission_text(&session.name, &request);
                     self.queue(text, Source::Note);
+                    // A child has no tab in the person's app, so nobody
+                    // can allow it: denied once overdue, unless the Chief
+                    // answers or steers it first.
+                    self.watch_unanswered(
+                        crate::approval::Pending {
+                            session_id: session.session_id.clone(),
+                            permission_id,
+                            tool: crate::approval::tool_name(&request),
+                            request,
+                            child: Some(session.name.clone()),
+                        },
+                        "a child agent has no approval button in the app",
+                    );
+                } else if self.is_own_turn_session(&session) {
+                    // A turn session of this Chief that is not the running
+                    // turn (a kept, adopted or ended one): nobody sees its
+                    // request, so it is refused at once.
+                    let pending = crate::approval::Pending {
+                        session_id: session.session_id.clone(),
+                        permission_id,
+                        tool: crate::approval::tool_name(&request),
+                        request,
+                        child: None,
+                    };
+                    (self.log)(&format!(
+                        "turn session {} that no turn runs on asked for {}: refusing it",
+                        pending.session_id, pending.tool
+                    ));
+                    self.refuse_by(&pending, "no approver");
                 }
             }
         }
+    }
+
+    /// Ends this Chief's compactor sessions that acpmux lists as closed.
+    /// The compactor purges each node's session when the node is built, so
+    /// a closed one is a leftover: an acpmux that saved a purged session's
+    /// record again (a late generated title) loaded about 450 of them back
+    /// after a restart (2026-10-20). Never a live one, a turn session or
+    /// another Chief's.
+    fn reap_closed_compactor_sessions(&self, sessions: &[SessionSummary]) {
+        let leftovers: Vec<&SessionSummary> = sessions
+            .iter()
+            .filter(|s| {
+                s.status == SessionStatus::Closed
+                    && s.tags.get(crate::acpmux::CHIEF_TAG) == Some(&self.settings.chief_id)
+                    && s.tags
+                        .get(crate::acpmux::CHIEF_ROLE_TAG)
+                        .map(String::as_str)
+                        == Some(crate::acpmux::COMPACTOR_ROLE)
+            })
+            .collect();
+        if leftovers.is_empty() {
+            return;
+        }
+        let mut failed = 0;
+        for s in &leftovers {
+            if self.agents.end_session(&s.session_id).is_err() {
+                failed += 1;
+            }
+        }
+        (self.log)(&format!(
+            "ended {} closed compactor session(s) a stopped host or an older acpmux left{}",
+            leftovers.len() - failed,
+            if failed > 0 {
+                format!(" ({failed} could not be ended)")
+            } else {
+                String::new()
+            }
+        ));
+    }
+
+    /// A turn session of this Chief (`cmux.chief=<id>`, role `turn`).
+    fn is_own_turn_session(&self, session: &SessionSummary) -> bool {
+        session.tags.get(crate::acpmux::CHIEF_TAG) == Some(&self.settings.chief_id)
+            && session
+                .tags
+                .get(crate::acpmux::CHIEF_ROLE_TAG)
+                .map(String::as_str)
+                == Some("turn")
     }
 
     /// One of the Chief's `chief agents` children; a subagent (section 9,
@@ -110,6 +188,26 @@ impl Brain {
     }
 
     fn on_session(&mut self, session: SessionSummary) {
+        if session.pending_permissions == 0 {
+            // Answered (by the person's app, or a deny): nothing to watch.
+            self.forget_unanswered_of(&session.session_id);
+        }
+        // An adopted turn the Chief waits for has ended: fold it, then the
+        // turns that waited start (the resume first).
+        if self.orphan_wait.is_some()
+            && !busy(session.status)
+            && self
+                .state
+                .orphans
+                .iter()
+                .any(|o| o.session == session.session_id)
+        {
+            self.adopt_orphans(false);
+            if self.orphan_wait.is_none() {
+                self.maybe_start_turn();
+            }
+            return;
+        }
         if self.sub_changed(&session) {
             return;
         }
@@ -161,13 +259,36 @@ impl Brain {
     /// the log, then remove them. One that cannot be read stays for the next
     /// connect, unless acpmux no longer knows it (a daemon restart purged it):
     /// then nothing more can be read and it is dropped.
-    fn adopt_orphans(&mut self) {
+    ///
+    /// One that still runs (its harness lives in an agent host the next
+    /// daemon adopted after an update; user 2026-10-20 "updates must never
+    /// cut Chief") is left running: ending it would lose its work and the
+    /// resume turn would do it again. No turn starts until it ends
+    /// (`on_session`) or `ORPHAN_WAIT` passes; `force` (that deadline) folds
+    /// and ends it anyway.
+    pub(super) fn adopt_orphans(&mut self, force: bool) {
         if self.state.orphans.is_empty() {
+            self.orphan_wait = None;
             return;
         }
         let orphans = std::mem::take(&mut self.state.orphans);
         let mut gone = Vec::new();
+        let mut running = false;
         for orphan in orphans {
+            let still_runs = !force
+                && matches!(
+                    self.agents.session(&orphan.session),
+                    Ok(Some(s)) if busy(s.status)
+                );
+            if still_runs {
+                (self.log)(&format!(
+                    "orphan turn session {} still runs (the next acpmux adopted it); no turn starts until it ends",
+                    orphan.session
+                ));
+                running = true;
+                self.state.orphans.push(orphan);
+                continue;
+            }
             match crate::turn::adopt_orphan(&*self.agents, &self.chat, &orphan, &*self.log) {
                 Ok(()) => (self.log)(&format!("folded orphan turn session {}", orphan.session)),
                 Err(e) if e.contains("no session matches") => {
@@ -183,6 +304,11 @@ impl Brain {
                 }
             }
         }
+        self.orphan_wait = match (running, self.orphan_wait) {
+            (false, _) => None,
+            (true, Some(at)) => Some(at),
+            (true, None) => Some(std::time::Instant::now() + super::ORPHAN_WAIT),
+        };
         self.save_with(gone);
     }
 
@@ -225,8 +351,8 @@ impl Brain {
             .collect();
         for s in asking {
             let text = format!(
-                "[{}] has {} pending permission request(s). See `chief agents list`; answer with `chief agents allow {} [OPTION_ID]` or `chief agents deny {}`.",
-                s.name, s.pending_permissions, s.name, s.name
+                "[{}] has {} pending permission request(s). Nobody can allow them (only the person's cmux app allows, and it has no tab there): deny with `chief agents deny {}`, or tell it what to do instead.",
+                s.name, s.pending_permissions, s.name
             );
             self.queue(text, Source::Note);
         }
@@ -411,6 +537,7 @@ pub(super) fn permission_text(name: &str, request: &Value) -> String {
         options.join(", ")
     };
     format!(
-        "[{name}] asks permission: {title}{input}\nOptions: {options}\nAnswer with `chief agents allow {name} OPTION_ID` or `chief agents deny {name}`."
+        "[{name}] asks permission: {title}{input}\nOptions: {options}\nNobody can allow it: only the person's cmux app allows, and {name} has no tab there. Deny it with `chief agents deny {name}`, or tell it what to do instead; the host denies it after {} s.",
+        crate::approval::PERMISSION_WAIT.as_secs()
     )
 }

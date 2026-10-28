@@ -1,6 +1,7 @@
 import CCmuxMotionFFI
 public import CoreGraphics
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// Tween tokens: Chrome's tab strip motion (design-tokens.json
 /// `motion.tweens`, 200 ms 1-(1-t)^2). A tweened value goes from where it is
@@ -27,10 +28,16 @@ public nonisolated enum MotionTween: UInt8, Sendable, CaseIterable {
 nonisolated extension MotionPolicy {
     /// This policy for the motion C ABI.
     var ffi: CmuxMotionPolicy {
-        let speedIndex: UInt8 = switch speed {
-        case .fast: 0
-        case .normal: 1
-        case .off: 2
+        // The master switch or this policy's category off is speed "off" for the C ABI.
+        let speedIndex: UInt8
+        if !categoryAnimates {
+            speedIndex = 2
+        } else {
+            speedIndex = switch speed {
+            case .fast: 0
+            case .normal: 1
+            case .off: 2
+            }
         }
         return CmuxMotionPolicy(speed: speedIndex, reduce_motion: reduceMotion || liveResize, bounce: bounce == .subtle ? 1 : 0,
                                 pane_animations: false, new_tab: enabledKinds.contains(.newTab),
@@ -44,12 +51,13 @@ nonisolated extension MotionPolicy {
     }
 }
 
-extension Motion {
-    public static func duration(_ token: MotionTween) -> TimeInterval { policy.duration(token) }
+extension MotionGate {
+    /// Seconds of tween `token` in this gate's category; 0 applies at once.
+    public func duration(_ token: MotionTween) -> TimeInterval { policy.duration(token) }
 }
 
 /// One scalar on a tween (cmux-motion `TweenValue`, stepped through the app
-/// FFI). Pure: the caller passes the duration (`Motion.duration(token)`).
+/// FFI). Pure: the caller passes the duration (`Motion.tabs.duration(token)`).
 public nonisolated struct TweenValue: Equatable, Sendable {
     public private(set) var value: CGFloat
     public private(set) var target: CGFloat

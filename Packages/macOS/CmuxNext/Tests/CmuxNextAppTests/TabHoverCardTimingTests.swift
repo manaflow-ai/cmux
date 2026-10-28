@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextResources
 @testable import CmuxNextTabs
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Leo 2026-10-14: tab previews behave like a browser's. A card opens after the hover card delay
 /// (`sidebar.hoverCards.delay`, `HoverCardTiming.showDelay` by default, cx-23e1f) on a tab; with one open, another
@@ -130,7 +131,7 @@ import Testing
         #expect(!s.showsAny, "the card stayed after the pointer left it: \(s.coordinator.report["phase"] ?? "-")")
         let panel = try #require(s.coordinator.panel)
         #expect(!panel.isShowingCard, "the fade did not start on the move off the card")
-        let fade = Motion.duration(.fadeOut)
+        let fade = Motion.hoverCards.duration(.fadeOut)
         let start = ContinuousClock.now
         while panel.isVisible, panel.alphaValue > 0.001, ContinuousClock.now - start < .seconds(fade + 1) {
             try await Task.sleep(for: .milliseconds(5))

@@ -21,7 +21,7 @@ fn tools() -> Value {
     json!([
         {
             "name": "request_secret",
-            "description": "Ask the user for a secret (an API key, a token, a password) on a private card in cmux. The user types it there; you never see the value. Returns a one-use secretRef for this project: pass it to run_with_secret to run one command with the secret in an environment variable. Never ask for a secret in chat.",
+            "description": "Ask the user for a secret (an API key, a token, a password) on a private card in cmux. The user types it there; you never see the value. The call waits until the user fills or declines the card (it closes after 15 minutes, or with your turn); inside a cmux_exec script it waits at most 10 minutes, so call it in a script of its own. Returns a one-use secretRef for this chat's folder, good for an hour: pass it to run_with_secret to run one command with the secret in an environment variable. Never ask for a secret in chat.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -33,7 +33,7 @@ fn tools() -> Value {
         },
         {
             "name": "run_with_secret",
-            "description": "Run one command in the project folder with a secret from request_secret in an environment variable. The secretRef is spent by this call. The secret's value is masked in the output.",
+            "description": "Run one command in this chat's folder with a secret from request_secret in an environment variable. It runs without your environment (only basics such as HOME, PATH and the locale, plus your login shell's variables), with no stdin, for at most 2 minutes (then it is killed and timedOut is true), and returns exitCode, stdout and stderr (about 64 KiB each at most) with the secret's value masked. The secretRef is spent once the command starts; one that could not start stays usable.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

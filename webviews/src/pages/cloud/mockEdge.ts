@@ -246,8 +246,15 @@ export class MockEdge {
         only(p, ["machine", "port", "host", "path"]);
         const route: BrowserRoute = {
           machine: machineOf(p),
-          proxy: { kind: "http", host: "127.0.0.1", port: this.nextPort++ },
+          proxy: {
+            kind: "http",
+            host: "127.0.0.1",
+            port: this.nextPort++,
+            username: "cmux-mock",
+            password: "mock-browser-route-password-32-bytes",
+          },
           url: `http://${typeof p.host === "string" ? p.host : "localhost"}:${Number(p.port)}${typeof p.path === "string" ? p.path : "/"}`,
+          incarnation: 1,
           generation: 1,
         };
         return route;

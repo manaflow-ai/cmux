@@ -32,12 +32,19 @@ struct AgentTabContent {
             return services.agentTabs.notice(for: key).map(TabContent.notice)
         }
         // Set on each show, so a tab moved to another pane opens files there.
+        // A file or preview the person clicks in the chat opens beside it (LinkOpener,
+        // `layout.linkPlacement`), never over the chat; the external editor keeps its own path.
         view.model.onOpenFile = { [weak pane] url, target in
             guard let pane else { return false }
+            // A quote from the file's viewer comes back to this chat (viewer-comments-DESIGN.md).
+            pane.services.chatQuoteOpeners.noteOpened(url, byAgentTab: key)
+            if target == .tab { return pane.services.linkOpener.openFile(url, from: pane) }
             return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey)
         }
         view.model.onOpenPreview = { [weak pane] url in
             guard let pane else { return false }
+            // A clicked link's tab, the hover card's Open: as a link clicked in the chat (LinkOpener.openWeb).
+            if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.openWeb(url, from: pane, background: false, reusesTab: true) }
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey)
         }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
@@ -55,17 +62,25 @@ struct AgentTabContent {
     private func drawLastPage(_ key: String, until view: AgentPaneView?) {
         let paneView = pane.view
         let images = pane.services.agentTabs.launchImages
-        // A New Tab page with no saved image of its own draws the last New Tab frame (cx-ec99).
-        let newTabFrame = { view?.model.newTab == nil ? nil : AgentPaneNewTabFrame.shared.image(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) }
+        // A New Tab page with no saved image of its own draws the last New Tab frame (cx-ec99), unless
+        // it shows in Chromium: that page draws over the frame as it comes in, both seen at once.
+        let newTabFrame = { view?.model.newTab == nil || view?.pageDrawsOverCovers == true ? nil : AgentPaneNewTabFrame.shared.image(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) }
         let image = { images.take(key, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) ?? newTabFrame() }
         if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) }
-        guard paneView.launchImageView != nil, let view else { return }
+        guard let imageView = paneView.launchImageView, let view else { return }
         view.showsLoadingState = false
+        // The image's limit takes it only once the page has drawn. A chat read at launch can take
+        // longer than that limit (acpmux's attach, and the page holds its first frame until the
+        // chat is read), and the frame it would hand the pane to is empty.
+        paneView.launchImageMayClear = { [weak view] in view?.model.hasPainted ?? true }
         paneView.onLaunchImageCleared = { [weak view] in
             if let view, view.model.newTab == nil { view.showsLoadingState = true }
         }
         // Once the page has faded in over it (`AgentPaneLoadingView.leave`).
-        view.loadingView.whenRevealed { [weak paneView] in paneView?.clearLaunchImage() }
+        view.loadingView.whenRevealed { [weak paneView, weak imageView] in
+            guard let imageView else { return }
+            paneView?.clearLaunchImage(ifShowing: imageView)
+        }
     }
 
     /// A parked spare taken into this pane draws nothing until WebKit renders it in its new place
@@ -74,16 +89,17 @@ struct AgentTabContent {
     private func coverMove(of view: AgentPaneView) {
         let paneView = pane.view, appearance = Self.appearance(of: paneView)
         let size = pane.services.newTabSpares.openingSize(of: view) ?? paneView.contentHost.bounds.size
+        // Only a frame at that size (none for a pane not laid out), and the page stays clear until it drew there, cover or
+        // not: a page shown at its parked size (a split pane's) shifted as it laid out again (Leo 2026-10-20).
         let own = view.redraw.takeRememberedFrame(size: size, appearance: appearance)
-        guard paneView.launchImageView == nil, let image = own ?? AgentPaneNewTabFrame.shared.image(size: size, appearance: appearance)
-        else { return BenchSpans.mark("newTab.cover.none \(size) \(String(describing: appearance))") }
-        BenchSpans.mark(own != nil ? "newTab.cover.own" : "newTab.cover")
-        paneView.showLaunchImage(image)
+        let image = size == .zero || paneView.launchImageView != nil || view.pageDrawsOverCovers ? nil : own ?? AgentPaneNewTabFrame.shared.image(size: size, appearance: appearance)
+        BenchSpans.mark(image == nil ? "newTab.cover.none \(size) \(String(describing: appearance))" : own != nil ? "newTab.cover.own" : "newTab.cover")
         // The image's deadline shows the page too, should its frame never be reported.
-        paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() }
-        view.hideMovedPage { [weak paneView] in
+        if let image { paneView.showLaunchImage(image); paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() } }
+        let imageView = image == nil ? nil : paneView.launchImageView
+        view.hideMovedPage { [weak paneView, weak imageView] in
             BenchSpans.mark("newTab.cover.cleared")
-            paneView?.clearLaunchImage()
+            if let imageView { paneView?.clearLaunchImage(ifShowing: imageView) }
         }
     }
 

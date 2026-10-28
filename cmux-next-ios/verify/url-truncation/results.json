@@ -1,0 +1,5274 @@
+{
+ "before-grid-light": {
+  "cards": [
+   [
+    "p2tabs-t1, tab",
+    [
+     16,
+     -361.3,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "https://example.com/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check?query=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&utm_source=cmux, tab",
+    [
+     209,
+     -361.3,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html, tab",
+    [
+     16,
+     -73,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html, tab",
+    [
+     209,
+     -73,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/title/long-title.html, tab",
+    [
+     16,
+     215.3,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "https://this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check, tab",
+    [
+     209,
+     215.3,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "http://127.0.0.1:18765/slow/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check, tab",
+    [
+     16,
+     503.7,
+     177,
+     274.3
+    ]
+   ]
+  ],
+  "texts": [
+   [
+    "7 Tabs",
+    [
+     175.3,
+     801.8,
+     51.7,
+     20.3
+    ]
+   ],
+   [
+    "phone 50:14.134",
+    [
+     21.3,
+     825.1,
+     44.9,
+     5.9
+    ]
+   ],
+   [
+    "0 fps \u00b7 0 kbps \u00b7 0\u00d70 \u00b7 channel",
+    [
+     21.3,
+     831.4,
+     89.8,
+     5.9
+    ]
+   ],
+   [
+    "latency \u2013 ms \u00b7 decode 0.0 ms",
+    [
+     21.3,
+     837.7,
+     84.0,
+     5.9
+    ]
+   ],
+   [
+    "p2tabs-urltrunc-194947",
+    [
+     103.2,
+     66,
+     195.7,
+     20.3
+    ]
+   ],
+   [
+    "cmux8\u2019s Mac mini \u00b7 7 tabs",
+    [
+     122.8,
+     87.3,
+     156.3,
+     15.7
+    ]
+   ]
+  ],
+  "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/before-grid-light.png"
+ },
+ "before-file-long-light": {
+  "card": "file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html, tab",
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 52:21.236",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "3 fps \u00b7 1,601 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      258.7,
+      13.3
+     ]
+    ],
+    [
+     "latency 132 ms \u00b7 decode 12.2 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      211,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+     "Button",
+     [
+      138,
+      792,
+      126,
+      48
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/before-file-long-light-expanded.png"
+  },
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 52:25.152",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "24 fps \u00b7 157 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      251.7,
+      13.3
+     ]
+    ],
+    [
+     "latency 11 ms \u00b7 decode 1.5 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      197.3,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      -535.2,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      -484,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+     "Button",
+     [
+      -484,
+      828,
+      1370,
+      32
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      841.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Refresh",
+     "Image",
+     [
+      841.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+     "Button",
+     [
+      -484,
+      828,
+      1370,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      898.8,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Tabs",
+     "Image",
+     [
+      898.8,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+   "pill": [
+    -484,
+    828,
+    1370,
+    32
+   ],
+   "left_margin": -484,
+   "right_margin": -484,
+   "inside_16pt": false,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/before-file-long-light-collapsed.png"
+  },
+  "editing": {
+   "field": [
+    [
+     "file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+     [
+      20,
+      510,
+      274,
+      48
+     ]
+    ]
+   ],
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/before-file-long-light-editing.png"
+  }
+ },
+ "before-file-long-reconnect": {
+  "quit": "{\"quit\": true}",
+  "reconnecting_after_s": 12.6,
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 54:24.485",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "26 fps \u00b7 127 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      251.7,
+      13.3
+     ]
+    ],
+    [
+     "latency 13 ms \u00b7 decode 1.5 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      197.3,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      -535.2,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      -484,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+     "Button",
+     [
+      -484,
+      828,
+      1370,
+      32
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      841.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Refresh",
+     "Image",
+     [
+      841.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+     "Button",
+     [
+      -484,
+      828,
+      1370,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      898.8,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Tabs",
+     "Image",
+     [
+      898.8,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+   "pill": [
+    -484,
+    828,
+    1370,
+    32
+   ],
+   "left_margin": -484,
+   "right_margin": -484,
+   "inside_16pt": false,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/before-file-long-reconnect-collapsed.png"
+  },
+  "collapsed2": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 54:28.502",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "26 fps \u00b7 127 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      251.7,
+      13.3
+     ]
+    ],
+    [
+     "latency 13 ms \u00b7 decode 1.5 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      197.3,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      -535.2,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      -484,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+     "Button",
+     [
+      -484,
+      828,
+      1370,
+      32
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      841.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Refresh",
+     "Image",
+     [
+      841.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+     "Button",
+     [
+      -484,
+      828,
+      1370,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      898.8,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Tabs",
+     "Image",
+     [
+      898.8,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+   "pill": [
+    -484,
+    828,
+    1370,
+    32
+   ],
+   "left_margin": -484,
+   "right_margin": -484,
+   "inside_16pt": false,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/before-file-long-reconnect-collapsed2.png"
+  },
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 54:32.535",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "26 fps \u00b7 127 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      251.7,
+      13.3
+     ]
+    ],
+    [
+     "latency 13 ms \u00b7 decode 1.5 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      197.3,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+     "Button",
+     [
+      90,
+      792,
+      222,
+      48
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/before-file-long-reconnect-expanded.png"
+  },
+  "relaunch": "{\"pid\": 94903, \"hostd\": true}"
+ },
+ "after-grid-light": {
+  "cards": [
+   [
+    "p2tabs-t1, tab",
+    [
+     16,
+     122,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "example.com, tab",
+    [
+     209,
+     122,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "iphone-link-sequence.html, tab",
+    [
+     16,
+     410.3,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html, tab",
+    [
+     209,
+     410.3,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "long-title.html, tab",
+    [
+     16,
+     698.7,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid, tab",
+    [
+     209,
+     698.7,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "127.0.0.1, tab",
+    [
+     16,
+     987,
+     177,
+     274.3
+    ]
+   ]
+  ],
+  "texts": [
+   [
+    "7 Tabs",
+    [
+     175.3,
+     801.8,
+     51.7,
+     20.3
+    ]
+   ],
+   [
+    "phone 55:15.601",
+    [
+     21.3,
+     731.8,
+     44.9,
+     5.9
+    ]
+   ],
+   [
+    "3 fps \u00b7 1,439 kbps \u00b7 804\u00d71,444 \u00b7 track",
+    [
+     21.3,
+     738.1,
+     113.9,
+     5.9
+    ]
+   ],
+   [
+    "latency 47 ms \u00b7 decode 11.8 ms",
+    [
+     21.3,
+     744.4,
+     89.8,
+     5.9
+    ]
+   ],
+   [
+    "p2tabs-urltrunc-194947",
+    [
+     103.2,
+     66,
+     195.7,
+     20.3
+    ]
+   ],
+   [
+    "cmux8\u2019s Mac mini \u00b7 7 tabs",
+    [
+     122.8,
+     87.3,
+     156.3,
+     15.7
+    ]
+   ]
+  ],
+  "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-grid-light.png"
+ },
+ "after-http-long-light": {
+  "card": "example.com, tab",
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 55:28.234",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "3 fps \u00b7 622 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      245,
+      13.3
+     ]
+    ],
+    [
+     "latency 30 ms \u00b7 decode 4.2 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      197.3,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, example.com",
+     "Button",
+     [
+      138,
+      792,
+      126,
+      48
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, example.com",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-http-long-light-expanded.png"
+  },
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 55:32.218",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "46 fps \u00b7 783 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      251.7,
+      13.3
+     ]
+    ],
+    [
+     "latency 15 ms \u00b7 decode 1.5 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      197.3,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      92.5,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      143.7,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, example.com",
+     "Button",
+     [
+      143.7,
+      828,
+      114.7,
+      32
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      214.7,
+      820,
+      44.0,
+      48
+     ]
+    ],
+    [
+     "Refresh",
+     "Image",
+     [
+      214.7,
+      820,
+      44.0,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, example.com",
+     "Button",
+     [
+      143.7,
+      828,
+      114.7,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      271.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Tabs",
+     "Image",
+     [
+      271.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, example.com",
+   "pill": [
+    143.7,
+    828,
+    114.7,
+    32
+   ],
+   "left_margin": 143.7,
+   "right_margin": 143.6,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-http-long-light-collapsed.png"
+  },
+  "editing": {
+   "field": [
+    [
+     "https://example.com/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check?query=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&utm_source=cmux",
+     [
+      20,
+      510,
+      274,
+      48
+     ]
+    ]
+   ],
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-http-long-light-editing.png"
+  }
+ },
+ "after-file-long-light": {
+  "card": "iphone-link-sequence.html, tab",
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 55:56.408",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "3 fps \u00b7 709 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      245,
+      13.3
+     ]
+    ],
+    [
+     "latency 16 ms \u00b7 decode 3.4 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      197.3,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, iphone-link-sequence.html",
+     "Button",
+     [
+      138,
+      792,
+      126,
+      48
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      144,
+      808.7,
+      12,
+      15
+     ]
+    ],
+    [
+     "iphone-link-sequence.html",
+     "StaticText",
+     [
+      162.5,
+      805.8,
+      97.3,
+      20.3
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, iphone-link-sequence.html",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-light-expanded.png"
+  },
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 56:00.274",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "27 fps \u00b7 226 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      251.7,
+      13.3
+     ]
+    ],
+    [
+     "latency 7 ms \u00b7 decode 1.4 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      45.5,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      96.7,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence.html",
+     "Button",
+     [
+      96.7,
+      828,
+      208.7,
+      32
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      116.9,
+      838.6,
+      8.9,
+      11.1
+     ]
+    ],
+    [
+     "iphone-link-sequence.html",
+     "StaticText",
+     [
+      130.6,
+      836.6,
+      155.9,
+      15.0
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      261.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Refresh",
+     "Image",
+     [
+      261.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence.html",
+     "Button",
+     [
+      96.7,
+      828,
+      208.7,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      318.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Tabs",
+     "Image",
+     [
+      318.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, iphone-link-sequence.html",
+   "pill": [
+    96.7,
+    828,
+    208.7,
+    32
+   ],
+   "left_margin": 96.7,
+   "right_margin": 96.6,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-light-collapsed.png"
+  },
+  "editing": {
+   "field": [
+    [
+     "file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+     [
+      20,
+      510,
+      274,
+      48
+     ]
+    ]
+   ],
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-light-editing.png"
+  }
+ },
+ "after-file-long-name-light": {
+  "card": "iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html, tab",
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "Keyboard",
+     "Image",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 56:23.267",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "0 fps \u00b7 0 kbps \u00b7 0\u00d70 \u00b7 channel",
+     "StaticText",
+     [
+      12,
+      744.3,
+      204,
+      13.3
+     ]
+    ],
+    [
+     "latency \u2013 ms \u00b7 decode 0.0 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+     "Button",
+     [
+      138,
+      792,
+      126,
+      48
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      144,
+      808.7,
+      12,
+      15
+     ]
+    ],
+    [
+     "iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+     "StaticText",
+     [
+      162.7,
+      805.8,
+      97.0,
+      20.3
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-name-light-expanded.png"
+  },
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 56:27.134",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "0 fps \u00b7 0 kbps \u00b7 0\u00d70 \u00b7 channel",
+     "StaticText",
+     [
+      12,
+      744.3,
+      204,
+      13.3
+     ]
+    ],
+    [
+     "latency \u2013 ms \u00b7 decode 0.0 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      38.8,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+     "Button",
+     [
+      90,
+      828,
+      222,
+      32
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      111.7,
+      838.6,
+      8.9,
+      11.1
+     ]
+    ],
+    [
+     "iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+     "StaticText",
+     [
+      125.5,
+      836.6,
+      166.0,
+      15.0
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+     "Button",
+     [
+      90,
+      828,
+      222,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      324.8,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+   "pill": [
+    90,
+    828,
+    222,
+    32
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-name-light-collapsed.png"
+  },
+  "editing": {
+   "field": [
+    [
+     "file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+     [
+      20,
+      510,
+      274,
+      48
+     ]
+    ]
+   ],
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-name-light-editing.png"
+  }
+ },
+ "after-title-long-light": {
+  "card": "long-title.html, tab",
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "Keyboard",
+     "Image",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 56:49.968",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "0 fps \u00b7 0 kbps \u00b7 0\u00d70 \u00b7 channel",
+     "StaticText",
+     [
+      12,
+      744.3,
+      204,
+      13.3
+     ]
+    ],
+    [
+     "latency \u2013 ms \u00b7 decode 0.0 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, long-title.html",
+     "Button",
+     [
+      138,
+      792,
+      126,
+      48
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      145,
+      808.7,
+      12,
+      15
+     ]
+    ],
+    [
+     "long-title.html",
+     "StaticText",
+     [
+      163.5,
+      805.8,
+      95.3,
+      20.3
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, long-title.html",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-title-long-light-expanded.png"
+  },
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 56:53.918",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "0 fps \u00b7 0 kbps \u00b7 0\u00d70 \u00b7 channel",
+     "StaticText",
+     [
+      12,
+      744.3,
+      204,
+      13.3
+     ]
+    ],
+    [
+     "latency \u2013 ms \u00b7 decode 0.0 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      82.5,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      133.7,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, long-title.html",
+     "Button",
+     [
+      133.7,
+      828,
+      134.7,
+      32
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      153.9,
+      838.6,
+      8.9,
+      11.1
+     ]
+    ],
+    [
+     "long-title.html",
+     "StaticText",
+     [
+      167.6,
+      836.6,
+      81.9,
+      15.0
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      224.7,
+      820,
+      44.0,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, long-title.html",
+     "Button",
+     [
+      133.7,
+      828,
+      134.7,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      281.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, long-title.html",
+   "pill": [
+    133.7,
+    828,
+    134.7,
+    32
+   ],
+   "left_margin": 133.7,
+   "right_margin": 133.6,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-title-long-light-collapsed.png"
+  },
+  "editing": {
+   "field": [
+    [
+     "file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/title/long-title.html",
+     [
+      20,
+      510,
+      274,
+      48
+     ]
+    ]
+   ],
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-title-long-light-editing.png"
+  }
+ },
+ "after-error-light": {
+  "card": "this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid, tab",
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "Keyboard",
+     "Image",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 57:18.771",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "0 fps \u00b7 0 kbps \u00b7 0\u00d70 \u00b7 channel",
+     "StaticText",
+     [
+      12,
+      744.3,
+      204,
+      13.3
+     ]
+    ],
+    [
+     "latency \u2013 ms \u00b7 decode 0.0 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid",
+     "Button",
+     [
+      138,
+      792,
+      126,
+      48
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-error-light-expanded.png"
+  },
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 57:22.771",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "0 fps \u00b7 0 kbps \u00b7 0\u00d70 \u00b7 channel",
+     "StaticText",
+     [
+      12,
+      744.3,
+      204,
+      13.3
+     ]
+    ],
+    [
+     "latency \u2013 ms \u00b7 decode 0.0 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      38.8,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid",
+     "Button",
+     [
+      90,
+      828,
+      222,
+      32
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid",
+     "Button",
+     [
+      90,
+      828,
+      222,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      324.8,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid",
+   "pill": [
+    90,
+    828,
+    222,
+    32
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-error-light-collapsed.png"
+  },
+  "editing": {
+   "field": [
+    [
+     "https://this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check",
+     [
+      20,
+      510,
+      274,
+      48
+     ]
+    ]
+   ],
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-error-light-editing.png"
+  }
+ },
+ "after-loading-light": {
+  "card": "127.0.0.1, tab",
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "Keyboard",
+     "Image",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 57:48.238",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "0 fps \u00b7 0 kbps \u00b7 0\u00d70 \u00b7 channel",
+     "StaticText",
+     [
+      12,
+      744.3,
+      204,
+      13.3
+     ]
+    ],
+    [
+     "latency \u2013 ms \u00b7 decode 0.0 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, 127.0.0.1",
+     "Button",
+     [
+      138,
+      792,
+      126,
+      48
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, 127.0.0.1",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-loading-light-expanded.png"
+  },
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 57:56.037",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "0 fps \u00b7 0 kbps \u00b7 0\u00d70 \u00b7 channel",
+     "StaticText",
+     [
+      12,
+      744.3,
+      204,
+      13.3
+     ]
+    ],
+    [
+     "latency \u2013 ms \u00b7 decode 0.0 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      106.5,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      157.7,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, 127.0.0.1",
+     "Button",
+     [
+      157.7,
+      828,
+      86.7,
+      32
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      200.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, 127.0.0.1",
+     "Button",
+     [
+      157.7,
+      828,
+      86.7,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      257.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, 127.0.0.1",
+   "pill": [
+    157.7,
+    828,
+    86.7,
+    32
+   ],
+   "left_margin": 157.7,
+   "right_margin": 157.6,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-loading-light-collapsed.png"
+  },
+  "editing": {
+   "field": [
+    [
+     "http://127.0.0.1:18765/slow/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check",
+     [
+      20,
+      510,
+      274,
+      48
+     ]
+    ]
+   ],
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-loading-light-editing.png"
+  }
+ },
+ "after-file-long-reconnect-light": {
+  "quit": "{\"quit\": true}",
+  "reconnecting_after_s": 1.7,
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 58:55.353",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "25 fps \u00b7 74 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      245,
+      13.3
+     ]
+    ],
+    [
+     "latency 7 ms \u00b7 decode 1.3 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      45.5,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      96.7,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence.html",
+     "Button",
+     [
+      96.7,
+      828,
+      208.7,
+      32
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      116.9,
+      838.6,
+      8.9,
+      11.1
+     ]
+    ],
+    [
+     "iphone-link-sequence.html",
+     "StaticText",
+     [
+      130.6,
+      836.6,
+      155.9,
+      15.0
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      261.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Refresh",
+     "Image",
+     [
+      261.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence.html",
+     "Button",
+     [
+      96.7,
+      828,
+      208.7,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      318.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Tabs",
+     "Image",
+     [
+      318.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, iphone-link-sequence.html",
+   "pill": [
+    96.7,
+    828,
+    208.7,
+    32
+   ],
+   "left_margin": 96.7,
+   "right_margin": 96.6,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-reconnect-light-collapsed.png"
+  },
+  "collapsed2": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 59:00.403",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "25 fps \u00b7 74 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      245,
+      13.3
+     ]
+    ],
+    [
+     "latency 7 ms \u00b7 decode 1.3 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      45.5,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      96.7,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence.html",
+     "Button",
+     [
+      96.7,
+      828,
+      208.7,
+      32
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      116.9,
+      838.6,
+      8.9,
+      11.1
+     ]
+    ],
+    [
+     "iphone-link-sequence.html",
+     "StaticText",
+     [
+      130.6,
+      836.6,
+      155.9,
+      15.0
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      261.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Refresh",
+     "Image",
+     [
+      261.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence.html",
+     "Button",
+     [
+      96.7,
+      828,
+      208.7,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      318.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Tabs",
+     "Image",
+     [
+      318.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, iphone-link-sequence.html",
+   "pill": [
+    96.7,
+    828,
+    208.7,
+    32
+   ],
+   "left_margin": 96.7,
+   "right_margin": 96.6,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-reconnect-light-collapsed2.png"
+  },
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 59:04.403",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "25 fps \u00b7 74 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      245,
+      13.3
+     ]
+    ],
+    [
+     "latency 7 ms \u00b7 decode 1.3 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, iphone-link-sequence.html",
+     "Button",
+     [
+      90,
+      792,
+      222,
+      48
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      144,
+      808.7,
+      12,
+      15
+     ]
+    ],
+    [
+     "iphone-link-sequence.html",
+     "StaticText",
+     [
+      162.5,
+      805.8,
+      97.3,
+      20.3
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, iphone-link-sequence.html",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-reconnect-light-expanded.png"
+  },
+  "relaunch": "{\"pid\": 88761, \"hostd\": true}"
+ },
+ "after-grid-dark": {
+  "cards": [
+   [
+    "p2tabs-t1, tab",
+    [
+     16,
+     -166.3,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "Example Domain, tab",
+    [
+     209,
+     -166.3,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "iphone-link-sequence.html, tab",
+    [
+     16,
+     122,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html, tab",
+    [
+     209,
+     122,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "An extremely long page title that goes on and on well past the width of any tab card or toolbar pill on an iPhone, tab",
+    [
+     16,
+     410.3,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid, tab",
+    [
+     209,
+     410.3,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "127.0.0.1, tab",
+    [
+     16,
+     698.7,
+     177,
+     274.3
+    ]
+   ]
+  ],
+  "texts": [
+   [
+    "7 Tabs",
+    [
+     175.3,
+     801.8,
+     51.7,
+     20.3
+    ]
+   ],
+   [
+    "phone 59:17.237",
+    [
+     21.3,
+     443.4,
+     44.9,
+     5.9
+    ]
+   ],
+   [
+    "3 fps \u00b7 1,601 kbps \u00b7 804\u00d71,444 \u00b7 track",
+    [
+     21.3,
+     449.7,
+     113.9,
+     5.9
+    ]
+   ],
+   [
+    "latency 473 ms \u00b7 decode 8.4 ms",
+    [
+     21.3,
+     456.0,
+     89.8,
+     5.9
+    ]
+   ],
+   [
+    "p2tabs-urltrunc-194947",
+    [
+     103.2,
+     66,
+     195.7,
+     20.3
+    ]
+   ],
+   [
+    "cmux8\u2019s Mac mini \u00b7 7 tabs",
+    [
+     122.8,
+     87.3,
+     156.3,
+     15.7
+    ]
+   ]
+  ],
+  "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-grid-dark.png"
+ },
+ "after-file-long-dark": {
+  "card": "iphone-link-sequence.html, tab",
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "Keyboard",
+     "Image",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 59:50.003",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "3 fps \u00b7 1,601 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      258.7,
+      13.3
+     ]
+    ],
+    [
+     "latency 473 ms \u00b7 decode 8.4 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      204,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, iphone-link-sequence.html",
+     "Button",
+     [
+      138,
+      792,
+      126,
+      48
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      144,
+      808.7,
+      12,
+      15
+     ]
+    ],
+    [
+     "iphone-link-sequence.html",
+     "StaticText",
+     [
+      162.5,
+      805.8,
+      97.3,
+      20.3
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, iphone-link-sequence.html",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-dark-expanded.png"
+  },
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 59:54.320",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "26 fps \u00b7 68 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      245,
+      13.3
+     ]
+    ],
+    [
+     "latency 6 ms \u00b7 decode 1.3 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      45.5,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      96.7,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence.html",
+     "Button",
+     [
+      96.7,
+      828,
+      208.7,
+      32
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      116.9,
+      838.6,
+      8.9,
+      11.1
+     ]
+    ],
+    [
+     "iphone-link-sequence.html",
+     "StaticText",
+     [
+      130.6,
+      836.6,
+      155.9,
+      15.0
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      261.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Refresh",
+     "Image",
+     [
+      261.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence.html",
+     "Button",
+     [
+      96.7,
+      828,
+      208.7,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      318.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Tabs",
+     "Image",
+     [
+      318.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, iphone-link-sequence.html",
+   "pill": [
+    96.7,
+    828,
+    208.7,
+    32
+   ],
+   "left_margin": 96.7,
+   "right_margin": 96.6,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-dark-collapsed.png"
+  },
+  "editing": {
+   "field": [
+    [
+     "file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/verify/iphone-link-sequence.html",
+     [
+      20,
+      510,
+      274,
+      48
+     ]
+    ]
+   ],
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-dark-editing.png"
+  }
+ },
+ "after-file-long-name-dark": {
+  "card": "iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html, tab",
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 00:23.539",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "2 fps \u00b7 919 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      245,
+      13.3
+     ]
+    ],
+    [
+     "latency 261 ms \u00b7 decode 8.0 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      204,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+     "Button",
+     [
+      90,
+      792,
+      222,
+      48
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      144,
+      808.7,
+      12,
+      15
+     ]
+    ],
+    [
+     "iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+     "StaticText",
+     [
+      162.7,
+      805.8,
+      97.0,
+      20.3
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-name-dark-expanded.png"
+  },
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 00:27.372",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "27 fps \u00b7 214 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      251.7,
+      13.3
+     ]
+    ],
+    [
+     "latency 9 ms \u00b7 decode 1.3 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      38.8,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+     "Button",
+     [
+      90,
+      828,
+      222,
+      32
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      111.7,
+      838.6,
+      8.9,
+      11.1
+     ]
+    ],
+    [
+     "iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+     "StaticText",
+     [
+      125.5,
+      836.6,
+      166.0,
+      15.0
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+     "Button",
+     [
+      90,
+      828,
+      222,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      324.8,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+   "pill": [
+    90,
+    828,
+    222,
+    32
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-name-dark-collapsed.png"
+  },
+  "editing": {
+   "field": [
+    [
+     "file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html",
+     [
+      20,
+      510,
+      274,
+      48
+     ]
+    ]
+   ],
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-name-dark-editing.png"
+  }
+ },
+ "after-title-long-dark": {
+  "card": "An extremely long page title that goes on and on well past the width of any tab card or toolbar pill on an iPhone, tab",
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 04:19.242",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "1 fps \u00b7 896 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      245,
+      13.3
+     ]
+    ],
+    [
+     "latency 498 ms \u00b7 decode 12.9 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      211,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, long-title.html",
+     "Button",
+     [
+      138,
+      792,
+      126,
+      48
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      145,
+      808.7,
+      12,
+      15
+     ]
+    ],
+    [
+     "long-title.html",
+     "StaticText",
+     [
+      163.5,
+      805.8,
+      95.3,
+      20.3
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, long-title.html",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-title-long-dark-expanded.png"
+  },
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 04:23.392",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "28 fps \u00b7 189 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      251.7,
+      13.3
+     ]
+    ],
+    [
+     "latency 11 ms \u00b7 decode 1.4 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      197.3,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      82.5,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      133.7,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, long-title.html",
+     "Button",
+     [
+      133.7,
+      828,
+      134.7,
+      32
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      153.9,
+      838.6,
+      8.9,
+      11.1
+     ]
+    ],
+    [
+     "long-title.html",
+     "StaticText",
+     [
+      167.6,
+      836.6,
+      81.9,
+      15.0
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      224.7,
+      820,
+      44.0,
+      48
+     ]
+    ],
+    [
+     "Refresh",
+     "Image",
+     [
+      224.7,
+      820,
+      44.0,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, long-title.html",
+     "Button",
+     [
+      133.7,
+      828,
+      134.7,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      281.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Tabs",
+     "Image",
+     [
+      281.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, long-title.html",
+   "pill": [
+    133.7,
+    828,
+    134.7,
+    32
+   ],
+   "left_margin": 133.7,
+   "right_margin": 133.6,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-title-long-dark-collapsed.png"
+  },
+  "editing": {
+   "field": [
+    [
+     "file:///Users/cmux/cmux-next-ios-e2e/urltrunc/pages/title/long-title.html",
+     [
+      20,
+      510,
+      274,
+      48
+     ]
+    ]
+   ],
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-title-long-dark-editing.png"
+  }
+ },
+ "after-error-dark": {
+  "card": "this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid, tab",
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "Keyboard",
+     "Image",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 01:27.687",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "1 fps \u00b7 240 kbps \u00b7 804\u00d71,444 \u00b7 channel",
+     "StaticText",
+     [
+      12,
+      744.3,
+      258.7,
+      13.3
+     ]
+    ],
+    [
+     "latency 27672 ms \u00b7 decode 5.0 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      217.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid",
+     "Button",
+     [
+      138,
+      792,
+      126,
+      48
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-error-dark-expanded.png"
+  },
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 01:32.404",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "1 fps \u00b7 240 kbps \u00b7 804\u00d71,444 \u00b7 channel",
+     "StaticText",
+     [
+      12,
+      744.3,
+      258.7,
+      13.3
+     ]
+    ],
+    [
+     "latency 27672 ms \u00b7 decode 5.0 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      217.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      38.8,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid",
+     "Button",
+     [
+      90,
+      828,
+      222,
+      32
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Refresh",
+     "Image",
+     [
+      268,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid",
+     "Button",
+     [
+      90,
+      828,
+      222,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      324.8,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Tabs",
+     "Image",
+     [
+      324.8,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid",
+   "pill": [
+    90,
+    828,
+    222,
+    32
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-error-dark-collapsed.png"
+  },
+  "editing": {
+   "field": [
+    [
+     "https://this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check",
+     [
+      20,
+      510,
+      274,
+      48
+     ]
+    ]
+   ],
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-error-dark-editing.png"
+  }
+ },
+ "after-loading-dark": {
+  "card": "127.0.0.1, tab",
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 01:55.287",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "0 fps \u00b7 0 kbps \u00b7 0\u00d70 \u00b7 channel",
+     "StaticText",
+     [
+      12,
+      744.3,
+      204,
+      13.3
+     ]
+    ],
+    [
+     "latency \u2013 ms \u00b7 decode 0.0 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, 127.0.0.1",
+     "Button",
+     [
+      138,
+      792,
+      126,
+      48
+     ]
+    ],
+    [
+     "Stop",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, 127.0.0.1",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-loading-dark-expanded.png"
+  },
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 01:59.020",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "0 fps \u00b7 0 kbps \u00b7 0\u00d70 \u00b7 channel",
+     "StaticText",
+     [
+      12,
+      744.3,
+      204,
+      13.3
+     ]
+    ],
+    [
+     "latency \u2013 ms \u00b7 decode 0.0 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      106.5,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      157.7,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, 127.0.0.1",
+     "Button",
+     [
+      157.7,
+      828,
+      86.7,
+      32
+     ]
+    ],
+    [
+     "Stop",
+     "Button",
+     [
+      200.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, 127.0.0.1",
+     "Button",
+     [
+      157.7,
+      828,
+      86.7,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      257.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, 127.0.0.1",
+   "pill": [
+    157.7,
+    828,
+    86.7,
+    32
+   ],
+   "left_margin": 157.7,
+   "right_margin": 157.6,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-loading-dark-collapsed.png"
+  },
+  "editing": {
+   "field": [
+    [
+     "http://127.0.0.1:18765/slow/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check",
+     [
+      20,
+      510,
+      274,
+      48
+     ]
+    ]
+   ],
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-loading-dark-editing.png"
+  }
+ },
+ "after-file-long-reconnect-dark": {
+  "quit": "{\"quit\": true}",
+  "reconnecting_after_s": 1.0,
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 02:58.388",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "16 fps \u00b7 32 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      245,
+      13.3
+     ]
+    ],
+    [
+     "latency 8 ms \u00b7 decode 1.2 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      45.5,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      96.7,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence.html",
+     "Button",
+     [
+      96.7,
+      828,
+      208.7,
+      32
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      116.9,
+      838.6,
+      8.9,
+      11.1
+     ]
+    ],
+    [
+     "iphone-link-sequence.html",
+     "StaticText",
+     [
+      130.6,
+      836.6,
+      155.9,
+      15.0
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      261.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence.html",
+     "Button",
+     [
+      96.7,
+      828,
+      208.7,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      318.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, iphone-link-sequence.html",
+   "pill": [
+    96.7,
+    828,
+    208.7,
+    32
+   ],
+   "left_margin": 96.7,
+   "right_margin": 96.6,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-reconnect-dark-collapsed.png"
+  },
+  "collapsed2": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 03:02.222",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "16 fps \u00b7 32 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      245,
+      13.3
+     ]
+    ],
+    [
+     "latency 8 ms \u00b7 decode 1.2 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      45.5,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      96.7,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence.html",
+     "Button",
+     [
+      96.7,
+      828,
+      208.7,
+      32
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      116.9,
+      838.6,
+      8.9,
+      11.1
+     ]
+    ],
+    [
+     "iphone-link-sequence.html",
+     "StaticText",
+     [
+      130.6,
+      836.6,
+      155.9,
+      15.0
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      261.7,
+      820,
+      44,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, iphone-link-sequence.html",
+     "Button",
+     [
+      96.7,
+      828,
+      208.7,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      318.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, iphone-link-sequence.html",
+   "pill": [
+    96.7,
+    828,
+    208.7,
+    32
+   ],
+   "left_margin": 96.7,
+   "right_margin": 96.6,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-reconnect-dark-collapsed2.png"
+  },
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 03:05.422",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "16 fps \u00b7 32 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      245,
+      13.3
+     ]
+    ],
+    [
+     "latency 8 ms \u00b7 decode 1.2 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      190.7,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, iphone-link-sequence.html",
+     "Button",
+     [
+      90,
+      792,
+      222,
+      48
+     ]
+    ],
+    [
+     "Document",
+     "Image",
+     [
+      144,
+      808.7,
+      12,
+      15
+     ]
+    ],
+    [
+     "iphone-link-sequence.html",
+     "StaticText",
+     [
+      162.5,
+      805.8,
+      97.3,
+      20.3
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, iphone-link-sequence.html",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-file-long-reconnect-dark-expanded.png"
+  },
+  "relaunch": "{\"pid\": 83875, \"hostd\": true}"
+ },
+ "after-http-long-dark": {
+  "card": "Example Domain, tab",
+  "expanded": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 03:45.606",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "2 fps \u00b7 515 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      245,
+      13.3
+     ]
+    ],
+    [
+     "latency 290 ms \u00b7 decode 5.3 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      204,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      34,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      90,
+      792,
+      48,
+      48
+     ]
+    ],
+    [
+     "Address, example.com",
+     "Button",
+     [
+      138,
+      792,
+      126,
+      48
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      268,
+      792,
+      44,
+      48
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      320,
+      792,
+      48,
+      48
+     ]
+    ]
+   ],
+   "state": "expanded",
+   "label": "Address, example.com",
+   "pill": [
+    90,
+    792,
+    222,
+    48
+   ],
+   "left_margin": 90,
+   "right_margin": 90,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-http-long-dark-expanded.png"
+  },
+  "collapsed": {
+   "elements": [
+    [
+     "Keyboard",
+     "Button",
+     [
+      357.3,
+      743.3,
+      21.3,
+      13.7
+     ]
+    ],
+    [
+     "phone 03:49.856",
+     "StaticText",
+     [
+      12,
+      730,
+      102,
+      13.3
+     ]
+    ],
+    [
+     "44 fps \u00b7 934 kbps \u00b7 804\u00d71,444 \u00b7 track",
+     "StaticText",
+     [
+      12,
+      744.3,
+      251.7,
+      13.3
+     ]
+    ],
+    [
+     "latency 11 ms \u00b7 decode 1.8 ms",
+     "StaticText",
+     [
+      12,
+      758.7,
+      197.3,
+      13.3
+     ]
+    ],
+    [
+     "Back",
+     "Button",
+     [
+      92.5,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Page Menu",
+     "Button",
+     [
+      143.7,
+      820,
+      48,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, example.com",
+     "Button",
+     [
+      143.7,
+      828,
+      114.7,
+      32
+     ]
+    ],
+    [
+     "Reload",
+     "Button",
+     [
+      214.7,
+      820,
+      44.0,
+      48
+     ]
+    ],
+    [
+     "Refresh",
+     "Image",
+     [
+      214.7,
+      820,
+      44.0,
+      48
+     ]
+    ],
+    [
+     "Show toolbar, example.com",
+     "Button",
+     [
+      143.7,
+      828,
+      114.7,
+      32
+     ]
+    ],
+    [
+     "Tabs",
+     "Button",
+     [
+      271.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ],
+    [
+     "Tabs",
+     "Image",
+     [
+      271.1,
+      824.8,
+      38.4,
+      38.4
+     ]
+    ]
+   ],
+   "state": "collapsed",
+   "label": "Show toolbar, example.com",
+   "pill": [
+    143.7,
+    828,
+    114.7,
+    32
+   ],
+   "left_margin": 143.7,
+   "right_margin": 143.6,
+   "inside_16pt": true,
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-http-long-dark-collapsed.png"
+  },
+  "editing": {
+   "field": [
+    [
+     "https://example.com/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check/a-very-long-path-segment-that-keeps-going-for-the-truncation-check?query=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&utm_source=cmux",
+     [
+      20,
+      510,
+      274,
+      48
+     ]
+    ]
+   ],
+   "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-http-long-dark-editing.png"
+  }
+ },
+ "after-grid-dark2": {
+  "cards": [
+   [
+    "p2tabs-t1, tab",
+    [
+     16,
+     -361.3,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "Example Domain, tab",
+    [
+     209,
+     -361.3,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "iphone-link-sequence.html, tab",
+    [
+     16,
+     -73,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "iphone-link-sequence-with-an-extremely-long-file-name-for-the-collapsed-pill-check.html, tab",
+    [
+     209,
+     -73,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "An extremely long page title that goes on and on well past the width of any tab card or toolbar pill on an iPhone, tab",
+    [
+     16,
+     215.3,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "this-host-name-does-not-exist-for-the-cmux-url-truncation-check.invalid, tab",
+    [
+     209,
+     215.3,
+     177,
+     274.3
+    ]
+   ],
+   [
+    "127.0.0.1, tab",
+    [
+     16,
+     503.7,
+     177,
+     274.3
+    ]
+   ]
+  ],
+  "texts": [
+   [
+    "7 Tabs",
+    [
+     175.3,
+     801.8,
+     51.7,
+     20.3
+    ]
+   ],
+   [
+    "phone 04:40.908",
+    [
+     21.3,
+     536.8,
+     44.9,
+     5.9
+    ]
+   ],
+   [
+    "27 fps \u00b7 169 kbps \u00b7 804\u00d71,444 \u00b7 track",
+    [
+     21.3,
+     543.1,
+     110.8,
+     5.9
+    ]
+   ],
+   [
+    "latency 11 ms \u00b7 decode 1.3 ms",
+    [
+     21.3,
+     549.4,
+     86.9,
+     5.9
+    ]
+   ],
+   [
+    "p2tabs-urltrunc-194947",
+    [
+     103.2,
+     66,
+     195.7,
+     20.3
+    ]
+   ],
+   [
+    "cmux8\u2019s Mac mini \u00b7 7 tabs",
+    [
+     122.8,
+     87.3,
+     156.3,
+     15.7
+    ]
+   ]
+  ],
+  "shot": "/Users/azizalbahar/cmux-next-ios-e2e/urltrunc/shots/after-grid-dark2.png"
+ }
+}

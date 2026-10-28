@@ -1,9 +1,10 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useContext, useEffect, useId, useRef, useState } from "react";
 import type { Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
+import { OnNewTab } from "./newTabComposer";
 import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import type { ReasoningSliderStyle } from "./composerSettings";
 
@@ -21,8 +22,9 @@ export type SpeedSection = {
 /// with one checked row per level the model offers; then Ultracode and the speed section when the
 /// agent has them. The agent's own level ("default", `defaulted`) checks the level it resolves to,
 /// with a Default hint, and the chip names that level; unresolved, it says Reasoning, never the
-/// first level. The chip says Ultracode while that is on; fast mode shows on the bolt beside the
-/// mic (FastToggle.tsx), not on the chip.
+/// first level. The chip says Ultracode while that is on. No composer draws it since Leo 2026-10-20
+/// (one model button, its menu's Effort › and Fast mode rows, QuickModelMenu.tsx); it stays a
+/// standalone control with its gallery.
 /// The menu is the shared popup layer's opaque surface (ui/Menu), so nothing shows through it.
 /// Picking sends chat.effort through `onPick` (and each section's own `onPick`).
 /// With `slider` (the Debug Settings toggle `agent.reasoningSlider`, off by default) the Reasoning
@@ -61,6 +63,8 @@ export function EffortPicker({
   sliderStyle?: ReasoningSliderStyle;
 }) {
   const t = useT();
+  // On New Tab the menu opens down (newTabComposer.ts).
+  const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
   // The agent's implicit level is represented by the chip, not a second "Default" row. Keep the
   // real levels in the menu so the first arrow lands on an actionable choice.
@@ -128,7 +132,7 @@ export function EffortPicker({
           <EffortLabel label={level} short={short && short !== level ? short : undefined} />
           {chevron}
         </MenuButton>
-        <MenuPopup side="top" align="start" className="acpmux-effort-menu">
+        <MenuPopup side={newTab ? "bottom" : "top"} align="start" className="acpmux-effort-menu">
           {sliding && (
             <ReasoningSlider
               title={t("picker.reasoning")}
@@ -197,7 +201,7 @@ export function EffortPicker({
 /// The effort chip's label: the level, and its short name for a narrow composer row, which swaps
 /// one for the other whole (composerRowFit.ts). The short name is drawn, so the chip's text stays
 /// the level's name.
-export function EffortLabel({ label, short }: { label: string; short?: string | undefined }) {
+function EffortLabel({ label, short }: { label: string; short?: string | undefined }) {
   if (!short) return <span>{label}</span>;
   return (
     <>

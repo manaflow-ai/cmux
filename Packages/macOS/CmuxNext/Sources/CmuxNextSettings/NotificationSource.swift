@@ -9,6 +9,12 @@ public nonisolated enum NotificationSource: String, Hashable, Sendable, CaseIter
     case terminal
     /// An agent hook (Claude Code, Codex) or any daemon-side producer.
     case agent
+
+    /// The source a daemon sends (`notification-source-v1`). `daemon` producers and daemons
+    /// without sources count as agent, as before sources existed.
+    public init(wire: String?) {
+        self = wire.flatMap(NotificationSource.init(rawValue:)) ?? .agent
+    }
 }
 
 /// Per-source overrides (`notifications.sources.<source>`); nil keeps the global value.

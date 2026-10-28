@@ -56,6 +56,7 @@ final class SidebarResizeHandle: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
         setAccessibilityLabel(Strings.resize)
+        setAccessibilityIdentifier("cmux.sidebar.resize")
         pointerHover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
     }
 
@@ -99,6 +100,15 @@ final class SidebarResizeHandle: NSView {
 
     func setHovered(_ hovered: Bool) { isHovered = hovered }
 
+    /// Windows above this one that pass hover through: the catcher panels over pages
+    /// (`DividerMouseCatchers`). They cover the band, so without them the hover reads as occluded.
+    var hoverPassThroughWindows: () -> Set<Int> = { [] } {
+        didSet { pointerHover?.passThroughWindows = hoverPassThroughWindows }
+    }
+
+    /// Recomputes the hover now (the catcher panels moved under a still pointer).
+    func refreshHover() { pointerHover?.refresh() }
+
     /// Hidden with the sidebar under a still pointer: no exit comes.
     override func viewDidHide() {
         super.viewDidHide()
@@ -113,12 +123,16 @@ final class SidebarResizeHandle: NSView {
     private func updateLine() {
         let target: Float = isLineVisible ? 1 : 0
         guard line.opacity != target else { return }
-        Motion.set(line, "opacity", to: target, fade: .hover)
+        Motion.sidebar.set(line, "opacity", to: target, fade: .hover)
     }
 
     /// A press here resizes the sidebar, also in the titlebar band: it never moves the window
     /// (`TitlebarDragPolicy`).
     override var mouseDownCanMoveWindow: Bool { false }
+
+    /// The press that takes key back from a focused Chromium page (a child window) starts the
+    /// drag, as on a pane divider; otherwise it only brought this window forward.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
         isDragging = true

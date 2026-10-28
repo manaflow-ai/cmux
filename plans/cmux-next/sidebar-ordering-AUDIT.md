@@ -78,8 +78,12 @@ Group Selected acted on the whole selection.
 | Move to Group ▸ / Move to New Group | **ADDED**: every selected row |
 | Remove from Group | **ADDED**: every selected row |
 | Move to Window / New Window, Group Selected | had |
-| Move Up / Down | not built: the keyboard path (`SidebarModel.moveSelection`, Cmd-Opt-Up/Down in the sidebar) already moves the selection as a block; the menu verb still moves one row |
-| Pin / Duplicate / Close | not changed in this pass |
+| Move Up / Down | **ADDED**: the selection moves one slot as one block (`SidebarModel.moveActionTargets`, the same path as Cmd-Opt-Up/Down) |
+| Pin / Unpin | **ADDED**: every selected row takes the right-clicked row's new state |
+| Duplicate | **ADDED**: every selected row |
+| Close | had (`SidebarModel.actionTargets`, formerly `closeTargets`) |
+
+A CLI or MCP run names its workspace and acts on it alone.
 
 ## Keyboard
 

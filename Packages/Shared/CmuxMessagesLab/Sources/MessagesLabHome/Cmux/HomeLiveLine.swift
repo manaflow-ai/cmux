@@ -10,7 +10,12 @@ final class HomeLiveLine {
     /// Sends the line (nil: none) to the transcript's store.
     var dispatch: (String?) -> Void = { _ in }
     private var activity: HomeLiveActivity?
+    /// The run's newest thought (``HomeLiveRun/thought``): the narration row's source.
+    private var thought: String?
     private var shown: String?
+    /// How the line reads (Debug Settings > Home > Running indicator), read at each tick so a
+    /// change shows on the next second.
+    var style: () -> HomeTurnProgressStyle = { .narrated }
     private var clock: Timer?
     private var hiding = false
     /// Counts hide requests: a close pending for an earlier one never closes a later one early.
@@ -21,9 +26,14 @@ final class HomeLiveLine {
         self.now = now
     }
 
-    func show(_ activity: HomeLiveActivity?) {
+    func show(_ activity: HomeLiveActivity?, thought: String? = nil) {
         if activity != nil { hiding = false }
         if let activity { steps.record(activity) }
+        if thought != self.thought {
+            self.thought = thought
+            // A new thought on the same step: the narration row changes now, not on the next second.
+            if activity != nil, activity == self.activity, clock != nil { tick() }
+        }
         // The same line again after a hide stopped its clock: the clock runs again.
         guard activity != self.activity || (activity != nil && clock == nil) else { return }
         self.activity = activity
@@ -98,7 +108,8 @@ final class HomeLiveLine {
 
     private func tick() {
         onTick?()
-        let text = activity.map { Self.text($0, now: now()) }
+        let at = now()
+        let text = activity.map { HomeTurnProgress(steps: steps.steps, current: $0, thought: thought, now: at, style: style()).text }
         guard text != shown else { return }
         shown = text
         dispatch(text)

@@ -9,14 +9,21 @@ public struct TabLayoutEngine {
     ///   closes tabs with the mouse, the strip pretends to be only this wide so
     ///   the remaining tabs keep their width and the next close button slides
     ///   under the pointer. Nil outside closing mode.
+    /// - Parameter fullWidthTab: Full Width Tab mode (``TabStripModel/showsSelectedFullWidth``):
+    ///   this tab fills the whole strip and every other item collapses to zero
+    ///   width. Nil, or an id not in `items`, lays out every tab.
     public static func layout(
         items: [TabLayoutItem],
         availableWidth: CGFloat,
         style: TabStripStyle,
         metrics: TabStripMetrics = .standard,
-        closingModeWidth: CGFloat? = nil
+        closingModeWidth: CGFloat? = nil,
+        fullWidthTab: TabID? = nil
     ) -> TabLayoutResult {
         let available = max(0, min(availableWidth, closingModeWidth ?? .infinity))
+        if let fullWidthTab, items.contains(where: { $0.id == fullWidthTab && !$0.isGroupChip }) {
+            return fullWidthLayout(items: items, tab: fullWidthTab, available: available)
+        }
         let pinnedCount = items.count(where: \.isPinned)
         let unpinned = items.filter { !$0.isPinned }
         // Chips and collapsed members have their own widths; the rest share.
@@ -67,6 +74,22 @@ public struct TabLayoutEngine {
             standardWidth: flexibleWidths.standard,
             availableWidth: available
         )
+    }
+
+    /// `tab` across the whole strip; the rest collapse at its leading or trailing edge, so a
+    /// mode change slides them in from where they sit.
+    private static func fullWidthLayout(items: [TabLayoutItem], tab: TabID, available: CGFloat) -> TabLayoutResult {
+        var passed = false
+        let slots = items.map { item in
+            guard item.id == tab else {
+                return TabLayoutSlot(id: item.id, x: passed ? available : 0, width: 0, isPinned: false,
+                                     groupID: item.groupID, isGroupChip: item.isGroupChip, isCollapsed: true)
+            }
+            passed = true
+            // Not pinned in the slot: a pinned tab here is no fixed band, it is the whole strip.
+            return TabLayoutSlot(id: item.id, x: 0, width: available, isPinned: false, groupID: item.groupID)
+        }
+        return TabLayoutResult(slots: slots, contentWidth: available, standardWidth: available, availableWidth: available)
     }
 
     private static func unpinnedTabWidths(

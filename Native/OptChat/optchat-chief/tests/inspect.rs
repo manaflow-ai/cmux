@@ -484,8 +484,9 @@ fn a_spent_ticket_expires() {
 }
 
 /// The tools socket's `inspect` tool (a remote owner's route, through the
-/// brain's daemon): the same answers as HTTP for the seven read-only paths,
-/// nothing else, GET only, and a size cap.
+/// brain's daemon): the same answers as HTTP for the read-only paths,
+/// nothing else, GET only (POST only for the owner's change paths, which
+/// tests/memory_edit.rs covers), and a size cap.
 #[test]
 fn the_tools_socket_inspect_tool_is_read_only_by_construction() {
     let mut h = harness(true, 120);
@@ -503,6 +504,7 @@ fn the_tools_socket_inspect_tool_is_read_only_by_construction() {
             inspector: Some(insp.clone()),
             chief: None,
             turn: None,
+            peers: None,
         },
     )
     .unwrap();
@@ -562,6 +564,7 @@ fn the_tools_socket_inspect_tool_is_read_only_by_construction() {
         &insp,
         &serde_json::json!({"tool": "inspect", "path": "/api/turn", "query": {"key": "now"}}),
         64,
+        false,
     );
     assert_eq!(big["status"], 413);
     assert!(big.get("body").is_none());

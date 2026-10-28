@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pane backgrounds: four looks</title>
+<style>
+:root { color-scheme: dark; --bg: #141416; --fg: #ececf0; --muted: #9a9aa2; --line: #2a2a2e; }
+body { margin: 0; padding: 24px; background: var(--bg); color: var(--fg); font: 13px/1.45 -apple-system, BlinkMacSystemFont, sans-serif; }
+h1 { font-size: 18px; margin: 0 0 4px; }
+p.lead { color: var(--muted); margin: 0 0 20px; max-width: 760px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 22px; }
+.card { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: #1b1b1e; }
+.card.rec { border-color: #5e8bff; box-shadow: 0 0 0 1px #5e8bff55; }
+.card h2 { font-size: 14px; margin: 0 0 2px; display: flex; gap: 8px; align-items: center; }
+.badge { font-size: 11px; background: #5e8bff; color: #fff; border-radius: 999px; padding: 1px 8px; }
+.card .what { color: var(--muted); margin: 0 0 10px; }
+.card code { font: 11px ui-monospace, Menlo, monospace; color: #c9c9d1; }
+/* A mock window: sidebar + two panes. */
+.win { position: relative; height: 240px; border-radius: 10px; overflow: hidden; display: grid; grid-template-columns: 92px 1fr 1fr; gap: 6px; padding: 6px; }
+.art { background: radial-gradient(120% 90% at 20% 10%, #e3a75b 0%, #b5533c 30%, #3d2a4f 62%, #121827 100%); }
+.art2 { background: radial-gradient(110% 100% at 80% 20%, #9fd3c7 0%, #3d7f8f 35%, #1d3550 70%, #0e1420 100%); }
+.plain { background: #1e1f24; }
+.win > .side { border-radius: 8px; background: rgba(20, 20, 26, 0.62); }
+.pane { position: relative; border-radius: 8px; overflow: hidden; background-color: rgba(20, 20, 26, 0.62); }
+.pane.art, .pane.art2, .side.art { background-color: transparent; }
+.pane.own { background: none; }
+.pane.own::before { content: ""; position: absolute; inset: 0; }
+.pane.own.art::before { background: inherit; }
+.pane .layer { position: absolute; inset: 0; }
+.pane .tintlayer { position: absolute; inset: 0; pointer-events: none; }
+.strip { position: relative; height: 22px; display: flex; gap: 4px; padding: 4px 6px; }
+.tab { font-size: 10px; padding: 2px 8px; border-radius: 5px; background: rgba(255,255,255,0.08); color: #d8d8de; }
+.term { position: relative; padding: 6px 9px; font: 10.5px/1.5 ui-monospace, Menlo, monospace; color: #e8e8ec; }
+.term .p { color: #8fd18f; } .term .d { color: #9a9aa2; }
+.label { position: absolute; right: 8px; bottom: 6px; font-size: 10px; color: #fff; background: rgba(0,0,0,0.45); padding: 1px 6px; border-radius: 4px; }
+.cmd { margin-top: 10px; display: grid; gap: 2px; }
+</style>
+</head>
+<body>
+<h1>Pane backgrounds: four looks</h1>
+<p class="lead">Each look is one combination of the shipped controls: <code>appearance.paneBackgrounds</code> (shared or perPane),
+<code>pane set-background</code> and <code>pane set-tint</code>. Recommended is the default the pane menu leads with: one shared
+background, and a marker tint on the panes you want to tell apart (an agent's pane, a production shell).</p>
+<div class="grid">
+
+<div class="card rec">
+  <h2>1. Marker tint <span class="badge">Recommended</span></h2>
+  <p class="what">One shared background. The agent pane gets a 12% purple wash, the prod shell a 12% red wash. Legible, cheap, reads at a glance.</p>
+  <div class="win art">
+    <div class="side"></div>
+    <div class="pane"><div class="tintlayer" style="background: rgba(191,90,242,0.12)"></div>
+      <div class="strip"><span class="tab">claude · agent</span></div>
+      <div class="term"><span class="p">❯</span> refactor PaneContentView<br><span class="d">editing 3 files…</span></div><span class="label">purple</span></div>
+    <div class="pane"><div class="tintlayer" style="background: rgba(255,69,58,0.12)"></div>
+      <div class="strip"><span class="tab">prod-db</span></div>
+      <div class="term"><span class="p">❯</span> psql prod<br><span class="d">connected</span></div><span class="label">red</span></div>
+  </div>
+  <div class="cmd"><code>cmux pane set-tint --color purple</code><code>cmux pane set-tint --pane &lt;prod&gt; --color red</code></div>
+</div>
+
+<div class="card">
+  <h2>2. Per-pane art</h2>
+  <p class="what">Each pane frames its own copy of the window background, so every split shows the whole picture.</p>
+  <div class="win plain">
+    <div class="side art"></div>
+    <div class="pane art"><div class="layer" style="background: rgba(20,20,26,0.45)"></div>
+      <div class="strip"><span class="tab">zsh</span></div><div class="term"><span class="p">❯</span> make test</div></div>
+    <div class="pane art"><div class="layer" style="background: rgba(20,20,26,0.45)"></div>
+      <div class="strip"><span class="tab">zsh</span></div><div class="term"><span class="p">❯</span> git status</div></div>
+  </div>
+  <div class="cmd"><code>cmux settings set appearance.paneBackgrounds perPane</code></div>
+</div>
+
+<div class="card">
+  <h2>3. Mixed</h2>
+  <p class="what">Shared background, and one pane with its own painting (a production shell you never mistake).</p>
+  <div class="win art">
+    <div class="side"></div>
+    <div class="pane"><div class="strip"><span class="tab">dev</span></div><div class="term"><span class="p">❯</span> npm run dev</div></div>
+    <div class="pane art2"><div class="layer" style="background: rgba(20,20,26,0.4)"></div>
+      <div class="strip"><span class="tab">prod</span></div><div class="term"><span class="p">❯</span> kubectl get pods</div><span class="label">own pick</span></div>
+  </div>
+  <div class="cmd"><code>cmux pane set-background --background daily</code></div>
+</div>
+
+<div class="card">
+  <h2>4. Plain + tint</h2>
+  <p class="what">No art (opaque window, or Reduce Transparency). Tints still mark panes; nothing else changes.</p>
+  <div class="win plain">
+    <div class="side" style="background:#18181c"></div>
+    <div class="pane" style="background:#1e1f24"><div class="tintlayer" style="background: rgba(48,209,88,0.12)"></div>
+      <div class="strip"><span class="tab">tests</span></div><div class="term"><span class="p">❯</span> swift test<br><span class="d">142 passed</span></div><span class="label">green</span></div>
+    <div class="pane" style="background:#1e1f24"><div class="strip"><span class="tab">zsh</span></div><div class="term"><span class="p">❯</span> vim</div></div>
+  </div>
+  <div class="cmd"><code>cmux pane set-tint --color green</code><code>cmux pane clear-background</code></div>
+</div>
+
+</div>
+</body>
+</html>

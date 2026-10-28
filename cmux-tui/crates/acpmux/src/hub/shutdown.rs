@@ -66,6 +66,8 @@ impl Hub {
             plan.started = true;
             (plan.end_agents, plan.keep.clone())
         };
+        // The log retention worker sees the shutdown begun and ends (`retention.rs`).
+        self.retention_wake.notify_one();
         let sessions = self.sessions();
         let mut children = Vec::new();
         let mut hosted = Vec::new();
@@ -134,12 +136,10 @@ impl Hub {
     fn settle_cancelled(&self, s: &Arc<Session>) {
         let Some(turn) = s.turn.lock().unwrap().take() else { return };
         self.settled_by_shutdown.lock().unwrap().insert(turn.turn_id.clone());
-        self.append(
-            s,
-            "mux",
-            "turn_result",
-            json!({"status": "cancelled", "stopReason": "cancelled", "detail": "quit", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": turn.turn_seq}),
-        );
+        let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": "quit", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": turn.turn_seq});
+        // `lastTurn` too, as every other turn end: the chat lists date a chat by its last turn's end.
+        self.record_last_turn(s, &result);
+        self.append(s, "mux", "turn_result", result);
     }
 
     /// Save every session's meta and sync the event log to disk.
@@ -150,12 +150,18 @@ impl Hub {
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
         }
+        // What peers' sessions streamed in the last seconds (`peer_snapshot.rs`): the shutdown's
+        // is its last step, after the teardown, and a shutdown past its budget calls it too.
+        self.peer_snapshots.flush_now();
     }
 }
 
+/// The refusal of a spawn once the shutdown has begun (`recovery.rs` types it).
+pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
+
 /// The refusal of a spawn once the shutdown has begun.
 pub(crate) fn shutting_down_error() -> RpcError {
-    RpcError::internal("acpmux is shutting down; no agent starts now")
+    RpcError::internal(SHUTTING_DOWN)
 }
 
 /// How long agents get between SIGTERM and SIGKILL when the daemon stops.

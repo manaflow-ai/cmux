@@ -34,7 +34,7 @@ extension ChatController {
         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
             guard let spec = cell.spec, case let .part(p) = spec.kind else { continue }
             let body = cell.convert(RowDraw.bodyRect(spec), to: demo)
-            guard body.maxY > Fixture.headerHeight, body.minY < demo.anchorY + 20 else { continue }
+            guard body.maxY > demo.visibleTop, body.minY < demo.anchorY + 20 else { continue }
             let id = p.ref.messageId
             let t = p.text?.text ?? Self.describe(p.part)
             if let e = by[id] { by[id] = (e.0.union(body), e.1 + [(p.ref.partIndex, t)]) } else { by[id] = (body, [(p.ref.partIndex, t)]); order.append(id) }
@@ -199,10 +199,11 @@ final class TranscriptSelection {
         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
             guard let spec = cell.spec, spec.key == key, case let .part(p) = spec.kind else { continue }
             // cmux: MessagesLab 2281879's selection outline (this file stays at bd65bbf): the drawn balloon.
+            // cmux: the shared bubble outline (BubblePath.balloon), moved from the cell into the demo view.
             let frame = RowDraw.bodyRect(spec)
-            let body = cell.convert(RowDraw.balloon(frame, row: p), to: demo)
-            return BubblePath.make(body: body, outgoing: p.outgoing, tail: p.tail, cornersOf: frame.size,
-                                   circularEnds: RowDraw.circularEnds(p)).cgPath  // cmux: MessagesLab 267d218's ends
+            let origin = cell.convert(frame.origin, to: demo)
+            var move = CGAffineTransform(translationX: origin.x - frame.minX, y: origin.y - frame.minY)
+            return BubblePath.balloon(frame: frame, row: p).cgPath.copy(using: &move)
         }
         return nil
     }

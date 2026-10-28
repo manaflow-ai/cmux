@@ -4,14 +4,17 @@ import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextImportCards
 import CmuxNextOnboarding
+import CmuxNextSettings
 import os
 
 /// Owns the tool window (Import from Browser, Computer Use setup), the
 /// browser-data import offer, the default-app registry and the imported
 /// data, and feeds imported history to the omnibar at launch. Nothing opens
 /// at launch (Lawrence 2026-10-09: a launch goes straight to the main
-/// window).
+/// window); the one-time classic migration only adds classic's workspaces
+/// to the restored windows (Lawrence 2026-10-19, classic-migration-DESIGN.md).
 @MainActor
 final class OnboardingService {
     unowned let services: AppServices
@@ -25,6 +28,8 @@ final class OnboardingService {
     /// Background-discovered local folders offered by new agent tabs.
     private(set) var projectFolders: [String] = []
     private var projectScanTask: Task<Void, Never>?
+    /// Follows `browser.import.enabled` (``BrowserImportGate``).
+    private var importSettingFollow: Task<Void, Never>?
 
     /// Where `workspace.importClassic` reads classic's saved session; nil
     /// reads the one classic saved last (tests point it at a fixture).
@@ -36,8 +41,28 @@ final class OnboardingService {
     /// What acpmux would do with a classic agent session (`_acpmux/chat_open`):
     /// only `adopt` opens a chat. Nil asks this Mac's acpmux (tests answer).
     var classicChatPlan: (@MainActor (AgentPaneAdopt, String?) async throws -> AcpmuxChatOpenPlan?)?
-    /// The toast `workspace.importClassic` showed last.
+    /// The toast `workspace.importClassic` or the launch migration showed last.
     var classicImportNotice: String?
+    /// The classic migration's folder (ledger, backups); nil uses
+    /// `Application Support/cmux-next/<bundle id>/classic-migration` (tests use a scratch folder).
+    var classicMigrationDirectory: URL?
+    /// The Application Support folder holding classic's `cmux` folder; nil is this Mac's.
+    var classicMigrationSupport: URL?
+    /// Whether launch runs the classic migration; nil decides by build (shipping builds only).
+    var classicMigrationAtLaunch: Bool?
+    /// Whether a classic cmux app is running; nil reads it from how recently classic saved.
+    var classicRunning: (@MainActor () -> Bool)?
+    /// Classic's state folder, where its launch sentinel says it runs; nil is this Mac's
+    /// (`~/.local/state/cmux`); tests use a scratch folder.
+    var classicStateRoot: URL?
+    /// Answers the migration preview; nil presents the native cmux dialog.
+    /// Tests inject an answer without creating UI.
+    var classicMigrationConfirmation: (@MainActor (ClassicImportPlan) async -> Bool)?
+    /// The migration run in flight or last finished: a new run waits for it.
+    var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
+
+    /// Keep in Sync's watches; `start` also seeds each profile's omnibar with its imported pages.
+    private(set) lazy var historySync = BrowserFolderAccess().historySync(store: importStore, deliver: SavingImportDestination.omnibar(services.cache))
 
     /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
@@ -85,12 +110,28 @@ final class OnboardingService {
 
     var isShowing: Bool { controller != nil }
 
+    /// Follows `browser.import.enabled` from `settings` (`AppServices.settings`).
+    func followImportSetting(_ settings: SettingsController) {
+        importSettingFollow?.cancel()
+        importSettingFollow = BrowserImportGate(host: services).follow(settings)
+    }
+
+    /// `browser.import.enabled` turned off: the browser tab's offer goes and an Import from Browser
+    /// window still open closes.
+    func importTurnedOff() {
+        browserImportOffer.importTurnedOff()
+        guard let controller, controller.model.step == .importData else { return }
+        controller.close()
+    }
+
     /// Opens the tool window for `step` (or brings the open one forward).
     /// `importKinds` checks only those kinds on the import step and
     /// `importTarget` names the cmux browser profile they go into (the
     /// browser-data offer: into the tab's profile); without kinds the step
     /// makes one profile per source.
     func show(step: OnboardingModel.Step, importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
+        // `browser.import.enabled` off: the import window does not open, whoever asks.
+        if step == .importData, !services.browserImportEnabled { return }
         presenter.show(step: step) { model, reused in
             if let importKinds {
                 model.importer.preset(kinds: importKinds, into: importTarget)
@@ -99,43 +140,19 @@ final class OnboardingService {
             }
         }
     }
-
-    /// Imported history and bookmarks go into each browser profile's
-    /// omnibar history at launch (after `BrowserProfileService` moved
-    /// pre-profile imports into their own profiles).
-    static func seedHistory(profiles: [String], store: ImportedDataStore, cache: TabContentCache) {
-        // task-owner: one-shot launch load of the import store
-        Task {
-            for id in profiles {
-                guard let profile = BrowserProfileRecord.engineProfile(for: id) else { continue }
-                let batches = await store.batches(profile: id)
-                if !batches.isEmpty { cache.history(for: profile).merge(batches.flatMap(Self.historyEntries)) }
-            }
-        }
-    }
-
-    /// A batch's pages as omnibar history. Bookmarks reach the omnibar as
-    /// bookmark rows (`BookmarkSuggestionFeed`), not as visits.
-    nonisolated static func historyEntries(_ batch: ImportBatch) -> [BrowserHistoryEntry] {
-        batch.history.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: $0.visitCount, lastVisit: $0.lastVisit) }
-    }
 }
 
-/// Saves each imported profile and adds it to the live omnibar history.
-struct AppImportDestination: ImportDestination {
-    let store: ImportedDataStore
-    /// The bookmarks model (`AppServices.importedBookmarkSink`), when present.
-    var bookmarks: (any ImportedBookmarkSink)?
-    /// The omnibar history of a browser profile id.
-    let history: @MainActor @Sendable (String) -> InMemoryBrowserHistory
+extension SavingImportDestination {
+    /// Into this app: each batch's pages join its browser profile's omnibar history.
+    @MainActor static func app(_ services: AppServices, bookmarks: (any ImportedBookmarkSink)? = nil) -> SavingImportDestination {
+        SavingImportDestination(sync: services.onboarding.historySync, bookmarks: bookmarks)
+    }
 
-    func commit(_ batch: ImportBatch) async throws {
-        try await store.save(batch)
-        if let bookmarks, batch.kinds.contains(.bookmarks) {
-            try await bookmarks.replaceImportedBookmarks(batch.bookmarks, source: batch.source)
+    /// Imported pages join (or leave) their browser profile's omnibar history (bookmarks reach it as bookmark rows).
+    static func omnibar(_ cache: TabContentCache) -> ImportHistorySync.Deliver {
+        { id, pages, gone in
+            let entries = pages.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: $0.visitCount, lastVisit: $0.lastVisit) }
+            await MainActor.run { cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default).apply(merging: entries, forgetting: gone) }
         }
-        let entries = OnboardingService.historyEntries(batch)
-        let target = batch.source.targetProfileID
-        await MainActor.run { history(target).merge(entries) }
     }
 }

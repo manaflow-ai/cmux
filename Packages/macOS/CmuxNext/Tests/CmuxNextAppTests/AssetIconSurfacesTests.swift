@@ -52,7 +52,7 @@ struct AssetIconSurfacesTests {
         let store = DaemonStore()
         store.profiles = [ProfileModel(ProfileSnapshot(id: ProfileID(rawValue: "p1"), name: "Work", icon: Self.icon))]
         let favicon = SidebarFavicon(decoded)
-        let spaces = SidebarSpaceBar.profiles(store, image: { $0 == Self.icon ? favicon : nil })
+        let spaces = SidebarMapping.spaces(store, image: { $0 == Self.icon ? favicon : nil })
         #expect(spaces.first?.image == favicon)
 
         let menuImage = NSImage(cgImage: decoded, size: NSSize(width: 16, height: 16))

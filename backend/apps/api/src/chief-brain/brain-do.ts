@@ -25,7 +25,14 @@ import { chiefsTools } from "./brain-chiefs.ts"
 import { type ChildStart, childInput, childKey, childObject, childPrompt, childRunId, postReports, readChild, slotCounts, slotEnqueue, slotPump, SPAWN_SCHEMA, CHILD_LOST_MS, archiveAndDrop, childReportText, forwardOutcomes, outcomeWhere, keepMs, turnWhereOf, type AgentOutcome, checkOutcomes, noteAgentCall, postOutcomes, queueOutcome, spawnMax, spawnTool, subagentActivity, takeReport, turnThread } from "./brain-spawn.ts"
 import * as sub from "./brain-sub.ts"
 import * as turnLoop from "./brain-turn.ts"
-import { IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, importBatch, importing, importStatus } from "./memory-import.ts"
+import { ccRoute } from "../chief-brain-cc/vm.ts"
+import { ccNotes } from "../chief-brain-cc/turn.ts"
+import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
+import { wakeFire } from "../chief-brain-cc/wake.ts"
+import { chiefJobWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc/jobs.ts"
+import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
+import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
+import { type AppendBody, type AppendResult, type UndoBody, type UndoResult, IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, appendBatch, undoBatch, importBatch, importing, importStatus } from "./memory-import.ts"
 
 /**
  * ChiefBrainDO, one per chief (name = the chief's agent id): a Chief that answers in Cloud
@@ -50,6 +57,15 @@ import { IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, imp
 /** Post retries after the loop guard's agent_rate (another agent spoke under 2 s ago). */
 export const POST_RETRY_MS = 2_500
 export const MAX_POST_TRIES = 6
+/**
+ * The loop guard's 2 s gap is per conversation, for every agent: in a group with several Chiefs (and their
+ * subagents' reports) a ready reply can meet agent_rate more than MAX_POST_TRIES times in a row. agent_rate
+ * is "wait", never "no": it is retried until this long after the turn ended, then the reply is refused.
+ */
+export const AGENT_RATE_WINDOW_MS = 120_000
+/** Whether a post refused with `code` is tried again (pure, for tests). */
+export const retryPost = (code: string, tries: number, endedAt: number | null, now: number): boolean =>
+  code === "agent_rate" ? now - (endedAt ?? now) < AGENT_RATE_WINDOW_MS || tries + 1 < MAX_POST_TRIES : code === "owner.unreachable" && tries + 1 < MAX_POST_TRIES
 export const HOST = "cloud-chief"
 /**
  * A turn waits at most this long for every message before its new ones to be summarized (the reference
@@ -150,7 +166,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
         sections: [section("chief", () => (this.childOf() ? childPrompt(this.childOf()!) : systemPrompt(this.config())), { tag: false })],
         // A child (subagent) gets hands only: no memory, no Chief management, no spawn (one level deep).
         // Hands come from the "chief-hands" extension (installHands): full, or a compact entry until a hand exists.
-        tools: this.childOf() ? [] : [...memoryTools(() => this.memory), ...chiefsTools(this.env, () => this.config()), spawnTool(this.spawnHost())],
+        tools: this.childOf() ? [] : [...memoryTools(() => this.memory), ...chiefsTools(this.env, () => this.config(), () => this.effectsAuthorized()), spawnTool(this.spawnHost())],
         hooks: [
           hook(GenerationTask, {
             beforeRequest: async ({ messages }, api) => {
@@ -198,6 +214,10 @@ export class ChiefBrainDO extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     for (const q of [...SCHEMA, ...SPAWN_SCHEMA, IMPORT_SCHEMA]) this.sql.exec(q)
+    const inboxColumns = new Set(this.sql.exec<{ name: string }>(`PRAGMA table_info(cb_inbox)`).toArray().map((c) => c.name))
+    if (!inboxColumns.has("effect_authorized")) this.sql.exec(`ALTER TABLE cb_inbox ADD COLUMN effect_authorized INTEGER NOT NULL DEFAULT 0`)
+    const turnColumns = new Set(this.sql.exec<{ name: string }>(`PRAGMA table_info(cb_turn)`).toArray().map((c) => c.name))
+    if (!turnColumns.has("effect_authorized")) this.sql.exec(`ALTER TABLE cb_turn ADD COLUMN effect_authorized INTEGER NOT NULL DEFAULT 0`)
     this.memory = new Memory(this.sql, Number(env.CHIEF_BRAIN_VIEW_BUDGET ?? "0") || 0)
     const compactCache = new PrefixCache(ttlMs(env.CHIEF_BRAIN_CACHE_TTL), msOr(env.CHIEF_BRAIN_PREFIX_WAIT_MS, PrefixCache.WAIT_MS))
     this.compactor = new Compactor({
@@ -232,6 +252,9 @@ export class ChiefBrainDO extends DurableObject<Env> {
    */
   private compactorName(): string | undefined {
     const cfg = this.config()
+    // The Claude Code route (chief-brain-cc/) has no Cloud model route for the compactor: compaction is off and the
+    // turns read the whole unsummarized log (Memory.turnInput), never a fake summary.
+    if (ccRoute(this.env, cfg.owner)) return undefined
     const fallback = this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE
     const picked = compactorModel(this.env, cfg.compactor_model, fallback)
     if (!isMetered(picked) || meteredOwner(this.env, cfg.owner ?? null)) return picked
@@ -282,6 +305,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
     // Only an enabled pi Chief's conversation brain (an opencode, local or disabled Chief's old object stays asleep).
     if (!cfg.agent || !cfg.owner || !cfg.enabled || cfg.brain_impl !== "pi" || this.childOf()) return true
     await this.lifecycle.start()
+    // The Claude Code route (chief-brain-cc/) needs none of the model route's reads: only the admission.
+    if (ccRoute(this.env, cfg.owner)) {
+      this.ctx.waitUntil(this.settingsOf(cfg.agent).admit(cfg.agent, cfg.owner, false).catch(() => undefined))
+      return true
+    }
     const [agent, owner] = [cfg.agent, cfg.owner]
     this.ctx.waitUntil(this.settingsOf(agent).admit(agent, owner, false).catch(() => undefined))
     this.ctx.waitUntil(creditsCanStart(this.env, cfg).catch(() => undefined))
@@ -343,7 +371,21 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** One batch of the memory copy; after the last one the view is folded again from the copied nodes. */
-  memoryImport(body: ImportBody, brainOn: boolean): ImportStatus | ImportFail {
+  async memoryImport(body: ImportBody | AppendBody | UndoBody, brainOn: boolean): Promise<ImportStatus | ImportFail | (AppendResult & { ok: true }) | (UndoResult & { ok: true })> {
+    if ("mode" in body) {
+      if (this.childOf()) return { ok: false, status: 400, code: "validation.invalid", message: "a subagent has no memory" }
+      if (body.mode === "undo") {
+        const u = undoBatch(this.sql, this.ctx.storage, body)
+        if (u.ok) {
+          this.memory.rewound()
+          this.compactor.pump()
+        }
+        return u
+      }
+      const r = await appendBatch(this.sql, this.ctx.storage, body, (text) => void this.memory.append("note", text))
+      if (r.ok && r.added > 0) this.compactor.pump()
+      return r
+    }
     if (this.childOf()) return { ok: false, status: 400, code: "validation.invalid", message: "a subagent has no memory" }
     const r = importBatch(this.sql, this.ctx.storage, body, brainOn)
     if (!("ok" in r) && body.done) {
@@ -360,7 +402,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
     if (!cfg.enabled) return { ok: false, reason: "disabled" }
     if (cfg.agent !== agent || cfg.owner !== owner) return { ok: false, reason: "other_chief" }
     // The chief record and the credits check go at the same time (two other objects, independent reads).
-    const [record, credits] = await Promise.all([chiefRecordFresh(this.env, owner, agent).catch(() => undefined), turn ? creditsCanStart(this.env, cfg) : Promise.resolve("ok" as const)])
+    // A turn on the Claude Code route (chief-brain-cc/) uses no Cloud model route and is not charged to credits.
+    const [record, credits] = await Promise.all([chiefRecordFresh(this.env, owner, agent).catch(() => undefined), turn && !ccRoute(this.env, owner) ? creditsCanStart(this.env, cfg) : Promise.resolve("ok" as const)])
     if (record === undefined) return { ok: false, reason: "owner.unreachable" }
     if (!record) return { ok: false, reason: "chief_archived" }
     if (record.brain_place) return { ok: false, reason: "chief_placed" }
@@ -425,9 +468,75 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return agent ? readRuns(this.sql, agent, conversation, before, limit) : { runs: [], has_more: false }
   }
 
+  /** The Claude Code route's turn machine (POST /v1/chief-cc/<agent>/<conversation>/notes, chief-brain-cc/turn.ts). */
+  async ccNotes(token: string, body: { run?: unknown; events?: unknown; result?: unknown; net?: unknown }): Promise<{ status: number; json?: unknown }> {
+    // A turn machine outlives an evicted object: its post must start the object (onStart resumes the running
+    // turn, which waits for this post), else the post meets no running turn (401) and the ready reply is lost.
+    await this.lifecycle.start()
+    return ccNotes(this, token, body)
+  }
+
+  /** The Chief's own tools (chief-brain-cc/tools.ts), on its `<agent>/tools` object only: one `chief-tools` call. */
+  async ccTools(req: unknown): Promise<{ status: number; json: unknown }> {
+    return toolsCall(this.sql, req)
+  }
+
+  /** The Chief's own tools as path -> text, for its next turn machine (chief-brain-cc/turn.ts). */
+  async ccToolFiles(): Promise<Record<string, string>> {
+    return toolFiles(this.sql)
+  }
+
+  /** The Chief's GitHub login (chief-brain-cc/github.ts), on its `<agent>/github` object only: one `chief-github` call or settings change. */
+  async ccGithub(agent: string, req: unknown, machine: boolean): Promise<{ status: number; json: unknown }> {
+    await this.lifecycle.start()
+    return githubCall(this.githubHost(), agent, req, machine)
+  }
+
+  /** The token and status a turn machine of this Chief gets (chief-brain-cc/turn.ts). */
+  async ccGithubTurn(agent: string): Promise<{ token: string | null; status: GithubStatus }> {
+    return githubTurn(this.githubHost(), agent)
+  }
+
+  /** Its rows as stored (tests: no token in clear). */
+  async ccGithubDump(): Promise<Array<{ name: string; value: string }>> {
+    return githubDump(this.sql)
+  }
+
+  private githubHost(): GithubHost {
+    return { sql: this.sql, env: this.env, schedule: (at) => this.schedule("gh-poll", "gh-poll", at) }
+  }
+
+  /**
+   * The Chief's sandboxes (chief-brain-cc/sandbox.ts), on its `<agent>/sandboxes` object only: one `chief-vm` call.
+   * `legacy`: sandboxes a conversation brain kept before they moved here (adopted once).
+   */
+  async ccSandboxCall(agent: string, req: unknown, legacy: ReadonlyArray<{ id: string; name: string; created_at: number }> = []): Promise<{ status: number; json: unknown }> {
+    return ccSandbox(this, agent, req, legacy)
+  }
+
+  /** The Chief was archived: its sandboxes pause and its Freestyle identity goes, with every token and grant. */
+  async ccSandboxRetire(): Promise<{ paused: number; revoked: boolean }> {
+    return ccSandboxRetire(this)
+  }
+
+  /** The Chief was deleted: its sandboxes are deleted and its Freestyle identity goes. */
+  async ccSandboxPurge(): Promise<{ deleted: number; left: number; revoked: boolean }> {
+    return ccSandboxPurge(this)
+  }
+
+  /** A run of one of this Chief's jobs (chief-brain-cc/jobs.ts, AutomationRunWorkflow): its note starts a turn here. */
+  async chiefJob(j: ChiefJob): Promise<JobDelivery> {
+    return chiefJobWake(this, j)
+  }
+
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
-  async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string }> {
+  async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string; retry?: true }> {
     return turnLoop.wake(this, w)
+  }
+
+  /** A peer Chief's message (brain-turn.ts peerNote), forwarded by the owner's install. */
+  async peerNote(w: { agent: string; owner: string; conversation: string; from: string; text: string; key: string }): Promise<{ queued: boolean } | { skipped: string }> {
+    return turnLoop.peerNote(this, w)
   }
 
   /**
@@ -495,7 +604,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** Logs the new messages, then builds the cache-stable input (frozen view + delta, OptChat 5a) with the turn row in one transaction (a restart resubmits the same bytes). */
-  openTurn(conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>, fresh = false): void {
+  openTurn(conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number; effect_authorized: number }>, fresh = false): void {
     return turnLoop.openTurn(this, conversation, rows, fresh)
   }
 
@@ -528,6 +637,14 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return this.child
   }
 
+  /** A child runs a task an authorized spawn created. A Chief turn may run
+   * effects only while every message delivered to it was owner-authored. */
+  effectsAuthorized(): boolean {
+    if (this.childOf()) return true
+    if (!this.turnId) return false
+    return this.sql.exec<{ effect_authorized: number }>(`SELECT effect_authorized FROM cb_turn WHERE id = ?`, this.turnId).toArray()[0]?.effect_authorized === 1
+  }
+
   /**
    * The hands tools as their own extension: the full `hands` + `agent` pair when the Chief has a hand (or is a
    * child, which works on hands), else one compact `hands` entry (list, pair_code, new_sandbox): about 1.8k fewer
@@ -541,7 +658,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     // The tools are fixed for a whole turn (a model signs its thinking for the tools list; a change inside the
     // turn makes the next request a 400). The running turn's mode wins, also when the object opens again mid-turn.
     const full = this.childOf() !== null || (v("hands_turn_mode") ?? v("hands_full")) === "1"
-    this.registry.install({ name: "chief-hands", tools: full ? [...this.hands()] : [handsEntryTool(this.env, () => ({ ...this.config() }), (action, result) => this.handFoundInTurn(action, result))] })
+    this.registry.install({ name: "chief-hands", tools: full ? [...this.hands()] : [handsEntryTool(this.env, () => ({ ...this.config() }), (action, result) => this.handFoundInTurn(action, result), () => this.effectsAuthorized())] })
   }
 
   /** At a turn boundary only: this turn's hands mode (full once a hand was found), recorded for the whole turn. */
@@ -580,7 +697,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** The hands tools; a child's caller and agent tokens name its own object (`<conversation>:spawn:<n>`), so a hand's session-end revoke reaches it. */
   hands() {
     const c = this.childOf()
-    return handsTools(this.env, () => ({ ...this.config(), run: this.turnId, conversation: c ? childKey(c.conversation, c.n) : this.turnConversation, ledger: (jti: string, o: LedgerOp) => runLedger(this.sql, this.turnId ?? "", jti, 0, o) }), (r) => (r.type === "run.activity" ? liveOf(this.ctx).activity(r.line) : this.turnId && this.announce(this.turnId, [upsertStep(this.sql, this.turnId, r.step, Date.now())])))
+    return handsTools(this.env, () => ({ ...this.config(), run: this.turnId, conversation: c ? childKey(c.conversation, c.n) : this.turnConversation, ledger: (jti: string, o: LedgerOp) => runLedger(this.sql, this.turnId ?? "", jti, 0, o) }), (r) => (r.type === "run.activity" ? liveOf(this.ctx).activity(r.line) : this.turnId && this.announce(this.turnId, [upsertStep(this.sql, this.turnId, r.step, Date.now())])), () => this.effectsAuthorized())
   }
 
   spawnHost() {
@@ -682,6 +799,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
       return next === null ? undefined : { rescheduleAt: next }
     }
     if (job.fn === "drain") return void this.kick()
+    if (job.fn === "self-wake") return wakeFire(this, String(job.id))
+    if (job.fn === "gh-poll") {
+      const next = await githubPoll(this.githubHost())
+      return next === null ? undefined : { rescheduleAt: next }
+    }
     if (job.fn === "spawn-pump") return void (await this.pumpSlots())
     if (job.fn === "spawn-post") return void (await this.deliverReports())
     if (job.fn === "spawn-gc") return this.childGc()

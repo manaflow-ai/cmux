@@ -323,6 +323,44 @@
               "type": {
                 "kind": "enum",
                 "values": [
+                  "chief"
+                ]
+              }
+            },
+            "chief": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+              }
+            },
+            "conversation": {
+              "required": true,
+              "type": {
+                "kind": "ref",
+                "name": "ConversationId"
+              }
+            },
+            "prompt": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 8000
+              }
+            }
+          }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "type": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
                   "code"
                 ]
               }
@@ -604,6 +642,125 @@
           "daemon",
           "ssh"
         ]
+      }
+    },
+    "CloudGroup": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GroupId"
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 80
+          }
+        },
+        "created_by": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "archived": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "default_placement": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "local",
+              "mini",
+              "cloud_vm"
+            ]
+          }
+        },
+        "item_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "role": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "owner",
+              "edit",
+              "view"
+            ]
+          }
+        }
+      }
+    },
+    "CloudGroupItem": {
+      "kind": "object",
+      "fields": {
+        "workspace": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GroupWorkspaceId"
+          }
+        },
+        "title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 200
+          }
+        },
+        "placement": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GroupPlacement"
+          }
+        },
+        "position": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "added_by": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "added_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
       }
     },
     "CloudMachine": {
@@ -2307,6 +2464,51 @@
       "pattern": "^grant_[a-z0-9]{20}$",
       "description": "A server-side grant; tokens carry only its id."
     },
+    "GroupId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^grp_[a-z0-9]{20}$",
+      "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+    },
+    "GroupPlacement": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "local",
+              "mini",
+              "cloud_vm"
+            ]
+          }
+        },
+        "host": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "machine": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        }
+      }
+    },
+    "GroupWorkspaceId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^ws_[A-Za-z0-9]{8,64}$"
+    },
     "HomeAttachmentPoster": {
       "kind": "object",
       "fields": {
@@ -3907,6 +4109,13 @@
             }
           }
         },
+        "network": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ServerNetworkState"
+          }
+        },
         "orphaned": {
           "required": false,
           "type": {
@@ -4166,6 +4375,21 @@
         "model.spend_usd"
       ]
     },
+    "NativeDeviceId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+    },
+    "NativeMeshId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+    },
+    "NativeTenantId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
     "OpClass": {
       "kind": "enum",
       "values": [
@@ -4352,6 +4576,7 @@
         "github.repoScope",
         "github.requireOrgAdmin",
         "github.repoAllowList",
+        "github.allowWorkflows",
         "integrations.allowedProviders",
         "mcp.server",
         "mcp.remoteTransport",
@@ -4891,6 +5116,124 @@
       "name": "string",
       "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
     },
+    "ServerNetworkBinding": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "confirmed"
+            ]
+          }
+        },
+        "tenant": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeTenantId"
+          }
+        },
+        "mesh": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeMeshId"
+          }
+        },
+        "device": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeDeviceId"
+          }
+        },
+        "confirmed_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      }
+    },
+    "ServerNetworkProof": {
+      "kind": "object",
+      "fields": {
+        "signedAt": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "nonce": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^[A-Za-z0-9_-]{22}$"
+          }
+        },
+        "signature": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^[A-Za-z0-9+/]{86}==$"
+          }
+        }
+      }
+    },
+    "ServerNetworkReservation": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "reserved"
+            ]
+          }
+        },
+        "tenant": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeTenantId"
+          }
+        },
+        "mesh": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeMeshId"
+          }
+        },
+        "device": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeDeviceId"
+          }
+        }
+      }
+    },
+    "ServerNetworkState": {
+      "kind": "union",
+      "variants": [
+        {
+          "kind": "ref",
+          "name": "ServerNetworkReservation"
+        },
+        {
+          "kind": "ref",
+          "name": "ServerNetworkBinding"
+        }
+      ]
+    },
     "SnapshotId": {
       "kind": "primitive",
       "name": "string",
@@ -5192,6 +5535,105 @@
               "type": {
                 "kind": "primitive",
                 "name": "json"
+              }
+            }
+          }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "type": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "machine"
+                ]
+              }
+            },
+            "machine": {
+              "required": true,
+              "type": {
+                "kind": "ref",
+                "name": "MachineId"
+              }
+            },
+            "command": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 4000
+              }
+            },
+            "input_from": {
+              "required": false,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            },
+            "timeout_seconds": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            }
+          }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "type": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "agent"
+                ]
+              }
+            },
+            "machine": {
+              "required": true,
+              "type": {
+                "kind": "ref",
+                "name": "MachineId"
+              }
+            },
+            "harness": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "claude",
+                  "codex",
+                  "opencode"
+                ]
+              }
+            },
+            "prompt": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 8000
+              }
+            },
+            "input_from": {
+              "required": false,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            },
+            "timeout_seconds": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
               }
             }
           }
@@ -5622,6 +6064,13 @@
                     }
                   }
                 }
+              },
+              "allow_workflows": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
               }
             }
           }
@@ -5816,6 +6265,28 @@
                       }
                     }
                   ]
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "github.allowWorkflows": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
                 }
               },
               "mode": {
@@ -7883,6 +8354,11 @@
               }
             ]
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -7953,8 +8429,94 @@
                   "params"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
               }
             ]
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
           },
           "CommitSha": {
             "type": "string",
@@ -8079,6 +8641,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -8494,6 +9086,11 @@
             ],
             "additionalProperties": true
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -8564,8 +9161,94 @@
                   "params"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
               }
             ]
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
           },
           "CommitSha": {
             "type": "string",
@@ -8690,6 +9373,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -9424,6 +10137,11 @@
             ],
             "additionalProperties": true
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -9494,8 +10212,94 @@
                   "params"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
               }
             ]
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
           },
           "CommitSha": {
             "type": "string",
@@ -9620,6 +10424,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -10195,6 +11029,11 @@
             ],
             "additionalProperties": true
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -10265,8 +11104,94 @@
                   "params"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
               }
             ]
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
           },
           "CommitSha": {
             "type": "string",
@@ -10391,6 +11316,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -11080,6 +12035,11 @@
             ],
             "additionalProperties": true
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -11150,8 +12110,94 @@
                   "params"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
               }
             ]
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
           },
           "CommitSha": {
             "type": "string",
@@ -11276,6 +12322,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -12697,6 +13773,11 @@
               }
             ]
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -12767,8 +13848,94 @@
                   "params"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
               }
             ]
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
           },
           "CommitSha": {
             "type": "string",
@@ -12893,6 +14060,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -13308,6 +14505,11 @@
             ],
             "additionalProperties": true
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -13378,8 +14580,94 @@
                   "params"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
               }
             ]
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
           },
           "CommitSha": {
             "type": "string",
@@ -13504,6 +14792,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -14965,6 +16283,276 @@
               "install"
             ],
             "additionalProperties": true
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeChief",
+        "$defs": {
+          "ChiefId": {
+            "type": "string",
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "Timestamp": {
+            "type": "string",
+            "description": "RFC 3339 UTC with milliseconds."
+          },
+          "HomeChief": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ChiefId"
+              },
+              "owner_user": {
+                "type": "string"
+              },
+              "display_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "is_default": {
+                "type": "boolean"
+              },
+              "brain": {
+                "type": "string",
+                "enum": [
+                  "cloud"
+                ]
+              },
+              "brain_place": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ChiefBrainPlace"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "main_conversation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "harness": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rev": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "created_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "updated_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "archived_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "owner_user",
+              "display_name",
+              "is_default",
+              "brain",
+              "main_conversation",
+              "harness",
+              "rev",
+              "created_at",
+              "updated_at",
+              "archived_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "chief.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "chief",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "chief": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ChiefId"
+            }
+          },
+          "expected_rev": {
+            "required": true,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeChief"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "chief_is_default",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chief delete",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Delete a chief (not the default; active or archived) for good: it stops waking, its tokens end, its sandboxes are deleted, and only a tombstone keeps its id; its conversation history stays read-only with its members. No restore.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "chief": {
+            "$ref": "#/$defs/ChiefId"
+          },
+          "expected_rev": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "chief",
+          "expected_rev"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ChiefId": {
+            "type": "string",
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
           }
         }
       },
@@ -36792,6 +38380,1211 @@
         }
       }
     },
+    "group.add_workspace": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "GroupId"
+            }
+          },
+          "workspace": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "GroupWorkspaceId"
+            }
+          },
+          "placement": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "GroupPlacement"
+            }
+          },
+          "title": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 200
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "CloudGroupItem"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "conflict",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "group cloud add",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "groups"
+      },
+      "docs": "Put a workspace in a cloud group and record where it runs (placement: local, mini or cloud_vm). A workspace is in at most one cloud group; adding it again updates its placement and title. The group's owner only.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "$ref": "#/$defs/GroupId"
+          },
+          "workspace": {
+            "$ref": "#/$defs/GroupWorkspaceId"
+          },
+          "placement": {
+            "$ref": "#/$defs/GroupPlacement"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "group",
+          "workspace",
+          "placement"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "GroupId": {
+            "type": "string",
+            "pattern": "^grp_[a-z0-9]{20}$",
+            "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+          },
+          "GroupWorkspaceId": {
+            "type": "string",
+            "pattern": "^ws_[A-Za-z0-9]{8,64}$"
+          },
+          "GroupPlacement": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "mini",
+                  "cloud_vm"
+                ]
+              },
+              "host": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "machine": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": true
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/CloudGroupItem",
+        "$defs": {
+          "GroupWorkspaceId": {
+            "type": "string",
+            "pattern": "^ws_[A-Za-z0-9]{8,64}$"
+          },
+          "GroupPlacement": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "mini",
+                  "cloud_vm"
+                ]
+              },
+              "host": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "machine": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": true
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudGroupItem": {
+            "type": "object",
+            "properties": {
+              "workspace": {
+                "$ref": "#/$defs/GroupWorkspaceId"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "placement": {
+                "$ref": "#/$defs/GroupPlacement"
+              },
+              "position": {
+                "type": "integer"
+              },
+              "added_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "added_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "workspace",
+              "placement",
+              "position",
+              "added_by",
+              "added_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "group.archive": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "GroupId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "CloudGroup"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "group cloud archive",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "groups"
+      },
+      "docs": "Archive a cloud group (its owner only). The id stays; links to it still open, read-only.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "$ref": "#/$defs/GroupId"
+          }
+        },
+        "required": [
+          "group"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "GroupId": {
+            "type": "string",
+            "pattern": "^grp_[a-z0-9]{20}$",
+            "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/CloudGroup",
+        "$defs": {
+          "GroupId": {
+            "type": "string",
+            "pattern": "^grp_[a-z0-9]{20}$",
+            "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudGroup": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/GroupId"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "created_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "archived": {
+                "type": "boolean"
+              },
+              "default_placement": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "mini",
+                  "cloud_vm"
+                ]
+              },
+              "item_count": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "owner",
+                  "edit",
+                  "view"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "created_by",
+              "created_at",
+              "archived",
+              "default_placement",
+              "item_count",
+              "role"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "group.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 80
+            }
+          },
+          "default_placement": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "local",
+                "mini",
+                "cloud_vm"
+              ]
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "CloudGroup"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "group cloud create",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "groups"
+      },
+      "docs": "Make a cloud group: a sidebar group whose record lives in cmux Cloud, so its link (cmux://group/<id>) opens on every Mac, iPhone and Chief, also while your Mac sleeps. The server picks the id; read it back with group.get or group.list before you link it.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "default_placement": {
+            "type": "string",
+            "enum": [
+              "local",
+              "mini",
+              "cloud_vm"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/CloudGroup",
+        "$defs": {
+          "GroupId": {
+            "type": "string",
+            "pattern": "^grp_[a-z0-9]{20}$",
+            "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudGroup": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/GroupId"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "created_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "archived": {
+                "type": "boolean"
+              },
+              "default_placement": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "mini",
+                  "cloud_vm"
+                ]
+              },
+              "item_count": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "owner",
+                  "edit",
+                  "view"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "created_by",
+              "created_at",
+              "archived",
+              "default_placement",
+              "item_count",
+              "role"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "group.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "GroupId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudGroup"
+            }
+          },
+          "items": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "CloudGroupItem"
+              }
+            }
+          },
+          "link": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "web_link": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "selector.not_found"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "group cloud get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "groups"
+      },
+      "docs": "One cloud group with its workspaces (each with its placement) and its links. Link a group only by an id read back here or from group.list.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "$ref": "#/$defs/GroupId"
+          }
+        },
+        "required": [
+          "group"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "GroupId": {
+            "type": "string",
+            "pattern": "^grp_[a-z0-9]{20}$",
+            "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "$ref": "#/$defs/CloudGroup"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CloudGroupItem"
+            }
+          },
+          "link": {
+            "type": "string"
+          },
+          "web_link": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "group",
+          "items",
+          "link",
+          "web_link"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "GroupId": {
+            "type": "string",
+            "pattern": "^grp_[a-z0-9]{20}$",
+            "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudGroup": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/GroupId"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "created_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "archived": {
+                "type": "boolean"
+              },
+              "default_placement": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "mini",
+                  "cloud_vm"
+                ]
+              },
+              "item_count": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "owner",
+                  "edit",
+                  "view"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "created_by",
+              "created_at",
+              "archived",
+              "default_placement",
+              "item_count",
+              "role"
+            ],
+            "additionalProperties": true
+          },
+          "GroupWorkspaceId": {
+            "type": "string",
+            "pattern": "^ws_[A-Za-z0-9]{8,64}$"
+          },
+          "GroupPlacement": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "mini",
+                  "cloud_vm"
+                ]
+              },
+              "host": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "machine": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": true
+          },
+          "CloudGroupItem": {
+            "type": "object",
+            "properties": {
+              "workspace": {
+                "$ref": "#/$defs/GroupWorkspaceId"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "placement": {
+                "$ref": "#/$defs/GroupPlacement"
+              },
+              "position": {
+                "type": "integer"
+              },
+              "added_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "added_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "workspace",
+              "placement",
+              "position",
+              "added_by",
+              "added_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "group.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "include_archived": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "groups": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "CloudGroup"
+              }
+            }
+          },
+          "next_cursor": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "group cloud list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "groups"
+      },
+      "docs": "The cloud groups you are a member of, in id order. Archived groups only with include_archived.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "include_archived": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "type": "string"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CloudGroup"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "team",
+          "groups",
+          "next_cursor"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "GroupId": {
+            "type": "string",
+            "pattern": "^grp_[a-z0-9]{20}$",
+            "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudGroup": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/GroupId"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "created_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "archived": {
+                "type": "boolean"
+              },
+              "default_placement": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "mini",
+                  "cloud_vm"
+                ]
+              },
+              "item_count": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "owner",
+                  "edit",
+                  "view"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "created_by",
+              "created_at",
+              "archived",
+              "default_placement",
+              "item_count",
+              "role"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "group.rename": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "GroupId"
+            }
+          },
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 80
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "CloudGroup"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "group cloud rename",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "groups"
+      },
+      "docs": "Rename a cloud group (its owner only).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "$ref": "#/$defs/GroupId"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "group",
+          "name"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "GroupId": {
+            "type": "string",
+            "pattern": "^grp_[a-z0-9]{20}$",
+            "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/CloudGroup",
+        "$defs": {
+          "GroupId": {
+            "type": "string",
+            "pattern": "^grp_[a-z0-9]{20}$",
+            "description": "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudGroup": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/GroupId"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "created_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "archived": {
+                "type": "boolean"
+              },
+              "default_placement": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "mini",
+                  "cloud_vm"
+                ]
+              },
+              "item_count": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "owner",
+                  "edit",
+                  "view"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "created_by",
+              "created_at",
+              "archived",
+              "default_placement",
+              "item_count",
+              "role"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "home.requests.list": {
       "class": "read",
       "idempotency": "forbidden",
@@ -37687,6 +40480,86 @@
             "pattern": "^[A-Za-z0-9+/]{43}=$",
             "description": "A WireGuard public key, standard base64 of 32 bytes."
           },
+          "NativeTenantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "ServerNetworkReservation": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "reserved"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device"
+            ],
+            "additionalProperties": true
+          },
+          "ServerNetworkBinding": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "confirmed"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              },
+              "confirmed_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device",
+              "confirmed_at"
+            ],
+            "additionalProperties": true
+          },
+          "ServerNetworkState": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ServerNetworkReservation"
+              },
+              {
+                "$ref": "#/$defs/ServerNetworkBinding"
+              }
+            ]
+          },
           "Host": {
             "type": "object",
             "properties": {
@@ -37722,6 +40595,9 @@
                   "type": "string"
                 }
               },
+              "network": {
+                "$ref": "#/$defs/ServerNetworkState"
+              },
               "orphaned": {
                 "type": "object",
                 "properties": {
@@ -37746,6 +40622,257 @@
               "owner_user",
               "enrolled_by",
               "enrolled_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "host.network.bind": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "host",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "host": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HostId"
+            }
+          },
+          "mesh": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "NativeMeshId"
+            }
+          },
+          "device": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "NativeDeviceId"
+            }
+          },
+          "wg_public_key": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "WgPublicKey"
+            }
+          },
+          "proof": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ServerNetworkProof"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "host": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "HostId"
+                }
+              },
+              "network": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "ServerNetworkBinding"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-own",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "host network bind",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Bind the calling client install's own host to a network device using a fresh policy read signed by that install key. Verify the authoritative team tenant and both public keys. This records identity only; current transport policy and serving permissions remain separate.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          },
+          "mesh": {
+            "$ref": "#/$defs/NativeMeshId"
+          },
+          "device": {
+            "$ref": "#/$defs/NativeDeviceId"
+          },
+          "wg_public_key": {
+            "$ref": "#/$defs/WgPublicKey"
+          },
+          "proof": {
+            "$ref": "#/$defs/ServerNetworkProof"
+          }
+        },
+        "required": [
+          "host",
+          "mesh",
+          "device",
+          "wg_public_key",
+          "proof"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "WgPublicKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{43}=$",
+            "description": "A WireGuard public key, standard base64 of 32 bytes."
+          },
+          "ServerNetworkProof": {
+            "type": "object",
+            "properties": {
+              "signedAt": {
+                "type": "integer"
+              },
+              "nonce": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{22}$"
+              },
+              "signature": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9+/]{86}==$"
+              }
+            },
+            "required": [
+              "signedAt",
+              "nonce",
+              "signature"
+            ],
+            "additionalProperties": true
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          },
+          "network": {
+            "$ref": "#/$defs/ServerNetworkBinding"
+          }
+        },
+        "required": [
+          "host",
+          "network"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "NativeTenantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "ServerNetworkBinding": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "confirmed"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              },
+              "confirmed_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device",
+              "confirmed_at"
             ],
             "additionalProperties": true
           }
@@ -42324,6 +45451,9 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "allow_workflows": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -42437,6 +45567,13 @@
                       }
                     }
                   }
+                },
+                "allow_workflows": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
                 }
               }
             }
@@ -42536,6 +45673,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "allow_workflows": {
+                "type": "boolean"
               }
             },
             "additionalProperties": true
@@ -42618,6 +45758,9 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "allow_workflows": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -48686,6 +51829,11 @@
             ],
             "additionalProperties": true
           },
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
           "Step": {
             "anyOf": [
               {
@@ -48756,8 +51904,94 @@
                   "params"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "machine"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "command",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent"
+                    ]
+                  },
+                  "machine": {
+                    "$ref": "#/$defs/MachineId"
+                  },
+                  "harness": {
+                    "type": "string",
+                    "enum": [
+                      "claude",
+                      "codex",
+                      "opencode"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "input_from": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "type",
+                  "machine",
+                  "harness",
+                  "prompt",
+                  "timeout_seconds"
+                ],
+                "additionalProperties": true
               }
             ]
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
           },
           "CommitSha": {
             "type": "string",
@@ -48882,6 +52116,36 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "chief"
+                    ]
+                  },
+                  "chief": {
+                    "type": "string",
+                    "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+                  },
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  }
+                },
+                "required": [
+                  "type",
+                  "chief",
+                  "conversation",
+                  "prompt"
                 ],
                 "additionalProperties": true
               },
@@ -49412,6 +52676,241 @@
         }
       }
     },
+    "server.network.confirm": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "host",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "host": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HostId"
+            }
+          },
+          "mesh": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "NativeMeshId"
+            }
+          },
+          "device": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "NativeDeviceId"
+            }
+          },
+          "proof": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ServerNetworkProof"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "host": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "HostId"
+                }
+              },
+              "network": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "ServerNetworkBinding"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-own",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "servers network confirm",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "servers"
+      },
+      "docs": "The paired daemon confirms its approved network reservation with a fresh signed policy read. Tenant, device and public keys must match the current owners. This records identity only; it does not activate transport or serving roles.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          },
+          "mesh": {
+            "$ref": "#/$defs/NativeMeshId"
+          },
+          "device": {
+            "$ref": "#/$defs/NativeDeviceId"
+          },
+          "proof": {
+            "$ref": "#/$defs/ServerNetworkProof"
+          }
+        },
+        "required": [
+          "host",
+          "mesh",
+          "device",
+          "proof"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "ServerNetworkProof": {
+            "type": "object",
+            "properties": {
+              "signedAt": {
+                "type": "integer"
+              },
+              "nonce": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{22}$"
+              },
+              "signature": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9+/]{86}==$"
+              }
+            },
+            "required": [
+              "signedAt",
+              "nonce",
+              "signature"
+            ],
+            "additionalProperties": true
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          },
+          "network": {
+            "$ref": "#/$defs/ServerNetworkBinding"
+          }
+        },
+        "required": [
+          "host",
+          "network"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "NativeTenantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "ServerNetworkBinding": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "confirmed"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              },
+              "confirmed_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device",
+              "confirmed_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "server.pair.approve": {
       "class": "mutation",
       "idempotency": "required",
@@ -49443,6 +52942,13 @@
               "name": "string",
               "min_length": 1,
               "max_length": 80
+            }
+          },
+          "mesh": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "NativeMeshId"
             }
           },
           "expected_revision": {
@@ -49490,6 +52996,13 @@
                   "kind": "ref",
                   "name": "InstallId"
                 }
+              },
+              "network": {
+                "required": false,
+                "type": {
+                  "kind": "ref",
+                  "name": "ServerNetworkReservation"
+                }
               }
             }
           }
@@ -49525,7 +53038,7 @@
         "expose": "never",
         "group": "servers"
       },
-      "docs": "Approve a pairing code: register the server's install key under you and add the server to the team directory.",
+      "docs": "Approve a pairing code and register its install and host. With a Native mesh, pin the network request and deliver a short-lived key-bound enrollment code only to the waiting server. The result contains public network ids; pairing does not activate a role or grant execution.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -49540,6 +53053,9 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 80
+          },
+          "mesh": {
+            "$ref": "#/$defs/NativeMeshId"
           }
         },
         "required": [
@@ -49558,6 +53074,10 @@
             "type": "string",
             "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
           }
         }
       },
@@ -49575,6 +53095,9 @@
           },
           "install": {
             "$ref": "#/$defs/InstallId"
+          },
+          "network": {
+            "$ref": "#/$defs/ServerNetworkReservation"
           }
         },
         "required": [
@@ -49604,6 +53127,45 @@
             "type": "string",
             "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "NativeTenantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "ServerNetworkReservation": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "reserved"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device"
+            ],
+            "additionalProperties": true
           }
         }
       }
@@ -56324,6 +59886,86 @@
             "pattern": "^[A-Za-z0-9+/]{43}=$",
             "description": "A WireGuard public key, standard base64 of 32 bytes."
           },
+          "NativeTenantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "ServerNetworkReservation": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "reserved"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device"
+            ],
+            "additionalProperties": true
+          },
+          "ServerNetworkBinding": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "confirmed"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              },
+              "confirmed_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device",
+              "confirmed_at"
+            ],
+            "additionalProperties": true
+          },
+          "ServerNetworkState": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ServerNetworkReservation"
+              },
+              {
+                "$ref": "#/$defs/ServerNetworkBinding"
+              }
+            ]
+          },
           "Host": {
             "type": "object",
             "properties": {
@@ -56358,6 +60000,9 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "network": {
+                "$ref": "#/$defs/ServerNetworkState"
               },
               "orphaned": {
                 "type": "object",
@@ -57243,6 +60888,86 @@
             "pattern": "^[A-Za-z0-9+/]{43}=$",
             "description": "A WireGuard public key, standard base64 of 32 bytes."
           },
+          "NativeTenantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "ServerNetworkReservation": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "reserved"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device"
+            ],
+            "additionalProperties": true
+          },
+          "ServerNetworkBinding": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "confirmed"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              },
+              "confirmed_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device",
+              "confirmed_at"
+            ],
+            "additionalProperties": true
+          },
+          "ServerNetworkState": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ServerNetworkReservation"
+              },
+              {
+                "$ref": "#/$defs/ServerNetworkBinding"
+              }
+            ]
+          },
           "Host": {
             "type": "object",
             "properties": {
@@ -57277,6 +61002,9 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "network": {
+                "$ref": "#/$defs/ServerNetworkState"
               },
               "orphaned": {
                 "type": "object",
@@ -58095,6 +61823,22 @@
                 ],
                 "additionalProperties": true
               },
+              "github.allowWorkflows": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
               "integrations.allowedProviders": {
                 "type": "object",
                 "properties": {
@@ -58850,6 +62594,22 @@
                 ],
                 "additionalProperties": true
               },
+              "github.allowWorkflows": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
               "integrations.allowedProviders": {
                 "type": "object",
                 "properties": {
@@ -59351,6 +63111,7 @@
               "github.repoScope",
               "github.requireOrgAdmin",
               "github.repoAllowList",
+              "github.allowWorkflows",
               "integrations.allowedProviders",
               "mcp.server",
               "mcp.remoteTransport",
@@ -59646,6 +63407,22 @@
                         "maxItems": 500
                       }
                     ]
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "github.allowWorkflows": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -60314,6 +64091,7 @@
               "github.repoScope",
               "github.requireOrgAdmin",
               "github.repoAllowList",
+              "github.allowWorkflows",
               "integrations.allowedProviders",
               "mcp.server",
               "mcp.remoteTransport",
@@ -60479,6 +64257,22 @@
                         "maxItems": 500
                       }
                     ]
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "github.allowWorkflows": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"

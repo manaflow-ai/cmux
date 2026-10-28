@@ -27,11 +27,14 @@ pub mod host {
     }
 }
 pub mod link;
+pub mod program_wait;
 #[cfg(unix)]
-mod record_watch;
+pub(crate) mod record_watch;
+pub(crate) mod scope;
 pub mod sweep;
 #[cfg(unix)]
 pub(crate) mod tree;
+pub(crate) mod unresolved;
 mod wait;
 pub use wait::{
     BOOTSTRAP_BUDGET, HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async,
@@ -46,7 +49,22 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Oldest and newest host protocol this build speaks.
 pub const PROTOCOL_MIN: u16 = 1;
-pub const PROTOCOL_MAX: u16 = 1;
+pub const PROTOCOL_MAX: u16 = 3;
+/// The protocol from which a `line` may ask for a receipt (`WRITTEN_METHOD`).
+pub const RECEIPT_VERSION: u16 = 2;
+/// The protocol from which a host logs each line that asks for a receipt (`QUEUED_METHOD`), so
+/// a next daemon can tell from the log which of them its harness may not have yet.
+pub const QUEUED_VERSION: u16 = 3;
+/// The receipt for a `line` (protocol 2): a `tap` entry (`dir = out`) carrying this
+/// notification, `{receipt, written}`, once its lines are written to the harness (`written:
+/// true`) or can never be (its stdin closed: `false`). An entry, not a frame of its own, so it
+/// is retained until acknowledged, replayed to the next controller, and known to every build.
+pub const WRITTEN_METHOD: &str = "_acpmux/host_written";
+/// A `line` that asks for a receipt, as its host took it (protocol 3): a `tap` entry (`dir =
+/// out`) carrying this notification, `{receipt}`, before any line of it is queued for the
+/// harness. A log that has it and no `WRITTEN_METHOD` for the same receipt can not prove the
+/// harness has that line: the next daemon holds it again (`link::adopt_receipt`).
+pub const QUEUED_METHOD: &str = "_acpmux/host_queued";
 /// Discovery record schema this build writes and reads.
 pub const RECORD_VERSION: u32 = 1;
 /// Largest frame either side accepts.
@@ -72,8 +90,13 @@ pub enum ControllerFrame {
     Resume { after: u64 },
     /// One ACP message for the harness. The host translates it when the
     /// harness speaks Claude stream-json, writes it, and echoes the written
-    /// lines as `tap` entries.
-    Line { msg: Value },
+    /// lines as `tap` entries. `receipt` (protocol 2): the host logs its
+    /// receipt (`WRITTEN_METHOD`) once every line of it is written to the harness.
+    Line {
+        msg: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        receipt: Option<u64>,
+    },
     /// Entries up to `h` are in the controller's log; the host may drop them.
     Ack { h: u64 },
     /// End the harness process group: SIGTERM, then SIGKILL after `grace_ms`.
@@ -161,7 +184,8 @@ impl Entry {
 }
 
 /// What the controller asks the host to run. Sent once on the private
-/// bootstrap pipe; never written to disk (it carries the environment).
+/// bootstrap pipe; never written to disk (it carries the environment), but
+/// for the caller token the host keeps in its record (`HostRecord::caller_token`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpawnSpec {
     pub session_id: String,
@@ -186,6 +210,10 @@ pub struct SpawnSpec {
     /// a write end for its whole life (`daemon::router_owner_fifo`).
     #[serde(default)]
     pub router_owner_fifo: Option<PathBuf>,
+    /// The folder the harness must exec in, by identity: a sub-session's checked folder
+    /// (`cwd_pin.rs`). The host's harness spawn fails when `cwd` leads elsewhere by then.
+    #[serde(default)]
+    pub cwd_pin: Option<crate::cwd_pin::CwdPin>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,6 +227,14 @@ pub struct TranslatorSpec {
     pub fast: bool,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
+}
+
+impl SpawnSpec {
+    /// The session's caller token in the harness env, which the host keeps in its record.
+    pub fn caller_token(&self) -> Option<String> {
+        let key = crate::hub::person::CALLER_TOKEN_ENV;
+        self.env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+    }
 }
 
 /// The host's answer on the bootstrap pipe.
@@ -220,6 +256,12 @@ pub struct HostRecord {
     pub start_nonce: String,
     pub harness_pid: Option<u32>,
     pub owner_token: String,
+    /// The session's caller token its harness started with (`hub/person.rs`
+    /// (a)): the next daemon run that adopts this host knows the agent and
+    /// its MCP servers by it. Owner-only like `owner_token`, which grants
+    /// more (the harness's own stdio). None: a host of an older build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caller_token: Option<String>,
     pub protocol_min: u16,
     pub protocol_max: u16,
     pub host_build: String,
@@ -250,6 +292,23 @@ pub fn record_path(dir: &Path, session_id: &str) -> PathBuf {
 
 fn live_path(dir: &Path, session_id: &str, nonce: &str) -> PathBuf {
     dir.join(format!("{session_id}.{nonce}.live"))
+}
+
+/// Where host `record`'s live lock may be: the pool, then the hosts directory (a pooled host's
+/// lock moves there when a session takes it, so a move between the two is not missed), then its
+/// socket's directory, its own when the path was short enough.
+pub fn live_lock_dirs(record: &HostRecord) -> Vec<PathBuf> {
+    let hosts = hosts_dir();
+    let mut dirs = vec![pool_dir(&hosts), hosts];
+    if let Some(own) = record.socket.parent().filter(|d| !dirs.iter().any(|x| x == d)) {
+        dirs.push(own.to_path_buf());
+    }
+    dirs
+}
+
+/// Whether host incarnation `nonce` of `session_id` keeps its live lock in `dir`.
+pub fn live_lock_exists(dir: &Path, session_id: &str, nonce: &str) -> bool {
+    live_path(dir, session_id, nonce).exists()
 }
 
 /// Socket for one host: next to the record when the path is short enough for
@@ -287,15 +346,24 @@ pub fn ensure_private_dir(dir: &Path) -> Result<()> {
     Ok(crate::owner_only::private_dir(dir)?)
 }
 
-/// Random lowercase hex.
-pub fn random_hex(bytes: usize) -> String {
+/// Random lowercase hex; an error when the OS random generator fails.
+pub fn random_hex(bytes: usize) -> Result<String> {
     let mut buf = vec![0u8; bytes];
-    getrandom::fill(&mut buf).expect("the OS random generator");
-    buf.iter().map(|b| format!("{b:02x}")).collect()
+    getrandom::fill(&mut buf).map_err(|e| anyhow!("the OS random generator: {e}"))?;
+    Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// Every record in `dir`: those this build reads, and those it cannot.
 pub fn load_records(dir: &Path) -> Result<(Vec<(PathBuf, HostRecord)>, Vec<UnreadableRecord>)> {
+    // Debug builds only: while the file `ACPMUX_TEST_HOST_RECORDS_FAIL_FILE` names exists, the
+    // records cannot be read, as on a disk that fails, so the daemon's integration tests can drive
+    // that path. Release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(flag) = std::env::var_os("ACPMUX_TEST_HOST_RECORDS_FAIL_FILE")
+        && Path::new(&flag).exists()
+    {
+        anyhow::bail!("the agent host records could not be read");
+    }
     let mut good = Vec::new();
     let mut bad = Vec::new();
     match std::fs::symlink_metadata(dir) {
@@ -369,7 +437,7 @@ pub fn load_records(dir: &Path) -> Result<(Vec<(PathBuf, HostRecord)>, Vec<Unrea
                     .get("socket")
                     .and_then(Value::as_str)
                     .map(Path::new)
-                    .is_some_and(&expected_socket)
+                    .is_some_and(expected_socket)
         });
         let reason = match serde_json::from_slice::<HostRecord>(&bytes) {
             Ok(r)

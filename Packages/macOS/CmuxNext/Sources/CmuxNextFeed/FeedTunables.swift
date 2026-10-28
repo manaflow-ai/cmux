@@ -7,25 +7,14 @@ public nonisolated enum FeedLayout: String, Sendable, CaseIterable, TunableChoic
     case list
     /// Grouped list (Needs you, Today, Earlier) and the selected item's detail.
     case inbox
+    /// Labs-only human reports basket: agent notices with a direct reply box.
+    case reportsBasket
 
     public var tunableTitle: String {
         switch self {
         case .list: "List (requests pinned, inline answers)"
         case .inbox: "Inbox (grouped list + detail)"
-        }
-    }
-}
-
-/// The menu bar prototype (`feed.menubar`).
-public nonisolated enum FeedMenubarStyle: String, Sendable, CaseIterable, TunableChoice {
-    case off
-    /// Status item with the open request count; a popover of open requests.
-    case compact
-
-    public var tunableTitle: String {
-        switch self {
-        case .off: "Off"
-        case .compact: "Compact (open requests only)"
+        case .reportsBasket: "Reports basket (Labs)"
         }
     }
 }
@@ -39,19 +28,16 @@ public nonisolated enum FeedTunables {
         "feed.layout", section, "Layout", help: "Prototype layout of the feed panel. Switches live.",
         default: .list, code: "FeedTunables.layout")
 
-    public static let menubar = Tunable<FeedMenubarStyle>.choice(
-        "feed.menubar", section, "Menu bar", help: "Prototype menu bar item for open requests.",
-        default: .off, code: "FeedTunables.menubar")
-
     public static let rowHeight = Tunable<Double>.number(
-        "feed.rowHeight", section, "Row height", help: "Height of a one-line row (notices, inbox, menu bar).",
+        "feed.rowHeight", section, "Row height", help: "Height of a one-line row (notices, inbox).",
         default: 30, range: 22...48, step: 1, unit: .points, code: "FeedTunables.rowHeight")
 
-    public static let menubarWidth = Tunable<Double>.number(
-        "feed.menubarWidth", section, "Menu bar popover width", help: "Width of the menu bar popover.",
-        default: 360, range: 300...480, step: 4, unit: .points, code: "FeedTunables.menubarWidth")
+    public static let reportsBasket = Tunable<Bool>.toggle(
+        "feed.reportsBasket", section, "Reports basket (Labs)",
+        help: "Show agent reports in a human-only basket with direct replies. Off by default.",
+        default: false, code: "FeedTunables.reportsBasket")
 
     public static var all: [TunableDescriptor] {
-        [layout.descriptor, menubar.descriptor, rowHeight.descriptor, menubarWidth.descriptor]
+        [layout.descriptor, rowHeight.descriptor, reportsBasket.descriptor]
     }
 }

@@ -69,8 +69,8 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "workspace.clearIcon",
-                title: String(localized: "action.workspace.clearIcon", defaultValue: "Clear Workspace Icon", table: "WorkspaceActions", bundle: .module),
-                keywords: ["emoji", "symbol", "reset"], category: .workspace, symbol: "xmark.circle",
+                title: String(localized: "action.workspace.clearIcon", defaultValue: "Remove Workspace Icon", table: "WorkspaceActions", bundle: .module),
+                keywords: ["emoji", "symbol", "reset", "clear"], category: .workspace, symbol: "circle.dashed",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace clear-icon"
             ),
             ActionDescriptor(
@@ -153,7 +153,7 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "workspace.mergeInto",
-                title: String(localized: "action.workspace.mergeInto", defaultValue: "Merge Workspace into…", table: "WorkspaceActions", bundle: .module),
+                title: String(localized: "action.workspace.mergeInto", defaultValue: "Merge Workspace Into…", table: "WorkspaceActions", bundle: .module),
                 keywords: ["combine", "join", "move tabs"], category: .workspace, symbol: "arrow.triangle.merge",
                 surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.intoWorkspace], targets: [.workspace], cliName: "workspace merge-into"
             ),
@@ -162,6 +162,12 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.pane.moveToNewWorkspace", defaultValue: "Move Pane to New Workspace", table: "WorkspaceActions", bundle: .module),
                 keywords: ["split", "detach", "tear off"], category: .pane, symbol: "rectangle.portrait.and.arrow.right",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.pane], cliName: "pane move-to-new-workspace"
+            ),
+            ActionDescriptor(
+                id: "pane.moveToNewWindow",
+                title: String(localized: "action.pane.moveToNewWindow", defaultValue: "Move Pane to New Window", table: "WorkspaceActions", bundle: .module),
+                keywords: ["window", "detach", "tear off"], category: .pane, symbol: "macwindow.badge.plus",
+                surfaces: [.palette, .contextMenu], targets: [.pane], cliName: "pane move-to-new-window"
             ),
         ]
     }

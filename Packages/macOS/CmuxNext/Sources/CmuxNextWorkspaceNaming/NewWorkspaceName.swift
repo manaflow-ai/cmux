@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 import Foundation
 
 /// The name a workspace made from dragged or moved tabs takes (Lawrence,
@@ -10,7 +11,14 @@ public nonisolated struct NewWorkspaceName {
 
     /// What the rule reads from one tab.
     public struct Tab: Equatable, Sendable {
-        public enum Kind: Equatable, Sendable { case terminal, browser, remoteTerminal }
+        public enum Kind: Equatable, Sendable {
+            case terminal, browser, remoteTerminal
+            /// A conversation, page or app tab (a Home conversation, Settings, a file viewer, an
+            /// app): its record's title is the `about:blank` placeholder, so `title` is the name
+            /// the tab shows of its own, nil when it has none (a New Tab page, a chat, an
+            /// untitled Home conversation). It never falls back to a folder.
+            case page
+        }
         public var kind: Kind
         /// The name the user gave the tab.
         public var userName: String?
@@ -47,8 +55,11 @@ public nonisolated struct NewWorkspaceName {
                 return title
             }
             return clean(host)
+        case .page:
+            return clean(tab.title).flatMap { isPlaceholder($0) ? nil : $0 }
         case .terminal, .remoteTerminal:
-            if let title = clean(tab.title), !isBareShell(title) { return title }
+            // An agent's spinner glyphs (`⠐ Fix the bug`) are status, not the name.
+            if let title = clean(tab.title.map { TerminalTitle(raw: $0).text }), !isBareShell(title), !isPlaceholder(title) { return title }
             let directory = tab.cwd.map { URL(fileURLWithPath: $0).lastPathComponent }
             return clean(directory == "/" ? nil : directory)
         }
@@ -58,19 +69,21 @@ public nonisolated struct NewWorkspaceName {
     /// (coordinator decision 2026-10-03): the old workspace's name when the
     /// user named it, else the tab's name.
     public static func forLastTab(workspaceName: String, workspaceTitle: String?, tab: Tab) -> String? {
-        if let title = clean(workspaceTitle) { return title }
-        if !isDefaultWorkspaceName(workspaceName), let name = clean(workspaceName) { return name }
-        return forTab(tab)
+        forLastTab(workspaceName: workspaceName, workspaceTitle: workspaceTitle, tabName: forTab(tab))
     }
 
-    /// True for a name the daemon gave (`workspace-N`, its default).
-    /// A user could name a workspace `workspace-7` by hand; the daemon
-    /// records no "named by the user" flag, so that name reads as default.
-    public static func isDefaultWorkspaceName(_ name: String) -> Bool {
-        guard name.hasPrefix("workspace-") else { return false }
-        let number = name.dropFirst("workspace-".count)
-        return !number.isEmpty && number.allSatisfy(\.isASCII) && number.allSatisfy(\.isNumber)
+    /// `forLastTab` with the tab's name already read (an agent chat's comes from its chat).
+    public static func forLastTab(workspaceName: String, workspaceTitle: String?, tabName: String?,
+                                  workspaceNameSource: WorkspaceNameSource = .auto, workspaceNameRevision: UInt64 = 0,
+                                  allowsLegacyDefaults: Bool = true) -> String? {
+        if let title = clean(workspaceTitle) { return title }
+        if workspaceNameSource == .user && (workspaceNameRevision > 0 || !allowsLegacyDefaults), let name = clean(workspaceName) { return name }
+        if !isDefaultWorkspaceName(workspaceName), let name = clean(workspaceName) { return name }
+        return tabName
     }
+
+    /// True for a name the daemon gave (`workspace-N`, its default; `WorkspaceModel.isDefaultName`).
+    public static func isDefaultWorkspaceName(_ name: String) -> Bool { WorkspaceModel.isDefaultName(name) }
 
     /// The name for a workspace made from a tab group: its name, else its
     /// first tab's.
@@ -80,7 +93,15 @@ public nonisolated struct NewWorkspaceName {
 
     /// Shell names a terminal reports as its title while idle; they say
     /// nothing about the work, so the directory names the workspace.
-    private static let bareShells: Set<String> = ["zsh", "bash", "fish", "sh", "nu", "dash", "ksh", "tcsh", "pwsh", "login"]
+    private static let bareShells: Set<String> = ["zsh", "bash", "fish", "sh", "nu", "dash", "ksh", "tcsh", "pwsh", "login", "~"]
+
+    /// The blank page's and the New Tab page's addresses: what a conversation, page or app tab's
+    /// record carries as its title, never a name.
+    private static let placeholders: Set<String> = ["about:blank", "chrome://newtab", "chrome://newtab/"]
+
+    private static func isPlaceholder(_ title: String) -> Bool {
+        placeholders.contains(title.lowercased())
+    }
 
     private static func isBareShell(_ title: String) -> Bool {
         bareShells.contains(title.hasPrefix("-") ? String(title.dropFirst()) : title)

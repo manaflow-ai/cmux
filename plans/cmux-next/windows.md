@@ -88,9 +88,18 @@ agent pane's session list has no step of its own. Live check:
 `scripts/cmux-next/background-match-e2e.py --tag <tag>` (composited
 capture of the app's own window, alpha included; no Screen Recording
 grant needed; the behind-window blur itself is not in the capture).
-Known gap: a Chromium page (the blank New Tab page included) is an opaque
-child window painted with the theme color, so it cannot show a
-see-through backdrop (browser owner, CEF fork).
+A Chromium page shows the backdrop as its WebKit page does
+(`cmux_tab_set_transparent_background` on fork API 17, through the shim, and
+`CEFTab.pageSeeThrough`; every cmux page gets it in `PageWebView+Chromium`, while
+a site in a browser tab stays opaque as in Chrome). A browser tab is see-through
+on the New Tab or blank page too, by a different mechanism in each engine: WebKit
+draws no background whenever the URL is blank, while Chromium holes the whole page
+out until the tab's first real page (`CEFTab.applyOcclusion`, `PageBackground`),
+which it latches, so a tab that goes back to the New Tab page is see-through only
+in WebKit. What no page of either engine holds is the wallpaper itself — cmux
+draws it natively behind a page that has no background — so a `backdrop-filter`
+over a transparent region has no page pixels to bend, and the host hands each page
+a still of the wallpaper for the lens to filter (glass-lens-DESIGN.md).
 
 Per-surface overrides (Lawrence R55, surface-backgrounds.md): with no
 `appearance.surfaces.*` key every surface follows the rule above. A set
@@ -200,7 +209,7 @@ windows (Chromium page windows, panels) are not included. Use
 | onboarding (Import from Browser, Computer Use setup) | `OnboardingWindowController` | hand-built | install(.onboarding) |
 | browser popup | `BrowserPopupWindow` (a top-level window like Chrome's popup, all three traffic lights) | own Cmd-W interception (`popups.interceptKeyDown`) | install(.browserPopup) (done); the key router's popup Cmd-W step is still in place, Close Tab from the menu and palette goes through the table (both tested) |
 | DevTools | `CEFDevToolsWindow` | hand-built | install(.devTools) |
-| page info, terminal/browser debug | `PageInfoWindows`, `TerminalDebugWindow`, `BrowserDebugWindow` | hand-built | install(kind) |
+| page info, browser debug | `PageInfoWindows`, `BrowserDebugWindow` | hand-built | install(kind) |
 
 Deleted: `StandaloneWindowRule` (its tests move to the table test), the
 per-window background ordering in Settings/Debug Settings controllers,

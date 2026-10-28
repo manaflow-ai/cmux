@@ -21,7 +21,7 @@ concurrency:
 jobs:
   version:
     name: derive nightly versions
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     outputs:
@@ -99,13 +99,18 @@ jobs:
       include_windows: ${{ inputs.include_windows == true }}
       attest_packages: true
       # Match stable native packages; the Cloudflare Worker deploys separately.
-      # Nightlies never use Blacksmith (user decision 2026-10-19): macOS legs
-      # build on the owned minis' side lane (attempt 1), re-runs on ephemeral
-      # hosted macOS; Linux legs on GitHub-hosted Ubuntu. See docs/ci-runners.md.
-      macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_SIDE_LANE_RUNNER || 'macos-15' }}
-      macos_retry_runner: macos-15
-      linux_runner: ubuntu-24.04
-      linux_arm64_runner: ubuntu-24.04-arm
+      # macOS legs build on the light-class minis' side lane (attempt 1),
+      # re-runs on Blacksmith macOS, never a hosted Mac (Leo, 2026-10-27);
+      # Linux legs take the builder's own Blacksmith defaults (empty input:
+      # LINUX_RUNNER for light jobs, 32 vCPU for the builds), never
+      # GitHub-hosted Ubuntu. A literal
+      # light label, not vars.CI_SIDE_LANE_RUNNER: the std pools include the
+      # benchmark mini cmux11s, which nightlies must never reach (a153,
+      # 2026-10-20). See docs/ci-runners.md.
+      macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-side-light-xcode-26.6' }}
+      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || 'blacksmith-6vcpu-macos-15' }}
+      linux_runner: ''
+      linux_arm64_runner: ''
       windows_runner: windows-2025
       # Pin the exact sha the version job resolved so every matrix leg builds
       # the same commit even if main advances mid-run.
@@ -151,19 +156,22 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "22.14.0"
+          node-version: "22.23.4"
           registry-url: https://registry.npmjs.org
 
       - name: Install npm with OIDC support
         run: npm install -g npm@11.5.1
 
       - name: Revalidate packed npm contract
+        env:
+          # Windows packages exist only when the dispatch asked for them.
+          WINDOWS_FLAG: ${{ inputs.include_windows == true && '--include-windows' || '' }}
         run: |
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --npm-packages dist/npm-packages \
             --version "${{ needs.version.outputs.npm_version }}" \
             --notices-dir dist/package-notices \
-            --include-windows \
+            ${WINDOWS_FLAG:+"$WINDOWS_FLAG"} \
             --install-npm-package cmux-tui-linux-x64 \
             --install-npm-relay-package cmux-relay-linux-x64
 
@@ -194,6 +202,8 @@ jobs:
       # (relay-publish-npm.yml); nightlies never move relay dist-tags.
       # Linux and macOS testers install `cmux@next`.
       - name: Publish platform packages with next dist-tag
+        env:
+          INCLUDE_WINDOWS: ${{ inputs.include_windows == true }}
         run: |
           set -euo pipefail
           packages=(
@@ -201,8 +211,8 @@ jobs:
             cmux-tui-darwin-x64
             cmux-tui-linux-x64
             cmux-tui-linux-arm64
-            cmux-tui-win32-x64
           )
+          [[ "$INCLUDE_WINDOWS" != true ]] || packages+=(cmux-tui-win32-x64)
           for package in "${packages[@]}"; do
             echo "Publishing $package"
             npm publish --provenance --tag next "dist/npm-packages/$package"

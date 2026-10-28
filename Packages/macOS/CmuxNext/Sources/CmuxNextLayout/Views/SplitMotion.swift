@@ -22,38 +22,87 @@ struct SplitMotion {
     /// the same fraction, so the whole change stays one spring. A release
     /// moving away from the target, or with nothing left to travel, starts
     /// from rest.
+    /// `moved` / `movedDividers`: the frames the release's layout change retargeted; a frame already on its way
+    /// for another reason keeps its own velocity. Nil: every frame (callers that know no better).
     static func seed(velocity: CGFloat, along axis: SplitAxis, divider: AnimatedFrame,
-                     panes: inout [PaneID: AnimatedFrame], dividers: inout [DividerHandleView.Kind: AnimatedFrame]) {
+                     panes: inout [PaneID: AnimatedFrame], dividers: inout [DividerHandleView.Kind: AnimatedFrame],
+                     moved: Set<PaneID>? = nil, movedDividers: Set<DividerHandleView.Kind>? = nil) {
         let travel = axis == .horizontal ? divider.x.target - divider.x.value : divider.y.target - divider.y.value
         guard abs(travel) > 0.5 else { return }
         let fraction = velocity / travel
         guard fraction > 0 else { return }
         // A fling faster than the spring could start (10 travels a second) is capped there.
         let rate = min(fraction, 10)
-        for key in Array(panes.keys) { panes[key]?.seed(fractionVelocity: rate) }
-        for key in Array(dividers.keys) { dividers[key]?.seed(fractionVelocity: rate) }
+        for key in Array(panes.keys) where moved?.contains(key) ?? true { panes[key]?.seed(fractionVelocity: rate) }
+        for key in Array(dividers.keys) where movedDividers?.contains(key) ?? true { dividers[key]?.seed(fractionVelocity: rate) }
     }
 }
 
 extension SplitMotion {
-    /// Where a new divider at `divider` (its target) starts, as a shift from there: by as much as
-    /// the edge of an existing pane beside it (not one in `skipping`, the panes the change adds)
-    /// still has to travel, so the divider rides that edge from its first frame. Nil without one.
-    static func startShift(of divider: CGRect, axis: SplitAxis, panes: [PaneID: AnimatedFrame], skipping: Set<PaneID>) -> CGVector? {
+    /// Where a new divider at `divider` (its target) starts, as a shift from there, and the
+    /// velocity it starts with along `axis`: where the edge of an existing pane beside it (not one
+    /// in `skipping`, the panes the change adds) shows now and how fast that edge moves, so the
+    /// divider rides that edge from its first frame, even when a split lands while the panes still
+    /// move (rapid Cmd-D). Nil without one.
+    static func startShift(of divider: CGRect, axis: SplitAxis, panes: [PaneID: AnimatedFrame],
+                           skipping: Set<PaneID>) -> (shift: CGVector, velocity: CGFloat)? {
         let reach: CGFloat = 16
         for (pane, frame) in panes where !skipping.contains(pane) {
             let target = frame.targetRect, shown = frame.rect
             if axis == .horizontal {
                 guard min(target.maxY, divider.maxY) - max(target.minY, divider.minY) > 1 else { continue }
-                if abs(target.maxX - divider.midX) <= reach { return CGVector(dx: shown.maxX - target.maxX, dy: 0) }
-                if abs(target.minX - divider.midX) <= reach { return CGVector(dx: shown.minX - target.minX, dy: 0) }
+                if abs(target.maxX - divider.midX) <= reach {
+                    return (CGVector(dx: shown.maxX - target.maxX, dy: 0), frame.x.velocity + frame.width.velocity)
+                }
+                if abs(target.minX - divider.midX) <= reach { return (CGVector(dx: shown.minX - target.minX, dy: 0), frame.x.velocity) }
             } else {
                 guard min(target.maxX, divider.maxX) - max(target.minX, divider.minX) > 1 else { continue }
-                if abs(target.maxY - divider.midY) <= reach { return CGVector(dx: 0, dy: shown.maxY - target.maxY) }
-                if abs(target.minY - divider.midY) <= reach { return CGVector(dx: 0, dy: shown.minY - target.minY) }
+                if abs(target.maxY - divider.midY) <= reach {
+                    return (CGVector(dx: 0, dy: shown.maxY - target.maxY), frame.y.velocity + frame.height.velocity)
+                }
+                if abs(target.minY - divider.midY) <= reach { return (CGVector(dx: 0, dy: shown.minY - target.minY), frame.y.velocity) }
             }
         }
         return nil
+    }
+
+    /// A new pane's sliver (`PaneArrival.seed`, zero wide or zero tall) rides the edge it opens
+    /// from: `panes` are the frames before this change's targets (their old targets and what they
+    /// show), and the sliver moves by as much as that edge still had to travel and starts at its
+    /// velocity. At rest that changes nothing; a split landing while the row still moves (the next
+    /// Cmd-D) keeps the gap beside the new pane exact from its first frame instead of letting the
+    /// sliver lag the moving edge.
+    static func ride(_ frame: inout AnimatedFrame, panes: [PaneID: AnimatedFrame], skipping: Set<PaneID>) {
+        let seed = frame.rect
+        let horizontal: Bool
+        if seed.width == 0 { horizontal = true } else if seed.height == 0 { horizontal = false } else { return }
+        let reach: CGFloat = 16
+        var best: (distance: CGFloat, shift: CGFloat, velocity: CGFloat)?
+        func consider(_ distance: CGFloat, _ shift: CGFloat, _ velocity: CGFloat) {
+            if distance <= reach, distance < (best?.distance ?? .infinity) { best = (distance, shift, velocity) }
+        }
+        for (pane, other) in panes where !skipping.contains(pane) {
+            let target = other.targetRect, shown = other.rect
+            if horizontal {
+                guard min(target.maxY, seed.maxY) - max(target.minY, seed.minY) > 1 else { continue }
+                consider(abs(target.maxX - seed.minX), shown.maxX - target.maxX, other.x.velocity + other.width.velocity)
+                consider(abs(target.minX - seed.minX), shown.minX - target.minX, other.x.velocity)
+            } else {
+                guard min(target.maxX, seed.maxX) - max(target.minX, seed.minX) > 1 else { continue }
+                consider(abs(target.maxY - seed.minY), shown.maxY - target.maxY, other.y.velocity + other.height.velocity)
+                consider(abs(target.minY - seed.minY), shown.minY - target.minY, other.y.velocity)
+            }
+        }
+        guard let best else { return }
+        if horizontal {
+            frame.x.value += best.shift
+            frame.x.target = frame.x.value
+            frame.x.velocity = best.velocity
+        } else {
+            frame.y.value += best.shift
+            frame.y.target = frame.y.value
+            frame.y.velocity = best.velocity
+        }
     }
 }
 

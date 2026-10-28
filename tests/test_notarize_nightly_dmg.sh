@@ -242,6 +242,14 @@ if [ -z "$convert_line" ] || [ -z "$dmg_sign_line" ] || ! [ "$create_dmg_line" -
   echo "FAIL: DMG must be re-encoded to LZMA between create-dmg and DMG signing" >&2
   exit 1
 fi
+# The DMG Apple gets is packaged once: a second create-dmg, convert and
+# signature of the same app before the submission cost about 1.8 minutes of
+# every nightly sign job (run 39395352101, 09:09:10 and 09:10:58).
+before_submit="$(head -n "$submit_line" "$LOG" | grep -c "^hdiutil convert .* -o $DMG\$" || true)"
+if [ "$before_submit" != 1 ]; then
+  echo "FAIL: the DMG must be packaged once before its submission, got $before_submit" >&2
+  exit 1
+fi
 if ! grep -Fq "hdiutil convert" "$LOG" || ! grep -Eq "hdiutil convert .* -format ULMO .* -o $DMG\$" "$LOG"; then
   echo "FAIL: DMG was not converted to ULMO at $DMG" >&2
   exit 1

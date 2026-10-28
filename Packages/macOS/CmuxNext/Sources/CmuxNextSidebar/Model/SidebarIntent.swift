@@ -52,6 +52,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case setColor([WorkspaceID], GroupColor?)
     case setIcon([WorkspaceID], WorkspaceIcon)
     case setPinned([WorkspaceID], Bool)
+    /// The row's speaker was clicked: mute the workspace's tabs that play
+    /// sound, or unmute its muted tabs (`SidebarWorkspaceAudio`). No local change.
+    case toggleWorkspaceAudio(WorkspaceID)
     /// New workspace on a machine (nil = the machine of the active workspace,
     /// else local), optionally inside a group.
     case newWorkspace(machine: MachineID?, group: GroupID?)
@@ -67,7 +70,10 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// The update card's button: install the staged update and relaunch
     /// (`SidebarModel.updateCard`).
     case installUpdate
-    /// The update card's Automatic Updates checkbox.
+    /// The titlebar's Update Available button: download the found update (it then asks before
+    /// relaunching on the update card).
+    case downloadUpdate
+    /// The update card's Automatic Updates switch.
     case setAutomaticUpdates(Bool)
     /// A link in the update card's popover (a pull request, the release notes).
     case openUpdateLink(URL)
@@ -96,4 +102,6 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case dropOnLayoutSection([WorkspaceID], section: LayoutSectionID, index: Int)
     /// Collapse or expand a titled section (client view state).
     case toggleLayoutSection(LayoutSectionID)
+    /// Edit mode's Add Items: the App opens App Store Features (its Sidebar cards; the Sidebar filter comes with #22903).
+    case addItems
 }

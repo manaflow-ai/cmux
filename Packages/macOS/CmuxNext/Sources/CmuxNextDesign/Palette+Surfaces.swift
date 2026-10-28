@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxTheme
+public import CmuxNextDesignTokens
 
 extension Palette {
     /// The user's background for `kind` (`appearance.surfaces`, R55) in the
@@ -9,7 +10,8 @@ extension Palette {
     /// `ThemeScope.setSurfaceBackgrounds` repaints every scope.
     public static func surfaceOverride(_ kind: SurfaceKind) -> NSColor? {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        return ThemeScope.app.surfaceBackgrounds.fill(for: kind, tokens: tokens)?.nsColor
+        let scope = ThemeContext.activeScope ?? ThemeScope.app
+        return scope.surfaceBackgrounds.fill(for: kind, tokens: tokens, windowTint: WindowBackdrop.currentTint(tokens))?.nsColor
     }
 
     /// `kind`'s background: its override, else `fallback` (what the owner
@@ -25,6 +27,8 @@ extension Palette {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
         guard let rgb = base.usingColorSpace(.sRGB) else { return base }
         let baseRGB = ThemeRGB(red: Double(rgb.redComponent), green: Double(rgb.greenComponent), blue: Double(rgb.blueComponent))
-        return ThemeScope.app.surfaceBackgrounds.opaqueFill(for: kind, tokens: tokens, base: baseRGB).nsColor
+        let scope = ThemeContext.activeScope ?? ThemeScope.app
+        return scope.surfaceBackgrounds.opaqueFill(for: kind, tokens: tokens, base: baseRGB,
+                                                   windowTint: WindowBackdrop.currentTint(tokens)).nsColor
     }
 }

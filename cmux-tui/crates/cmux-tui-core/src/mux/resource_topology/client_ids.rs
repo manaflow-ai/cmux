@@ -74,3 +74,26 @@ pub(super) fn requested_client_split_id(
     );
     Ok(Some(split_id))
 }
+
+/// The retired tab id a Reopen Closed creation takes again
+/// (`tab_strip::reopen_identity`, plans/cmux-next/durable-links-DESIGN.md):
+/// it must name a closed tab, never a live or unknown one, so a retired id
+/// only comes back for the same tab.
+pub(super) fn requested_reopen_tab_id(
+    fields: &Map<String, Value>,
+    state: &State,
+    registry: &WorkspaceRegistry,
+) -> anyhow::Result<Option<TabPublicId>> {
+    use crate::mux::tab_strip::reopen_identity;
+    let Some(requested) = fields.get(reopen_identity::FIELD) else { return Ok(None) };
+    let requested = requested.as_str().context("reopen_tab_id must be a string")?;
+    let tab_id = TabPublicId::parse(requested.to_string())
+        .map_err(|_| anyhow::anyhow!("reopen_tab_id {requested:?} is not a tab id"))?;
+    if state.resource_indexes.tabs.contains_key(&tab_id)
+        || !reopen_identity::is_retired_tab(&registry.connection.get(), requested)?
+    {
+        // Open again already (another reopen won), or never closed: a new id.
+        return Ok(None);
+    }
+    Ok(Some(tab_id))
+}

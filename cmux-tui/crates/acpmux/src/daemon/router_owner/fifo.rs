@@ -109,7 +109,7 @@ fn start_or_adopt() -> Option<FifoOwner> {
         // the new router waits on router.lock until it has exited.
         let _ = ask_router(b"{\"op\":\"shutdown\"}\n");
     }
-    let exe = std::env::current_exe().ok()?;
+    let this = crate::self_command::SelfCommand::current().ok()?;
     let owner = match make_owner_fifo(&fifo).and_then(|()| open_owner_rw(&fifo)) {
         Ok(owner) => owner,
         Err(e) => {
@@ -117,11 +117,8 @@ fn start_or_adopt() -> Option<FifoOwner> {
             return None;
         }
     };
-    let mut command = std::process::Command::new(exe);
+    let mut command = router_command(&this, &fifo);
     command
-        .args(["router", "serve"])
-        .env("CMUX_ROUTER_BUILD", crate::hub::BUILD)
-        .env("CMUX_ROUTER_OWNER_FIFO", &fifo)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
@@ -190,4 +187,31 @@ fn make_owner_fifo(fifo: &std::path::Path) -> std::io::Result<()> {
         return Err(std::io::Error::last_os_error());
     }
     Ok(())
+}
+
+/// `<acpmux> [prefix…] router serve` for this build, owned by `fifo`. Inside
+/// cmux-tui the prefix is `acp`: `cmux-tui router serve` is the cmux CLI.
+fn router_command(
+    this: &crate::self_command::SelfCommand,
+    fifo: &std::path::Path,
+) -> std::process::Command {
+    let mut command = this.command(&["router", "serve"]);
+    command.env("CMUX_ROUTER_BUILD", crate::hub::BUILD).env("CMUX_ROUTER_OWNER_FIFO", fifo);
+    command
+}
+
+#[cfg(test)]
+mod self_command_tests {
+    #[test]
+    fn the_router_starts_under_the_daemon_prefix() {
+        let [standalone, tui] = crate::self_command::test_commands();
+        let fifo = std::path::Path::new("/tmp/owner.fifo");
+        let args = |c: &std::process::Command| -> Vec<String> {
+            c.get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+        };
+        assert_eq!(args(&super::router_command(&standalone, fifo)), ["router", "serve"]);
+        let command = super::router_command(&tui, fifo);
+        assert_eq!(command.get_program(), tui.exe.as_os_str());
+        assert_eq!(args(&command), ["acp", "router", "serve"]);
+    }
 }

@@ -60,6 +60,15 @@ fn revalidated_argv(row: &HarnessHealth, cli: &str, home: &Path) -> Option<Vec<S
             return None;
         }
         argv[0] = manager;
+    } else if row.channel == channel::Channel::Bun {
+        let manager = argv.len().checked_sub(4)?;
+        if fresh.argv.len() != argv.len()
+            || fresh.argv.get(..manager) != argv.get(..manager)
+            || fresh.argv.get(manager + 1..) != argv.get(manager + 1..)
+        {
+            return None;
+        }
+        argv = channel::bun::pin_manager(&argv, crate::config::which)?;
     } else if fresh.argv != argv {
         return None;
     }
@@ -70,6 +79,9 @@ impl HealthService {
     /// One cached snapshot plus current filesystem installation evidence.
     /// Execution authority and a durable intent still belong to the caller.
     pub(crate) fn prepare_update(&self, cli: &str) -> Result<Value, RpcError> {
+        if self.fixed() {
+            return Err(refused("harness_update_plan.not_updatable"));
+        }
         let home = self.settings.lock().unwrap_or_else(PoisonError::into_inner).home.clone();
         let rows = self.rows();
         let argv = select_argv(&rows, cli, |row| revalidated_argv(row, cli, &home))?;

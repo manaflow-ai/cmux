@@ -214,13 +214,10 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         }
         glass?.layoutSubtreeIfNeeded()
         let size = glass?.fittingSize ?? .zero
-        var origin = CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space2 - size.height)
-        if let screen = parent.screen ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            origin.x = min(max(origin.x, visible.minX + Metrics.space2), visible.maxX - size.width - Metrics.space2)
-            origin.y = max(origin.y, visible.minY + Metrics.space2)
-        }
-        setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: true)
+        // Under the chip, on its leading edge (the one popup placement, `PopupAnchor`).
+        let card = PopupAnchor(rect: anchor, edge: .leading, gap: Metrics.space2)
+            .cardFrame(size: size, visible: (parent.screen ?? NSScreen.main)?.visibleFrame)
+        setFrame(PopupStyle.standard.windowFrame(forCard: card), display: true)
         if !reopening { alphaValue = 0 }
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)

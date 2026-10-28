@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextFileGrid
+import CmuxNextFiles
 import CmuxNextIcons
 import CmuxNextScreenshots
 import Foundation
@@ -31,7 +32,7 @@ final class ScreenshotsPageTab: BrowserTab {
     @ObservationIgnored var onClose: (() -> Void)?
 
     init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, model: ScreenshotsModel, cache: ThumbnailCache,
-         workspace: any FileGridWorkspace) {
+         workspace: any ScreenshotsWorkspace, files: any FileOperating) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -39,7 +40,7 @@ final class ScreenshotsPageTab: BrowserTab {
         state.phase = .finished
         self.state = state
         self.model = model
-        view = ScreenshotsView(model: model, cache: cache, workspace: workspace)
+        view = ScreenshotsView(model: model, cache: cache, workspace: workspace, files: files)
     }
 
     func load(_ url: URL) {
@@ -72,7 +73,7 @@ final class ScreenshotsPageTab: BrowserTab {
         return image
     }
 
-    func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue { throw BrowserTabError.closed }
+    func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue { throw BrowserTabError.closed }
 
     /// Find (Cmd-F) filters the grid by file name, as the pane's search field does.
     func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {

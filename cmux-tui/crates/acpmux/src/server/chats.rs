@@ -27,10 +27,15 @@
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
 //! - `_acpmux/chat_roots_record {harness, transcriptPath}`: a hook reports
 //!   a transcript; its store root joins the index (recorded roots file).
-//! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots}`: the
-//!   app's effective cmux.json `agents.chats.*` values (`chats/settings.rs`);
-//!   answers the roots view with `applied: true`. While chats are off,
-//!   `_acpmux/chats` answers `enabled: false` and no chats.
+//! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots,
+//!   permissionMode?, permissionModeManaged?, allowFullAccess?,
+//!   allowFullAccessManaged?}`: the app's effective cmux.json
+//!   `agents.chats.*` values (`chats/settings.rs`) and its effective
+//!   `agents.defaultPermissionMode` and `sessions.allowFullAccess`, each with
+//!   whether MDM or the team policy forces it (`hub/start_mode_state.rs`; a
+//!   forced full-access off is an upper bound); answers the roots view with
+//!   `applied: true`. While chats are off, `_acpmux/chats` answers
+//!   `enabled: false` and no chats.
 //!
 //! Titles and folders are user data (C5): only the local unix socket gets
 //! them. Every WebSocket origin (Web, LocalApp, Peer) gets "Method not
@@ -40,6 +45,7 @@
 mod offers;
 mod stats;
 
+use crate::no_panic::JsonExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -61,6 +67,11 @@ pub(super) async fn route(
     m: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
+    // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
+    let params = super::pairing::gate(conn, m, params)?;
+    if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // The secret methods check their own callers and never reach a peer (`secrets.rs`).
     if let Some(reply) = super::secrets::dispatch(hub, conn, m, &params).await {
         return reply;
@@ -78,7 +89,18 @@ pub(super) async fn route(
     if let Some(reply) = super::subsessions::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    // So do the forum methods (`forum.rs`): this daemon's own log.
+    if let Some(reply) = super::forum::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // So do the process methods (`processes.rs`).
+    // And the worktree cleanup methods (`worktrees.rs`).
+    if let Some(reply) = super::worktrees::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    if let Some(reply) = super::worktrees::retention(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::processes::dispatch(hub, conn, m, &params).await {
         return reply;
     }
@@ -226,6 +248,47 @@ pub(super) async fn route(
         "_acpmux/chat_settings" => {
             let settings = crate::chats::ChatSettings::from_params(&params)
                 .map_err(RpcError::invalid_params)?;
+            let managed = match params.get("permissionModeManaged") {
+                None | Some(Value::Null) => false,
+                Some(Value::Bool(managed)) => *managed,
+                Some(_) => {
+                    return Err(RpcError::invalid_params(
+                        "permissionModeManaged must be true or false",
+                    ));
+                }
+            };
+            // Anything but a short string is no value; forced, that is a
+            // value acpmux does not know (`Hub::apply_permission_push`). The
+            // rest of the push applies either way.
+            let mode = match params.get("permissionMode") {
+                Some(Value::String(mode)) if mode.len() <= 64 => Some(mode.clone()),
+                None | Some(Value::Null) => None,
+                Some(other) => {
+                    let kind =
+                        if other.is_string() { "an over-long string" } else { "not a string" };
+                    tracing::warn!(
+                        managed,
+                        "chat_settings permissionMode is {kind}; read as no value"
+                    );
+                    None
+                }
+            };
+            hub.apply_permission_push(mode, managed).await;
+            // `sessions.allowFullAccess` as MDM or the team policy forces it: only a forced value
+            // counts, and anything but `true` is off. No key (an older app, or nothing forced)
+            // forces nothing.
+            let full_access_managed = match params.get("allowFullAccessManaged") {
+                None | Some(Value::Null) => false,
+                Some(Value::Bool(managed)) => *managed,
+                Some(_) => {
+                    return Err(RpcError::invalid_params(
+                        "allowFullAccessManaged must be true or false",
+                    ));
+                }
+            };
+            let forced = full_access_managed
+                .then(|| params.get("allowFullAccess") == Some(&Value::Bool(true)));
+            hub.apply_full_access_push(forced).await;
             let hub = hub.clone();
             blocking(move || {
                 let running = hub.apply_chat_settings(settings).map_err(RpcError::internal)?;
@@ -233,7 +296,7 @@ pub(super) async fn route(
                     Some(service) if running => service.roots_view(),
                     _ => json!({"ready": false}),
                 };
-                view["applied"] = json!(true);
+                view.set("applied", json!(true));
                 Ok(view)
             })
             .await
@@ -271,7 +334,7 @@ async fn settled_page(
     query: ChatQuery,
 ) -> Result<Value, RpcError> {
     let mut page = page(hub, service, query).await?;
-    page["settled"] = Value::Bool(true);
+    page.set("settled", Value::Bool(true));
     Ok(page)
 }
 
@@ -367,4 +430,13 @@ pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
     {
         conn.send(&Message::notification("_acpmux/chat_changed", change));
     }
+}
+
+/// `_acpmux/watch_take_over {sessionId, ifLive?}`: the watched chat runs the conversation itself
+/// (`hub/watch.rs`).
+pub(super) async fn watch_take_over(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+    let s = hub.resolve(super::session_key(params)?)?;
+    let if_live = crate::adopt::IfLive::parse(super::str_param(params, "ifLive"))
+        .map_err(RpcError::invalid_params)?;
+    hub.watch_take_over(&s, if_live).await
 }

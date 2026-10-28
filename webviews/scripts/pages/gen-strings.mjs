@@ -9,6 +9,9 @@
 // build write them from the checkout's catalogs, so two branches never carry competing copies.
 //   node scripts/pages/gen-strings.mjs                # write every page; a missing translation fails
 //   node scripts/pages/gen-strings.mjs --best-effort  # write anyway, warn (bun install's postinstall)
+//   CMUX_STRINGS_BEST_EFFORT=1 node scripts/pages/gen-strings.mjs  # the same for writes, never for --check
+//     (the Mac export jobs, whose bundles only host the export tests: a stale schema must not stop the job
+//     that regenerates it; and the gallery host, where a missing translation must not fail a preview)
 //   node scripts/pages/gen-strings.mjs --if-stale     # only pages whose inputs are newer (test preload)
 //   node scripts/pages/gen-strings.mjs --check        # fail when a written table differs
 //   node scripts/pages/gen-strings.mjs settings       # only the named pages
@@ -128,6 +131,27 @@ export const PAGES = {
         file: `${sources}/CmuxNextActions/ActionCatalog.xcstrings`,
         keys: () => ["action.reloadConfiguration"],
       },
+      {
+        // Agents > Chiefs (u2586) draws the channels Home's Chief editor (ChiefPage.tsx).
+        file: "webviews/src/pages/home-channels/Localizable.xcstrings",
+        keys: (all) =>
+          all.filter(
+            (key) =>
+              key.startsWith("chief.") ||
+              [
+                "sheet.newChief.title",
+                "sheet.newChief.lead",
+                "sheet.editChief.title",
+                "sheet.editChief.lead",
+                "edit.cancel",
+              ].includes(key),
+          ),
+      },
+      {
+        // Machines > Add Device… (add-device-DESIGN.md): the palette action's own title, until the host lists arrive.
+        file: `${sources}/CmuxNextActions/RemoteActions.xcstrings`,
+        keys: () => ["action.device.add"],
+      },
     ],
   },
   history: {
@@ -200,6 +224,16 @@ export const PAGES = {
     out: "webviews/src/pages/stats/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stats/Localizable.xcstrings" }],
   },
+  // The Chief Usage page (cmux-page://cmux.chief-usage/); its table lives next to it.
+  "chief-usage": {
+    out: "webviews/src/pages/chief-usage/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/chief-usage/Localizable.xcstrings" }],
+  },
+  // The Chief view gallery (cmux-page://cmux.chief-views/); its table lives next to it.
+  "chief-views": {
+    out: "webviews/src/pages/chief-views/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/chief-views/Localizable.xcstrings" }],
+  },
   // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
   coderouter: {
     out: "webviews/src/pages/coderouter/generated/strings.json",
@@ -220,7 +254,7 @@ export const PAGES = {
         keys: (all) =>
           all.filter(
             (key) =>
-              /^(tools|shell|code|image|media|markdown|duration|chip)\./.test(key) ||
+              /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel|multiplayer)\./.test(key) ||
               [
                 "changes.noLineChanges",
                 "link.openPath",
@@ -232,6 +266,38 @@ export const PAGES = {
                 "message.noText",
                 "message.self",
                 "message.unknown",
+                // A sent message's line and status (MessageCard.tsx), which Channels draws too.
+                "message.sentTo",
+                "message.sendingTo",
+                "message.sending",
+                "message.sent",
+                "message.delivered",
+                // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
+                "message.recipientId",
+              ].includes(key),
+          ),
+      },
+    ],
+  },
+  // The changelog's pull request chips draw the agent pane's link hover card (chips/LinkHoverCard.tsx,
+  // PullRequestCard.tsx, OpenInMenu.tsx), which read the pane's table; the page installs only these.
+  "changelog-pane": {
+    out: "webviews/src/pages/changelog/generated/pane-strings.json",
+    catalogs: [
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) =>
+          all.filter(
+            (key) =>
+              /^(prCard|header\.prBadge|header\.prReview)\./.test(key) ||
+              [
+                "chatInspector.changes.failingOnBase",
+                "header.prConflicts",
+                "header.prNoChecks",
+                "image.open",
+                "preview.cmuxBrowser",
+                "preview.copyLink",
+                "preview.openIn",
               ].includes(key),
           ),
       },
@@ -437,9 +503,10 @@ export function writeStrings({
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const bestEffort = process.argv.includes("--best-effort");
+  const check = process.argv.includes("--check");
+  const bestEffort = process.argv.includes("--best-effort") || (!check && process.env.CMUX_STRINGS_BEST_EFFORT === "1");
   const failed = writeStrings({
-    check: process.argv.includes("--check"),
+    check,
     bestEffort,
     ifStale: process.argv.includes("--if-stale"),
     only: process.argv.slice(2).filter((arg) => !arg.startsWith("--")),

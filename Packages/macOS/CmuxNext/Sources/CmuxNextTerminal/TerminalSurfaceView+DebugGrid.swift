@@ -1,7 +1,7 @@
 import AppKit
 import GhosttyNextKit
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 extension TerminalSurfaceView {
     /// DEBUG `debug.surfaces`: Ghostty's grid in this view's points (cell size and the padding
     /// before the first cell), so a script can post a real click at a cell through

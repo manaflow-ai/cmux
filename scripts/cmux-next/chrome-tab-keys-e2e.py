@@ -3,8 +3,9 @@
 
 Leo 2026-10-12: "chrome/chatgpt/claude has them all the same". Sidebar items are what Chrome
 calls tabs, so by default, with no preset and no rebinding:
-  - Ctrl-Cmd-], Cmd-Opt-Right and Ctrl-PageDown select the next sidebar item;
-  - Ctrl-Cmd-[, Cmd-Opt-Left and Ctrl-PageUp select the previous one;
+  - Ctrl-Cmd-] and Ctrl-PageDown select the next sidebar item;
+  - Ctrl-Cmd-[ and Ctrl-PageUp select the previous one;
+  (Cmd-Opt-Left / Right are Ghostty's pane focus keys, reserved: Lawrence 2026-10-20.)
   - Cmd-1 to Cmd-8 select the nth item and Cmd-9 the last.
 They win over the focused surface: a terminal (and its Ghostty keybinds), the New Tab page's
 field and an agent chat's composer, in a pane with one tab and in a pane with two (where the
@@ -51,8 +52,6 @@ KEYS = [
     # 2026-10-15), never workspaces: CtrlTabCyclesPaneTabsTests.
     ("Ctrl-Cmd-]", "]", ["ctrl", "cmd"], NEXT, None),
     ("Ctrl-Cmd-[", "[", ["ctrl", "cmd"], PREV, None),
-    ("Cmd-Opt-Right", "right", ["cmd", "option"], NEXT, None),
-    ("Cmd-Opt-Left", "left", ["cmd", "option"], PREV, None),
     ("Ctrl-PageDown", "pagedown", ["ctrl"], NEXT, None),
     ("Ctrl-PageUp", "pageup", ["ctrl"], PREV, None),
     ("Cmd-1", "1", ["cmd"], "selectWorkspaceByNumber", 1),

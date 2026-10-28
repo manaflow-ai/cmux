@@ -245,6 +245,7 @@ jobs:
           compression-level: 0
 
   capture:
+    environment: ci-bot
     name: cmux-next before/after capture
     needs: publish
     if: ${{ needs.publish.outputs.published == 'true' && needs.publish.outputs.workflow == 'cmux-next' }}

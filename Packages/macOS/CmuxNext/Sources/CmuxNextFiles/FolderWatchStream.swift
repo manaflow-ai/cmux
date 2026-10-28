@@ -4,7 +4,7 @@ import Foundation
 /// The FSEventStream behind one ``FolderWatcher`` stream.
 // FSEvents has no async API; the stream is created, scheduled, and stopped on
 // `queue`, and its callback runs there too, so every mutation happens on `queue`.
-final class FolderWatchStream: @unchecked Sendable {
+final class FolderWatchStream: @unchecked Sendable { // crash-allow: `stream` changes only on the serial `queue` (start, stop, and the FSEvents callback there); the rest is immutable
     private let folderPath: String
     private let latency: CFTimeInterval
     private let continuation: AsyncStream<FolderChange>.Continuation
@@ -60,7 +60,9 @@ final class FolderWatchStream: @unchecked Sendable {
             guard parent == folderPath else { continue }
             items.append((trimmed as NSString).lastPathComponent)
         }
-        if rescan { continuation.yield(.rescan) } else if !items.isEmpty { continuation.yield(.items(items)) }
+        guard rescan || !items.isEmpty else { return }
+        // A full buffer drops its oldest change; the rescan after it covers whatever was lost.
+        if case .dropped = continuation.yield(rescan ? .rescan : .items(items)) { continuation.yield(.rescan) }
     }
 }
 

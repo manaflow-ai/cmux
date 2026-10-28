@@ -2,6 +2,7 @@
 """Run cmux-next UI tours against a built app and capture each step.
 
     tour.py --app "<path>/cmux DEV ci-media.app" --out "$RUNNER_TEMP/media" tours/core.json [...]
+    tour.py --stop "<path>/cmux DEV ci-media.app" [--stop ...]
 
 Each tour launches the app fresh on a private control socket (the knobs
 scripts/smoke-signed-app-cli.sh uses), drives it only through the bundled
@@ -20,7 +21,7 @@ settings. A step has a `title` and optionally:
     cmux      argv after `cmux`; app scopes get --app-socket, see `daemon`
     rpc       {"method": ..., "params": {...}}: one app control-socket request
               with no CLI verb (a DEBUG fixture such as debug.home.sidebar_fixture),
-              after `cmux`; an error answer or an `error` field fails the step
+              after `cmux`; an error answer, an `error` field or `ok` false fails the step
     daemon    true for a daemon verb (notify, terminal ...): it gets
               --session cmux-app-<tag> instead of the app socket
     wait      seconds to let the UI settle before the screenshot (default 1.5)
@@ -40,6 +41,12 @@ alone by its window server id (`screencapture -l`, run in the console user's
 session as the E2E recorder on main does), never the display, so tours on one
 Mac never capture each other. The app is never activated: the tour drives it
 through its socket, so concurrent tours do not trade focus or the key window.
+
+`--stop` ends what a built app left running and exits: its tagged daemon
+through its own socket, then every process whose executable is in the bundle
+(the app, the chief host and its acpmux daemon and router), SIGKILL after
+STOP_GRACE seconds. The tour job runs it whatever happened before, since a
+cancel can land while the app starts and outlive this process's own cleanup.
 
 The manifest records `result` as `pass`, `degraded`, or `failed`. Optional
 failures keep the process exit status green for compatibility, but result in a
@@ -66,12 +73,20 @@ import threading
 import time
 from typing import Any
 
-STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect"}
+STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows"}
+# Other windows a step shoots beside the main one (floating panels, popovers,
+# sheets), at most this many, each at least this big in points.
+MAX_OTHER_WINDOWS = 4
+MIN_OTHER_WINDOW = (40, 24)
+# All of a step's other-window shots share this many seconds.
+OTHER_WINDOWS_BUDGET = 20.0
 TOUR_KEYS = {"title", "steps", "settings"}
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
 POSTCONDITION_TIMEOUT = 2.0
 SOCKET_TIMEOUT = 60.0
+# --stop: seconds a bundle's processes get after SIGTERM before SIGKILL.
+STOP_GRACE = 10.0
 FRAME_INTERVAL = 0.5
 # Five minutes of frames; a tour that runs longer keeps its screenshots but its
 # video stops here, so a stuck step cannot fill the runner's disk.
@@ -137,6 +152,8 @@ def load_tour(path: Path) -> dict[str, Any]:
         if command is not None and (not isinstance(command, list) or not command
                                     or not all(isinstance(word, str) for word in command)):
             raise TourError(f"{where}: `cmux` must be a non-empty list of strings")
+        if "windows" in step and not isinstance(step["windows"], bool):
+            raise TourError(f"{where}: `windows` must be true or false")
         rpc = step.get("rpc")
         if rpc is not None and (not isinstance(rpc, dict) or set(rpc) - {"method", "params"}
                                 or not isinstance(rpc.get("method"), str) or not rpc["method"].strip()
@@ -687,9 +704,65 @@ def display_capture(app: App, screen: Screen, path: Path) -> str | None:
     if app.session.app_window:
         return "no screen capture route for a display shot"
     display = Screen(app.session, screen.scratch)
-    display.use_display()
+    display.use_display(app.pid())
     display.follow(app.main_window_frame())
     return display.capture(path)
+
+
+def shoot_other_windows(app: App, main_shot: Path) -> tuple[list[dict[str, Any]], str | None]:
+    """Every other visible window of the app beside the main window's shot: a
+    floating panel, popover or sheet is its own window, which the main window's
+    snapshot leaves out unless it is a child window. `debug.window_list` names
+    them and `debug.window_snapshot` takes any window's number. A child window
+    of another window (a Chromium page, the overlay panel) is skipped: the
+    main shot composites it. A sheet is shot. An app without the list (an
+    older base build) gets no extra shots and no error. The shots share
+    OTHER_WINDOWS_BUDGET seconds and stop at the first failure past it."""
+    deadline = time.monotonic() + OTHER_WINDOWS_BUDGET
+    try:
+        listed = app.request("debug.window_list", timeout=min(SNAPSHOT_TIMEOUT, OTHER_WINDOWS_BUDGET))
+    except TourError as error:
+        text = str(error).lower()
+        unknown = "unknown method" in text or "method_not_found" in text
+        return [], None if unknown else f"debug.window_list: {error}"
+    except (OSError, ValueError) as error:
+        return [], f"debug.window_list: {error}"
+    windows = listed.get("windows") if isinstance(listed, dict) else None
+    shots: list[dict[str, Any]] = []
+    problems: list[str] = []
+    for window in windows if isinstance(windows, list) else []:
+        if len(shots) >= MAX_OTHER_WINDOWS:
+            break
+        if not isinstance(window, dict) or window.get("kind") == "main" or window.get("visible") is not True:
+            continue
+        if window.get("parent") is not None and window.get("kind") != "sheet":
+            continue
+        number, frame, alpha = window.get("id"), window.get("frame") or {}, window.get("alpha", 1)
+        if not isinstance(number, int) or isinstance(number, bool) or number <= 0 or not isinstance(frame, dict):
+            continue
+        if not isinstance(alpha, (int, float)) or alpha <= 0:
+            continue
+        width, height = frame.get("width", 0), frame.get("height", 0)
+        if not all(isinstance(v, (int, float)) for v in (width, height)) \
+                or width < MIN_OTHER_WINDOW[0] or height < MIN_OTHER_WINDOW[1]:
+            continue
+        left = deadline - time.monotonic()
+        if left <= 1:
+            problems.append("out of time for the other windows")
+            break
+        path = main_shot.with_name(f"{main_shot.stem}--w{number}.png")
+        try:
+            done = app.request("debug.window_snapshot", {"window": number, "path": str(path)},
+                               timeout=min(SNAPSHOT_TIMEOUT, left))
+        except (OSError, ValueError, TourError) as error:
+            problems.append(f"window {number}: {error}")
+            continue
+        if not isinstance(done, dict) or done.get("error") or not path.is_file() or path.stat().st_size == 0:
+            path.unlink(missing_ok=True)
+            problems.append(f"window {number}: {done.get('error') if isinstance(done, dict) else 'no image'}")
+            continue
+        shots.append({"id": number, "kind": str(window.get("kind") or "window")[:40], "shot": f"shots/{path.name}"})
+    return shots, "; ".join(problems)[:500] or None
 
 
 def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: Path) -> dict[str, Any]:
@@ -712,6 +785,10 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
         try:
             answer = app.request(rpc["method"], rpc.get("params") or {})
             error = answer.get("error") if isinstance(answer, dict) else None
+            # A method that answers but could not do it says so in its own `ok` (a bool, or
+            # "false" from a method whose answer is all strings, as debug.hover_cards {gallery}).
+            if not error and isinstance(answer, dict) and answer.get("ok") in (False, "false"):
+                error = "answered ok: false"
             result["output"] = json.dumps(answer)[-1500:]
         except (OSError, ValueError, TourError, socket.timeout) as problem:
             error = str(problem)
@@ -745,6 +822,12 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
             result["shot_error"] = problem
         else:
             result["shot"] = f"shots/{path.name}"
+            if screen.app and step.get("windows", not step.get("display")):
+                windows, problem = shoot_other_windows(app, path)
+                if windows:
+                    result["windows"] = windows
+                if problem:
+                    result["windows_error"] = problem
     result["seconds"] = round(time.monotonic() - started, 2)
     return result
 
@@ -825,6 +908,49 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     return manifest
 
 
+def running_from(session: Session, bundle: Path) -> list[int]:
+    """Processes whose executable is in the bundle: the command starts with its path."""
+    found = session.run(["pgrep", "-f", "^" + re.escape(f"{bundle}/Contents/")]).stdout.split()
+    return [int(pid) for pid in found if pid.isdigit()]
+
+
+def stop_apps(bundles: list[Path], session: Session) -> bool:
+    """End what each built app left running; False when something outlived SIGKILL.
+
+    A cancel can land while the app starts: run 39199091515's chief host started
+    a minute after its capture step was cancelled, and with its parent gone it
+    held cmux10s's DerivedData open for days. Only the command's start is
+    matched, so a process that merely names the bundle in its arguments stays.
+    """
+    clean = True
+    for bundle in bundles:
+        if not (bundle / "Contents/Info.plist").is_file():
+            print(f"{bundle}: no app here; nothing to stop", flush=True)
+            continue
+        workdir = Path(tempfile.mkdtemp(prefix="cmux-tour-stop.", dir="/tmp"))
+        try:
+            App(bundle, session, workdir).stop_daemon()
+        except (OSError, ValueError, KeyError) as error:
+            # A half-built bundle (no CLI, a bad Info.plist) still gets its processes ended.
+            print(f"{bundle.name}: could not stop its daemon ({error})", flush=True)
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+        pattern = "^" + re.escape(f"{bundle}/Contents/")
+        left = running_from(session, bundle)
+        if left:
+            session.run(["pkill", "-f", pattern])
+            deadline = time.monotonic() + STOP_GRACE
+            while (left := running_from(session, bundle)) and time.monotonic() < deadline:
+                time.sleep(0.5)
+        if left:
+            session.run(["pkill", "-9", "-f", pattern])
+            time.sleep(1)
+            left = running_from(session, bundle)
+        print(f"{bundle.name}: " + (f"still running {left}" if left else "nothing left running"), flush=True)
+        clean = clean and not left
+    return clean
+
+
 def terminated(signum: int, frame: Any) -> None:
     raise SystemExit(128 + signum)
 
@@ -847,13 +973,19 @@ def classify_result(manifest: dict[str, Any]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("tours", nargs="+", type=Path, help="tour JSON files or directories of them")
+    parser.add_argument("tours", nargs="*", type=Path, help="tour JSON files or directories of them")
     parser.add_argument("--app", type=Path, help="the built app bundle")
     parser.add_argument("--out", type=Path, help="where each tour's folder goes")
     parser.add_argument("--check", action="store_true", help="only validate the tour files")
     parser.add_argument("--fresh-state", action="store_true",
                         help="delete the tagged build's saved workspaces before and after each tour")
+    parser.add_argument("--stop", type=Path, action="append", default=[], metavar="APP",
+                        help="end what this built app left running, then exit (repeatable)")
     args = parser.parse_args(argv)
+    if args.stop:
+        return 0 if stop_apps(args.stop, Session()) else 1
+    if not args.tours:
+        parser.error("give tour files, or --stop")
     files: list[Path] = []
     for path in args.tours:
         files.extend(sorted(path.glob("*.json")) if path.is_dir() else [path])

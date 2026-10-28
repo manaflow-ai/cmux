@@ -15,11 +15,8 @@ extension PhoneTabView {
         bar.orientation = .horizontal
         bar.spacing = 8
         bar.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-        screen.imageScaling = .scaleProportionallyUpOrDown
-        screen.wantsLayer = true
-        screen.layer?.cornerRadius = 18
-        screen.layer?.masksToBounds = true
         screen.setAccessibilityLabel(PhoneStrings.screenLabel)
+        connectScreen()
         status.textColor = .secondaryLabelColor
         status.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         status.lineBreakMode = .byTruncatingTail
@@ -34,14 +31,12 @@ extension PhoneTabView {
             notesField.widthAnchor.constraint(greaterThanOrEqualToConstant: 160),
             screen.topAnchor.constraint(equalTo: bar.bottomAnchor, constant: 4),
             screen.centerXAnchor.constraint(equalTo: centerXAnchor),
-            screen.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -24),
+            screen.widthAnchor.constraint(equalTo: widthAnchor, constant: -24),
             screen.bottomAnchor.constraint(equalTo: status.topAnchor, constant: -8),
             status.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             status.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             status.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
         ])
-        let click = NSClickGestureRecognizer(target: self, action: #selector(screenClicked(_:)))
-        screen.addGestureRecognizer(click)
     }
 
     private func configure(_ button: NSButton, _ title: String, _ symbol: String, _ action: Selector) {
@@ -93,10 +88,6 @@ extension PhoneTabView {
         }
     }
 
-    @objc private func screenClicked(_ recognizer: NSClickGestureRecognizer) {
-        guard let device = selected, !service.capabilities(device).contains(.touch) else { return }
-        status.stringValue = PhoneStrings.stillFrameHint
-    }
 
     private func run(_ work: @escaping @MainActor (PhoneService) async throws -> Void) {
         Task { [weak self] in

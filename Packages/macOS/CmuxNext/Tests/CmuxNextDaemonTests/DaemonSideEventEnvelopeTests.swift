@@ -75,6 +75,33 @@ struct DaemonSideEventEnvelopeTests {
         #expect(received == [original])
     }
 
+    @Test func terminalRegistryChangesSurviveSnapshotBarriersAndKeepTheirOwnerStamp() {
+        let store = DaemonStore()
+        let envelope = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: 4, index: 10),
+            event: .terminalRegistryChanged(revision: 7), sourceID: sourceID)
+        store.snapshotBarrier = DaemonEventEnvelope.sequence(serial: 4, index: 100)
+        var received: [DaemonEventEnvelope] = []
+        let token = store.sideEvents.subscribeEnvelopes { received.append($0) }
+        defer { store.sideEvents.unsubscribe(token) }
+        _ = store.apply(batch: [envelope])
+        #expect(received == [envelope], "a tree snapshot cannot replace a terminal outcome invalidation")
+    }
+
+    @Test func aCollapsedInboxRetainsTerminalRegistryInvalidations() {
+        let inbox = EventInbox(limit: 2)
+        let original = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: 4, index: 10),
+            event: .terminalRegistryChanged(revision: 7), sourceID: sourceID)
+        _ = inbox.append(original)
+        _ = inbox.append(.init(sequence: DaemonEventEnvelope.sequence(serial: 4, index: 11), event: .treeChanged(transaction: nil)))
+        _ = inbox.append(.init(sequence: DaemonEventEnvelope.sequence(serial: 4, index: 12), event: .treeChanged(transaction: nil)))
+        let store = DaemonStore()
+        var received: [DaemonEventEnvelope] = []
+        let token = store.sideEvents.subscribeEnvelopes { received.append($0) }
+        defer { store.sideEvents.unsubscribe(token) }
+        _ = store.apply(batch: inbox.take())
+        #expect(received == [original])
+    }
+
     @Test func unsequencedEventsStayLegacyAndUnsubscribingStopsStampedDelivery() {
         let store = DaemonStore()
         var legacy: [DaemonEvent] = []

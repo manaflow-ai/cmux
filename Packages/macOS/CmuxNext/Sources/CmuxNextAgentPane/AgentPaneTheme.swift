@@ -13,8 +13,9 @@ import Foundation
 /// to text contrast over the code card (the elevated surface): terminals
 /// tolerate a dim yellow on white that code text can't.
 enum AgentPaneTheme {
-    /// `motion` leaves out live resize: the page keeps these tokens after a drag ends.
-    static func values(_ tokens: ThemeTokens, motion: MotionPolicy = MotionPolicy(speed: Motion.speed, reduceMotion: Motion.reduceMotion),
+    /// `motion` is the web category's policy without live resize: the page keeps these tokens
+    /// after a drag ends.
+    static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.web.policyIgnoringLiveResize,
                        surface: SurfaceKind = .agentPane) -> [String: any Sendable] {
         AgentPaneTunables.followCodexToolRuns()
         let page = pageColor(tokens, surface: surface)
@@ -35,19 +36,28 @@ enum AgentPaneTheme {
             // The page's own edges (composer, menus, code and tool cards) are
             // mixed from the text color, so it also gets the mode itself.
             "borders": Borders.current.mode.rawValue,
+            // Transcript response focus outlines follow the same optional focus-ring setting.
+            "focusRingEnabled": DesignSettings.shared.focusRing.enabled,
             // Debug Settings agent.chatWidth; AppServices.observeBorders pushes it again on a change.
             "chatWidth": AgentPaneTunables.chatWidth.value.rawValue,
             // Debug Settings agentPane.debug.codexToolRuns, pushed again on a change as chatWidth is.
             "codexToolRuns": AgentPaneTunables.codexToolRuns.value,
+            // Debug Settings agentPane.debug.liveLineBelow, pushed again on a change as codexToolRuns is.
+            "liveLineBelow": AgentPaneTunables.liveLineBelow.value,
             // Debug Settings agentPane.debug.turnActionsPlacement, pushed with the theme so open
             // transcript footers follow the setting without reloading the page.
             "turnActionsPlacement": AgentPaneTunables.turnActionsPlacement.value.rawValue,
+            // Debug Settings agentPane.debug.subagentTray (AgentPaneTunables+SubagentTray.swift).
+            "subagentTray": AgentPaneTunables.subagentTray.value,
+            // Debug Settings agentPane.debug.scrollerFade (AgentPaneTunables+ScrollerFade.swift).
+            "scrollerFade": AgentPaneTunables.scrollerFade.value,
             "text": css(tokens.textPrimary),
             "mutedText": css(tokens.textSecondary),
             "softText": css(tokens.textTertiary),
             "accent": css(tokens.accent),
             "onAccent": css(tokens.onAccent),
             "accentSoft": css(tokens.selectionFill),
+            "litGlyph": css(tokens.litGlyph),
             "accentText": css(opaquePage),
             "danger": css(tokens.danger),
             "warning": css(tokens.attention),
@@ -71,6 +81,8 @@ enum AgentPaneTheme {
             // Static status indicators, or Reduce Motion (cx-sya4n): the page stops its status
             // loops and draws a shape per state (`data-status-indicators`).
             "statusIndicators": motion.reduceMotion || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated",
+            // How agent work shows on the transcript's running rows (`data-working-look`).
+            "workingLook": StatusWorkingLook.tunable.value.rawValue,
         ]
     }
 

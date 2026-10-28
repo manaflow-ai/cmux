@@ -3,6 +3,15 @@
 //! "stream disconnected", and each chat stayed idle until a person typed "continue".
 use super::*;
 
+#[path = "agent_revive.rs"]
+mod agent_revive;
+
+#[path = "auto_resume_capacity.rs"]
+mod capacity;
+
+#[path = "auto_resume_retry.rs"]
+mod retry;
+
 /// Every event kind of a session, oldest first.
 fn kinds(hub: &Hub, id: &str) -> Vec<String> {
     hub.events(id, 0, 10_000).unwrap().into_iter().map(|e| e.kind).collect()
@@ -85,6 +94,12 @@ async fn automatic_continuations_stop_after_the_configured_attempts() {
         .await;
     let k = until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_exhausted")).await;
     assert!(k.iter().any(|k| k == "auto_resume_exhausted"), "{k:?}");
+    let exhausted = hub.events(&id, 0, 10_000).unwrap();
+    let exhausted = exhausted.iter().find(|e| e.kind == "auto_resume_exhausted").unwrap();
+    assert_eq!(exhausted.msg["reason"], "transport", "{:?}", exhausted.msg);
+    assert_eq!(exhausted.msg["attempts"], 2, "{:?}", exhausted.msg);
+    // Nothing waits any more: the row says so.
+    assert_eq!(hub.session_summary(&hub.resolve(&id).unwrap())["retry"], Value::Null);
     let ids: Vec<Value> =
         user_messages(&hub, &id).into_iter().map(|m| m["promptId"].clone()).collect();
     assert_eq!(ids, [json!("p-down"), json!("p-down~resume-1"), json!("p-down~resume-2")]);
@@ -332,4 +347,50 @@ async fn a_prompt_held_by_the_cut_turn_runs_when_a_later_attempt_goes_through() 
     let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() == 4).await;
     let summary = hub.session_summary(&hub.resolve(&id).unwrap());
     assert_eq!(summary["lastTurn"]["status"], "completed", "{summary} {k:?}");
+}
+
+/// An agent message held behind a cut turn waits for the continuation instead of overtaking it:
+/// its own retry (`digest.rs` `retry_held_agent_messages`) waits the same `autoResumeDelaysMs`,
+/// and going first would supersede the continuation and leave the person's held prompt waiting.
+#[tokio::test]
+async fn an_agent_message_held_by_the_cut_turn_waits_for_the_continuation() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![50, 50]);
+    let id = new_session(&mut c, "flaky-agents").await;
+    c.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "net-flaky: build it"}], "_meta": {"acpmux": {"promptId": "p-cut"}}}),
+    )
+    .await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "flaky ").await;
+    c.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "then test it"}], "_meta": {"acpmux": {"promptId": "p-q1"}}}),
+    )
+    .await;
+    c.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "from a lane"}], "_meta": {"acpmux": {"promptId": "p-a", "fromAgent": "lane-a"}}}),
+    )
+    .await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-a" && p["queued"] == true)
+        .await;
+
+    let ids = || -> Vec<Value> {
+        user_messages(&hub, &id).into_iter().map(|m| m["promptId"].clone()).collect()
+    };
+    for _ in 0..400 {
+        if ids().contains(&json!("p-q1")) && ids().contains(&json!("p-a")) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let ran = ids();
+    assert_eq!(
+        ran[..3],
+        [json!("p-cut"), json!("p-cut~resume-1"), json!("p-cut~resume-2")],
+        "{ran:?} {:?}",
+        kinds(&hub, &id)
+    );
+    assert!(ran.contains(&json!("p-q1")) && ran.contains(&json!("p-a")), "{ran:?}");
 }

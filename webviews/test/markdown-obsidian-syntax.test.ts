@@ -144,8 +144,8 @@ describe("markdown Obsidian syntax", () => {
     const md = await setup("Start.\n\nEnergy $E = mc^2$ here.\n\n$$\n\\sum_{n=1}^{N} n\n$$\n");
     md.caret("Start", 0);
     // KaTeX loads on first use.
-    for (let i = 0; i < 50 && md.root().querySelectorAll(".md-math .katex").length < 2; i++)
-      await new Promise((resolve) => setTimeout(resolve, 20));
+    for (let i = 0; i < 1000 && md.root().querySelectorAll(".md-math .katex").length < 2; i++)
+      await new Promise((resolve) => setTimeout(resolve, 0));
     expect(md.root().querySelectorAll(".md-math-inline .katex").length).toBe(1);
     expect(md.root().querySelectorAll(".md-math-block .katex").length).toBe(1);
     md.caret("mc^2", 1);

@@ -40,6 +40,16 @@ extension ControlRouter {
                 guard let action = try? Self.resolveAction(request.params, in: snapshot.catalog) else { return nil }
                 return ActionRunLimit.limit(for: action, wait: request.params["wait"]?.boolValue)
             },
+            // Many app actions as one transaction (ControlRouter+ActionBatch).
+            .async("action.batch") { [weak self] call in
+                guard let self else { throw Self.stopped }
+                return try await self.runBatch(call)
+            }.withDeadline(.perRequest { request, snapshot in
+                (request.params["wait"]?.boolValue ?? true) && Self.batchActions(request.params, in: snapshot.catalog).contains(where: \.startsTerminal)
+            }).claimingProgress().withLimit { request, snapshot in
+                Self.batchActions(request.params, in: snapshot.catalog)
+                    .compactMap { ActionRunLimit.limit(for: $0, wait: request.params["wait"]?.boolValue) }.max()
+            },
             // `cmux tab <id> focus` (state-ownership.md 3): runs the
             // `tab.focus` action on the tab, with action.run's contract.
             .async("tab.focus") { [weak self] call in

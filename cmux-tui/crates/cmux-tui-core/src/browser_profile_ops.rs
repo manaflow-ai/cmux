@@ -110,9 +110,10 @@ fn set_profile(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value,
 
 /// The fields of a profile record an agent sees. An allow list, so a field
 /// the record gains later stays out until someone adds it here.
-const PUBLIC_FIELDS: [&str; 5] = ["id", "name", "color", "icon", "index"];
+const PUBLIC_FIELDS: [&str; 6] = ["id", "name", "color", "icon", "index", "proxy"];
 
-/// `browser.profile.list`: each record's id, name, color, icon and index.
+/// `browser.profile.list`: each record's id, name, color, icon, index and
+/// proxy (#24432; it holds no secret, and an agent asserts its exit with it).
 /// The import origin (a browser and its profile directory) stays out: it
 /// names the person's other browsers and their files.
 fn list(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -217,7 +218,8 @@ fn open(
             }
         })?;
     let record = FrontendBrowserRecord {
-        engine: string(fields, "engine").unwrap_or_else(|| default_engine(mux).to_string()),
+        engine: requested_or_default_engine(mux, string(fields, "engine").as_deref(), &url)?
+            .to_string(),
         url,
         title: string(fields, "title"),
         favicon_url: None,
@@ -266,12 +268,42 @@ fn tab_key(key: &str) -> String {
 
 /// The person's `browser.defaultEngine` as a frontend engine: `webkit`,
 /// else `cef` (the setting's default, `chromium`).
-fn default_engine(mux: &Arc<Mux>) -> &'static str {
+pub(crate) fn default_engine(mux: &Arc<Mux>) -> &'static str {
     let target = cmux_config::Target::Key(DEFAULT_ENGINE_SETTING.to_string());
     let value = mux.with_settings(|state| state.get(&target).row.and_then(|row| row.value));
     match value.as_ref().and_then(Value::as_str) {
         Some("webkit") => "webkit",
         _ => "cef",
+    }
+}
+
+/// The engine of a tab for `url` that names none: the person's
+/// `browser.siteEngines` rule for it (Spotify, Netflix and other
+/// protected-media sites are WebKit by default), else `browser.defaultEngine`.
+pub(crate) fn default_engine_for(mux: &Arc<Mux>, url: &str) -> &'static str {
+    crate::browser_site_engines::site_engine_for(mux, url).unwrap_or_else(|| default_engine(mux))
+}
+
+/// The frontend engine tag a request names in its `engine` field
+/// (`chromium`, `chrome` and `cef` are Chromium; `webkit` and `safari` are
+/// WebKit), else the `browser.siteEngines` rule for `url`, else the person's
+/// `browser.defaultEngine`. Every browser tab the daemon makes for the app
+/// (`tab.create_browser` with no provider, `workspace.open_url`,
+/// `browser.profile.open`) takes its engine here, so an agent's tab follows
+/// the same settings as a tab the person opens.
+pub(crate) fn requested_or_default_engine(
+    mux: &Arc<Mux>,
+    requested: Option<&str>,
+    url: &str,
+) -> Result<&'static str, ResourceError> {
+    match requested.map(str::to_ascii_lowercase).as_deref() {
+        None | Some("") => Ok(default_engine_for(mux, url)),
+        Some("cef" | "chromium" | "chrome") => Ok("cef"),
+        Some("webkit" | "safari") => Ok("webkit"),
+        Some(other) => Err(ResourceError::validation_invalid(
+            Some("engine"),
+            format!("engine must be chromium or webkit, not {other:?}"),
+        )),
     }
 }
 

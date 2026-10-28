@@ -529,10 +529,16 @@ fn the_persons_page_mutes_a_cloud_conversation_through_the_daemon() {
     assert_eq!(
         requests.iter().map(|(path, _, body)| (path.clone(), body.clone())).collect::<Vec<_>>(),
         vec![
-            ("/v1/ops".to_string(), json!({"op":"inbox.mute","params":{"muted":true,
-                "until":1_900_000_000_000_u64,"conversation":CONV},"idempotency_key":"mute-1"})),
-            ("/v1/ops".to_string(), json!({"op":"inbox.mute","params":{"muted":false,
-                "conversation":CONV},"idempotency_key":"mute-2"})),
+            (
+                "/v1/ops".to_string(),
+                json!({"op":"inbox.mute","params":{"muted":true,
+                "until":1_900_000_000_000_u64,"conversation":CONV},"idempotency_key":"mute-1"})
+            ),
+            (
+                "/v1/ops".to_string(),
+                json!({"op":"inbox.mute","params":{"muted":false,
+                "conversation":CONV},"idempotency_key":"mute-2"})
+            ),
         ],
         "{requests:?}"
     );
@@ -563,9 +569,29 @@ fn the_persons_page_manages_group_roles_through_the_daemon() {
             "idempotency_key":format!("roles-{n}"),"origin":"user","op":op}));
         assert_eq!(reply["ok"], true, "{op}: {reply}");
     }
-    let names: Vec<Value> = cloud.requests().iter().filter(|(path, _, _)| path == "/v1/ops").map(|(_, _, body)| body["op"].clone()).collect();
-    assert_eq!(names, vec![json!("participants.set_role"), json!("ownership.transfer"), json!("participants.remove"), json!("participants.unban"), json!("grant.create"), json!("grant.revoke")]);
-    let bodies: Vec<Value> = cloud.requests().iter().filter(|(path, _, _)| path == "/v1/ops").map(|(_, _, body)| body["params"].clone()).collect();
+    let names: Vec<Value> = cloud
+        .requests()
+        .iter()
+        .filter(|(path, _, _)| path == "/v1/ops")
+        .map(|(_, _, body)| body["op"].clone())
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            json!("participants.set_role"),
+            json!("ownership.transfer"),
+            json!("participants.remove"),
+            json!("participants.unban"),
+            json!("grant.create"),
+            json!("grant.revoke")
+        ]
+    );
+    let bodies: Vec<Value> = cloud
+        .requests()
+        .iter()
+        .filter(|(path, _, _)| path == "/v1/ops")
+        .map(|(_, _, body)| body["params"].clone())
+        .collect();
     assert_eq!(bodies[0]["role"], "admin");
     assert_eq!(bodies[2]["ban"], true);
 }

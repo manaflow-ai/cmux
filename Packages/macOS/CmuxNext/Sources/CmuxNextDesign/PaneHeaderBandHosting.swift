@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// A pane content view that can open an empty band between its own header
 /// rows (a browser's toolbar and bookmarks bar) and its content area, for

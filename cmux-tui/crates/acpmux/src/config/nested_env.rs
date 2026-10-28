@@ -73,9 +73,11 @@ pub(crate) fn is_prompt_cache_key(key: &str) -> bool {
 /// (`session_env.rs`). Per-session acpmux values
 /// (`ACPMUX_*`, `CMUX_AGENT_SESSION`) are set again for each agent in
 /// `agent/command.rs`; these have no per-agent value, so they are removed.
-pub(crate) const TURN_SCOPED_ENV: [&str; 5] = [
+pub(crate) const TURN_SCOPED_ENV: [&str; 6] = [
     // `sr claude proxy` sends it as X-Subrouter-Session: one sticky account.
     "SUBROUTER_SESSION_KEY",
+    // Its opt-in for acpmux to send that header itself (subrouter_session.rs).
+    "SUBROUTER_SESSION_HEADER",
     // Codex's prompt-cache key, the same per-role key for Codex harnesses.
     "CODEX_PROMPT_CACHE_KEY",
     // A Chief turn's seal (session_env.rs): its turn session's alone.

@@ -56,12 +56,8 @@ import Foundation
     static func hide(_ entry: PendingIntent, in store: DaemonStore) -> IntentUndo? {
         switch entry.kind {
         case .createTab:
-            guard let surface = entry.createdSurface ?? entry.replySurface, let tab = store.tabsBySurface[surface],
-                  let pane = store.index.pane(holding: tab), let index = pane.tabs.firstIndex(where: { $0 === tab }),
-                  let removed = pane.removeTab(surface: surface) else { return nil }
-            store.index.remove(removed)
-            store.index.noteTabOrderChanged()
-            return .hiddenTab(HiddenTab(tab: removed, pane: pane.handle, index: index))
+            guard let surface = entry.createdSurface ?? entry.replySurface, let hidden = hideTab(surface, in: store) else { return nil }
+            return .hiddenTab(hidden)
         case .splitPane(_, _, _, let provisional):
             guard let pane = daemonPane(provisional, in: store), let screen = store.screen(containing: pane.handle),
                   let index = screen.panes.firstIndex(where: { $0 === pane }) else { return nil }
@@ -69,12 +65,14 @@ import Foundation
             // A tree the pane is the whole of (it would leave no pane) keeps it shown until the close.
             guard let unsplit = removing(pane.handle, from: layout) else { return nil }
             var reached = true
-            let unsplitColumns = columns.map { column -> ColumnSnapshot in
+            // A column that is only this pane (New Column's) goes with it.
+            let unsplitColumns = columns.filter { $0.layout != .leaf(pane.handle) }.map { column -> ColumnSnapshot in
                 guard column.layout.paneIDs.contains(pane.handle) else { return column }
                 var column = column
                 guard let tree = removing(pane.handle, from: column.layout) else { reached = false; return column }
                 column.layout = tree
-                column.rows = column.rows.map { row in
+                // A row that is only this pane (New Row's) goes with it.
+                column.rows = column.rows.filter { $0.layout != .leaf(pane.handle) }.map { row in
                     guard row.layout.paneIDs.contains(pane.handle) else { return row }
                     var row = row
                     if let tree = removing(pane.handle, from: row.layout) { row.layout = tree } else { reached = false }
@@ -91,6 +89,15 @@ import Foundation
         default:
             return nil
         }
+    }
+
+    /// Takes the daemon's tab on `surface` out of the visible records, with its place.
+    static func hideTab(_ surface: SurfaceID, in store: DaemonStore) -> HiddenTab? {
+        guard let tab = store.tabsBySurface[surface], let pane = store.index.pane(holding: tab),
+              let index = pane.tabs.firstIndex(where: { $0 === tab }), let removed = pane.removeTab(surface: surface) else { return nil }
+        store.index.remove(removed)
+        store.index.noteTabOrderChanged()
+        return HiddenTab(tab: removed, pane: pane.handle, index: index)
     }
 
     static func unhide(_ undo: IntentUndo, in store: DaemonStore) {
@@ -115,13 +122,15 @@ import Foundation
         }
     }
 
-    /// Tabs the cancelled creations' overlays took out of the visible records (the conservation check).
+    /// Tabs the cancelled creations' and closes' overlays took out of the visible records (the conservation check).
     static func hiddenTabs(in log: IntentLog) -> Int { log.entries.reduce(0) { $0 + hiddenTabs($1.undo) } }
 
     private static func hiddenTabs(_ undo: IntentUndo?) -> Int {
         switch undo {
         case .hiddenTab?: 1
         case .hiddenPane(let hidden)?: hidden.pane.tabs.count
+        case .closedTabs(let hidden)?: hidden.count
+        case .guessedTab?: 1
         default: 0
         }
     }

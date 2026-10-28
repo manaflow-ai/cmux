@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextFileGrid
+import CmuxNextFiles
 import CmuxNextIcons
 import CmuxNextScreenshots
 import Foundation
@@ -33,7 +34,7 @@ import Testing
     @Test func thePageFiltersOnFindAndLeavesForAWebAddress() async throws {
         let model = ScreenshotsModel(watcher: NoWatch())
         let page = ScreenshotsPageTab(id: BrowserTabID(rawValue: "t1"), engine: .webkit, profile: .default, model: model,
-                                      cache: ThumbnailCache(), workspace: RecordingWorkspace())
+                                      cache: ThumbnailCache(), workspace: RecordingWorkspace(), files: FileOperator())
         defer { page.close() }
         #expect(page.state.url == ScreenshotsPageAddress.url)
         #expect(page.state.title == ScreenshotsPageAddress.title)
@@ -52,14 +53,13 @@ import Testing
 }
 
 /// No file system events: the page test sets no folders.
-private nonisolated struct NoWatch: DirectoryWatching {
-    func events(for paths: [String]) -> AsyncStream<[DirectoryWatcherEvent]> { AsyncStream { $0.finish() } }
+private nonisolated struct NoWatch: FolderWatching {
+    func changes(in folder: URL) -> AsyncStream<FolderChange> { AsyncStream { $0.finish() } }
 }
 
 /// Records what the grid asks of the system.
-@MainActor private final class RecordingWorkspace: FileGridWorkspace {
+@MainActor private final class RecordingWorkspace: ScreenshotsWorkspace {
     var opened: [URL] = []
     func open(_ urls: [URL]) { opened += urls }
     func reveal(_ urls: [URL]) {}
-    func recycle(_ urls: [URL]) async throws {}
 }

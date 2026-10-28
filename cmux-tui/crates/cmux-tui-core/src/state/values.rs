@@ -38,7 +38,7 @@ fn workspace_extra(
     let mut fields = Map::new();
     let presentation = connection
         .query_row(
-            "SELECT p.title, p.color, p.icon
+            "SELECT p.title, p.color, p.icon, p.description, p.task_status
              FROM resource_workspaces AS rw
              JOIN workspace_presentation AS p ON p.workspace_key = rw.workspace_key
              WHERE rw.public_id = ?1",
@@ -48,12 +48,22 @@ fn workspace_extra(
                     row.get::<_, Option<String>>(0)?,
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
                 ))
             },
         )
         .optional()?;
-    if let Some((title, color, icon)) = presentation {
-        for (name, value) in [("title", title), ("color", color), ("icon", icon)] {
+    if let Some((title, color, icon, description, task_status)) = presentation {
+        // `workspace-description-v1` and `workspace-status-v1`: absent until set.
+        let fields_of = [
+            ("title", title),
+            ("color", color),
+            ("icon", icon),
+            ("description", description),
+            ("task_status", task_status),
+        ];
+        for (name, value) in fields_of {
             if let Some(value) = value {
                 fields.insert(name.into(), json!(value));
             }
@@ -153,7 +163,8 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
     }
     let state = connection
         .query_row(
-            "SELECT zoom, back_json, forward_json, icon, emulation_json, marked_unread
+            "SELECT zoom, back_json, forward_json, icon, emulation_json, marked_unread,
+                    attention_json
              FROM tab_state WHERE tab_id = ?1",
             [tab_id],
             |row| {
@@ -164,11 +175,12 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, Option<String>>(4)?,
                     row.get::<_, Option<i64>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
                 ))
             },
         )
         .optional()?;
-    if let Some((zoom, back, forward, icon, emulation, marked_unread)) = state {
+    if let Some((zoom, back, forward, icon, emulation, marked_unread, attention)) = state {
         if let Some(emulation) =
             emulation.as_deref().and_then(crate::state::browser_devices::resolve)
         {
@@ -183,6 +195,14 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
         // `tab-mark-unread-v1`: present only while the tab is marked.
         if marked_unread.is_some_and(|value| value != 0) {
             fields.insert("marked_unread".into(), json!(true));
+        }
+        // `tab-attention-v1`: `{reason, at_ms}`, present only while an agent
+        // needs the person in this tab.
+        if let Some(attention) = attention {
+            fields.insert(
+                "attention".into(),
+                crate::state::tab_state_store::shown_attention(&attention)?,
+            );
         }
         for (name, list) in [("back", back), ("forward", forward)] {
             if let Some(list) = list {

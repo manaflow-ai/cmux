@@ -263,7 +263,6 @@ if [ -z "$CONTINUE_STATE" ]; then
   else
     package_signed_dmg "$APP_PATH" "$DMG_RELEASE" "$DMG_TMP_DIR"
   fi
-  package_signed_dmg "$APP_PATH" "$DMG_RELEASE" "$DMG_TMP_DIR"
 fi
 # This is the last signature. Delete the CI signing keychain before Apple's
 # wait and before the launch smokes below run code from the bundle. A

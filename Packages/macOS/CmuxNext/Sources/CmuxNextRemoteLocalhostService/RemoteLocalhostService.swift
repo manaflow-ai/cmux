@@ -55,14 +55,20 @@ public final class RemoteLocalhostService {
     /// daemon's capabilities.
     public func route(for tab: TabModel, engine: BrowserEngineKind) -> RemoteLocalhostRoute {
         let daemon = machines.daemon(forTab: tab)
+        let workspace = daemon.store.pane(containing: tab.surface).flatMap { daemon.store.workspace(containing: $0.handle) }
+        return route(daemon: daemon, workspace: workspace?.id, engine: engine)
+    }
+
+    /// The route of a tab of `daemon`'s workspace `workspace` for `engine`
+    /// (also before the tab exists, for its notice).
+    public func route(daemon: DaemonService, workspace: String?, engine: BrowserEngineKind) -> RemoteLocalhostRoute {
         if daemon.isLocal, debugSocket != nil {
             return engine == .cef ? .machine(Self.debugMachineName) : .thisMacInstead(Self.debugMachineName, .webKit)
         }
         guard !daemon.isLocal else { return .thisMac }
         let name = machineName(of: daemon)
-        let workspace = daemon.store.pane(containing: tab.surface).flatMap { daemon.store.workspace(containing: $0.handle) }
-        guard isEnabled(workspace: workspace?.id) else { return .thisMacInstead(name, .turnedOff) }
-        guard daemon.supports(DaemonCapabilities.shared.loopbackForward) else { return .thisMacInstead(name, .updateMachine) }
+        guard isEnabled(workspace: workspace) else { return .thisMacInstead(name, .turnedOff) }
+        guard daemon.supports(DaemonCapability.loopbackForward.rawValue) else { return .thisMacInstead(name, .updateMachine) }
         guard engine == .cef else { return .thisMacInstead(name, .webKit) }
         return .machine(name)
     }
@@ -182,6 +188,43 @@ public final class RemoteLocalhostService {
     public func loopbackOpener(machine: String) -> (@Sendable (UInt16) async throws -> LoopbackStream)? {
         guard let client = loopbackClient(machine: machine) else { return nil }
         return { port in try await client.open(host: "127.0.0.1", port: port) }
+    }
+
+    /// Registers an authenticated `cmux-cloud` proxy behind the peer-checked app proxy.
+    ///
+    /// - Parameters:
+    ///   - machineKey: The stable, non-secret key used for this machine's Chromium store.
+    ///   - machineName: The machine name shown by the browser badge and error page.
+    ///   - incarnation: The `cmux-cloud` process incarnation that owns this route.
+    ///   - generation: The `cmux-cloud` link generation that owns this route.
+    ///   - proxyPort: The loopback port returned by `cloud.browser.open`.
+    ///   - proxyUsername: The HMAC user name returned by `cloud.browser.open`.
+    ///   - proxyPassword: The random HMAC secret returned by `cloud.browser.open`.
+    /// - Returns: A Chromium machine store that points only at the app's peer-checked proxy.
+    public func cloudBrowserStore(
+        machineKey: String,
+        machineName: String,
+        incarnation: UInt64,
+        generation: UInt64,
+        proxyPort: UInt16,
+        proxyUsername: String,
+        proxyPassword: String
+    ) async throws -> BrowserMachineStore {
+        let opener = CloudProxyLoopbackOpener(
+            proxyPort: proxyPort,
+            credential: ProxyCredential(username: proxyUsername, password: proxyPassword)
+        )
+        let port = try await proxy.listen(
+            for: machineKey,
+            incarnation: incarnation,
+            generation: generation,
+            route: .init(
+                machineName: machineName,
+                opener: opener,
+                allowsDirectDestinations: false
+            )
+        )
+        return BrowserMachineStore(machineKey: machineKey, machineName: machineName, proxyPort: port)
     }
 
     private var debugClients: [String: LoopbackForwardClient] = [:]

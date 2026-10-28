@@ -11,6 +11,7 @@ const CATALOG_JSON: &str = include_str!("../../../../spec/resource-operations-v2
 
 pub(crate) fn catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
+    // crash-allow: compiled-in catalog JSON (include_str!); a parse failure fails every catalog test
     CATALOG.get_or_init(|| serde_json::from_str(CATALOG_JSON).expect("resource operation catalog"))
 }
 

@@ -5,6 +5,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow, ConversationLayout } from "../src/agent-session/acpmux/model";
+// These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
+(globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -45,17 +47,15 @@ afterAll(() => {
 });
 
 const row = (id: string, kind: string, text: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
-// Two prompts (acpmux seqs 3 and 7), each with a reply.
-const rows = [
-  row("user-3", "user", "first prompt"),
-  row("assistant-4", "assistant", "first reply"),
-  row("user-7", "user", "second prompt"),
-  row("assistant-8", "assistant", "second reply"),
-];
+// Four prompts (acpmux seqs 3, 7, 11 and 15; the rail shows from four), each with a reply.
+const rows = [3, 7, 11, 15].flatMap((seq, index) => [
+  row(`user-${seq}`, "user", `prompt ${index + 1}`),
+  row(`assistant-${seq + 1}`, "assistant", `reply ${index + 1}`),
+]);
 const layout: ConversationLayout = {
-  tops: Float64Array.from([0, 100, 200, 300]),
-  heights: Float64Array.from([100, 100, 100, 100]),
-  totalHeight: 400,
+  tops: Float64Array.from(rows.map((_, index) => index * 100)),
+  heights: Float64Array.from(rows.map(() => 100)),
+  totalHeight: rows.length * 100,
 };
 
 type Call = { sessionId: string; seq: number; bookmarked: boolean };
@@ -101,6 +101,7 @@ async function mount() {
         scroller,
         scrollTop: 0,
         viewportHeight: 600,
+        scrolls: true,
         width: 1040,
       }),
     ),
@@ -109,14 +110,9 @@ async function mount() {
   return { host, root };
 }
 
-/// Points at tick `index` (jsdom lays nothing out: the rail starts at 0) and returns its popover button.
+/// Focuses tick `index` (its card opens at once) and returns the card's bookmark button.
 async function bookmarkOf(host: HTMLElement, index: number): Promise<HTMLButtonElement> {
-  const rail = host.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
-  const tick = host.querySelector<HTMLElement>(`[data-tick="${index}"]`)!;
-  const pitch = parseFloat(tick.style.height);
-  await act(async () => {
-    rail.dispatchEvent(new dom.window.MouseEvent("pointermove", { bubbles: true, clientY: pitch * index + 1 }));
-  });
+  await act(async () => host.querySelector<HTMLElement>(`[data-tick="${index}"]`)!.focus());
   return host.querySelector<HTMLButtonElement>(".acpmux-minimap__bookmark")!;
 }
 
@@ -127,6 +123,7 @@ test("the popover bookmark sets the mark in acpmux and shows what acpmux answers
   expect(acpmux.gets).toEqual(["chat-1"]);
   const button = await bookmarkOf(host, 0);
   expect(button.getAttribute("aria-pressed")).toBe("false");
+  expect(host.querySelector('[data-tick="0"] .acpmux-minimap__dot')).toBeNull();
 
   await act(async () => button.click());
   // Shown at once, before acpmux answers.
@@ -135,12 +132,14 @@ test("the popover bookmark sets the mark in acpmux and shows what acpmux answers
   await act(async () => acpmux.answer());
   await settle();
   expect(host.querySelector(".acpmux-minimap__bookmark")!.getAttribute("aria-pressed")).toBe("true");
+  expect(host.querySelector('[data-tick="0"] .acpmux-minimap__dot')).not.toBeNull();
 
   await act(async () => (host.querySelector(".acpmux-minimap__bookmark") as HTMLButtonElement).click());
   expect(acpmux.calls.at(-1)).toEqual({ sessionId: "chat-1", seq: 3, bookmarked: false });
   await act(async () => acpmux.answer());
   await settle();
   expect(host.querySelector(".acpmux-minimap__bookmark")!.getAttribute("aria-pressed")).toBe("false");
+  expect(host.querySelector('[data-tick="0"] .acpmux-minimap__dot')).toBeNull();
   await act(async () => root.unmount());
   host.remove();
 });
@@ -211,4 +210,20 @@ test("an old local mark leaves localStorage only once acpmux keeps it", async ()
   expect(JSON.parse(dom.window.localStorage.getItem(KEY) ?? "[]")).toEqual(["other#user-3#c3"]);
   await act(async () => second.root.unmount());
   second.host.remove();
+});
+
+test("a reconnect keeps the marks on screen until the new connection reads them", async () => {
+  // Leo, 2026-10-19: the bookmark dots left and came back on every reconnect.
+  const acpmux = daemon([7]);
+  setBookmarkTransport(acpmux.transport);
+  const { host, root } = await mount();
+  expect((await bookmarkOf(host, 1)).getAttribute("aria-pressed")).toBe("true");
+  // acpmux restarts: a new connection whose read has not answered yet.
+  await act(async () =>
+    setBookmarkTransport({ get: () => new Promise<never>(() => {}), set: () => new Promise<never>(() => {}) }),
+  );
+  await settle();
+  expect((await bookmarkOf(host, 1)).getAttribute("aria-pressed")).toBe("true");
+  await act(async () => root.unmount());
+  host.remove();
 });

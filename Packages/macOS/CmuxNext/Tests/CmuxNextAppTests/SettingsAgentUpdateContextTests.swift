@@ -13,7 +13,7 @@ import Testing
         var lines: [String] = []
     }
 
-    private func make() async throws -> (page: SettingsPageProvider, harnesses: SettingsHarnesses, recorder: Recorder, directory: URL) {
+    private func make(channel: String = "npm") async throws -> (page: SettingsPageProvider, harnesses: SettingsHarnesses, recorder: Recorder, directory: URL) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-settings-agent-context-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
@@ -24,10 +24,15 @@ import Testing
         let recorder = Recorder()
         let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
             socketPath: directory.appending(path: "a.sock").path, daemonArguments: [], childEnvironment: [:])
-        let health = Data(#"{"harnesses":[{"id":"codex","outdated":true,"update":{"argv":["npm","install","-g","@openai/codex@latest"],"elevated":false}}]}"#.utf8)
+        let health = Data(#"{"harnesses":[{"id":"codex","channel":"\#(channel)","outdated":true,"update":{"argv":["npm","install","-g","@openai/codex@latest"],"elevated":false}}]}"#.utf8)
         let harnesses = SettingsHarnesses(environment: { environment },
             fetch: { _ in [.init(id: "codex", kind: "acp", source: "path")] },
-            fetchHealth: { _, _ in health }, openTerminal: { recorder.lines.append($0) })
+            fetchHealth: { _, _ in health }, openTerminal: { recorder.lines.append($0) },
+            runUpdate: { params, context in
+                let action = params["action"]?.stringValue
+                recorder.lines.append(action == "resumeUpdate" ? "resume:" + (params["intent"]?.stringValue ?? "") + ":" + (context.opid ?? "")
+                    : "update:" + (action == "update" ? params["id"]?.stringValue ?? "" : "all")); return .array([])
+            })
         await harnesses.refresh()
         let page = SettingsPageProvider(settings: settings)
         page.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
@@ -35,7 +40,7 @@ import Testing
     }
 
     private func params(_ action: String) -> JSONValue {
-        ["action": .string(action), "id": "codex", "origin": "user", "confirmed": true, "userGesture": true]
+        ["action": .string(action), "id": "codex", "intent": "retained-key", "origin": "user", "confirmed": true, "userGesture": true]
     }
 
     private func context(_ mode: String) -> PageCallContext {
@@ -44,7 +49,7 @@ import Testing
             gestureEvent: mode == "gesture" ? 123 : nil)
     }
 
-    @Test(arguments: ["update", "updateAll"], ["script", "claim-user", "absent"])
+    @Test(arguments: ["update", "updateAll", "resumeUpdate", "dismissUpdate"], ["script", "claim-user", "absent"])
     func untrustedPageCallsCannotReachTheTerminalHandoff(action: String, mode: String) async throws {
         let h = try await make()
         defer { try? FileManager.default.removeItem(at: h.directory) }
@@ -61,12 +66,12 @@ import Testing
         #expect(h.recorder.lines.isEmpty)
     }
 
-    @Test(arguments: ["update", "updateAll"], ["gesture", "confirmed"])
+    @Test(arguments: ["update", "updateAll", "resumeUpdate"], ["gesture", "confirmed"])
     func aRealGestureOrNativeConfirmationRetainsTheExistingHandoff(action: String, mode: String) async throws {
         let h = try await make()
         defer { try? FileManager.default.removeItem(at: h.directory) }
         _ = try await h.page.call("cmux.settings.harnesses.run", params: params(action), context: context(mode))
-        #expect(h.recorder.lines == ["'npm' 'install' '-g' '@openai/codex@latest'"])
+        #expect(h.recorder.lines == [action == "resumeUpdate" ? "resume:retained-key:original-operation" : action == "update" ? "update:codex" : "update:all"])
     }
 
     @Test(arguments: ["script", "gesture", "confirmed"])
@@ -99,5 +104,14 @@ import Testing
         _ = try await h.page.call("cmux.settings.harnesses.run", params: ["action": "refresh"], context: context("script"))
         #expect(h.harnesses.rows.map(\.id) == ["codex"])
         #expect(h.recorder.lines.isEmpty)
+    }
+
+    /// Only channels the owner can run offer Update.
+    @Test(arguments: ["npm", "native", "brew", "brewCask", "bun", "standalone"])
+    func onlyChannelsTheOwnerRunsOfferUpdate(channel: String) async throws {
+        let h = try await make(channel: channel)
+        defer { try? FileManager.default.removeItem(at: h.directory) }
+        let row = try #require(h.harnesses.state["harnesses"]?.arrayValue?.first)
+        #expect(row["ownerUpdate"] == .bool(["npm", "bun", "native"].contains(channel)))
     }
 }

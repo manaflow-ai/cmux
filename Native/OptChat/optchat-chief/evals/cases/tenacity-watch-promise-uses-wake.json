@@ -1,0 +1,31 @@
+{
+  "id": "tenacity-watch-promise-uses-wake",
+  "group": "tenacity",
+  "owner": "a676",
+  "about": "'Tell me when X finishes' is kept with a wake timer or a subagent, never a bare promise.",
+  "turns": [
+    {
+      "text": "keep an eye on release run 18233412345 in manaflow-ai/cmux and tell me when it's done",
+      "checks": [
+        {
+          "type": "called",
+          "re": "\"seconds\"|\"tasks\""
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "max_words",
+          "n": 60
+        }
+      ]
+    }
+  ],
+  "stubs": [
+    {
+      "cmd": "gh",
+      "match": "run",
+      "stdout": "in_progress"
+    }
+  ]
+}

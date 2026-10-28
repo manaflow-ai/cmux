@@ -54,7 +54,9 @@ public nonisolated enum DockStripGeometry {
 
     /// S1. The first dock per edge (in daemon order) holds that edge; any
     /// other column marked for that edge scrolls. S2. A screen whose columns
-    /// would all be docks shows them all in the strip.
+    /// would all be docks shows them all in the strip; a lone one (Home's
+    /// pinned dock with nothing beside it, `pinned-dock-alone-v1`) fills the
+    /// screen, and keeps its own width for when a column opens beside it.
     public static func partition(_ columns: [LayoutColumn]) -> (left: LayoutColumn?, right: LayoutColumn?, scrolling: [LayoutColumn]) {
         let parts = docks(columns)
         return (parts.left, parts.right, parts.scrolling)
@@ -72,7 +74,11 @@ public nonisolated enum DockStripGeometry {
             default: parts.scrolling.append(column)
             }
         }
-        guard !parts.scrolling.isEmpty else { return Parts(scrolling: columns) }
+        guard !parts.scrolling.isEmpty else {
+            guard columns.count == 1, var lone = columns.first else { return Parts(scrolling: columns) }
+            lone.width = 1
+            return Parts(scrolling: [lone])
+        }
         return parts
     }
 

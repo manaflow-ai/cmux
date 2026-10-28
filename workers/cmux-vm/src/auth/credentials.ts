@@ -38,7 +38,8 @@ export interface SessionVerifierService {
 export class SessionVerifier extends Context.Tag("cmux-vm/SessionVerifier")<SessionVerifier, SessionVerifierService>() {}
 
 export interface TeamMembershipService {
-  readonly isMember: (tenantId: TenantId, userId: UserId) => Effect.Effect<boolean, IdentityUnavailable>;
+  /** A policy publisher requests fresh directory evidence instead of the positive credential cache. */
+  readonly isMember: (tenantId: TenantId, userId: UserId, options?: { readonly fresh: boolean }) => Effect.Effect<boolean, IdentityUnavailable>;
 }
 export class TeamMembership extends Context.Tag("cmux-vm/TeamMembership")<TeamMembership, TeamMembershipService>() {}
 
@@ -165,7 +166,23 @@ export function makeStackSessionVerifier(
   };
 }
 
-const TeamsResponse = Schema.Struct({ items: Schema.Array(Schema.Struct({ id: Schema.String })) });
+const TeamsResponse = Schema.Struct({ items: Schema.Array(Schema.Struct({ id: Schema.String, server_metadata: Schema.optional(Schema.Unknown) })) });
+
+/** Stack server_metadata key cmux sets on a VM personal tenant (backend team-vm-api-personal-stack.ts). */
+export const PERSONAL_TENANT_METADATA_KEY = "cmuxVmPersonalTenant";
+
+/**
+ * Whether Stack membership admits `userId`. A team marked as a cmux VM personal tenant
+ * belongs to its marker's owner alone, so an invitee never reaches that user's VMs;
+ * metadata or a marker that cannot be read admits nobody.
+ */
+export const stackMemberAdmitted = (metadata: unknown, userId: string): boolean => {
+  if (metadata === null || metadata === undefined) return true;
+  if (typeof metadata !== "object" || Array.isArray(metadata)) return false;
+  const marker: unknown = Reflect.get(metadata, PERSONAL_TENANT_METADATA_KEY);
+  if (marker === null || marker === undefined) return true;
+  return typeof marker === "object" && !Array.isArray(marker) && Reflect.get(marker, "stack_user") === userId;
+};
 
 /**
  * Team membership through the Stack server API, behind the shared positive
@@ -187,15 +204,16 @@ export function makeStackTeamMembership(
   const send = config.fetch ?? ((request: Request) => fetch(request));
   const clock = config.now ?? (() => Date.now());
   const decode = Schema.decodeUnknown(TeamsResponse);
-  const lookup = (tenantId: TenantId, userId: UserId): Effect.Effect<boolean, IdentityUnavailable> =>
+  const lookup = (tenantId: TenantId, userId: UserId, options?: { readonly fresh: boolean }): Effect.Effect<boolean, IdentityUnavailable> =>
     Effect.gen(function* () {
       const askedAt = new Date(clock());
-      const hit = yield* config.cache
+      const hit = options?.fresh === true ? false : yield* config.cache
         .fresh(tenantId, userId, new Date(askedAt.getTime() - MEMBERSHIP_POSITIVE_TTL_MS))
         .pipe(Effect.orElseSucceed(() => false));
       if (hit) return true;
       const member = yield* fetchMembership(tenantId, userId);
       if (member) yield* config.cache.rememberMember(tenantId, userId, askedAt).pipe(Effect.ignore);
+      else if (options?.fresh === true) yield* config.cache.revoke(tenantId, userId, askedAt).pipe(Effect.ignore);
       return member;
     });
   const fetchMembership = (tenantId: TenantId, userId: UserId): Effect.Effect<boolean, IdentityUnavailable> =>
@@ -225,7 +243,7 @@ export function makeStackTeamMembership(
         catch: () => new IdentityUnavailable({ reason: "stack" }),
       }).pipe(
         Effect.flatMap((body) => decode(body).pipe(Effect.mapError(() => new IdentityUnavailable({ reason: "stack-shape" })))),
-        Effect.map((teams) => teams.items.some((team) => team.id === tenantId)),
+        Effect.map((teams) => teams.items.some((team) => team.id === tenantId && stackMemberAdmitted(team.server_metadata, userId))),
       );
   return { isMember: lookup };
 }

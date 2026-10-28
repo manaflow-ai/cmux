@@ -6,8 +6,8 @@ import Testing
 
 /// Popup windows follow Chrome's `TYPE_POPUP` window on macOS (user,
 /// 2026-10-13: "popup windows need parity with chrome"): an independent
-/// window with all three traffic lights and the page title, a read-only
-/// location bar, the requested page size, and no close on Escape or with
+/// window with all three traffic lights and the page title, the browser
+/// tab's omnibar as its location bar, the requested page size, and no close on Escape or with
 /// the opener.
 @MainActor @Suite(.serialized) struct BrowserPopupWindowTests {
     // MARK: Geometry (Blink `create_window.cc`, `WindowSizer`, `AdjustToFit`)
@@ -124,16 +124,119 @@ import Testing
         #expect(window.title == "Sign in - Example")
     }
 
-    @Test func theLocationBarShowsTheAddressReadOnly() async throws {
+    @Test func theLocationBarShowsTheAddressAsTheTabOmnibarDoes() async throws {
         let (popups, tab, window, _) = open("http://insecure.example.com/pay?id=1")
         defer { popups.closeAll() }
         tab.simulate(.securityChanged(.insecure))
-        try await waitUntil { window.locationBar.displayedText == "http://insecure.example.com/pay?id=1" }
-        #expect(window.locationBar.displayedText == "http://insecure.example.com/pay?id=1", "http:// stays, as in the omnibox")
+        try await waitUntil { window.addressBar.displayedText == "http://insecure.example.com/pay?id=1" }
+        #expect(window.addressBar.displayedText == "http://insecure.example.com/pay?id=1", "http:// stays, as in the omnibox")
         #expect(window.isToolbarShown)
         tab.load(URL(string: "https://www.example.com/done")!)
-        try await waitUntil { window.locationBar.displayedText == "example.com/done" }
-        #expect(window.locationBar.displayedText == "example.com/done")
+        try await waitUntil { window.addressBar.displayedText == "example.com/done" }
+        #expect(window.addressBar.displayedText == "example.com/done")
+    }
+
+    // MARK: One omnibar (user, 2026-10-19: "omnibar for popover web windows need to reuse the same omnibar code")
+
+    /// Every view under `view`, depth first.
+    private func descendants(of view: NSView?) -> [NSView] {
+        guard let view else { return [] }
+        return view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+
+    @Test func theLocationBarIsTheTabsOmnibar() {
+        let (popups, _, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        let bars = descendants(of: window.contentView).compactMap { $0 as? AddressBarView }
+        #expect(bars.count == 1, "the popup shows the browser tab's omnibar (AddressBarView), not a copy")
+        // The window's chrome (everything but the page's own view tree).
+        let page = window.page.contentView
+        let otherFields = descendants(of: window.contentView).filter { view in
+            view is NSTextField && !view.isDescendant(of: page) && !bars.contains { view.isDescendant(of: $0) }
+        }
+        #expect(otherFields.isEmpty, "no second address field beside the omnibar: \(otherFields)")
+    }
+
+    @Test func typingAnAddressInAPagePopupLoadsItInThePopup() async throws {
+        let (popups, tab, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        let bar = try #require(descendants(of: window.contentView).compactMap { $0 as? AddressBarView }.first)
+        #expect(bar.debugTypeAndCommit("https://www.example.org/next"))
+        try await waitUntil { tab.state.url?.absoluteString == "https://www.example.org/next" }
+        #expect(tab.state.url?.absoluteString == "https://www.example.org/next", "Return loads the typed address in the popup's page, as in a tab")
+    }
+
+    @Test func aSignInWindowsOmnibarIsReadOnly() async throws {
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true)
+        defer { window.close() }
+        let bars = descendants(of: window.contentView).compactMap { $0 as? AddressBarView }
+        #expect(bars.count == 1, "the same omnibar view, read-only")
+        #expect(window.addressBar.isReadOnly)
+        _ = window.addressBar.debugTypeAndCommit("https://evil.example.net/")
+        #expect(tab.state.url?.absoluteString == "https://accounts.example.com/signin", "typing and Return never navigate a sign-in window")
+        #expect(!window.addressBar.commit(.newForegroundTab), "no Cmd-Return either")
+    }
+
+    @Test func aModifiedCommitInAPopupOpensANewTabThroughThePagesHost() throws {
+        let (popups, tab, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        let host = IntentRecorder()
+        tab.delegate = host
+        #expect(window.addressBar.debugTypeAndCommit("https://www.example.org/docs", commit: false))
+        #expect(window.addressBar.commit(.newBackgroundTab))
+        #expect(tab.state.url?.absoluteString == "https://accounts.example.com/signin", "the popup keeps its page")
+        let opened = try #require(host.urls.first)
+        #expect(opened.0.absoluteString == "https://www.example.org/docs")
+        #expect(opened.1 == .backgroundTab)
+    }
+
+    // MARK: Chrome omnibar keys and sessions in a popup (PARITY.md)
+
+    @Test func cmdLFocusesThePopupOmnibarWithTheAddressSelected() throws {
+        let (popups, _, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        #expect(!window.addressBar.isEditing)
+        window.focusAddressBar()
+        #expect(window.addressBar.isEditing, "Cmd-L puts the keyboard in the popup's omnibar")
+        let editor = try #require(window.firstResponder as? NSTextView)
+        #expect(editor.selectedRange() == NSRange(location: 0, length: (editor.string as NSString).length), "the whole address is selected")
+    }
+
+    @Test func aSignInWindowTakesCmdL() {
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true)
+        defer { window.close() }
+        window.focusAddressBar()
+        #expect(window.addressBar.isEditing, "the address can still be selected and copied")
+        #expect(window.addressBar.isReadOnly)
+    }
+
+    @Test func anExtensionKeywordInAPopupGoesToTheExtension() throws {
+        let (popups, tab, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        tab.omniboxKeywordsFake = [OmnibarKeyword(extensionID: "ext.notes", keyword: "nt", name: "Notes")]
+        #expect(window.addressBar.debugTypeAndCommit("nt buy milk"))
+        let entered = try #require(tab.enteredOmniboxKeywords.first)
+        #expect(entered.extensionID == "ext.notes")
+        #expect(entered.text == "buy milk")
+        #expect(!tab.commands.contains { if case .load(let url) = $0 { url.host() != "accounts.example.com" } else { false } },
+                "the popup's page loads nothing")
+    }
+
+    @Test func aTypedHostThatRefusesHTTPSLoadsOverHTTPInAPopup() async throws {
+        let (popups, tab, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        tab.completesNavigationsImmediately = false
+        #expect(window.addressBar.debugTypeAndCommit("example.com"))
+        let https = try #require(tab.commands.compactMap { if case .load(let url) = $0, url.host() == "example.com" { url } else { nil } }.last)
+        #expect(https.scheme == "https")
+        let id = tab.makeNavigationID()
+        tab.simulate(.started(id, url: https))
+        tab.simulate(.failed(id, BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost, message: "", failingURL: https)))
+        func loadedHTTP() -> Bool { tab.commands.contains { if case .load(let url) = $0 { url.scheme == "http" && url.host() == "example.com" } else { false } } }
+        try await waitUntil(loadedHTTP)
+        #expect(loadedHTTP(), "the popup omnibar falls back to http as a tab's does")
     }
 
     @Test func fullscreenHidesTheLocationBar() {
@@ -188,5 +291,14 @@ import Testing
         while !condition(), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
+    }
+}
+
+/// Records the `.openURL` intents a page asks of its host.
+private final class IntentRecorder: BrowserTabDelegate {
+    var urls: [(URL, BrowserNewTabDisposition)] = []
+
+    func browserTab(_ tab: any BrowserTab, didRequest intent: BrowserTabIntent) {
+        if case .openURL(let url, let disposition) = intent { urls.append((url, disposition)) }
     }
 }

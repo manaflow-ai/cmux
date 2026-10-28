@@ -52,6 +52,7 @@ use crate::remote_runtime::{
     load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
 };
 use crate::session::{RemoteSession, Session};
+mod acpmux_peer;
 #[cfg(test)]
 mod remote_link_binding_tests;
 mod remote_link_mux;
@@ -233,6 +234,11 @@ struct ConnectFlags {
     /// Internal app ownership fence. The helper exits when its direct parent exits,
     /// including an abort or forced app replacement that cannot run Swift cleanup.
     exit_with_parent: bool,
+    /// `--vm-kind owner`: the app asked the Cloud API's attach-endpoint for this
+    /// machine, signed in, and it answered `vmKind: "owner"` (the caller's own
+    /// personal VM). The acpmux peer bridge then leases the machine at the VM
+    /// boundary (`acpmux_peer.rs`). Any other value, or none, keeps the sandbox.
+    vm_owner: bool,
     headless: bool,
     json: bool,
     ssh_session: String,
@@ -473,6 +479,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 }
             }
             "--exit-with-parent" => flags.exit_with_parent = true,
+            "--vm-kind" => flags.vm_owner = value("--vm-kind")? == "owner",
             "--headless" => flags.headless = true,
             "--json" => flags.json = true,
             "--session" => flags.ssh_session = value("--session")?,
@@ -576,11 +583,15 @@ fn connect_with_flags(
     let headless = flags.headless;
     let json = flags.json;
     let owner = flags.exit_with_parent.then(current_parent_process_id);
+    let vm_owner = flags.vm_owner;
     let connected = start_connected(flags)?;
     if headless {
         if json {
             let runtime = tokio_runtime()?;
             runtime.block_on(async {
+                // Off by default (`CMUX_ACPMUX_CLOUD_PEER=1`); ends with this loop.
+                let _peer_bridge =
+                    acpmux_peer::AcpmuxPeerBridge::spawn(&connected.runtime, vm_owner);
                 let mut previous = None;
                 let mut finished = connected.runtime.subscribe_finished();
                 while !crate::shutdown_requested()
@@ -984,7 +995,9 @@ fn remaining_startup_timeout(started: Instant, total: Duration) -> anyhow::Resul
 }
 
 fn promote_reachable_unix_routes(routes: &mut [ResolvedRouteCandidate]) {
-    routes.sort_by_key(|route| {
+    // Cached: the key checks the filesystem, and a socket that appears or goes
+    // mid-sort would give one route two keys (sort panics on such orders).
+    routes.sort_by_cached_key(|route| {
         match (route.endpoint.scheme(), reachable_unix_route(&route.endpoint)) {
             ("unix", true) => 0,
             ("unix", false) => 2,
@@ -3146,6 +3159,17 @@ mod tests {
         assert!(!flags.exit_with_parent);
         let owned = ["ws://[fd00::1]:1337/v1/link", "--exit-with-parent"].map(str::to_string);
         assert!(parse_connect_flags(&owned).unwrap().exit_with_parent);
+    }
+
+    #[test]
+    fn only_vm_kind_owner_marks_the_link_as_the_callers_own_vm() {
+        let link = "ws://[fd00::1]:1337/v1/link".to_string();
+        assert!(!parse_connect_flags(std::slice::from_ref(&link)).unwrap().vm_owner);
+        for (kind, owner) in [("owner", true), ("team", false), ("null", false), ("Owner", false)] {
+            let args = [link.clone(), "--vm-kind".into(), kind.into()];
+            assert_eq!(parse_connect_flags(&args).unwrap().vm_owner, owner, "{kind}");
+        }
+        assert!(parse_connect_flags(&[link, "--vm-kind".into()]).is_err(), "a value is needed");
     }
 
     #[cfg(unix)]

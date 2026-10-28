@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 import QuartzCore
@@ -99,6 +100,7 @@ final class PaletteContentView: NSView {
         searchBar.onPopTo = { model.pop(to: $0) }
         searchBar.onKeywordHint = { model.handle(.openActions) }
         list.onHover = { model.hover($0) }
+        list.onPointerMove = { model.pointerMoved(over: $0) }
         list.onActivate = { model.activate(rowID: $0) }
         footer.onPrimary = { model.handle(.submit) }
         footer.onActions = { model.handle(.toggleActions) }
@@ -300,8 +302,8 @@ final class PaletteContentView: NSView {
         guard let layer else { return }
         layoutSubtreeIfNeeded()
         let closing = layer.animation(forKey: "opacity") != nil
-        Motion.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: closing ? nil : Float(0))
-        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .appear,
+        Motion.overlays.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: closing ? nil : Float(0))
+        Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .appear,
                    from: closing ? nil : NSValue(caTransform3D: panelScale(Motion.panelOpenScale)))
     }
 
@@ -313,9 +315,9 @@ final class PaletteContentView: NSView {
             return
         }
         CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } } // main-proof: CATransaction.h: the completion block is called on the main thread
-        Motion.set(layer, "opacity", to: Float(0), fade: .fadeOut)
-        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: panelScale(Motion.panelCloseScale)), movementFade: .fadeOut)
+        CATransaction.setMainCompletion(completion)
+        Motion.overlays.set(layer, "opacity", to: Float(0), fade: .fadeOut)
+        Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: panelScale(Motion.panelCloseScale)), movementFade: .fadeOut)
         CATransaction.commit()
     }
 
@@ -353,13 +355,13 @@ final class PaletteContentView: NSView {
         actionsMenuFadingOut = !appearing
         if let layer = view.layer {
             if appearing {
-                Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .appear,
+                Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .appear,
                            from: wasHidden ? NSValue(caTransform3D: view.scaled(Motion.panelOpenScale)) : nil)
             } else {
-                Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: view.scaled(Motion.panelCloseScale)), movementFade: .fadeOut)
+                Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: view.scaled(Motion.panelCloseScale)), movementFade: .fadeOut)
             }
         }
-        Motion.animate(appearing ? .fadeIn : .fadeOut, in: view, { view.animator().alphaValue = appearing ? 1 : 0 }, completion: { [weak self] in
+        Motion.overlays.animate(appearing ? .fadeIn : .fadeOut, in: view, { view.animator().alphaValue = appearing ? 1 : 0 }, completion: { [weak self] in
             guard let self, self.actionsMenuFadingOut, !appearing else { return }
             self.actionsMenuFadingOut = false
             view.isHidden = true

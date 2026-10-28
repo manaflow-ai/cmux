@@ -1,0 +1,3 @@
+fake: chose no
+fake-1: chose yes
+fake-2: chose allow_once {"Which branch should I deploy?": "A"}

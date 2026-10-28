@@ -28,8 +28,10 @@ enum NewTabClosed {
                     item.icon = icons[address]
                     return item
                 }
-                tabs.pageChats.closed = shown
-                for view in Array(tabs.views.values) + tabs.standaloneViews.allObjects { view.recentlyClosed = shown }
+                // Encoded once here; every page gets the same payload (a251: one encode per page before).
+                let list = AgentPaneClosedList(shown)
+                tabs.pageChats.closed = list
+                for view in Array(tabs.views.values) + tabs.standaloneViews.allObjects { view.recentlyClosed = list }
             }
         }
     }

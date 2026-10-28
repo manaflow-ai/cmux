@@ -18,7 +18,9 @@ extension HomeChiefSettingsView {
         avatarButton.target = self
         avatarButton.action = #selector(showPictureMenu)
         avatarButton.setAccessibilityLabel(HomeEngineStrings.changePicture)
-        avatarButton.toolTip = HomeEngineStrings.changePicture
+        avatarButton.themedToolTip = HomeEngineStrings.changePicture
+        // A picture dropped on the avatar is chosen as Choose Picture… chooses one.
+        avatarButton.onDropPicture = { [weak self] in self?.usePicture($0) }
         nameField.target = self
         nameField.action = #selector(renamed)
         // Leaving the field (a click elsewhere, the popover closing) keeps the name, as Return does.
@@ -31,7 +33,15 @@ extension HomeChiefSettingsView {
         place.ink = .secondary
         place.lineBreakMode = .byTruncatingTail
         place.stringValue = HomeEngineStrings.runsHere
-        let text = NSStackView(views: [box, place])
+        hostSwitch.isBordered = false
+        hostSwitch.bezelStyle = .inline
+        hostSwitch.font = Typography.caption
+        hostSwitch.contentTintColor = Palette.litGlyph
+        hostSwitch.target = self
+        hostSwitch.action = #selector(switchHost)
+        hostSwitch.isHidden = true
+        hostSwitch.setAccessibilityIdentifier("cmux.home.chief.switchHost")
+        let text = NSStackView(views: [box, place, hostSwitch])
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = Metrics.space1
@@ -103,6 +113,11 @@ extension HomeChiefSettingsView {
         diagnosticsToggle.action = #selector(toggleDiagnostics)
         diagnosticsToggle.setAccessibilityLabel(HomeEngineStrings.diagnostics)
         let title = HomeChiefLinkButton(title: HomeEngineStrings.diagnostics, target: self, action: #selector(clickDiagnosticsTitle))
+        // One control for VoiceOver and Tab: the triangle (named Diagnostics, with its expanded
+        // state); the title is a larger click target for the pointer only. A button is never an
+        // element itself, its cell is, so the cell is the one to hide.
+        title.cell?.setAccessibilityElement(false)
+        title.refusesFirstResponder = true
         title.ink = .secondary
         title.textFont = Typography.header
         let row = NSStackView(views: [diagnosticsToggle, title])
@@ -127,12 +142,10 @@ extension HomeChiefSettingsView {
         }
         failure.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
         brain.stringValue = String(format: HomeEngineStrings.brainFormat, muxHome.path)
-        // Show Traces and, in DEV and nightly like its palette action, Show Memory: plain links.
+        // Show Traces and Show Memory (the built-in Memory Inspector, every build): plain links.
         let traces = HomeChiefLinkButton(title: HomeEngineStrings.openTraces, target: self, action: #selector(openTraces))
         links.addArrangedSubview(traces)
-        if DevTools.isEnabled {
-            links.addArrangedSubview(HomeChiefLinkButton(title: HomeEngineStrings.showMemory, target: self, action: #selector(showMemory)))
-        }
+        links.addArrangedSubview(HomeChiefLinkButton(title: HomeEngineStrings.showMemory, target: self, action: #selector(showMemory)))
         links.orientation = .horizontal
         links.spacing = Metrics.space4
         diagnostics.addArrangedSubview(links)

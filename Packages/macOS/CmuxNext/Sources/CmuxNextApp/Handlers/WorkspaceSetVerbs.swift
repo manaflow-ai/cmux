@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextLayout
 import CmuxNextSidebar
 
 /// Verbs on sets of workspaces and windows from the action audit (cx-5qewo,
@@ -19,7 +20,7 @@ enum WorkspaceSetVerbs {
         })
         registry.bind("workspaceGroup.duplicate", run: { try duplicateGroup($0, context) })
         registry.bind("sidebar.section.newWorkspace", run: { try newWorkspace(inSection: $0, context) })
-        // A pure lookup (no refusal): the pane a pane or tab target names, if it shows an agent chat.
+        // A pure lookup (no refusal): the pane a pane or tab target names, if it shows an agent chat or sits on a canvas.
         registry.targetContext = { invocation in
             guard let target = invocation.target else { return [] }
             let services = context.services
@@ -28,8 +29,11 @@ enum WorkspaceSetVerbs {
             case .tab: services.locateTab(target.id).flatMap { services.paneController(for: $0.1) }
             default: nil
             }
-            guard let key = pane?.currentTabKey, services.agentTabs.existingView(key) != nil else { return [] }
-            return .agentPaneFocused
+            var facts: ActionContext = []
+            // A pane on a canvas screen brings the canvas actions (CanvasHandlers).
+            if let pane, pane.workspace?.layoutModel.canvasScreenID(containing: pane.layoutPaneID) != nil { facts.insert(.canvasLayout) }
+            if let key = pane?.currentTabKey, services.agentTabs.existingView(key) != nil { facts.insert(.agentPaneFocused) }
+            return facts
         }
     }
 

@@ -1,23 +1,7 @@
 import Foundation
 
-/// Extension keyword sessions (`chrome.omnibox`) between the omnibar and
-/// the tab. Only Chromium tabs provide keywords.
+/// The omnibar's address and the end of an edit for the tab.
 extension BrowserChromeView {
-    func bindOmniboxKeywords(_ tab: any BrowserTab) {
-        let provider = tab as? any BrowserOmniboxKeywordProviding
-        addressBar.keywordSource = { [weak provider] in provider?.omniboxKeywords() ?? [] }
-        addressBar.keywordSuggest = { [weak provider] extensionID, text in
-            await provider?.omniboxKeywordSuggestions(extensionID, text: text) ?? []
-        }
-        addressBar.onKeywordSession = { [weak provider] effect in
-            switch effect {
-            case .keywordStarted(let extensionID): provider?.omniboxKeywordStarted(extensionID)
-            case .keywordEnded(let extensionID): provider?.omniboxKeywordEnded(extensionID)
-            default: break
-            }
-        }
-    }
-
     /// The address the omnibar shows for `state`: the page's URL, or the
     /// address that failed to load while its error page shows. Chrome keeps
     /// the failed address in the omnibox (the error page commits it), so
@@ -37,6 +21,9 @@ extension BrowserChromeView {
         case .didBeginEditing:
             break
         case .didEndEditing(.commit(let url)):
+            // The person's own navigation replaces the address the page slept on.
+            wakingAddress = nil
+            httpsFallback.committed(url)
             if loadOverride?(url) == true { return }
             onTypedCommit?()
             tab.load(url)

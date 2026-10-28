@@ -10,8 +10,9 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { ArtifactContext } from "./artifactPreview";
 import { Expand } from "./icons";
+import type { AcpmuxActivity } from "../model";
 import { renderFrameCSS } from "./renderBase";
-import { RENDER_FRAME_MIN_HEIGHT, type RenderCall } from "./renderCall";
+import { RENDER_FRAME_MIN_HEIGHT, RenderPages, renderCall, type RenderCall } from "./renderCall";
 
 export const RENDER_FRAME_URL = "cmux-agent://render/frame";
 /// The tallest a card draws until the reader expands it.
@@ -52,7 +53,8 @@ export function useRenderFrame(html: string) {
   return { frame, height };
 }
 
-export function RenderCard({ call }: { call: RenderCall }) {
+/// `card` is a render tool call's card key (renderCall.ts `renderPages`): Open hands it with the page.
+export function RenderCard({ call, card }: { call: RenderCall; card?: string }) {
   const t = useT();
   const open = useContext(ArtifactContext);
   const { frame, height } = useRenderFrame(call.html);
@@ -89,7 +91,7 @@ export function RenderCard({ call }: { call: RenderCall }) {
             className="cv-iconbtn cv-iconbtn--compact"
             aria-label={t("artifact.open")}
             title={t("artifact.open")}
-            onClick={() => open({ kind: "html", lang: "html", code: call.html })}
+            onClick={() => open({ kind: "html", lang: "html", code: call.html, ...(card && { render: card }) })}
           >
             <Expand />
           </button>
@@ -108,4 +110,15 @@ export function RenderCard({ call }: { call: RenderCall }) {
       )}
     </div>
   );
+}
+
+/// A render tool call's card (renderCall.ts `renderPages`). A call that starts a card draws it with the
+/// card's latest page (cx-ncc.94); an update that joined an earlier card draws nothing of its own. Each
+/// page is its own card instance, so a new page waits for Run like any other.
+export function RenderToolCard({ tool }: { tool: NonNullable<AcpmuxActivity["tool"]> }) {
+  const pages = useContext(RenderPages);
+  const page = pages?.get(tool.id);
+  if (page && page.first !== tool.id) return null;
+  const shown = page?.calls.at(-1) ?? renderCall(tool);
+  return shown ? <RenderCard key={shown.html} call={shown} card={page?.first} /> : null;
 }

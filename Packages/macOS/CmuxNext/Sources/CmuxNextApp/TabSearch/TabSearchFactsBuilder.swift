@@ -4,10 +4,35 @@ import Foundation
 
 /// Builds the control snapshot's Search Tabs facts from the App's owners:
 /// recency from the location trail, closing tabs from the strips' visible
-/// state, closed tabs from the closed-items log. Main actor; reads only.
+/// state, closed tabs from the closed-items log, agent chats' names from
+/// the strip's title rule. Main actor; reads only.
 enum TabSearchFactsBuilder {
-    static func facts(_ services: AppServices) -> ControlTabSearchFacts {
-        ControlTabSearchFacts(lastActive: lastActive(services), closing: closing(services), closed: closed(services))
+    /// With `cache` the closed tabs are kept between publishes and rebuilt only when a read of
+    /// theirs changed (about 10% of main while idle on cmux8s when rebuilt per publish). The
+    /// trail and closing tabs stay fresh: the trail is no Observation source, and both are small.
+    static func facts(_ services: AppServices, cache: ControlWorkspaceInfoCache? = nil) -> ControlTabSearchFacts {
+        ControlTabSearchFacts(lastActive: lastActive(services), closing: closing(services),
+                              closed: cache?.closedTabs { closed(services) } ?? closed(services),
+                              titles: titles(services.machines.allWorkspaces.map(\.0), TabTitleResolver(services: services)))
+    }
+
+    /// The strip's names (`TabTitleResolver`) of the agent chats in `workspaces`, by tab id: their
+    /// records are titled with the `about:blank` of the page that draws them. Only agent tabs are
+    /// resolved, so a publish stays one walk of the tabs.
+    static func titles(_ workspaces: [WorkspaceModel], _ resolver: TabTitleResolver) -> [String: String] {
+        var resolver = resolver
+        var result: [String: String] = [:]
+        for workspace in workspaces {
+            resolver.workspaceName = AgentChatTabTitle.workspaceName(workspace)
+            for screen in workspace.screens {
+                for pane in screen.panes {
+                    for tab in pane.tabs where tab.agentSession != nil {
+                        result[tab.id] = resolver.title(tab)
+                    }
+                }
+            }
+        }
+        return result
     }
 
     /// When the user last settled on each tab (the location trail), by tab id.
@@ -21,22 +46,9 @@ enum TabSearchFactsBuilder {
         return result
     }
 
-    /// Tabs closing locally. Only panes a window shows have controllers
-    /// (`AppServices.paneController(for:)`), so this walks those, not every
-    /// pane of every workspace: the control publisher calls it on each
-    /// publish, and the old walk read every workspace's tree inside its
-    /// tracking (O(workspaces) per publish).
+    /// Tabs whose close is in flight: the daemons' pending close intents (`DaemonStore.closingTabIDs`).
     static func closing(_ services: AppServices) -> Set<String> {
-        var result = Set<String>()
-        for controller in services.windows.controllers {
-            guard let content = controller.content else { continue }
-            // As before: a controller counts only while it mirrors the tree's pane model.
-            for pane in content.panes.values where !pane.pendingClosed.isEmpty && content.pane(for: pane.pane.handle) === pane
-                && pane.daemon.store.pane(pane.pane.handle) === pane.pane {
-                result.formUnion(pane.pendingClosed)
-            }
-        }
-        return result
+        services.machines.daemons.reduce(into: Set<String>()) { $0.formUnion($1.store.closingTabIDs) }
     }
 
     /// The closed tabs the daemons record (the only closed history), newest

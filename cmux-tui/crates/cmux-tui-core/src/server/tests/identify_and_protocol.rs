@@ -73,6 +73,7 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
             None,
             &WorkspaceMutation::daemon("bootstrap-create", "chrome-gui").unwrap(),
             Default::default(),
+            true,
         )
         .unwrap();
     assert!(!created.replayed);
@@ -498,6 +499,14 @@ fn identify_advertises_private_link_port_discovery() {
     }))
     .unwrap();
     assert!(matches!(command, Command::MachineListeningTcp));
+}
+
+#[test]
+fn identify_advertises_terminal_ports() {
+    assert!(advertised_capabilities(true).contains(&TERMINAL_PORTS_CAPABILITY));
+    let command: Command =
+        serde_json::from_value(json!({"cmd": "terminal-ports", "surface": 7})).unwrap();
+    assert!(matches!(command, Command::TerminalPorts { surface: 7 }));
 }
 
 #[cfg(target_os = "linux")]

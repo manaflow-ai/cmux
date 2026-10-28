@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextPages
 import CmuxNextWorkspaceRepair
 import Observation
 
@@ -33,6 +34,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
     private var settlingObservation: Task<Void, Never>?
+    /// Republishes `canvasLayout` when this workspace's active screen goes into or out of a canvas.
+    private var canvasObservation: Task<Void, Never>?
     /// True while `apply` mounts panes: it sends the topology once at its end,
     /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
     private(set) var isApplying = false
@@ -42,26 +45,79 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// through it.
     let focus: FocusCoordinator
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
+    /// The last key-turn pane create (New Column, New Row) still sending: the next one sends after
+    /// it, so one pressed on its stand-in names the daemon's pane (`createInKeysTurn`).
+    var pendingCreate: Task<Void, Never>?
     /// Kept mounted off screen by its window (a workspace it showed): its panes report hidden, so
     /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
     /// because the window's focus follows the shown workspace.
     private(set) var isParked = false
+    #if DEBUG
+    /// This controller's share of `DebugLayoutCounters.workspaceApplies` and `.topologySends`: the
+    /// process-wide counters also count every other workspace (tests run side by side).
+    var debugApplies: UInt64 = 0
+    var debugTopologySends: UInt64 = 0
+    #endif
     /// When its window parked it (`WindowController.mountedContents` order).
     private(set) var parkedSerial: UInt64 = 0
+    /// Parked and not on screen beside the shown workspace: it draws nothing, so its panes do no
+    /// work for it (PL-script A2). They record what changed and show it once when it draws again
+    /// (`PaneController.suspend` / `resume`). A companion on screen beside the shown workspace
+    /// (`sidebar.multiView`) is parked but draws, so its panes keep working.
+    private(set) var drawsNothing = false
+    /// Parked and on no screen (not a `sidebar.multiView` companion beside the shown workspace).
+    /// Its tree changes then update the model only: no layout, no view sync, no topology
+    /// (CLAUDE.md "Go past Chrome where cmux is scripted").
+    private(set) var isOffScreen = false
+    /// The latest mapping that came while off screen: applied once, at rest, when it shows.
+    private var deferredApply: LayoutMapping.Result?
 
     /// Parks this content before its window shows another workspace. Its attention rings draw
-    /// nothing while parked, so it stops following them (a global change wakes no parked workspace).
+    /// nothing while parked, so it stops following them (a global change wakes no parked workspace),
+    /// and its layout changes wait until it shows (``apply(_:force:_:_:)``).
     func park(serial: UInt64) {
         parkedSerial = serial
         isParked = true
+        isOffScreen = true
         attentionObservation?.cancel()
+        setDrawsNothing(true)
     }
 
-    /// Shows this parked content again: its observation kept the tree current, so no re-map or apply;
-    /// the attention rings are read now (this frame) and followed again.
+    /// Shows this parked content again, in this frame: the tree changes it skipped while off screen
+    /// apply now in one step to their final state (its layout view is not live yet, so nothing
+    /// animates a change nobody saw); then each pane maps its strip once and shows its selection
+    /// (`PaneController.resume`), and the attention rings are read now and followed again.
     func unpark() {
         isParked = false
+        comeOnScreen()
+        setDrawsNothing(false)
         observeAttention()
+    }
+
+    /// Parked but on screen beside the shown workspace (`sidebar.multiView`): it lays out what changed
+    /// while it was off screen, its panes work again, and its attention rings draw, so it follows them.
+    func followAttention() {
+        comeOnScreen()
+        setDrawsNothing(false)
+        observeAttention()
+    }
+
+    private func comeOnScreen() {
+        guard isOffScreen else { return }
+        isOffScreen = false
+        if let pending = deferredApply {
+            deferredApply = nil
+            apply(pending, force: true)
+        }
+    }
+
+    /// Suspends or resumes every pane's strip and content work (`drawsNothing`).
+    private func setDrawsNothing(_ value: Bool) {
+        guard drawsNothing != value else { return }
+        drawsNothing = value
+        for controller in panes.values {
+            if value { controller.suspend() } else { controller.resume() }
+        }
     }
 
     /// Installed: one topology (the coordinator restores its pane), whose ring draws in this frame.
@@ -70,21 +126,32 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.syncWithModel()
     }
 
-    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState) {
+    /// `parked`: mounted beside the shown workspace (`sidebar.multiView`), so its first apply sends the window no topology.
+    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false) {
         self.workspace = workspace
+        isParked = parked
         self.daemon = daemon
         self.services = services
         self.state = state
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         _ = layoutView  // built here, then the bar and the content view, as before
+        // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
+        layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
+        // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
+        layoutView.linkDropHandler = { [weak self] url, target, perform in
+            guard let self, let item = LinkDragItem(url, browserEnabled: LinkRouter.shared.routing().browserEnabled),
+                  let plan = LinkDropPlan(target, takesTabs: { self.panes[$0]?.stripModel.showsNewTabButton == true }) else { return false }
+            return !perform || self.services.linkOpener.drop(item, plan: plan, in: self)
+        }
         _ = screenBar
         _ = contentView
         let fallbackCreate = emptyWorkspaceRepair.create
         emptyWorkspaceRepair.createFirst = { [weak services, weak daemon] key in
             guard let services, let daemon, let workspace = daemon.store.workspaces.first(where: { $0.key == key }) else { throw DaemonError.notConnected }
             // Another machine's empty workspace gets a terminal: its chats start only when asked (cx-k21v).
-            if services.agentTabs.opensFirstPage(on: daemon) {
+            // So does every empty workspace in cmux Classic Mode (`tabs.terminalFirst`, #23021).
+            if !NewTabKind.terminalFirst(services), services.agentTabs.opensFirstPage(on: daemon) {
                 return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services)
             }
             return try await fallbackCreate(key)
@@ -94,12 +161,17 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         )
         themeScope.root(contentView)
         contentView.backgroundMenu = { [weak services, weak self] in
-            services?.registry.makeContextMenu(for: .windowBackground, target: self.map { ActionTargetRef(kind: .workspace, id: $0.workspace.id) })
+            self.flatMap { services?.registry.makeContextMenu(for: .windowBackground, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id)).themeRows(in: $0.themeScope.fullStrength) }
         }
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
         // Observation applies the first snapshot synchronously, including the empty-state view.
         observe()
+        // A Home with no pane yet is still being made (its dock, then the Chief conversation, over
+        // several daemon replies): it stays clear until its conversation is in, never in pieces.
+        if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.layout.panes.isEmpty }) {
+            services.launchReveal.hold(contentView, until: .home)
+        }
     }
 
     func teardown() {
@@ -107,9 +179,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         connectionObservation?.cancel()
         attentionObservation?.cancel()
         settlingObservation?.cancel()
+        canvasObservation?.cancel()
         screenBar.teardown()
         for controller in panes.values { controller.teardown() }
         panes.removeAll()
+        // A Home closed before its page came stops counting toward `.home`'s wait.
+        services.launchReveal.release(contentView)
         contentView.removeFromSuperview()
     }
 
@@ -141,18 +216,29 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             }
         }
         observeAttention()
+        let layoutModel = layoutModel
+        canvasObservation = Task { [weak self] in
+            for await _ in ObservationStream({ layoutModel.isCanvasActive }) { self?.services.canvasContextDidChange() }
+        }
     }
 
-    /// Panes with an unread notification draw the attention ring.
+    /// Panes whose shown tab reads unread (a notification or Mark as Unread) draw the attention
+    /// ring; this window's tab selection decides which tab a pane shows.
     private func observeAttention() {
         let notifications = services.notifications, workspace = workspace
-        let marks = notifications.attentionMarks(for: workspace)
+        let shownTab: @MainActor @Sendable (PaneModel) -> String? = { [weak self] pane in self?.panes[LayoutPaneID(pane.id)]?.stripModel.selectedID?.rawValue }
+        let marks = notifications.attentionMarks(for: workspace, shownTab: shownTab)
         if layoutModel.attention != marks { layoutModel.attention = marks }
         attentionObservation?.cancel()
         attentionObservation = Task { [weak self] in
-            for await marks in ObservationStream({ notifications.attentionMarks(for: workspace) }) {
+            for await marks in ObservationStream({ notifications.attentionMarks(for: workspace, shownTab: shownTab) }) {
                 guard let self else { return }
-                if self.layoutModel.attention != marks { self.layoutModel.attention = marks }
+                guard self.layoutModel.attention != marks else { continue }
+                // A ring read by going into its pane blinks out (classic's dismiss flash); one
+                // cleared any other way fades. Set first, so the change that removes it sees it.
+                let removed = Set(self.layoutModel.attention.keys).subtracting(marks.keys)
+                self.layoutModel.attentionReadByEntry = notifications.takeEntryReads(removed: removed, in: workspace)
+                self.layoutModel.attention = marks
             }
         }
     }
@@ -167,7 +253,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // Commands translate through the current handles even when the tree is unchanged (the
         // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
         let topologyMoved = adoptHandles(result.handles)
-        guard appliedTree.update(result, edgeDocks: daemon.supports(DaemonCapabilities.shared.edgeDocks), rows: daemon.supports(DaemonCapabilities.shared.rows)) || force else {
+        // Off screen: the handles stay current (commands translate through them) and an empty
+        // workspace is still repaired; the layout waits for the frame that shows it.
+        if isOffScreen {
+            deferredApply = result
+            repairIfEmpty()
+            return
+        }
+        guard appliedTree.update(result, edgeDocks: daemon.supports(DaemonCapability.edgeDocks.rawValue), rows: daemon.supports(DaemonCapability.rows.rawValue)) || force else {
             if topologyMoved {
                 // The one topology of this change (adoptions inside sent none); the focus it lands
                 // rings in this frame.
@@ -178,6 +271,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         }
         #if DEBUG
         DebugLayoutCounters.workspaceApplies &+= 1
+        debugApplies &+= 1
         DebugLayoutCounters.note(force ? "apply(force)" : "apply", file, line)
         #endif
         let wasApplying = isApplying
@@ -288,6 +382,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's hover "…" and pinned buttons
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
+        services.themes.applyPaneBackground(controller) // its own background and tint, before the first frame
         services.paneMounts.changed()
         sendTopology()
         // Settings… asked before any window had a pane waits for the first one (R82). It opens
@@ -302,6 +397,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             Task { apps.windowDidShowContent() }
         }
         return controller.view
+    }
+
+    func holdsContentInMotion(for pane: LayoutPaneID) -> Bool {
+        guard let content = panes[pane]?.currentContent else { return false }
+        if case .agent = content { return true }
+        return false
     }
 
     func releaseContentView(_ view: NSView, for pane: LayoutPaneID) {

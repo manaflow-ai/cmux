@@ -24,15 +24,25 @@ public enum DetectionSource: Sendable, Equatable, Hashable, Encodable {
     /// A key the user saved in cmux's own Keychain item.
     case cmuxKeychain
     case server(String)
+    /// A config file that sends the CLI to a model provider of its own (a
+    /// proxy, a router, a local server) instead of the provider's sign-in.
+    /// The CLI works, but there is no sign-in here CodeRouter can link.
+    case providerConfig(String)
 
     public var label: String {
         switch self {
-        case .file(let path): path
+        case .file(let path), .providerConfig(let path): path
         case .environment(let key): "$" + key
         case .keychain(let service): service
         case .cmuxKeychain: "cmux Keychain"
         case .server(let address): address
         }
+    }
+
+    /// A shell variable (`$CLAUDE_CODE_OAUTH_TOKEN`), not a saved sign-in.
+    public var isEnvironment: Bool {
+        if case .environment = self { return true }
+        return false
     }
 }
 
@@ -51,15 +61,18 @@ public struct ProviderDetection: Sendable, Equatable, Encodable {
     /// A plan, organization, region or project name. Emails inside it are shortened.
     public let plan: String?
     public var sources: [DetectionSource]
+    /// A credential type for the UI to word in the user's language.
+    public let note: DetectionNote?
 
     public init(provider: AIProvider, status: LocalAuthStatus, account: AccountLabel? = nil, detail: String? = nil,
-                plan: String? = nil, sources: [DetectionSource] = []) {
+                plan: String? = nil, sources: [DetectionSource] = [], note: DetectionNote? = nil) {
         self.provider = provider
         self.status = status
         self.account = account
         self.detail = detail.map(EmailRedaction.redactEmails(in:))
         self.plan = plan.map(EmailRedaction.redactEmails(in:))
         self.sources = sources
+        self.note = note
     }
 
     public static func missing(_ provider: AIProvider) -> ProviderDetection {

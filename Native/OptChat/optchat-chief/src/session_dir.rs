@@ -131,8 +131,10 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
     // Claude Code starts a stdio server without the turn's env and expands
     // `${VAR}` from its own, so the file names the variable, never the
     // value. A subagent's server gets none.
+    // A subagent's server learns which subagent it serves (escalate_auth)
+    // from its acpmux session name, named here, never copied.
     let env = if subagent {
-        json!({})
+        json!({"ACPMUX_SESSION_NAME": "${ACPMUX_SESSION_NAME:-}"})
     } else {
         let key = crate::chief_profile::TURN_KEY_ENV;
         let mut env = serde_json::Map::new();
@@ -147,6 +149,12 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
     // serve` (cx-wx93i, acpmux agent_tools.rs), the Chief's turns and
     // subagents included, so a second one only doubled the tool list
     // (hq-6d 2026-10-14: one cmux MCP server per turn).
+    // The MCP servers of the tool packs that are on (toolpacks.rs).
+    for (name, server) in
+        crate::toolpacks::claude_servers(&crate::toolpacks::load(&paths.home), &paths.bin)
+    {
+        servers.entry(name).or_insert(server);
+    }
     json!({"mcpServers": servers})
 }
 
@@ -154,7 +162,12 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
 /// the launcher directory first on PATH, and `deny` (Claude Code's
 /// subagents always) denied, which takes those tools out of the list.
 pub fn settings_json(setup: &SessionSetup, paths: &Paths, deny: &[&str]) -> Value {
-    let names = ["optchat"];
+    let mut names = vec!["optchat".to_owned()];
+    names.extend(
+        crate::toolpacks::claude_servers(&crate::toolpacks::load(&paths.home), &paths.bin)
+            .into_iter()
+            .map(|(n, _)| n),
+    );
     // The user's settings env first (a session that loads no user setting
     // source keeps the user's API route), the session's own over it.
     let mut env: serde_json::Map<String, Value> = setup
@@ -242,15 +255,20 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
     "Workflow",
 ];
 
-/// The cmux MCP tools a Chief turn keeps (cx-68uof, hq-6d 2026-10-16): open
-/// and focus workspaces, panes, tabs, pages and files, answer dialogs, and
-/// follow agents. Chiefs, conversations, memory and subagents are the
+/// The daemon-owned cmux MCP tools a Chief turn keeps (cx-68uof, hq-6d
+/// 2026-10-16): manage its own workspaces/terminals, answer dialogs, and
+/// follow agents. Mac app actions are not authority-scoped and stay denied.
+/// Chiefs, conversations, memory and subagents are the
 /// Chief's own `optchat` server (chiefs, profile, spawn, tell, zoom, date),
 /// which always loads; cmux MCP has no conversation or Chief tools (v2_tools
 /// EXCLUDED). Every other cmux MCP tool is denied in the turn's settings
-/// and stays reachable through the `cmux` CLI. Names: `agents_*` and
-/// `render` (cmux mcp agent tools), `app_<cli words>` (action tools).
-pub const CHIEF_CMUX_TOOLS: [&str; 15] = [
+/// and stays reachable through the `cmux` CLI on its own host. Names:
+/// `agents_*` and `render` (cmux mcp agent tools). `agents_chat_send`,
+/// `agents_chat_read` and `agents_chat_state` reach the agent chats the user
+/// started in the app (#25571): a send is the Chief's agent message, under
+/// the daemon's agent message policy, and starts a turn in that chat, a
+/// restored chat no tab has shown yet included.
+pub const CHIEF_CMUX_TOOLS: [&str; 16] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -262,10 +280,11 @@ pub const CHIEF_CMUX_TOOLS: [&str; 15] = [
     "agents_events",
     "agents_wait",
     "render",
-    "app_show_pane",
-    "app_show_tab",
-    "app_tab_new_page",
-    "app_file_open",
+    "agents_terminal_list",
+    "agents_terminal_send",
+    "agents_chat_send",
+    "agents_chat_read",
+    "agents_chat_state",
 ];
 
 /// The turn presets' env that keeps only acpmux's `cmux` MCP server
@@ -297,19 +316,34 @@ const TOOL_LIST_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
 /// mcp tools`, the list `cmux mcp serve` gives every agent chat) and whether
 /// the app's action tools were in it (`app_actions`: false while the cmux
 /// app does not answer; its `app_*` tools then load later). None when it
-/// fails or takes longer than `TOOL_LIST_LIMIT`.
-pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Option<(Vec<String>, bool)> {
+/// fails or takes longer than `TOOL_LIST_LIMIT` (Err: why).
+pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Result<CmuxToolList, String> {
     let mut child = std::process::Command::new("cmux")
         .args(["--json", "mcp", "tools"])
         .envs(env)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .spawn()
-        .ok()?;
+        .map_err(|e| format!("cmux --json mcp tools did not start: {e}"))?;
     // Only the pipe goes to the reader; the child stays here unreaped, so a
     // kill after the limit can never reach a reused pid.
-    let mut stdout = child.stdout.take()?;
+    let (Some(mut stdout), Some(mut stderr)) = (child.stdout.take(), child.stderr.take()) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("cmux --json mcp tools gave no output pipe".to_owned());
+    };
+    // Its stderr says why the app's tools are missing; read on its own
+    // thread so a full pipe never blocks the child.
+    let note = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = std::io::Read::read_to_string(
+            &mut std::io::Read::take(&mut stderr, 16 * 1024),
+            &mut text,
+        );
+        let text = text.trim().to_owned();
+        (!text.is_empty()).then_some(text)
+    });
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
@@ -318,20 +352,48 @@ pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Option<(Vec<String>, b
     let Ok(Ok(bytes)) = rx.recv_timeout(TOOL_LIST_LIMIT) else {
         let _ = child.kill();
         let _ = child.wait();
-        return None;
+        return Err(format!(
+            "cmux --json mcp tools took longer than {} s",
+            TOOL_LIST_LIMIT.as_secs()
+        ));
     };
-    let status = child.wait().ok()?;
+    let status = child
+        .wait()
+        .map_err(|e| format!("cmux --json mcp tools: {e}"))?;
+    let note = note.join().ok().flatten();
     if !status.success() {
-        return None;
+        return Err(match note {
+            Some(note) => format!("cmux --json mcp tools failed ({status}): {note}"),
+            None => format!("cmux --json mcp tools failed ({status})"),
+        });
     }
-    let value: Value = serde_json::from_slice(&bytes).ok()?;
-    let names = value["tools"].as_array().map(|tools| {
-        tools
-            .iter()
-            .filter_map(|t| t["name"].as_str().map(str::to_owned))
-            .collect()
-    })?;
-    Some((names, value["app_actions"] == true))
+    let value: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("cmux --json mcp tools printed no JSON: {e}"))?;
+    let names = value["tools"]
+        .as_array()
+        .map(|tools| {
+            tools
+                .iter()
+                .filter_map(|t| t["name"].as_str().map(str::to_owned))
+                .collect()
+        })
+        .ok_or_else(|| "cmux --json mcp tools listed no tools".to_owned())?;
+    Ok(CmuxToolList {
+        names,
+        app_actions: value["app_actions"] == true,
+        note,
+    })
+}
+
+/// One `cmux --json mcp tools` answer.
+#[derive(Debug, Clone)]
+pub struct CmuxToolList {
+    /// The tool names.
+    pub names: Vec<String>,
+    /// Whether the app's action tools were in it.
+    pub app_actions: bool,
+    /// What the CLI said on stderr (why the app's tools are missing).
+    pub note: Option<String>,
 }
 
 /// Deny rules (`mcp__cmux__<name>`) for every name not in `CHIEF_CMUX_TOOLS`.
@@ -351,27 +413,75 @@ fn deny_rules(names: Vec<String>) -> Vec<String> {
 /// the app's action tools are in, then adds their denials.
 const PENDING: &str = "cmux-tools-pending.json";
 
+/// The last list that had the app's action tools, in a session's
+/// `.claude`: a list read while the app does not answer (the Mac asleep, its
+/// relay down) keeps its names, so no app tool loses its denial.
+const LAST_KNOWN: &str = "cmux-tools-last.json";
+
 /// Deny rules for every cmux MCP tool of `env`'s CLI not in
-/// `CHIEF_CMUX_TOOLS`. When the list cannot be read, only the code-mode
-/// tools: the turn keeps every other tool (behind ToolSearch) and host.log
-/// says so. When the app's
-/// action tools were not in the list, `session` gets the pending marker.
+/// `CHIEF_CMUX_TOOLS`. When the list cannot be read, or has no app action
+/// tools, the last known list (`LAST_KNOWN`) is kept with it and host.log
+/// says why; with no last known list, a failed read denies the whole cmux
+/// server. An unavailable catalog never widens a Chief's tool grant.
+/// When the app's action tools were not in the list, `session` gets the
+/// pending marker.
 pub fn cmux_tool_denials(session: &Path, env: &BTreeMap<String, String>) -> Vec<String> {
-    let pending = session.join(".claude").join(PENDING);
-    let Some((names, app)) = cmux_tool_names(env) else {
-        crate::log::log(
-            "reading the cmux MCP tool list (cmux --json mcp tools) failed; Chief turns keep every cmux tool but cmux_exec and cmux_docs",
-        );
-        return deny_rules(Vec::new());
+    let dir = session.join(".claude");
+    let pending = dir.join(PENDING);
+    let last_path = dir.join(LAST_KNOWN);
+    let last: Vec<String> = std::fs::read_to_string(&last_path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let list = match cmux_tool_names(env) {
+        Ok(list) => list,
+        Err(why) => {
+            if last.is_empty() {
+                crate::log::log(format!(
+                    "reading the cmux MCP tool list failed and no list is known; Chief turns deny the cmux MCP server: {why}"
+                ));
+            } else {
+                crate::log::log(format!(
+                    "reading the cmux MCP tool list failed; Chief turns keep the last known list ({} tools): {why}",
+                    last.len()
+                ));
+            }
+            if last.is_empty() {
+                return vec!["mcp__cmux".to_owned()];
+            }
+            return deny_rules(last);
+        }
     };
-    if app {
+    if list.app_actions {
         let _ = std::fs::remove_file(&pending);
-    } else if let Ok(text) = serde_json::to_string(env) {
-        crate::log::log(
-            "the cmux app did not answer: its action tools are filtered from the next turn on",
-        );
-        if let Err(e) = write_private(&pending, text.as_bytes()) {
-            crate::log::log(format!("writing {}: {e}", pending.display()));
+        if let Ok(text) = serde_json::to_string(&list.names)
+            && let Err(e) = write_private(&last_path, text.as_bytes())
+        {
+            crate::log::log(format!("writing {}: {e}", last_path.display()));
+        }
+        return deny_rules(list.names);
+    }
+    let why = list.note.as_deref().unwrap_or("no reason given");
+    crate::log::log(format!(
+        "the cmux app did not answer, so its action tools are missing from the cmux MCP tool list{}: {why}",
+        if last.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; Chief turns keep the last known list ({} tools)",
+                last.len()
+            )
+        }
+    ));
+    if let Ok(text) = serde_json::to_string(env)
+        && let Err(e) = write_private(&pending, text.as_bytes())
+    {
+        crate::log::log(format!("writing {}: {e}", pending.display()));
+    }
+    let mut names = list.names;
+    for name in last {
+        if !names.contains(&name) {
+            names.push(name);
         }
     }
     deny_rules(names)
@@ -383,11 +493,15 @@ fn pending_denials(dir: &Path) -> Option<Vec<String>> {
     let pending = dir.join(PENDING);
     let env: BTreeMap<String, String> =
         serde_json::from_str(&std::fs::read_to_string(&pending).ok()?).ok()?;
-    let (names, app) = cmux_tool_names(&env)?;
+    let list = cmux_tool_names(&env).ok()?;
+    let (names, app) = (list.names, list.app_actions);
     if !app {
         return None;
     }
     let _ = std::fs::remove_file(&pending);
+    if let Ok(text) = serde_json::to_string(&names) {
+        let _ = write_private(&dir.join(LAST_KNOWN), text.as_bytes());
+    }
     Some(deny_rules(names))
 }
 
@@ -483,6 +597,10 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
             serde_json::to_string_pretty(v).map_err(io::Error::other)?
         ))
     };
+    // The tool packs that are on: their skills in the Chief's own skills
+    // folder, their MCP servers below (toolpacks.rs).
+    let packs = crate::toolpacks::load(&paths.home);
+    crate::toolpacks::sync_skills(&paths.home, &packs);
     write_if_changed(
         &paths.session.join(".mcp.json"),
         pretty(&mcp_json(setup, paths))?.as_bytes(),
@@ -502,6 +620,11 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     for (key, value) in TURN_SETTINGS_ENV {
         settings["env"][key] = json!(value);
     }
+    // git asks the tool packs' credential helpers for their hosts (toolpacks.rs).
+    for (key, value) in crate::toolpacks::git_env(&packs, &paths.bin) {
+        settings["env"][key] = json!(value);
+    }
+    settings["permissions"]["allow"] = json!(crate::approval::turn_allowed_tools());
     let settings = pretty(&settings)?;
     write_private(
         &paths.session.join(".claude").join("settings.json"),
@@ -524,6 +647,25 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     let claude = paths.bin.join("claude");
     write_if_changed(&claude, CLAUDE_SHIM.as_bytes())?;
     std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755))?;
+    // Each pack's CLI and git with the Chief's own login when it has one
+    // (toolpacks.rs; the GitHub pack's gh as before).
+    remove_if_present(&paths.bin.join("git-credential-chief"))?;
+    let mut shims = crate::toolpacks::wrappers(&packs);
+    shims.extend(crate::toolpacks::script_wrappers(&paths.home, &packs));
+    // A pack turned off or removed takes its wrapper with it.
+    for entry in std::fs::read_dir(&paths.bin)?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let ours = std::fs::read_to_string(entry.path())
+            .is_ok_and(|t| t.lines().take(3).any(|l| l.contains("(tool pack ")));
+        if ours && !shims.iter().any(|(n, _)| *n == name) {
+            remove_if_present(&entry.path())?;
+        }
+    }
+    for (name, text) in shims {
+        let shim = paths.bin.join(name);
+        write_if_changed(&shim, text.as_bytes())?;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))?;
+    }
     Ok(())
 }
 

@@ -21,7 +21,7 @@ nonisolated enum BookmarkActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "bookmark.add", title: t("action.bookmark.add", "Add Bookmark…"),
                 keywords: ["bookmark", "new", "url"], category: .browser, symbol: "plus",
-                surfaces: [.palette, .keyboard],
+                surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [
                     ActionArgument(name: "url", title: t("argument.bookmark.url", "URL"), kind: .string),
                     ActionArgument(name: "title", title: t("argument.bookmark.title", "Name"), kind: .string, isRequired: false),
@@ -113,13 +113,13 @@ nonisolated enum BookmarkActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "bookmark.import", title: t("action.bookmark.import", "Import Bookmarks…"),
                 keywords: ["bookmark", "import", "html", "netscape", "chrome", "safari", "firefox"], category: .browser,
-                symbol: "square.and.arrow.down", surfaces: [.palette, .keyboard, .menu], arguments: [path, profile],
+                symbol: "square.and.arrow.down", surfaces: [.palette, .keyboard, .menu, .contextMenu], arguments: [path, profile],
                 cliName: "bookmark import", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "bookmark.importFromBrowser", title: t("action.bookmark.importFromBrowser", "Import Bookmarks from Browser…"),
                 keywords: ["bookmark", "import", "browser", "chrome", "safari", "firefox", "arc", "brave", "edge", "dia", "zen", "helium", "comet"],
-                category: .browser, symbol: "square.and.arrow.down.on.square", surfaces: [.palette, .keyboard, .menu],
+                category: .browser, symbol: "square.and.arrow.down.on.square", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 arguments: [
                     ActionArgument(name: "browser", title: t("argument.bookmark.browser", "Browser"), kind: .string, isRequired: false),
                     ActionArgument(name: "source", title: t("argument.bookmark.sourceProfile", "Profile to Import"), kind: .string,
@@ -131,7 +131,7 @@ nonisolated enum BookmarkActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "bookmark.export", title: t("action.bookmark.export", "Export Bookmarks…"),
                 keywords: ["bookmark", "export", "html", "netscape", "backup"], category: .browser, symbol: "square.and.arrow.up",
-                surfaces: [.palette, .keyboard, .menu], arguments: [path, profile], cliName: "bookmark export", mainMenu: .file
+                surfaces: [.palette, .keyboard, .menu, .contextMenu], arguments: [path, profile], cliName: "bookmark export", mainMenu: .file
             ),
         ]
     }

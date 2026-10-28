@@ -1,0 +1,119 @@
+#!/bin/sh
+# Refreshes the machine's kind record (owner or team) from the VM-bound
+# reflection route. The record is informational: acpmux no longer trusts it
+# (#26227). It writes only an answer it got: missing configuration or a
+# failed/invalid response leaves the record as it is (the image bakes `team`,
+# and the Cloud backend records the kind it assigned at create), so a failed
+# fetch never turns an owner VM `team`.
+#
+# Writes hold a lock ($kind_file.lock), which also holds a reset generation
+# (1 to 9 digits). The boot's clone reset (CMUX_VM_KIND_RESET=team) moves it
+# to a new value, and a fetched answer is written only when the generation is
+# the one its fetch began with, so a sync already running when a clone resets
+# cannot put back the old answer. A generation that is not 1 to 9 digits is
+# corrupt: a sync writes nothing until a reset replaces it.
+#
+# The lock covers only the write, never the fetch, so it is held briefly.
+# Both a reset and a sync wait at most 10 s for it. A sync that cannot take it
+# writes nothing. A reset that cannot finish exits non-zero, and the boot then
+# runs CMUX_VM_KIND_RESET=team-unlocked, which writes a new generation and
+# then `team` without the lock, so a stuck holder never keeps a clone on its
+# source's record or holds up its boot. A sync that was already past its check
+# can still rename its answer over that `team`, so after its rename it checks
+# again (its lock is still the lock file's, the generation is unchanged) and
+# puts `team` back if not. Every write is a rename; nothing is written in place.
+set -eu
+
+kind_file=${CMUX_VM_KIND_FILE:-/etc/cmux/vm-kind}
+env_file=${CMUX_VM_MODEL_ENV_FILE:-/etc/cmux/model-plane.env}
+lock_file=$kind_file.lock
+nl='
+'
+kind_dir=${kind_file%/*}
+[ "$kind_dir" != "$kind_file" ] || kind_dir=.
+
+# Holds the lock on fd 9 for 10 s at most, until the script exits.
+lock() {
+  mkdir -p "$kind_dir"
+  exec 9>>"$lock_file"
+  flock -w "${CMUX_VM_KIND_LOCK_WAIT:-10}" 9
+}
+
+# The generation without leading zeros (0 for no file or an empty one), or
+# `corrupt`: valid is 1 to 9 digits and at most one trailing newline.
+generation() {
+  raw=$(head -c 32 "$lock_file" 2>/dev/null || :; echo x)
+  raw=${raw%x}
+  # Command substitution drops NUL bytes: what was parsed must be the whole file.
+  size=$(wc -c 2>/dev/null <"$lock_file" || echo 0)
+  [ "$size" -eq "${#raw}" ] || { echo corrupt; return; }
+  [ -n "$raw" ] || { echo 0; return; }
+  digits=${raw%"$nl"}
+  case "$digits" in
+    '' | *[!0-9]* | ??????????*) echo corrupt ;;
+    *) gen=${digits#"${digits%%[!0]*}"}; echo "${gen:-0}" ;;
+  esac
+}
+
+# A generation unlike the current one (both at most 9 digits).
+next_generation() {
+  current=$(generation)
+  case "$current" in
+    corrupt) next=$(($(date +%s) % 999999999 + 1)) ;;
+    *) next=$((current % 999999999 + 1)) ;;
+  esac
+  echo "$next"
+}
+
+# Replaces $1 with $2 (one line) by a rename, 0644.
+replace() {
+  tmp=$(mktemp "$kind_dir/.vm-kind.XXXXXX")
+  trap 'rm -f "$tmp"' EXIT HUP INT TERM
+  printf '%s\n' "$2" >"$tmp"
+  chmod 0644 "$tmp"
+  if [ "$(id -u)" = 0 ]; then chown root:root "$tmp"; fi
+  mv -fT "$tmp" "$1"
+  trap - EXIT HUP INT TERM
+}
+
+# The boot's snapshot-clone check asks for a reset: a clone may carry its
+# source's record, so it reads `team` until its own answer arrives.
+case "${CMUX_VM_KIND_RESET:-}" in
+  team)
+    lock
+    gen=$(next_generation)
+    replace "$lock_file" "$gen"
+    replace "$kind_file" team
+    exit 0
+    ;;
+  team-unlocked)
+    mkdir -p "$kind_dir"
+    replace "$lock_file" "$(next_generation)"
+    replace "$kind_file" team
+    exit 0
+    ;;
+esac
+[ -f "$env_file" ] || exit 0
+# Root-owned image data. It carries only alias origins and public placeholders.
+. "$env_file"
+origin=${CMUX_CODEROUTER_URL:-}
+case "$origin" in https://*) ;; *) exit 0 ;; esac
+key=${OPENAI_API_KEY:-cmux-vm-edge-placeholder}
+set -- -fsS --connect-timeout 2 --max-time 8 -H "authorization: Bearer $key" -H 'accept: application/json'
+if [ -f /usr/local/share/ca-certificates/freestyle-tls.crt ]; then
+  set -- "$@" --cacert /usr/local/share/ca-certificates/freestyle-tls.crt
+fi
+started=$(generation)
+[ "$started" != corrupt ] || exit 0
+body=$(curl "$@" "${origin%/}/api/vm/reflection/kind" 2>/dev/null) || exit 0
+kind=$(printf '%s' "$body" | jq -er '.kind | select(. == "owner" or . == "team")' 2>/dev/null) || exit 0
+# One value only: a body with several JSON values gives several lines.
+case "$kind" in owner | team) ;; *) exit 0 ;; esac
+lock || exit 0
+[ "$(generation)" = "$started" ] || exit 0
+replace "$kind_file" "$kind"
+# A reset without the lock may have run since the check: it swaps the lock
+# file and the generation first, then writes `team`. Either way, end `team`.
+if ! [ /dev/fd/9 -ef "$lock_file" ] || [ "$(generation)" != "$started" ]; then
+  replace "$kind_file" team
+fi

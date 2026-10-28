@@ -1,12 +1,15 @@
 // l10n-allow-file: gallery fixtures (sample prompts, subagent names and tasks), not shipped UI.
-// A batch of subagents inline in the transcript (SubagentGroup.tsx): the group row in each state,
+// With Debug Settings agentPane.debug.subagentTray off (the tray above the composer is the default,
+// SubagentTray.gallery.ts), a batch of subagents inline in the transcript (SubagentGroup.tsx): the group row in each state,
 // as the snapshot rows the pane receives after direct.ts folds a session's subagent updates; an
 // open group's list (SubagentListRow), opened by a click; and the summary card at the pane's top
-// right (summary/SummaryCard.tsx), which shows itself for a chat with subagents and lists them with
-// their live state from the same groups. It is not a popover: a click elsewhere leaves it open. A
-// list line opens that subagent's own view (the child view): a "Subagent of" pill naming its
-// parent, then its rows, nested groups included.
-import { agentPaneEntry } from "../../../gallery/format";
+// right (summary/SummaryCard.tsx), which lists them with their live state from the same groups. In
+// the gallery's widths the pane has no room for the card's inline column (summary/cardState.ts,
+// #21564), so the card is the popover the header's Summary button opens, and a click outside it
+// closes it; a pane wide enough shows the column on its own, and it stays. A list line opens that subagent's own view (the child view): a "Subagent of" pill naming its
+// parent, then its rows, nested groups included. A pane the app opened on a subagent shows it read
+// only: a line naming the chat where the composer would be (SubagentPaneFooter.tsx).
+import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
@@ -111,7 +114,7 @@ const NESTED_MIXED: typeof MIXED = {
 };
 
 /** Codex subagents as codex-acp sends them once acpmux asks for native subagent sessions
- * (cx-07ezn, recorded on cmux-lawrence 2026-10-12): named from their agent path ("Read a"), each
+ * (cx-07ezn, recorded on a fleet Mac 2026-10-12): named from their agent path ("Read a"), each
  * with its own read and reply; Codex's `wait` calls between them draw no row. */
 const CODEX_A = agent("Read a", 1.6, "completed", { ran: 0.4 });
 const CODEX_B = agent("Read b", 1.6, "running", { action: "Read file 'b.txt'" });
@@ -166,8 +169,11 @@ const WAITING = {
   },
 };
 
-/** The summary card, which shows itself for a chat with subagents; waits for its Subagents list. */
+/** Shows the summary card from the header's Summary button unless it shows already (a pane wide
+ * enough for its inline column shows it on its own), and waits for its Subagents list. */
 const openSummary = async (ctx: PlayContext) => {
+  if (ctx.find({ selector: ".acpmux-summary-button" }).getAttribute("aria-pressed") !== "true")
+    await ctx.click({ selector: ".acpmux-summary-button" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-card .acpmux-summary-agents"));
 };
 
@@ -184,10 +190,11 @@ const openChild = (name: string) => async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
 };
 
-/** Opens the first group and waits for its `count` subagent lines. */
+/** Opens the first group and waits for its `count` subagent lines. A group of running agents in a
+ * working turn is open already (App.tsx), and stays so. */
 const openGroup = (count: number) => async (ctx: PlayContext) => {
   await ctx.focus({ selector: ".cv-subagents" });
-  await ctx.press("Enter");
+  if (ctx.find({ selector: ".cv-subagents" }).getAttribute("aria-expanded") !== "true") await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent").length === count);
   const disclosure = ctx.find({ selector: ".cv-subagents" });
   const controls = disclosure.getAttribute("aria-controls")?.split(" ").filter(Boolean) ?? [];
@@ -197,6 +204,17 @@ const openGroup = (count: number) => async (ctx: PlayContext) => {
     throw new Error("subagent disclosure controls a row that is not rendered");
   if (ctx.document.activeElement !== disclosure) throw new Error("subagent disclosure lost focus while opening");
 };
+
+/** These variants show the group card in the transcript and the agents pill, which Debug Settings
+ * agentPane.debug.subagentTray off keeps; the tray, the default, is SubagentTray.gallery.ts. The
+ * summary card is the same either way. */
+const groupCards = (variants: Record<string, AgentPaneVariant>): Record<string, AgentPaneVariant> =>
+  Object.fromEntries(
+    Object.entries(variants).map(([name, variant]) => [
+      name,
+      { ...variant, theme: { subagentTray: false, ...variant.theme } },
+    ]),
+  );
 
 export default agentPaneEntry({
   id: "agent-pane.subagents",
@@ -208,6 +226,7 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/subagents/SubagentGroup.tsx",
     "agent-session/acpmux/subagents/AgentsPill.tsx#AgentsPill",
+    "agent-session/acpmux/subagents/SubagentPaneFooter.tsx#SubagentPaneFooter",
     "agent-session/acpmux/summary/SummaryButton.tsx#SummaryButton",
     "agent-session/acpmux/summary/SummaryCard.tsx#SummaryCard",
     "agent-session/acpmux/summary/SummaryBody.tsx#SummaryBody",
@@ -215,14 +234,19 @@ export default agentPaneEntry({
     "agent-session/acpmux/summary/SubagentStack.tsx#SubagentStack",
     "agent-session/acpmux/summary/SubagentStatusList.tsx#SubagentStatusList",
   ],
-  variants: {
+  variants: groupCards({
     "agents-pill": {
       note: "The agents pill while two of four subagents run (after Codex's phone app). It opens Active and Completed, a dot per agent in the color its name has in the open group; a click on an agent opens it.",
       height: 640,
       snapshot: MIXED,
     },
     running: {
-      note: "Four subagents started together, all still working.",
+      note: "Four subagents started together, all still working: the group is open, a line per agent, with no click.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent").length === AUDIT.length);
+        if (ctx.find({ selector: ".cv-subagents" }).getAttribute("aria-expanded") !== "true")
+          throw new Error("a group of running agents in a working turn must start open");
+      },
       snapshot: chat(
         [
           user(prompt, 2),
@@ -234,7 +258,7 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
-    mixed: { note: "Some done, one failed, one still working.", snapshot: MIXED },
+    mixed: { note: "Some done, one failed, one still working: open while it works.", snapshot: MIXED },
     codex: {
       note: "Codex subagents (native sessions through codex-acp, cx-07ezn): Codex marks, names from the agent path.",
       snapshot: CODEX,
@@ -273,7 +297,7 @@ export default agentPaneEntry({
         isWorking: true,
       }),
     },
-    many: { note: "Seven subagents: three avatars, then +4.", snapshot: MANY },
+    many: { note: "Seven subagents: three avatars, then +4; open while they work.", snapshot: MANY },
     done: { note: "An ended turn: the group stays in view above the reply, outside Worked for.", snapshot: DONE },
     stopped: {
       note: "A turn stopped while subagents ran: cancelled and disconnected.",
@@ -289,6 +313,30 @@ export default agentPaneEntry({
         ),
         summary(4.7, { status: "cancelled" }),
       ]),
+    },
+    "stopped-open": {
+      note: "The stopped group opened: one done, one cancelled, one disconnected; the line counts the two as stopped.",
+      snapshot: chat([
+        user(prompt, 6),
+        group(
+          [
+            agent("Retry policy", 5.8, "completed", { ran: 0.8 }),
+            agent("Error parsing", 5.8, "cancelled", { ran: 1.1 }),
+            agent("Timeouts", 5.8, "disconnected", { ran: 0.4 }),
+          ],
+          5.8,
+        ),
+        summary(4.7, { status: "cancelled" }),
+      ]),
+      play: async (ctx) => {
+        await openGroup(3)(ctx);
+        const line = ctx.find({ selector: ".cv-subagents__title" }).textContent;
+        if (line !== "3 subagents, 2 stopped, 1 done") throw new Error(`group line reads ${line}`);
+        const states = [...ctx.document.querySelectorAll(".cv-subagent__state")].map(
+          (node) => node.textContent?.split(" · ")[0],
+        );
+        if (states.join("|") !== "Done|Cancelled|Disconnected") throw new Error(`rows read ${states.join("|")}`);
+      },
     },
     "two-batches": {
       note: "Text between spawns starts a second group.",
@@ -330,7 +378,9 @@ export default agentPaneEntry({
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
         await openChild("Test coverage")(ctx);
-        await ctx.click({ selector: ".cv-subagents" });
+        // The nested group of a running agent starts open in the working turn.
+        if (ctx.find({ selector: ".cv-subagents" }).getAttribute("aria-expanded") !== "true")
+          await ctx.click({ selector: ".cv-subagents" });
         await ctx.click({ role: "button", name: "Open Unit tests" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of__parent")?.textContent === "Test coverage");
       },
@@ -347,8 +397,21 @@ export default agentPaneEntry({
         );
       },
     },
+    "own-pane": {
+      note: "A pane the app opened on a subagent (a subagent: reveal): its view, read only, with a line naming the chat in place of the composer.",
+      height: 640,
+      snapshot: NESTED_MIXED,
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { revealTurn?(id: string): void } };
+        page.cmuxAcpmuxBridge?.revealTurn?.(`subagent:${COVERAGE}`);
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".cv-subagent-pane-footer"),
+        );
+        if (ctx.document.querySelector(".acpmux-composer")) throw new Error("a subagent's own pane drew the composer");
+      },
+    },
     summary: {
-      note: "The summary card at the top right: every subagent with its state and time: waiting, then running, then ended.",
+      note: "The summary card the Summary button opens at the top right: every subagent with its state and time: waiting, then running, then ended.",
       snapshot: MIXED,
       play: openSummary,
     },
@@ -372,14 +435,20 @@ export default agentPaneEntry({
       },
     },
     "card-outside-click": {
-      note: "A click in the transcript, then in the composer: the card stays (it is not a popover).",
+      note: "A click in the transcript closes the popover card (a pane too narrow for its inline column); the inline column would stay.",
       snapshot: MIXED,
       play: async (ctx) => {
         await openSummary(ctx);
+        const inline = ctx.find({ selector: ".acpmux-summary-card" }).getAttribute("data-placement") === "inline";
         await ctx.click({ selector: ".acpmux-scroll" });
-        await ctx.click({ selector: ".acpmux-composer" });
-        if (!ctx.document.querySelector(".acpmux-summary-card .acpmux-summary-agents"))
-          throw new Error("a click outside the summary card closed it");
+        if (inline) {
+          if (!ctx.document.querySelector(".acpmux-summary-card .acpmux-summary-agents"))
+            throw new Error("a click outside the inline summary column closed it");
+          return;
+        }
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-summary-card"));
+        if (ctx.find({ selector: ".acpmux-summary-button" }).getAttribute("aria-pressed") === "true")
+          throw new Error("the Summary button still reads pressed after the popover closed");
       },
     },
     "card-collapsed": {
@@ -462,5 +531,5 @@ export default agentPaneEntry({
         );
       },
     },
-  },
+  }),
 });

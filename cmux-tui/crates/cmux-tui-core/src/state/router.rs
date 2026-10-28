@@ -27,6 +27,7 @@ use crate::workspace_registry::{ResourcePatchCommit, WorkspacePresentationUpdate
 use crate::{Mux, ResourceSelectors, WorkspaceMutation};
 
 mod agent_message_router;
+mod checklist_router;
 
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     use ResourceOperation as Op;
@@ -130,6 +131,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WorkspaceLogList
             | Op::WorkspaceLogClear
     ) || agent_message_router::handles(operation)
+        || checklist_router::handles(operation)
 }
 
 /// Map a state failure to its typed protocol error. Registry validation
@@ -199,6 +201,22 @@ fn optional_bool(fields: &Map<String, Value>, name: &str) -> Result<Option<bool>
         Some(_) => {
             Err(validation_error(&format!("{name} must be a boolean"), json!({"field": name})))
         }
+    }
+}
+
+/// `None` when absent, `Some(None)` for null; a present value must be a string.
+fn nullable_reason(
+    fields: &Map<String, Value>,
+    name: &str,
+) -> Result<Option<Option<String>>, ResourceError> {
+    match fields.get(name) {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(Value::String(value)) => Ok(Some(Some(value.clone()))),
+        Some(_) => Err(validation_error(
+            &format!("{name} must be a string or null"),
+            json!({"field": name}),
+        )),
     }
 }
 
@@ -273,12 +291,15 @@ pub(crate) fn dispatch(
     match operation {
         // A1: workspace identity, pins, tab state
         Op::WorkspaceUpdate => {
-            require_any(fields, &["title", "color", "icon"])?;
+            require_any(fields, &["title", "color", "icon", "description", "task_status"])?;
             let update = WorkspacePresentationUpdate {
                 group: None,
                 color: nullable_string(fields, "color"),
                 icon: nullable_string(fields, "icon"),
                 title: nullable_string(fields, "title"),
+                // workspace-description-v1 and workspace-status-v1.
+                description: nullable_string(fields, "description"),
+                task_status: nullable_string(fields, "task_status"),
                 ..WorkspacePresentationUpdate::default()
             };
             let commit = mux
@@ -312,7 +333,10 @@ pub(crate) fn dispatch(
             patch_result(mux, commit)
         }
         Op::TabUpdate => {
-            require_any(fields, &["zoom", "back", "forward", "owner", "icon", "marked_unread"])?;
+            require_any(
+                fields,
+                &["zoom", "back", "forward", "owner", "icon", "marked_unread", "attention"],
+            )?;
             let update = TabStateUpdate {
                 zoom: fields.get("zoom").map(Value::as_f64),
                 back: fields.contains_key("back").then(|| strings(fields, "back")),
@@ -321,6 +345,8 @@ pub(crate) fn dispatch(
                 icon: nullable_string(fields, "icon"),
                 emulation: None,
                 marked_unread: optional_bool(fields, "marked_unread")?,
+                attention: nullable_reason(fields, "attention")?,
+                attention_page: None,
             };
             let commit = mux
                 .state_update_tab(strip_request(&request)?, selectors.clone(), update)
@@ -636,6 +662,8 @@ pub(crate) fn dispatch(
                         .filter_map(|member| member.as_u64().and_then(|m| usize::try_from(m).ok()))
                         .collect()
                 }),
+                tab: string(fields, "tab"),
+                fallback_pane: string(fields, "fallback_pane"),
             };
             let commit = mux
                 .state_reopen_closed(&mutation(&request)?, expected_revision(fields)?, &reopen)
@@ -923,6 +951,10 @@ pub(crate) fn dispatch(
         // Agent messages (plans/feat-agent-rooms/DESIGN.md)
         operation if agent_message_router::handles(operation) => {
             agent_message_router::dispatch(mux, &request)
+        }
+        // workspace-checklist-v1
+        operation if checklist_router::handles(operation) => {
+            checklist_router::dispatch(mux, &request)
         }
         operation => Err(ResourceError::operation_failed(
             operation_name(operation),

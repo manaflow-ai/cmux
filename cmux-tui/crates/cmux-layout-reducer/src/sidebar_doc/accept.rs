@@ -4,10 +4,17 @@
 //! none is allowed. Mouse moves only look rows up in this table.
 //!
 //! The rules are the reducer's (`place`): an app section takes nothing
-//! (`provider_owned`), a group takes no group (`nesting`), and a workspace or
-//! group of machine A does not land in machine B's section or in a group of
-//! machine B's workspaces (`cross_machine`). A row that is dragged, or a
-//! child of a dragged group, refuses with `self`.
+//! (`provider_owned`), a group takes a group only while the tree stays within
+//! [`MAX_GROUP_DEPTH`] levels (`nesting`), and a workspace or group of
+//! machine A does not land in machine B's section or in a tree of machine
+//! B's workspaces (`cross_machine`). A row that is dragged, or anything under
+//! a dragged group, refuses with `self`.
+//!
+//! A dragged group lands beside a row only at its own level or above
+//! (`nesting`): the gap after a group's last member row looks like the gap
+//! after the group, so taking the member row's parent there nested a group
+//! the user only meant to reorder. It goes into a group through that group's
+//! header (`into`), the one drop that highlights the group taking it.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -26,21 +33,38 @@ pub struct Acceptance {
     pub refusal: Option<String>,
 }
 
-/// What is dragged: its machine and whether it is (or holds) a group.
+/// What is dragged: its machine, and the most levels of groups one
+/// dragged item holds (0: no group).
 struct Dragged {
     keys: HashSet<String>,
     machines: HashSet<String>,
-    has_group: bool,
+    group_height: usize,
+    /// The parents a dragged group may land beside a row of: its own parent and
+    /// every group above it, and the top level (`None`). `None` when no group is
+    /// dragged (a workspace or link lands beside any row it is allowed by).
+    group_levels: Option<HashSet<Option<String>>>,
 }
 
 fn dragged(doc: &Doc, rows: &[Row], items: &[String]) -> Dragged {
-    let mut result = Dragged { keys: HashSet::new(), machines: HashSet::new(), has_group: false };
+    let mut result = Dragged {
+        keys: HashSet::new(),
+        machines: HashSet::new(),
+        group_height: 0,
+        group_levels: None,
+    };
     for key in items {
         result.keys.insert(key.clone());
         if let Some(item) = doc.item(key) {
             if item.body.is_group() {
-                result.has_group = true;
-                for child in doc.list(&item.section, Some(key.as_str())) {
+                result.group_height = result.group_height.max(doc.group_height(item));
+                let mut levels: HashSet<Option<String>> =
+                    doc.ancestors(item).into_iter().map(|group| Some(group.id.clone())).collect();
+                levels.insert(None);
+                result.group_levels = Some(match result.group_levels.take() {
+                    Some(shared) => shared.intersection(&levels).cloned().collect(),
+                    None => levels,
+                });
+                for child in doc.descendants(item) {
                     result.keys.insert(child.id.clone());
                 }
             }
@@ -57,10 +81,12 @@ fn dragged(doc: &Doc, rows: &[Row], items: &[String]) -> Dragged {
     result
 }
 
-/// A group's machine, from its first child that is not dragged.
+/// The machine of a group's tree, from its first workspace that is not
+/// dragged.
 fn group_machine<'a>(doc: &'a Doc, dragged: &Dragged, group: &str) -> Option<&'a str> {
-    let section = &doc.item(group)?.section;
-    doc.list(section, Some(group))
+    let root = doc.root(doc.item(group)?);
+    doc.descendants(root)
+        .into_iter()
         .filter(|child| !dragged.keys.contains(&child.id))
         .find_map(|child| child.body.workspace().map(|r| r.session_id.as_str()))
 }
@@ -90,8 +116,11 @@ fn can_place(
         return Err(Refusal::CrossMachine);
     }
     if let Some(parent) = parent {
-        if dragged.has_group {
-            return Err(Refusal::Nesting);
+        if dragged.group_height > 0 {
+            let level = doc.item(parent).map_or(MAX_GROUP_DEPTH, |group| doc.group_level(group));
+            if level + dragged.group_height > MAX_GROUP_DEPTH {
+                return Err(Refusal::Nesting);
+            }
         }
         if dragged.machines.len() > 1 {
             return Err(Refusal::CrossMachine);
@@ -103,6 +132,15 @@ fn can_place(
         }
     }
     Ok(())
+}
+
+/// Whether a dragged group may land beside a row whose parent is `parent`: only
+/// at its own level or above, never one level in by a gap (see the module doc).
+fn beside(dragged: &Dragged, parent: Option<&str>) -> Result<(), Refusal> {
+    match &dragged.group_levels {
+        Some(levels) if !levels.contains(&parent.map(str::to_string)) => Err(Refusal::Nesting),
+        _ => Ok(()),
+    }
 }
 
 /// The acceptance of every row for dragging `items` (item ids, or the row
@@ -128,7 +166,8 @@ pub fn drag_begin(doc: &Doc, rows: &[Row], items: &[String]) -> BTreeMap<String,
         let (sides, into) = if row.kind == "section" {
             (Err(Refusal::InvalidTarget), can_place(doc, &dragged, &row.section, None))
         } else {
-            let sides = can_place(doc, &dragged, &row.section, row.parent.as_deref());
+            let sides = beside(&dragged, row.parent.as_deref())
+                .and_then(|()| can_place(doc, &dragged, &row.section, row.parent.as_deref()));
             let into = if row.kind == "group" && row.item.is_some() {
                 can_place(doc, &dragged, &row.section, Some(&row.key))
             } else {

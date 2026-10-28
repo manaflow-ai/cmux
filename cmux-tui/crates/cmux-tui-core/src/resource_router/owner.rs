@@ -264,6 +264,10 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WorkspaceLogAppend
         | ResourceOperation::WorkspaceLogList
         | ResourceOperation::WorkspaceLogClear
+        | ResourceOperation::WorkspaceChecklistList
+        | ResourceOperation::WorkspaceChecklistAdd
+        | ResourceOperation::WorkspaceChecklistUpdate
+        | ResourceOperation::WorkspaceChecklistRemove
         | ResourceOperation::AgentMessageSend
         | ResourceOperation::AgentMessageList
         | ResourceOperation::AgentMessageMark
@@ -312,6 +316,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChiefProfileDelete
         | ResourceOperation::ChiefProfileAvatarSet
         | ResourceOperation::ChiefProfileAvatarGet
+        | ResourceOperation::ChiefProfileHistory
+        | ResourceOperation::ChiefProfileUndo
         | ResourceOperation::ParticipantAvatarSet
         | ResourceOperation::ParticipantAvatarGet
         | ResourceOperation::ConversationList

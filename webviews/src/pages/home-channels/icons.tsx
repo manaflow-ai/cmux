@@ -30,6 +30,7 @@ export type HomeIconName =
   | "personAdd"
   | "edit"
   | "compose"
+  | "chiefAdd"
   | "pin"
   | "attach"
   | "download"
@@ -129,6 +130,10 @@ const PATHS: Record<HomeIconName, ReactNode> = {
     </>
   ),
   edit: <path d="M12.5 4.5l3 3L7.5 15.5H4.5v-3zM11 6l3 3" />,
+  // A spark with a plus: a new Chief (the user's own agent that runs the others).
+  chiefAdd: (
+    <path d="M8 3.5c.4 2.4 1.6 3.6 4 4-2.4.4-3.6 1.6-4 4-.4-2.4-1.6-3.6-4-4 2.4-.4 3.6-1.6 4-4zM15 11.5v5M12.5 14h5" />
+  ),
   compose: <path d="M9.5 4.5H5.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-4M13.5 3.5l3 3-6 6h-3v-3z" />,
   threads: <path d="M4 5h12M4 10h12M4 15h7" />,
   hash: <path d="M8 3.5 6.5 16.5M13.5 3.5 12 16.5M4 7.5h12.5M3.5 12.5H16" />,

@@ -4,6 +4,76 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    HomeDeliveryState {
+        Queued = "queued",
+        Sent = "sent",
+        Delivered = "delivered",
+        Bounced = "bounced",
+        Complained = "complained",
+        Failed = "failed",
+        Suppressed = "suppressed",
+        RefusedEnv = "refused_env",
+    }
+}
+
+wire_enum! {
+    HomeGrantableRole {
+        Admin = "admin",
+        Member = "member",
+        ReadOnly = "read_only",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeInboxEntry {
+    pub conversation: ConversationId,
+    pub rev: i64,
+    pub kind: ConversationKind,
+    pub title: String,
+    pub last_seq: i64,
+    pub last_at: Timestamp,
+    pub preview: String,
+    /// Attachments of the last message, for a localized preview ("2 photos"); preview is empty for an attachment-only message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_attachments: Option<HomeInboxEntryPreviewAttachments>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dm_peer: Option<ParticipantId>,
+    pub removed: bool,
+    /// A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub large: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_count: Option<i64>,
+    pub unread: i64,
+    pub mentions: i64,
+    pub counts_rev: i64,
+    pub pinned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pin_position: Option<i64>,
+    pub muted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub muted_until: Option<WireNumber>,
+    pub archived: bool,
+    pub archived_seq: i64,
+    pub marked_unread: bool,
+}
+
+wire_enum! {
+    HomeInboxEntryPreviewAttachmentsKind {
+        Photo = "photo",
+        Video = "video",
+        Audio = "audio",
+        File = "file",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeInboxEntryPreviewAttachments {
+    pub kind: HomeInboxEntryPreviewAttachmentsKind,
+    pub count: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeInvite {
     pub id: InviteId,
@@ -349,6 +419,8 @@ pub struct Host {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<ServerNetworkState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub orphaned: Option<HostOrphaned>,
 }
 
@@ -450,6 +522,12 @@ wire_enum! {
     }
 }
 
+pub type NativeDeviceId = String;
+
+pub type NativeMeshId = String;
+
+pub type NativeTenantId = String;
+
 wire_enum! {
     OpClass {
         Read = "read",
@@ -526,6 +604,7 @@ wire_enum! {
         GithubRepoScope = "github.repoScope",
         GithubRequireOrgAdmin = "github.requireOrgAdmin",
         GithubRepoAllowList = "github.repoAllowList",
+        GithubAllowWorkflows = "github.allowWorkflows",
         IntegrationsAllowedProviders = "integrations.allowedProviders",
         McpServer = "mcp.server",
         McpRemoteTransport = "mcp.remoteTransport",
@@ -701,6 +780,40 @@ pub struct RunWithBodyOutcome {
 
 pub type ServerCapability = String;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkBinding {
+    pub state: LitConfirmed,
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub device: NativeDeviceId,
+    pub confirmed_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkProof {
+    #[serde(rename = "signedAt")]
+    pub signed_at: i64,
+    pub nonce: String,
+    pub signature: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkReservation {
+    pub state: LitReserved,
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub device: NativeDeviceId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum ServerNetworkState {
+    ServerNetworkReservation(ServerNetworkReservation),
+    ServerNetworkBinding(ServerNetworkBinding),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
 /// A Cloud machine snapshot.
 pub type SnapshotId = String;
 
@@ -775,6 +888,8 @@ pub enum Step {
     Sleep(StepSleep),
     Note(StepNote),
     Op(StepOp),
+    Machine(StepMachine),
+    Agent(StepAgent),
     /// A member this build does not know (a newer backend), kept verbatim.
     Unknown(Value),
 }
@@ -783,121 +898,4 @@ pub enum Step {
 pub struct StepSleep {
     pub r#type: LitSleep,
     pub seconds: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StepNote {
-    pub r#type: LitNote,
-    pub text: String,
-}
-
-wire_enum! {
-    StepOpOp {
-        AutomationList = "automation.list",
-        AutomationGet = "automation.get",
-        AutomationRunsList = "automation.runs.list",
-        AutomationRun = "automation.run",
-        UsageSummary = "usage.summary",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StepOp {
-    pub r#type: LitOp,
-    pub op: StepOpOp,
-    pub params: Value,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum TargetPolicy {
-    CloudVm(TargetPolicyCloudVm),
-    Host(TargetPolicyHost),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TargetPolicyCloudVm {
-    pub kind: LitCloudVm,
-}
-
-wire_enum! {
-    TargetPolicyHostFallback {
-        CloudVm = "cloud_vm",
-        Wait = "wait",
-        Fail = "fail",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TargetPolicyHost {
-    pub kind: LitHost,
-    pub host: HostId,
-    pub fallback: TargetPolicyHostFallback,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitMember {
-    pub user: UserId,
-    pub display_name: String,
-    pub role: String,
-    pub limit_usd: WireNumber,
-    pub source: TeamAiLimitMemberSource,
-    pub spent_usd: WireNumber,
-}
-
-wire_enum! {
-    TeamAiLimitMemberSource {
-        Personal = "personal",
-        Team = "team",
-        Default = "default",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiUsageLine {
-    pub billed: bool,
-    pub included_usd: Option<WireNumber>,
-    pub per_seat: bool,
-    pub seats: i64,
-    pub spent_usd: WireNumber,
-    pub period_start: Option<i64>,
-    pub period_end: i64,
-    pub stop_applies: bool,
-    pub stopped: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAuditEntry {
-    pub n: i64,
-    pub op: String,
-    pub actor: String,
-    pub at: i64,
-    pub category: TeamAuditEntryCategory,
-    pub summary: String,
-    pub detail: Value,
-    pub hash: String,
-}
-
-wire_enum! {
-    TeamAuditEntryCategory {
-        Admin = "admin",
-        Billing = "billing",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDomain {
-    pub domain: EmailDomain,
-    pub state: TeamDomainState,
-    pub record_name: String,
-    pub record_value: String,
-    pub requested_at: i64,
-    pub expires_at: i64,
-    pub verified_at: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_checked_at: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub check_failures: Option<i64>,
 }

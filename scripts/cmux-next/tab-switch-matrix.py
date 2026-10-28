@@ -24,6 +24,7 @@ import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_idle import classify, usage  # noqa: E402
+from bench_launch import launch_app, bundle_id  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--matrix", action="store_true", help="(accepted for the tab-switch-stages.py entry)")
@@ -40,6 +41,7 @@ parser.add_argument("--out", default="/tmp")
 parser.add_argument("--profile", default="", help="kind:count scenarios (comma list) whose Ctrl-Tab phase runs under a Time Profiler")
 opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
@@ -50,13 +52,14 @@ open(CONFIG, "w").write("{}\n")
 STAGES = ["input", "focus", "strip", "withdraw", "content", "reveal", "stripSync", "view", "present", "record", "apply", "commit"]
 COLORS = ["#c0392b", "#27ae60", "#2980b9", "#8e44ad", "#d35400", "#16a085", "#2c3e50", "#f39c12", "#7f8c8d", "#e84393"]
 ROWS, LAUNCHED = [], []
+PAGE_TABS = []
 app = None
 
 
 def run(*args, timeout=30):
     env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
-           "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
+           "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
     return subprocess.run([CLI, *args], capture_output=True, text=True, timeout=timeout, env=env)
 
 
@@ -79,7 +82,7 @@ def rpc(method, params=None, timeout=30):
         return {"error": str(error)}
 
 
-def action(name, args=None, timeout=60, origin="user"):
+def action(name, args=None, timeout=60, origin="script"):  # the socket refuses "user" (ControlOrigin)
     return rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": origin}, timeout=timeout)
 
 
@@ -129,10 +132,36 @@ def pct(values, q):
     return values[min(len(values) - 1, int(len(values) * q))] if values else None
 
 
+# Each test page notes the first animation frame after it turns visible (epoch ms): the time its own
+# content draws again, which the app's commit (`debug.tab_switch`) does not cover (the page's process
+# commits it). `content_frames` collects them per switch.
+SHOWN_SCRIPT = ("<script>window.__shown=[];document.addEventListener('visibilitychange',()=>{"
+                "if(document.visibilityState==='visible')requestAnimationFrame(()=>"
+                "window.__shown.push(performance.timeOrigin+performance.now()))});</script>")
+
+
 def page_html(index):
     color = COLORS[index % len(COLORS)]
-    return (f"<!doctype html><title>page {index}</title><body style='margin:0;background:{color};color:white;"
+    return (f"<!doctype html><title>page {index}</title>{SHOWN_SCRIPT}<body style='margin:0;background:{color};color:white;"
             f"font:40px -apple-system'>" + f"<p>page {index} row</p>" * 40)
+
+
+def content_frames(tab_ids, sends):
+    """Per switch (epoch ms it was sent), the first page frame after it from any page: ms, or None."""
+    shown = []
+    for tab in tab_ids:
+        reply = rpc("browser.page.eval", {"tab": tab, "script": "JSON.stringify(window.__shown ? window.__shown.splice(0) : [])"}, timeout=10)
+        try:
+            shown += json.loads((reply or {}).get("value") or "[]")
+        except (TypeError, ValueError):
+            pass
+    shown.sort()
+    out = []
+    for index, sent in enumerate(sends):
+        until = sends[index + 1] if index + 1 < len(sends) else sent + 2000
+        first = next((t for t in shown if sent <= t < until), None)
+        out.append(None if first is None else round(first - sent, 2))
+    return out
 
 
 def maker(kind, index):
@@ -230,7 +259,9 @@ def time_switches(label, step, count, profile=None):
     kinds = classify(app.pid, APP)
     start = {pid: usage(pid) for pid in kinds}
     t0 = time.monotonic()
+    sends = []
     for index in range(count):
+        sends.append(time.time() * 1000)
         step(index)
         time.sleep(opts.interval)  # test harness pacing: one switch per interval
     time.sleep(0.8)  # test harness: the last commit lands
@@ -261,18 +292,24 @@ def time_switches(label, step, count, profile=None):
         for stage in STAGES + ["e2e"]:
             values = [r[stage + "_ms"] for r in rows if stage + "_ms" in r]
             if values:
-                line[stage] = {"p50": round(pct(values, 0.5), 3), "p90": round(pct(values, 0.9), 3), "max": round(max(values), 3)}
+                line[stage] = {"p50": round(pct(values, 0.5), 3), "p90": round(pct(values, 0.9), 3), "p95": round(pct(values, 0.95), 3), "max": round(max(values), 3)}
         late = [r.get("late_vsyncs", 0) for r in rows]
         line["late_switches"] = sum(1 for v in late if v > 0)
         line["late_max"] = max(late) if late else 0
         table[kind] = line
-        cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}" for st in ("input", "apply", "commit", "e2e") if st in line)
-        print(f"  {label:<14} {kind:<10} n={len(rows):<3} p50/p90 ms: {cells} late={line['late_switches']}/{len(rows)} max={line['late_max']}", flush=True)
+        cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}/{line[st]['p95']}" for st in ("input", "apply", "commit", "e2e") if st in line)
+        print(f"  {label:<14} {kind:<10} n={len(rows):<3} p50/p90/p95 ms: {cells} late={line['late_switches']}/{len(rows)} max={line['late_max']}", flush=True)
     stalls = {"count": hangs.get("count"), "max_ms": hangs.get("max_ms")}
     for record in (hangs.get("records") or [])[-3:]:
         frames = [f for f in record.get("frames", []) if "CmuxNext" in f or "Ghostty" in f][:8]
         print(f"    stall {record.get('duration_ms', 0):.1f} ms: " + " < ".join(str(f)[:90] for f in frames), flush=True)
-    return {"table": table, "switches": switches, "stalls": stalls, "cpu_percent_during": round(cpu, 1),
+    frames = content_frames(PAGE_TABS, sends) if PAGE_TABS else []
+    got = [f for f in frames if f is not None]
+    content = None
+    if frames:
+        content = {"switches": len(frames), "framed": len(got), "p50": pct(got, 0.5), "p90": pct(got, 0.9), "p95": pct(got, 0.95), "max": max(got) if got else None}
+        print(f"  {label:<14} page content frame: {content}", flush=True)
+    return {"table": table, "switches": switches, "stalls": stalls, "cpu_percent_during": round(cpu, 1), "content_frame_ms": content,
             "timed": len(switches), "asked": count, "profile": profiled}
 
 
@@ -302,6 +339,8 @@ def scenario(kind, count, baseline):
             time.sleep(0.4)  # test harness: the page loads before the next tab
     print(f"{name}: {count} tabs made in {time.time() - t0:.1f} s", flush=True)
     total = len(strip_tabs())
+    global PAGE_TABS
+    PAGE_TABS = [t[0] for t in strip_tabs()] if kind in ("chromium", "webkit") else []
     for _ in range(total):  # warm: every tab once
         rpc("debug.key", {"key": "tab", "modifiers": ["control"]})
         time.sleep(0.35 if kind != "terminal" else 0.15)  # test harness: slow warm-up visit
@@ -359,20 +398,23 @@ def cleanup():
         os.remove(SOCKET)
 
 
-def main():
+def started(process):
     global app
+    app = process
+    LAUNCHED.append(process.pid)
+
+
+def main():
+    global app, SOCKET
     if os.path.exists(SOCKET):
         os.remove(SOCKET)
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
-    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    LAUNCHED.append(app.pid)
+    # One launch path (bench_launch.py): socket in the state folder, bench env, the reason when it does not come up.
+    app, SOCKET = launch_app(APP, env, os.path.join(opts.out, f"app-{TAG}.log"), timeout=120, on_start=started)
     print(f"launched pid {app.pid}", flush=True)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        sys.exit("the tagged app did not come up")
     time.sleep(5)  # test harness: launch work settles before the baseline
     baseline = footprint()
     print(f"baseline idle {baseline}", flush=True)

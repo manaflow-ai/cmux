@@ -40,6 +40,14 @@ final class SidebarRegionView: NSView {
     /// A press the list's drag ended early (a cancel): it drags nothing more until its release.
     var docSpentPress: LayoutItemID?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
+    /// A workspace tile's close x: closes that workspace (the sidebar sends `.close`).
+    var onCloseWorkspace: ((WorkspaceID) -> Void)?
+    /// The sidebar's edit mode (`SidebarView.isEditingItems`): every item but a client-only one
+    /// wiggles and shows its ✕, which asks `onRemoveItem` to take it out.
+    var isEditing = false {
+        didSet { if isEditing != oldValue { for (id, view) in itemViews { edit(view, id) } } }
+    }
+    var onRemoveItem: ((LayoutItemID) -> Void)?
     /// The region's height changed outside its host's layout (a drag's
     /// preview, a landed drop): the host lays its bands out again.
     var onHeightChange: (() -> Void)?
@@ -135,6 +143,14 @@ final class SidebarRegionView: NSView {
         apply(shown)
     }
 
+    /// Lays the shown content out again at `width` when that differs from the width it was
+    /// laid out at: a list block's row is resized with the list (a sidebar resize), and its
+    /// rows must take the new width, not keep the one they were first laid out at.
+    func fit(width: CGFloat) {
+        guard width != self.width, let content else { return }
+        update(content, width: width)
+    }
+
     /// Shows `content` (a list block, `SidebarBlockRowView`): animated, the
     /// items spring to their new frames, as the list's rows do for a gap.
     func show(_ content: Content, width: CGFloat, animated: Bool) {
@@ -172,7 +188,7 @@ final class SidebarRegionView: NSView {
         layoutResult = Self.layout(shown, width: width)
         if layoutResult.height != height { onHeightChange?() }
         guard animated else { return apply(shown) }
-        Motion.animate(.move, in: self, {
+        Motion.sidebar.animate(.move, in: self, {
             self.animatesFrames = true
             self.apply(shown)
             self.animatesFrames = false
@@ -191,27 +207,12 @@ final class SidebarRegionView: NSView {
     private static func layout(_ content: Content, width: CGFloat) -> SidebarRegionLayout {
         SidebarRegionLayout.make(sections: content.sections, width: width, look: content.look,
                                  collapsed: content.collapsed, metrics: content.metrics,
-                                 labelWidths: labelWidths(content), appHeights: content.appHeights)
+                                 labelWidths: labelWidths(content, width: width), appHeights: content.appHeights)
     }
 
     private func place(_ view: NSView, _ frame: CGRect, new: Bool = false) {
         if springsFrames, !new { return SidebarDragSpring.move(view, to: frame) }
         if animatesFrames, !new { view.animator().frame = frame } else if springsFrames { Motion.withoutAnimation { view.frame = frame } } else { view.frame = frame }
-    }
-
-    /// Icon + label width of every item of an inline section.
-    private static func labelWidths(_ content: Content) -> [LayoutItemID: CGFloat] {
-        var widths: [LayoutItemID: CGFloat] = [:]
-        let font = SidebarStyle.titleFont
-        // Inline lines and span grids (R53) draw labeled items with icon and label.
-        for section in content.sections where section.arrangement.layout == .inline
-            || (section.arrangement.layout == .grid && section.items.contains { $0.span != nil }) {
-            for item in section.items where item.showsLabel {
-                let info = content.infos[item.id] ?? .fallback(for: item)
-                widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge, activity: info.activity != .idle)
-            }
-        }
-        return widths
     }
 
     private func apply(_ content: Content) {
@@ -225,6 +226,7 @@ final class SidebarRegionView: NSView {
                 let new = headerViews[id] == nil
                 let view = headerViews[id] ?? makeHeader(id)
                 view.configure(title: section.title ?? "", collapsed: content.collapsed.contains(id))
+                view.setAccessibilityIdentifier("cmux.sidebar.region.\(id.rawValue)")
                 place(view, row.frame, new: new)
             case let .app(id):
                 guard let section = sections[id], let view = appViews[id] ?? appView?(section) else { continue }
@@ -254,10 +256,15 @@ final class SidebarRegionView: NSView {
                 case .chip: .chip
                 default: section.look == .builtIn ? .builtIn : .list
                 }
-                view.configure(activeInfo(content.infos[id] ?? .fallback(for: item), id), style: style)
+                var info = activeInfo(content.infos[id] ?? .fallback(for: item), id)
+                info.leadingPin = !style.isIconOnly && style != .chip && sectionID == SidebarLayoutDocument.pinnedSectionID
+                    && item.ref.kind == LayoutItemRef.workspaceKind
+                view.configure(info, style: style)
+                view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
                 view.activatesOnPress = item.ref.activatesOnPress
                 place(view, row.frame, new: new)
                 if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
+                edit(view, id)
             }
         }
         // A dragged item's view owns the press (AppKit sends it the drags
@@ -336,15 +343,27 @@ final class SidebarRegionView: NSView {
                 self?.onActivate?(id)
             }
         }
+        view.onPressBegan = { [weak self] in self?.endStaleDrag() }
         addSubview(view)
         itemViews[id] = view
         // A client-only item (What's New) only opens: no drag, no menu.
         guard !id.isTransient else { return view }
         view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
         view.onDragEnded = { [weak self] in self?.finishDrag() }
+        view.onRemove = { [weak self] in self?.onRemoveItem?(id) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)
+        }
+        // A workspace tile's hover more button opens the same menu under itself; its x closes the
+        // workspace as a workspace row's x does (SidebarItemRowView+HoverActions).
+        view.onMore = { [weak self, weak view] in
+            guard let view, let button = view.hoverMore, let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
+            _ = menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.isFlipped ? button.bounds.maxY : 0), in: button)
+        }
+        view.onClose = { [weak self, weak view] in
+            guard let workspace = view?.info.workspace else { return }
+            self?.onCloseWorkspace?(workspace)
         }
         return view
     }

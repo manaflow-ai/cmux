@@ -43,6 +43,7 @@ mod private_mode;
 mod signal_sender;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
+mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
@@ -88,6 +89,7 @@ mod remote_cli {
         1
     }
 }
+mod devices;
 mod owner_start;
 mod remote_host;
 #[cfg(unix)]
@@ -101,6 +103,7 @@ mod test_exec;
 #[cfg(test)]
 mod test_wait;
 mod ui;
+mod update_notice;
 mod version_report;
 
 use headless::run_headless;
@@ -970,6 +973,20 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
 /// time; cmux-tui-core gets them at start (`install_build_stamp`), so a new
 /// stamp recompiles this crate and not the libraries.
 fn build_stamp() -> cmux_tui_core::server::BuildStamp {
+    // The source commit's time (`identify {revisions: true}`): what
+    // `link machine update --if-older` orders two builds by.
+    #[cfg(unix)]
+    let build_time = cmux_build_identity::BUILD_TIME;
+    #[cfg(not(unix))]
+    let build_time = 0;
+    // Test seam, debug builds only: a daemon that reports another build time,
+    // so a journey can stand one binary in for an older or a newer machine
+    // daemon (machine_update_journey.rs). Release builds report their own.
+    #[cfg(debug_assertions)]
+    let build_time = std::env::var("CMUX_TEST_DAEMON_BUILD_TIME")
+        .ok()
+        .and_then(|time| time.trim().parse().ok())
+        .unwrap_or(build_time);
     cmux_tui_core::server::BuildStamp::new(
         // `or` before the filter: a set but empty CMUX_TUI_BUILD_COMMIT hides
         // CMUX_MUX_BUILD_COMMIT (no stamp), as before the stamp moved here.
@@ -978,6 +995,7 @@ fn build_stamp() -> cmux_tui_core::server::BuildStamp {
             .filter(|commit| !commit.is_empty()),
         option_env!("CMUX_TUI_GHOSTTY_COMMIT"),
     )
+    .with_build_time(build_time)
 }
 
 pub(crate) fn version_string() -> String {
@@ -1008,7 +1026,7 @@ fn version_report_json() -> serde_json::Value {
     #[cfg(not(unix))]
     let (build_identity, build_time, remote_protocol) = (None, 0, None);
     let executable = std::env::current_exe().ok().and_then(|path| std::fs::canonicalize(path).ok());
-    version_report::version_json(
+    let mut report = version_report::version_json(
         &version_report::BuildFacts {
             build_identity,
             build_time,
@@ -1017,7 +1035,12 @@ fn version_report_json() -> serde_json::Value {
             remote_protocol,
         },
         executable.as_deref(),
-    )
+    );
+    // The invite wave this tester is in and what its signed flags turn off (#10).
+    let (cohort, disabled_features) = feature_flags::report();
+    report["cohort"] = serde_json::json!(cohort);
+    report["disabled_features"] = serde_json::json!(disabled_features);
+    report
 }
 
 #[cfg(unix)]
@@ -1440,7 +1463,7 @@ fn rewrite_server_start(args: &mut Vec<String>) {
     }
 }
 
-const STARTUP_VALUE_OPTIONS: &[&str] = &[
+pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--socket",
     "--session",
     "--machine",
@@ -1750,6 +1773,17 @@ fn run_main() {
     // before installing the interactive daemon's signal handlers: the host
     // owns its own lifecycle and must not inherit "request mux shutdown"
     // semantics.
+    // The one process that holds every PTY of this install (cmux-holder,
+    // terminal-host-model-DESIGN.md). Same rule as the host: before any
+    // daemon signal handler.
+    #[cfg(unix)]
+    if raw_args.first().map(String::as_str) == Some("__holder") {
+        if let Err(error) = cmux_holder::serve(&raw_args[1..]) {
+            crate::client_log::stderr_log!("startup", "cmux-tui holder: {error}");
+            client_log::exit(1);
+        }
+        return;
+    }
     if raw_args.first().map(String::as_str) == Some("__terminal-host") {
         if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
             crate::client_log::stderr_log!("startup", "cmux-tui terminal host: {error}");
@@ -1761,12 +1795,10 @@ fn run_main() {
     // beside it when that is this build (macOS; host_exe.rs).
     #[cfg(unix)]
     cmux_tui_core::host_exe::use_sibling_host(cmux_build_identity::BUILD_IDENTITY);
-    // `cmux acp …` (and `cmux harness|chats|route …` = `cmux acp harness|chats|route …`) runs acpmux
-    // in this process. It needs none of the mux's provider credentials or signal handlers.
+    // `cmux acp …` (and `cmux harness|chats …` = `cmux acp harness|chats …`) runs acpmux in
+    // this process. It needs none of the mux's provider credentials or signal handlers.
     #[cfg(unix)]
-    if let Some(head @ ("acp" | "harness" | "chats" | "route")) =
-        raw_args.first().map(String::as_str)
-    {
+    if let Some(head @ ("acp" | "harness" | "chats")) = raw_args.first().map(String::as_str) {
         discard_provider_secret_environment();
         let args = std::env::args_os().skip(if head == "acp" { 2 } else { 1 }).collect();
         client_log::exit(acp::run_scope(head, args));
@@ -1777,6 +1809,21 @@ fn run_main() {
     if cli::remote_host_requested(&raw_args) {
         discard_provider_secret_environment();
         client_log::exit(remote_host::run(&raw_args[1..]));
+    }
+    // `cmux device list|remove|audit|network|invite` and `add --yes`: one
+    // device list over every store (plans/cmux-next/add-device-DESIGN.md).
+    // `cmux device add` without `--yes` is the app's Add Device card. Both
+    // surfaces: the app runs its bundled `cmux-tui device list --json`.
+    if devices::handles(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(devices::run(&raw_args[1..]));
+    }
+    // `cmux route` was removed with the route CLI. Refuse it before the generic
+    // unknown-command app fallback or daemon skew re-exec can touch a socket or
+    // revive the command through an older daemon.
+    if cli::removed_route_requested(&raw_args) {
+        eprintln!("cmux: unknown resource scope \"route\"");
+        client_log::exit(2);
     }
     #[cfg(unix)]
     if let Some(run) = cli::early_unix_scope(&raw_args) {
@@ -1864,6 +1911,7 @@ fn run_main() {
         // SAFETY: still single-threaded startup, as for the captures above.
         unsafe { startup_env::take_agent_caller_env() };
     }
+    let headless = args.headless;
     let config = config::StartupConfigSnapshot::load();
     let provider = resolve_provider_launch(&args, &config)
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
@@ -1908,6 +1956,10 @@ fn run_main() {
         None if args.attach => run_attach(args, config),
         None => run_server(args, provider_workspace_authority, config),
     };
+    if result.is_ok() && !headless {
+        // After the TUI restored the terminal: the one update line (#8).
+        update_notice::print_on_exit();
+    }
     if let Err(e) = result {
         if session::is_expected_remote_shutdown(&e) {
             return;

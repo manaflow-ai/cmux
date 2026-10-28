@@ -68,6 +68,18 @@ mod api_compat {
         assert_eq!(tr(&c, 1, 2, r#"{"b":1}"#), r#"{}"#);
     }
 
+    /// Fleet proptest find (ba8b81c): a move creates the missing parents of
+    /// its destination, so a later rule under that parent runs after it.
+    #[test]
+    fn api_compat_add_under_a_parent_a_move_created() {
+        let c = compat(vec![
+            vec![Change::Move { from: "/e".into(), path: "/c/r0".into() }],
+            vec![Change::Add { path: "/c/r1".into(), default: json!(1) }],
+        ]);
+        let up: Value = serde_json::from_str(&tr(&c, 1, 3, r#"{"e":null}"#)).unwrap();
+        assert_eq!(up, json!({"c": {"r0": null, "r1": 1}}));
+    }
+
     #[test]
     fn api_compat_move_across_parents_round_trips() {
         let c =

@@ -14,6 +14,9 @@
 # cmux-tui-host-<target> (the slim terminal host) goes beside bin/cmux as
 # bin/cmux-tui-host: a macOS daemon runs every terminal host from it when it
 # reports the daemon's build, else from a copy of bin/cmux.
+# cmux-tui-holder-<target> (the terminal holder, std and libc only) goes beside
+# bin/cmux as bin/cmux-holder: the daemon starts every terminal holder from a
+# content-addressed copy of it, else runs the holder built into cmux-tui-host.
 #
 # The build comes from the artifacts manifest the cmux-tui-artifacts workflow publishes
 # (rolling `latest` by default; a commit-addressed manifest pins one build). Both
@@ -204,7 +207,7 @@ check_acpmux() {
 
 # The companions this bundle may carry: the browser host only once its license
 # notices are mapped (see the header).
-COMPANIONS=(cmux-app-host cmux-cloud cmux-tui-host)
+COMPANIONS=(cmux-app-host cmux-cloud cmux-tui-host cmux-holder)
 BUNDLE_MAP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/notices/bundle-map.json"
 if python3 -c 'import json,sys; sys.exit(0 if any(e.get("path") == "Contents/Resources/bin/cmux-browser-host" for e in json.load(open(sys.argv[1]))["entries"]) else 1)' "$BUNDLE_MAP" 2>/dev/null; then
   COMPANIONS+=(cmux-browser-host)
@@ -232,6 +235,7 @@ if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   done
   verify_probe
   check_acpmux
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/write-daemon-capabilities.sh" "$DEST_DIR"
   echo "Installed local cmux-tui client at $DEST"
   exit 0
 fi
@@ -406,6 +410,7 @@ install_companion() {
 install_companion cmux-tui-app-host cmux-app-host
 install_companion cmux-tui-cloud-server cmux-cloud
 install_companion cmux-tui-host cmux-tui-host
+install_companion cmux-tui-holder cmux-holder
 if [[ "$SHIP_BROWSER_HOST" == 1 ]]; then
   install_companion cmux-tui-browser-host cmux-browser-host
 else
@@ -417,6 +422,9 @@ fi
 for arch in "${VERIFY_ARCHS[@]}"; do lipo "$DEST" -verify_arch "$arch"; done
 verify_probe
 check_acpmux
+# bin/daemon-capabilities.json from the client just installed (a build from
+# before `capabilities` leaves none, with a warning).
+"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/write-daemon-capabilities.sh" "$DEST_DIR"
 # Bootstrap payloads share the signed client's exact build. End-user SSH hosts
 # need neither Node/npm nor access to an artifact server, and the client verifies
 # these hashes again before uploading the selected platform executable.

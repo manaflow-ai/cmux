@@ -10,13 +10,18 @@ extension WorkspaceRowView {
     /// The title and line heights, the flipped y the stack starts at, and the
     /// y the icon and trailing marks center on.
     func textMetrics(head b: NSRect) -> (title: CGFloat, line: CGFloat, top: CGFloat, center: CGFloat) {
-        let th = ceil(title.intrinsicContentSize.height), sh = ceil(subtitle.intrinsicContentSize.height)
+        let th = ceil(title.intrinsicContentSize.height)
+        let sh = SidebarTunables.evenRowText.value ? SidebarStyle.detailLineHeight : ceil(subtitle.intrinsicContentSize.height)
         let lines = (hasSubtitle ? 1 : 0) + (hasMeta ? 1 : 0)
-        let top = (b.height - th - CGFloat(lines) * (Metrics.space1 + sh)) / 2
+        let top = (b.height - th - CGFloat(lines) * (lineGap + sh)) / 2
         return (th, sh, top, isExpanded ? top + th / 2 : b.height / 2)
     }
 
     var hasMeta: Bool { isExpanded && !metaLabel.stringValue.isEmpty }
+
+    /// Between stacked text lines: none when each detail line adds exactly its own height to the row
+    /// (`SidebarDensityTokens.rowHeightWithSubtitle`); the labels' own line spacing separates them.
+    var lineGap: CGFloat { SidebarTunables.evenRowText.value ? 0 : Metrics.space1 }
 
     /// Lays out the age (or a one-line status) left of `trailing` and returns the new trailing edge.
     func layoutTime(trailing: CGFloat, cy: CGFloat, height: CGFloat) -> CGFloat {
@@ -48,8 +53,8 @@ extension WorkspaceRowView {
         title.frame = NSRect(x: x + inset, y: top, width: titleWidth, height: th)
         let lineWidth = isExpanded ? max(0, b.width - Metrics.space3 - x) : width
         subtitle.isHidden = !hasSubtitle
-        subtitle.frame = NSRect(x: x, y: top + th + Metrics.space1, width: lineWidth, height: sh)
+        subtitle.frame = NSRect(x: x, y: top + th + lineGap, width: lineWidth, height: sh)
         metaLabel.isHidden = !hasMeta
-        metaLabel.frame = NSRect(x: x, y: (hasSubtitle ? subtitle.frame.maxY : top + th) + Metrics.space1, width: lineWidth, height: sh)
+        metaLabel.frame = NSRect(x: x, y: (hasSubtitle ? subtitle.frame.maxY : top + th) + lineGap, width: lineWidth, height: sh)
     }
 }

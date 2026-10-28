@@ -14,6 +14,7 @@
 //!   5 unreachable, 6 link_unavailable, 64 bad usage or bad_request.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use cmux_link::dial::{DialError, PathState, Service, line};
 use cmux_remote::provider::overlay::{OverlayDialError, OverlayStream, dial_link};
@@ -22,6 +23,9 @@ use tokio::io::AsyncWriteExt;
 
 /// The `error_code` when no link answers on its socket.
 pub(super) const LINK_UNAVAILABLE: &str = "link_unavailable";
+/// This CLI must finish when the peer closes, even while the stdin blocking
+/// thread is waiting for input (Tokio's stdin reads cannot be cancelled).
+const STDIO_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(100);
 
 /// Why a dial did not connect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,7 +169,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         Err(failure) => return report(failure),
     };
     let Ok(runtime) = super::tokio_runtime() else { return report(Failure::LinkUnavailable) };
-    runtime.block_on(async {
+    let code = runtime.block_on(async {
         let stream = match connect(&socket, &host, service).await {
             Ok(stream) => stream,
             Err(failure) => return report(failure),
@@ -173,7 +177,9 @@ pub(super) fn run(args: &[String]) -> i32 {
         eprint!("{}", connected_line(&stream));
         bridge(stream).await;
         0
-    })
+    });
+    runtime.shutdown_timeout(STDIO_SHUTDOWN_TIMEOUT);
+    code
 }
 
 fn report(failure: Failure) -> i32 {

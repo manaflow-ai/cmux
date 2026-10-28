@@ -25,17 +25,14 @@ on:
         required: false
         default: both
         type: string
-    secrets:
-      GLAEDA_ROUTE_APP_KEY:
-        required: true
-
 permissions: {}
 
 jobs:
   probe:
+    environment: ci-routing-agent
     permissions:
       contents: write
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - name: Check out the probe target

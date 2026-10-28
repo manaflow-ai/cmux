@@ -70,7 +70,7 @@ final class GlassOutlineRenderer: DropOverlayRenderer {
         surface.frame = frame.target
         surface.cornerRadius = frame.cornerRadius
         let bounds = CGRect(origin: .zero, size: frame.target.size)
-        Motion.transaction(nil) {
+        Motion.panes.transaction(nil) {
             ring.frame = bounds
             ring.path = DropOverlayGeometry.ringPath(bounds, cornerRadius: frame.cornerRadius,
                                                      width: CGFloat(DropOverlayTunables.outlineWidth.value))
@@ -118,7 +118,7 @@ final class InsetCardRenderer: DropOverlayRenderer {
     func pinMaterial(_ material: OverlayMaterial?) { card.materialOverride = material }
 
     func update(_ frame: DropOverlayFrame) {
-        Motion.transaction(nil) {
+        Motion.panes.transaction(nil) {
             tint.path = DropOverlayGeometry.roundedRect(frame.target, frame.cornerRadius)
             tint.opacity = Float(DropOverlayTunables.cardRegionOpacity.value)
         }

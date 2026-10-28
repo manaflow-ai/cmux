@@ -169,13 +169,7 @@ export function ThreadSheet({
               <HomeIcon name="link" size={16} />
             </button>
           )}
-          <button
-            type="button"
-            className="hc-icon-button"
-            aria-label={t("thread.close")}
-            title={t("thread.close")}
-            onClick={onClose}
-          >
+          <button type="button" className="hc-icon-button" aria-label={t("thread.close")} onClick={onClose}>
             <HomeIcon name="close" size={16} />
           </button>
         </div>
@@ -277,7 +271,6 @@ export function ThreadSheet({
               type="button"
               className="hc-icon-button"
               aria-label={t("thread.cancelReply")}
-              title={t("thread.cancelReply")}
               onClick={() => setReplyTo(undefined)}
             >
               <HomeIcon name="close" size={14} />

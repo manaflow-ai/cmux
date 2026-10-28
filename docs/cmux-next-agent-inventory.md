@@ -203,3 +203,47 @@ a source ID or envelope never reach this listener. These fields are source
 metadata, not owner identity or permission; existing event-only listeners keep
 their current interface. The provider bridge must use this source-aware path
 before interpreting a demand snapshot or watch notice.
+
+## Native update recovery
+
+The local registry stores non-secret update intents before dispatch: the original
+key, batch key, canonical target machine/session, observed CLI family and profile
+IDs. `agent-cli-intents-record` commits the whole batch atomically;
+`agent-cli-intents-list` reads it, `agent-cli-intents-attach` saves the matching
+public terminal receipt, and `agent-cli-intents-settle` deletes settled intents.
+Records cannot be retargeted. Recording also drops rows older than seven days and
+keeps the newest 256 per actor, so the ledger cannot fill up; reads never return
+a row older than seven days, so one nothing settles stops blocking. The additive
+`agent_cli_intents` table is created when an existing registry opens; older
+binaries can ignore it without a schema-version change.
+
+These raw carriers require `agent-cli-intents-v1`, a verified main Frontend Unix
+connection and the local ledger's exact machine/session. The registry derives
+the actor from that connection and journals writes. Actor claims, App callers,
+agent-bound connections and remote transports cannot acquire this authority.
+A saved intent is metadata, not an execution grant.
+
+On the original target, `agent-cli-update-job-resolve` requires
+`agent-cli-update-job-resolve-v1`, the original key and CLI, exact target
+machine/session and the same verified Frontend admission as job creation. It
+only reads the durable creation state: `not_found`, `prepared`, `pending`,
+`indeterminate`, `failed`, or `created` with the original public receipt. It
+never prepares a plan or starts an updater.
+
+Settings Refresh restores intents only through an already admitted original
+machine/session, then observes any retained terminal. It cannot fall back to
+the focused or local machine. An unsettled intent blocks a fresh update of the
+same CLI on that machine, from any session: an unreachable session may be a
+live server still running the updater. Settings shows such a row as an unknown
+update a person may dismiss (a local ledger delete); otherwise it waits out the
+age bound. A ledger row that fails validation is skipped, not the whole list. Only a new user gesture or native confirmation may
+resume an unstarted (`not_found` or `prepared`) intent, preserving its original
+key and family. Pending execution stays fenced; a created receipt only
+reattaches. An intent settles, and stops blocking, when its terminal exits (with
+any outcome) or is closed (`terminal.closed`, or `selector.not_found` for the
+terminal), when the owner refuses its start before journaling (`agent_cli_job.*`
+other than `busy`, which may be this key running) or when the creation state is
+`failed`. A failed record leaves no job behind. A person may dismiss an
+unstarted or `indeterminate` intent, or one still `pending` ten minutes after a
+recovery first saw it; dismissing stops nothing. App execution and remote
+execution admission remain unsupported.

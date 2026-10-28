@@ -1144,7 +1144,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     }
     static func tileKeys(_ c: ConversationSummary, natural n: (name: CGFloat, bubble: CGFloat), tileWidth tw: CGFloat,
                          emphasized: Bool, generation: Int) -> (name: SidebarBitmapKey, bubble: SidebarBitmapKey?) {
-        let name = SidebarBitmapKey(kind: .tile, id: c.id, version: c.version, width: SidebarDraw.tileNameKeyWidth(natural: n.name, tileWidth: tw),
+        let name = SidebarBitmapKey(kind: .tile, id: c.id, version: c.version, width: SidebarDraw.tileNameKeyWidth(natural: n.name, tileWidth: tw, unread: c.unread),
                                     emphasized: emphasized, generation: generation)
         let bubble = c.unread && !c.typing
             ? SidebarBitmapKey(kind: .tileBubble, id: c.id, version: c.version, width: SidebarDraw.tileBubbleKeyWidth(natural: n.bubble, tileWidth: tw),
@@ -1188,8 +1188,18 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         }
         configureSenders(l, c, avatar: ar)
         l.dot.isHidden = !c.unread
-        l.dot.cornerRadius = 6
+        l.dot.cornerRadius = (metrics.compact ? SidebarMetrics.dotDiameter : SidebarDraw.tileDotDiameter) / 2
         l.dot.backgroundColor = palette.unread
+        // cmux: in the compact list a pinned avatar is row-sized, so a thin ring 2 pt outside it
+        // (inside the selection disc's footprint) says "pinned"; the selection disc replaces it.
+        l.pinRing.isHidden = !metrics.compact || !l.selection.isHidden
+        if !l.pinRing.isHidden {
+            l.pinRing.frame = ar.insetBy(dx: -SidebarMetrics.compactPinRingGap, dy: -SidebarMetrics.compactPinRingGap)
+            l.pinRing.cornerRadius = l.pinRing.frame.width / 2
+            l.pinRing.borderWidth = SidebarMetrics.compactPinRingWidth
+            l.pinRing.borderColor = palette.secondary
+            l.pinRing.opacity = 0.45
+        }
         if c.typing {
             l.setTyping(palette, scale: s)
             l.typing?.showsTail = true
@@ -1208,7 +1218,10 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             let nw = CGFloat(name?.width ?? 0) / s // an unallocated name shows nothing
             l.content.isHidden = false
             l.content.contents = name
-            l.content.frame = CGRect(x: ((f.width - nw) / 2).rounded(), y: ar.maxY + SidebarMetrics.pinNameGap, width: nw, height: SidebarMetrics.pinNameHeight)
+            // The name, with the unread dot inline before it (SidebarDraw.tileLabel).
+            let label = SidebarDraw.tileLabel(metrics, nameWidth: nw, unread: c.unread)
+            l.content.frame = label.name
+            if let dot = label.dot { l.dot.frame = dot }
             if let bk = keys.bubble, let b = tileImage(bk, c) { // an unallocated bubble is not shown
                 // The newest unread message over the avatar's top (the typing bubble, a layer,
                 // takes its place while someone types).
@@ -1221,11 +1234,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                 l.time.isHidden = true
             }
         }
-        // The unread dot on the tile's leading edge, below the bubble when one shows, so a wide
-        // bubble never covers it (SidebarDraw.tileUnreadDot; the bubble rect without its tail).
-        let bubble = l.time.isHidden || metrics.compact ? nil
-            : CGRect(x: l.time.frame.minX + 1, y: l.time.frame.minY, width: l.time.frame.width - 1, height: l.time.frame.height - 5)
-        l.dot.frame = SidebarDraw.tileUnreadDot(metrics, bubble: bubble)
+        if metrics.compact { l.dot.frame = SidebarDraw.compactTileUnreadDot(metrics) }
         // Configured for this width (the stale check compares it).
         l.shownKey = SidebarBitmapKey(kind: .tile, id: c.id, version: c.version, width: metrics.tileWidth, emphasized: false, generation: generation)
         l.contentsScaleAll(s)
@@ -1298,6 +1307,20 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         case let .row(r)?: if let l = rowLayers[r] { configure(l, row: r, sync: true) }
         case nil: break
         }
+    }
+
+    /// cmux: the person opened `id` (a plain click, Return, an accessibility press): it is
+    /// selected, then the delegate's `didOpen` moves the keyboard into it. An extra result has
+    /// its own start (`didSelectSearchResult`).
+    func open(_ id: ConversationID) {
+        highlight(id)
+        guard !Self.isExtra(id), highlightID == id else { return }
+        delegate?.sidebar(self, didOpen: id)
+    }
+
+    /// cmux: Return in the list opens the highlighted conversation (none: nothing).
+    func openHighlighted() {
+        if let id = highlightID { open(id) }
     }
 
     /// Up/down: pinned tiles in order, then the rows.
@@ -1507,6 +1530,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         case #selector(NSResponder.insertNewline(_:)):
             if highlightID.map({ position(of: $0) == nil }) ?? true { moveSelection(1) } // no force unwrap
             view.window?.makeFirstResponder(document)
+            // cmux: Return opens the highlighted conversation (its message field takes the keyboard).
+            if let id = highlightID { open(id) }
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             searchField.stringValue = ""
@@ -1694,7 +1719,7 @@ final class SidebarAccessibilityRow: NSAccessibilityElement {
     weak var controller: SidebarController?
     let id: ConversationID
     init(controller: SidebarController, id: ConversationID) { self.controller = controller; self.id = id; super.init() }
-    override func accessibilityPerformPress() -> Bool { controller?.highlight(id); return true }
+    override func accessibilityPerformPress() -> Bool { controller?.open(id); return true } // cmux: a press opens
     override func isAccessibilityElement() -> Bool { true }
     /// On screen, from the list's own (flipped) geometry at the time of the call: a frame in
     /// parent space came out mirrored on the list's height (dogfood 2026-10-08: rows at y 28590).
@@ -1710,6 +1735,8 @@ final class SidebarRowLayer: CALayer {
     let content = CALayer()
     let time = CALayer()
     let separator = CALayer()
+    /// cmux: the compact list's pinned marker, a ring around a row-sized avatar (tiles only).
+    let pinRing = CALayer()
     private(set) var typing: SidebarTypingLayer?
     /// A pinned group tile's recent senders (small avatars at the avatar's edge).
     var senders: [CALayer] = []
@@ -1727,7 +1754,8 @@ final class SidebarRowLayer: CALayer {
         let none: [String: CAAction] = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "contents": NSNull(),
                                         "backgroundColor": NSNull(), "frame": NSNull(), "cornerRadius": NSNull()]
         actions = none
-        for l in [selection, avatar, dot, content, time, separator] { l.actions = none; addSublayer(l) }
+        for l in [selection, avatar, dot, content, time, separator, pinRing] { l.actions = none; addSublayer(l) }
+        pinRing.isHidden = true
         content.contentsGravity = .topLeft
         time.contentsGravity = .topLeft
         avatar.contentsGravity = .resize
@@ -1745,7 +1773,7 @@ final class SidebarRowLayer: CALayer {
     }
     func contentsScaleAll(_ s: CGFloat) {
         guard content.contentsScale != s else { return }
-        for l in [self, selection, avatar, dot, content, time, separator] { l.contentsScale = s }
+        for l in [self, selection, avatar, dot, content, time, separator, pinRing] { l.contentsScale = s }
     }
 }
 
@@ -1796,7 +1824,11 @@ final class SidebarDocumentView: NSView {
         c.highlight(s.id, reveal: false)
         // cmux: press and drag a tile or row (Cmux/SidebarPinDragging.swift: reorder, pin and unpin
         // by drag, Escape cancels), a superset of MessagesLab's tile reorder (tileDragBegan).
-        c.trackPinDrag(from: event, in: self)
+        let dragged = c.trackPinDrag(from: event, in: self)
+        // cmux: a plain click that did not drag opens the conversation (the selected one too), so
+        // its message field takes the keyboard (Lawrence 2026-10-19, u2611). Command-, Shift- and
+        // Control-clicks keep their old effect, the selection only.
+        if !dragged, event.modifierFlags.isDisjoint(with: [.command, .shift, .control]) { c.open(s.id) }
     }
     override func mouseDragged(with event: NSEvent) { controller?.tileDragMoved(to: point(event)) }
     override func mouseUp(with event: NSEvent) { controller?.tileDragEnded(at: point(event)) }
@@ -1809,6 +1841,8 @@ final class SidebarDocumentView: NSView {
         }
     }
     override func cancelOperation(_ sender: Any?) { controller?.cancelPinDrag() } // cmux: Escape reaching the list ends a pin drag
+    /// cmux: Return opens the highlighted conversation (its message field takes the keyboard).
+    override func insertNewline(_ sender: Any?) { controller?.openHighlighted() }
     override func moveDown(_ sender: Any?) { controller?.moveSelection(1) }
     override func moveUp(_ sender: Any?) { controller?.moveSelection(-1) }
     /// Typing a letter in the list starts a search (as a source list's type-select would).

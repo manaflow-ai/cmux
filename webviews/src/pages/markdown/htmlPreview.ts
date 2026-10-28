@@ -69,15 +69,24 @@ const ATTRIBUTES = new Set([
   "width",
 ]);
 
-/** A safe copy of `html` as a fragment; images go through `imageURL`, links keep their href. */
-export function htmlPreview(html: string, imageURL: (src: string) => string): DocumentFragment | null {
+/** A safe copy of `html`; images go through `imageURL`, and blocked remote images get a control. */
+export function htmlPreview(
+  html: string,
+  imageURL: (src: string) => string,
+  blockedImage?: (src: string, alt: string) => HTMLElement,
+): DocumentFragment | null {
   const parsed = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html").body;
   const fragment = document.createDocumentFragment();
-  copyChildren(parsed, fragment, imageURL);
+  copyChildren(parsed, fragment, imageURL, blockedImage);
   return fragment.childNodes.length ? fragment : null;
 }
 
-function copyChildren(from: Node, to: Node, imageURL: (src: string) => string): void {
+function copyChildren(
+  from: Node,
+  to: Node,
+  imageURL: (src: string) => string,
+  blockedImage?: (src: string, alt: string) => HTMLElement,
+): void {
   for (const child of Array.from(from.childNodes)) {
     if (child.nodeType === 3) {
       to.appendChild(document.createTextNode(child.textContent ?? ""));
@@ -89,8 +98,14 @@ function copyChildren(from: Node, to: Node, imageURL: (src: string) => string): 
     if (!TAGS.has(tag)) {
       // Unknown wrappers keep their content; script, style and embeds are dropped whole.
       if (!["script", "style", "iframe", "object", "embed", "template", "noscript", "svg", "math"].includes(tag)) {
-        copyChildren(element, to, imageURL);
+        copyChildren(element, to, imageURL, blockedImage);
       }
+      continue;
+    }
+    const source = tag === "img" ? (element.getAttribute("src") ?? "").trim() : "";
+    const resolvedSource = source ? imageURL(source) : "";
+    if (source && !resolvedSource && /^https?:\/\//i.test(source) && blockedImage) {
+      to.appendChild(blockedImage(source, element.getAttribute("alt") ?? ""));
       continue;
     }
     const copy = document.createElement(tag);
@@ -99,11 +114,14 @@ function copyChildren(from: Node, to: Node, imageURL: (src: string) => string): 
       if (!ATTRIBUTES.has(name)) continue;
       let value = attribute.value;
       if (name === "href" && /^\s*(javascript|data|vbscript):/i.test(value)) continue;
-      if (name === "src") value = imageURL(value);
+      if (name === "src") {
+        value = tag === "img" && value.trim() === source ? resolvedSource : imageURL(value);
+        if (!value) continue;
+      }
       if (name === "srcset") continue;
       copy.setAttribute(name, value);
     }
-    copyChildren(element, copy, imageURL);
+    copyChildren(element, copy, imageURL, blockedImage);
     to.appendChild(copy);
   }
 }

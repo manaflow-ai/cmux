@@ -235,7 +235,7 @@ public final class HoverReveal {
         guard state.isRevealed != old.isRevealed else { return }
         let alpha: CGFloat = state.isRevealed ? 1 : restAlpha
         let targets = views.values.compactMap(\.value)
-        Motion.animate(.hover, in: region) {
+        Motion.feedback.animate(.hover, in: region) {
             for view in targets { view.animator().alphaValue = alpha }
         }
         onChange?(state.isRevealed)

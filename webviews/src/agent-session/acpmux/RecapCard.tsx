@@ -156,7 +156,6 @@ export function RecapCard({
           type="button"
           className="cv-iconbtn cv-iconbtn--compact acpmux-recap__dismiss"
           aria-label={t("recap.dismiss")}
-          title={t("recap.dismiss")}
           onClick={onDismiss}
         >
           <Close size={12} />

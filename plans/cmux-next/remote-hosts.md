@@ -124,6 +124,8 @@ HostDO.
   to the account; a client signed in as account U is shown hosts whose owner login is one of
   U's verified emails. Until then the mapping is the tailnet login itself.
 - No anonymous mode, no plain non-tailnet listener, no `--insecure` flag.
+- Teammate access (scoped, consented grants for an allowlisted login, audit log): see
+  [teammate-access-DESIGN.md](teammate-access-DESIGN.md).
 - Admission reply is a single JSON line; a refused peer learns only `not_allowed`.
 
 ## 7. Wire

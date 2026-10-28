@@ -15,10 +15,126 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         | AppCommand::Events { .. }
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
-        | AppCommand::Settings(_) => {
+        | AppCommand::Right { .. }
+        | AppCommand::Settings(_)
+        | AppCommand::Version => {
             panic!("expected a call")
         }
     }
+}
+
+/// `cmux window screenshot --out FILE` names a file of the caller's working
+/// directory, so the app (which runs elsewhere) gets it absolute; `--out -`
+/// (the PNG inline in the reply) and an absolute path go as given.
+#[test]
+fn screenshot_out_is_made_absolute_except_stdout() {
+    let out = |value: &str| {
+        let (method, params) =
+            call(parse(&args(&["window", "screenshot", "--out", value])).unwrap().unwrap());
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], "window screenshot");
+        params["args"]["out"].as_str().unwrap().to_owned()
+    };
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(out("shot.png"), cwd.join("shot.png").to_string_lossy());
+    assert_eq!(out("-"), "-");
+    assert_eq!(out("/tmp/shot.png"), "/tmp/shot.png");
+}
+
+/// `cmux space set-defaults --cwd DIR` (and every other action's `--cwd`) names
+/// a folder of the caller's working directory, so the app gets it absolute:
+/// the app runs elsewhere, and a space's default directory must be absolute.
+/// `~/…` is left for the app to expand, an empty `--cwd=` still clears, and a
+/// bare `--cwd` (true) stays a bool for the app to refuse.
+#[test]
+fn an_action_cwd_is_made_absolute_except_home_and_empty() {
+    let sent = |words: &[&str]| {
+        let (method, params) =
+            call(run_action("space set-defaults", &args(words), ActionName::Cli).unwrap());
+        assert_eq!(method, "action.run");
+        params["args"]["cwd"].clone()
+    };
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(sent(&["--cwd", "."]), json!(cwd.to_string_lossy()));
+    assert_eq!(sent(&["--cwd", "sub"]), json!(cwd.join("sub").to_string_lossy()));
+    assert_eq!(sent(&["--cwd=./sub/x"]), json!(cwd.join("sub/x").to_string_lossy()));
+    assert_eq!(sent(&["--cwd", "~/x"]), json!("~/x"));
+    assert_eq!(sent(&["--cwd", "/srv/app"]), json!("/srv/app"));
+    assert_eq!(sent(&["--cwd="]), json!(""));
+    assert_eq!(sent(&["--cwd"]), json!(true));
+}
+
+/// A remote, cloud or agent action's `--cwd` is a folder on the machine it runs
+/// on, so it is sent as typed, never resolved against the caller's directory.
+#[test]
+fn a_remote_or_cloud_action_cwd_is_sent_as_typed() {
+    let sent = |action: &str, name: ActionName| {
+        let (_, params) = call(run_action(action, &args(&["--cwd", "."]), name).unwrap());
+        params["args"]["cwd"].clone()
+    };
+    for action in
+        ["open-remote", "remote open-terminal-here", "cloud start-session", "agent new-chat"]
+    {
+        assert_eq!(sent(action, ActionName::Cli), json!("."), "{action}");
+    }
+    for action in [
+        "remote.openRemote",
+        "cloudStartSession",
+        "palette.newAgentChat",
+        "agent.openSessionWorkspace",
+    ] {
+        assert_eq!(sent(action, ActionName::Any), json!("."), "{action}");
+    }
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(sent("tab new", ActionName::Cli), json!(cwd.to_string_lossy()));
+}
+
+/// `cmux cloud new-machine --bootstrap-script FILE` uploads a file of the
+/// caller's working directory, so the app gets it absolute; `--persistent`
+/// alone is a true flag and `--size` keeps its value.
+#[test]
+fn new_machine_bootstrap_script_is_made_absolute() {
+    let (method, params) = call(
+        run_action(
+            "cloud new-machine",
+            &args(&[
+                "--persistent",
+                "--size",
+                "medium",
+                "--bootstrap",
+                "lane",
+                "--bootstrap-script",
+                "boot.sh",
+            ]),
+            ActionName::Cli,
+        )
+        .unwrap(),
+    );
+    assert_eq!(method, "action.run");
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(params["args"]["bootstrapScript"], json!(cwd.join("boot.sh").to_string_lossy()));
+    assert_eq!(params["args"]["persistent"], json!(true));
+    assert_eq!(params["args"]["size"], json!("medium"));
+    assert_eq!(params["args"]["bootstrap"], json!("lane"));
+}
+
+/// `cmux cloud apply-machine-config --machine-config FILE` names a file of the
+/// caller's working directory too.
+#[test]
+fn machine_config_is_made_absolute() {
+    let (_, params) = call(
+        run_action(
+            "cloud apply-machine-config",
+            &args(&["--target", "machine:vm-1", "--machine-config", ".cmux/machine.toml"]),
+            ActionName::Cli,
+        )
+        .unwrap(),
+    );
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(
+        params["args"]["machineConfig"],
+        json!(cwd.join(".cmux/machine.toml").to_string_lossy())
+    );
 }
 
 #[test]
@@ -233,6 +349,28 @@ fn action_run_maps_flags_to_target_and_arguments() {
             "args": { "title": "Build", "keep_case": "true" },
         })
     );
+}
+
+#[test]
+fn both_agent_tab_command_forms_forward_the_peer_host() {
+    for words in [
+        vec!["agent", "open-tab", "session-id", "--target", "pane_0123", "--host", "cmux16"],
+        vec![
+            "action",
+            "run",
+            "agent.openSessionTab",
+            "--target",
+            "pane_0123",
+            "--session",
+            "session-id",
+            "--host",
+            "cmux16",
+        ],
+    ] {
+        let (_, params) = call(parse(&args(&words)).unwrap().unwrap());
+        assert_eq!(params["target"], "pane_0123");
+        assert_eq!(params["args"], json!({"session": "session-id", "host": "cmux16"}));
+    }
 }
 
 #[test]
@@ -737,7 +875,9 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Events { .. }
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
-        | AppCommand::Settings(_) => {
+        | AppCommand::Right { .. }
+        | AppCommand::Settings(_)
+        | AppCommand::Version => {
             panic!("expected a call")
         }
     };
@@ -1184,4 +1324,149 @@ fn settings_validate_reports_what_the_owner_would() {
     let missing =
         local(parse(&args(&["settings", "validate", missing.as_str()])).unwrap().unwrap());
     assert_eq!(missing.unwrap_err()["code"], "settings.unreadable");
+}
+
+/// Lawrence 2026-10-19: `cmux <noun> move-to-window --new` moves the object
+/// to a new window, as `cmux <noun> move-to-new-window` does, for every noun.
+#[test]
+fn move_to_window_new_is_move_to_new_window() {
+    for noun in
+        ["tab", "tab-group", "pane", "workspace", "workspace-group", "screen", "screen-group"]
+    {
+        let name = format!("{noun} move-to-window");
+        assert_eq!(
+            new_window_spelling(&name, &args(&["--new", "--target", "x1"])),
+            Some((format!("{noun} move-to-new-window"), args(&["--target", "x1"]))),
+            "{noun}"
+        );
+        assert_eq!(
+            new_window_spelling(&name, &args(&["--target", "x1", "--new=true"])),
+            Some((format!("{noun} move-to-new-window"), args(&["--target", "x1"]))),
+            "{noun} --new=true"
+        );
+    }
+    // Without --new it names a window: the action keeps its own name.
+    assert_eq!(new_window_spelling("workspace move-to-window", &args(&["--window", "w1"])), None);
+    assert_eq!(new_window_spelling("workspace move-to-window", &args(&["--new=false"])), None);
+    assert_eq!(new_window_spelling("workspace rename", &args(&["--new"])), None);
+}
+
+/// A Chief turn (`CMUX_CALLER_HOME_CHAT=1`, set by the Chief host) names the
+/// Home chat too, so the app opens its tabs beside Home's chat when it does not
+/// know the turn's agent session (a Cloud Chief turn on a VM, or a local turn).
+#[test]
+fn a_chief_turn_names_the_home_chat_as_its_caller() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned())
+    };
+    assert_eq!(
+        caller_from(env(&[("CMUX_AGENT_SESSION", "turn-1"), ("CMUX_CALLER_HOME_CHAT", "1")])),
+        Some(json!({ "agent_session": "turn-1", "home_chat": true }))
+    );
+    assert_eq!(
+        caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "1")])),
+        Some(json!({ "home_chat": true }))
+    );
+    assert_eq!(
+        caller_from(env(&[("CMUX_AGENT_SESSION", "turn-1")])),
+        Some(json!({ "agent_session": "turn-1" }))
+    );
+    assert_eq!(caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "0")])), None);
+}
+
+/// The agent cursor's tag says who drives and where, and goes there on a click
+/// (user, 2026-10-20): every page input verb sends its caller, so the app knows
+/// the agent's terminal or chat. Reads and navigation do not need it.
+#[test]
+fn page_input_verbs_send_the_caller() {
+    for method in
+        ["browser.page.click", "browser.page.fill", "browser.page.press", "browser.page.drag"]
+    {
+        assert!(takes_caller(method), "{method}");
+    }
+    for method in ["browser.page.text", "browser.page.navigate", "browser.page.screenshot"] {
+        assert!(!takes_caller(method), "{method}");
+    }
+    assert!(takes_caller("action.run"));
+}
+
+#[path = "right_tests.rs"]
+mod right;
+
+#[test]
+fn only_reads_and_keyed_runs_are_resent_after_a_dropped_connection() {
+    use super::run::safe_to_resend;
+    assert!(safe_to_resend("system.identify", &json!({})));
+    assert!(safe_to_resend("action.run", &json!({ "idempotency_key": "mutation_1" })));
+    assert!(!safe_to_resend("action.run", &json!({})));
+    assert!(!safe_to_resend("errors.clear", &json!({})));
+}
+
+#[test]
+fn open_link_sends_browser_open_link_with_the_callers_and_terminal() {
+    let environment =
+        std::collections::HashMap::from([("CMUX_TUI_TERMINAL_ID".to_owned(), "term_1".to_owned())]);
+    let mut stdin = "https://signin.aws.amazon.com/oauth?state=x\n".as_bytes();
+    let AppCommand::Open { requests, stop_on_failure } = parse_open_with(
+        &args(&["--link", "--caller", "python3,aws", "--caller=zsh", "-"]),
+        false,
+        &environment,
+        &mut stdin,
+    )
+    .unwrap() else {
+        panic!("expected open command")
+    };
+    assert!(stop_on_failure);
+    assert_eq!(requests.len(), 1);
+    let request = &requests[0];
+    assert_eq!(request.method, "browser.open_link");
+    assert_eq!(request.params["url"], "https://signin.aws.amazon.com/oauth?state=x");
+    assert_eq!(request.params["callers"], json!(["python3", "aws", "zsh"]));
+    assert_eq!(request.params["terminal_id"], "term_1");
+    assert_eq!(request.params["focus"], false, "a program's browser keeps the terminal's keyboard");
+    assert!(request.params.get("target").is_none());
+
+    let AppCommand::Open { requests, .. } = parse_open_with(
+        &args(&["--link", "--target", "chrome@Work", "https://a.example/"]),
+        false,
+        &environment,
+        &mut std::io::empty(),
+    )
+    .unwrap() else {
+        panic!("expected open command")
+    };
+    assert_eq!(requests[0].params["target"], "chrome@Work");
+}
+
+#[test]
+fn open_link_refuses_files_workspaces_and_stray_flags_without_echoing_urls() {
+    let environment = std::collections::HashMap::new();
+    let error = parse_open_with(
+        &args(&["--link", "https://a.example/", "/tmp/notes?token=SECRET"]),
+        false,
+        &environment,
+        &mut std::io::empty(),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("argument 2"), "{error}");
+    assert!(!error.contains("SECRET"), "{error}");
+    assert!(
+        parse_open_with(
+            &args(&["--link", "--workspace", "ws_1", "https://a.example/"]),
+            false,
+            &environment,
+            &mut std::io::empty()
+        )
+        .is_err()
+    );
+    for stray in [
+        vec!["--caller", "aws", "https://a.example/"],
+        vec!["--target", "system", "https://a.example/"],
+    ] {
+        assert!(
+            parse_open_with(&args(&stray), false, &environment, &mut std::io::empty()).is_err(),
+            "{stray:?} needs --link"
+        );
+    }
 }

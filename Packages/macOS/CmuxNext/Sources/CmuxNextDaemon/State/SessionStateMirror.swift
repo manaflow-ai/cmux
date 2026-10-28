@@ -52,9 +52,13 @@ public struct SessionStateMirror: Sendable, Hashable {
     /// Newest first, at most `closedLimit`.
     public var closed: [ClosedItem] = []
     public var workspaceStatus: [ResourceID: WorkspaceStatus] = [:]
+    /// Each workspace's checklist (`workspace-checklist-v1`); a workspace without items is absent.
+    public var workspaceChecklists: [ResourceID: WorkspaceChecklist] = [:]
     public var ephemeralWorkspaces: Set<ResourceID> = []
     /// Each workspace's agent folder (`extra.agent_folder`), where its new agent chats start.
     public var agentFolders: [ResourceID: String] = [:]
+    /// Each workspace's description and manual task status; absent while neither is set.
+    public var workspaceNotes: [ResourceID: WorkspaceNotes] = [:]
     public var screens: [ResourceID: ScreenState] = [:]
     public var screenGroups: [String: StateScreenGroup] = [:]
     public var tabs: [ResourceID: TabRecord] = [:]
@@ -63,6 +67,11 @@ public struct SessionStateMirror: Sendable, Hashable {
     public var terminalProgramStatus: [ResourceID: [ProgramStatusRecord]] = [:]
     /// When each terminal's running shell command started; a terminal at a prompt is absent.
     public var terminalBusySinceMs: [ResourceID: UInt64] = [:]
+    /// Since when each terminal's shell sits at its prompt; absent while a command runs and without
+    /// shell integration.
+    public var terminalPromptSinceMs: [ResourceID: UInt64] = [:]
+    /// When each terminal last printed.
+    public var terminalLastOutputMs: [ResourceID: UInt64] = [:]
 
     /// The daemon keeps the newest 50 closed items.
     public static let closedLimit = 50
@@ -78,6 +87,8 @@ public struct SessionStateMirror: Sendable, Hashable {
         case tab(ResourceID)
         case terminal(ResourceID)
         case closed
+        /// A stash (`stash-v1`): the mirror keeps none, so readers list the stashes again.
+        case stash
     }
 
     /// Applies one ordered batch of changes in place.
@@ -97,15 +108,18 @@ public struct SessionStateMirror: Sendable, Hashable {
     /// O(1) per change (the closed list is bounded by `closedLimit`).
     public mutating func apply(_ change: SessionStateChange, touched: inout Set<Touched>) {
         switch change {
-        case .workspace(let id, let ephemeral, let agentFolder):
+        case .workspace(let id, let ephemeral, let agentFolder, let notes):
             let changed = ephemeral ? ephemeralWorkspaces.insert(id).inserted : ephemeralWorkspaces.remove(id) != nil
-            if changed || agentFolders[id] != agentFolder {
+            let notes = notes.isEmpty ? nil : notes
+            if changed || agentFolders[id] != agentFolder || workspaceNotes[id] != notes {
                 agentFolders[id] = agentFolder
+                workspaceNotes[id] = notes
                 touched.insert(.workspace(id))
             }
         case .workspaceRemoved(let id):
             let removed = [ephemeralWorkspaces.remove(id) != nil, agentFolders.removeValue(forKey: id) != nil,
-                           workspaceStatus.removeValue(forKey: id) != nil]
+                           workspaceStatus.removeValue(forKey: id) != nil, workspaceNotes.removeValue(forKey: id) != nil,
+                           workspaceChecklists.removeValue(forKey: id) != nil]
             if removed.contains(true) { touched.insert(.workspace(id)) }
         case .screen(let id, let state):
             guard screens[id] != state else { return }
@@ -116,14 +130,17 @@ public struct SessionStateMirror: Sendable, Hashable {
             guard tabs[id] != record else { return }
             tabs[id] = record
             touched.insert(.tab(id))
-        case .terminal(let id, let progress, let programStatus, let busySinceMs):
+        case .terminal(let id, let progress, let programStatus, let busySinceMs, let promptSinceMs, let lastOutputMs):
             let status = programStatus.isEmpty ? nil : programStatus
-            guard terminalProgress[id] != progress || terminalProgramStatus[id] != status || terminalBusySinceMs[id] != busySinceMs else {
+            guard terminalProgress[id] != progress || terminalProgramStatus[id] != status || terminalBusySinceMs[id] != busySinceMs
+                || terminalPromptSinceMs[id] != promptSinceMs || terminalLastOutputMs[id] != lastOutputMs else {
                 return
             }
             terminalProgress[id] = progress
             terminalProgramStatus[id] = status
             terminalBusySinceMs[id] = busySinceMs
+            terminalPromptSinceMs[id] = promptSinceMs
+            terminalLastOutputMs[id] = lastOutputMs
             touched.insert(.terminal(id))
         case .closed(let item):
             let before = closed
@@ -143,6 +160,14 @@ public struct SessionStateMirror: Sendable, Hashable {
         case .statusRemoved(let workspace):
             guard workspaceStatus.removeValue(forKey: workspace) != nil else { return }
             touched.insert(.workspace(workspace))
+        case .checklist(let checklist):
+            let value = checklist.items.isEmpty ? nil : checklist
+            guard workspaceChecklists[checklist.workspaceID] != value else { return }
+            workspaceChecklists[checklist.workspaceID] = value
+            touched.insert(.workspace(checklist.workspaceID))
+        case .checklistRemoved(let workspace):
+            guard workspaceChecklists.removeValue(forKey: workspace) != nil else { return }
+            touched.insert(.workspace(workspace))
         case .screenGroup(let group):
             let old = screenGroups[group.id]
             guard old != group else { return }
@@ -152,6 +177,8 @@ public struct SessionStateMirror: Sendable, Hashable {
         case .screenGroupRemoved(let id):
             guard let old = screenGroups.removeValue(forKey: id) else { return }
             touched.insert(.workspace(old.workspaceID))
+        case .stash:
+            touched.insert(.stash)
         case .sidebarBatch:
             // The sidebar document has its own mirror (SessionStateStore.onSidebarBatch).
             break

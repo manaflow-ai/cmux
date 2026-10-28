@@ -39,7 +39,7 @@ nonisolated enum ScreenGroupActionCatalog: ActionCatalogGroup {
                    arguments: [CatalogArgument.iconString.optional]),
             ScreenActionCatalog.screen("screenGroup.clearIcon", String(localized: "action.screenGroup.clearIcon", defaultValue: "Remove Screen Group Icon", table: "ScreenActions", bundle: .module),
                    "xmark.circle", cli: "screen-group clear-icon", keywords: ["group", "emoji", "symbol", "reset"], targets: group),
-            ScreenActionCatalog.screen("screenGroup.toggleCollapsed", String(localized: "action.screenGroup.toggleCollapsed", defaultValue: "Collapse or Expand Screen Group", table: "ScreenActions", bundle: .module),
+            ScreenActionCatalog.screen("screenGroup.toggleCollapsed", String(localized: "action.screenGroup.toggleCollapsed", defaultValue: "Collapse/Expand Screen Group", table: "ScreenActions", bundle: .module),
                    "chevron.up.chevron.down", cli: "screen-group toggle-collapse", keywords: ["group", "fold"], targets: group),
             ScreenActionCatalog.screen("screenGroup.collapse", String(localized: "action.screenGroup.collapse", defaultValue: "Collapse Screen Group", table: "ScreenActions", bundle: .module),
                    "chevron.right", cli: "screen-group collapse", keywords: ["group", "fold"], surfaces: [.palette], targets: group),

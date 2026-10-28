@@ -238,22 +238,22 @@
  ],
  "policy": [
   {
-   "name": "remote.autoApprove defaults to true with no settings",
+   "name": "remote.autoApprove defaults to false with no settings",
    "fn": "remote_auto_approve",
    "args": {
     "settings": null
    },
-   "result": true
+   "result": false
   },
   {
-   "name": "remote.autoApprove defaults to true when the key is missing",
+   "name": "remote.autoApprove defaults to false when the key is missing",
    "fn": "remote_auto_approve",
    "args": {
     "settings": {
      "remote": {}
     }
    },
-   "result": true
+   "result": false
   },
   {
    "name": "remote.autoApprove false is kept",
@@ -277,7 +277,7 @@
      }
     }
    },
-   "result": true
+   "result": false
   },
   {
    "name": "a local turn runs with the configured policy",
@@ -354,7 +354,7 @@
    "result": "ask"
   },
   {
-   "name": "remote.autoApprove on lifts the floor",
+   "name": "auto approval never lifts an existing ask floor",
    "fn": "spawn_floor",
    "args": {
     "auto_approve": true,
@@ -362,7 +362,7 @@
     "ask_child_live": true,
     "ask_subagent_live": true
    },
-   "result": null
+   "result": "ask"
   },
   {
    "name": "claude-sr routes to the claude-stdio profile that runs sr claude proxy",

@@ -6,8 +6,10 @@ import Testing
 
 /// Lawrence 2026-10-18: "everything should either just be 'it is working' or 'it is blue and ready
 /// for me to look at it'", with finer icons as an opt-in (`sidebar.detailedStatusIcons`). By default
-/// a workspace row's badge is Working (the one spinner) or Ready (the blue dot); a question, a
-/// permission request, an error and a finished run are all Ready, so no chat bubble or shield draws.
+/// a workspace row's badge is Working (the one spinner), Ready (the blue dot) or, Leo 2026-10-21
+/// ("why ISN'T THIS JUST A YELLOW DOT!?"), needs you: one yellow dot in the blue dot's place, never
+/// both. A question, a permission request and an auth wait are all needs you, so no chat bubble or
+/// shield draws; a finished run is Ready. Lawrence msg 11983: an error is red, not Ready.
 @MainActor @Suite(.serialized) struct SidebarStatusSimpleTests {
     nonisolated struct Case: Sendable, CustomTestStringConvertible {
         var activity: StatusIndicatorState
@@ -21,11 +23,16 @@ import Testing
         Case(activity: .working, simple: [.working]),
         Case(activity: .working(progress: 0.4), simple: [.working(progress: 0.4)]),
         Case(activity: .busy(progress: nil), simple: [.busy(progress: nil)]),
-        Case(activity: .waiting, simple: [.success]),
-        Case(activity: .waiting(kind: .question), simple: [.success]),
-        Case(activity: .waiting(kind: .permission), simple: [.success]),
-        Case(activity: .waiting(kind: .auth), simple: [.success]),
-        Case(activity: .error, simple: [.success]),
+        Case(activity: .waiting, simple: [.waiting]),
+        Case(activity: .waiting(kind: .question), simple: [.waiting]),
+        Case(activity: .waiting(kind: .permission), simple: [.waiting]),
+        Case(activity: .waiting(kind: .auth), simple: [.waiting]),
+        // Needs you replaces the blue unread dot: one yellow dot, never both.
+        Case(activity: .waiting(kind: .question), unread: .count(2), simple: [.waiting]),
+        // Lawrence msg 11983: an error is red, never the blue Ready dot.
+        Case(activity: .error, simple: [.error]),
+        Case(activity: .error, unread: .dot, simple: [.error]),
+        Case(activity: .waiting, unread: .dot, simple: [.waiting]),
         Case(activity: .success, simple: [.success]),
         Case(activity: .idle, unread: .count(3), simple: [.success]),
         // Something to look at outranks work still running in the same workspace.
@@ -33,7 +40,7 @@ import Testing
     ]
 
     @Test(arguments: cases)
-    func byDefaultARowIsWorkingOrReady(_ c: Case) {
+    func byDefaultARowIsWorkingReadyOrNeedsYou(_ c: Case) {
         let badges = WorkspaceRowBadges(unread: c.unread, activity: c.activity, detailed: false)
         #expect(badges.items == c.simple)
     }
@@ -50,6 +57,14 @@ import Testing
         let plan = StatusIndicatorPlan.make(.success, style: .arc, animates: true, set: StatusIconSet.tunable.defaultValue)
         #expect(plan.glyph == .mark(.vector(.dot)))
         #expect(plan.tint == .unread)
+    }
+
+    /// Needs you under the default icon set is one still dot in the theme's attention (warning) color.
+    @Test func needsYouIsTheYellowDot() {
+        let plan = StatusIndicatorPlan.make(.waiting, style: .arc, animates: true, set: StatusIconSet.tunable.defaultValue)
+        #expect(plan.glyph == .mark(.vector(.dot)))
+        #expect(plan.tint == .attention)
+        #expect(plan.animation == nil)
     }
 
     private static let asking = WorkspaceID("ws-asking")
@@ -87,11 +102,11 @@ import Testing
         #expect(SidebarSectionsPreferences.defaults.detailedStatusIcons == false)
         let sidebar = Self.sidebar(detailed: false, style: style)
         let asking = try Self.badge(sidebar, Self.asking)
-        #expect(asking.states == [.success], "a question is Ready: the blue dot")
+        #expect(asking.states == [.waiting], "a question is needs you: the yellow dot, not the blue one beside it")
         #expect(asking.look == .plain && !asking.drawsBackdrop, "no disc behind the dot")
         // The tooltip still says what waits.
         #expect(asking.themedToolTip?.contains(Strings.unreadCount(2)) == true)
-        #expect(try Self.badge(sidebar, Self.failing).states == [.success], "an error is Ready")
+        #expect(try Self.badge(sidebar, Self.failing).states == [.error], "an error is red (Lawrence msg 11983)")
         #expect(try Self.badge(sidebar, Self.busy).states == [.working], "work is the one spinner")
     }
 

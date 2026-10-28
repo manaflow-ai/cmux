@@ -60,6 +60,11 @@ public final class BrowserFolderAccess {
         return (try? grants.grant(picked, for: browser)) != nil
     }
 
+    /// Keep in Sync over `store`, reading through the same folder grants as an import.
+    public func historySync(store: ImportedDataStore, deliver: @escaping ImportHistorySync.Deliver) -> ImportHistorySync {
+        ImportHistorySync(store: store, grants: grants, deliver: deliver)
+    }
+
     /// Puts the granted folders of the plan's browsers in scope; call the
     /// returned closure when the run ends.
     public func access(_ plan: ImportPlan) -> () -> Void {

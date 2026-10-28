@@ -14,8 +14,20 @@ public enum Intent: Sendable, Hashable {
     case renameTab(surface: SurfaceID, name: String?)
     /// `set-tab-pinned`.
     case setTabPinned(surface: SurfaceID, pinned: Bool)
+    /// `rename-pane`; nil or empty clears the name (shown as nil).
+    case renamePane(pane: PaneID, name: String?)
+    /// `rename-screen`; nil or empty clears the name (shown as nil).
+    case renameScreen(screen: ScreenID, name: String?)
+    /// `set-screen-metadata` with `color` (a palette token); nil clears it.
+    case setScreenColor(screen: ScreenID, color: String?)
+    /// `set-screen-metadata` with `icon` (an SF Symbol name or one emoji); nil clears it.
+    case setScreenIcon(screen: ScreenID, icon: String?)
+    /// `set-screen-pinned`.
+    case setScreenPinned(screen: ScreenID, pinned: Bool)
     /// `rename-workspace`.
     case renameWorkspace(key: WorkspaceKey, name: String)
+    /// `workspace.update` / `set-workspace-metadata` with `color` (a palette name); nil clears it.
+    case setWorkspaceColor(key: WorkspaceKey, color: String?)
     /// `move-workspace`: to final daemon-order `index` (clamped).
     case moveWorkspace(key: WorkspaceKey, index: Int)
     /// `move-workspace-to-group` without an index: into `group` (nil
@@ -51,6 +63,12 @@ public enum Intent: Sendable, Hashable {
     /// fails (Cmd-N, instant-new-surfaces). Its first tab is a provisional tab, so the
     /// conservation check does not count it.
     case createWorkspace(provisional: ProvisionalWorkspace, index: Int?)
+    /// `close-surface` / `close-tabs` of daemon tabs the person closed (Cmd-W, a close button,
+    /// close others): they leave the visible records in the input's turn and stay out until the
+    /// daemon's records drop them (the reply's sequence is applied and the records no longer hold
+    /// them, or a snapshot), or come back when the close fails. One mechanism with the creates,
+    /// so a reply that beats its `tab-closed` event never shows the tab again (tab-spam-race).
+    case closeTabs(surfaces: [SurfaceID])
 }
 
 /// One row's height in permille (`set-row-heights` `heights[]`).

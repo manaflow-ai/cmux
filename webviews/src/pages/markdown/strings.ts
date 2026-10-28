@@ -2,11 +2,14 @@
 // scripts/pages/gen-strings.mjs writes `generated/strings.json`.
 export const L = {
   title: "page.title",
+  comment: "comment.marker",
+  deleteComment: "comment.delete",
   loading: "page.loading",
   failed: "page.failed",
   disconnected: "page.disconnected",
   retry: "page.retry",
   modeLabel: "mode.label",
+  edit: "edit.button",
   rich: "mode.rich",
   source: "mode.source",
   saved: "status.saved",
@@ -30,6 +33,8 @@ export const L = {
   rawSource: "block.source",
   plainText: "code.plainText",
   diagramFailed: "diagram.failed",
+  remoteImageBlocked: "remoteImage.blocked",
+  remoteImageLoad: "remoteImage.load",
   followHint: "link.followHint",
   clickHint: "link.clickHint",
   broken: "link.broken",

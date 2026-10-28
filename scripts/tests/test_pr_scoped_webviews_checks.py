@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WEBVIEWS = ROOT / 'webviews'
 SWIFT = 'Packages/macOS/CmuxNext/Sources'
-OUTSIDE = ('schemas', 'web')
+OUTSIDE = ('schemas', 'web', 'Packages/Shared')
 UI_RULES = 'test/ui-rules.test.ts'
 COVERAGE = 'test/gallery-coverage.test.ts'
 RAW_KEYS = 'export function RawKeys() {\n  return <div onKeyDown={() => undefined} />;\n}\n'
@@ -35,6 +35,7 @@ class Checkout:
         (web / 'node_modules').symlink_to(WEBVIEWS / 'node_modules')
         # webviews/src imports these; they stay outside the fixture's history.
         for name in OUTSIDE:
+            (self.path / name).parent.mkdir(parents=True, exist_ok=True)
             (self.path / name).symlink_to(ROOT / name)
         for source in (ROOT / SWIFT).rglob('*.swift'):
             if 'PageDescriptor(' in source.read_text(errors='ignore'):
@@ -64,10 +65,13 @@ class Checkout:
         self.git('checkout', '-q', 'base')
         self.git('merge', '-q', '--no-ff', '-m', 'merge pr', 'pr')
 
-    def run(self, test_file, scoped=True):
+    def run(self, test_file, scoped=True, style_guards=None):
         """The test file as ci-web.yml's react-apps-check runs it on a pull request."""
         env = dict(os.environ)
         env.pop('CMUX_PR_CHANGED_FILES', None)
+        env.pop('CMUX_NEXT_STYLE_GUARDS', None)
+        if style_guards:
+            env['CMUX_NEXT_STYLE_GUARDS'] = style_guards
         if scoped:
             listed = self.path / 'pr-changed-files'
             listed.write_text(self.git('diff', '--name-only', '--no-renames', 'HEAD^1', 'HEAD'))
@@ -116,6 +120,18 @@ class ScopedChecksTests(unittest.TestCase):
         checkout = self.checkout({'webviews/src/pages/zz/RawKeys.tsx': RAW_KEYS},
                                  {'webviews/src/pages/zz/clean.ts': CLEAN})
         self.assertRun(checkout.run(UI_RULES, scoped=False), True, 'pages/zz/RawKeys.tsx:2 key-handler')
+
+    def test_warn_only_style_guards_pass_a_pr_adding_a_finding(self):
+        # feat-cmux-next (CMUX_NEXT_STYLE_GUARDS=warn): the PR's own finding prints and passes.
+        checkout = self.checkout({'webviews/src/pages/zz/clean.ts': CLEAN},
+                                 {'webviews/src/pages/zz/RawKeys.tsx': RAW_KEYS})
+        for scoped in (True, False):
+            with self.subTest(scoped=scoped):
+                result = checkout.run(UI_RULES, scoped=scoped, style_guards='warn')
+                output = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 0, output)
+                self.assertIn('::warning title=Style rule (warn-only)::', output)
+                self.assertIn('pages/zz/RawKeys.tsx:2 key-handler', output)
 
     def test_coverage_base_gap_warns_on_an_unrelated_pr(self):
         checkout = self.checkout({'webviews/src/pages/zz/Orphan.tsx': ORPHAN},

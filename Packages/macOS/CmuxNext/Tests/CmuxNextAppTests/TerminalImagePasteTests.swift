@@ -4,13 +4,15 @@ import Testing
 
 /// A Cmd-V with an image on the clipboard pastes the image's saved path, as in
 /// the shipping cmux, so a terminal agent receives the picture.
+///
+/// The decisions run on ``TerminalPasteboardContents``, a value read from the
+/// pasteboard once, so the suite needs no pasteboard server: a fleet test step
+/// has none, and there every real `NSPasteboard` read returned nil (step
+/// 9222062d, 2026-10-20: even a plain string read back nil).
 @MainActor
 @Suite struct TerminalImagePasteTests {
-    private func scratch() -> (NSPasteboard, URL) {
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux-next-test-\(UUID().uuidString)"))
-        pasteboard.clearContents()
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("image-paste-\(UUID().uuidString)")
-        return (pasteboard, directory)
+    private func scratchDirectory() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("image-paste-\(UUID().uuidString)")
     }
 
     private func pngData() -> Data {
@@ -21,12 +23,12 @@ import Testing
     }
 
     @Test func imageOnlyClipboardPastesSavedFilePath() throws {
-        let (pasteboard, directory) = scratch()
-        defer { try? FileManager.default.removeItem(at: directory); pasteboard.releaseGlobally() }
+        let directory = scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
         let data = pngData()
-        pasteboard.setData(data, forType: .png)
+        let contents = TerminalPasteboardContents(png: data)
 
-        let text = try #require(TerminalPasteboard.pasteTextSavingImage(from: pasteboard, directory: directory))
+        let text = try #require(TerminalPasteboard.pasteTextSavingImage(from: contents, directory: directory))
         let files = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         #expect(files.count == 1)
         let file = try #require(files.first)
@@ -35,33 +37,54 @@ import Testing
         #expect(try Data(contentsOf: directory.appendingPathComponent(file)) == data)
     }
 
-    @Test func tiffImageIsSavedAsPNG() throws {
-        let (pasteboard, directory) = scratch()
-        defer { try? FileManager.default.removeItem(at: directory); pasteboard.releaseGlobally() }
-        let tiff = try #require(NSImage(data: pngData())?.tiffRepresentation)
-        pasteboard.setData(tiff, forType: .tiff)
+    @Test func jpegIsSavedAsIs() throws {
+        let directory = scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10])
+        let text = try #require(TerminalPasteboard.pasteTextSavingImage(from: TerminalPasteboardContents(jpeg: jpeg),
+                                                                        directory: directory))
+        #expect(text.hasSuffix(".jpg"))
+    }
 
-        #expect(TerminalPasteboard.hasImage(pasteboard))
-        let text = try #require(TerminalPasteboard.pasteTextSavingImage(from: pasteboard, directory: directory))
+    @Test func tiffImageIsSavedAsPNG() throws {
+        let directory = scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tiff = try #require(NSImage(data: pngData())?.tiffRepresentation)
+        let contents = TerminalPasteboardContents(tiff: tiff)
+
+        #expect(contents.hasImage)
+        let text = try #require(TerminalPasteboard.pasteTextSavingImage(from: contents, directory: directory))
         #expect(text.hasSuffix(".png"))
+        let file = try #require(try FileManager.default.contentsOfDirectory(atPath: directory.path).first)
+        let saved = try Data(contentsOf: directory.appendingPathComponent(file))
+        #expect(saved.starts(with: [0x89, 0x50, 0x4E, 0x47]))
     }
 
     @Test func textWinsOverImageAndWritesNoFile() {
-        let (pasteboard, directory) = scratch()
-        defer { pasteboard.releaseGlobally() }
-        pasteboard.declareTypes([.string, .png], owner: nil)
-        pasteboard.setString("hello", forType: .string)
-        pasteboard.setData(pngData(), forType: .png)
+        let directory = scratchDirectory()
+        let contents = TerminalPasteboardContents(string: "hello", png: pngData())
 
-        #expect(TerminalPasteboard.pasteTextSavingImage(from: pasteboard, directory: directory) == "hello")
+        #expect(TerminalPasteboard.pasteTextSavingImage(from: contents, directory: directory) == "hello")
+        #expect(!FileManager.default.fileExists(atPath: directory.path))
+    }
+
+    @Test func fileURLsWinAsShellEscapedPaths() {
+        let contents = TerminalPasteboardContents(fileURLs: [URL(fileURLWithPath: "/tmp/a b.png")],
+                                                  string: "ignored", png: pngData())
+        #expect(TerminalPasteboard.pasteText(from: contents) == "/tmp/a\\ b.png")
+    }
+
+    @Test func anImageOverTheLimitIsNotSaved() {
+        let directory = scratchDirectory()
+        let big = Data(count: TerminalPasteboard.maxClipboardImageBytes + 1)
+        #expect(TerminalPasteboard.pasteTextSavingImage(from: TerminalPasteboardContents(png: big), directory: directory) == nil)
         #expect(!FileManager.default.fileExists(atPath: directory.path))
     }
 
     @Test func emptyClipboardPastesNothing() {
-        let (pasteboard, directory) = scratch()
-        defer { pasteboard.releaseGlobally() }
-        #expect(!TerminalPasteboard.hasImage(pasteboard))
-        #expect(TerminalPasteboard.pasteTextSavingImage(from: pasteboard, directory: directory) == nil)
+        let contents = TerminalPasteboardContents()
+        #expect(!contents.hasImage)
+        #expect(TerminalPasteboard.pasteTextSavingImage(from: contents, directory: scratchDirectory()) == nil)
     }
 
     @Test func onlyCommandVIsTheUserPasteChord() {

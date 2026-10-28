@@ -2,7 +2,9 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextFocus
+@testable import CmuxNextPages
 import Testing
+import WebKit
 
 /// The code editor page (Monaco) gets the VS Code chords while it has the keyboard
 /// (`codeEditorFocused`), resolved as the key dispatcher decides a key-down. Lawrence 2026-10-19:
@@ -85,6 +87,34 @@ import Testing
         #expect(Self.decision(zero, editor: true, sequence: true) == "deliver")
         let quit = try Self.key("q", [.command], keyCode: 12)
         #expect(Self.decision(quit, editor: true, sequence: true).contains("quit"))
+    }
+
+    /// A page web view with `id`, not loaded.
+    static func page(_ id: String) -> PageWebView {
+        let configuration = WKWebViewConfiguration()
+        return PageWebView(descriptor: PageDescriptor(id: id, resource: "keys", namespaces: []), configuration: configuration,
+                           inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
+                           options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: false, chromium: nil)
+    }
+
+    /// Shift-Cmd-L opened a browser tab while the editor had the keyboard: the focus model still named
+    /// the Markdown tab of another pane, so the keys took that page's context. The page whose web view
+    /// is the first responder gets the keys; the model's page counts only when the editor does not.
+    @Test func theEditorHoldingTheKeysWinsOverTheModelsPage() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let markdown = Self.page("cmux.markdown"), editor = Self.page(KeyRouter.codeEditorPageID)
+        markdown.frame = NSRect(x: 0, y: 0, width: 200, height: 300)
+        editor.frame = NSRect(x: 200, y: 0, width: 200, height: 300)
+        window.contentView?.addSubview(markdown)
+        window.contentView?.addSubview(editor)
+        #expect(window.makeFirstResponder(editor.webKitView))
+        #expect(KeyRouter.keyPage(modelPage: markdown, in: window) === editor)
+        #expect(window.makeFirstResponder(markdown.webKitView))
+        #expect(KeyRouter.keyPage(modelPage: markdown, in: window) === markdown)
+        #expect(window.makeFirstResponder(nil))
+        #expect(KeyRouter.keyPage(modelPage: nil, in: window) == nil)
     }
 
     /// A Ghostty keybind the user wrote (`.ghostty`) still wins in the editor, as everywhere.

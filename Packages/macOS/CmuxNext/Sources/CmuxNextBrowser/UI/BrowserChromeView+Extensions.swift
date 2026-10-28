@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextIcons
 
@@ -23,9 +24,8 @@ extension BrowserChromeView {
         set { extensionToolbar.menuHandler = newValue }
     }
 
-    /// Shows the Extensions (puzzle) menu of a Chromium tab. Runs the menu's
-    /// tracking loop: call it from an event or a main-actor task.
-    public func showExtensionsMenu() { extensionToolbar.showMenu() }
+    /// Opens the Extensions (puzzle) bubble of a Chromium tab; an open bubble stays open.
+    public func showExtensionsMenu() { extensionToolbar.openMenu() }
 
     /// Shows one extension's menu at its toolbar button (or the Extensions
     /// button when it is not shown).
@@ -44,13 +44,10 @@ extension BrowserChromeView {
     }
 
     public func presentExtensionsMenu(for id: String? = nil) {
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
-                guard let self else { return }
-                if let id { self.showExtensionItemMenu(id) } else { self.showExtensionsMenu() }
-            }
+        MainRunLoopBlock.perform { [weak self] in
+            guard let self else { return }
+            if let id { self.showExtensionItemMenu(id) } else { self.showExtensionsMenu() }
         }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
     /// Runs an extension's toolbar action anchored to its button (or the
@@ -62,8 +59,39 @@ extension BrowserChromeView {
     @discardableResult
     public func moveExtensionAction(_ id: String, to index: Int) -> Bool { extensionToolbar.movePinned(id, to: index) }
 
-    /// The Extensions menu or an extension's menu while it is open.
-    public var presentedExtensionsMenu: NSMenu? { extensionToolbar.presentedMenu }
+    /// Whether the Extensions bubble, or an extension's menu at its toolbar icon, is open.
+    public var isExtensionsMenuShown: Bool { extensionToolbar.isMenuShown || extensionToolbar.presentedMenu != nil }
+
+    /// What the open Extensions bubble or extension menu shows (`debug.extensions.menu`): each
+    /// item's title, identifier, extension id and enabled state; "-" titles are separators. Nil
+    /// when nothing is open.
+    public var extensionsMenuItems: [(title: String, identifier: String?, extensionID: String?, enabled: Bool)]? {
+        if let menu = extensionToolbar.presentedMenu {
+            return menu.items.map { item in
+                (item.isSeparatorItem ? "-" : item.title, item.identifier?.rawValue, nil, item.isEnabled)
+            }
+        }
+        return extensionToolbar.menuController.report?.map { ($0.title, $0.identifier, $0.extensionID, $0.isEnabled) }
+    }
+
+    /// Chooses an item of the open Extensions bubble or extension menu as a click would: a row
+    /// control (`run`, `pin`, `unpin`, `more`) of `extensionID`, `manage`, `close`, or an
+    /// extension menu operation (`options`, `remove`, `siteAccess`, `homePage`,
+    /// `manageExtension`, `webPermissions`, `pin`, `unpin`). False when no item matches.
+    public func chooseInExtensionsMenu(_ operation: String, extension extensionID: String?) -> Bool {
+        if let menu = extensionToolbar.presentedMenu, let extensionID,
+           let index = menu.items.firstIndex(where: { $0.identifier?.rawValue == "\(ExtensionsMenu.moreIdentifier(extensionID)).\(operation)" }) {
+            menu.cancelTracking()
+            menu.performActionForItem(at: index)
+            return true
+        }
+        return extensionToolbar.menuController.choose(operation, extension: extensionID)
+    }
+
+    /// Closes the open extension menu, else the Extensions bubble.
+    public func dismissExtensionsMenu() {
+        if let menu = extensionToolbar.presentedMenu { menu.cancelTracking() } else { extensionToolbar.menuController.dismiss() }
+    }
 
     /// What the toolbar shows now (`debug.extensions.toolbar`).
     public var toolbarReport: BrowserToolbarReport {
@@ -159,7 +187,7 @@ extension BrowserChromeView {
     static var toolbarMetrics: BrowserToolbarLayout.Metrics {
         BrowserToolbarLayout.Metrics(
             button: OmnibarStyle.buttonSize, navigationSpacing: OmnibarStyle.buttonSpacing,
-            extensionSpacing: BrowserMetrics.buttonSpacing, inset: OmnibarStyle.toolbarInset,
+            extensionSpacing: OmnibarStyle.buttonSpacing, inset: OmnibarStyle.toolbarInset,
             margin: OmnibarStyle.barMargin, preferredAddress: Metrics.tabMaxWidth,
             minimumAddress: BrowserMetrics.minimumAddressWidth
         )

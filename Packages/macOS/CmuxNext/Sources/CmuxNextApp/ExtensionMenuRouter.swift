@@ -27,7 +27,18 @@ final class ExtensionMenuRouter: ExtensionMenuHandling {
         case .loadUnpacked: "browser.extensions.loadUnpacked"
         case .webStore: "browser.extensions.webStore"
         case .manage: "browser.extensions.manage"
-        case .siteAccess: nil
+        case .siteAccess, .homePage, .manageExtension, .webPermissions: nil
+        }
+    }
+
+    /// The page an extension's context menu opens: its home page, its details in
+    /// chrome://extensions, or its origin's site settings. Nil for other operations.
+    static func page(for operation: ExtensionMenuOperation, extensionID id: String) -> URL? {
+        switch operation {
+        case .homePage: URL.browserExtensionWebStoreItem(id)
+        case .manageExtension: URL.browserExtensionDetails(id)
+        case .webPermissions: URL.browserExtensionWebPermissions(id)
+        default: nil
         }
     }
 
@@ -44,6 +55,12 @@ final class ExtensionMenuRouter: ExtensionMenuHandling {
                let host = entry.tab as? any BrowserExtensionActionHosting {
                 host.showExtensionActionMenu(id, atScreenPoint: NSEvent.mouseLocation)
             }
+            return
+        }
+        if let id = extensionID, let url = Self.page(for: operation, extensionID: id) {
+            // Chrome opens these pages in a new foreground tab.
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabKey))
+            AppActions.scope(services, invocation).pane?.newBrowserTab(url: url, engine: BrowserEngineTag.cef.rawValue)
             return
         }
         guard let id = Self.actionID(for: operation) else { return }

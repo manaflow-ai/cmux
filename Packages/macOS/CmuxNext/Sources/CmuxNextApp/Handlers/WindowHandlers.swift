@@ -9,8 +9,7 @@ import CmuxNextSettingsWindow
 
 /// Window and app-level actions (category `window`) not bound in
 /// `AppActions`: settings, show/hide, About, Keep Mac Awake, palette
-/// navigation. Features cmux-next has not built yet report a typed
-/// `ActionFailure` so the CLI and palette say so.
+/// navigation.
 enum WindowHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         // Settings and Debug Settings open as internal page tabs.
@@ -22,6 +21,18 @@ enum WindowHandlers {
         })
         // DEV and NIGHTLY only: the descriptor is `isDebugOnly` (`DevTools`).
         registry.bind("openDebugSettings", run: { invocation in try context.services.debugSettings.show(focus: invocation.allowsViewChange) })
+        // DEV and NIGHTLY (`isDebugOnly`): the per-action budget's HUD; it never takes the keys.
+        registry.bindEffect("debug.actionLatencyHUD", effect: { _ in
+            context.services.actionLatencyHUD.toggle(over: context.services.windows.active?.window)
+            return .done
+        })
+        // DEV and NIGHTLY (`isDebugOnly`): Debug menu > Main-Thread Blocking (N) > Reset Counts. Enabled only
+        // in a build that has the detector (Debug, `CMUX_BLOCKING_CHECKS`): elsewhere reset does nothing.
+        let blocking = context.services.blocking
+        registry.bindEffect("debug.blockingCalls.reset", isEnabled: { blocking.isCompiledIn }, effect: { _ in
+            blocking.resetCounts()
+            return .done
+        })
         registry.bind("about", run: { _ in
             context.activateApp()
             let credits = AboutPanelCredits(bundle: .main).credits
@@ -48,6 +59,8 @@ enum WindowHandlers {
         registry.bind("selectNextWindow", run: { _ in selectWindow(offset: 1, context) })
         registry.bind("selectPreviousWindow", run: { _ in selectWindow(offset: -1, context) })
         registry.bind("keepMacAwake", run: { _ in KeepAwakeService.shared.toggleManual() })
+        // Sleepy Mode: palette, Window menu, `cmux app sleepy-mode` and MCP all toggle the one controller.
+        registry.bind("palette.sleepyMode", run: { _ in context.services.sleepyMode.toggle() })
         registry.bind("commandPaletteNext", run: { _ in context.services.palette.model.handle(.moveDown) })
         // The palette's own keys as actions (PaletteKeyActionCatalog): the open palette runs the command.
         for id in PaletteKeyMap.paletteKeyActions {
@@ -55,15 +68,6 @@ enum WindowHandlers {
             registry.bind(id, run: { _ in context.services.palette.model.handle(command) })
         }
         registry.bind("commandPalettePrevious", run: { _ in context.services.palette.model.handle(.moveUp) })
-
-        let unbuilt: [(ActionID, String)] = [
-            ("palette.openTaskManager", "task-manager"),
-            ("taskManager.killProcess", "task-manager"),
-            ("palette.sleepyMode", "sleepy-mode"),
-        ]
-        for (id, feature) in unbuilt {
-            registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature))
-        }
     }
 
     private static func showMainWindow(_ context: AppActionContext) {

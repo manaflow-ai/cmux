@@ -43,6 +43,7 @@ struct AgentPaneProjectIconTests {
             var reader = live
             reader.stat = { touches.add($0); return live.stat($0) }
             reader.read = { touches.add($0); return live.read($0) }
+            reader.readManifest = { touches.add($0); return live.readManifest($0) }
             return reader
         }
 
@@ -57,6 +58,33 @@ struct AgentPaneProjectIconTests {
         }
         // A vector or a large touch icon draws sharper in the 20pt tile than a 16px .ico.
         #expect(candidates.firstIndex(of: "/p/public/favicon.svg")! < candidates.firstIndex(of: "/p/favicon.ico")!)
+    }
+
+    /// The repository's own pick for cmux first; logos after every favicon.
+    @Test func aChosenIconComesFirstAndLogosLast() {
+        let candidates = AgentPaneProjectIcon.candidates(in: "/p")
+        #expect(candidates.first == "/p/.cmux/icon.svg")
+        #expect(candidates.contains("/p/assets/icon.png"))
+        for logo in ["/p/logo.svg", "/p/logo.png", "/p/assets/logo.svg", "/p/assets/logo.png"] {
+            #expect(candidates.firstIndex(of: logo)! > candidates.firstIndex(of: "/p/favicon.ico")!, "\(logo)")
+        }
+    }
+
+    @Test func anXcodeAppIconIsItsLargestSmallEnoughPNG() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        var small = Self.png
+        small.append(Data(count: 100))
+        var large = Self.png
+        large.append(Data(count: 1000))
+        var huge = Self.png
+        huge.append(Data(count: AgentPaneProjectIcon.maximumBytes))
+        let set = "code/App/App/Assets.xcassets/AppIcon.appiconset/"
+        try fixture.write(small, set + "icon-16.png")
+        try fixture.write(large, set + "icon-128.png")
+        try fixture.write(huge, set + "icon-1024.png")
+        try fixture.write(Data("{}".utf8), set + "Contents.json")
+        #expect(fixture.reader.icon(in: fixture.home + "/code/App") == "data:image/png;base64," + large.base64EncodedString())
     }
 
     @Test func aProjectsFaviconIsAnsweredAsADataURL() throws {

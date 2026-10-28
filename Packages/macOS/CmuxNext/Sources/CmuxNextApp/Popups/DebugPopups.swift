@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextBrowser
 import CmuxNextPopups
@@ -69,7 +69,7 @@ enum DebugPopups {
             "child_of_window": .bool(panel.parent != nil),
             "traffic_lights": .array(lights),
             "location_bar": .object([
-                "text": .string(panel.locationBar.displayedText),
+                "text": .string(panel.addressBar.displayedText),
                 "shown": .bool(panel.isToolbarShown),
             ]),
             "window": parent.map { .string($0.state.id) } ?? .null,

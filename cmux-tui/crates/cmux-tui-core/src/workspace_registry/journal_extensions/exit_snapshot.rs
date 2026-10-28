@@ -12,27 +12,15 @@ impl WorkspaceRegistry {
         &mut self,
         terminal_id: &str,
         generation: &str,
+        covered_through: u64,
         blob: &JournalContentBlob,
     ) -> anyhow::Result<bool> {
-        let db = self.connection.get();
-        let tx = db.unchecked_transaction()?;
-        let covered_through = tx
-            .query_row(
-                "SELECT next_offset FROM journal_terminal_streams
-                 WHERE terminal_id = ?1 AND generation = ?2",
-                params![terminal_id, generation],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?
-            .map(u64::try_from)
-            .transpose()
-            .context("terminal journal offset is negative")?
-            .unwrap_or(0);
         if covered_through == 0 {
-            // The generation journaled no output; there is nothing for the
-            // snapshot to cover and record reads stay exact without it.
+            // The generation printed nothing; there is nothing to cover.
             return Ok(false);
         }
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let now = unix_epoch_ms()?;
         insert_journal_content_blob(&tx, blob, now)?;
         // Rows are immutable (a trigger rejects UPDATE): a later generation's

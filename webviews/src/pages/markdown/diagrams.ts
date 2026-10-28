@@ -6,8 +6,8 @@
 //
 // Mermaid source draws with Ondine (github.com/wevm/ondine, evaluation in
 // plans/cmux-next/mermaid-ondine-EVAL.md): a Rust compiler in WebAssembly with no imports, so it
-// cannot touch the page; it returns SVG text. A source Ondine refuses falls back to Mermaid 11
-// (securityLevel "strict"), and the "mermaid" renderer flag uses Mermaid only. Either SVG is parsed
+// cannot touch the page; it returns SVG text. Ondine always renders; Mermaid 11 (securityLevel
+// "strict") draws only a source Ondine refuses, with no flag or setting to choose it. Either SVG is parsed
 // as HTML (Mermaid writes HTML labels), cleaned of script, handlers and script URLs, then inserted.
 type MermaidAPI = {
   initialize(config: Record<string, unknown>): void;
@@ -30,12 +30,6 @@ type VegaAPI = {
 type VegaLiteAPI = { compile(spec: unknown, options?: { config?: unknown }): { spec: unknown } };
 
 export type DiagramLibrary = "ondine" | "mermaid" | "vega";
-
-/** Which renderer draws Mermaid source: Ondine with Mermaid as fallback, or Mermaid only. */
-export type MermaidRenderer = "ondine" | "mermaid";
-
-/** The default Mermaid renderer; the page config's `mermaidRenderer` overrides it. */
-export const DEFAULT_MERMAID_RENDERER: MermaidRenderer = "ondine";
 
 /** The global each library script defines. */
 const LIBRARY_GLOBALS: Record<DiagramLibrary, string> = { ondine: "ondine", mermaid: "mermaid", vega: "vega" };
@@ -100,27 +94,18 @@ async function renderMermaidJS(libraries: DiagramLibraries, source: string): Pro
 }
 
 /**
- * Renders a mermaid diagram as SVG into `target`: with Ondine, falling back to Mermaid for a source
- * Ondine refuses (Ondine's reason is the error when both refuse), or with Mermaid only.
+ * Renders a mermaid diagram as SVG into `target` with Ondine, falling back to Mermaid for a source
+ * Ondine refuses; when both refuse, Ondine's reason is the error.
  */
-export async function renderMermaid(
-  libraries: DiagramLibraries,
-  source: string,
-  target: HTMLElement,
-  renderer: MermaidRenderer = DEFAULT_MERMAID_RENDERER,
-): Promise<void> {
+export async function renderMermaid(libraries: DiagramLibraries, source: string, target: HTMLElement): Promise<void> {
   let svg: string;
-  if (renderer === "mermaid") {
-    svg = await renderMermaidJS(libraries, source);
-  } else {
+  try {
+    svg = await renderOndine(libraries, source);
+  } catch (ondineError) {
     try {
-      svg = await renderOndine(libraries, source);
-    } catch (ondineError) {
-      try {
-        svg = await renderMermaidJS(libraries, source);
-      } catch {
-        throw ondineError;
-      }
+      svg = await renderMermaidJS(libraries, source);
+    } catch {
+      throw ondineError;
     }
   }
   target.replaceChildren(document.importNode(cleanSVG(svg), true));
@@ -208,7 +193,6 @@ export function renderDiagram(
   source: string,
   target: HTMLElement,
   errorText: string,
-  mermaidRenderer: MermaidRenderer = DEFAULT_MERMAID_RENDERER,
 ): void {
   target.dataset.state = "rendering";
   const done = (promise: Promise<void>) =>
@@ -224,6 +208,6 @@ export function renderDiagram(
         target.replaceChildren(message);
       },
     );
-  if (language === "mermaid") void done(renderMermaid(libraries, source, target, mermaidRenderer));
+  if (language === "mermaid") void done(renderMermaid(libraries, source, target));
   else void done(renderVega(libraries, language === "vega" ? "vega" : "vega-lite", source, target));
 }

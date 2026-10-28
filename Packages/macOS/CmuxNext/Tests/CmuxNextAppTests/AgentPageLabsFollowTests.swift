@@ -16,14 +16,16 @@ import Testing
 @Suite(.serialized)
 struct AgentPageLabsFollowTests {
     @Test func labsReachAnAgentPageWhenTheActionsWereBoundBeforeSettings() async throws {
-        // A page source without the bundle (Debug dev server origin), and no acpmux; put back after.
-        let names: [String] = [AgentPaneSource.devURLVariable, "CMUX_NEXT_AGENT_PANE_MOCK"]
-        let saved = names.map { ($0, ProcessInfo.processInfo.environment[$0]) }
-        defer { for (name, value) in saved { if let value { setenv(name, value, 1) } else { unsetenv(name) } } }
-        setenv(AgentPaneSource.devURLVariable, "http://127.0.0.1:9", 1)
-        setenv("CMUX_NEXT_AGENT_PANE_MOCK", "1", 1)
+        // A page source without the bundle (Debug dev server origin), and no acpmux.
+        // Inject the process snapshot into AppServices instead of mutating environ:
+        // libghostty retains environ slices after ghostty_init and concurrent test
+        // suites must never rewrite that storage.
+        let agentPaneEnvironment = [
+            AgentPaneSource.devURLVariable: "http://127.0.0.1:9",
+            "CMUX_NEXT_AGENT_PANE_MOCK": "1",
+        ]
         _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
+        let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: agentPaneEnvironment)
         AppActions.bind(services)
 
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-labs-follow-\(UUID().uuidString)")

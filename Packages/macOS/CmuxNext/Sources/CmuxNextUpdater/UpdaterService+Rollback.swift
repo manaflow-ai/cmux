@@ -1,6 +1,6 @@
 public import CmuxUpdater
 public import Foundation
-import Security
+import CmuxNextWakeups
 
 /// What a rollback compares, read off the main actor
 /// (``UpdaterService/rollbackInputs(stateDirectories:)``).
@@ -30,7 +30,7 @@ extension UpdaterService {
     public var keptVersions: KeptVersionStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let root = support.appending(path: "cmux-next/\(identity.bundleIdentifier ?? "cmux")/versions", directoryHint: .isDirectory)
-        return KeptVersionStore(root: root, teamID: { Self.signingTeam(of: $0) })
+        return KeptVersionStore(root: root, teamID: { UpdateDropBack.signingTeam(of: $0) })
     }
 
     /// An update staged: keep the running bundle for rollback now, off the
@@ -42,24 +42,29 @@ extension UpdaterService {
         keptRunningBuild = .running
         let store = keptVersions, bundle = Bundle.main.bundleURL, build = identity.build, limit = preferences.keepPreviousVersions
         let log = log
-        // task-owner: one clone that ends by itself; the install waits for nothing it does.
-        keepTask = Task.detached { [weak self] in
-            #if DEBUG
-            UpdateHarness.mark("keep_previous_start")
-            #endif
-            let kept: Bool
-            do {
-                try store.keep(bundle: bundle, build: build, limit: limit)
-                log.append("kept \(build) for rollback when the update staged")
-                kept = true
-            } catch {
-                log.append("could not keep \(build) for rollback: \(error)")
-                kept = false
-            }
-            #if DEBUG
-            UpdateHarness.mark("keep_previous_end")
-            #endif
-            await MainActor.run { self?.keptRunningBuild = kept ? .kept : nil }
+        let work = work
+        // task-owner: one clone that ends by itself; the install waits for nothing it does. The clone and the
+        // prune's signature reads run on the files lane, best effort (nobody waits), and quit waits for them.
+        keepTask = Task(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
+            let kept = (try? await work.run(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { () -> Bool in
+                #if DEBUG || CMUX_BENCH_HOOKS
+                UpdateHarness.mark("keep_previous_start")
+                #endif
+                defer {
+                    #if DEBUG || CMUX_BENCH_HOOKS
+                    UpdateHarness.mark("keep_previous_end")
+                    #endif
+                }
+                do {
+                    try store.keep(bundle: bundle, build: build, limit: limit)
+                    log.append("kept \(build) for rollback when the update staged")
+                    return true
+                } catch {
+                    log.append("could not keep \(build) for rollback: \(error)")
+                    return false
+                }
+            }) ?? false
+            self?.keptRunningBuild = kept ? .kept : nil
         }
     }
 
@@ -67,6 +72,7 @@ extension UpdaterService {
     /// when the update staged; only a keep that never ran or failed runs
     /// here (a quit that installs an update staged before this launch).
     public func updaterWillInstallUpdate(build: String) {
+        installingBuild = build
         guard keptRunningBuild == nil else { return }
         do {
             try keptVersions.keep(bundle: Bundle.main.bundleURL, build: identity.build, limit: preferences.keepPreviousVersions)
@@ -82,33 +88,20 @@ extension UpdaterService {
     public func rollbackInputs(stateDirectories: [URL?]) async -> RollbackInputs {
         let store = keptVersions
         let bundle = Bundle.main.bundleURL
-        return await Task.detached {
-            let kept = store.list().map { version in
-                var version = version
-                if version.storeSchemas == nil { version.storeSchemas = StoreSchemaProbe(bundle: version.bundle).readable() }
-                return version
-            }
-            return RollbackInputs(kept: kept, stored: StoreSchemaProbe(bundle: bundle).stored(stateDirectories: stateDirectories))
-        }.value
+        // A directory listing and a read of each kept bundle's Info.plist: file I/O on the files lane. The
+        // probes are awaited child processes (no thread waits).
+        var kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list() }) ?? []
+        for index in kept.indices where kept[index].storeSchemas == nil {
+            kept[index].storeSchemas = await StoreSchemaProbe(bundle: kept[index].bundle).readable()
+        }
+        return RollbackInputs(kept: kept, stored: await StoreSchemaProbe(bundle: bundle).stored(stateDirectories: stateDirectories))
     }
 
     /// Whether a rollback to `build` (nil: the newest kept) would run.
     public func rollbackDecision(to build: String?, inputs: RollbackInputs) -> Result<KeptVersion, RollbackRefusal> {
         guard let stored = inputs.stored else { return .failure(.storesUnknown) }
         return RollbackDecision.decide(kept: inputs.kept, build: build, stored: stored,
-                                       teamID: Self.signingTeam(of: Bundle.main.bundleURL))
-    }
-
-    /// The Developer ID team of a valid signed bundle, else nil.
-    nonisolated static func signingTeam(of bundle: URL) -> String? {
-        var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(bundle as CFURL, [], &code) == errSecSuccess, let code,
-              SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode), nil) == errSecSuccess
-        else { return nil }
-        var information: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess
-        else { return nil }
-        return (information as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String
+                                       teamID: UpdateDropBack.signingTeam(of: Bundle.main.bundleURL))
     }
 }
 

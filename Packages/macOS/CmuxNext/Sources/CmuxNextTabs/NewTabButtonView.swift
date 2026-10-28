@@ -4,15 +4,26 @@ import QuartzCore
 
 /// The "+" after the last tab. Mouse handling lives in the strip.
 final class NewTabButtonView: NSView {
+    var showsChevron = false {
+        didSet {
+            setAccessibilityRole(showsChevron ? .popUpButton : .button)
+            needsLayout = true
+        }
+    }
     var isHovered = false {
         didSet {
             guard oldValue != isHovered else { return }
             updateColors(animated: true)
-            if isHovered { TabStripSignals.shared.onNewTabButtonHover?() }
+            if isHovered {
+                if themedToolTip != nil { themedToolTipShortcut = shortcut?() }
+            }
         }
     }
     var isPressed = false { didSet { if oldValue != isPressed { updateColors(animated: false) } } }
     var onPress: (() -> Void)?
+    /// The new tab action's shortcut as the person sees it ("⌘T"), read on hover so a rebinding
+    /// shows at once; the tooltip draws it after its text.
+    var shortcut: (() -> String?)?
     /// VoiceOver moved its focus onto (true) or off (false) the plus.
     var onAccessibilityFocus: ((Bool) -> Void)?
 
@@ -35,6 +46,9 @@ final class NewTabButtonView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(Strings.axNewTab)
+        setAccessibilityIdentifier("cmux.tabs.newTab")
+        // The plus says what it does and that holding it opens the new tab menu (`TabNewTabHold`).
+        themedToolTip = Strings.newTabHoldHint
     }
 
     @available(*, unavailable)
@@ -57,17 +71,23 @@ final class NewTabButtonView: NSView {
         CATransaction.setDisableActions(true)
         let side = min(bounds.width, bounds.height)
         let square = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
-        fillLayer.frame = square
+        fillLayer.frame = showsChevron ? bounds.insetBy(dx: Metrics.space1, dy: (bounds.height - side) / 2) : square
         glyphLayer.frame = bounds
         let arm = Metrics.space2 + Metrics.space1 / 2
         let scale = window?.backingScaleFactor ?? 2
         glyphLayer.contentsScale = scale
-        let center = CGPoint(x: (square.midX * scale).rounded() / scale, y: (square.midY * scale).rounded() / scale)
+        let center = CGPoint(x: ((square.midX - (showsChevron ? Metrics.space2 : 0)) * scale).rounded() / scale, y: (square.midY * scale).rounded() / scale)
         let path = CGMutablePath()
         path.move(to: CGPoint(x: center.x - arm, y: center.y))
         path.addLine(to: CGPoint(x: center.x + arm, y: center.y))
         path.move(to: CGPoint(x: center.x, y: center.y - arm))
         path.addLine(to: CGPoint(x: center.x, y: center.y + arm))
+        if showsChevron {
+            let x = center.x + arm + Metrics.space3
+            path.move(to: CGPoint(x: x - Metrics.space1, y: center.y - Metrics.space1 / 2))
+            path.addLine(to: CGPoint(x: x, y: center.y + Metrics.space1 / 2))
+            path.addLine(to: CGPoint(x: x + Metrics.space1, y: center.y - Metrics.space1 / 2))
+        }
         glyphLayer.path = path
         CATransaction.commit()
     }
@@ -89,13 +109,19 @@ final class NewTabButtonView: NSView {
     private func updateColors(animated: Bool) {
         let token = animated ? ChromeHover.fade(showing: isHovered || isPressed, pressed: isPressed) : nil
         // An instant change also ends a fill still easing in.
-        if (token.map(Motion.duration) ?? 0) == 0 { fillLayer.removeAnimation(forKey: "backgroundColor") }
-        Motion.transaction(token) {
+        if (token.map(Motion.tabs.duration) ?? 0) == 0 { fillLayer.removeAnimation(forKey: "backgroundColor") }
+        Motion.tabs.transaction(token) {
             performWithTheme {
                 fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: isHovered, pressed: isPressed))?.cgColor
                 glyphLayer.strokeColor = (isHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
             }
         }
+    }
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard showsChevron else { return false }
+        onPress?()
+        return true
     }
 
     override func accessibilityPerformPress() -> Bool {

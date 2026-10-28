@@ -19,13 +19,26 @@ public struct PhoneCapabilities: OptionSet, Sendable, Hashable {
     public static let liveScreen = PhoneCapabilities(rawValue: 1 << 8)
     /// Hardware buttons (home, lock, volume).
     public static let buttons = PhoneCapabilities(rawValue: 1 << 9)
+    /// Light and dark mode.
+    public static let appearance = PhoneCapabilities(rawValue: 1 << 10)
+    /// A simulated GPS position.
+    public static let location = PhoneCapabilities(rawValue: 1 << 11)
+    /// The system language and region.
+    public static let locale = PhoneCapabilities(rawValue: 1 << 12)
+    /// Installing and launching apps.
+    public static let apps = PhoneCapabilities(rawValue: 1 << 13)
+    /// Turning the screen between portrait and landscape.
+    public static let rotate = PhoneCapabilities(rawValue: 1 << 14)
+    /// Reading the screen's accessibility tree.
+    public static let accessibility = PhoneCapabilities(rawValue: 1 << 15)
 
     /// The capability names the CLI and MCP report, in a stable order.
     public var names: [String] {
         let all: [(PhoneCapabilities, String)] = [
             (.boot, "boot"), (.screenshot, "screenshot"), (.recordVideo, "record"), (.deviceLog, "log"),
             (.openURL, "open-url"), (.pasteboard, "pasteboard"), (.touch, "touch"), (.keyboard, "keyboard"),
-            (.liveScreen, "live"), (.buttons, "buttons"),
+            (.liveScreen, "live"), (.buttons, "buttons"), (.appearance, "appearance"), (.location, "location"),
+            (.locale, "locale"), (.apps, "apps"), (.rotate, "rotate"), (.accessibility, "ui"),
         ]
         return all.filter { contains($0.0) }.map(\.1)
     }

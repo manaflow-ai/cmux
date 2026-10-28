@@ -18,7 +18,7 @@ struct PaneArrival: Equatable {
     /// frame before (`previous`) and after (`next`) the change; nil when no
     /// existing pane gave up the space (a strip column appended, a pane moved
     /// in from elsewhere), which then lands in place. The pane that gave it up
-    /// shrank inside its old frame and ends beside the new pane, on the side it
+    /// shrank, still overlaps its old frame and ends beside the new pane, on the side it
     /// gave up (a column inserted mid-strip pushes its neighbor along instead).
     static func of(target: CGRect, previous: [PaneID: CGRect], next: [PaneID: CGRect]) -> PaneArrival? {
         let slack: CGFloat = 1, gap: CGFloat = 32
@@ -26,7 +26,9 @@ struct PaneArrival: Equatable {
         // Beside: at most a pane gap apart (a pane further along the chain shrinks too).
         func beside(_ near: CGFloat, _ far: CGFloat) -> Bool { far >= near - slack && far - near <= gap }
         let shrank = previous.compactMap { pane, before -> (before: CGRect, after: CGRect)? in
-            guard let after = next[pane], before.insetBy(dx: -slack, dy: -slack).contains(after),
+            // Overlaps its old frame, not inside it: with even sizing shown in the split's own
+            // layout (`LayoutModel.showSplitSizing`) the split pane also slides along the chain.
+            guard let after = next[pane], before.insetBy(dx: -slack, dy: -slack).intersects(after),
                   after.width * after.height < before.width * before.height - 1 else { return nil }
             return (before, after)
         }
@@ -116,6 +118,27 @@ struct PaneArrival: Equatable {
                                edgeOffset: CGVector(dx: 0, dy: target.height))
         }
         return nil
+    }
+
+    /// A split whose added pane takes over what `giver` showed (`LayoutModel.handOffContent(of:)`):
+    /// the added pane's arrival starts at its target, so it never grows in, and `giver` starts
+    /// at its new size just past the screen edge across from the added pane (`slide`, where it
+    /// shows, in view points), so it slides in. Nil when `arrivals` added no pane beside `giver`.
+    static func handoff(_ arrivals: [PaneID: PaneArrival], giver: PaneID, from old: ScreenGeometry, to new: ScreenGeometry,
+                        offset: CGFloat) -> (arrivals: [PaneID: PaneArrival], slide: CGRect)? {
+        guard arrivals.count == 1, let (added, _) = arrivals.first, added != giver, old.panes[giver] != nil,
+              let target = new.panes[added], let kept = new.panes[giver] else { return nil }
+        // Both where they show (a docked pane is in view points, a strip pane in the strip's).
+        let both = Self.shown([giver: kept, added: target], in: new, offset: offset)
+        let shown = both[giver] ?? kept, beside = both[added] ?? target
+        let horizontal = abs(shown.midX - beside.midX) >= abs(shown.midY - beside.midY)
+        let slide: CGRect
+        if horizontal {
+            slide = shown.offsetBy(dx: shown.midX >= beside.midX ? new.clipMaxX - shown.minX : new.clipMinX - shown.maxX, dy: 0)
+        } else {
+            slide = shown.offsetBy(dx: 0, dy: shown.midY >= beside.midY ? new.clipMaxY - shown.minY : new.clipMinY - shown.maxY)
+        }
+        return ([added: PaneArrival(seed: target, edgeOffset: .zero)], slide)
     }
 
     private static func shown(_ rects: [PaneID: CGRect], in geometry: ScreenGeometry, offset: CGFloat) -> [PaneID: CGRect] {

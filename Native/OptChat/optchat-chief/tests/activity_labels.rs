@@ -25,6 +25,40 @@ fn the_chiefs_own_tools_read_as_what_they_do() {
 }
 
 #[test]
+fn the_chiefs_control_calls_say_what_they_do_to_which_agent() {
+    // Leo 2026-10-20: "Using optchat: control" sat over the typing dots for six minutes.
+    let status = json!({"rawInput": {"action": "status", "id": "a31"}});
+    assert_eq!(
+        activity_line("mcp__optchat__control", &status),
+        "Checking on a31"
+    );
+    let all = json!({"rawInput": {"action": "status"}});
+    assert_eq!(
+        activity_line("mcp__optchat__control", &all),
+        "Checking on the agents"
+    );
+    let answer = json!({"rawInput": {"action": "answer", "id": "a7", "option": "allow"}});
+    assert_eq!(
+        activity_line("mcp__optchat__control", &answer),
+        "Answering a7's prompt"
+    );
+    let interrupt = json!({"rawInput": {"action": "interrupt", "id": "a2", "message": "stop"}});
+    assert_eq!(
+        activity_line("mcp__optchat__control", &interrupt),
+        "Steering a2"
+    );
+    // Input not streamed yet: still not the raw tool name.
+    assert_eq!(
+        activity_line("mcp__optchat__control", &json!({})),
+        "Managing the agents"
+    );
+    assert_eq!(
+        activity_line("mcp__optchat__peers", &json!({})),
+        "Looking up the other machines"
+    );
+}
+
+#[test]
 fn other_mcp_tools_name_their_server_and_tool_in_words() {
     assert_eq!(
         activity_line("mcp__cmux__app_file_open", &json!({})),

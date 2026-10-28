@@ -29,6 +29,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context as _, anyhow, bail};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use cmux_link::registration;
 use serde_json::{Value, json};
 
@@ -142,6 +144,7 @@ pub(super) fn status_line(
     pid: u32,
     udp: &str,
     served: &Served,
+    public_key: &[u8; 32],
 ) -> Value {
     let mut line = json!({
         "ok": true,
@@ -152,6 +155,8 @@ pub(super) fn status_line(
         "port": config.port,
         "udp": udp,
         "build": build(),
+        "public_key": STANDARD.encode(public_key),
+        "identity_source": if config.server_identity.is_some() { "server_pairing" } else { "local" },
     });
     if let (Some(line), Value::Object(extra)) = (line.as_object_mut(), served.json()) {
         line.extend(extra);
@@ -184,7 +189,7 @@ fn owns(state: &LinkState, socket: &Path) -> bool {
 /// so two of them never init, start or stop the same link at once. (`serve`
 /// holds `link.lock` for its lifetime; one file would deadlock `ensure`,
 /// which waits for the `serve` it started while it holds its lock.)
-fn ensure_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
+pub(super) fn ensure_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
     let file = super::state::open_lock(&state.dir().join("link.ensure.lock"))?;
     // flock has no timed wait: a helper thread takes the lock (blocking)
     // and hands the file over; this waits for that event with a deadline.
@@ -209,7 +214,7 @@ fn ensure_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
 }
 
 /// `link.status` of the link at `socket`, or None when it did not answer.
-fn query_status(socket: &Path) -> Option<Value> {
+pub(super) fn query_status(socket: &Path) -> Option<Value> {
     let mut stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
     stream.set_read_timeout(Some(STATUS_BUDGET)).ok()?;
     stream.set_write_timeout(Some(STATUS_BUDGET)).ok()?;
@@ -218,6 +223,19 @@ fn query_status(socket: &Path) -> Option<Value> {
     BufReader::new(stream.take(64 * 1024)).read_line(&mut line).ok()?;
     let value: Value = serde_json::from_str(line.trim()).ok()?;
     (value["ok"] == json!(true)).then_some(value)
+}
+
+/// An enrolled link must prove the key actually loaded by its running mesh.
+/// Older links without the proof cannot be silently reused as that identity.
+pub(super) fn matches_enrollment(state: &LinkState, status: &Value) -> anyhow::Result<bool> {
+    let config = state.config()?;
+    if config.server_identity.is_none() {
+        return Ok(true);
+    }
+    let public = super::state::public_key(&*state.private_key()?);
+    Ok(status["identity_source"] == "server_pairing"
+        && status["install"] == config.install
+        && status["public_key"] == STANDARD.encode(public))
 }
 
 /// Runs `init` when the state directory has none; otherwise checks
@@ -246,10 +264,20 @@ fn init_or_check(state: &LinkState, flags: &Flags, handoff: bool) -> anyhow::Res
             .ok_or_else(|| anyhow!("this state directory has no link yet: give --install ID"))?;
         // An install that comes back gets its own archived key and peers.
         state.restore_install(install)?;
-        state.init(&LinkConfig { install: install.clone(), port: port.unwrap_or(DEFAULT_PORT) })?;
+        state.init(&LinkConfig {
+            install: install.clone(),
+            port: port.unwrap_or(DEFAULT_PORT),
+            server_identity: None,
+        })?;
         return Ok(false);
     }
     let config = state.config()?;
+    if config.server_identity.is_some() {
+        let _ = state.private_key()?;
+        if flags.get("--install").is_some_and(|install| install != &config.install) {
+            bail!("server_link.identity_conflict");
+        }
+    }
     let install = flags.get("--install").filter(|install| **install != config.install);
     let other_port = port.filter(|port| *port != config.port);
     if install.is_none() && other_port.is_none() {
@@ -265,6 +293,7 @@ fn init_or_check(state: &LinkState, flags: &Flags, handoff: bool) -> anyhow::Res
     let fresh = LinkConfig {
         install: install.cloned().unwrap_or_else(|| config.install.clone()),
         port: other_port.unwrap_or(config.port),
+        server_identity: config.server_identity.clone(),
     };
     if install.is_some() {
         // Nothing is deleted: the old install's key and peers are kept
@@ -284,13 +313,20 @@ pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
         let status = query_status(&live.socket);
         let same_build = status.as_ref().is_some_and(|s| s["build"] == json!(build()));
         let same_served = status.as_ref().is_some_and(|s| wanted.matches(s));
+        let same_identity = match status.as_ref() {
+            Some(status) => matches_enrollment(&state, status)?,
+            None => state.config()?.server_identity.is_none(),
+        };
+        if !same_identity && !handoff {
+            bail!("server_link.identity_mismatch");
+        }
         if status.is_some() && !same_served && !handoff {
             bail!(
                 "config_mismatch: the running link serves another session socket or server \
                  config; stop it first"
             );
         }
-        if (same_build && same_served) || !handoff {
+        if (same_build && same_served && same_identity) || !handoff {
             let mut out = json!({"status": "running", "pid": live.pid, "socket": live.socket});
             if let Some(status) = status {
                 out["build"] = status["build"].clone();
@@ -317,6 +353,14 @@ pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
         // won the socket, so the registration decides.
         None => match live(&state) {
             Some(live) => {
+                if state.config()?.server_identity.is_some()
+                    && !query_status(&live.socket)
+                        .map(|status| matches_enrollment(&state, &status))
+                        .transpose()?
+                        .unwrap_or(false)
+                {
+                    bail!("server_link.identity_mismatch");
+                }
                 print_json(&json!({"status": "running", "pid": live.pid, "socket": live.socket}));
                 Ok(())
             }

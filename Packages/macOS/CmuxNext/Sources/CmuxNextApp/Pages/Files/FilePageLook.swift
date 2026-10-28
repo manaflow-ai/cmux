@@ -45,9 +45,10 @@ final class FilePageLook {
         self.importSources = importSources
     }
 
-    /// `markdown.remoteImages` (default true; coordinator decision for S6).
+    /// `markdown.remoteImages`: whether documents load web images without a click (default false).
+    /// A false value still permits the current document after its visible load control is clicked.
     var remoteImages: Bool {
-        settings()?.fileRoot["markdown"]?["remoteImages"]?.boolValue ?? true
+        settings()?.fileRoot["markdown"]?["remoteImages"]?.boolValue ?? false
     }
 
     private var configDirectory: URL? { fixedConfigDirectory ?? settings()?.file.url.deletingLastPathComponent() }

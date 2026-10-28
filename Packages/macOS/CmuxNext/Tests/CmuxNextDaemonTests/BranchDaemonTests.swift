@@ -14,10 +14,9 @@ struct BranchDaemonTests {
     /// same way), and none the app still lists as unserved.
     @Test func advertisesEveryCmuxNextCapability() async throws {
         try await BranchDaemonHarness.with { h in
-            let capabilities = DaemonCapabilities.shared
-            let missing = (capabilities.required + capabilities.optional).filter { !h.identity.supports($0) }
+            let missing = (DaemonCapability.required + DaemonCapability.optional).filter { !h.identity.supports($0) }
             #expect(missing.isEmpty, "missing: \(missing)")
-            let nowServed = capabilities.unservedByBundledDaemon.filter { h.identity.supports($0) }
+            let nowServed = DaemonCapability.unservedByBundledDaemon.filter { h.identity.supports($0) }
             #expect(nowServed.isEmpty, "served now, move to optional: \(nowServed)")
         }
     }

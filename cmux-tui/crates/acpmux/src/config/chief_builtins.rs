@@ -240,6 +240,7 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
             } else {
                 flags(&mut env, &["DISABLE_AUTOUPDATER", "CLAUDE_CODE_DISABLE_CLAUDE_MDS"], "1");
                 env.insert("SUBROUTER_SESSION_KEY".into(), key("turn"));
+                env.insert("SUBROUTER_SESSION_HEADER".into(), "1".into());
             }
         }
         Role::Compact(k) => {
@@ -269,6 +270,7 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
                     "1",
                 );
                 env.insert("SUBROUTER_SESSION_KEY".into(), key("compact"));
+                env.insert("SUBROUTER_SESSION_HEADER".into(), "1".into());
             }
         }
         Role::Sub => {

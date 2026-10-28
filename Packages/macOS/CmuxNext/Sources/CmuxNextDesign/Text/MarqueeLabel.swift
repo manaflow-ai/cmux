@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// A one-line chrome label whose clipped end fades out (no ellipsis) and
 /// whose hover marquee reveals the rest (`TitleFade`). Passive: it takes no
@@ -9,7 +10,8 @@ public import AppKit
 /// padding), so the view draws outside its bounds there.
 public final class MarqueeLabel: NSView {
     private let text = ChromeTextLayer()
-    private lazy var fade = TitleFade(textLayer: text)
+    private let gate: MotionGate
+    private lazy var fade = TitleFade(textLayer: text, gate: gate)
 
     public var stringValue: String {
         get { text.string }
@@ -53,7 +55,12 @@ public final class MarqueeLabel: NSView {
         trailingOcclusion = occlusion
     }
 
-    public override init(frame: NSRect) {
+    /// - Parameters:
+    ///   - gate: The owner's motion category (`Motion.sidebar`): the
+    ///     marquee and fades obey its switch.
+    ///   - frame: The text rect at rest.
+    public init(gate: MotionGate, frame: NSRect = .zero) {
+        self.gate = gate
         super.init(frame: frame)
         wantsLayer = true
         layer?.masksToBounds = false

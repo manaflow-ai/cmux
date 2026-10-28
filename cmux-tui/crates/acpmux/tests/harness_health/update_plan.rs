@@ -6,6 +6,9 @@ use super::*;
 const PLAN: &str = "_acpmux/harness/update/plan";
 const PREPARE: &str = "_acpmux/harness/update/prepare";
 
+#[path = "bun_binding.rs"]
+mod bun_binding;
+
 struct Fixture {
     root: PathBuf,
     hub: Arc<Hub>,
@@ -69,6 +72,7 @@ impl Fixture {
                 npm: format!("http://127.0.0.1:{port}/npm"),
                 brew: format!("http://127.0.0.1:{port}/brew"),
             }),
+            ..Settings::default()
         });
     }
 

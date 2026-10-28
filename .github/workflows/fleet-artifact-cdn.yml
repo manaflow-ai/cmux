@@ -22,7 +22,9 @@ permissions:
 
 concurrency:
   group: fleet-artifact-cdn-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  # Pull request runs only test, so a newer push cancels the older one. Push and
+  # dispatch runs deploy and are never cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -43,6 +45,7 @@ jobs:
         run: npm test
 
   deploy:
+    environment: fleet-artifact-cdn
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     needs: test
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}

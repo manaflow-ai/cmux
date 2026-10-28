@@ -23,15 +23,21 @@ const ARG: &str = "--SUPERSECRETARG";
 const ENV: &str = "s3cr3t-env-value";
 const PROFILE_ARG: &str = "profile-private-argument";
 const PROFILE_ENV: &str = "profile-private-environment";
+const DEFAULT_ENV: &str = "default-secret-value";
 const SHA: &str = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
 
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
-            "fake": {"argv": ["python3", FAKE]},
+            "fake": {"argv": ["python3", FAKE], "env": {"PROFILE_KEY": PROFILE_ENV}},
+            "env": {"argv": ["python3", FAKE]},
             "private": {"argv": ["/bin/echo", PROFILE_ARG], "env": {"PRIVATE_TOKEN": PROFILE_ENV}},
         },
         "defaultHarness": "fake",
+        "defaults": {
+            "fake": {"env": {"DEFAULT_KEY": DEFAULT_ENV}},
+            "env": {"env": {"FAMILY_KEY": DEFAULT_ENV}},
+        },
         "permissionPolicy": "approve-all",
         "presets": {
             "review": {"harness": "fake", "env": {"REVIEW_KEY": ENV}},
@@ -142,6 +148,45 @@ async fn no_connection_but_the_unix_socket_reads_preset_contents() {
         harnesses.contains(PROFILE_ARG) && harnesses.contains(PROFILE_ENV),
         "the unix socket still reads global profile details: {harnesses}"
     );
+}
+
+#[tokio::test]
+async fn remote_defaults_and_harnesses_hide_env_for_every_remote_origin() {
+    let hub = hub();
+    for origin in [Origin::LocalApp, Origin::Web, Origin::Peer] {
+        let mut remote = client(&hub, origin);
+        for params in [json!({}), json!({"family": "fake"})] {
+            let reply = remote.call("_acpmux/defaults", params.clone()).await;
+            let text = reply.to_string();
+            for secret in [PROFILE_ENV, DEFAULT_ENV] {
+                assert!(
+                    !text.contains(secret),
+                    "{origin:?} defaults {params} leaked {secret}: {reply}"
+                );
+            }
+            assert!(
+                text.contains("hasEnv"),
+                "{origin:?} defaults {params} omitted redaction marker: {reply}"
+            );
+        }
+        let reply = remote.call("_acpmux/harnesses", json!({})).await;
+        let text = reply.to_string();
+        for secret in [PROFILE_ENV, DEFAULT_ENV] {
+            assert!(!text.contains(secret), "{origin:?} harnesses leaked {secret}: {reply}");
+        }
+        assert!(text.contains("hasEnv"), "{origin:?} harnesses omitted redaction marker: {reply}");
+    }
+
+    let mut local = client(&hub, Origin::Local);
+    for params in [json!({}), json!({"family": "fake"})] {
+        let reply = local.call("_acpmux/defaults", params).await;
+        let text = reply.to_string();
+        assert!(text.contains(DEFAULT_ENV), "local defaults lost env: {reply}");
+    }
+    let reply = local.call("_acpmux/harnesses", json!({})).await;
+    let text = reply.to_string();
+    assert!(text.contains(PROFILE_ENV), "local harnesses lost profile env: {reply}");
+    assert!(text.contains(DEFAULT_ENV), "local harnesses lost default env: {reply}");
 }
 
 #[tokio::test]

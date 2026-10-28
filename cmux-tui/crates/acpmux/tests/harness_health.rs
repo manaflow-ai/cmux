@@ -414,7 +414,21 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
         (Some("bun"), Some("1.0.0"), Some(false)),
         "{r}"
     );
-    assert_eq!(r["update"]["argv"], json!(["bun", "add", "-g", "pi-acp@latest"]), "{r}");
+    assert_eq!(
+        r["update"]["argv"],
+        json!([
+            "/usr/bin/env",
+            "-u",
+            "XDG_CONFIG_HOME",
+            format!("BUN_INSTALL_GLOBAL_DIR={}", home.join(".bun/install/global").display()),
+            format!("BUN_INSTALL_BIN={}", home.join(".bun/bin").display()),
+            "bun",
+            "add",
+            "-g",
+            "pi-acp@latest"
+        ]),
+        "{r}"
+    );
 
     let r = row(&reply, "claude");
     assert_eq!(
@@ -676,6 +690,7 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
         cache: None,
         home: home.clone(),
         auto_update: Some(chosen.clone()),
+        ..Settings::default()
     });
     let mut app = Client::open(&hub, Origin::LocalApp);
     let first = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
@@ -800,6 +815,7 @@ async fn harness_update_runs_named_updaters_now_and_never_one_that_needs_sudo() 
         home: home.clone(),
         // Auto-update is off for every harness: the request runs anyway.
         auto_update: Some(root.join("acpmux/harness-auto-update.json")),
+        ..Settings::default()
     });
     let mut local = Client::open(&hub, Origin::Local);
     let first = local.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
@@ -915,8 +931,27 @@ async fn health_reads_codex_login_status_and_claude_credentials_without_a_check(
     let user = root.join("config").join("harnesses");
     let adapter = root.join("npm/bin/codex-acp");
     program(&root.join("npm/lib/codex-acp.js"), &adapter, "codex-acp 0.3.1");
+    // hq#2569 #2: Codex through a model provider of its own (sr's layout on
+    // the capture minis: a bearer token in config.toml), where `codex login
+    // status` says "Not logged in" while Codex works; and one whose `env_key`
+    // is unset here.
+    let codex_home = |name: &str, provider: &str| {
+        let dir = root.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("config.toml"),
+            format!("model_provider = \"sr\"\n[model_providers.sr]\nbase_url = \"http://127.0.0.1:31415/v1\"\n{provider}"),
+        )
+        .unwrap();
+        format!("CODEX_HOME = \"{}\"\n", dir.display())
+    };
+    let sr_home = codex_home("codex-sr-home", "experimental_bearer_token = \"sr-token\"\n");
+    let keyless_home =
+        codex_home("codex-keyless-home", "env_key = \"ACPMUX_HEALTH_NO_SUCH_KEY\"\n");
     // Each Codex harness runs the adapter with its own `codex` first on PATH.
     for (id, code, says, extra) in [
+        ("codex-sr", 1, "Not logged in", sr_home.as_str()),
+        ("codex-keyless", 1, "Not logged in", keyless_home.as_str()),
         ("codex-out", 1, "Not logged in", ""),
         ("codex-in", 0, "Logged in using ChatGPT", ""),
         // A check Codex could not make (a custom provider, a bad config) is no sign-out.
@@ -961,7 +996,16 @@ async fn health_reads_codex_login_status_and_claude_credentials_without_a_check(
     std::fs::write(signed.join(".credentials.json"), "{}").unwrap();
     let empty = root.join("claude-empty");
     std::fs::create_dir_all(&empty).unwrap();
-    for (id, dir) in [("claude-in", &signed), ("claude-none", &empty)] {
+    // A gateway token in the Claude home's settings env (sr's layout).
+    let gateway = root.join("claude-gateway");
+    std::fs::create_dir_all(&gateway).unwrap();
+    std::fs::write(
+        gateway.join("settings.json"),
+        r#"{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:31415","ANTHROPIC_AUTH_TOKEN":"t"}}"#,
+    )
+    .unwrap();
+    for (id, dir) in [("claude-in", &signed), ("claude-none", &empty), ("claude-gateway", &gateway)]
+    {
         profile(
             &user,
             id,
@@ -978,6 +1022,12 @@ async fn health_reads_codex_login_status_and_claude_credentials_without_a_check(
         .lock()
         .unwrap()
         .insert("codex-back".into(), "Not signed in: run `codex login`".into());
+    for id in ["codex-sr", "codex-keyless"] {
+        hub.probe_errors
+            .lock()
+            .unwrap()
+            .insert(id.into(), "Not signed in: run `codex login`".into());
+    }
     let mut app = Client::open(&hub, Origin::LocalApp);
     let reply = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
 
@@ -991,6 +1041,14 @@ async fn health_reads_codex_login_status_and_claude_credentials_without_a_check(
     assert_eq!(auth("codex-remote").as_deref(), Some("unknown"), "{reply}");
     assert_eq!(auth("claude-in").as_deref(), Some("signedIn"), "{reply}");
     assert_eq!(auth("claude-none").as_deref(), Some("unknown"), "{reply}");
+    // A provider of its own decides, over `codex login status` and an older
+    // probe error: signed in with its token, unknown (never signed out, which
+    // `codex login` could not fix) without its key.
+    assert_eq!(auth("codex-sr").as_deref(), Some("signedIn"), "{reply}");
+    let detail = row(&reply, "codex-sr")["authDetail"].as_str().unwrap_or_default().to_owned();
+    assert!(detail.contains("`sr` provider") && !detail.contains("sr-token"), "{reply}");
+    assert_eq!(auth("codex-keyless").as_deref(), Some("unknown"), "{reply}");
+    assert_eq!(auth("claude-gateway").as_deref(), Some("signedIn"), "{reply}");
 
     let _ = std::fs::remove_dir_all(&root);
 }

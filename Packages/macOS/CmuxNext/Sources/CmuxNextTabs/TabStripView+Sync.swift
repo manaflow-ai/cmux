@@ -10,7 +10,16 @@ extension TabStripView {
     /// observation's echo of the same change do the work once (I6). A tab switch
     /// updates the two cells whose selection changed; geometry never moves
     /// (`TabLayoutEngine` lays tabs out without reading the selection).
+    ///
+    /// A strip in a window but out of sight (a parked workspace's, a hidden screen bar) lays
+    /// nothing out and animates nothing: a script that reorders, renames or moves tabs in
+    /// background workspaces costs it no work until it shows, then one sync to the final state
+    /// (``syncShown(_:)``; CLAUDE.md "Go past Chrome where cmux is scripted").
     public func syncFromModel() {
+        if window != nil, !isShownInWindow {
+            modelChangedWhileHidden = true
+            return
+        }
         let input = ModelSnapshot(model)
         if hasSynced, window != nil, let last = lastSyncedInput, isAtRest {
             if input == last { return }
@@ -29,11 +38,19 @@ extension TabStripView {
         let selected = input.selectedID
         if let lastSelectedID { cells[lastSelectedID]?.isSelected = false }
         if let selected { cells[selected]?.isSelected = true }
+        let multiChanged = input.multiSelection != lastSyncedInput?.multiSelection
+        if multiChanged { applyMultiSelection() }
         lastSyncedInput = input
-        // Same geometry: only what the selected tab draws over or hides changes.
-        TabSeparatorVisibility.apply(to: self)
-        updateOcclusion()
-        if let selected { reveal(selected, animated: !reduceMotion) }
+        // Same geometry: only what the selected tab draws over or hides changes, so a plain switch
+        // touches the two tabs whose selection changed and their neighbors' lines, at any tab count.
+        if multiChanged {
+            TabSeparatorVisibility.apply(to: self)
+        } else {
+            TabSeparatorVisibility.apply(to: self, around: [lastSelectedID, selected])
+        }
+        // At rest no tab overlaps another and no mask is on: only a move in flight needs the pass.
+        if !movesInFlight.isEmpty || !occlusionEnds.isEmpty { updateOcclusion() }
+        if let selected, selected != lastSelectedID { reveal(selected, animated: !reduceMotion) }
         lastSelectedID = selected
         refreshHoverCard()
     }
@@ -47,8 +64,9 @@ extension TabStripView {
             let order = modelOrdered.map(\.id)
             let membership = modelOrdered.map(\.groupID)
             if order != lastModelOrder || membership != groups.lastMembership {
-                // The App applied (or overrode) our change, or tabs came and went.
-                orderOverride = nil
+                // The App applied (or overrode) our change, or tabs came and went. A multi-tab drop
+                // lands one move at a time: its order stays until the last move shows.
+                if multiReorderTarget == nil || multiReorderTarget == order { (orderOverride, multiReorderTarget) = (nil, nil) }
                 groups.membershipOverride = [:]
                 if let detachedID, !order.contains(detachedID) { self.detachedID = nil }
                 if let detached = groups.detachedGroupID, !membership.contains(detached) { groups.detachedGroupID = nil }
@@ -59,7 +77,7 @@ extension TabStripView {
         }
 
         var ordered = modelOrdered.filter { tab in
-            tab.id != detachedID && (tab.groupID == nil || tab.groupID != groups.detachedGroupID)
+            tab.id != detachedID && !dragCompanions.contains(tab.id) && (tab.groupID == nil || tab.groupID != groups.detachedGroupID)
         }
         if !groups.membershipOverride.isEmpty {
             for index in ordered.indices {
@@ -72,7 +90,7 @@ extension TabStripView {
                 let byID = Dictionary(ordered.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 ordered = override.compactMap { byID[$0] }
             } else {
-                orderOverride = nil
+                (orderOverride, multiReorderTarget) = (nil, nil)
             }
         }
 
@@ -85,7 +103,7 @@ extension TabStripView {
         let ids = Set(ordered.map(\.id))
         let adding = ordered.contains { cells[$0.id] == nil }
         let removing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) }
-        let structureAnimates = !(adding || removing) || Motion.animates(.newTab)
+        let structureAnimates = !(adding || removing) || Motion.tabs.animates(.newTab)
         let inGesture = drag != nil || groups.drag != nil || pendingDrop != nil
         let animated = hasSynced && !reduceMotion && animating && (structureAnimates || inGesture)
         // Added/closed cells move only outside a gesture; a sync that adds no tab never re-tokens the strip.
@@ -146,6 +164,7 @@ extension TabStripView {
             cell?.isSelected = item.id == model.selectedID
             cell?.style = model.style
         }
+        applyMultiSelection()
         if newTabButton.isHidden == model.showsNewTabButton {
             newTabButton.isHidden = !model.showsNewTabButton
             needsLayout = true
@@ -173,10 +192,12 @@ extension TabStripView {
         cell.scale = window?.backingScaleFactor ?? 2
         cell.isWindowMain = windowMain.isMain
         cell.isWindowVisible = windowVisibility.isVisible
+        cell.isStripShown = isShownInWindow
         let id = item.id
         cell.accessibility.setAccessibilityParent(self)
         cell.accessibility.onPress = { [weak self] in self?.model.send(.select(id)) }
         cell.accessibility.onClose = { [weak self] in self?.close(id, source: .accessibility) }
+        cell.accessibilityToggleAudio = { [weak self] in self?.model.send(.toggleAudioMute(id)) }
         let element = ObjectIdentifier(cell.accessibility)
         cell.accessibility.onFocus = { [weak self] focused in self?.noteAccessibilityFocus(element, focused) }
         tabsLayer(isPinned: item.isPinned)?.addSublayer(cell.layer)
@@ -220,6 +241,8 @@ extension TabStripView {
         closingAnchors[id] = nil
         if hoveredID == id { hoveredID = nil }
         if closeHoveredID == id { closeHoveredID = nil }
+        if audioHoveredID == id { setAudioHovered(nil) }
+        if pressedAudioID == id { pressedAudioID = nil }
     }
 
     /// Drops `id`'s place and the moves that tracked it.

@@ -14,6 +14,8 @@ extension UpdaterService {
     /// never nothing. Installing always shows.
     public var readyCard: UpdateReadyCard? {
         guard let pill = footerPill ?? askedWhileStaged else { return nil }
+        // An install the person followed on the notice card stays there (``UpdateCard/installing``).
+        if pill == .installing, flow.card(downloadsAutomatically: true) == .installing { return nil }
         if pill == .ready, case .ready(let version) = flow.phase,
            updateSnooze.hides(version: version, at: now()) { return nil }
         let notes = UpdateReadyNotes(version: stagedVersion, notes: stagedNotes, fullNotesURL: stagedReleaseNotesURL)
@@ -35,7 +37,7 @@ extension UpdaterService {
     }
 
     /// The checkbox: writes the setting; the setting's change comes back
-    /// through ``configure(checkAutomatically:checkInterval:downloadAutomatically:metered:)``.
+    /// through ``configure(checkAutomatically:checkInterval:downloadAutomatically:metered:ring:)``.
     public func setAutomaticUpdates(_ on: Bool) {
         writeSetting?(.automaticUpdates, on)
     }
@@ -69,6 +71,17 @@ extension UpdaterService {
             self.log.append("staged notes: \(build) \(notes == nil ? "none" : "\(notes?.changeItems.count ?? 0) changes")")
         }
         stagedNotesTask = (build, task)
+    }
+
+    /// DEV/NIGHTLY screenshots (`debug.updater {action: "available"}`): shows found `version`, not
+    /// downloaded; `asked` shows it as a Check for Updates' result (the notice card), else as a
+    /// scheduled check's (the titlebar's Update Available). Nothing downloads.
+    public func debugShowFound(version: String, asked: Bool) {
+        if asked {
+            send(.checkRequested)
+            debugIndicatorPhase = .checking
+        }
+        debugIndicatorPhase = .available(version: version)
     }
 
     /// DEV/NIGHTLY screenshots (`debug.updater {action: "stage"}`): shows a

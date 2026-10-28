@@ -89,6 +89,12 @@ def pane_of(conn, surface):
     raise RuntimeError(f"surface {surface} is in no pane")
 
 
+def daemon_threads(pid):
+    """Threads of the bench's own daemon (ps -M lists one line per thread)."""
+    out = subprocess.run(["ps", "-M", "-p", str(pid)], capture_output=True, text=True).stdout
+    return max(0, len(out.strip().splitlines()) - 1)
+
+
 def summary(samples):
     if not samples:
         return {"n": 0}
@@ -152,8 +158,16 @@ def main():
                 raise RuntimeError("daemon socket never appeared")
             time.sleep(0.1)
 
+        threads_before = daemon_threads(daemon.pid)
         for k in range(args.background):
             must(c.call("new-workspace", name=f"bg{k}", cols=80, rows=24), "new-workspace")
+        if args.background:
+            # Daemon threads each idle terminal adds (PL-daemon: one producer
+            # thread for all terminals, not one per terminal).
+            time.sleep(1.0)
+            added = daemon_threads(daemon.pid) - threads_before
+            result["daemon_threads_per_terminal"] = round(added / args.background, 2)
+            print(f"LIFECYCLE {args.label} daemon_threads_per_terminal={added / args.background:.2f}", flush=True)
         base = must(c.call("new-workspace", name="base", cols=120, rows=40), "new-workspace")
         base_pane, _ = pane_of(c, base["surface"])
         sized = {"cols": 80, "rows": 24}
@@ -199,7 +213,7 @@ def main():
         _, base_ws = pane_of(c, base["surface"])
         c.call("close-workspace", workspace=base_ws, end_terminals=True)
         try:
-            st = c.call("server-stats", include=["write_path"])
+            st = c.call("server-stats", include=["write_path", "resource_projection"])
             result["server_stats"] = st.get("data")
         except Exception:  # noqa: BLE001
             pass

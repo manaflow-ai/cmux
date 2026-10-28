@@ -43,8 +43,10 @@ cmux pane list --json
 cmux tab list --json
 cmux terminal list --json
 
-cmux pane pane_… split --right
-cmux pane pane_… split --down --cwd "$PWD"
+cmux pane pane_… neighbor right --json      # the pane to its right: add tabs there
+cmux pane pane_… split --right -- npm run dev   # only when no pane is there; keeps focus
+cmux pane pane_… split --down --cwd "$PWD" --shell 'tail -f logs/dev.log'
+cmux pane pane_… split --right --focus     # moves focus: only when the user asked
 cmux pane pane_… run --name tests -- npm test
 cmux pane pane_… run shell 'tail -f logs/dev.log'
 cmux tab create terminal --pane pane_… --cwd "$PWD" --name shell
