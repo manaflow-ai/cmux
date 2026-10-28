@@ -293,11 +293,11 @@
 .acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{color:var(--agent-text);background:none}
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .ui-popup.acpmux-project-menu{position:relative;inset:auto;display:flex;flex-direction:column;width:300px;max-width:calc(100vw - 32px);max-height:min(520px,calc(var(--available-height,100vh) - 24px));overflow:hidden;font-size:var(--text-control);letter-spacing:var(--text-control--letter-spacing);--acpmux-project-menu-edge:4px}
-.acpmux-project-menu>div{display:flex;flex:1;flex-direction:column;min-height:0}
-.acpmux-project-menu .ui-combobox-list{display:flex;flex:1;flex-direction:column;min-height:0;overflow:hidden}
+.acpmux-project-menu>div{display:flex;flex:1 1 0;flex-direction:column;min-height:0}
+.acpmux-project-menu .ui-combobox-list{display:flex;flex:1 1 0;flex-direction:column;min-height:0;overflow:hidden}
 .acpmux-project-menu .ui-combobox-list:not(.ui-combobox-pinned-list){overflow:auto}
 .acpmux-project-menu .ui-combobox-pinned-list{display:flex;flex-direction:column;min-height:0}
-.acpmux-project-menu .ui-combobox-scroll{flex:1;min-height:0;overflow:hidden}
+.acpmux-project-menu .ui-combobox-scroll{flex:1 1 0;height:0;min-height:0;overflow:hidden}
 .acpmux-project-menu .acpmux-menu-item{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-project-search{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-project-browse{padding-inline:var(--acpmux-project-menu-edge)}
