@@ -1774,6 +1774,7 @@ fn run_main() {
     if let Some(code) = private_mode::run(&raw_args) {
         client_log::exit(code);
     }
+    cli::rewrite_help_word(&mut raw_args);
     // Private process mode used by the daemon when it launches one durable
     // terminal host per PTY. Keep this out of public help and dispatch it
     // before installing the interactive daemon's signal handlers: the host
@@ -1806,7 +1807,9 @@ fn run_main() {
     #[cfg(unix)]
     if let Some(head @ ("acp" | "harness" | "chats")) = raw_args.first().map(String::as_str) {
         discard_provider_secret_environment();
-        let args = std::env::args_os().skip(if head == "acp" { 2 } else { 1 }).collect();
+        // From raw_args, not args_os: `cmux help chats` became `chats --help` there, and
+        // std::env::args() above already refused argv that is not UTF-8.
+        let args = raw_args.iter().skip(usize::from(head == "acp")).map(OsString::from).collect();
         client_log::exit(acp::run_scope(head, args));
     }
     // `cmux host enable|serve|dial|…`: remote hosting, on every platform

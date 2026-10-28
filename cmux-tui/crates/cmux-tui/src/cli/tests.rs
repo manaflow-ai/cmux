@@ -1049,3 +1049,26 @@ fn agent_hook_emit_rejects_a_bad_terminal_like_every_other_terminal_flag() {
 }
 
 mod machine_catalog;
+
+#[test]
+fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
+    for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+        let help = crate::localization::catalog_for_locale(locale).local_server.cmux_root_help;
+        for scope in surface::CMUX_SCOPES.iter().chain(super::OWN_HELP_SCOPES) {
+            assert!(
+                help.lines().any(|line| line.starts_with(&format!("  {scope} "))),
+                "{locale}: `cmux --help` does not list {scope}"
+            );
+        }
+    }
+    let mut args = strings(&["help", "agents"]);
+    super::rewrite_help_word(&mut args);
+    assert_eq!(args, strings(&["agents", "--help"]));
+    for unchanged in
+        [vec!["help", "workspace"], vec!["help", "agents", "chat"], vec!["agents", "help"]]
+    {
+        let mut args = strings(&unchanged);
+        super::rewrite_help_word(&mut args);
+        assert_eq!(args, strings(&unchanged));
+    }
+}

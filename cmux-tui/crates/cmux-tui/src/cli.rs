@@ -320,6 +320,25 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
     }
 }
 
+/// Scopes that print their own help (`cmux agents --help`) but route before
+/// the parser whose `help <scope>` knows only its own scopes, so `cmux help
+/// agents` answered "unknown resource scope".
+pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
+    "agents", "chats", "harness", "remote", "script", "host", "github", "avatar", "chief", "setup",
+];
+
+/// Rewrites `cmux help <scope>` to `cmux <scope> --help` for a scope in
+/// [`OWN_HELP_SCOPES`] the parser's help does not take. No-op elsewhere.
+pub(crate) fn rewrite_help_word(args: &mut Vec<String>) {
+    if let [help, scope] = args.as_slice()
+        && help == "help"
+        && OWN_HELP_SCOPES.contains(&scope.as_str())
+        && !Surface::current().accepts(scope)
+    {
+        *args = vec![scope.clone(), "--help".to_string()];
+    }
+}
+
 /// The agent-caller refusal of a plan that writes a Chief by the raw or
 /// typed protocol path (`cmux raw operation chief.profile.update`, a
 /// `cmux raw command` frame naming one): the same refusal as
