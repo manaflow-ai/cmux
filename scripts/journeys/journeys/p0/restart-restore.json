@@ -6,7 +6,7 @@
   "source": "restore-perf.md binding targets: last content in the first frame, no blank pane, no Restoring pill over a blank pane, visible terminals live within 300 ms warm / 1 s cold, hidden workspaces attach on first show",
   "budget_seconds": 150,
   "steps": [
-    {"do": "new_terminal", "via": "key", "as": "left"},
+    {"do": "new_terminal", "name": "jr-restore-${nonce}", "as": "left"},
     {"do": "neutral_prompt"},
     {"do": "type", "text": "for i in 1 2 3 4 5 6 7 8; do echo left-${nonce}-$i; done", "enter": true, "mark": "left"},
     {"do": "expect", "title": "the left shell printed its lines", "since": "left", "timeout": 10,
@@ -29,7 +29,7 @@
     {"do": "seed_workspaces", "count": 59, "prefix": "jr-bg-${nonce}"},
     {"do": "expect", "title": "before the quit: 3 terminals shown, 59 more workspaces", "timeout": 20,
      "all": [
-       {"app_layout": {"panes": 3, "tabs": 3, "selected": true}},
+       {"app_layout": {"workspace": "jr-restore-${nonce}", "panes": 3, "tabs": 3, "selected": true}},
        {"app_rpc": {"method": "snapshot.get", "path": "topology.workspaces", "len_gte": 60}},
        {"app_text_line": "down-${nonce}-8"},
        {"frame_text": "right-${nonce}-8"}
