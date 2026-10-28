@@ -213,6 +213,23 @@ fn direct_multipart_streams_terabyte_ranges_and_verifies_before_returning() {
 }
 
 #[test]
+fn direct_multipart_bounds_increasing_verification_polls() {
+    let mut declaration = plan(25, 10);
+    declaration["transport"] = json!("direct");
+    let progress = (1..=8)
+        .map(|verified_bytes| json!({"state":"verifying", "verified_bytes":verified_bytes, "byte_count":25}))
+        .collect();
+    let backend = Arc::new(Backend {
+        signed_lengths: vec![10, 10, 5],
+        progress: Mutex::new(progress),
+        ..Backend::default()
+    });
+    let result = service(backend.clone()).attachment_multipart(CONV, &declaration, file_body(25));
+    assert!(result.is_err(), "increasing progress must still hit the poll bound");
+    assert_eq!(backend.posts.lock().unwrap().len(), 8);
+}
+
+#[test]
 fn direct_multipart_rejects_missing_etag_bad_destination_and_stalled_verification() {
     let mut declaration = plan(25, 10);
     declaration["transport"] = json!("direct");

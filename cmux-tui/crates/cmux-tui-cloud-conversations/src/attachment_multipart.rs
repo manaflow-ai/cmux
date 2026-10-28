@@ -2,6 +2,7 @@
 //! the client retains its staged file until the final commit (or any error).
 
 use std::io::{Seek, SeekFrom};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -100,9 +101,19 @@ impl CloudConversations {
             completion["parts"] = json!(receipts);
         }
         let mut verified = 0;
-        loop {
-            // Each request hashes more stored bytes. Strict progress makes this finite;
-            // a stalled or malformed response fails instead of polling indefinitely.
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut backoff = Duration::from_millis(25);
+        const MAX_VERIFY_POLLS: usize = 8;
+        for attempt in 0..MAX_VERIFY_POLLS {
+            if attempt > 0 {
+                std::thread::sleep(backoff);
+                backoff = (backoff * 2).min(Duration::from_millis(250));
+            }
+            if Instant::now() >= deadline {
+                return Err(bad());
+            }
+            // Each request hashes more stored bytes. Strict progress is required, and
+            // the deadline/attempt bound prevents a verifier from forcing unbounded POSTs.
             let reply =
                 route_value(self.post("/v1/home/attachments/multipart/complete", &completion)?)?;
             if reply.get("state").and_then(Value::as_str) != Some("verifying") {
@@ -121,6 +132,7 @@ impl CloudConversations {
             }
             verified = next;
         }
+        Err(bad())
     }
 }
 
