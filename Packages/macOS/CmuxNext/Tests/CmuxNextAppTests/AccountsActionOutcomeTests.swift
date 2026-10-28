@@ -137,43 +137,61 @@ import Testing
     /// A refresh may have started before the provider login opens its tab. Its
     /// detection result must not clear the row after the tab opener returns,
     /// while that older refresh is still delivering its result.
-    @Test func aRefreshStartedBeforeLoginCannotClearTheBusyRow() async {
+    @Test(arguments: [true, false])
+    func aRefreshOverlappingLoginCannotClearTheBusyRow(refreshBeforeOpener: Bool) async {
         let services = MockAccountsServices()
         let model = await refreshed(services)
         let detectionStarted = AsyncStream<Void>.makeStream()
         var releaseDetection: CheckedContinuation<Void, Never>?
+        var gateDetection = false
         services.beforeDetect = {
-            detectionStarted.continuation.yield(())
-            detectionStarted.continuation.finish()
+            guard gateDetection else { return }
             await withCheckedContinuation { continuation in
                 releaseDetection = continuation
+                detectionStarted.continuation.yield(())
+                detectionStarted.continuation.finish()
             }
         }
         let loginStarted = AsyncStream<Void>.makeStream()
         var finishLogin: CheckedContinuation<Bool, Never>?
         services.openProviderTab = { _ in
-            loginStarted.continuation.yield(())
-            loginStarted.continuation.finish()
             return await withCheckedContinuation { continuation in
                 finishLogin = continuation
+                loginStarted.continuation.yield(())
+                loginStarted.continuation.finish()
             }
         }
 
-        model.refresh()
-        for await _ in detectionStarted.stream { break }
-        let login = Task { @MainActor in await model.reauthenticate(.codex) }
-        for await _ in loginStarted.stream { break }
+        let login: Task<String?, Never>
+        if refreshBeforeOpener {
+            // Also cover a refresh that was already in flight before the tab
+            // opener began; it must be stale when login completes.
+            gateDetection = true
+            model.refresh()
+            for await _ in detectionStarted.stream { break }
+            login = Task { @MainActor in await model.reauthenticate(.codex) }
+            for await _ in loginStarted.stream { break }
+        } else {
+            login = Task { @MainActor in await model.reauthenticate(.codex) }
+            for await _ in loginStarted.stream { break }
+            // Start the refresh while the provider tab opener is still gated.
+            gateDetection = true
+            model.refresh()
+            for await _ in detectionStarted.stream { break }
+        }
         finishLogin?.resume(returning: true)
         #expect(await login.value == nil)
         #expect(model.row(.codex).phase == .reauthenticating)
 
         releaseDetection?.resume()
+        releaseDetection = nil
         await model.settle()
         #expect(!model.isRefreshing)
         #expect(model.row(.codex).phase == .reauthenticating)
 
         // A later, deliberate refresh is newer than the login-completion
         // boundary and is allowed to reconcile the provider's new state.
+        services.beforeDetect = nil
         model.refresh()
         await model.settle()
         #expect(model.row(.codex).phase == .idle)
