@@ -8,14 +8,99 @@ extension SessionPersistencePolicy {
             scalars.endIndex, offsetBy: -maxScrollbackScalarsPerTerminal,
             limitedBy: scalars.startIndex
         ) ?? scalars.startIndex
-        let boundedSuffix = text[scalarStart...]
+        // Scan the scalar view so the cut can land inside a grapheme cluster
+        // without ever using that scalar index as a String.Index. A String
+        // slice must still be formed only from indices valid for its view.
+        let ansiScalarStart = ansiSafeScalarTruncationStart(in: text, initialStart: scalarStart)
+        let boundedSuffix = String(scalars[ansiScalarStart...])
         let initialStart = boundedSuffix.count > maxScrollbackCharactersPerTerminal
             ? boundedSuffix.index(boundedSuffix.endIndex, offsetBy: -maxScrollbackCharactersPerTerminal)
-            : scalarStart
-        // Both budgets choose a boundary in the original string. Its prefix
-        // still contains any OSC/DCS introducer needed to skip a cut payload.
-        let safeStart = ansiSafeTruncationStart(in: text, initialStart: initialStart)
-        return String(text[safeStart...])
+            : boundedSuffix.startIndex
+        let safeStart = ansiSafeTruncationStart(in: boundedSuffix, initialStart: initialStart)
+        return String(boundedSuffix[safeStart...])
+    }
+
+    private static func ansiSafeScalarTruncationStart(
+        in text: String,
+        initialStart: String.UnicodeScalarView.Index
+    ) -> String.UnicodeScalarView.Index {
+        let scalars = text.unicodeScalars
+        guard initialStart > scalars.startIndex else { return initialStart }
+        var lastEscape: String.UnicodeScalarView.Index?
+        var index = scalars.startIndex
+        while index < initialStart {
+            if scalars[index].value == 0x1B { lastEscape = index }
+            index = scalars.index(after: index)
+        }
+        guard let lastEscape else { return initialStart }
+        let marker = scalars.index(after: lastEscape)
+        guard marker < scalars.endIndex else { return initialStart }
+
+        switch scalars[marker].value {
+        case 0x5B: // CSI
+            if scalarCSIFinalByteIndex(in: scalars, from: marker, upperBound: initialStart) != nil {
+                return initialStart
+            }
+            guard let final = scalarCSIFinalByteIndex(
+                in: scalars, from: marker, upperBound: scalars.endIndex
+            ) else { return initialStart }
+            return scalars.index(after: final)
+        case 0x5D, 0x50, 0x58, 0x5F, 0x5E: // OSC, DCS, SOS, APC, PM
+            let allowsBEL = scalars[marker].value == 0x5D
+            if allowsBEL,
+               scalarStringSequenceEnd(
+                   in: scalars, from: scalars.index(after: marker),
+                   upperBound: initialStart, allowsBEL: true
+               ) != nil {
+                return initialStart
+            }
+            return scalarStringSequenceEnd(
+                in: scalars, from: initialStart,
+                upperBound: scalars.endIndex, allowsBEL: allowsBEL
+            ) ?? initialStart
+        case 0x5C: // ST, with the cut on its second byte
+            return marker == initialStart ? scalars.index(after: marker) : initialStart
+        default:
+            return initialStart
+        }
+    }
+
+    private static func scalarCSIFinalByteIndex(
+        in scalars: String.UnicodeScalarView,
+        from marker: String.UnicodeScalarView.Index,
+        upperBound: String.UnicodeScalarView.Index
+    ) -> String.UnicodeScalarView.Index? {
+        var index = scalars.index(after: marker)
+        while index < upperBound {
+            let value = scalars[index].value
+            if value >= 0x40, value <= 0x7E { return index }
+            index = scalars.index(after: index)
+        }
+        return nil
+    }
+
+    private static func scalarStringSequenceEnd(
+        in scalars: String.UnicodeScalarView,
+        from start: String.UnicodeScalarView.Index,
+        upperBound: String.UnicodeScalarView.Index,
+        allowsBEL: Bool
+    ) -> String.UnicodeScalarView.Index? {
+        var index = start
+        var scanned = 0
+        while index < upperBound, scanned < maxAnsiStringSequenceScanCharacters {
+            if allowsBEL, scalars[index].value == 0x07 {
+                return scalars.index(after: index)
+            }
+            if scalars[index].value == 0x1B {
+                let next = scalars.index(after: index)
+                if next < upperBound, scalars[next].value == 0x5C {
+                    return scalars.index(after: next)
+                }
+            }
+            index = scalars.index(after: index)
+            scanned += 1
+        }
+        return nil
     }
 
     /// If truncation starts in the middle of an ANSI control sequence, advance
