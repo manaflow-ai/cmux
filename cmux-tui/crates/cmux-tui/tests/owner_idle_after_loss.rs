@@ -11,7 +11,7 @@ use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// How long an owner may take to exit once its executable is revoked. The
 /// watcher wakes on the kernel's revoke event and exits without running the
@@ -159,12 +159,12 @@ fn orphaned_owner_exits_when_its_executables_volume_is_removed() {
         let _ = stream.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n");
         stream
     });
-    let deadline = Instant::now() + EXIT_BOUND;
+    let deadline = std::time::Instant::now() + EXIT_BOUND;
     let mut used = Duration::ZERO;
     while let Some(now) = cpu(owner.pid) {
         used = now.saturating_sub(before);
         assert!(
-            Instant::now() < deadline,
+            std::time::Instant::now() < deadline,
             "the owner outlived its executable's volume by {EXIT_BOUND:?}, using {used:?} of CPU"
         );
         std::thread::sleep(Duration::from_millis(50));
