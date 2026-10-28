@@ -87,7 +87,7 @@ import { PresenceClient } from "./multiplayer/presenceClient";
 import { recordedConversationEvents } from "./conversation/exportEvents";
 import { markPullRequestActivityVersion, pullRequestRowKey } from "./summary/transcriptPullRequests";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
-import { HANDOFF_PROMPT_PREFIX, handoffPromptId } from "./cloudHandoffTurn";
+import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -4788,6 +4788,8 @@ export class AcpmuxDirectClient {
   /// Opens a chat's Cloud hand-off turn before a prompt that starts one (cloudHandoffTurn.ts); set
   /// by the page only for a chat on a Cloud machine whose app opens them.
   handoffTurn?: (sessionId: string) => Promise<number | undefined>;
+  /// The hand-off turn each chat asks the app for now (sendNow).
+  private handoffAsks = new Map<string, Promise<number | undefined>>();
   async ensureSession(): Promise<string | undefined> {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
@@ -4909,14 +4911,27 @@ export class AcpmuxDirectClient {
     // for it (cloudHandoffTurn.ts), so the machine reports that turn. Not a steer or a prompt behind
     // a running turn or the queue (it starts no turn of its own), and never a prompt that already
     // names one: a Retry keeps its id, so a copy acpmux took runs once.
-    if (
-      this.handoffTurn &&
-      !steer &&
-      !promptId.startsWith(HANDOFF_PROMPT_PREFIX) &&
-      !(shown === sessionId && (this.turnOpen || this.queue.length > 0))
-    ) {
-      const turn = await this.handoffTurn(sessionId);
-      if (turn !== undefined) promptId = handoffPromptId(turn, promptId);
+    // One ask per chat at a time: a send while an ask is out goes behind that prompt (it starts no
+    // turn of its own) and under its own id, once the ask ends. Either await lets the selection move:
+    // a prompt whose chat is no longer the one shown goes back to its sender, never drawn in the
+    // other chat.
+    if (this.handoffTurn && !steer && !namesHandoffTurn(promptId)) {
+      const generation = this.selectionGeneration;
+      const asking = this.handoffAsks.get(sessionId);
+      if (asking) await asking;
+      else if (!(shown === sessionId && (this.turnOpen || this.queue.length > 0))) {
+        const ask = this.handoffTurn(sessionId);
+        this.handoffAsks.set(sessionId, ask);
+        let turn: number | undefined;
+        try {
+          turn = await ask;
+        } finally {
+          if (this.handoffAsks.get(sessionId) === ask) this.handoffAsks.delete(sessionId);
+        }
+        if (turn !== undefined) promptId = handoffPromptId(turn, promptId);
+      }
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId)
+        throw new Error(translate("error.notOpen"));
     }
     // A paste sent as its own block shows in the bubble as acpmux's echo will have it (pastedText.ts).
     const supportsAudio = takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions);

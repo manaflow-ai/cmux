@@ -10,10 +10,15 @@
 /// Only an app that says it opens hand-off turns (`cloudHandoffs` in its `ready` reply) is asked,
 /// and only for a chat on a Cloud machine (`cloudMachineID`). No answer (an app that refuses, a turn
 /// still running, the store unreachable, or no answer within ``TURN_WAIT_MS``) sends the prompt
-/// under its own id: it runs as before, and only its report is missing.
+/// under its own id: it runs as before, and only its report is missing. A turn the app opens after
+/// the wait stays `starting`, unnamed: the store does not run it, and the chat's next prompt that
+/// starts a turn names it (the app names a made or begun turn again until a prompt runs under it).
 
 /// The prompt id's prefix acpmux reads (`cloud_handoff.rs` `PROMPT_PREFIX`).
 export const HANDOFF_PROMPT_PREFIX = "handoff-";
+/// A prompt id that names a turn as acpmux reads one (`named_turn`): the prefix, a turn of 1 to 15
+/// digits with no leading 0, a dash, then the prompt's own id.
+const NAMED_TURN = /^handoff-[1-9][0-9]{0,14}-./;
 /// The longest a send waits for the app to open its turn.
 export const TURN_WAIT_MS = 2_500;
 
@@ -30,6 +35,12 @@ export function turnOf(reply: unknown): number | undefined {
 /// row, the delivery and a gesture ticket bound to that id still name the same prompt.
 export function handoffPromptId(turn: number, promptId: string): string {
   return `${HANDOFF_PROMPT_PREFIX}${turn}-${promptId}`;
+}
+
+/// Whether `promptId` already names a hand-off turn (a Retry of a named prompt). Any other id that
+/// merely starts with the prefix names none, and its send asks for a turn as usual.
+export function namesHandoffTurn(promptId: string): boolean {
+  return NAMED_TURN.test(promptId);
 }
 
 /// Asks the app to open session `sessionId`'s hand-off turn; its number, or undefined when there is

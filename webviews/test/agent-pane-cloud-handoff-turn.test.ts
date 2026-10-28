@@ -101,3 +101,42 @@ test("a page with no hand-off ask, a steer, and a Retry's id that names a turn a
   expect(asks).toBe(0);
   expect(prompts.map(promptIdOf)).toEqual(["p-3", "p-4", "handoff-2-p-5"]);
 });
+
+test("an id that only starts with the prefix names no turn: its send asks for one", async () => {
+  const prompts: Record<string, unknown>[] = [];
+  const chat = await client(prompts);
+  chat.handoffTurn = async () => 4;
+  await chat.send("note", [], "handoff-note");
+  await chat.send("zero", [], "handoff-0-p-6");
+  expect(prompts.map(promptIdOf)).toEqual(["handoff-4-handoff-note", "handoff-4-handoff-0-p-6"]);
+});
+
+test("a send while the chat's ask is out asks nothing, goes behind it and under its own id", async () => {
+  const prompts: Record<string, unknown>[] = [];
+  const chat = await client(prompts);
+  let asks = 0;
+  let answer: (turn: number) => void = () => undefined;
+  chat.handoffTurn = () => (asks++, new Promise<number>((resolve) => (answer = resolve)));
+  const first = chat.send("first", [], "p-7");
+  const second = chat.send("second", [], "p-8");
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(asks).toBe(1);
+  expect(prompts).toEqual([]);
+  answer(5);
+  await Promise.all([first, second]);
+  expect(prompts.map(promptIdOf)).toEqual(["handoff-5-p-7", "p-8"]);
+});
+
+test("the chat changing while the ask is out hands the prompt back: nothing is sent or drawn", async () => {
+  const prompts: Record<string, unknown>[] = [];
+  const chat = await client(prompts);
+  let answer: (turn: number) => void = () => undefined;
+  chat.handoffTurn = () => new Promise<number>((resolve) => (answer = resolve));
+  const sent = chat.send("moved", [], "p-9", () => undefined);
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  (chat as unknown as { selectionGeneration: number }).selectionGeneration += 1;
+  answer(6);
+  await expect(sent).rejects.toThrow();
+  expect(prompts).toEqual([]);
+  expect((chat as unknown as { rows: Map<string, unknown> }).rows.has("local-p-9")).toBe(false);
+});

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { handoffPromptId, handoffTurns, openHandoffTurn, turnOf } from "./cloudHandoffTurn";
+import { handoffPromptId, handoffTurns, namesHandoffTurn, openHandoffTurn, turnOf } from "./cloudHandoffTurn";
 
 test("a turn is a whole number from 1 that acpmux can read; anything else is none", () => {
   expect(turnOf({ turn: 1 })).toBe(1);
@@ -34,4 +34,14 @@ test("only an app that opens turns, for a chat on a Cloud machine, gets an ask",
   expect(handoffTurns(call, { cloudMachineID: "vm_1" })).toBeUndefined();
   expect(handoffTurns(call, { cloudHandoffs: "yes", cloudMachineID: "vm_1" })).toBeUndefined();
   expect(handoffTurns(call, { cloudHandoffs: true, cloudMachineID: "" })).toBeUndefined();
+});
+
+test("only a whole turn prefix names a turn, as acpmux reads one", () => {
+  expect(namesHandoffTurn("handoff-2-p-5")).toBe(true);
+  expect(namesHandoffTurn("handoff-999999999999999-x")).toBe(true);
+  expect(namesHandoffTurn("handoff-note")).toBe(false);
+  expect(namesHandoffTurn("handoff-0-p")).toBe(false);
+  expect(namesHandoffTurn("handoff-02-p")).toBe(false);
+  expect(namesHandoffTurn("handoff-1000000000000000-p")).toBe(false);
+  expect(namesHandoffTurn("handoff-3-")).toBe(false);
 });
