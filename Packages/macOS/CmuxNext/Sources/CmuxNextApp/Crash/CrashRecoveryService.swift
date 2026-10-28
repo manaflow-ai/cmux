@@ -39,8 +39,9 @@ final class CrashRecoveryService {
     private let mainWork: MainWorkScheduler
 
     var recovery: LaunchRecovery { marker?.recovery ?? .clean }
-    /// No previous run left a marker: this build's first launch (p08-startup-108). False without a marker (tests).
-    var isFirstLaunch: Bool { marker.map { $0.previousRun == nil } ?? false }
+    /// The launch read found no first-run sentinel (`FirstRunSentinel`): no launch of this app made its
+    /// marker before (p08-startup-108). A clean quit keeps the sentinel. False without a marker (tests).
+    var isFirstLaunch: Bool { marker?.isFirstRun ?? false }
 
     /// `runMarker` is the run marker's launch read (``AppRunMarker/startLaunchRead(directory:in:now:bootSession:)``),
     /// which `main` orders before the settings read, so it has ended when the services are made; nil (tests, tools

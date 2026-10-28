@@ -1160,7 +1160,9 @@ def main_span_summary(runs):
 
 def value_summary(runs, temperature=None):
     """Summary lines for the value marks: the temperature of each run (against --temperature), page-in and main
-    CPU spreads, and the interrupted runs by number. None when no run sent one and no temperature was asked."""
+    CPU spreads, and the interrupted runs by number. None when no run sent one and no temperature was asked.
+    Every spread and count after the temperature line is over the measured runs only (``measured``, task 108); the
+    temperature and interrupted lines count every run."""
     if not runs or (temperature is None and not any(
             mark in VALUE_MARKS or mark.startswith((TEMPERATURE_INSTANT, COMPLETION_INSTANT, INTERRUPTED_INSTANT))
             for run in runs for mark in run)):
@@ -1177,21 +1179,23 @@ def value_summary(runs, temperature=None):
     else:
         line = f"  {TEMPERATURE}: missing in all {total} runs (the build sends no task 007 marks)"
     lines = [line]
+    kept = measured(runs)
+    numbers = [index + 1 for index, run in enumerate(runs) if not interrupted(run)]
     for mark, unit in ((PAGEINS_RUN_LOOP, ""), (PAGEINS, ""), (MAIN_CPU, " ms")):
-        values = [run[mark] for run in runs if is_number(run.get(mark))]
+        values = [run[mark] for run in kept if is_number(run.get(mark))]
         if values:
             cells = "  ".join(f"{column} {value:.0f}{unit}" for column, value in spread(values).items())
             lines.append(f"  {mark}: {cells}  n {len(values)}")
         else:
-            lines.append(f"  {mark}: missing in all {total} runs")
-    built = [run[VIEWS_BUILT] for run in runs if is_number(run.get(VIEWS_BUILT))]
+            lines.append(f"  {mark}: missing in all {len(kept)} measured runs")
+    built = [run[VIEWS_BUILT] for run in kept if is_number(run.get(VIEWS_BUILT))]
     if built:  # only a launchVisiblePanesOnly build sends it
         cells = "  ".join(f"{column} {value:.0f}" for column, value in spread(built).items())
         lines.append(f"  {VIEWS_BUILT}: {cells}  n {len(built)} (== the visible panes)")
-    lines += sidebar_rows_summary(runs)
-    lines += first_frame_threads_summary(runs)
-    lines += action_catalog_summary(runs)
-    lines.append(completion_summary(runs))
+    lines += sidebar_rows_summary(kept)
+    lines += first_frame_threads_summary(kept, numbers)
+    lines += action_catalog_summary(kept)
+    lines.append(completion_summary(kept))
     stopped = [str(index + 1) for index, run in enumerate(runs) if interrupted(run)]
     causes = sorted({cause for run in runs for cause in interruption_causes(run)})
     detail = f"; {', '.join(causes)}" if causes else ""
@@ -1214,10 +1218,12 @@ def sidebar_rows_summary(runs):
             f"{over} of {len(pairs)} over visible + {SIDEBAR_ROWS_SLACK}"]
 
 
-def first_frame_threads_summary(runs):
+def first_frame_threads_summary(runs, numbers=None):
     """p08-startup-068: each first-frame thread count as a spread, the runs with a runtime thread at the first
     frame (target none) and the runs that sent no runtime count, which never pass as none. No line when no run sent
-    any count (an older build, or a Release build without bench hooks)."""
+    any count (an older build, or a Release build without bench hooks). `numbers` are the runs' numbers in the
+    bench's list (default 1 to n), so a run left out before this keeps its number."""
+    numbers = numbers or list(range(1, len(runs) + 1))
     if not any(mark in run for run in runs for mark in THREAD_MARKS):
         return []
     lines = []
@@ -1226,12 +1232,12 @@ def first_frame_threads_summary(runs):
         if values:
             cells = "  ".join(f"{column} {value:.0f}" for column, value in spread(values).items())
             lines.append(f"  {mark}: {cells}  n {len(values)}")
-    measured = [(index + 1, run[FIRST_FRAME_RUNTIME_THREADS]) for index, run in enumerate(runs)
-                if is_number(run.get(FIRST_FRAME_RUNTIME_THREADS))]
-    runtime = [str(number) for number, value in measured if value > 0]
+    counted = [(number, run[FIRST_FRAME_RUNTIME_THREADS]) for number, run in zip(numbers, runs)
+               if is_number(run.get(FIRST_FRAME_RUNTIME_THREADS))]
+    runtime = [str(number) for number, value in counted if value > 0]
     status = f"runs {', '.join(runtime)}" if runtime else "none"
-    lines.append(f"  runtime threads at first frame: {status} of {len(measured)} measured")
-    missing = [str(index + 1) for index, run in enumerate(runs) if not is_number(run.get(FIRST_FRAME_RUNTIME_THREADS))]
+    lines.append(f"  runtime threads at first frame: {status} of {len(counted)} measured")
+    missing = [str(number) for number, run in zip(numbers, runs) if not is_number(run.get(FIRST_FRAME_RUNTIME_THREADS))]
     if missing:
         lines.append(f"  {FIRST_FRAME_RUNTIME_THREADS}: missing in runs {', '.join(missing)} ({len(missing)} of {len(runs)})")
     return lines

@@ -159,7 +159,7 @@ class ValueSummaryTests(unittest.TestCase):
         lines = bs.value_summary(runs, "cold")
         self.assertEqual(lines[0], "  launch.temperature: cold 8, warm 1 of 10 runs (1 without it); "
                                    "8 of 10 read cold as asked")
-        self.assertEqual(lines[1], "  launch.pageins_run_loop_start: missing in all 10 runs")
+        self.assertEqual(lines[1], "  launch.pageins_run_loop_start: missing in all 9 measured runs")
         self.assertTrue(lines[2].startswith("  launch.pageins_first_frame: p50 4003  p95 4007  p99 4007  max 4007"),
                         lines[2])
         self.assertIn("n 9", lines[2])
@@ -967,6 +967,29 @@ class InterruptedRunTests(unittest.TestCase):
         self.assertEqual(frame["max"], 153.0, "the interrupted run's 9 s first frame is no sample")
         line = bs.value_summary(runs)[-1]
         self.assertEqual(line, "  launch.interrupted: runs 5 (1 of 5, left out of the percentiles; presentedBehind)")
+
+    def test_the_value_spreads_leave_interrupted_runs_out(self):
+        runs = []
+        for i in range(4):
+            run = self.run_at(150.0 + i)
+            run.update({bs.MAIN_CPU: 50.0 + i, bs.PAGEINS: 4000.0 + i, bs.SIDEBAR_ROWS_BUILT: 6.0,
+                        bs.SIDEBAR_ROWS_VISIBLE: 6.0, bs.FIRST_FRAME_RUNTIME_THREADS: 0.0,
+                        bs.ACTION_CATALOG_MAIN_WAIT: 0.0})
+            runs.append(run)
+        outlier = self.run_at(9000.0, "presentedBehind")
+        outlier.update({bs.MAIN_CPU: 9999.0, bs.PAGEINS: 90000.0, bs.SIDEBAR_ROWS_BUILT: 400.0,
+                        bs.SIDEBAR_ROWS_VISIBLE: 6.0, bs.FIRST_FRAME_RUNTIME_THREADS: 3.0,
+                        bs.ACTION_CATALOG_MAIN_WAIT: 80000.0})
+        self.assertEqual(bs.value_summary(runs + [outlier])[1:-1], bs.value_summary(runs)[1:-1],
+                         "the interrupted run's 10 s main CPU changes no spread")
+        lines = bs.value_summary(runs + [outlier])
+        cpu = next(line for line in lines if line.startswith(f"  {bs.MAIN_CPU}:"))
+        self.assertIn("max 53 ms", cpu)
+        self.assertIn("n 4", cpu)
+        self.assertEqual(lines[-1], "  launch.interrupted: runs 5 (1 of 5, left out of the percentiles; presentedBehind)")
+        threads = bs.first_frame_threads_summary([outlier, runs[0]], [2, 5])
+        self.assertEqual(threads[-1], "  runtime threads at first frame: runs 2 of 2 measured",
+                         "a run keeps its number in the bench's list")
 
     def test_an_interrupted_run_is_a_missing_result_sample(self):
         runs = [self.run_at(140.0), self.run_at(142.0), self.run_at(5000.0, "firstLaunch", "dialog")]

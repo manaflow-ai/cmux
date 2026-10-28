@@ -19,6 +19,9 @@ public final class LaunchInterruptionWatch {
     private let dialogs: CmuxDialogCenter
     private let windowEvents: @MainActor (NSWindow) -> WindowEvents
     private var dialogObserver: UUID?
+    /// The first window's notices, kept until ``close()``: a subscription holds its fan-out weakly, and only
+    /// ``WindowEvents/of(_:center:)`` ties one to its window.
+    private var firstWindowEvents: WindowEvents?
     private var windowSubscriptions: [EventSubscription] = []
     private var watchesWindow = false
 
@@ -56,6 +59,7 @@ public final class LaunchInterruptionWatch {
         guard let window, !watchesWindow, !classifier.isClosed else { return }
         watchesWindow = true
         let events = windowEvents(window)
+        firstWindowEvents = events
         let changed: @MainActor () -> Void = { [weak self, weak window] in
             guard let self, let window else { return }
             send(classifier.firstWindow(minimized: window.isMiniaturized, visible: window.occlusionState.contains(.visible)))
@@ -75,6 +79,7 @@ public final class LaunchInterruptionWatch {
         dialogObserver = nil
         for subscription in windowSubscriptions { subscription.cancel() }
         windowSubscriptions = []
+        firstWindowEvents = nil
     }
 
     private func send(_ marks: [String]) {

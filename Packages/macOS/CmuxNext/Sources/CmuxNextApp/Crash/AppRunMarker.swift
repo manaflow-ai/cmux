@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextCrashReporting
 import CmuxNextDesign
+import CmuxNextLaunch
 import CmuxNextMetrics
 import CmuxNextTrace
 import CmuxNextWakeups
@@ -122,6 +123,8 @@ final class AppRunMarker {
     /// Whether this launch reads the launch caches: not after a streak of runs that ended before their startup
     /// completed (p08-startup-089).
     let safeMode: LaunchSafeMode
+    /// No launch of this app made its marker before this one (``Launch/isFirstRun``).
+    let isFirstRun: Bool
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
 
     /// The app's marker folder for `bundleID`.
@@ -150,6 +153,8 @@ final class AppRunMarker {
         let signalDescriptor: Int32, keysDescriptor: Int32
         /// The launch caches' crash-streak decision (``AppRunMarker/launchSafeMode(directory:now:bootSession:processStart:)``).
         var safeMode: LaunchSafeMode = .noStreak
+        /// The folder has no first-run sentinel (`FirstRunSentinel`), which a clean quit keeps.
+        var isFirstRun = false
         /// How this launch follows the previous run.
         var recovery: LaunchRecovery { LaunchRecovery.decide(previous: previous?.forRecovery(bootSession: bootSession)) }
         /// How the previous run ended when it did not quit as asked; nil after a normal or requested quit, or on a first launch.
@@ -169,7 +174,7 @@ final class AppRunMarker {
         (previousExit, recovery, previousCrashKeys) = (launch.previousExit, launch.recovery, launch.previousCrashKeys)
         previousRun = launch.previous
         previousUnreported = launch.previousUnreported
-        (marker, safeMode) = (launch.marker, launch.safeMode)
+        (marker, safeMode, isFirstRun) = (launch.marker, launch.safeMode, launch.isFirstRun)
         start(launch)
     }
 
@@ -318,12 +323,6 @@ final class AppRunMarker {
         })
     }
 
-    /// The crash keys a run's crash path wrote (`url`: its `run.crashkeys`); nil when that run ended with no crash
-    /// path (a normal quit, SIGKILL, power loss). Off the main thread.
-    nonisolated static func readCrashKeys(_ url: URL) -> CrashKeys? {
-        (try? String(blockingContentsOf: url, encoding: .utf8)).flatMap { CrashKeys(record: $0) }
-    }
-
     /// The previous run's marker in these files. Blocking: the launch read's body (``prepareLaunch(directory:now:bootSession:)``).
     nonisolated static func readPrevious(marker: URL, signal: URL, exception: URL? = nil) -> PreviousRun? {
         // concurrency-allow: on the files lane once at launch, a file of about 150 bytes in Application Support.
@@ -418,13 +417,15 @@ extension AppRunMarker {
         })).safeMode
         let previous = readPrevious(marker: markerURL, signal: signalURL, exception: directory.appending(path: "run.exception"))
         let previousKeys = readCrashKeys(directory.appending(path: "run.crashkeys"))
+        let firstRun = FirstRunSentinel(directory: directory).isMissing()
         let marker = PreviousRun(pid: getpid(), launched: now,
                                  recovery: LaunchRecovery.watchesForLoop(previous: previous?.forRecovery(bootSession: bootSession)),
                                  survived: false, signal: nil, bootSession: bootSession, processStart: processStart,
                                  startupComplete: false, incompleteLaunches: safeMode.incompleteLaunches)
         func launch(failure: String?, signal: Int32 = -1, keys: Int32 = -1) -> Launch {
             Launch(directory: directory, bootSession: bootSession, previous: previous, previousCrashKeys: previousKeys,
-                   marker: marker, failure: failure, signalDescriptor: signal, keysDescriptor: keys, safeMode: safeMode)
+                   marker: marker, failure: failure, signalDescriptor: signal, keysDescriptor: keys, safeMode: safeMode,
+                   isFirstRun: firstRun)
         }
         do { try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true) } catch {
             return launch(failure: String(describing: error))
@@ -482,8 +483,9 @@ extension AppRunMarker {
     /// Replaces the previous run's crash record with this run's open files: removes its `run.exception` and renames
     /// the spare files (``openRunFiles(in:)``) over its `run.signal` and `run.crashkeys`; for a file that did not open,
     /// it removes the previous run's (that record is not this run's). Blocking: on the marker writer's queue, before
-    /// this run's first `run.json` (``init(launch:)``).
+    /// this run's first `run.json` (``init(launch:)``). A first run writes the first-run sentinel then.
     nonisolated static func takeOverCrashFiles(of launch: Launch) {
+        if launch.isFirstRun { FirstRunSentinel(directory: launch.directory).write() }
         let path = { (name: String) in launch.directory.appending(path: name).path }
         let files = [(path(spareSignalName), path("run.signal"), launch.signalDescriptor >= 0),
                      (path(spareCrashKeysName), path("run.crashkeys"), launch.keysDescriptor >= 0)]
@@ -497,12 +499,5 @@ extension AppRunMarker {
             // SAFETY: unlink reads the NUL-terminated copy of the path Swift makes for the call.
             for file in removed { unsafe unlink(file) }
         }
-    }
-
-    /// `run.json`'s bytes for `marker` (about 120).
-    nonisolated static func encode(_ marker: PreviousRun) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .secondsSince1970
-        return try encoder.encode(marker)
     }
 }

@@ -85,12 +85,12 @@ struct StartupInterruptionTests {
 
     // MARK: The watch
 
-    private final class SilentDialogHost: CmuxDialogHosting {
+    fileprivate final class SilentDialogHost: CmuxDialogHosting {
         func show(_ dialog: CmuxDialogView, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {}
         func hide(_ dialog: CmuxDialogView) {}
     }
 
-    private final class Marks {
+    fileprivate final class Marks {
         var sent: [String] = []
     }
 
@@ -124,18 +124,70 @@ struct StartupInterruptionTests {
         #expect(watch.causes == [.presentedBehind])
     }
 
-    @Test func aWindowNeverSeenOnScreenIsNotCoveredByAnOcclusionNotice() {
-        _ = NSApplication.shared
-        let center = NotificationCenter()
-        let marks = Marks()
-        let watch = LaunchInterruptionWatch(launch: Self.none, startup: nil, dialogs: CmuxDialogCenter(host: SilentDialogHost()),
-                                            windowEvents: { WindowEvents(window: $0, center: center) }) { marks.sent.append($0) }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled],
-                              backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
-        watch.watchFirstWindow(window)
-        center.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
-        #expect(marks.sent.isEmpty, "never reported visible: an occlusion notice is no cover")
-        #expect(!watch.isInterrupted)
+    /// A watch on its own notification center, its window's state set by the test (``ReportedWindow``). Each test
+    /// makes the `WindowEvents` through the watch's seam and keeps no reference to it: the watch must keep it.
+    fileprivate struct WindowWatch {
+        let center: NotificationCenter
+        let marks: Marks
+        let window: ReportedWindow
+        let watch: LaunchInterruptionWatch
+
+        init() {
+            _ = NSApplication.shared
+            let center = NotificationCenter(), marks = Marks()
+            let window = ReportedWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled],
+                                        backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            let watch = LaunchInterruptionWatch(launch: StartupInterruptionTests.none, startup: nil,
+                                                dialogs: CmuxDialogCenter(host: SilentDialogHost()),
+                                                windowEvents: { WindowEvents(window: $0, center: center) }) { marks.sent.append($0) }
+            watch.watchFirstWindow(window)
+            (self.center, self.marks, self.window, self.watch) = (center, marks, window, watch)
+        }
+
+        func post(_ name: Notification.Name) { center.post(name: name, object: window) }
     }
+
+    @Test func aWindowNeverSeenOnScreenIsNotCoveredByAnOcclusionNotice() {
+        let test = WindowWatch()
+        test.post(NSWindow.didChangeOcclusionStateNotification)
+        #expect(test.marks.sent.isEmpty, "never reported visible: an occlusion notice is no cover")
+        #expect(!test.watch.isInterrupted)
+    }
+
+    @Test func aMiniaturizeNoticeMarksTheLaunchMinimized() {
+        let test = WindowWatch()
+        #expect(test.marks.sent.isEmpty)
+        test.window.minimized = true
+        test.post(NSWindow.didMiniaturizeNotification)
+        #expect(test.marks.sent == ["launch.interrupted.minimized", LaunchSlices.interruptedMark])
+        #expect(test.watch.causes == [.minimized])
+    }
+
+    @Test func aWindowCoveredAfterItWasSeenMarksTheLaunchOccluded() {
+        let test = WindowWatch()
+        test.window.visible = true
+        test.post(NSWindow.didChangeOcclusionStateNotification)
+        #expect(test.marks.sent.isEmpty, "seen visible: no cause yet")
+        test.window.visible = false
+        test.post(NSWindow.didChangeOcclusionStateNotification)
+        #expect(test.marks.sent == ["launch.interrupted.occluded", LaunchSlices.interruptedMark])
+        #expect(test.watch.causes == [.occluded])
+    }
+
+    @Test func theWatchStopsObservingTheWindowWhenItCloses() {
+        let test = WindowWatch()
+        test.watch.close()
+        test.window.minimized = true
+        test.post(NSWindow.didMiniaturizeNotification)
+        #expect(test.marks.sent.isEmpty, "a window change after startup completed interrupts nothing")
+    }
+}
+
+/// A window whose miniaturized and occlusion state the test sets, as the window server would report them.
+private final class ReportedWindow: NSWindow {
+    var minimized = false
+    var visible = false
+    override var isMiniaturized: Bool { minimized }
+    override var occlusionState: NSWindow.OcclusionState { visible ? .visible : [] }
 }
