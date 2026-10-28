@@ -100,7 +100,11 @@ public final class IrxJournal: Sendable {
             let flags = O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW
             let created = open(path, flags | O_CREAT | O_EXCL, 0o600)
             if created >= 0 || errno != EEXIST { return created }
-            return open(path, flags)
+            // Non-blocking until fstat shows a regular file: a FIFO put in its place never blocks the open.
+            let existing = open(path, flags | O_NONBLOCK)
+            guard existing >= 0 else { return existing }
+            _ = fcntl(existing, F_SETFL, fcntl(existing, F_GETFL) & ~O_NONBLOCK)
+            return existing
         }
         guard descriptor >= 0 else { return nil }
         var info = stat()

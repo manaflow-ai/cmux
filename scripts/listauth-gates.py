@@ -14,7 +14,7 @@ Gates (see cmux-assets/irx-client-resilience/irx-sequence-diagram artifact):
                   time from relaunch to admitted + fresh directory < limit.
 
 Shared evidence: journals ({ts, mono_ms, component, event, a_*} JSONL) from
-/tmp/cmux-irx-journal-mac-<tag>.jsonl and the sim app container's
+$TMPDIR/cmux-next-irx/irx-journal-<tag>.jsonl and the sim app container's
 Documents/irx-journal.jsonl. Verdicts land in <out>/<gate>-<stamp>/.
 
 Usage:
@@ -32,6 +32,7 @@ import os
 import hashlib
 import json
 import pathlib
+import tempfile
 import subprocess
 import sys
 import time
@@ -82,7 +83,8 @@ def launch_app():
 stamp = time.strftime("%Y%m%d-%H%M%S")
 round_dir = pathlib.Path(args.out) / f"{args.gate}-{args.mode}-{stamp}"
 round_dir.mkdir(parents=True, exist_ok=True)
-mac_journal_path = pathlib.Path(f"/tmp/cmux-irx-journal-mac-{args.tag}.jsonl")
+# The app's journal (MobileIrxHost.journalFile): this user's $TMPDIR, never the shared /tmp.
+mac_journal_path = pathlib.Path(os.environ.get("TMPDIR") or tempfile.gettempdir()) / "cmux-next-irx" / f"irx-journal-{args.tag}.jsonl"
 
 
 def sim_journal_path():

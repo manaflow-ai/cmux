@@ -13,7 +13,7 @@ defaults write com.cmuxterm.app.debug.irx cmux.irx.force-relay -bool true
 ./scripts/reload.sh --tag irx --launch   # or open the DerivedData app
 
 # 3. Verify activation in the journal after sign-in:
-tail -f /tmp/cmux-irx-journal-mac-irx.jsonl
+tail -f "$TMPDIR/cmux-next-irx/irx-journal-irx.jsonl"
 # expect: host-runtime configured -> activating -> broker registered ->
 #         endpoint bound -> online -> route-published -> active ->
 #         accept-loop-started

@@ -1,4 +1,5 @@
 public import CmuxIrxTransport
+import CmuxNextCompat
 import CmuxNextDaemon
 public import CmuxNextWakeups
 public import Foundation
@@ -83,6 +84,7 @@ public actor MobileIrxHost {
         self.auth = auth
         self.makeBackend = makeBackend
         self.clock = clock
+        Self.removeSharedJournal(tag: configuration.tag)
         journal = IrxJournal(subsystem: "com.cmuxterm.app.next", category: "irx-host",
                              journalFileURL: Self.journalFile(tag: configuration.tag,
                                                               temporaryDirectory: FileManager.default.temporaryDirectory))
@@ -92,6 +94,20 @@ public actor MobileIrxHost {
     /// directory (`$TMPDIR`, which macOS makes per user and private), never the
     /// shared /tmp. The tag keeps only file-name characters, so it cannot name
     /// another directory. IrxJournal opens it 0600 and never through a link.
+    /// Removes the journal earlier builds wrote in the shared /tmp
+    /// (`/tmp/cmux-next-irx-journal-<tag>.jsonl`, readable by every user):
+    /// only a regular file of this user, never through a link.
+    static func removeSharedJournal(tag: String, directory: String = "/tmp") {
+        let path = directory + "/cmux-next-irx-journal-\(tag).jsonl"
+        guard !tag.contains("/") else { return }
+        var info = stat()
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat
+        // into `info`, a local.
+        guard unsafe blockingLstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_uid == geteuid() else { return }
+        // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+        unsafe _ = blockingUnlink(path)
+    }
+
     static func journalFile(tag: String, temporaryDirectory: URL) -> URL {
         let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
         let name = String(tag.map { allowed.contains($0) ? $0 : "_" })

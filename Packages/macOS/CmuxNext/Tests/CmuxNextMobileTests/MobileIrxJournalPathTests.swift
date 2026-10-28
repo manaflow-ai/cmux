@@ -21,4 +21,24 @@ struct MobileIrxJournalPathTests {
         #expect(!file.lastPathComponent.contains("/"))
         #expect(!file.lastPathComponent.contains(".."))
     }
+
+    /// The journal earlier builds left in the shared /tmp (readable by every
+    /// user) is removed; a link there is never followed or removed.
+    @Test func theOldSharedJournalIsRemovedButNotThroughALink() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("irx-old-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let old = dir.appendingPathComponent("cmux-next-irx-journal-t1.jsonl")
+        try Data("session".utf8).write(to: old)
+        MobileIrxHost.removeSharedJournal(tag: "t1", directory: dir.path)
+        #expect(!FileManager.default.fileExists(atPath: old.path))
+
+        let target = dir.appendingPathComponent("keep.txt")
+        try Data("keep".utf8).write(to: target)
+        let link = dir.appendingPathComponent("cmux-next-irx-journal-t2.jsonl")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        MobileIrxHost.removeSharedJournal(tag: "t2", directory: dir.path)
+        #expect(FileManager.default.fileExists(atPath: target.path))
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) != nil)
+    }
 }
