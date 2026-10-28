@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -68,6 +69,21 @@ for (const scenario of ["ready", "failed-play", "unready"] as const) {
         }
       </script></body></html>`);
     try {
+      if (scenario === "unready") {
+        // Simulate a rerun over a prior successful output. A failed capture
+        // must not let these old artifacts satisfy the geometry lint.
+        mkdirSync(output, { recursive: true });
+        const stalePng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+        writeFileSync(join(output, "stale.png"), stalePng);
+        writeFileSync(join(output, "stale.geometry.json"), JSON.stringify({
+          schemaVersion: 1, revision: { sha, source: "regression fixture" },
+          capture: { caseId: "fixture", engine: "chromium", theme: "light", viewport: { width: 1, height: 1 }, deviceScaleFactor: 1, screenshot: "stale.png", screenshotSha256: createHash("sha256").update(stalePng).digest("hex"), coordinateSpace: "css-px" },
+          elements: [
+            { id: "label:0", kind: "web", source: "dom-rect", group: "label", rect: { x: 0, y: 0, width: 1, height: 1 } },
+            { id: "label:1", kind: "web", source: "dom-rect", group: "label", rect: { x: 0, y: 1, width: 1, height: 1 } },
+          ],
+        }));
+      }
       // Run the production CLI in a child: play failures are diagnostic, while
       // geometry remains the gate.
       const child = Bun.spawn([process.execPath, join(import.meta.dir, "geometry-audit.ts"),
@@ -78,7 +94,7 @@ for (const scenario of ["ready", "failed-play", "unready"] as const) {
         .finally(() => clearTimeout(deadline));
       const report = JSON.parse(readFileSync(join(output, "geometry-report", "geometry-report.json"), "utf8"));
       expect({ exitCode, geometryPassed: report.passed, errors: report.errors })
-        .toEqual({ exitCode: 0, geometryPassed: true, errors: [] });
+        .toEqual({ exitCode: scenario === "unready" ? 1 : 0, geometryPassed: true, errors: [] });
       const [result] = JSON.parse(readFileSync(join(output, "results.json"), "utf8"));
       expect(result.ready).toBe(scenario === "unready" ? "error" : "1");
       expect(result.play.status).toBe(scenario === "failed-play" ? "fail" : "pass");

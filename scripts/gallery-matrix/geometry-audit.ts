@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { parseManifest, runLocal } from "./runner";
@@ -25,6 +25,8 @@ export async function audit(args = process.argv.slice(2)): Promise<number> {
   const effective = configForCapture(config, values["expected-sha"]);
   const cases = parseManifest(effective.cases);
   const output = resolve(values["output-dir"]);
+  // A rerun must never lint screenshots or geometry from an earlier attempt.
+  await rm(output, { recursive: true, force: true });
   await mkdir(output, { recursive: true });
   const manifest = join(output, "manifest.json");
   const selectors = join(output, "selectors.json");
@@ -34,9 +36,14 @@ export async function audit(args = process.argv.slice(2)): Promise<number> {
   await writeFile(effectiveConfig, `${JSON.stringify(effective, null, 2)}\n`);
   process.env.CMUX_GEOMETRY_SELECTORS = selectors;
   await runLocal({ manifest, galleryDir: values["gallery-dir"], outputDir: output, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 });
+  const results = JSON.parse(await readFile(join(output, "results.json"))) as Array<{ ready?: string }>;
+  const captureFailed = results.some((result) => result.ready !== "1");
+  // runLocal uses process.exitCode for diagnostics; clear it before linting so
+  // a known play failure does not mask the final capture/geometry verdict.
+  process.exitCode = 0;
   const lintExitCode = await lint(["--artifact-dir", output, "--config", effectiveConfig, "--report-dir", join(output, "geometry-report"), "--expected-sha", values["expected-sha"]]);
-  // Play failures remain in results.json and stderr for diagnosis. Geometry is
-  // the gate here: known play debt is accepted by the baseline independently.
-  return lintExitCode;
+  // Play failures remain in results.json and stderr for diagnosis, while a
+  // capture that never became ready remains a hard failure.
+  return captureFailed ? 1 : lintExitCode;
 }
 if (import.meta.main) process.exitCode = await audit();
