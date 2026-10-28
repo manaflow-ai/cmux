@@ -299,12 +299,20 @@ impl Translator {
                 }
                 drop(prompt);
                 let mut steers = self.steers.lock().await;
-                if let Some(at) = steers.iter().position(|(u, _)| !uuid.is_empty() && u == uuid)
-                    && let Some((_, k)) = steers.remove(at)
-                {
+                // A line of several sessions' messages answers each (`steer_batch.rs`).
+                let read: Vec<String> = steers
+                    .iter()
+                    .filter(|(u, _)| !uuid.is_empty() && u == uuid)
+                    .map(|(_, k)| k.clone())
+                    .collect();
+                if !read.is_empty() {
+                    steers.retain(|(u, _)| u != uuid);
                     drop(steers);
-                    let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
-                    out.push(Message::ok(id, json!({"stopReason": "steered"})));
+                    self.forget_batch(uuid).await;
+                    for k in read {
+                        let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
+                        out.push(Message::ok(id, json!({"stopReason": "steered"})));
+                    }
                     // A turn the client stopped: Claude Code runs a line it
                     // read after the stop as one more turn, so that turn is
                     // stopped too, and the prompt ends cancelled.
@@ -568,6 +576,9 @@ impl Translator {
                             why.unwrap_or("Claude Code did not move its work to the background");
                         Message::err(id, RpcError::internal(why))
                     });
+                } else if let Some(uuid) = rid.strip_prefix("rebatch-") {
+                    // A line dropped to be written again with more messages (`steer_batch.rs`).
+                    out.extend(self.rebatched(uuid, ok, &inner).await);
                 } else if let Some(rest) = rid.strip_prefix("unsteer-") {
                     // A steer taken back, or read first (`steer_withdraw.rs`).
                     out.extend(self.steer_withdrawn(rest, ok, &inner).await);

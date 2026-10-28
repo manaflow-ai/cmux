@@ -236,6 +236,8 @@ mod inbound;
 mod outbound;
 #[cfg(test)]
 mod steer_now_tests;
+// Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
+mod steer_batch;
 #[cfg(test)]
 mod steer_batch_tests;
 mod steer_withdraw;
@@ -426,6 +428,9 @@ pub struct Translator {
     /// Each steer's line uuid by the hub's promptId (`_meta.promptId`), so a
     /// withdraw names the line to drop (`steer_withdraw.rs`).
     steer_lines: Mutex<HashMap<String, String>>,
+    /// The waiting lines of other sessions' messages, and those being written again with more
+    /// (`steer_batch.rs`). Taken before `steers`.
+    batches: Mutex<steer_batch::Batches>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
@@ -557,6 +562,7 @@ impl Translator {
             abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),
             steer_lines: Mutex::new(HashMap::new()),
+            batches: Mutex::new(Default::default()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),
@@ -589,37 +595,37 @@ impl Translator {
         // pending entry before it inspects the steers, so holding steers while awaiting pending
         // would invert the lock order used by the withdrawal path.
         let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
+        let mut held = self.end_batches(message).await;
         // Hold steers while clearing its prompt-id index: an outbound steer either keeps both
         // records or waits until the stale index has been cleared.
         let mut steers = self.steers.lock().await;
         ids.extend(steers.drain(..).map(|(_, id)| id));
         self.steer_lines.lock().await.clear();
         drop(steers);
-        ids.into_iter()
-            .map(|id| {
-                let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
-                Message::err(id, RpcError::internal(message))
-            })
-            .collect()
+        held.extend(ids.into_iter().map(|id| {
+            let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
+            Message::err(id, RpcError::internal(message))
+        }));
+        held
     }
 
     /// Error answers for the steered prompts Claude Code never echoed: the
     /// turn ended without reading them (no echo support).
     async fn fail_steers(&self) -> Vec<Message> {
+        // Held for a line being written again, never written: they go in the next turn.
+        let held = self.end_batches(STEER_NO_TURN).await;
         let mut steers = self.steers.lock().await;
         let failed: Vec<_> = steers.drain(..).collect();
         self.steer_lines.lock().await.clear();
         drop(steers);
-        failed
-            .into_iter()
-            .map(|(_, id)| {
-                let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
-                Message::err(
-                    id,
-                    RpcError::internal("steer: the turn ended before Claude Code read the message"),
-                )
-            })
-            .collect()
+        let failed = failed.into_iter().map(|(_, id)| {
+            let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
+            Message::err(
+                id,
+                RpcError::internal("steer: the turn ended before Claude Code read the message"),
+            )
+        });
+        held.into_iter().chain(failed).collect()
     }
 
     /// Ends the `background_tasks` requests `ended` picks by ACP id and
