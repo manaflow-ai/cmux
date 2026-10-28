@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { avatarRows } from "./avatarRow";
+import { cloudMachineRows } from "../cloudMachineMenu";
+import { translate } from "../i18n";
 import type { ChatMenuItem } from "./ChatHeaderTools";
 import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
@@ -320,6 +322,16 @@ const keyboardSubmenu: Play = async (ctx) => {
   });
 };
 
+// A Cloud chat's machine rows (cloudMachineMenu.ts), placed as the App places them: before Archive's group.
+const noop = () => undefined;
+const noCall = async () => undefined;
+const galleryT = translate;
+const withMachine = (machine: ChatMenuItem[]): ChatMenuItem[] => {
+  const rows = menuRows();
+  const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
+  return [...rows.slice(0, archive), ...machine, "separator", ...rows.slice(archive)];
+};
+
 const base: HeaderToolsProps = {
   onTerminal: () => undefined,
   onSplitDown: () => undefined,
@@ -573,6 +585,24 @@ export default componentEntry<HeaderToolsProps>({
           return [...rows.slice(0, archive), ...avatar, "separator", ...rows.slice(archive)];
         },
       },
+      play: openMenu,
+    },
+    "menu-cloud-machine-running": {
+      height: 860,
+      note: "A chat on a running Cloud machine (Labs > Preview features): Pause Machine sits before the tools rows (cloudMachineMenu.ts).",
+      props: { ...base, menu: () => withMachine(cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, false, galleryT, noCall, noop)) },
+      play: openMenu,
+    },
+    "menu-cloud-machine-working": {
+      height: 860,
+      note: "The same while its turn runs: the row says it stops the turn first.",
+      props: { ...base, menu: () => withMachine(cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, true, galleryT, noCall, noop)) },
+      play: openMenu,
+    },
+    "menu-cloud-machine-paused": {
+      height: 860,
+      note: "A chat on a paused Cloud machine: Resume Machine.",
+      props: { ...base, menu: () => withMachine(cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "paused" }, false, galleryT, noCall, noop)) },
       play: openMenu,
     },
     "keyboard-menu": {
