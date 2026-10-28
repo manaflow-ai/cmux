@@ -297,6 +297,13 @@ public final class DiffPageProvider: PageProvider {
     }
 
     private func remoteBranchChange(_ params: [String: JSONValue], tab: DiffTabReady) async throws -> JSONValue {
+        // Retire the old branch before awaiting the remote diff. File reads can
+        // be in flight while the new branch is being materialized; removing the
+        // session now makes their generation check fail closed instead of
+        // returning contents from the branch that is being replaced.
+        if let sessionID = params["sessionId"]?.stringValue {
+            remoteSessions[sessionID] = nil
+        }
         var next = params
         next["source"] = ["kind": "branch", "repoRoot": .string(tab.grant.repository),
                            "baseRef": params["baseRef"] ?? .null]

@@ -51,11 +51,22 @@ struct DiffViewerGitTests {
         var pagedPatch: Data?
         var initialStatus = "modified"
         var beforePage: (() async -> Void)?
+        var holdNextOverview = false
+        var branchChangeStarted: AsyncStream<Void>.Continuation?
+        var branchChangeGate: AsyncStream<Void>?
 
         func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue { ["root": .string(repository)] }
 
         func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool) async throws(AgentPaneGitFailure) -> JSONValue {
             calls.append((scope, nil))
+            if holdNextOverview {
+                holdNextOverview = false
+                branchChangeStarted?.yield()
+                branchChangeStarted?.finish()
+                if let branchChangeGate {
+                    for await _ in branchChangeGate { break }
+                }
+            }
             return ["files": [["path": "remote.txt", "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new\n"]]]
         }
 
@@ -153,6 +164,43 @@ struct DiffViewerGitTests {
             _ = try await provider.call("cmux.diff.fileContents", params: ["sessionId": .string(session), "path": "remote.txt"], context: context)
         }
         #expect(replaced)
+        await provider.close()
+    }
+
+    @Test func changingBranchesInvalidatesReadsBeforeTheReplacementDiffCompletes() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "diff-remote-early-retire-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let grant = try DiffSessionGrant.create(root: root, repository: "/remote/worktree")
+        defer { grant.remove() }
+        let remote = RemoteGit()
+        remote.pagedPatch = Data("@@ -1 +1 @@\n-old\n+new\n".utf8)
+        let provider = DiffPageProvider(ready: Task { DiffTabReady(grant: grant, config: [:]) }, sidecar: nil, languages: nil, git: remote)
+        let context = PageCallContext(page: "cmux.diff")
+        let opened = try await provider.call("cmux.diff.sessionOpen", params: ["source": ["kind": "unstaged"]], context: context)
+        let session = try #require(opened["value"]?["sessionId"]?.stringValue)
+
+        // Hold the replacement's overview request after branchChange has begun.
+        let (startedEvents, started) = AsyncStream<Void>.makeStream()
+        let (gateEvents, openGate) = AsyncStream<Void>.makeStream()
+        remote.branchChangeStarted = started
+        remote.branchChangeGate = gateEvents
+        remote.holdNextOverview = true
+        let branchTask = Task {
+            try? await provider.call("cmux.diff.branchChange", params: ["sessionId": .string(session), "baseRef": "HEAD"], context: context)
+        }
+        var startedIterator = startedEvents.makeAsyncIterator()
+        _ = await startedIterator.next()
+
+        // The old implementation kept the session valid until the replacement
+        // diff returned. A file read could therefore complete from the old
+        // branch while this replacement was still waiting on its overview.
+        let contents = try? await provider.call("cmux.diff.fileContents", params: ["sessionId": .string(session), "path": "remote.txt"], context: context)
+        #expect(contents == nil)
+
+        openGate.yield()
+        openGate.finish()
+        _ = await branchTask.value
         await provider.close()
     }
 
