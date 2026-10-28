@@ -71,4 +71,51 @@ await requireBrowserLane("chat-inspector-server-columns.test.ts", async () => {
     expect(Math.abs(metrics.serverText - metrics.taskText)).toBeLessThanOrEqual(0.5);
     await page.close();
   });
+
+  test("cards reorder when dragged from the visible grip", async () => {
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    const page = await browser!.newPage({ viewport: { width: 420, height: 900 } });
+    await page.goto(
+      `http://127.0.0.1:${port}${galleryFrame("agent-pane.chat-inspector", { variant: "cards-balanced", theme: "light" })}`,
+    );
+    const handle = page.locator('[data-section-card="changes"] .acpmux-chat-inspector-card__handle');
+    const target = page.locator('[data-section-card="context"]');
+    await handle.waitFor();
+    expect(
+      await handle.evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return (
+          document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)?.closest("button") === node
+        );
+      }),
+    ).toBe(true);
+    await handle.dragTo(target);
+    const order = await page
+      .locator("[data-section-card]")
+      .evaluateAll((cards) => cards.map((card) => card.getAttribute("data-section-card")));
+    expect(order.indexOf("changes")).toBeLessThan(order.indexOf("context"));
+    await page.close();
+  });
+
+  test("Session Info wave variants use their declared durations", async () => {
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    for (const [variant, duration] of [
+      ["wave-subtle", "2s"],
+      ["wave-balanced", "2.4s"],
+      ["wave-roomy", "3s"],
+    ] as const) {
+      const page = await browser!.newPage({ viewport: { width: 420, height: 900 } });
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.chat-inspector", { variant, theme: "light" })}`,
+      );
+      await page.locator(".acpmux-chat-inspector-task.acpmux-wave-item").first().waitFor();
+      expect(
+        await page
+          .locator(".acpmux-chat-inspector-task.acpmux-wave-item")
+          .first()
+          .evaluate((node) => getComputedStyle(node).animationDuration),
+      ).toBe(duration);
+      await page.close();
+    }
+  });
 });

@@ -65,6 +65,15 @@ export function InspectorCard({
     setTarget(undefined);
     setDragging(false);
   };
+  const onDragLeave = (event: DragEvent<HTMLElement>) => {
+    const related = event.relatedTarget;
+    if (related instanceof Node && event.currentTarget.contains(related)) return;
+    setTarget(undefined);
+  };
+  const clearDragState = () => {
+    setDragging(false);
+    setTarget(undefined);
+  };
   return (
     <article
       className="acpmux-chat-inspector-card"
@@ -72,7 +81,9 @@ export function InspectorCard({
       data-dragging={dragging || undefined}
       data-drop={target && target.id === id ? (target.after ? "after" : "before") : undefined}
       onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
       onDrop={onDrop}
+      onDragEnd={clearDragState}
     >
       {children}
       <button
@@ -83,10 +94,6 @@ export function InspectorCard({
         draggable
         onKeyDown={onKeyDown}
         onDragStart={onDragStart}
-        onDragEnd={() => {
-          setDragging(false);
-          setTarget(undefined);
-        }}
         onClick={(event) => event.stopPropagation()}
       >
         <span aria-hidden="true">⠿</span>

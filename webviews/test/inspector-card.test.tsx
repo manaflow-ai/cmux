@@ -91,6 +91,10 @@ test("dragging the handle drops Changes before Context", async () => {
   };
   await dispatch(handle, "dragstart");
   await dispatch(card, "dragover", 1);
+  expect(card.getAttribute("data-drop")).toBe("before");
+  await dispatch(card, "dragleave");
+  expect(card.hasAttribute("data-drop")).toBe(false);
+  await dispatch(card, "dragover", 1);
   await dispatch(card, "drop", 1);
   expect(moves).toEqual([["changes", "context", false]]);
   const ids = [...container.querySelectorAll<HTMLElement>("[data-section-card]")].map(
