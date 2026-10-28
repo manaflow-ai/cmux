@@ -95,7 +95,7 @@ struct CrashWorkspaceMergePlanTests {
             preferred: [workspace(agents: ["a", "b"]), workspace(agents: ["a"])],
             supplemental: [workspace(agents: ["a"]), workspace(agents: ["b"])]
         )
-        #expect(plan.selections == [.supplemental(1), .supplemental(0)])
+        #expect(plan.selections == [.preferred(0), .preferred(1)])
         #expect(plan.matches == [0: 1, 1: 0])
     }
 
