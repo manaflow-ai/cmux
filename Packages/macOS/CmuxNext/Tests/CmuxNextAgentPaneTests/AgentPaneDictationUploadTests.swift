@@ -38,6 +38,13 @@ struct AgentPaneDictationUploadTests {
         /// Runs as the stager takes each chunk (the page's × arriving mid-stream), with the chunk's
         /// number from 0.
         var duringChunk: (@MainActor (Int) async -> Void)?
+        /// Runs while the finish is pending, before it commits (the remote transfer in flight): the
+        /// finish is released when this returns.
+        var duringFinish: (@MainActor () async -> Void)?
+        /// The files a finish committed on the chat's machine. A finish whose task was cancelled
+        /// before it commits commits nothing, as the real stagers' transfers stop on cancellation
+        /// (Cloud's `cmux link access upload` child is killed by ProcessRunner).
+        var committed: [String] = []
         private var chunkCount = 0
 
         var stage: AgentPaneUploadStager {
@@ -58,6 +65,9 @@ struct AgentPaneDictationUploadTests {
                     received.append(data)
                     return AgentPaneReply.success(["offset": offset + data.count])
                 case .finish:
+                    await duringFinish?()
+                    if Task.isCancelled { return AgentPaneReply.failure(code: "upload_failed", message: "The transfer was stopped.") }
+                    if finish["ok"] as? Bool == true, let path = (finish["value"] as? [String: Any])?["path"] as? String { committed.append(path) }
                     return finish
                 case .cancel:
                     return AgentPaneReply.success()
@@ -320,6 +330,32 @@ struct AgentPaneDictationUploadTests {
         #expect(reply["ok"] as? Bool == true)
         #expect(stager.received == data)
         #expect(stager.requests.last == .finish(token: "t1"))
+    }
+
+    /// A cancel that arrives while the finish is pending (the remote transfer in flight, after the
+    /// last chunk) stops the finish before it commits: nothing is left on the chat's machine, the
+    /// upload answers `cancelled`, and the recording is not given back (the person removed it).
+    @Test func aCancelWhileTheFinishIsPendingStopsItBeforeItCommits() async throws {
+        let (file, _) = try recordingFile(bytes: 1_300_000)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-a")
+        let stager = Stager()
+        let replies = Replies()
+        // The finish is pending: the page's x arrives, then the finish is released.
+        stager.duringFinish = { replies.all.append(await self.cancel(file.path, in: model)) }
+        model.onUploadStage = { stager.stage }
+        model.onDictationRecording = { _, _ in file }
+        let givenBack = GivenBack()
+        model.onDictationRecordingUnsent = { file, session in givenBack.recordings.append((file, session)) }
+        let reply = await upload(file.path, in: model)
+        #expect(replies.all.map { $0["ok"] as? Bool } == [true], "the cancel found the upload while its finish was pending")
+        #expect(stager.requests.contains(.finish(token: "t1")))
+        #expect(stager.committed.isEmpty, "no file is left on the chat's machine")
+        #expect(Self.errorCode(reply) == "cancelled")
+        #expect((reply["value"] as? [String: Any])?["path"] == nil)
+        #expect(givenBack.recordings.isEmpty, "a removed recording is not given back for Retry")
+        // Done: a later cancel finds nothing to stop.
+        #expect(Self.errorCode(await cancel(file.path, in: model)) == "dictation.not_uploading")
     }
 
     /// Review of #26966: the recording's checks read its path, and each chunk opened the path again,
