@@ -272,7 +272,7 @@ pub mod method {
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
     /// The owner lets a person's prompt that waits for them run, `{sessionId, promptId}`
-    /// (`hub/queue_approve.rs`): `{sessionId, promptId, approved}`.
+    /// (`hub/queue_approve.rs`): `{sessionId, promptId, turnId, revision, approved}`.
     pub const MUX_QUEUE_APPROVE: &str = "_acpmux/queue_approve";
     /// The owner drops a person's prompt that waits for them, `{sessionId, promptId}`: its
     /// `session/prompt` answers `queue.declined`. `{sessionId, promptId, declined}`.

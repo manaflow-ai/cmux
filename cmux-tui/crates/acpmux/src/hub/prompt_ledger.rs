@@ -58,46 +58,38 @@ impl Hub {
 
     /// A prompt id the session's log already holds (`user_message` or
     /// `queued`), answered from the log: its turn's result when it ended,
-    /// else `interrupted` (the daemon stopped during the turn).
-    pub(super) fn logged_prompt(&self, session: &Session, prompt_id: &str) -> Option<Value> {
-        let last = session.meta().last_turn;
-        if let Some(last) =
-            last.filter(|l| l.get("promptId").and_then(Value::as_str) == Some(prompt_id))
-        {
-            return Some(json!({
-                "stopReason": last.get("stopReason").cloned().unwrap_or(Value::Null),
-                "_meta": {"acpmux": {"promptId": prompt_id, "turnId": last.get("turnId"), "status": last.get("status"), "duplicate": true}},
-            }));
-        }
+    /// else `interrupted` (the daemon stopped during the turn). A durable decline remains
+    /// an error after restart or eviction from the bounded in-memory outcome ledger.
+    pub(super) fn logged_prompt(
+        &self,
+        session: &Session,
+        prompt_id: &str,
+    ) -> Option<Result<Value, crate::rpc::RpcError>> {
+        // The last completed turn may predate a later queued/declined incarnation reusing
+        // this client id. Reconstruct the latest incarnation from its ordered durable records.
         let mut turn_id: Option<String> = None;
         let mut ended: Option<Value> = None;
+        let mut declined = false;
         let _ = self.store.scan(&session.id, 0, &mut |rec| {
             match (rec.kind.as_str(), &turn_id) {
-                ("user_message" | "queued", None)
+                ("user_message" | "queued", _)
                     if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) =>
                 {
                     turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                    ended = None;
+                    declined = false;
                 }
-                // Read on: a failed turn of agent messages may put it back (`requeued` below).
+                // Read on: a failed turn may requeue it, or a new incarnation may reuse its id.
                 ("turn_result", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
                 {
                     ended = Some(rec.msg);
                 }
-                // Put back after the turn it joined failed (`digest.rs` `requeue_joined`): it
-                // waits again under its own turn id.
-                ("queued", Some(_))
-                    if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id)
-                        && rec.msg.get("requeued") == Some(&Value::Bool(true)) =>
-                {
-                    turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
-                    ended = None;
-                }
-                ("queue_removed", Some(id))
+                ("queue_declined" | "queue_removed", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
                 {
+                    declined |= rec.kind == "queue_declined" || rec.msg["reason"] == "declined";
                     ended = Some(json!({"stopReason": "cancelled", "status": "withdrawn"}));
-                    return false;
                 }
                 // It went in with an earlier agent message's turn (`digest.rs`): that turn's.
                 ("dequeued", Some(id))
@@ -111,14 +103,17 @@ impl Hub {
             true
         });
         let turn_id = turn_id?;
+        if declined {
+            return Some(Err(super::queue::declined_error(prompt_id, &turn_id)));
+        }
         let status = ended
             .as_ref()
             .and_then(|e| e.get("status").cloned())
             .unwrap_or_else(|| json!("interrupted"));
-        Some(json!({
+        Some(Ok(json!({
             "stopReason": ended.as_ref().and_then(|e| e.get("stopReason").cloned()).unwrap_or(Value::Null),
             "_meta": {"acpmux": {"promptId": prompt_id, "turnId": turn_id, "status": status, "duplicate": true}},
-        }))
+        })))
     }
 }
 

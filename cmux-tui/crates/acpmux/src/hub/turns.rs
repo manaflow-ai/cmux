@@ -175,12 +175,18 @@ impl Hub {
             && let Some(logged) = self.logged_prompt(session, &prompt_id)
         {
             if let Some(f) = opts.on_accepted.take() {
-                f(duplicate(logged.clone()));
+                let value = match &logged {
+                    Ok(value) => value.clone(),
+                    Err(error) => json!({"_meta": {"acpmux": {
+                        "turnId": error.data.as_ref().and_then(|d| d.get("turnId"))
+                    }}}),
+                };
+                f(duplicate(value));
             }
             let mut ledger = session.prompts.lock().unwrap();
-            outcome.send_replace(Some(Ok(logged.clone())));
+            outcome.send_replace(Some(logged.clone()));
             prompt_ledger::prune(&mut ledger);
-            return Ok(logged);
+            return logged;
         }
         // Remember the outcome only for a prompt that reached the session:
         // one refused before that (no agent, a bad session) may be sent again.

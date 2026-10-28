@@ -28,9 +28,12 @@ fn answer(hub: &Arc<Hub>, session: &str, id: &str, revision: Option<u64>) -> Val
     if let Some(revision) = revision {
         params["revision"] = json!(revision);
         let records = hub.events(session, 0, 10_000).unwrap();
-        params["turnId"] = records.iter().rev()
+        params["turnId"] = records
+            .iter()
+            .rev()
             .find(|e| e.kind == "queued" && e.msg["promptId"] == id)
-            .map(|e| e.msg["turnId"].clone()).unwrap_or(Value::Null);
+            .map(|e| e.msg["turnId"].clone())
+            .unwrap_or(Value::Null);
     }
     params
 }
@@ -155,7 +158,10 @@ async fn the_guest_edits_or_removes_it_and_nothing_else() {
     assert_eq!(reason(&over), "queue.too_many_held", "{over}");
     assert_eq!(hub.session_summary(&hub.resolve(&session).unwrap())["queued"], 16);
     let recorded = c.records(&session, "queued").await;
-    assert!(!recorded.iter().any(|m| m["promptId"] == "g-cap-16"), "the refused prompt was recorded");
+    assert!(
+        !recorded.iter().any(|m| m["promptId"] == "g-cap-16"),
+        "the refused prompt was recorded"
+    );
     c.cancel(&session).await;
 }
 
@@ -260,7 +266,8 @@ async fn approve_and_remove_are_logged_in_the_order_they_happened() {
         let id = format!("g-race-{i}");
         c.queue(held(&session, &id, "race")).await;
         let remove = by(answer(&hub, &session, &id, None), Some(&guest()));
-        let approve = owner.send("_acpmux/queue_approve", answer(&hub, &session, &id, Some(0))).await;
+        let approve =
+            owner.send("_acpmux/queue_approve", answer(&hub, &session, &id, Some(0))).await;
         let removed = c.reply("_acpmux/queue_remove", remove).await;
         owner.reply_to(approve).await;
         assert_eq!(removed["result"]["removed"], true, "{removed}");
@@ -349,7 +356,8 @@ async fn stale_approval_cannot_approve_a_reused_prompt_id() {
     let session = c.new_session(json!({"harness": "fake"})).await;
     let first = c.queue(held(&session, "reused", "words the owner saw")).await;
     let old = answer(&hub, &session, "reused", Some(0));
-    c.call("_acpmux/queue_remove", by(answer(&hub, &session, "reused", None), Some(&guest()))).await;
+    c.call("_acpmux/queue_remove", by(answer(&hub, &session, "reused", None), Some(&guest())))
+        .await;
     c.reply_to(first).await;
     hub.shutdown_all().await;
     drop(c);
@@ -367,7 +375,11 @@ async fn stale_approval_cannot_approve_a_reused_prompt_id() {
     missing.as_object_mut().unwrap().remove("turnId");
     let refused = c.reply("_acpmux/queue_approve", missing).await;
     assert_eq!(refused["error"]["code"], -32602, "{refused}");
-    assert!(queue(&hub, &session).iter().any(|q| q["promptId"] == "reused" && q["awaitingOwner"] == true));
+    assert!(
+        queue(&hub, &session)
+            .iter()
+            .any(|q| q["promptId"] == "reused" && q["awaitingOwner"] == true)
+    );
     assert!(!ran(&mut c, &session, "reused").await);
     c.call("_acpmux/queue_approve", fresh).await;
     assert!(c.reply_to(second).await.get("error").is_none());
@@ -382,6 +394,15 @@ async fn declined_resend_stays_an_error_after_restart() {
     let hub = durable(&dir);
     let mut c = Client::open(&hub);
     let session = c.new_session(json!({"harness": "fake"})).await;
+    // A previous incarnation ran under the same client id. Its successful last_turn cache
+    // must not hide the later decline, nor may a forward log scan stop at the old incarnation.
+    c.call("session/prompt", prompt(&session, "declined", "old incarnation", None)).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    hub.resume_queues();
     let first = c.queue(held(&session, "declined", "guest words")).await;
     let turn = answer(&hub, &session, "declined", Some(0))["turnId"].clone();
     c.call("_acpmux/queue_decline", answer(&hub, &session, "declined", None)).await;
@@ -401,29 +422,56 @@ async fn declined_resend_stays_an_error_after_restart() {
         assert_eq!(reason(&reply), "queue.declined", "{reply}");
         assert_eq!(reply["error"]["data"]["turnId"], turn, "{reply}");
     }
-    assert!(!ran(&mut c, &session, "declined").await);
+    let messages = c.records(&session, "user_message").await;
+    assert_eq!(messages.iter().filter(|m| m["promptId"] == "declined").count(), 1);
+    assert!(!messages.iter().any(|m| m["promptId"] == "declined" && m["text"] == "guest words"));
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Inject a completed queue removal immediately after export has copied the log. This is the
 /// same snapshot/live-queue split as a decline that passed its moving check before the freeze.
+type AfterScan = Arc<std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>>;
 struct AfterScanStore {
     inner: Box<dyn acpmux::store::Store>,
-    after: Arc<std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>>,
+    after: AfterScan,
 }
 
 impl acpmux::store::Store for AfterScanStore {
-    fn list(&self) -> anyhow::Result<Vec<acpmux::store::SessionMeta>> { self.inner.list() }
-    fn load(&self, id: &str) -> anyhow::Result<Option<acpmux::store::SessionMeta>> { self.inner.load(id) }
-    fn save(&self, meta: &acpmux::store::SessionMeta) -> anyhow::Result<()> { self.inner.save(meta) }
-    fn append(&self, id: &str, record: &acpmux::store::EventRecord) -> anyhow::Result<()> { self.inner.append(id, record) }
-    fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<acpmux::store::EventRecord>> { self.inner.events(id, after, limit) }
-    fn delete(&self, id: &str) -> anyhow::Result<()> { self.inner.delete(id) }
-    fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(acpmux::store::EventRecord) -> bool) -> anyhow::Result<()> {
+    fn list(&self) -> anyhow::Result<Vec<acpmux::store::SessionMeta>> {
+        self.inner.list()
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<acpmux::store::SessionMeta>> {
+        self.inner.load(id)
+    }
+    fn save(&self, meta: &acpmux::store::SessionMeta) -> anyhow::Result<()> {
+        self.inner.save(meta)
+    }
+    fn append(&self, id: &str, record: &acpmux::store::EventRecord) -> anyhow::Result<()> {
+        self.inner.append(id, record)
+    }
+    fn events(
+        &self,
+        id: &str,
+        after: u64,
+        limit: usize,
+    ) -> anyhow::Result<Vec<acpmux::store::EventRecord>> {
+        self.inner.events(id, after, limit)
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.inner.delete(id)
+    }
+    fn scan(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(acpmux::store::EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
         self.inner.scan(id, after, visit)?;
         let callback = self.after.lock().unwrap().take();
-        if let Some(callback) = callback { callback(); }
+        if let Some(callback) = callback {
+            callback();
+        }
         Ok(())
     }
 }
@@ -433,7 +481,8 @@ async fn transfer_refuses_a_held_snapshot_even_when_the_live_prompt_was_removed(
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
         "defaultHarness": "fake", "permissionPolicy": "approve-all"
-    })).unwrap();
+    }))
+    .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let inner = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     let after = Arc::new(std::sync::Mutex::new(None));
@@ -443,12 +492,20 @@ async fn transfer_refuses_a_held_snapshot_even_when_the_live_prompt_was_removed(
     c.queue(held(&session, "g-1", "never approved")).await;
     let s = hub.resolve(&session).unwrap();
     let h = hub.clone();
-    *after.lock().unwrap() = Some(Box::new(move || { assert!(h.remove_queued(&s, "g-1")); }));
-    let result = hub.transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session})).await;
+    *after.lock().unwrap() = Some(Box::new(move || {
+        assert!(h.remove_queued(&s, "g-1"));
+    }));
+    let result =
+        hub.transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session})).await;
     assert!(queue(&hub, &session).is_empty(), "injected removal did not run");
     // Clean up even on the old vulnerable implementation, which incorrectly offers a bundle.
     if let Ok(bundle) = &result {
-        hub.transfer_request("_acpmux/transfer_abort", &json!({"sessionId": session, "transferId": bundle["transferId"]})).await.unwrap();
+        hub.transfer_request(
+            "_acpmux/transfer_abort",
+            &json!({"sessionId": session, "transferId": bundle["transferId"]}),
+        )
+        .await
+        .unwrap();
     }
     hub.shutdown_all().await;
     let error = result.expect_err("exported held prompt was offered to an older target");

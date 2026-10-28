@@ -19,7 +19,7 @@ mod queue_waiting;
 // `_acpmux/queue_approve` and `_acpmux/queue_decline`: a person's prompt waits for the owner.
 #[path = "queue_approve.rs"]
 mod queue_approve;
-pub(super) use queue_approve::{approved_error, released};
+pub(super) use queue_approve::{approved_error, declined_error, released};
 
 // `_meta.acpmux.supersede`: a prompt replaces its sender's queued one under the same key.
 #[path = "supersede.rs"]

@@ -1,7 +1,7 @@
 //! Requests about one queued prompt before its turn: `_acpmux/queue_remove {sessionId,
 //! promptId}`, its sender taking it back (`author.rs`), and the owner's answer to a person's prompt
 //! that waits for them (`hub/queue_approve.rs`): `_acpmux/queue_approve {sessionId, promptId,
-//! revision}` and `_acpmux/queue_decline {sessionId, promptId}`. The answer is the owner's only:
+//! turnId, revision}` and `_acpmux/queue_decline {sessionId, promptId}`. The answer is the owner's only:
 //! a request that names a person (`_meta.acpmux.author`) is refused `queue.owner_only`. From Web it
 //! counts as controlling the chat, as a Web prompt does (`remote_guard.rs`), and a chat in Full
 //! access by a machine's setting takes any of them from that machine only (`full_access_hold`). A
@@ -40,10 +40,14 @@ pub(super) async fn handle(
     crate::author::owner_only(params)?;
     hub.web_control_check(&s, control)?;
     if m == method::MUX_QUEUE_APPROVE {
+        let turn_id = str_param(params, "turnId").filter(|id| !id.is_empty()).ok_or_else(|| {
+            RpcError::invalid_params("turnId is required: the queued incarnation the owner saw")
+        })?;
         let revision = params.get("revision").and_then(Value::as_u64).ok_or_else(|| {
             RpcError::invalid_params("revision is required: the one the queue listed")
         })?;
-        hub.approve_queued(&s, prompt_id, revision)?;
+        hub.approve_queued(&s, prompt_id, turn_id, revision)?;
+        reply["turnId"] = json!(turn_id);
         (reply["approved"], reply["revision"]) = (json!(true), json!(revision));
     } else {
         hub.decline_queued(&s, prompt_id)?;

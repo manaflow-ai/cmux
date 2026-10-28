@@ -4,9 +4,10 @@
 //! stopping the running turn, and every way a queued prompt reaches the agent passes it by
 //! (`QueuedPrompt::aside`: the queue's turn order, a digest of agent messages, a retry's busy
 //! test, a restart). Only the owner answers it, under the queue's lock, so the first answer wins:
-//! - `_acpmux/queue_approve {sessionId, promptId, revision}`: it waits no more and runs in its
+//! - `_acpmux/queue_approve {sessionId, promptId, turnId, revision}`: it waits no more and runs in its
 //!   place in the queue as any queued prompt (never as a steer). `revision` must be the one it has
-//!   now, else `queue.stale`, so the owner approves the words they saw. The log records
+//!   now, and `turnId` must name that queued incarnation, else `queue.stale`, so the owner
+//!   approves the words they saw even when a client reuses a prompt id. The log records
 //!   `queue_approved {promptId, turnId, revision, approvedAt}`.
 //! - `_acpmux/queue_decline {sessionId, promptId}`: it leaves the queue and never runs; its
 //!   `session/prompt` answers an error with `data.reason` `queue.declined`, and the log records
@@ -25,7 +26,7 @@ use super::*;
 use std::sync::atomic::Ordering;
 
 /// What the `session/prompt` of a declined prompt answers.
-pub(super) fn declined_error(prompt_id: &str, turn_id: &str) -> RpcError {
+pub(in crate::hub) fn declined_error(prompt_id: &str, turn_id: &str) -> RpcError {
     RpcError::new(-32000, "queue.declined: the chat's owner declined this prompt; it never ran")
         .with_data(json!({"reason": "queue.declined", "promptId": prompt_id, "turnId": turn_id}))
 }
@@ -74,6 +75,7 @@ impl Hub {
         &self,
         session: &Arc<Session>,
         prompt_id: &str,
+        turn_id: &str,
         revision: u64,
     ) -> Result<(), RpcError> {
         if session.moving().is_some() {
@@ -86,9 +88,10 @@ impl Hub {
                 drop(queue);
                 return Err(self.not_waiting(session, prompt_id));
             };
-            if q.revision != revision {
-                let msg = "the prompt was edited since; approve the words it has now";
-                let data = json!({"promptId": prompt_id, "revision": q.revision});
+            if q.turn_id != turn_id || q.revision != revision {
+                let msg = "the prompt was replaced or edited since; approve the words it has now";
+                let data =
+                    json!({"promptId": prompt_id, "turnId": q.turn_id, "revision": q.revision});
                 return Err(refused(-32602, "queue.stale", msg, data));
             }
             // It runs in its place, never as a steer, whatever flag a race left on it.
@@ -133,18 +136,68 @@ impl Hub {
         Ok(())
     }
 
-    /// `transfer.held_prompts` while any prompt of the chat waits for the owner: a move would
-    /// take it to a daemon that may not hold it (`transfer_out.rs`). Approve or decline it first.
-    pub(in crate::hub) fn held_prompts(&self, session: &Session) -> Result<(), RpcError> {
-        let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let held: Vec<&str> =
-            queue.iter().filter(|q| q.awaiting_owner).map(|q| q.prompt_id.as_str()).collect();
+    /// Validate the immutable exported log, not the live queue: a removal that passed its
+    /// moving check before the freeze can finish after export and is absent from the bundle.
+    /// An older target must never receive a snapshot with a prompt still awaiting approval.
+    pub(in crate::hub) fn held_prompts(&self, bundle: &Path) -> Result<(), RpcError> {
+        use std::io::BufRead;
+        let check = || -> anyhow::Result<Vec<String>> {
+            let file = std::fs::File::open(bundle.join("events/000001.ndjson"))?;
+            let mut waiting = queue_waiting::Waiting::default();
+            let mut approved: HashMap<String, u64> = HashMap::new();
+            for line in std::io::BufReader::new(file).lines() {
+                let e: EventRecord = serde_json::from_str(&line?)?;
+                let turn = e.msg.get("turnId");
+                if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started")
+                    && let Some(id) = e.msg.get("promptId")
+                {
+                    waiting.remove_other_turns(id, turn);
+                }
+                match e.kind.as_str() {
+                    "queued" => waiting.push(e),
+                    "queue_removed" | "queue_declined" | "user_message" | "turn_started" => {
+                        waiting.remove_turn(turn)
+                    }
+                    "queue_updated" => {
+                        if let Some(q) = waiting.first_of_turn(turn) {
+                            q.msg["revision"] = e.msg["revision"].clone();
+                            q.msg["awaitingOwner"] = e.msg["awaitingOwner"].clone();
+                        }
+                    }
+                    "queue_approved" => {
+                        if let (Some(turn), Some(revision)) =
+                            (turn.and_then(Value::as_str), e.msg["revision"].as_u64())
+                        {
+                            approved.insert(turn.to_owned(), revision);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let mut held: Vec<String> = waiting
+                .into_records()
+                .into_iter()
+                .filter(|q| {
+                    q.msg["awaitingOwner"] == true
+                        && q.msg["turnId"].as_str().is_none_or(|turn| {
+                            q.msg["revision"]
+                                .as_u64()
+                                .is_none_or(|revision| approved.get(turn) != Some(&revision))
+                        })
+                })
+                .filter_map(|q| q.msg["promptId"].as_str().map(str::to_owned))
+                .collect();
+            held.sort();
+            held.dedup();
+            Ok(held)
+        };
+        let held = check()
+            .map_err(|e| RpcError::internal(format!("transfer: read approval snapshot: {e}")))?;
         if held.is_empty() {
             return Ok(());
         }
         let msg = "a prompt waits for the chat's owner: approve or decline it, then move the chat";
-        let data = json!({"promptIds": held});
-        Err(refused(-32000, "transfer.held_prompts", msg, data))
+        Err(refused(-32000, "transfer.held_prompts", msg, json!({"promptIds": held})))
     }
 
     /// `queue.not_found` for an answer to a prompt that does not wait for the owner, with how its

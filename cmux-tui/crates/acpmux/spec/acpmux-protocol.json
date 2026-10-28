@@ -3214,7 +3214,7 @@
         },
         "awaitingOwner": {
           "default": false,
-          "description": "A person's prompt that waits for the chat's owner (`author.approval: \"owner\"`): the queue\nruns past it until the owner approves it (`_acpmux/queue_approve`, naming `revision`) or\ndeclines it (`_acpmux/queue_decline`). The owner's pane draws Approve and Decline on it.",
+          "description": "A person's prompt that waits for the chat's owner (`author.approval: \"owner\"`): the queue\nruns past it until the owner approves it (`_acpmux/queue_approve`, naming `turnId` and `revision`) or\ndeclines it (`_acpmux/queue_decline`). The owner's pane draws Approve and Decline on it.",
           "type": "boolean"
         },
         "client": {

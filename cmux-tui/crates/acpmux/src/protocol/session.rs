@@ -334,7 +334,7 @@ pub struct QueuedPromptSummary {
     /// Waits behind a failed turn until the queue is resumed.
     pub held: bool,
     /// A person's prompt that waits for the chat's owner (`author.approval: "owner"`): the queue
-    /// runs past it until the owner approves it (`_acpmux/queue_approve`, naming `revision`) or
+    /// runs past it until the owner approves it (`_acpmux/queue_approve`, naming `turnId` and `revision`) or
     /// declines it (`_acpmux/queue_decline`). The owner's pane draws Approve and Decline on it.
     #[serde(default)]
     pub awaiting_owner: bool,

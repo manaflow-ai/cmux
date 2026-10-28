@@ -81,7 +81,7 @@ async fn concurrent_enqueues_reserve_only_one_last_held_slot() {
 
     // Approval frees an author's held slot, while another author and the owner have their own
     // admission. None of these direct enqueues has a task that could drain the queue meanwhile.
-    hub.approve_queued(&session, &queued[0].prompt_id, 0).unwrap();
+    hub.approve_queued(&session, &queued[0].prompt_id, &queued[0].turn_id, 0).unwrap();
     insert(&hub, &session, "after-approval", Some(&guest));
     let mut other = guest.clone();
     other["from"] = json!("guest:other");
@@ -168,7 +168,8 @@ async fn a_held_prompt_with_a_steer_flag_never_reaches_the_agent() {
     assert!(session.queue().iter().any(|q| q.prompt_id == "g-1" && q.awaiting_owner));
 
     // Approved, it runs once the turn ends, in its place and not as a steer.
-    hub.approve_queued(&session, "g-1", 0).unwrap();
+    let turn = session.queue().iter().find(|q| q.prompt_id == "g-1").unwrap().turn_id.clone();
+    hub.approve_queued(&session, "g-1", &turn, 0).unwrap();
     hub.cancel(&session).await.unwrap();
     let answer = until(&mut out, |v| v["id"] == 3).await;
     assert!(answer.get("error").is_none(), "{answer}");
