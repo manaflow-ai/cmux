@@ -53,6 +53,9 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     public var lastFrameHolds: Int = 0
     /// A held frame (a last frame, or the old surface's after a swap) is on screen now.
     public var holdingFrame: Bool = false
+    /// The last unpause and the layer's first frame after it (``TerminalShowRecord``); nil in Release
+    /// builds and before the first unpause.
+    public var showTiming: TerminalShowTiming?
 
     /// True when the surface can show terminal content right now.
     public var isPresentable: Bool {
@@ -127,7 +130,8 @@ extension TerminalSession {
                               width: rect.width / frame.width, height: rect.height / frame.height)
             },
             lastFrameHolds: lastFrameHolds,
-            holdingFrame: frameHold.isHolding
+            holdingFrame: frameHold.isHolding,
+            showTiming: surface.showTiming
         )
     }
 }
