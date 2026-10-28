@@ -15,6 +15,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+#[path = "setup/harness_auth.rs"]
+mod harness_auth;
 #[path = "setup/browser_import.rs"]
 mod browser_import;
 #[path = "setup/cloud_machine.rs"]
