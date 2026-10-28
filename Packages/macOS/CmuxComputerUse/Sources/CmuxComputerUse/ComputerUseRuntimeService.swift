@@ -65,6 +65,7 @@ public final class ComputerUseRuntimeService {
     var helperLauncher: HelperLauncher = ComputerUseRuntimeService.openHelperApplication(at:configuration:)
     private let uptime: @MainActor () -> TimeInterval
     private var recoveryTask: Task<Void, Never>?
+    private var toolInvocationRecoveryTask: Task<Void, Never>?
     private var cachedStatus = ComputerUsePermissionStatus.unknown
     private var permissionRefreshGeneration = 0
     /// Durable setup evidence shared by Settings, onboarding, and daemon admission.
@@ -309,6 +310,8 @@ public final class ComputerUseRuntimeService {
             missedHelperHealthChecks = 0
             recoveryTask?.cancel()
             recoveryTask = nil
+            toolInvocationRecoveryTask?.cancel()
+            toolInvocationRecoveryTask = nil
             await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
                 guard let self else { return }
                 _ = await self.stopDaemon()
@@ -318,10 +321,33 @@ public final class ComputerUseRuntimeService {
     }
 
     /// Brings the helper up for an agent's Computer Use tool call.
+    ///
+    /// The cmux-cua proxy never launches a cmux-owned daemon: it polls the
+    /// socket for about ten seconds, then fails the call with "daemon stayed
+    /// unavailable". Background recovery honors the launch backoff, which
+    /// reaches minutes after a few failed starts (for example while a freshly
+    /// updated helper launches slowly), so a tool call has to start the helper
+    /// itself, as toggling the setting does. A failed attempt still feeds the
+    /// backoff that paces background recovery. Concurrent calls share one
+    /// attempt; a call while both daemons answer costs two local probes.
     @discardableResult
     public func requestHelperForToolInvocation() -> Task<Void, Never>? {
         guard desiredEnabled, acceptsNewLaunches, !isDisabledByPolicy() else { return nil }
-        return scheduleHelperRecovery()
+        if let toolInvocationRecoveryTask {
+            return toolInvocationRecoveryTask
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            if await !self.bothDaemonsListening(), !Task.isCancelled {
+                await self.serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
+                    guard let self, self.desiredEnabled else { return }
+                    await self.startIfNeededWithinLifecycle(bypassingBackoff: true)
+                }
+            }
+            self.toolInvocationRecoveryTask = nil
+        }
+        toolInvocationRecoveryTask = task
+        return task
     }
 
     /// Installs the nested helper at its independently registered top-level URL.
@@ -904,9 +930,11 @@ public final class ComputerUseRuntimeService {
     /// onboarding rather than surprising the user mid-session.
     public var helperBuildReplacedHandler: (@MainActor () -> Void)?
 
-    private func ensureStandaloneHelperInstalledWithinLifecycle() async -> URL? {
+    private func ensureStandaloneHelperInstalledWithinLifecycle(
+        bypassingBackoff: Bool = false
+    ) async -> URL? {
         guard acceptsNewLaunches, !Task.isCancelled,
-              helperInstallRetry.allowsAttempt(at: uptime()) else { return nil }
+              bypassingBackoff || helperInstallRetry.allowsAttempt(at: uptime()) else { return nil }
         var installed = false
         defer {
             if !Task.isCancelled, acceptsNewLaunches {
@@ -1028,10 +1056,12 @@ public final class ComputerUseRuntimeService {
         return false
     }
 
-    func startIfNeededWithinLifecycle() async {
+    /// `bypassingBackoff` is reserved for an explicit request (a tool call);
+    /// its failure is still recorded so background recovery stays paced.
+    func startIfNeededWithinLifecycle(bypassingBackoff: Bool = false) async {
         guard !isDisabledByPolicy() else { return }
         guard acceptsNewLaunches, !Task.isCancelled,
-              helperLaunchRetry.allowsAttempt(at: uptime()) else { return }
+              bypassingBackoff || helperLaunchRetry.allowsAttempt(at: uptime()) else { return }
         var ready = false
         defer {
             if !Task.isCancelled, acceptsNewLaunches {
@@ -1039,7 +1069,12 @@ public final class ComputerUseRuntimeService {
                 else { helperLaunchRetry.recordFailure(at: uptime()) }
             }
         }
-        guard let helperURL = await ensureStandaloneHelperInstalledWithinLifecycle() else { return }
+        guard let helperURL = await ensureStandaloneHelperInstalledWithinLifecycle(
+            bypassingBackoff: bypassingBackoff
+        ) else {
+            computerUseLogger.error("Computer Use helper start failed: helper is not installed")
+            return
+        }
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         // Rehydrate identity-scoped completion before either daemon receives
         // its first readiness publication after a host restart.
@@ -1081,6 +1116,7 @@ public final class ComputerUseRuntimeService {
         guard await stopDaemon(), acceptsNewLaunches, !Task.isCancelled else { return }
         for profile in ComputerUseDaemonProfile.allCases {
             guard await launchHelper(at: helperURL, profile: profile) else {
+                logStartFailure("launch", profile: profile)
                 _ = await stopDaemon()
                 return
             }
@@ -1089,7 +1125,10 @@ public final class ComputerUseRuntimeService {
                 return
             }
             let socketURL = socketURL(for: profile)
-            let readiness = daemonReadiness(for: profile, timeout: .seconds(5))
+            let readiness = daemonReadiness(
+                for: profile,
+                timeout: Self.helperLaunchReadinessTimeout
+            )
             guard await readiness.waitUntilReady({
                 await Self.isDaemonListening(
                     paths: self.paths,
@@ -1097,10 +1136,12 @@ public final class ComputerUseRuntimeService {
                     socketURL: socketURL
                 )
             }) else {
+                logStartFailure("socket readiness", profile: profile)
                 _ = await stopDaemon()
                 return
             }
             guard await configureHostAuthority(for: profile) else {
+                logStartFailure("host authority", profile: profile)
                 _ = await stopDaemon()
                 return
             }
@@ -1110,11 +1151,40 @@ public final class ComputerUseRuntimeService {
         // daemon's functional admission.
         for profile in ComputerUseDaemonProfile.allCases {
             guard await configureHostAuthority(for: profile) else {
+                logStartFailure("host authority revalidation", profile: profile)
                 _ = await stopDaemon()
                 return
             }
         }
         ready = true
+    }
+
+    /// Upper bound for a launched daemon to bind its socket. Readiness is
+    /// event driven, so a healthy launch returns as soon as the PID file is
+    /// written. The first launch of a newly installed helper (after every app
+    /// update) can spend several seconds in code-signature assessment; a
+    /// shorter bound killed that daemon mid-launch and armed the backoff.
+    static let helperLaunchReadinessTimeout: Duration = .seconds(15)
+
+    private func logStartFailure(_ stage: String, profile: ComputerUseDaemonProfile) {
+        computerUseLogger.error(
+            "Computer Use helper start failed at \(stage, privacy: .public) (profile: \(String(describing: profile), privacy: .public))"
+        )
+    }
+
+    private func bothDaemonsListening() async -> Bool {
+        async let nativeListening = Self.isDaemonListening(
+            paths: paths,
+            transport: transport,
+            socketURL: paths.daemonSocketURL
+        )
+        async let codexListening = Self.isDaemonListening(
+            paths: paths,
+            transport: transport,
+            socketURL: paths.codexDaemonSocketURL
+        )
+        let listeningResults = await (nativeListening, codexListening)
+        return listeningResults.0 && listeningResults.1
     }
 
     func stopDaemon() async -> Bool {
@@ -1209,7 +1279,7 @@ public final class ComputerUseRuntimeService {
         profile: ComputerUseDaemonProfile
     ) async -> Bool {
         guard acceptsNewLaunches, !Task.isCancelled, prepareRuntimeForLaunch() else { return false }
-        guard daemonReadiness(for: profile, timeout: .seconds(5)).prepare()
+        guard daemonReadiness(for: profile, timeout: Self.helperLaunchReadinessTimeout).prepare()
         else {
             return false
         }
@@ -1483,6 +1553,8 @@ public final class ComputerUseRuntimeService {
         missedHelperHealthChecks = 0
         recoveryTask?.cancel()
         recoveryTask = nil
+        toolInvocationRecoveryTask?.cancel()
+        toolInvocationRecoveryTask = nil
         cancelReadinessPublication()
         terminateRunningHelper(at: installedHelperURL ?? paths.installedHelperAppURL)
         clearTrackedHelperProcess()
@@ -1714,18 +1786,7 @@ public final class ComputerUseRuntimeService {
     }
 
     private func checkHelperHealth() async {
-        async let nativeListening = Self.isDaemonListening(
-            paths: paths,
-            transport: transport,
-            socketURL: paths.daemonSocketURL
-        )
-        async let codexListening = Self.isDaemonListening(
-            paths: paths,
-            transport: transport,
-            socketURL: paths.codexDaemonSocketURL
-        )
-        let listeningResults = await (nativeListening, codexListening)
-        let daemonListening = listeningResults.0 && listeningResults.1
+        let daemonListening = await bothDaemonsListening()
         guard !Task.isCancelled else { return }
         if daemonListening {
             missedHelperHealthChecks = 0
