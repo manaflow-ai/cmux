@@ -215,3 +215,19 @@ async fn a_stop_kills_a_child_that_ignores_sigterm_and_holds_no_pipe() {
     assert_eq!(stopped.unwrap()["state"], "stopped");
     r.until("a child that ignored SIGTERM outlived the stop", || !alive(child)).await;
 }
+
+/// A task runs in the environment the chat's agent runs with, built by the daemon from the
+/// agent's launch, not from whatever its MCP server was passed: here the session's own id, which
+/// the start request never carried.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_sees_the_agents_environment() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "env").await;
+    r.c.request(method::SESSION_PROMPT, prompt(&id, "hi", None)).await.unwrap();
+    let task = start(&mut r, &id, "echo \"$ACPMUX_SESSION_ID\"").await;
+    let task = task["id"].as_str().unwrap().to_owned();
+    r.until("the task never ended", || state(&r, &id, &task) == "exited").await;
+    assert_eq!(text(&r, &id, &task), format!("{id}\n"));
+}

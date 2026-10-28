@@ -1,5 +1,5 @@
 //! The background-task methods (`hub/bg_tasks.rs`, docs/hibernation.md):
-//! `_acpmux/bg/start {sessionId, command, cwd?, env?}`, `_acpmux/bg/list {sessionId}`,
+//! `_acpmux/bg/start {sessionId, command, cwd?}`, `_acpmux/bg/list {sessionId}`,
 //! `_acpmux/bg/output {sessionId, id, fromByte?, maxBytes?}` and `_acpmux/bg/stop {sessionId, id}`.
 //!
 //! Like the process methods (`processes.rs`) they are local: a task's command line, output and
@@ -11,7 +11,6 @@ use super::{Conn, str_param};
 use crate::hub::Hub;
 use crate::rpc::{RpcError, method};
 use serde_json::Value;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// The reply to a background-task method, or None for any other method.
@@ -56,12 +55,7 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<
             let command = str_param(params, "command")
                 .ok_or_else(|| RpcError::invalid_params("command is required"))?;
             let cwd = str_param(params, "cwd").filter(|c| !c.is_empty()).map(Into::into);
-            let env: BTreeMap<String, String> = match params.get("env").filter(|v| !v.is_null()) {
-                None => BTreeMap::new(),
-                Some(env) => serde_json::from_value(env.clone())
-                    .map_err(|_| RpcError::invalid_params("env must map names to strings"))?,
-            };
-            hub.bg_start(&session, command, cwd, env).await
+            hub.bg_start(&session, command, cwd).await
         }
         method::MUX_BG_LIST => Ok(hub.bg_list(&session)),
         method::MUX_BG_OUTPUT => {

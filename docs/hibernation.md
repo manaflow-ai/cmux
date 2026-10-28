@@ -77,7 +77,9 @@ instead:
   the wait (20 s) keeps it. Stopping a chat keeps them, and a stopped chat starts none.
 - A task whose spool failed (a full disk) says so in `outputError`: its output is incomplete.
 - Only the chat's own agent (its proven caller token) and the person reach a chat's tasks.
-- The task runs under `bash -c` (`/bin/sh` where there is no bash).
+- The task runs under `bash -c` (`/bin/sh` where there is no bash), in the environment the
+  chat's agent runs with: the daemon builds it the way it launched the agent, so a Codex chat's
+  task sees what its own shell sees although Codex passes an MCP server only a few names.
 - A daemon-owned task never keeps a chat awake. A harness-owned background shell, a Codex
   background terminal and a background subagent still do, because hibernating would end them.
 

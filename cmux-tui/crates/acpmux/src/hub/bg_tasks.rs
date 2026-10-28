@@ -42,13 +42,13 @@ impl Hub {
             Some((crate::self_command::SelfCommand::new(exe, Vec::new()), segment));
     }
 
-    /// `_acpmux/bg/start`: runs `command` in `cwd` (the chat's folder by default).
+    /// `_acpmux/bg/start`: runs `command` in `cwd` (the chat's folder by default), in the
+    /// environment the chat's agent runs with ([`Hub::bg_env`]).
     pub async fn bg_start(
         &self,
         session: &Arc<Session>,
         command: &str,
         cwd: Option<PathBuf>,
-        env: BTreeMap<String, String>,
     ) -> Result<Value, RpcError> {
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
@@ -75,6 +75,7 @@ impl Hub {
                 "{MAX_RUNNING} background tasks already run in this chat; stop one first"
             )));
         }
+        let env = self.bg_env(session, &meta).await?;
         std::fs::create_dir_all(&dir).map_err(internal)?;
         let id = format!("bg-{}", &uuid::Uuid::now_v7().simple().to_string()[20..]);
         let (runner, segment) = match self.bg_runner.lock().unwrap().clone() {
@@ -101,6 +102,35 @@ impl Hub {
         let record = bg_run::read_record(&dir, &id)
             .ok_or_else(|| RpcError::internal("the task's runner wrote no record"))?;
         Ok(bg_view(&dir, &record, LIST_TAIL))
+    }
+
+    /// The environment the chat's agent runs with, so a task sees what the agent's own shell
+    /// sees whatever its harness passes an MCP server (Codex passes only a few names): built by
+    /// the launch's own builder (`agent::harness_command`) from the profile env the agent was
+    /// started with (`Session::launch_env`), or, before this daemon started one, from the
+    /// chat's profile, preset and session env.
+    async fn bg_env(
+        &self,
+        session: &Session,
+        meta: &SessionMeta,
+    ) -> Result<BTreeMap<String, String>, RpcError> {
+        let launched = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let env = match launched {
+            Some(env) => env,
+            None => {
+                let (_, mut env) = self.harness_env(meta).await;
+                env.extend(meta.session_env.clone());
+                env
+            }
+        };
+        let mut profile = self.config.read().await.profile(&meta.harness).cloned().ok_or_else(
+            || RpcError::invalid_params(format!("harness {} is not configured", meta.harness)),
+        )?;
+        profile.env = env;
+        let at = Some((session.id.as_str(), meta.name.as_str()));
+        let cmd = crate::agent::harness_command(&meta.harness, &profile, &meta.cwd, None, at)
+            .map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        Ok(crate::agent::command_env(&cmd).into_iter().collect())
     }
 
     fn bg_records(&self, dir: &std::path::Path) -> Vec<Record> {
