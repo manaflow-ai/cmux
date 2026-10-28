@@ -184,6 +184,12 @@ final class SSHMachineSession {
         daemon.beginAttempt()
     }
 
+    /// Reopens a daemon attempt without disturbing an already-connected SSH transport.
+    func reconnectDaemon() {
+        beginConnectionAttempt()
+        daemon.retryWake.fire()
+    }
+
     /// An event that may let a blocked attempt succeed: opens the gate,
     /// then wakes the daemon loop.
     func wake(_ wake: SSHConnectionMachine.Wake) {

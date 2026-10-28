@@ -224,6 +224,11 @@ final class SSHService {
             // These failures leave the gate open for automatic backoff, so a user
             // Retry must start a fresh attempt rather than only waking the loop.
             session.connect()
+        case .connected:
+            // A healthy transport has no reconnect to perform. If only the daemon
+            // handshake failed, retry that daemon attempt explicitly; otherwise a
+            // plain Reconnect must not arm a timeout on a live connection.
+            if session.daemonFailure != nil { session.reconnectDaemon() }
         default:
             session.beginConnectionAttempt()
             session.wake(.user)
