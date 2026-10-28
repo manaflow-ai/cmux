@@ -214,7 +214,7 @@ const checkInsetRows: Play = async (ctx) => {
   }
   const before = [box, prompt.getBoundingClientRect(), actions.getBoundingClientRect()];
   await ctx.hover({ selector: '.acpmux-question-row[data-row="1"]' });
-  await ctx.focus({ selector: '.acpmux-question-row[data-row="2"]' });
+  await ctx.press("ArrowDown");
   const after = [card, prompt, actions].map((node) => node.getBoundingClientRect());
   if (
     before.some((rect, i) =>
@@ -235,7 +235,7 @@ export default componentEntry({
   widths: { narrow: 420, normal: 640, wide: 820 },
   anchors: [{ selector: ".acpmux-question" }],
   covers: ["agent-session/acpmux/question/QuestionCard.tsx#QuestionCard"],
-  styles: () => import("../styles.css"),
+  styles: () => Promise.all([import("../styles.css"), import("./QuestionCard.gallery.css")]),
   load: async () => QuestionCardInPane,
   experiment: {
     definition: questionPreviewLayout,
