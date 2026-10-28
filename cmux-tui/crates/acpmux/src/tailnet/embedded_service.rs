@@ -93,8 +93,11 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>) {
             break;
         }
         let snapshot = controller.snapshot();
-        let desired =
-            snapshot.running().then(|| controller.node().zip(snapshot.dns_name)).flatten();
+        let desired = if controller.retirement_pending() {
+            None
+        } else {
+            snapshot.running().then(|| controller.node().zip(snapshot.dns_name)).flatten()
+        };
         let unchanged = match (&active, &desired) {
             (Some(active), Some((node, name))) => active.matches(node, name),
             (None, None) => true,
