@@ -161,6 +161,54 @@ struct CloudWelcomeTests {
         #expect(playback.isPaused)
     }
 
+    @Test("Playback.fraction(at:) reads the cached playhead and never queries the player")
+    @MainActor
+    func playbackFractionDoesNotQueryPlayer() throws {
+        let playback = CloudWelcomeMediaCarousel.Playback()
+        let player = PlayheadCountingPlayer()
+        playback.attach(player)
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        playback.recordPlayhead(seconds: 2, duration: 8, rate: 1, at: start)
+        player.playheadReads = 0
+
+        // One frame's worth of calls, about two seconds at 60 fps. This covers
+        // Playback only, not the carousel's progress wrapper or its TimelineView.
+        var fractions: [Double] = []
+        for frame in 0..<120 {
+            fractions.append(try #require(playback.fraction(at: start.addingTimeInterval(Double(frame) / 60))))
+        }
+
+        #expect(player.playheadReads == 0)
+        #expect(fractions.first == 0.25)
+        #expect(abs(fractions[60] - 0.375) < 0.0001)
+        #expect(fractions == fractions.sorted())
+    }
+
+    @Test("a cached playhead holds while stopped, clamps at the end and clears on detach")
+    @MainActor
+    func cachedPlayheadLifecycle() {
+        let playback = CloudWelcomeMediaCarousel.Playback()
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        playback.recordPlayhead(seconds: 2, duration: 8, rate: 1, at: start)
+        // Without a movie the pager falls back to the wall clock.
+        #expect(playback.fraction(at: start) == nil)
+
+        let player = AVPlayer()
+        playback.attach(player)
+        #expect(playback.fraction(at: start) == nil)
+        playback.recordPlayhead(seconds: 4, duration: 8, rate: 0, at: start)
+        #expect(playback.fraction(at: start.addingTimeInterval(3)) == 0.5)
+        playback.recordPlayhead(seconds: 7, duration: 8, rate: 1, at: start)
+        #expect(playback.fraction(at: start.addingTimeInterval(5)) == 1)
+        playback.recordPlayhead(seconds: 1, duration: .nan, rate: 1, at: start)
+        #expect(playback.fraction(at: start) == nil)
+
+        playback.recordPlayhead(seconds: 4, duration: 8, rate: 1, at: start)
+        playback.detach(player)
+        #expect(playback.playhead == nil)
+        #expect(playback.fraction(at: start) == nil)
+    }
+
     @Test("a cancelled fallback deadline cannot advance the slide")
     @MainActor
     func cancelledDeadlineDoesNotAdvance() async {
@@ -450,5 +498,20 @@ struct CloudWelcomeTests {
         await CloudWelcomeWindowController.resume({ resumed += 1 }, after: failing)
         #expect(failing.state == .failed(.serviceUnavailable))
         #expect(resumed == 1)
+    }
+}
+
+/// Counts playhead reads that take AVFoundation's item lock.
+private final class PlayheadCountingPlayer: AVPlayer {
+    nonisolated(unsafe) var playheadReads = 0
+
+    override var currentItem: AVPlayerItem? {
+        playheadReads += 1
+        return super.currentItem
+    }
+
+    override func currentTime() -> CMTime {
+        playheadReads += 1
+        return super.currentTime()
     }
 }

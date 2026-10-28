@@ -97,6 +97,7 @@ jobs:
           permission-contents: read
           permission-issues: read
           permission-pull-requests: read
+          skip-token-revoke: true
 
       - name: Checkout main with history
         # A red fast guard on main is bisected: main's history, without blobs
@@ -184,6 +185,7 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-issues: read
           permission-pull-requests: read
+          skip-token-revoke: true
 
       - name: Checkout main's analyzed head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

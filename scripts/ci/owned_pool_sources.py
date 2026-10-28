@@ -110,6 +110,9 @@ def _constants(source: str) -> dict[str, object]:
             return value(node.args[0])
         if isinstance(node, ast.Dict):
             return tuple(key.value for key in node.keys if isinstance(key, ast.Constant) and isinstance(key.value, str))
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left, right = value(node.left), value(node.right)
+            return left + right if isinstance(left, str) and isinstance(right, str) else None
         if isinstance(node, ast.Starred):
             return value(node.value)
         if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
@@ -125,15 +128,31 @@ def _constants(source: str) -> dict[str, object]:
 
     for node in ast.parse(source).body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-            resolved = value(node.value)
-            if resolved is not None:
-                found[node.targets[0].id] = resolved
+            target = node.targets[0]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
+            target = node.target
+        else:
+            continue
+        resolved = value(node.value)
+        if resolved is not None:
+            found[target.id] = resolved
     return found
 
 
 RESCUE_SCRIPT = "scripts/ci/owned_pool_rescue.py"
 WATCHED_NAME = "WATCHED_WORKFLOW_PATHS"
 UNRESCUED_NAME = "UNRESCUED_WORKFLOW_PATHS"
+NIGHTLY_WORKFLOW = f"{WORKFLOWS_DIR}/nightly.yml"
+# owned_pool_rescue.py's table of the nightly jobs its signing-stall rescue moves off a stalled Blacksmith macOS
+# label: {job id: (jobs-API name, (runs-on expressions that give a re-run the alternate label, ...))}.
+SIGN_TABLE_NAME = "NIGHTLY_SIGN_ALTERNATES"
+# The nightly.yml jobs that table must hold: a sign, verify or DMG job (by its id) whose runs-on can name a
+# Blacksmith macOS label (a literal, or vars.MACOS_RUNNER_26, which holds one) other than the outage switch's.
+SIGN_STALL_JOB_ID = re.compile(r"sign|verify|dmg")
+BLACKSMITH_MACOS = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+(?:-[a-z0-9]+)*")
+# vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-...-macos-...' ||: the outage switch a person turns on when Linux
+# capacity is gone. The Linux jobs that carry it are not sign stalls.
+OUTAGE_MACOS_FALLBACK = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED\s*&&\s*'[^']*'\s*\|\|")
 
 
 def watched_paths(source: str) -> frozenset[str]:
@@ -150,6 +169,57 @@ def unrescued_paths(source: str) -> frozenset[str]:
     if not isinstance(unrescued, tuple):
         raise ValueError(f"{RESCUE_SCRIPT} defines no {UNRESCUED_NAME}")
     return frozenset(unrescued)
+
+
+def sign_table(source: str) -> dict[str, tuple[str, ...]]:
+    """owned_pool_rescue.NIGHTLY_SIGN_ALTERNATES read from a copy of the script, without running it: each job id
+    and the runs-on expressions that move its re-run to an alternate label."""
+    constants = _constants(source)
+    for node in ast.parse(source).body:
+        target = node.targets[0] if isinstance(node, ast.Assign) and len(node.targets) == 1 else \
+            node.target if isinstance(node, ast.AnnAssign) else None
+        if not (isinstance(target, ast.Name) and target.id == SIGN_TABLE_NAME and isinstance(node.value, ast.Dict)):
+            continue
+        table: dict[str, tuple[str, ...]] = {}
+        for key, entry in zip(node.value.keys, node.value.values):
+            if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+                continue
+            expressions = entry.elts[1] if isinstance(entry, ast.Tuple) and len(entry.elts) == 2 else None
+            items = expressions.elts if isinstance(expressions, (ast.Tuple, ast.List)) else \
+                [expressions] if expressions is not None else []
+            resolved = [item.value if isinstance(item, ast.Constant) else
+                        constants.get(item.id) if isinstance(item, ast.Name) else None for item in items]
+            table[key.value] = tuple(text for text in resolved if isinstance(text, str))
+        return table
+    raise ValueError(f"{RESCUE_SCRIPT} defines no {SIGN_TABLE_NAME}")
+
+
+def sign_stall_candidates(workflow_text: str) -> dict[str, str]:
+    """The jobs of a nightly.yml (either branch's) the signing-stall rescue must cover, with their runs-on."""
+    spec = _load(workflow_text).get("jobs") or {}
+    found: dict[str, str] = {}
+    for key, job in spec.items():
+        if not isinstance(job, dict) or not SIGN_STALL_JOB_ID.search(str(key)):
+            continue
+        runs_on = str(job.get("runs-on") or "")
+        bare = OUTAGE_MACOS_FALLBACK.sub("", runs_on)
+        if BLACKSMITH_MACOS.search(bare) or "MACOS_RUNNER_26" in bare:
+            found[str(key)] = runs_on
+    return found
+
+
+def uncovered_sign_jobs(workflow_text: str, table: dict[str, tuple[str, ...]]) -> dict[str, str]:
+    """nightly.yml's sign, verify and DMG jobs on a Blacksmith macOS label that the rescue's table leaves stuck:
+    {job: why}. A job outside the table is never moved, and while it waits it counts as unfinished work, which
+    keeps every other stalled job of its run where it is; a job whose runs-on has none of its table's
+    expressions would be re-run onto the label that stalled."""
+    missing: dict[str, str] = {}
+    for key, runs_on in sign_stall_candidates(workflow_text).items():
+        if key not in table:
+            missing[key] = f"not in {SIGN_TABLE_NAME}"
+        elif not any(expression in runs_on for expression in table[key]):
+            missing[key] = "its runs-on takes none of its alternate-label expressions on a re-run"
+    return missing
 
 
 def policy_variables(source: str) -> frozenset[str]:
