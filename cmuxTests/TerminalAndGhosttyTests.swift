@@ -4524,7 +4524,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
     func testTerminalLeftOfBrowserKeepsSplitDividerBandFromTrailingSidebarGuess() {
         guard let fixture = makeTerminalBesideBrowserFixture(hostedRange: 0...200) else { return }
         defer { fixture.window.orderOut(nil) }
-        assertSplitDividerBandPassesThrough(fixture.host, window: fixture.window, xs: [197, 200.5, 203])
+        assertSplitDividerBandPassesThrough(fixture.host, window: fixture.window, xs: [192.5, 197, 200.5, 203])
     }
 
     /// The terminal's left edge is the split divider, which the leading
@@ -4532,7 +4532,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
     func testTerminalRightOfBrowserKeepsSplitDividerBandFromLeadingSidebarGuess() {
         guard let fixture = makeTerminalBesideBrowserFixture(hostedRange: 201...400) else { return }
         defer { fixture.window.orderOut(nil) }
-        assertSplitDividerBandPassesThrough(fixture.host, window: fixture.window, xs: [197, 200.5, 204])
+        assertSplitDividerBandPassesThrough(fixture.host, window: fixture.window, xs: [197, 200.5, 204, 208.5])
     }
 
     /// Control: with no split under the point, a terminal that starts away

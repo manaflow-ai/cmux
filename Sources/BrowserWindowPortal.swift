@@ -745,6 +745,10 @@ final class WindowBrowserHostView: NSView {
         )
     }
 
+    /// Sidebar pass-through decision with the divider lookups already done.
+    /// Evidence is ranked: a hosted inspector divider, then the live sidebar
+    /// tracker, then a split divider under the point, and only then the
+    /// sidebar and Dock edges guessed from slot frames.
     private func shouldPassThroughToSidebarResizer(
         at point: NSPoint,
         dividerHit: DividerHit?,
@@ -948,6 +952,9 @@ final class WindowBrowserHostView: NSView {
         }
     }
 
+    /// The split divider whose grab band (the divider plus
+    /// `PortalSplitDividerRegion.dividerHitExpansion` each side) contains
+    /// `point`, in host coordinates.
     private func splitDividerHit(at point: NSPoint) -> DividerHit? {
         guard window != nil else { return nil }
         let windowPoint = convert(point, to: nil)

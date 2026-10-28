@@ -1911,13 +1911,18 @@ final class WindowBrowserHostViewTests: XCTestCase {
             inContentHit(fixture, xInSplit: 207),
             "The browser side of a terminal/browser divider must pass through to the split view"
         )
+        // The far edge of the band: the 1pt divider at x=200 plus 8pt of grab band.
+        XCTAssertNil(
+            inContentHit(fixture, xInSplit: 208.5),
+            "The outer edge of the divider grab band must pass through to the split view"
+        )
         XCTAssertTrue(
             inContentHit(fixture, xInSplit: 300) === fixture.slotContents[0],
             "Browser content away from the divider must stay interactive"
         )
         // The browser slot's left edge is the split divider, which the
         // leading-sidebar guess used to claim, clearing the resize cursor.
-        for x: CGFloat in [197, 200.5, 204] {
+        for x: CGFloat in [197, 200.5, 204, 208.5] {
             XCTAssertFalse(
                 fixture.host.shouldPassThroughToSidebarResizer(at: inContentHostPoint(fixture, xInSplit: x)),
                 "x=\(x) is on the split divider band and must show the split resize cursor"
@@ -1932,7 +1937,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
         defer { fixture.window.orderOut(nil) }
 
         XCTAssertNil(inContentHit(fixture, xInSplit: 194))
-        for x: CGFloat in [197, 200.5, 203] {
+        XCTAssertNil(inContentHit(fixture, xInSplit: 192.5), "The outer edge of the divider grab band must pass through")
+        for x: CGFloat in [192.5, 197, 200.5, 203] {
             XCTAssertFalse(
                 fixture.host.shouldPassThroughToSidebarResizer(at: inContentHostPoint(fixture, xInSplit: x)),
                 "x=\(x) is on the split divider band and must show the split resize cursor"
@@ -1954,7 +1960,13 @@ final class WindowBrowserHostViewTests: XCTestCase {
             inContentHit(fixture, xInSplit: 206),
             "The right browser's side of a browser/browser divider must pass through to the split view"
         )
-        for x: CGFloat in [196, 200.5, 206] {
+        for x: CGFloat in [192.5, 208.5] {
+            XCTAssertNil(
+                inContentHit(fixture, xInSplit: x),
+                "x=\(x) is the outer edge of the divider grab band and must pass through to the split view"
+            )
+        }
+        for x: CGFloat in [192.5, 196, 200.5, 206, 208.5] {
             XCTAssertFalse(
                 fixture.host.shouldPassThroughToSidebarResizer(at: inContentHostPoint(fixture, xInSplit: x)),
                 "x=\(x) is on the split divider band and must show the split resize cursor"
