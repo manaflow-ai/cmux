@@ -65,7 +65,14 @@ function savedProps(current?: string): ComponentProps<typeof ComposerContext> {
     peerKinds: { "gpu-box": "ssh" },
     saved: {
       environments: [
-        { id: "s1", name: "GPU box training", kind: "ssh", host: "gpu-box", folder: "/home/dev/model", updatedAt: 3 },
+        {
+          id: "s1",
+          name: "GPU box training",
+          kind: "ssh",
+          host: "gpu-box",
+          folder: "/home/dev/model",
+          updatedAt: 3,
+        },
         {
           id: "l1",
           name: "Atlas in a worktree",
@@ -110,7 +117,13 @@ const worktreeProps = {
   ...baseProps,
   projectChoices: worktrees,
   onNewWorktree: () => undefined,
-  summary: { sessionId: "", harness: "claude", cwd: worktrees[0]!.cwd, host: "This Mac", hostKind: "local" as const },
+  summary: {
+    sessionId: "",
+    harness: "claude",
+    cwd: worktrees[0]!.cwd,
+    host: "This Mac",
+    hostKind: "local" as const,
+  },
 };
 
 // Austin's list (2026-10-20): cmux's agent worktrees each listed as a project of its own. The host
@@ -157,7 +170,11 @@ const leoMirror = (branch: string) => ({
 });
 const laneCheckouts: Project[] = [
   { cwd: "/Users/you/Projects", label: "Projects" },
-  { cwd: "/Users/you/Projects/cmux", label: "cmux", repo: { ...cmuxRepo("main"), root: "/Users/you/Projects/cmux" } },
+  {
+    cwd: "/Users/you/Projects/cmux",
+    label: "cmux",
+    repo: { ...cmuxRepo("main"), root: "/Users/you/Projects/cmux" },
+  },
   {
     cwd: "/Users/you/Projects/checkouts/cmux/lane-host-fg",
     label: "lane-host-fg",
@@ -188,7 +205,10 @@ const laneCheckouts: Project[] = [
     },
   },
   { cwd: "/Users/you/Projects/leo--ask-cost-dollar", label: "leo--ask-cost-dollar" },
-  { cwd: "/Users/you/Projects/codex--protocol-contract-node-version", label: "codex--protocol-contract-node-version" },
+  {
+    cwd: "/Users/you/Projects/codex--protocol-contract-node-version",
+    label: "codex--protocol-contract-node-version",
+  },
   { cwd: "/Users/you", label: "~" },
 ];
 
@@ -232,7 +252,10 @@ const frameworkGlyphs = {
   "ml-pipeline": "python",
   notes: undefined,
 } as const;
-const frameworkProjects = Object.keys(frameworkGlyphs).map((label) => ({ cwd: `/Users/you/src/${label}`, label }));
+const frameworkProjects = Object.keys(frameworkGlyphs).map((label) => ({
+  cwd: `/Users/you/src/${label}`,
+  label,
+}));
 const frameworkProps = {
   ...baseProps,
   projectChoices: frameworkProjects,
@@ -298,49 +321,6 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     "folder-menu": {
       note: "Project actions stay directly below search, above the recent projects (paths on hover).",
       props: baseProps,
-      play: openFolder,
-    },
-    "folder-pinned-search": {
-      note: "Typing a project keeps its row active while the actions stay pinned above it.",
-      props: {
-        ...baseProps,
-        onProject: (cwd) => {
-          document.documentElement.dataset.galleryProjectPicked = cwd;
-        },
-        onBrowseProject: () => {
-          document.documentElement.dataset.galleryProjectAction = "browse";
-        },
-        onNoProject: () => {
-          document.documentElement.dataset.galleryProjectAction = "none";
-        },
-      },
-      play: openFolder,
-    },
-    "folder-short-note": {
-      note: "A short pane with a private-folder explanation keeps project rows visible.",
-      props: {
-        ...repoProps,
-        summary: { ...repoProps.summary, cwd: "" },
-        folderNote: "New chats in this workspace start in a private folder.",
-      },
-      play: openFolder,
-    },
-    "folder-short-note-de": {
-      note: "A two-line German private-folder explanation in a short pane.",
-      props: {
-        ...repoProps,
-        summary: { ...repoProps.summary, cwd: "" },
-        folderNote: "Neue Chats in diesem Arbeitsbereich starten in einem privaten Ordner.",
-      },
-      play: openFolder,
-    },
-    "folder-short-note-fr": {
-      note: "A two-line French private-folder explanation in a short pane.",
-      props: {
-        ...repoProps,
-        summary: { ...repoProps.summary, cwd: "" },
-        folderNote: "Les nouvelles discussions de cet espace de travail démarrent dans un dossier privé.",
-      },
       play: openFolder,
     },
     "folder-long-list": {
@@ -456,7 +436,10 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "computer-search": {
       note: "The classic machine picker uses the same searchable Combobox as environments and folders; filtering twenty machines leaves gpu-box.",
-      props: { ...baseProps, peers: ["gpu-box", ...Array.from({ length: 20 }, (_, i) => `build-${i + 1}`)] },
+      props: {
+        ...baseProps,
+        peers: ["gpu-box", ...Array.from({ length: 20 }, (_, i) => `build-${i + 1}`)],
+      },
       play: async (ctx) => {
         await openComputer(ctx);
         await ctx.focus({ role: "combobox", name: "Computer" });
@@ -480,7 +463,11 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "environment-picker-sandboxed-option": {
       note: "Labs (hq#3367): Sandboxed is New Cloud Machine's other face, with no row of its own. Holding ⌥ while the list is open shows it, as a Mac menu's alternate: a pick runs the new chat's first message once on a throwaway Cloud VM.",
-      props: { ...baseProps, environments: true, runMode: { mode: "persistent", onMode: () => undefined } },
+      props: {
+        ...baseProps,
+        environments: true,
+        runMode: { mode: "persistent", onMode: () => undefined },
+      },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
@@ -490,7 +477,11 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "environment-picker-sandboxed-search": {
       note: "Labs (hq#3367): searching for it shows Sandboxed in New Cloud Machine's place.",
-      props: { ...baseProps, environments: true, runMode: { mode: "persistent", onMode: () => undefined } },
+      props: {
+        ...baseProps,
+        environments: true,
+        runMode: { mode: "persistent", onMode: () => undefined },
+      },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
@@ -500,7 +491,11 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "environment-picker-sandboxed-picked": {
       note: "Labs (hq#3367): Sandboxed picked. The control names it where the machine was, and its row stays checked in New Cloud Machine's place; any machine goes back to a Persistent chat.",
-      props: { ...baseProps, environments: true, runMode: { mode: "sandboxed", onMode: () => undefined } },
+      props: {
+        ...baseProps,
+        environments: true,
+        runMode: { mode: "sandboxed", onMode: () => undefined },
+      },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));

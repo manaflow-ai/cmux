@@ -2,7 +2,7 @@
 // caller computes the suggestions (they may arrive asynchronously) from `onQuery`. Return submits
 // the highlighted suggestion or the typed text, Tab completes, Escape cancels; Base UI owns the
 // combobox role, aria-activedescendant and the arrows.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
@@ -118,27 +118,6 @@ export function Combobox({
   const completionRef = useRef<{ text: string; key: string } | undefined>(undefined);
   const pressActivatedRef = useRef<string | undefined>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
-  const pressingList = useRef(false);
-  useEffect(() => {
-    // Native scrollbar presses may blur the input with no relatedTarget. Treat that gesture as
-    // inside the list, just like an option press; a real outside press or Tab still closes it.
-    const press = (event: PointerEvent) => {
-      pressingList.current = !!listRef.current?.contains(event.target as Node);
-    };
-    const end = () => {
-      pressingList.current = false;
-    };
-    document.addEventListener("pointerdown", press, true);
-    document.addEventListener("pointerup", end, true);
-    document.addEventListener("pointercancel", end, true);
-    document.addEventListener("keydown", end, true);
-    return () => {
-      document.removeEventListener("pointerdown", press, true);
-      document.removeEventListener("pointerup", end, true);
-      document.removeEventListener("pointercancel", end, true);
-      document.removeEventListener("keydown", end, true);
-    };
-  }, []);
   const keep = inline && keepHeight;
   const [tallest, setTallest] = useState(0);
   useLayoutEffect(() => {
@@ -154,20 +133,8 @@ export function Combobox({
     return () => window.removeEventListener("resize", reset);
   }, [keep]);
   const held = keep && tallest > 0;
-  const hasPinned = Boolean(pinnedSuggestions?.length);
-  const deliberatelyHighlighted = useRef(false);
-  const availableSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
-  // Base UI highlights item zero for an empty query too. Put destinations first in its collection
-  // while the pinned actions remain visually fixed above the scrolling results.
-  const enabledSuggestions = hasPinned
-    ? [
-        ...availableSuggestions.filter((item) => !pinnedSuggestions?.includes(item)),
-        ...availableSuggestions.filter((item) => pinnedSuggestions?.includes(item)),
-      ]
-    : availableSuggestions;
-  const disabledSuggestions = suggestions.filter(
-    (item) => isItemDisabled?.(item) && !pinnedSuggestions?.includes(item),
-  );
+  const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
+  const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item));
   const update = (next: string) => {
     setValue(next);
     onQuery(next);
@@ -188,18 +155,10 @@ export function Combobox({
           : undefined;
       const matchingCurrent =
         completed?.text === typed ? enabledSuggestions.find((item) => completionText?.(item) === typed) : undefined;
-      // An unmatched query must not submit an automatically highlighted action.
-      // Explicit arrow or pointer highlight still makes that pinned action selectable.
-      const active = highlighted && enabledSuggestions.includes(highlighted) ? highlighted : undefined;
-      const selected =
-        typed.trim() && hasPinned && active && pinnedSuggestions?.includes(active) && !deliberatelyHighlighted.current
-          ? undefined
-          : active;
-      const firstMatch =
-        !active && typed.trim() && hasPinned
-          ? enabledSuggestions.find((item) => !pinnedSuggestions?.includes(item))
-          : undefined;
-      const next = selected ?? completedKey ?? matchingCurrent ?? firstMatch ?? typed;
+      const next =
+        highlighted && enabledSuggestions.includes(highlighted)
+          ? highlighted
+          : (completedKey ?? matchingCurrent ?? typed);
       if (!isItemDisabled?.(next)) onSubmit(next);
     } else if (event.key === "Escape") {
       event.preventDefault();
@@ -210,6 +169,7 @@ export function Combobox({
       const highlighted = highlightedRef.current;
       const next = highlighted && enabledSuggestions.includes(highlighted) ? highlighted : enabledSuggestions[0]!;
       const completed = completionText?.(next) ?? next;
+      // A completed field is a normal Tab stop: keyboard users can reach actions beside the list.
       if (typed === completed) return;
       event.preventDefault();
       event.preventBaseUIHandler?.();
@@ -218,15 +178,14 @@ export function Combobox({
     }
   };
   const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
-  const renderOption = (item: string, index = enabledSuggestions.indexOf(item)) => (
+  const renderOption = (item: string) => (
     <Autocomplete.Item
       key={item}
-      index={index}
       value={item}
       aria-label={itemLabel?.(item)}
       aria-current={isItemCurrent?.(item) ? true : undefined}
       className={cx("ui-combobox-item", itemClassName)}
-      render={hasPinned ? <div /> : <li />}
+      render={pinnedSuggestions ? <div /> : <li />}
       onPointerDownCapture={() => {
         // A new gesture cannot inherit a press whose click was cancelled outside.
         pressActivatedRef.current = undefined;
@@ -258,23 +217,21 @@ export function Combobox({
   const list = (
     <Autocomplete.List
       ref={listRef}
-      className={cx("ui-combobox-list", hasPinned ? "ui-combobox-pinned-list" : listClassName)}
-      render={hasPinned ? <div /> : <ul />}
+      className={cx("ui-combobox-list", pinnedSuggestions ? "ui-combobox-pinned-list" : listClassName)}
+      render={pinnedSuggestions ? <div /> : <ul />}
       hidden={suggestions.length === 0 && !held}
       aria-hidden={held && suggestions.length === 0 ? true : undefined}
       style={held ? { minHeight: tallest, boxSizing: "border-box" } : undefined}
     >
-      {hasPinned && (
-        <div className="ui-combobox-pinned">
-          {pinnedSuggestions!.map((item) => renderOption(item, enabledSuggestions.indexOf(item)))}
-        </div>
-      )}
-      {hasPinned ? (
-        <ScrollArea className={cx("ui-combobox-scroll", listClassName)} viewportClassName="ui-combobox-viewport">
-          <Autocomplete.Collection>
-            {(item) => (pinnedSuggestions!.includes(item) ? null : renderOption(item))}
-          </Autocomplete.Collection>
-        </ScrollArea>
+      {pinnedSuggestions ? (
+        <>
+          <div className="ui-combobox-pinned" role="group">
+            {enabledSuggestions.filter((item) => pinnedSuggestions.includes(item)).map(renderOption)}
+          </div>
+          <ScrollArea className={cx("ui-combobox-scroll", listClassName)}>
+            {enabledSuggestions.filter((item) => !pinnedSuggestions.includes(item)).map(renderOption)}
+          </ScrollArea>
+        </>
       ) : (
         <Autocomplete.Collection>{renderOption}</Autocomplete.Collection>
       )}
@@ -303,7 +260,6 @@ export function Combobox({
       value={value}
       onValueChange={(next) => {
         if (completionRef.current?.text !== next) completionRef.current = undefined;
-        deliberatelyHighlighted.current = false;
         update(next);
       }}
       open={inline || enabledSuggestions.length > 0}
@@ -311,7 +267,6 @@ export function Combobox({
       autoHighlight={autoHighlight}
       onItemHighlighted={(item, details) => {
         highlightedRef.current = item as string | undefined;
-        if (details.reason === "keyboard" || details.reason === "pointer") deliberatelyHighlighted.current = true;
         onHighlight?.(item as string | undefined, details.reason);
       }}
     >
@@ -324,8 +279,7 @@ export function Combobox({
         onKeyDown={onKeyDown}
         // A press on a suggestion keeps focus in the field (Base UI items are not focusable).
         onBlur={(event) => {
-          if (cancelOnBlur && !pressingList.current && !listRef.current?.contains(event.relatedTarget as Node | null))
-            onCancel();
+          if (cancelOnBlur && !listRef.current?.contains(event.relatedTarget as Node | null)) onCancel();
         }}
       />
       {inline ? (

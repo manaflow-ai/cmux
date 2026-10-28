@@ -11,7 +11,10 @@ let host: HTMLElement;
 let root: Root | undefined;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test/",
+  });
   const replacements: Record<string, unknown> = {
     window: dom.window,
     document: dom.window.document,
@@ -73,7 +76,11 @@ async function type(field: HTMLInputElement, value: string) {
 }
 
 async function key(field: HTMLInputElement, value: string) {
-  const event = new dom.window.KeyboardEvent("keydown", { key: value, bubbles: true, cancelable: true });
+  const event = new dom.window.KeyboardEvent("keydown", {
+    key: value,
+    bubbles: true,
+    cancelable: true,
+  });
   await act(async () => field.dispatchEvent(event));
   return event.defaultPrevented;
 }
@@ -88,7 +95,15 @@ async function machines() {
       <ComposerContext
         peers={["gpu-box", "build-cloud", "gpu-spare"]}
         localName="This Mac"
-        sessions={[{ sessionId: "gpu-chat", cwd: "/demo/atlas", host: "gpu-box", peer: "gpu-box", updatedAt: 0 }]}
+        sessions={[
+          {
+            sessionId: "gpu-chat",
+            cwd: "/demo/atlas",
+            host: "gpu-box",
+            peer: "gpu-box",
+            updatedAt: 0,
+          },
+        ]}
         projectChoices={[{ cwd: "/demo/atlas", label: "atlas" }]}
         onProject={(cwd, peer) => calls.push([cwd, peer])}
         onConnect={(kind) => calls.push(["connect", kind])}
@@ -561,4 +576,36 @@ test("scrollbar blur keeps a searchable menu open while outside blur cancels", a
     field.blur();
   });
   expect(cancelled).toBe(1);
+});
+
+test("pinned picker actions precede scrolling suggestions and remain keyboard selectable", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { Combobox } = await import("../src/ui/Combobox");
+  const calls: string[] = [];
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <Combobox
+        suggestions={["No project", "Add project", "Atlas", "Relay"]}
+        pinnedSuggestions={["No project", "Add project"]}
+        onQuery={() => {}}
+        onSubmit={(value) => calls.push(value)}
+        onCancel={() => {}}
+        label="Projects"
+        inline
+      />,
+    ),
+  );
+  const pinned = host.querySelector(".ui-combobox-pinned")!;
+  const scroll = host.querySelector(".ui-combobox-scroll")!;
+  expect([...pinned.querySelectorAll('[role="option"]')].map((node) => node.textContent)).toEqual([
+    "No project",
+    "Add project",
+  ]);
+  expect([...scroll.querySelectorAll('[role="option"]')].map((node) => node.textContent)).toEqual(["Atlas", "Relay"]);
+  const field = host.querySelector<HTMLInputElement>("input")!;
+  await act(async () => field.focus());
+  await key(field, "ArrowDown");
+  await key(field, "Enter");
+  expect(calls).toEqual(["No project"]);
 });

@@ -18,8 +18,8 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// another shares that name, a short suffix that tells it apart (projectSuffix.ts); the full path is
 /// the row's tooltip. A repository's row picks the current folder, else its main checkout, else its
 /// newest worktree; its other worktrees, newest first, open under it with → (← or the count closes
-/// them). The current folder is checked. Actions stay directly under search, before the scrolling
-/// folders: No project, New Worktree, Add project and Choose folder, where the host offers them. The shared Combobox keeps the keyboard in the field:
+/// them). The current folder is checked. After the folders: New Worktree, Add project and Choose
+/// folder…, each only where the host offers it. The shared Combobox keeps the keyboard in the field:
 /// typing filters by repository, branch and path, and lists a worktree on its own when the words
 /// name it; ↑/↓ move through the rows and the actions; Return picks; Escape closes back to the
 /// strip. A typed absolute or `~/` path is offered as typed. `note` is a quiet line under the list:
@@ -103,7 +103,7 @@ export function FolderPopover({
     });
   const typed = query.trim();
   const typedPath = /^(?:\/|~\/)/.test(typed) && !shown.has(typed) ? typed : undefined;
-  // Actions stay directly under search; Tab reaches them and arrows navigate the matching folders.
+  // Actions stay directly under search; arrows reach them before the scrolling folders.
   const actions: { value: string; text: string; run(): void }[] = [
     ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noProject"), run: onNoProject }] : []),
     ...(onNewWorktree ? [{ value: ACTION + "worktree", text: t("worktree.new"), run: onNewWorktree }] : []),
@@ -253,8 +253,6 @@ export function FolderPopover({
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"
         aria-label={label}
-        // tooltip-allow: the fixed footer column may truncate a long folder name.
-        title={current}
         aria-haspopup="dialog"
         aria-expanded={open}
         {...press}
@@ -263,14 +261,9 @@ export function FolderPopover({
       </button>
       <Popover
         open={open}
-        onOpenChange={(next, details) => {
-          if (!next && details?.escape) {
-            escaped.current = true;
-            close();
-          } else {
-            setOpen(next);
-            if (!next) setQuery("");
-          }
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setQuery("");
         }}
         anchor={open ? anchor : null}
         label={label}
