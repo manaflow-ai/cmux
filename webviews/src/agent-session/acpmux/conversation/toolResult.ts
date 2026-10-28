@@ -20,6 +20,9 @@ export type ToolResultOptions = {
   /// A web reader may return prose without Markdown punctuation. It still gets the readable
   /// renderer; JSON and line-oriented logs remain mono even when the caller opts in.
   markdown?: boolean;
+  kind?: string;
+  title?: string;
+  description?: string;
 };
 
 /// Outputs longer than this are shown as they are: parsing them would stall the pane.
@@ -333,11 +336,17 @@ export function toolResult(
   options: ToolResultOptions = {},
 ): ToolResult {
   const { text, lang } = read(output, clean, strip);
+  if (lang === "json" || text.length > MAX_MARKDOWN_CHARS) return { text, lang };
+  if (options.kind === "execute") return { text, lang: "text" };
   const lines = text.split("\n").filter(Boolean);
   const log = lines.length > 1 && lines.every((line) => LOG_LINE.test(line));
+  const webRead =
+    options.markdown ||
+    options.kind === "fetch" ||
+    /\b(?:fetch|web[\s._:-]*read)\b/i.test(`${options.title ?? ""} ${options.description ?? ""}`);
   return {
     text,
-    lang: options.markdown && lang === "text" && text.length <= MAX_MARKDOWN_CHARS && !log ? "markdown" : lang,
+    lang: !log && (lang === "markdown" || webRead || MARKDOWN.test(text)) ? "markdown" : "text",
   };
 }
 

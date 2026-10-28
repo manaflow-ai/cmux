@@ -2467,17 +2467,13 @@ a.cv-sha:focus-visible {
 }
 .cv-tool-output__box > .cv-tool-output {
   margin: 0;
-  max-height: none;
-  overflow: auto hidden;
+  overflow: auto;
   background: none;
   box-shadow: none;
 }
 /* A cut output shows eight whole lines: the box (border-box) is eight lines, its 8px top padding
    and the lane under them (`--cv-lane`, below) tall, the lane added to the cut, never taken out of
    it (Codex review of #23967). */
-.cv-tool-output__box > .cv-tool-output[data-preview="cut"] {
-  max-height: calc(8 * 18px + 8px + var(--cv-lane));
-}
 /* A result whose text is Markdown (toolResult.ts) reads as a reply does, a little smaller, and
    scrolls internally once it is long. The preview cap is applied only while `data-preview="cut"`,
    so Show all removes both the cap and its fade while retaining the card's scroll surface. */
@@ -2488,11 +2484,20 @@ a.cv-sha:focus-visible {
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.cv-tool-output__markdown[data-preview="cut"] {
-  max-height: calc(8 * var(--text-detail--line-height) + 12px);
-  --cv-fade-bottom: 28px;
-  -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-fade-bottom)), transparent);
-  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-fade-bottom)), transparent);
+:is(.cv-tool-output, .cv-tool-output__markdown)[data-output-viewport] {
+  max-height: calc(8 * 18px + 16px);
+  overscroll-behavior: contain;
+}
+:is(.cv-tool-output, .cv-tool-output__markdown)[data-output-viewport][data-preview="all"] {
+  max-height: min(70vh, 640px);
+}
+.cv-tool-output__markdown[data-more-below] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+.cv-tool-output__controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 /* Wrap lines (and the hover-actions experiment's Copy) in its corner, on hover or focus. */
 .cv-tool-output__actions {
@@ -2535,16 +2540,18 @@ a.cv-sha:focus-visible {
   --cv-lane: 8px;
   padding-bottom: calc(var(--cv-lane) - var(--cv-bar));
 }
-:is(.cv-edit-diff__body, .cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-preview="cut"] {
+:is(.cv-edit-diff__body, .cv-shell__body)[data-preview="cut"],
+.cv-tool-output[data-more-below] {
   --cv-fade-bottom: 28px;
 }
 :is(.cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-more-right] {
   --cv-fade-right: 32px;
 }
-:is(.cv-edit-diff__body, .cv-shell__body, .cv-tool-output__box > .cv-tool-output):is(
+:is(.cv-edit-diff__body, .cv-shell__body):is(
     [data-preview="cut"],
     [data-more-right]
-  ) {
+  ),
+.cv-tool-output__box > .cv-tool-output:is([data-more-below], [data-more-right]) {
   mask-image:
     linear-gradient(
       to bottom,

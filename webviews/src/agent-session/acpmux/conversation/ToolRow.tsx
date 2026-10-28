@@ -13,20 +13,13 @@ import { toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
-import { CopyButton } from "./CopyButton";
-import { experimentArm } from "../../../experiments/experiment";
-import { hoverActions } from "../../../ui/hoverActions.experiment";
-import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { toolDuration } from "./toolGroups";
-import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
-import { useBlockWrap } from "./blockWrap";
-import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { cleanText } from "./mcpCalls";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { toolResult, type ToolResult } from "./toolResult";
-import { Markdown } from "./Markdown";
+import { toolResult } from "./toolResult";
+import { ToolOutput } from "./ToolOutputBody";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { rowFailed, toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
@@ -107,11 +100,11 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const strip = stripsEnvelopeImages(tool);
   const result = useMemo(() => {
     if (shell || !tool.output || !fold.present) return undefined;
-    const webRead =
-      tool.kind === "fetch" ||
-      /^(?:fetch|web[\s._:-]*read)(?:\s|$)/i.test(tool.title.trim()) ||
-      /\bweb[\s._:-]*read\b/i.test(`${tool.title} ${tool.description ?? ""}`);
-    return toolResult(tool.output, cleanText, strip, { markdown: webRead });
+    return toolResult(tool.output, cleanText, strip, {
+      kind: tool.kind,
+      title: tool.title,
+      description: tool.description,
+    });
   }, [shell, tool.description, tool.kind, tool.output, tool.title, fold.present, strip]);
   const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
   // Whether a closed call has anything to open, read once per output, not on every render.
@@ -192,95 +185,6 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
         </div>
       )}
     </>
-  );
-}
-
-/// A call's output when it is not a shell's: copyable whole from its right-click menu (Copy Output;
-/// the `hover-actions` experiment's "all" arm adds a Copy in its corner on hover), the end of a long
-/// one shown. Wrap lines sits in its corner on hover; past eight lines it shows its first ones under
-/// a fade, with Show all N lines (BlockParts.tsx).
-function ToolOutput({ id, result, reveal }: { id: string; result: ToolResult; reveal: number }) {
-  const t = useT();
-  const raw = useOutput(result.text, reveal);
-  const [wrap] = useBlockWrap("output");
-  const [rawShown, setRawShown] = useState(false);
-  // All the output's lines, though a long one draws only its end until opened.
-  const preview = usePreview(lineCount(raw.text), reveal);
-  const shown = previewedOutput(raw, preview);
-  const body = useSidewaysRef<HTMLPreElement>();
-  // A result's own Markdown (an MCP tool's text reply) reads as Markdown, as a reply does. It uses
-  // the same full-read preview and internal scroll as mono output; Raw lets a reader inspect the
-  // exact source when a renderer's spacing or emphasis is not useful.
-  if (result.lang === "markdown") {
-    const text = shown.shown ?? "";
-    return (
-      <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: result.text })}>
-        <div className="cv-tool-output__box">
-          {rawShown ? (
-            <pre
-              ref={body}
-              className="cv-tool-output selectable"
-              data-wrap={wrap}
-              data-preview={preview.attribute}
-              {...SIDEWAYS_SCROLLER}
-            >
-              {shown.cut && (
-                <span className="cv-output-cut" aria-hidden="true">
-                  …{"\n"}
-                </span>
-              )}
-              {text && <Lines text={text} />}
-            </pre>
-          ) : (
-            <div className="cv-tool-output__markdown selectable" data-preview={preview.attribute}>
-              {/* Fences stay code: a tool's text never runs a render card or draws a diagram. */}
-              {text && <Markdown plainCode>{text}</Markdown>}
-            </div>
-          )}
-        </div>
-        <button
-          type="button"
-          className="cv-tool-output__raw"
-          aria-expanded={rawShown}
-          aria-controls={id}
-          onClick={() => setRawShown((value) => !value)}
-        >
-          {t("subsession.raw")}
-          <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${rawShown ? " is-open" : ""}`} />
-        </button>
-        <PreviewMore preview={preview} />
-        {!preview.long && <OutputMore output={shown} />}
-      </div>
-    );
-  }
-  return (
-    <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })}>
-      <div className="cv-tool-output__box">
-        <span className="cv-tool-output__actions">
-          <WrapButton kind="output" />
-          {experimentArm(hoverActions) === "all" && (
-            <CopyButton text={shown.text ?? ""} label={t("turn.copy")} className="cv-codeblock__action" />
-          )}
-        </span>
-        <pre
-          ref={body}
-          className="cv-tool-output selectable"
-          data-wrap={wrap}
-          data-preview={preview.attribute}
-          data-lang={result.lang === "json" ? "json" : undefined}
-          {...SIDEWAYS_SCROLLER}
-        >
-          {shown.cut && (
-            <span className="cv-output-cut" aria-hidden="true">
-              …{"\n"}
-            </span>
-          )}
-          {shown.shown && <Lines text={shown.shown} />}
-        </pre>
-      </div>
-      <PreviewMore preview={preview} />
-      {!preview.long && <OutputMore output={shown} />}
-    </div>
   );
 }
 
