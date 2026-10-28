@@ -538,7 +538,7 @@ final class RemoteTmuxViewConnection {
         }
         guard let lines = await reconcileListQuery(
             conn,
-            "list-windows -t \(quoted(view.sessionName)) -F '#{window_id} #{window_linked}'"
+            "list-windows -t \(quoted(view.sessionName)) -F '#{window_id} #{window_linked} #{\(RemoteTmuxViewSession.optLinked)}'"
         ) else { return false }
         // No separate wait for the writes: tmux answers commands in the order it received
         // them, so their blocks have already resolved by the time this reply arrives. A
@@ -551,33 +551,32 @@ final class RemoteTmuxViewConnection {
         return true
     }
 
-    /// Reads the bringup's `list-windows -F '#{window_id} #{window_linked}'` reply into the
-    /// placeholder and the windows to treat as ours. Pure, so the row rules can be checked
-    /// without a server.
+    /// Reads the bringup's `list-windows` reply into the placeholder and the windows to treat as
+    /// ours. Pure, so the row rules can be checked without a server.
     ///
     /// The placeholder is the window reconcile must never unlink: it is the only window the
     /// view is guaranteed to keep, and unlinking it would destroy the view. It is the
-    /// lowest-index window that is NOT linked into another session — `list-windows` is
-    /// ordered by index, and every window cmux links in is by definition linked. Index alone
-    /// is not enough: `link-window -b` inserts before the target and `base-index` differs
-    /// between hosts, so on tmux 3.7 the first row can be a linked copy, which would then be
-    /// protected from unlinking while the real placeholder was not. A window whose home
-    /// session has died is also unlinked, so this picks it instead when it sits at a lower
-    /// index than the placeholder; it would then be left in the view rather than unlinked,
-    /// which is the same outcome the previous rule had for the placeholder itself.
+    /// lowest-index window that is neither linked into another session nor marked as linked by
+    /// cmux. Index alone is not enough: `link-window -b` inserts before the target and
+    /// `base-index` differs between hosts, so on tmux 3.7 the first row can be a linked copy,
+    /// which would then be protected from unlinking while the real placeholder was not.
     ///
-    /// Everything else is adopted as owned, so a view reused from a prior cmux run can have
-    /// its dead linked copies unlinked — otherwise they accumulate in the persistent view.
+    /// Ours are the windows that are linked into another session (only cmux links windows into
+    /// the view) or carry cmux's mark (``RemoteTmuxViewSession/optLinked``), which covers a copy
+    /// whose home session has died. A view reused from a prior cmux run can then have its dead
+    /// copies unlinked. A window in the view alone without the mark was created there by
+    /// somebody else. It is not ours, because reconcile unlinks dead copies with `-k`, which would
+    /// destroy it; ``RemoteTmuxViewOnlyWindows`` moves it into a real session instead.
     nonisolated static func readBringupRows(
         _ lines: [String]
     ) -> (placeholder: String?, adopted: Set<String>) {
-        let rows = lines.compactMap { line -> (id: String, isLinked: Bool)? in
+        let rows = lines.compactMap { line -> (id: String, isLinked: Bool, isMarked: Bool)? in
             let fields = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
             guard let id = fields.first, !id.isEmpty else { return nil }
-            return (id, fields.count > 1 && fields[1] == "1")
+            return (id, fields.count > 1 && fields[1] == "1", fields.count > 2 && fields[2] == "1")
         }
-        let placeholder = (rows.first { !$0.isLinked } ?? rows.first)?.id
-        var adopted = Set(rows.map(\.id))
+        let placeholder = (rows.first { !$0.isLinked && !$0.isMarked } ?? rows.first { !$0.isLinked } ?? rows.first)?.id
+        var adopted = Set(rows.filter { $0.isLinked || $0.isMarked }.map(\.id))
         if let placeholder { adopted.remove(placeholder) }
         return (placeholder, adopted)
     }
@@ -793,6 +792,7 @@ final class RemoteTmuxViewConnection {
             switch action {
             case let .link(windowId):
                 if conn.send("link-window -s \(windowId) -t \(quoted(view.sessionName))") {
+                    _ = conn.send(RemoteTmuxViewSession.linkedMarkCommand(windowId: windowId))
                     ownedWindowIds.insert(windowId)
                 }
             case let .unlinkFromView(windowId):
@@ -811,7 +811,7 @@ final class RemoteTmuxViewConnection {
                 ownedWindowIds.remove(windowId)
             }
         }
-        adoptViewOnlyWindows(plan.adoptions, over: conn)
+        ownedWindowIds.formUnion(adoptViewOnlyWindows(plan.adoptions, over: conn))
 
         if plan.workspaces != workspaces {
             workspaces = plan.workspaces

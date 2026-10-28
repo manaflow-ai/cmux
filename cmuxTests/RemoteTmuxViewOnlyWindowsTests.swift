@@ -39,7 +39,7 @@ import Testing
         var rows = baseRows.filter { $0.sessionName != view || $0.windowIndex < 3 }
         rows.append(Row(sessionName: view, windowId: "@9", windowIndex: 3))
         rows.append(Row(sessionName: view, windowId: "@3", windowIndex: 4))
-        #expect(adoptions(rows) == [.init(windowId: "@9", sessionName: "main", afterWindowIndex: 1)])
+        #expect(adoptions(rows) == [.init(windowId: "@9", sessionName: "main", afterWindowId: "@2")])
     }
 
     @Test func aWindowCmuxLinkedWhoseSessionIsGoneIsNotAdopted() {
@@ -73,9 +73,10 @@ import Testing
         var rows = baseRows
         rows.append(Row(sessionName: view, windowId: "@8", windowIndex: 4))
         rows.append(Row(sessionName: view, windowId: "@9", windowIndex: 5))
+        // @9 follows @8, not @3, or the two would land in main reversed.
         #expect(adoptions(rows) == [
-            .init(windowId: "@8", sessionName: "main", afterWindowIndex: 2),
-            .init(windowId: "@9", sessionName: "main", afterWindowIndex: 2),
+            .init(windowId: "@8", sessionName: "main", afterWindowId: "@3"),
+            .init(windowId: "@9", sessionName: "main", afterWindowId: "@8"),
         ])
     }
 
