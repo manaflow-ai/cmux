@@ -68,6 +68,16 @@ enum CloudPresenter {
         present(spec, in: window) { answer in done(answer?.button == "confirm") }
     }
 
+    /// Offers cmux Pro after a refusal Pro lifts, with the server's `message` (its
+    /// localized reason) as the body; `closed(true)` only for the person's click on
+    /// Upgrade. False when nothing was shown (no window); `closed` then never runs.
+    static func offerPro(_ message: String?, in window: NSWindow?, closed: @escaping (Bool) -> Void) -> Bool {
+        guard window != nil else { return false }
+        confirm(CloudStrings.proRequiredTitle, message ?? CloudStrings.proRequiredBody, button: CloudStrings.proRequiredUpgrade,
+                identifier: "cmux.dialog.cloud.proRequired", in: window, done: closed)
+        return true
+    }
+
     static func copy(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
