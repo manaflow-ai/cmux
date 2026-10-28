@@ -4,6 +4,7 @@
 
 use std::panic::Location;
 use std::sync::mpsc;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cmux_threads::blocking::{self, BlockingMode, BlockingSnapshot};

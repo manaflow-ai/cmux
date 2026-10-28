@@ -176,7 +176,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     /// The page push channel, where the app turned it on (`pagePushChannel`) and the fork and shim have it.
     var pushesToPage: Bool { pushChannel && CEFPagePush(tab: tab).isAvailable }
 
-    /// The tab's page push (``CEFPagePush``, fork API 39): data to the document's receiver, no script.
+    /// The tab's page push (``CEFPagePush``, fork API 43): data to the document's receiver, no script.
     func push(_ text: String) {
         guard pushChannel else { return }
         CEFPagePush(tab: tab).send(text)
@@ -193,7 +193,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         }
     }
 
-    /// The tab's surface copy (`CEFTab.copySurface`, fork API 38): the fork's `cmux_browser_capture`.
+    /// The tab's surface copy (`CEFTab.copySurface`, fork API 40): the fork's `cmux_browser_capture`.
     var copiesSurface: Bool { !closed && tab.copiesSurface }
 
     /// The tab's surface copy, sent in this turn, answered still in base64 (the page host decodes it off

@@ -2,9 +2,6 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextWakeups
 import CmuxNextCompat
-import class CmuxSafeConcurrency.OnceContinuation
-import enum CmuxSafeConcurrency.OnceContinuationError
-import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The consent panel of an agent's cookie import: a glass panel centered on a
 /// shell window (a child window, so it stays above Chromium page windows),
@@ -14,7 +11,7 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// source, the sites and the target profile, with Show Agent Chat, Deny and
 /// Allow. Non-activating: showing it never takes the person's focus (socket
 /// focus policy); the person clicks to answer. Closing the window, Escape or
-/// the time limit answer Deny.
+/// the time limit answer Deny. The answer resolves the run's ``FirstOutcome``, which its import awaits off main.
 @MainActor
 final class CookieImportConsentPanel {
     static let accessibilityID = "app.cookieImportConsent"
@@ -28,17 +25,28 @@ final class CookieImportConsentPanel {
     /// The panel's size, measured once when it shows: its text never changes after, so a window
     /// resize or move only moves it.
     private var size: CGSize = .zero
-    private var observers: [MainActorObservation] = []
-    private var finish: ((CookieImportAnswer) -> Void)?
-    /// Answers Deny once ``limit`` passes without an answer.
-    private let deadline = DemandTimer(owner: "CookieImportConsentPanel.deadline")
+    /// The parent window's move, resize and close, through its one ``WindowEvents`` fan-out.
+    private var subscriptions: [EventSubscription] = []
+    /// Where the one answer goes; a panel released without one answers Deny.
+    private let outcome: FirstOutcome<CookieImportAnswer>
+    private var answered = false
+    /// Answers Deny once ``limit`` passes without an answer. `automation`: the agent's request waits on it, no view.
+    private let deadline: MainDeadline
     private let limitNote = NSTextField(labelWithString: "")
     /// Reveals the requester's tab (the person's click; nil when the requester has none).
     private let onShowRequester: (() -> Void)?
 
-    init(request: CookieImportRequest, onShowRequester: (() -> Void)?) {
+    /// - Parameters:
+    ///   - request: What the agent asks for.
+    ///   - deadlines: The app's one deadline placer (the limit).
+    ///   - answer: Resolved once with the person's answer.
+    ///   - onShowRequester: Reveals the requester's tab; nil when it has none.
+    init(request: CookieImportRequest, deadlines: MainDeadlineScheduler, answer: FirstOutcome<CookieImportAnswer>,
+         onShowRequester: (() -> Void)?) {
         self.request = request
         self.onShowRequester = onShowRequester
+        outcome = answer
+        deadline = MainDeadline(owner: "CookieImportConsentPanel.deadline", workClass: .automation, scheduler: deadlines)
         panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: 300),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
@@ -50,15 +58,16 @@ final class CookieImportConsentPanel {
         panel.contentView = makeContent()
     }
 
-    /// Shows the panel on `window` and returns the person's answer (Deny on close or after ``limit``, or when
-    /// the panel went away without one).
-    func ask(on window: NSWindow, limit: Duration = CookieImportConsentPanel.limit) async -> CookieImportAnswer {
-        (try? await withOnceContinuation { (continuation: OnceContinuation<CookieImportAnswer, OnceContinuationError>) in
-            finish = { continuation.resume(returning: $0) }
-            limitNote.stringValue = CookieImportStrings.deadline(Int(limit.components.seconds))
-            show(on: window)
-            deadline.scheduleOnMain(after: limit) { [weak self] in self?.answer(.timedOut) }
-        }) ?? .deny
+    // A panel that goes away without an answer denies (the outcome is Sendable; a later resolve is dropped).
+    nonisolated deinit {
+        outcome.resolve(.deny)
+    }
+
+    /// Shows the panel on `window`; the person's answer resolves the outcome (Deny on close or after ``limit``).
+    func show(on window: NSWindow, limit: Duration = CookieImportConsentPanel.limit) {
+        limitNote.stringValue = CookieImportStrings.deadline(Int(limit.components.seconds))
+        present(on: window)
+        deadline.schedule(after: limit) { [weak self] in self?.answer(.timedOut) }
     }
 
     var isShown: Bool { panel.parent != nil }
@@ -175,7 +184,7 @@ final class CookieImportConsentPanel {
         return box
     }
 
-    private func show(on window: NSWindow) {
+    private func present(on window: NSWindow) {
         parent = window
         window.addChildWindow(panel, ordered: .above)
         window.themeScope.adopt(panel)
@@ -185,15 +194,12 @@ final class CookieImportConsentPanel {
         place()
         // Draws the person's eye without activating cmux (a Dock bounce while another app is in front).
         NSApp.requestUserAttention(.informationalRequest)
-        let center = NotificationCenter.default
-        for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
-            observers.append(MainActorObservation(name, object: window, center: center) { [weak self] in
-                self?.place()
-            })
-        }
-        observers.append(MainActorObservation(NSWindow.willCloseNotification, object: window, center: center) { [weak self] in
-            self?.answer(.deny)
-        })
+        let events = WindowEvents.of(window)
+        subscriptions = [
+            events.subscribe(NSWindow.didResizeNotification, owner: "CookieImportConsentPanel.place") { [weak self] in self?.place() },
+            events.subscribe(NSWindow.didMoveNotification, owner: "CookieImportConsentPanel.place") { [weak self] in self?.place() },
+            events.subscribe(NSWindow.willCloseNotification, owner: "CookieImportConsentPanel.close") { [weak self] in self?.answer(.deny) },
+        ]
     }
 
     private func place() {
@@ -207,14 +213,14 @@ final class CookieImportConsentPanel {
     @objc private func allow() { answer(.allow) }
     @objc private func deny() { answer(.deny) }
 
-    /// The one answer: later clicks, the close and the deadline find `finish` gone.
+    /// The one answer: later clicks, the close and the deadline find it given.
     func answer(_ answer: CookieImportAnswer) {
-        guard let finish else { return }
-        self.finish = nil
+        guard !answered else { return }
+        answered = true
         deadline.cancel()
-        observers.removeAll()
+        subscriptions.removeAll()
         parent?.removeChildWindow(panel)
         panel.orderOut(nil)
-        finish(answer)
+        outcome.resolve(answer)
     }
 }
