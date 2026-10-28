@@ -51,14 +51,14 @@ export function ScrollArea({
       </BaseScrollArea.Viewport>
       <BaseScrollArea.Scrollbar
         orientation="vertical"
-        className={cx("cmux-scrollbar", scrollbar, "absolute top-0 right-0 h-full w-1.5 justify-center")}
+        className={cx("cmux-scrollbar", scrollbar, "w-1.5 justify-center")}
       >
         <BaseScrollArea.Thumb className={cx("cmux-scrollbar-thumb", thumb, "w-full")} />
       </BaseScrollArea.Scrollbar>
       {horizontal && (
         <BaseScrollArea.Scrollbar
-            orientation="horizontal"
-          className={cx("cmux-scrollbar", scrollbar, "absolute bottom-0 left-0 h-1.5 w-full flex-col justify-center")}
+          orientation="horizontal"
+          className={cx("cmux-scrollbar", scrollbar, "h-1.5 flex-col justify-center")}
         >
           <BaseScrollArea.Thumb className={cx("cmux-scrollbar-thumb", thumb, "h-full")} />
         </BaseScrollArea.Scrollbar>

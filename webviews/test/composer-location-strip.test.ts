@@ -539,4 +539,24 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(after.edge).toBe(before.edge);
     expect(after.rect).toEqual(before.rect);
   });
+  test("project actions stay pinned while the inside thumb scrolls without dismissing", async () => {
+    const page = await open("agent-pane.composer-context", "folder-long-list", 720);
+    const popup = page.locator(".acpmux-folder-popover");
+    const actions = popup.locator(".ui-combobox-pinned");
+    const thumb = popup.locator(".cmux-scrollbar-thumb").first();
+    await thumb.waitFor({ state: "visible" });
+    const before = await actions.boundingBox();
+    const bounds = await popup.boundingBox();
+    const grip = await thumb.boundingBox();
+    expect(grip!.x + grip!.width).toBeLessThanOrEqual(bounds!.x + bounds!.width);
+    await page.mouse.move(grip!.x + grip!.width / 2, grip!.y + grip!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(grip!.x + grip!.width / 2, grip!.y + grip!.height / 2 + 80, { steps: 5 });
+    await page.mouse.up();
+    expect(await popup.count()).toBe(1);
+    expect(await actions.boundingBox()).toEqual(before);
+    expect(await popup.locator(".ui-combobox-viewport").evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+    await page.close();
+  });
+
 });

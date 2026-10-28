@@ -2,7 +2,7 @@
 // caller computes the suggestions (they may arrive asynchronously) from `onQuery`. Return submits
 // the highlighted suggestion or the typed text, Tab completes, Escape cancels; Base UI owns the
 // combobox role, aria-activedescendant and the arrows.
-import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
@@ -118,6 +118,27 @@ export function Combobox({
   const completionRef = useRef<{ text: string; key: string } | undefined>(undefined);
   const pressActivatedRef = useRef<string | undefined>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
+  const pressingList = useRef(false);
+  useEffect(() => {
+    // Native scrollbar presses may blur the input with no relatedTarget. Treat that gesture as
+    // inside the list, just like an option press; a real outside press or Tab still closes it.
+    const press = (event: PointerEvent) => {
+      pressingList.current = !!listRef.current?.contains(event.target as Node);
+    };
+    const end = () => {
+      pressingList.current = false;
+    };
+    document.addEventListener("pointerdown", press, true);
+    document.addEventListener("pointerup", end, true);
+    document.addEventListener("pointercancel", end, true);
+    document.addEventListener("keydown", end, true);
+    return () => {
+      document.removeEventListener("pointerdown", press, true);
+      document.removeEventListener("pointerup", end, true);
+      document.removeEventListener("pointercancel", end, true);
+      document.removeEventListener("keydown", end, true);
+    };
+  }, []);
   const keep = inline && keepHeight;
   const [tallest, setTallest] = useState(0);
   useLayoutEffect(() => {
@@ -228,7 +249,7 @@ export function Combobox({
           <div className="ui-combobox-pinned" role="group">
             {enabledSuggestions.filter((item) => pinnedSuggestions.includes(item)).map(renderOption)}
           </div>
-          <ScrollArea className={cx("ui-combobox-scroll", listClassName)}>
+          <ScrollArea className={cx("ui-combobox-scroll", listClassName)} viewportClassName="ui-combobox-viewport">
             {enabledSuggestions.filter((item) => !pinnedSuggestions.includes(item)).map(renderOption)}
           </ScrollArea>
         </>
@@ -279,7 +300,8 @@ export function Combobox({
         onKeyDown={onKeyDown}
         // A press on a suggestion keeps focus in the field (Base UI items are not focusable).
         onBlur={(event) => {
-          if (cancelOnBlur && !listRef.current?.contains(event.relatedTarget as Node | null)) onCancel();
+          if (cancelOnBlur && !pressingList.current && !listRef.current?.contains(event.relatedTarget as Node | null))
+            onCancel();
         }}
       />
       {inline ? (
