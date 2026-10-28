@@ -97,6 +97,7 @@ HEAVY_CHECKS = frozenset({
     "cmux app scheme compile (Debug)",
     "cmux-next daemon tests",
     "cmux-next generated files",
+    "cmux-next generated files (shared build)",
     "wait for the same-tree cmux-tui",
 })
 # One job, many static checks. Its last step lists each red one; the queue

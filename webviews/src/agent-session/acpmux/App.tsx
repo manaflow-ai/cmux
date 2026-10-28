@@ -186,6 +186,7 @@ import { descendants, subagentChangesFolder, type SubagentScope } from "./inspec
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
+import { settleTrayExit } from "./subagents/trayMotion";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
 import { configureWorkflowCardOpen, WorkflowCard } from "./summary/WorkflowCard";
 import {
@@ -6446,6 +6447,22 @@ function AcpmuxPane() {
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  const hasTray = !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0);
+  // The tray's motion (subagents/trayMotion.tsx): the chat on screen as of this render, which the
+  // tray reads as it goes (it plays its exit only while its own chat still shows), and the chat that
+  // last rendered without one (a tray that appears in it eases in; one a chat opens with is there).
+  // A chat that shows again starts over: its tray, if any, is simply there.
+  const trayChat = useRef(shownSessionId);
+  const trayAbsentIn = useRef<string | undefined>(undefined);
+  if (trayChat.current !== shownSessionId) trayAbsentIn.current = undefined;
+  trayChat.current = shownSessionId;
+  const trayEnters = shownSessionId !== undefined && trayAbsentIn.current === shownSessionId;
+  // Absence counts only once the chat's own rows are read: a partial snapshot during a slow switch
+  // would make a tray it already had look new.
+  if (!hasTray && snapshot.chatRead === true) trayAbsentIn.current = shownSessionId;
+  // A chat switch, or the tray moving to another placement (another host), is not the tray leaving:
+  // its kept copy goes before the frame paints.
+  useLayoutEffect(() => settleTrayExit(), [shownSessionId, trayPlacement]);
   const trayNode =
     !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) ? (
       <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
@@ -6469,6 +6486,8 @@ function AcpmuxPane() {
             stop={stopSubagent}
             stopProcess={stopProcess}
             placement={trayPlacement}
+            shown={trayChat}
+            enters={trayEnters}
           />
         </SubagentClockContext.Provider>
       </BackgroundTaskOutputContext.Provider>

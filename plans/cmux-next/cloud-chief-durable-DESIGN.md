@@ -256,3 +256,23 @@ D's migration as each export lands: prompt (1) and tools (2) replace the TypeScr
 behavior change, checked by the six D tests plus the staging eval runner. Ledgers (3) give D the
 reply, outcome, ask and schedule rules it does not have. Hands, spawn and jobs then call P's
 existing services from intents, never from the kernel.
+
+## 14. D on the kernel exports (Oct 28)
+
+From a680's exports (db88970252b), rebuilt into `optchat-wasm` on cmux-rust-builder-1:
+
+- **Prompt:** `renderSystem(record, "pi-durable")`, the Mac host's text. `chief-brain/prompts.ts` is no
+  longer D's (P still uses it).
+- **Tools:** `toolSpecs("pi-durable")` filtered to what D runs (`chief-durable/kernel.ts` `D_TOOLS`):
+  `zoom` and `date` through `OptChat.callPure`, and `send`, `reply` and `stop` against the conversation
+  (`send` and `reply` post at once, keyed by the tool call, in the thread of the view line they name;
+  `cd_line` maps a line to its message). The kernel's replay flags go to pi as is.
+- **Ledgers:** `ledgerApply` folds `message_logged` (a person's message for the Chief: its own chat or
+  a DM, or a mention or reply in a group), `turn_started`, `reply_posted` (each send/reply and the
+  final text), `turn_ended` and `check_due` (a Lifecycle job at the kernel's `schedule`). A `notice`
+  starts a retry run whose note follows the view; a `post` is the failure line in the message's thread.
+
+Gaps, for the kernel lane: the Mac text names tools D does not offer yet (spawn, tell, control,
+sleep, react, transcript, remember) and the cmux CLI, which a Cloud Chief has no machine for; it
+has no owner/teammate rule for shared chats (P's prompt has one). The `pi-durable` engine wants a
+cloud section that lists only the offered tools.
