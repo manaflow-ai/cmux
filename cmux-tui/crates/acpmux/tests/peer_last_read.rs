@@ -91,7 +91,10 @@ impl Fixture {
         let dir = cmux_unix_socket::short_test_dir("peer-last");
         let socket = dir.path().join("daemon.sock");
         let listener = acpmux::server::bind_unix(&socket).await.unwrap();
-        let daemon = tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
+        let daemon_hub = hub.clone();
+        let daemon = tokio::spawn(async move {
+            acpmux::server::serve_unix(daemon_hub, listener).await.unwrap();
+        });
         Self { hub, dir, socket, methods, tasks: vec![peer, daemon] }
     }
 
