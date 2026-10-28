@@ -7,6 +7,7 @@ import CmuxNextBridge
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
 import Foundation
+import QuartzCore
 import Testing
 
 /// Leo 2026-10-28: "WHY WAS THIS NEW TAB BUTTON CHANGED TO BE A DROPDOWN????????????????" Every
@@ -69,12 +70,12 @@ import Testing
         let plus = NewTabButtonView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
         plus.isHovered = true
         let glyph = try #require(plus.layer?.sublayers?.compactMap { $0 as? CAShapeLayer }.first)
-        let hoverWidth = glyph.lineWidth
+        let hoverColor = glyph.strokeColor
         plus.isPressed = true
-        #expect(glyph.lineWidth > hoverWidth, "a press is visible even after hover brightens the glyph")
+        #expect(glyph.strokeColor != hoverColor, "a press is visible even after hover brightens the glyph")
         #expect(plus.layer?.sublayers?.first?.backgroundColor == nil, "a press adds no plate")
         plus.isPressed = false
-        #expect(glyph.lineWidth == hoverWidth, "release restores the hover glyph")
+        #expect(glyph.strokeColor == hoverColor, "release restores the hover glyph")
     }
 
     @Test func theSidebarWorkspacePlusIsPlainAndItsNeighborOwnsTheChooser() {
