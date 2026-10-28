@@ -135,7 +135,11 @@ class TextBoxCommandTests(unittest.TestCase):
         payload = json.loads(proc.stdout)
         self.assertIs(payload["visible"], True)
         self.assertIs(payload["changed"], False)
-        self.assertEqual(payload["surface_id"], CALLER_SURFACE_ID)
+        # Refs by default, like the other surface commands; --id-format both adds UUIDs.
+        self.assertEqual(payload["surface_ref"], "surface:1")
+        proc, _ = self.run_cli(["--json", "--id-format", "both", "textbox", "state"])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["surface_id"], CALLER_SURFACE_ID)
 
     def test_bad_usage_sends_nothing(self) -> None:
         for args in (
