@@ -176,7 +176,9 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
         )
 
         _ = await client.getOrFetchLikelyValidTokens()
+        await clock.waitUntilSleepers()
         clock.advance(by: .seconds(6))
+        await clock.waitUntilSleepsFinished()
         ScriptedTokenEndpoint.script(.init(
             status: 200,
             body: #"{"access_token":"eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.synthetic"}"#

@@ -185,15 +185,6 @@ extension AuthCoordinator {
         }
         #endif
 
-        if hasStoredTokens {
-            sessionCache.setHasTokens(true)
-            if currentUser == nil, let cachedUser {
-                currentUser = cachedUser
-            }
-            await validateCachedSession(generation: generation, storeWriteHighWater: storeWriteHighWater)
-            return
-        }
-
         if !tokenStorageWasAvailable || !tokenStorageReadsWereAvailable {
             authLog.info("Token storage unavailable during session restore; preserving cached session")
             preserveCachedSessionAfterValidationFailure()
@@ -209,6 +200,15 @@ extension AuthCoordinator {
                     await checkExistingSessionBody(retryOnStorageAvailable: false)
                 }
             }
+            return
+        }
+
+        if hasStoredTokens {
+            sessionCache.setHasTokens(true)
+            if currentUser == nil, let cachedUser {
+                currentUser = cachedUser
+            }
+            await validateCachedSession(generation: generation, storeWriteHighWater: storeWriteHighWater)
             return
         }
 
