@@ -236,6 +236,26 @@ struct HandoffNoticeTests {
         #expect(!idle.knows(Self.id))
     }
 
+    @Test func aRecordSavedLongAgoIsDatedFromTheListsLastChange() async throws {
+        // Saved at an earlier launch four days ago, its turn done then; the list shows a turn begun an hour ago.
+        let store = Store()
+        await store.script(Self.id, [Self.handoff("running", version: 6, turn: 3), Self.handoff("done", version: 7, turn: 3),
+                                     Self.handoff("done", version: 8, turn: 3, state: "closed")])
+        let (follower, ends) = follower(store, defaults: try defaults())
+        let saved = CloudHandoff(id: Self.id, sessionId: "s1", status: "done", summary: nil, createdAt: Self.millis(daysAgo: 5), version: nil,
+                                 turn: 2, state: "open", updatedAt: Self.millis(daysAgo: 4))
+        follower.watch(HandoffNotices.listed(saved, user: "u1"))
+        // Before its poll first looks at its age.
+        follower.refresh(Self.id, changed: Date(timeIntervalSince1970: Self.millis(daysAgo: 1.0 / 24) / 1_000), running: true)
+        #expect(follower.following.first?.running == true)
+        // An older date never moves it back.
+        follower.refresh(Self.id, changed: Date(timeIntervalSince1970: Self.millis(daysAgo: 4) / 1_000), running: true)
+        #expect(follower.following.first.flatMap(\.changed).map { $0.timeIntervalSinceNow > -7_200 } == true)
+        await settle(follower)
+        #expect(ends.all.map(\.outcome) == [.succeeded])
+        #expect(await store.afters.count == 3)
+    }
+
     @MainActor final class Now { var date = Date() }
 
     @Test func aTurnThatRunsIsNeverGivenUpForAge() async throws {

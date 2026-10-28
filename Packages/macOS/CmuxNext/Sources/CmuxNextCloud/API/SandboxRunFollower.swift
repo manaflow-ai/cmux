@@ -152,6 +152,18 @@ public final class SandboxRunFollower {
         start(record)
     }
 
+    /// Task `id`, followed now, changed at `changed` with its turn `running` or not, as the owner's
+    /// list shows it (a record saved before a relaunch may be days behind): its age counts from the
+    /// later of that and what the record has. A task not followed is left.
+    public func refresh(_ id: String, changed: Date, running: Bool) {
+        guard var record = records[id] else { return }
+        let latest = max(record.changed ?? record.started, changed)
+        guard latest != record.changed || running != (record.running ?? false) else { return }
+        (record.changed, record.running) = (latest, running ? true : nil)
+        records[id] = record
+        save()
+    }
+
     /// Whether task `id` is followed now or ended here (still kept).
     public func knows(_ id: String) -> Bool { records[id] != nil || endedRun(id) != nil }
 

@@ -68,8 +68,11 @@ public nonisolated struct CloudHandoff: Decodable, Hashable, Sendable {
         (id, sessionId, status) = try (c.decode(String.self, forKey: .id), c.decode(String.self, forKey: .sessionId), c.decode(String.self, forKey: .status))
         summary = try c.decodeIfPresent(String.self, forKey: .summary)
         createdAt = try Self.millis(c, .createdAt)
-        let sentUpdate = try c.contains(.updatedAt) && !(c.decodeNil(forKey: .updatedAt))
-        updatedAt = try sentUpdate ? Self.millis(c, .updatedAt) : nil
+        if c.contains(.updatedAt), try !c.decodeNil(forKey: .updatedAt) {
+            updatedAt = try Self.millis(c, .updatedAt)
+        } else {
+            updatedAt = nil
+        }
         version = try c.decodeIfPresent(Int.self, forKey: .version)
         turn = try c.decodeIfPresent(Int.self, forKey: .turn)
         state = try c.decodeIfPresent(String.self, forKey: .state)

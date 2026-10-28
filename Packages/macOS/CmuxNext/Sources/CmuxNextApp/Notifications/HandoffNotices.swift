@@ -81,16 +81,22 @@ final class HandoffNotices {
         return services.cloud.auth.user?.id
     }
 
-    /// Follows `user`'s unfinished hand-offs this app doesn't follow yet (one list call per sign-in;
-    /// where the store isn't deployed it answers 404 and nothing is followed). An answer that comes
+    /// Follows `user`'s unfinished hand-offs this app doesn't follow yet, and dates the ones it does
+    /// from the list's last change (one list call per sign-in; where the store isn't deployed it
+    /// answers 404 and nothing is followed). An answer that comes
     /// after `user` signed out, another signed in or Cloud was turned off follows nothing.
     private func resume(for user: String) {
         let list = list
         listing = Task { [weak self] in // task-owner: in `listing`, cancelled at sign-out, the next sign-in, Cloud off and stop()
             guard let handoffs = try? await list(), !Task.isCancelled, let self, self.currentUser() == user else { return }
             let seen = Date()
-            for handoff in handoffs where handoff.isOpen && !self.follower.knows(handoff.id) {
-                self.follower.watch(Self.listed(handoff, user: user, seen: seen))
+            for handoff in handoffs where handoff.isOpen {
+                if !self.follower.knows(handoff.id) {
+                    self.follower.watch(Self.listed(handoff, user: user, seen: seen))
+                } else if let updatedAt = handoff.updatedAt {
+                    // Followed since before (a record saved at an earlier launch): it ages from the list's last change.
+                    self.follower.refresh(handoff.id, changed: Date(timeIntervalSince1970: updatedAt / 1_000), running: handoff.isRunning)
+                }
             }
         }
     }
