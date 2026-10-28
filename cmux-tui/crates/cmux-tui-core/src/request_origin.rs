@@ -198,6 +198,11 @@ pub(crate) struct ConnectionOrigin {
     /// grant rule (server/capabilities.rs `IpcPeer`). Fixed at accept from
     /// kernel facts, never declared.
     pub(crate) peer_process: PeerProcess,
+    /// The peer's first line was `bridge-hello` with `bridge-frames-v1`
+    /// (server/client_hello.rs): it is a byte bridge that reads frames by
+    /// their header. It may get frames, never descriptors
+    /// (server/capabilities.rs `IpcPeer::FramedBridge`).
+    pub(crate) frame_bridge: bool,
     /// Role main plus a proof (P8: install-key hello on DEV builds, the
     /// app's code signature on signed builds; server/client_hello.rs).
     pub(crate) verified_app: bool,
