@@ -2810,7 +2810,7 @@
           "maxItems": 2,
           "prefixItems": [
             {
-              "$ref": "#/$defs/shortcutChordFirstStroke"
+              "$ref": "#/$defs/shortcutFirstStroke"
             },
             {
               "$ref": "#/$defs/shortcutStroke"
@@ -2919,13 +2919,13 @@
           "maxItems": 2,
           "prefixItems": [
             {
-              "$ref": "#/$defs/shortcutChordFirstStroke"
+              "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
             },
             {
               "$ref": "#/$defs/shortcutStroke"
             }
           ],
-          "description": "Chorded shortcut. This action takes a bare single stroke, but a chord still needs Cmd or Ctrl in its first stroke. Example: [\"ctrl+b\", \"g\"]."
+          "description": "Chorded shortcut. Bare first strokes are accepted for this action. Example: [\"g\", \"g\"]."
         },
         {
           "type": "object",
@@ -3004,7 +3004,7 @@
           "pattern": "^(?:(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[sS][hH][iI][fF][tT]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⇧|⌥|⌃)\\+)*(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⌃)\\+"
         }
       ],
-      "description": "First stroke of a chord. Must include Cmd or Ctrl: only those start a chord, and the app drops a chord whose first stroke has neither, whether or not the action accepts a bare single stroke."
+      "description": "First stroke of a chord listed in {\"any\": [...]}. Must include Cmd or Ctrl: cmux NEXT drops a chord whose first stroke has neither, whether or not the action accepts a bare single stroke. The plain two-item chord form stays wider because classic also reads it, and classic ships bare-first chords such as [\"]\", \"f\"]."
     },
     "bareFirstStrokeShortcutFirstStroke": {
       "allOf": [

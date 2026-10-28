@@ -187,11 +187,11 @@ class AlternatesValidateTests(unittest.TestCase):
         self.assertBinding("nextSurface", "cmd+]", valid=True)
         self.assertBinding("nextSurface", None, valid=True)
         self.assertBinding("nextSurface", "none", valid=True)
-        # A bare-stroke action keeps its bare *single* stroke and its chords.
-        # `["g", "g"]` is not among them: the app never accepted it (see
-        # test_a_chord_needs_cmd_or_ctrl_in_its_first_stroke).
+        # A bare-stroke action keeps its bare single stroke and its chords,
+        # bare-first ones included (classic ships those as defaults).
         self.assertBinding("diffViewerScrollDown", "j", valid=True)
         self.assertBinding("diffViewerScrollDown", ["ctrl+b", "g"], valid=True)
+        self.assertBinding("diffViewerScrollDown", ["g", "g"], valid=True)
 
     def test_malformed_alternates_are_rejected(self):
         self.assertBinding("nextSurface", {"any": ["cmd+]"], "first": {"key": "p"}}, valid=False)
@@ -201,35 +201,49 @@ class AlternatesValidateTests(unittest.TestCase):
         # fileExplorerOpenSelection takes a single stroke only, so no chord item either.
         self.assertBinding("fileExplorerOpenSelection", {"any": [["ctrl+b", "o"]]}, valid=False)
 
-    def test_a_chord_needs_cmd_or_ctrl_in_its_first_stroke(self):
-        """`SettingsApplier` drops any other chord, so the schema must too.
+    def test_a_chord_in_an_any_list_needs_cmd_or_ctrl_first(self):
+        """cmux NEXT drops any other chord, so an `any` item may not be one.
 
         `SettingsApplier.swift` guards the `.chord` case with
         `first.command || first.control` and appends an `.unsupportedChord`
-        diagnostic otherwise. That guard has no exception for the actions that
-        accept a bare *single* stroke, so the bare-stroke definitions may not
-        accept a bare-first chord either -- as a whole binding or as an `any`
-        item. Before this was fixed the schema accepted
-        `"diffViewerScrollDown": ["g", "g"]`, which the app silently drops.
+        diagnostic otherwise, with no exception for the actions that accept a
+        bare *single* stroke. `{"any": [...]}` is a NEXT-only form, so its chord
+        items are held to exactly that rule -- otherwise the schema blesses an
+        alternate the app drops one item at a time.
+
+        The plain two-item chord form is deliberately left wider: classic reads
+        the same file and is the looser of the two consumers, so narrowing it
+        here would flag bindings classic honours. See
+        ``test_the_plain_chord_form_stays_as_wide_as_classic``.
         """
         for action in ("nextSurface", "diffViewerScrollDown"):
-            with self.subTest(action=action, form="whole binding"):
-                self.assertBinding(action, ["ctrl+b", "c"], valid=True)
-                self.assertBinding(action, ["cmd+j", "x"], valid=True)
-                self.assertBinding(action, ["ctrl+shift+b", "c"], valid=True)
-                # Modifiers the key router does not start a chord on.
-                self.assertBinding(action, ["shift+b", "n"], valid=False)
-                self.assertBinding(action, ["opt+b", "n"], valid=False)
-                self.assertBinding(action, ["space", "n"], valid=False)
-            with self.subTest(action=action, form="any item"):
+            with self.subTest(action=action):
                 self.assertBinding(action, {"any": ["cmd+]", ["ctrl+b", "n"]]}, valid=True)
+                self.assertBinding(action, {"any": ["cmd+]", ["cmd+j", "x"]]}, valid=True)
+                self.assertBinding(action, {"any": ["cmd+]", ["ctrl+shift+b", "c"]]}, valid=True)
+                # Modifiers cmux NEXT does not start a chord on.
                 self.assertBinding(action, {"any": ["cmd+]", ["shift+b", "n"]]}, valid=False)
+                self.assertBinding(action, {"any": ["cmd+]", ["opt+b", "n"]]}, valid=False)
+                self.assertBinding(action, {"any": ["cmd+]", ["space", "n"]]}, valid=False)
         # The bare-stroke exception is about a single stroke, and still holds.
-        self.assertBinding("diffViewerScrollDown", "j", valid=True)
         self.assertBinding("diffViewerScrollDown", {"any": ["j", "ctrl+n"]}, valid=True)
         self.assertBinding("diffViewerScrollDown", {"any": ["j", ["ctrl+b", "g"]]}, valid=True)
-        self.assertBinding("diffViewerScrollDown", ["g", "g"], valid=False)
         self.assertBinding("diffViewerScrollDown", {"any": ["j", ["g", "g"]]}, valid=False)
+
+    def test_the_plain_chord_form_stays_as_wide_as_classic(self):
+        """Don't narrow a form classic honours.
+
+        `web/data/cmux.schema.json` is read by classic as well as NEXT, and
+        classic is looser: `Sources/KeyboardShortcutSettings+DiffViewerNavigation.swift`
+        ships `] f` and `[ f` as *default* chords with `command: false,
+        control: false`, which is what the bare-first chord branch was added
+        for, and `KeyboardShortcutSettings.swift` counts Option as a modifier.
+        So the plain two-item form keeps accepting these even though cmux NEXT
+        alone would reject them. Narrowing it is a separate change that has to
+        account for classic.
+        """
+        self.assertBinding("diffViewerScrollDown", ["g", "g"], valid=True)
+        self.assertBinding("nextSurface", ["opt+b", "n"], valid=True)
 
 
 class AlternatesDocumentedTests(unittest.TestCase):
