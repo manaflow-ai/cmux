@@ -1298,7 +1298,7 @@ pre.cv-math-source {
   margin: 0;
   padding-block: 3px;
   padding-inline: 8px 4px;
-  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
+  border: var(--cmux-hairline, .5px) solid var(--cv-card-ring);
   border-radius: 8px;
   background: var(--cv-card-fill);
   box-shadow: none;
@@ -1405,7 +1405,7 @@ pre.cv-math-source {
 /* The wider grant: a hairline rim so it reads as a choice next to the filled Allow, not as a
    disabled one (cg-design-judge, light theme). */
 .acpmux-ask-action.is-secondary {
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--cv-card-ring);
 }
 .acpmux-ask-action.is-primary:hover {
   background: color-mix(in srgb, var(--agent-accent) 88%, var(--cv-fg));

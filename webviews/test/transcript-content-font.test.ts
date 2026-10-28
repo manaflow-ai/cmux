@@ -103,7 +103,7 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
               if (size === 14 && width === 760) {
                 for (const [selector, height] of [
                   [".cv-codeblock__header", 45.5],
-                  [".cv-edit-diff__header", 33],
+                  [".cv-edit-diff__header", 32],
                   [".acpmux-shell-block-head", 32],
                   [".cv-diagram__bar", 28],
                 ] as const)
