@@ -266,6 +266,10 @@ final class AppServices {
     /// Set only by isolated composition tests, before Home is made.
     var homeComposition: (inputs: HomeCompositionDependencies, chiefs: HomeCloudChiefs)?
     #endif
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Set only by isolated composition tests, before Home is made.
+    var homeComposition: (inputs: HomeCompositionDependencies, chiefs: HomeCloudChiefs)?
+    #endif
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
     private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
