@@ -178,6 +178,20 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       return active?.dataset.promptId ?? (active?.classList.contains("acpmux-queue-fold") ? "fold" : null);
     });
 
+  /// Waits out the list's max-height transition (#24718 eases the fitted height on the move
+  /// token): a painted frame for fitList to write the new height, then every finite animation to
+  /// finish. The whole-row checks are about where the list rests, not its frames mid-move.
+  const settled = (page: Page) =>
+    page.evaluate(async () => {
+      await window.cmuxPaintFrame();
+      const finite = () =>
+        document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+      for (let tries = 0; tries < 20 && finite().some((animation) => animation.playState === "running"); tries++) {
+        await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+        await window.cmuxPaintFrame();
+      }
+    });
+
   describe("a long queue", () => {
     test("a queued row's actions have no fade behind them and never cover its text", async () => {
       const page = await openChat(["a prompt long enough to reach the row's actions ".repeat(6)]);
@@ -208,7 +222,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
           const box = el.getBoundingClientRect();
           return box.top + box.height / 2;
         };
-        // The text is one 18px line.
+        // The text is one line, its height the chat font's (#26523).
         return middle(li.querySelector(".acpmux-queued-action")!) - middle(li.querySelector(".acpmux-queued-text")!);
       });
       expect(Math.abs(offset)).toBeLessThanOrEqual(0.5);
@@ -317,8 +331,9 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 8);
       /// Where the focused element sits against the list's own edges, the fold (drawn over the
       /// rows it pins below) and the page; and whether any row the list shows is cut at an edge.
-      const sight = () =>
-        page.evaluate(
+      const sight = async () => {
+        await settled(page);
+        return page.evaluate(
           () =>
             new Promise<Record<string, unknown>>((resolve) =>
               window.cmuxPaintFrame().then(() =>
@@ -352,6 +367,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
               ),
             ),
         );
+      };
       expect(await sight()).toEqual({ focused: "fold", inSight: true, foldInSight: true, wholeRows: true });
       /// The same, but where the list rests mid-scroll a row its edge cuts may show.
       const steady = async () => {
@@ -414,8 +430,9 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     /// The queue list's rows as drawn: how many it shows cut at its edges (a row it hides whole
     /// does not count), and whether the focused row
     /// is whole and in sight.
-    const drawn = (page: Page) =>
-      page.evaluate(
+    const drawn = async (page: Page) => {
+      await settled(page);
+      return page.evaluate(
         () =>
           new Promise<Record<string, unknown>>((resolve) =>
             window.cmuxPaintFrame().then(() =>
@@ -451,6 +468,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
             ),
           ),
       );
+    };
     const clean = { cut: 0, focusedWhole: true };
 
     test("an opened queue with a two-line row shows whole rows only, no row under another (capture, 2026-10-15)", async () => {
@@ -555,6 +573,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       const page = await openChat(["one", "two", "three", "four", "five", "six", "seven", "eight"]);
       await page.locator(".acpmux-queue-fold").click();
       await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 8);
+      await settled(page);
       return page;
     }
     /// Where the opened list rests once any snap or scroll settles: at its end or not, and whether
@@ -641,7 +660,9 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       });
       expect(edits).toEqual([{ op: "remove", promptId: remove.id }]);
 
-      // Edit message is in the row's ⋯ menu: the press on the ⋯ must open that row's menu.
+      // Edit message is in the row's ⋯ menu: the press on the ⋯ must open that row's menu. The
+      // removal re-fits the list, so it first rests at its new height.
+      await settled(page);
       const edit = await cutRowAction(page, '[data-menu="queued-more"]');
       await page.mouse.click(edit.x, edit.y);
       await page.getByRole("menuitem", { name: /Edit message/ }).click();

@@ -91,6 +91,7 @@ enum AppActions {
         DevToolsHandlers.bind(into: registry, context: context)
         HintHandlers.bind(into: registry, context: context)
         MusicHandlers.bind(into: registry, context: context)
+        VoiceRoomHandlers.bind(into: registry, context: context)
         NowPlayingCardHandlers.bind(into: registry, context: context)
         PictureInPictureHandlers.bind(into: registry, context: context)
         StatsPageTab.bind(into: registry, context: context)

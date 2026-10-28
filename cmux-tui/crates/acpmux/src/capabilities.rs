@@ -123,6 +123,8 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "start-mode-v1",
         wire: &[method::MUX_START_MODE, method::MUX_START_MODE_CHANGED],
     },
+    // A peer link's state, pushed on each change (`protocol/peer_state.rs`).
+    Capability { id: "peer-state-events-v1", wire: &[method::MUX_PEER_STATE_CHANGED] },
     // Folder trust (`trust.rs`).
     Capability { id: "folder-trust-v1", wire: &[method::ACP_TRUST_GET, method::ACP_TRUST_SET] },
     // Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).

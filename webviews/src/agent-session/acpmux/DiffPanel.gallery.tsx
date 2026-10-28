@@ -319,9 +319,17 @@ const splitPaneHeader: Play = async (ctx) => {
   });
 };
 
+/// Picks a scope from the Changes menu, then waits for the menu to close and give focus back to
+/// the panel: until then a key goes to the closing menu (a portal outside the panel), never to the
+/// panel's reading keys.
 const chooseScope = async (ctx: Parameters<Play>[0], scope: string) => {
   await ctx.click({ role: "button", name: /^Changes: / });
   await ctx.click({ text: scope });
+  await ctx.waitFor(
+    () =>
+      !ctx.document.querySelector('[role="menu"]') &&
+      ctx.document.querySelector(".acpmux-diff-panel")?.contains(ctx.document.activeElement) === true,
+  );
 };
 
 /// n twice reaches the second hunk; s stages that hunk alone, named from the repository's top.

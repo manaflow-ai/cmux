@@ -1,5 +1,6 @@
 import CmuxAgentCursor
 @testable import CmuxNextAgentCursor
+import CmuxNextDesign
 import Foundation
 import QuartzCore
 import Testing
@@ -17,8 +18,12 @@ struct AgentCursorSoftStyleTests {
         }
     }
 
+    /// This Mac's Reduce Transparency pinned off for these cursors only: the shared one's
+    /// `override` is set by suites that run alongside (an opaque tag, alpha 1).
+    static let clearGlass = ReduceTransparency(system: { false }, changes: NotificationCenter())
+
     private func placed(_ session: String = "cmux-browser-cli:Claude") throws -> AgentCursorLayer {
-        let stack = AgentCursorStack(hostLayer: CALayer(), resolver: Visible())
+        let stack = AgentCursorStack(hostLayer: CALayer(), resolver: Visible(), reduceTransparency: Self.clearGlass)
         stack.host.apply(.place(session: session, point: CGPoint(x: 100, y: 100)))
         return try #require(stack.host.cursorLayer(for: session))
     }
@@ -78,7 +83,8 @@ struct AgentCursorSoftStyleTests {
     /// as the tag, moved, hidden and removed with the cursor.
     @Test func theNameTagCutsItsShapeInTheGlassAndRidesWithIt() throws {
         let visuals = CALayer(), glass = CALayer()
-        let host = AgentCursorLayerHost(hostLayer: visuals, glassLayer: glass, color: { _ in AgentCursorLayer.gray })
+        let host = AgentCursorLayerHost(hostLayer: visuals, glassLayer: glass, color: { _ in AgentCursorLayer.gray },
+                                        reduceTransparency: Self.clearGlass)
         let session = "cmux-browser-cli:Claude"
         host.apply(.place(session: session, point: CGPoint(x: 100, y: 100)))
         let cursor = try #require(host.cursorLayer(for: session))

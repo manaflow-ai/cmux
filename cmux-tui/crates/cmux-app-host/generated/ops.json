@@ -75,6 +75,8 @@
     "closed.reopen",
     "cloud.auth.status",
     "cloud.browser.open",
+    "cloud.environment.list",
+    "cloud.environment.set",
     "cloud.file.pull",
     "cloud.file.push",
     "cloud.file.transfer.cancel",

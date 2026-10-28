@@ -14,11 +14,13 @@ error line to compare are never excused. One base red then no longer freezes
 every pull request into that base (2026-10-07: four base reds, and the PRs
 fixing them deadlocked on each other's reds).
 
-A test helper that dies on a signal names different in-flight tests and
-crashed-thread frames each run, so its crash lines are not compared: the
-base's job must have died on the same signal, which makes the crash the
-base's (2026-10-09: a base SIGTRAP refused every feat-cmux-next PR). Failed
-steps and any test red before the crash are still compared.
+A job that runs tests is judged per test by scripts/ci/test_reds.py, the one
+classifier for "red on the base, so not ours" (2026-10-28: cmux#26346 landed
+with its own test helper crash because the job was red on the base too). A
+failing test the base's run does not fail is the head's; a crash (signal,
+abort, EXC_*, Fatal error) is the head's whatever the base shows; and a run
+whose per-test results are cut short (no summary, ended early, stuck) is the
+head's, since nothing in it can be compared.
 """
 from __future__ import annotations
 
@@ -32,12 +34,24 @@ _spec = importlib.util.spec_from_file_location("main_fix_evidence", Path(__file_
 _evidence = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_evidence)
 GitHub, Refused, job_for, latest_checks = _evidence.GitHub, _evidence.Refused, _evidence.job_for, _evidence.latest_checks
+_spec = importlib.util.spec_from_file_location("test_reds", Path(__file__).with_name("test_reds.py"))
+test_reds = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(test_reds)
 
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 # Jobs that only report the run's other jobs: judged by those jobs, never by themselves.
 AGGREGATES = frozenset({"ci-status"})
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
 VERDICTS = frozenset({"success", "failure"})
+# How far back the base lookup reads. A feat-cmux-next push skips swift-test, so its base verdict comes
+# from the tip Swift suite (main's cmux-next-tip-swift-suite-dispatch.yml, about one run an hour), and
+# DEV daily dispatches land between those runs every few minutes: on 2026-10-28, 16 of the base's 20
+# newest completed runs were DEV daily runs, and the tip suite run fell out of a 20-run window, so
+# no Swift red on any PR could be compared. One page of 100 runs reaches back hours; job listings
+# are read newest first, at most BASE_JOB_READS per workflow, so a long run of runs with no verdict
+# for the job stays bounded.
+BASE_RUNS_PAGE = 100
+BASE_JOB_READS = 40
 TESTS = (
     re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
@@ -127,6 +141,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     audit: list[str] = []
     base_runs: dict[int, list[dict]] = {}
     base_jobs: dict[int, list[dict]] = {}
+    job_reads: dict[int, int] = {}
     jobs = head_jobs(repo, sha, runs, list(checks), github)
     if not jobs:
         # A red run or check with no failed job to show has nothing the base can excuse.
@@ -140,9 +155,14 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         head_log = github.log(repo, job)
         if refused_at_setup(job, head_log):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+        own = test_reds.read(head_log)
+        if test_reds.is_test_red(own, name) and (own.crashes or own.truncated):
+            raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
+                          + " (a crash or a cut-short run is never a base red)")
         workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
         if workflow not in base_runs:
-            listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&status=completed&per_page=20")
+            listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&status=completed"
+                                 f"&per_page={BASE_RUNS_PAGE}")
             base_runs[workflow] = [run for run in listed.get("workflow_runs") or []
                                    if run.get("event") != "pull_request" and run.get("conclusion") != "skipped"]
         # The newest base run where this job has a verdict decides: a base push
@@ -150,6 +170,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         base_run = base_job = None
         for candidate_run in base_runs[workflow]:
             if candidate_run["id"] not in base_jobs:
+                if job_reads.get(workflow, 0) >= BASE_JOB_READS:
+                    break
+                job_reads[workflow] = job_reads.get(workflow, 0) + 1
                 base_jobs[candidate_run["id"]] = [found for page in github.json(
                     f"repos/{repo}/actions/runs/{candidate_run['id']}/jobs?filter=latest&per_page=100", paginate=True)
                     for found in page.get("jobs") or []]
@@ -158,7 +181,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 base_run, base_job = candidate_run, found
                 break
         if base_run is None:
-            raise Refused(f"'{name}': no completed {base} run of its workflow has a verdict for it to compare with")
+            raise Refused(f"'{name}': no completed {base} run of its workflow has a verdict for it to compare with "
+                          f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists)")
         if base_job.get("conclusion") != "failure":
             raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}); "
                           "fix it on this head")
@@ -168,8 +192,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         base_log = github.log(repo, base_job)
         base_steps, base_tests, base_errors = signature(base_job, base_log)
+        verdict = test_reds.classify(head_log, base_log, name, f"{base} run {base_run['id']}")
+        if verdict is not None and verdict.own:
+            raise Refused(f"'{name}': " + "; ".join(verdict.reasons)[:800])
+        # Not a test job (a compile or tool that died on a signal): the base must have died the same way.
         if missing := sorted(head_crash - crash_signals(base_log)):
-            raise Refused(f"'{name}': the test helper died on signal {', '.join(missing)}, "
+            raise Refused(f"'{name}': the process died on signal {', '.join(missing)}, "
                           f"and {base} run {base_run['id']} did not")
         compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
         if not head_tests:
@@ -177,8 +205,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         for kind, head, seen in compared:
             if missing := sorted(head - seen):
                 raise Refused(f"'{name}': {kind} not on {base} run {base_run['id']}: {'; '.join(missing)[:600]}")
-        crash = [f"the test helper died on signal {signal}" for signal in sorted(head_crash)]
-        what = "; ".join(crash + sorted(head_tests)) or "; ".join(sorted(head_errors))
+        what = "; ".join(sorted(head_tests)) or "; ".join(sorted(head_errors))
         url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
         audit.append(f"excused '{name}': {base} run {base_run['id']} fails the same way ({url}): {what[:400]}")
     return audit
