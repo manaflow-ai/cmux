@@ -57,7 +57,7 @@ def tracked_files() -> list[str]:
 
 # Every rule needs one of these words in the file, so fixed-string git greps narrow the tracked files to the
 # few that can match before any regex runs (a regex grep over this repository takes seconds, a full read minutes).
-CANDIDATE_WORDS = ("pkill", "killall", "pgrep", "pidof", "find-generic-password", "SecItemCopyMatching", "keyring",
+CANDIDATE_WORDS = ("pkill", "killall", "pgrep", "pidof", "ps -a", "ps -A", "ps -e", "ps aux", "find-generic-password", "SecItemCopyMatching", "keyring",
                    "get_generic_password", "manaflow-fleet-sudo")
 CANDIDATE_WORDS_ANY_CASE = ("big-red", "big_red", "bigred", "big red")
 
@@ -110,11 +110,17 @@ def reads_fleet_sudo(text: str) -> bool:
 
 
 # pgrep -P PID lists the children of a PID the script holds: its own, so not a lookup by name.
-LOOKUP = re.compile(r"(?<![\w-])(?:pgrep(?!\s+-P\b)|pidof)(?![\w-])")
+# A process listing (`ps -ax...`, `ps -e`, `ps aux`) is a lookup too; `ps -p PID` is not.
+PS_LIST = r"ps\s+(?:-[A-Za-z]*[Aae][A-Za-z]*\b|aux\b)"
+LOOKUP = re.compile(r"(?<![\w-])(?:pgrep(?!\s+-P\b)|pidof|" + PS_LIST + r")(?![\w-])")
 KILL_WORD = re.compile(r"(?<![\w-])kill(?![\w-])")
-LOOKUP_FOR = re.compile(r"\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+[\"']?(?:\$\(|`)\s*(?:sudo\s+(?:-\S+\s+)*)?(?:/usr/bin/)?(?:pgrep(?!\s+-P\b)|pidof)\b")
-LOOKUP_DONE = re.compile(r"\bdone\b\s*<\s*<\(\s*(?:sudo\s+(?:-\S+\s+)*)?(?:/usr/bin/)?(?:pgrep(?!\s+-P\b)|pidof)\b")
-LOOKUP_ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=[\"']?(?:\$\(|`)\s*(?:sudo\s+(?:-\S+\s+)*)?(?:/usr/bin/)?(?:pgrep(?!\s+-P\b)|pidof)\b")
+_LOOKUP_CMD = r"\s*(?:sudo\s+(?:-\S+\s+)*)?(?:/usr/bin/|/bin/)?(?:pgrep(?!\s+-P\b)|pidof|" + PS_LIST + r")"
+LOOKUP_FOR = re.compile(r"\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+[\"']?(?:\$\(|`)" + _LOOKUP_CMD)
+LOOKUP_DONE = re.compile(r"\bdone\b\s*<\s*<\(" + _LOOKUP_CMD)
+# x=$(pgrep ...), x=`pidof ...`, and the array form x=($(pgrep ...)).
+LOOKUP_ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=\(?[\"']?(?:\$\(|`)" + _LOOKUP_CMD)
+# for p in "${pids[@]}" / $pids: the loop variable carries the lookup's PIDs.
+FOR_OVER = re.compile(r"\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+[^;]*?\$\{?([A-Za-z_][A-Za-z0-9_]*)")
 
 
 def pkill_lines(text: str) -> int:
@@ -128,6 +134,7 @@ def pkill_lines(text: str) -> int:
     for line in text.splitlines():
         lookup_vars.update(LOOKUP_ASSIGN.findall(line))
         lookup_vars.update(LOOKUP_FOR.findall(line))
+        lookup_vars.update(v for v, src in FOR_OVER.findall(line) if src in lookup_vars)
         kills = len(KILL_WORD.findall(line))
         if LOOKUP.search(line):
             # A loop that opens and closes on this line ends here.
@@ -334,6 +341,10 @@ class Patterns(unittest.TestCase):
         self.assertEqual(pkill_lines('pgrep -f worker |\n  while read -r p; do\n  kill "$p"\ndone'), 1)
         self.assertEqual(pkill_lines('pgrep -f worker \\\n  | xargs kill'), 1)
         self.assertEqual(pkill_lines('p=$(pgrep -f foo); pkill -x bar; kill "$p"'), 2)
+        self.assertEqual(pkill_lines('PIDS=($(pgrep -f app))\nfor PID in "${PIDS[@]}"; do\n  kill "$PID"\ndone'), 1)
+        self.assertEqual(pkill_lines('while read -r pid; do\n  kill "$pid"\ndone < <(ps -axo pid=,command= | awk \'/x/ {print $1}\')'), 1)
+        self.assertEqual(pkill_lines('ps aux | grep x | awk \'{print $2}\' | xargs kill'), 1)
+        self.assertEqual(pkill_lines('age=$(ps -o etimes= -p "$pid")\nkill "$pid"'), 0)
         self.assertEqual(pkill_lines('kill $(pgrep -f foo); pkill helper'), 2)
         self.assertEqual(pkill_lines('pgrep worker | while read p; do echo "$p"; done\nkill "$owned_pid"'), 0)
         self.assertEqual(pkill_lines('pgrep worker | while read p; do kill "$p"; done\nkill "$owned_pid"'), 1)
