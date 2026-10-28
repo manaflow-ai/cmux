@@ -263,7 +263,7 @@ export class CloudDO extends CloudIdle {
       team: entity,
       operations: this.platformOperations,
       now: Date.now() + this.skewMs,
-      providerInfo: () => ({ protocolVersion: 1, provider: "freestyle", region: "global", available: (this.env.CLOUD_VM_TRANSPORT === undefined || this.env.CLOUD_VM_TRANSPORT === "direct") && directCloudProvider(this.env).id === "freestyle" && cloudConfig(this.env).image !== null, shapeSelection: "grow-to-fit", minimumShape: null, memoryPause: true, fork: true }),
+      providerInfo: () => ({ protocolVersion: 1, provider: "freestyle", region: "global", available: this.env.PLATFORM_MACHINES === "on" && (this.env.CLOUD_VM_TRANSPORT === undefined || this.env.CLOUD_VM_TRANSPORT === "direct") && directCloudProvider(this.env).id === "freestyle" && cloudConfig(this.env).image !== null, shapeSelection: "grow-to-fit", minimumShape: null, memoryPause: true, fork: true }),
       arm: async (at) => {
         this.bind(entity)
         const realAt = Math.max(Date.now(), at - this.skewMs)
