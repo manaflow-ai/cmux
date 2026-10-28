@@ -181,7 +181,7 @@ enum RemoteHandlers {
         // task-owner: ends on loaded workspace, disconnect, dismissal, removed session, or closed window.
         session.connectPresentationTask = Task { @MainActor [weak window] in
             defer { recovery.stop() }
-            for await (loaded, status, failure) in ObservationStream({
+            for await (loaded, status, failure, _) in ObservationStream({
                 (daemon.store.isLoaded && daemon.connection != nil, session.linkStatus, session.daemonFailure, session.connectRecoveryAttempt)
             }) {
                 guard !Task.isCancelled, let window else { return }
