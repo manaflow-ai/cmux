@@ -1,6 +1,7 @@
 public import Foundation
 public import Observation
 public import CmuxNextWakeups
+public import CmuxNextAppearance
 
 /// The wallpaper choices, kept current off the main thread (``BackdropCatalog``).
 ///

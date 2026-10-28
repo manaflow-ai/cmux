@@ -111,7 +111,7 @@ impl App {
     pub(super) fn persist_default_policy(&self, policy: &str) {
         let client = self.client.clone();
         let policy = policy.to_owned();
-        tokio::spawn(async move {
+        self.background(async move {
             let _ = client.request("_acpmux/set_default_policy", json!({"policy":policy})).await;
         });
     }
@@ -444,7 +444,7 @@ impl App {
             Action::ReloadCatalog => {
                 let client = self.client.clone();
                 let tx = self.tx.clone();
-                tokio::spawn(async move {
+                self.background(async move {
                     match client.request(method::MUX_RELOAD_CONFIG, json!({})).await {
                         Ok(v) => {
                             let names = v

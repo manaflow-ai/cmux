@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 
 /// A virtualized grid of file tiles: thumbnails for pictures, poster frames
 /// and lengths for movies, newest first as given. Drag tiles out to any app
@@ -15,13 +16,15 @@ public import AppKit
 /// cost one screenful of renders.
 ///
 /// ```swift
-/// let grid = FileGridView(cache: ThumbnailCache())
+/// let grid = FileGridView(cache: ThumbnailCache(), work: mainWork)
 /// grid.show(listing.items)
 /// grid.onCommand = { command, items in commands.perform(command, on: items, in: grid.window) }
 /// grid.onDrop = { pasteboard in saver.canSave(pasteboard) }
 /// ```
 public final class FileGridView: NSView {
     private let cache: ThumbnailCache
+    /// Where each tile's rendered thumbnail and length land.
+    private let work: MainWorkScheduler
     private let scrollView = NSScrollView()
     /// The grid's scroll view (a page that saves its scroll position reads and sets it there).
     public var tilesScrollView: NSScrollView { scrollView }
@@ -59,9 +62,12 @@ public final class FileGridView: NSView {
     ///
     /// - Parameters:
     ///   - cache: the thumbnail cache (share one per app so tiles render once).
+    ///   - work: the app's main-thread scheduler (`AppServices.mainWork`): a rendered thumbnail or length lands on its
+    ///     tile as one visible task.
     ///   - appearance: colors and tile size.
-    public init(cache: ThumbnailCache, appearance: FileGridAppearance = FileGridAppearance()) {
+    public init(cache: ThumbnailCache, work: MainWorkScheduler, appearance: FileGridAppearance = FileGridAppearance()) {
         self.cache = cache
+        self.work = work
         self.appearanceValues = appearance
         super.init(frame: .zero)
         setUp()
@@ -167,7 +173,7 @@ public final class FileGridView: NSView {
         dataSource = NSCollectionViewDiffableDataSource<Int, String>(collectionView: collectionView) { [weak self] collectionView, indexPath, id in
             let cell = collectionView.makeItem(withIdentifier: FileGridCell.identifier, for: indexPath)
             if let self, let cell = cell as? FileGridCell, let item = self.itemsByID[id] {
-                cell.configure(item, appearance: self.appearanceValues, cache: self.cache, scale: self.window?.backingScaleFactor ?? 2)
+                cell.configure(item, appearance: self.appearanceValues, cache: self.cache, work: self.work, scale: self.window?.backingScaleFactor ?? 2)
             }
             return cell
         }
@@ -191,7 +197,7 @@ public final class FileGridView: NSView {
         layoutValues.invalidateLayout()
         for case let cell as FileGridCell in collectionView.visibleItems() {
             guard let item = cell.item else { continue }
-            cell.configure(item, appearance: appearanceValues, cache: cache, scale: window?.backingScaleFactor ?? 2)
+            cell.configure(item, appearance: appearanceValues, cache: cache, work: work, scale: window?.backingScaleFactor ?? 2)
         }
     }
 

@@ -1,6 +1,7 @@
 public import CoreGraphics
 public import Foundation
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// Fixed chrome constants (the 2 pt spacing grid, divider widths, insets)
 /// and the glass and scroll-fade parameters, as Debug Settings tunables.
@@ -42,11 +43,8 @@ public nonisolated enum ChromeTunables {
         "chrome.tabs.rowTools", .tabs, "Chat tools in the tab row",
         help: "A chat's header tools sit at the right end of its pane's tab row instead of a row of their own; the tabs make room. Off: the chat header is its own row under the tabs.",
         default: true, code: "ChromeTunables.tabRowTools")
-    // @intent opt-in looks live in Debug Settings, off by default, until promoted (Lawrence via Leo, 2026-10-15).
-    public static let interfaceSize = Tunable<Bool>.toggle(
-        "chrome.interfaceSize", .shape, "Interface size",
-        help: "Scale chrome type, spacing and control heights together by appearance.interfaceScale (90, 100, 110 or 125%). Off: 100%.",
-        default: false, code: "ChromeTunables.interfaceSize")
+    /// The Interface Size opt-in, declared with the setting it gates (``DesignSettings/interfaceSizeTunable``).
+    public static var interfaceSize: Tunable<Bool> { DesignSettings.interfaceSizeTunable }
     public static let compactTabContentLeadingInset = points("compactTabContentLeadingInset", .tabs, "Compact tab content inset",
                                                              help: "Tab content inset under Compact tabs.", 6, range: 0...24)
     public static let dividerThickness = points("dividerThickness", .panes, "Divider thickness", help: "Visible line between split panes.", 1, range: 0...6)

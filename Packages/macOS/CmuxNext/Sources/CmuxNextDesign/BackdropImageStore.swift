@@ -5,6 +5,7 @@ import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// Backdrop images decoded, textured and cached once per process, shared by every window, and
 /// kept on disk for the next launch.

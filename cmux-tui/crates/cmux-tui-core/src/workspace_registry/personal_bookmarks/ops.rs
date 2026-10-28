@@ -2,6 +2,7 @@
 //! caller's transaction, and `WorkspaceRegistry::apply_bookmark_op` runs one
 //! op with its replay record in one transaction.
 
+use anyhow::Context;
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
@@ -240,10 +241,12 @@ fn import_in(tx: &Transaction<'_>, import: BookmarkImport) -> anyhow::Result<(Ve
     validate_profile_shape(profile)?;
     validate_key("source_key", import.source_key.as_deref())?;
     let (count, height) = validate_import_nodes(&import.nodes)?;
-    ensure_valid!(count > 0, "nodes cannot be empty");
+    let Some((root, rest)) = import.nodes.split_first() else {
+        return Err(invalid_bookmark("nodes cannot be empty"));
+    };
     if import.replace {
         ensure_valid!(import.source_key.is_some(), "replace needs a source_key");
-        ensure_valid!(import.nodes[0].kind == "folder", "replace needs a folder as the first node");
+        ensure_valid!(root.kind == "folder", "replace needs a folder as the first node");
     }
     let now = now_ms()?;
     ensure_profile(tx, profile)?;
@@ -276,7 +279,6 @@ fn import_in(tx: &Transaction<'_>, import: BookmarkImport) -> anyhow::Result<(Ve
             ),
             [&folder],
         )?;
-        let root = &import.nodes[0];
         tx.execute(
             "UPDATE bookmarks SET title = ?2 WHERE bookmark_id = ?1",
             params![folder, root.title],
@@ -290,7 +292,6 @@ fn import_in(tx: &Transaction<'_>, import: BookmarkImport) -> anyhow::Result<(Ve
             None,
             now,
         )?;
-        let rest = &import.nodes[1..];
         let mut ids = vec![folder];
         if !rest.is_empty() {
             let after = stored.index + 1;
@@ -452,7 +453,7 @@ impl WorkspaceRegistry {
                 key.origin
             );
             let mut result: Value = serde_json::from_str(&result)?;
-            result["replayed"] = json!(true);
+            mark_replayed(&mut result, true)?;
             return Ok(BookmarkOutcome { result, changed: None });
         }
         let (mut result, changed) = apply_op(&tx, op)?;
@@ -464,7 +465,17 @@ impl WorkspaceRegistry {
             None => None,
         };
         tx.commit()?;
-        result["replayed"] = json!(false);
+        mark_replayed(&mut result, false)?;
         Ok(BookmarkOutcome { result, changed })
     }
+}
+
+/// A bookmark result is always an object (`apply_op` and the stored replay
+/// both build one); anything else is a corrupt replay row, reported.
+fn mark_replayed(result: &mut Value, replayed: bool) -> anyhow::Result<()> {
+    result
+        .as_object_mut()
+        .context("stored bookmark result is not an object")?
+        .insert("replayed".into(), json!(replayed));
+    Ok(())
 }

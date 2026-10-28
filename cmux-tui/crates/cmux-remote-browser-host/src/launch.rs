@@ -177,6 +177,7 @@ pub fn accept_viewers(
     let (admitted, viewers) = mpsc::channel::<Admitted>();
     let pending: Arc<Mutex<VecDeque<(u64, TcpStream)>>> = Arc::default();
     let secret: Option<Arc<str>> = secret.map(Arc::from);
+    // supervise-allow: the acceptor of accept_viewers; a panic drops its `admitted` sender, so once in-flight admissions end `viewers` closes and accept_viewers returns to its caller, as when the listener ends.
     std::thread::spawn(move || {
         for (id, conn) in (0u64..).zip(listener.incoming()) {
             // A failed accept or a peer that reset before setsockopt ends
@@ -217,6 +218,7 @@ pub fn accept_viewers(
                     Err(e) => eprintln!("serve: session failed: {e}"),
                 }
             };
+            // supervise-allow: one viewer's admission, bounded by `deadline`; a panic drops its stream (refused) and its `pending` slot is cut by the next accept's cap.
             if let Err(e) = std::thread::Builder::new().spawn(admission) {
                 // The closure (and its stream) is dropped; the slot it took
                 // in `pending` closes with it.

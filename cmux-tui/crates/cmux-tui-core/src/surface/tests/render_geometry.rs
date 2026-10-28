@@ -101,6 +101,56 @@ fn stalled_render_tap_retains_only_latest_frame_and_scroll_state_in_order() {
     assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Empty)));
 }
 
+/// A lagging consumer with an undrained scroll S1 and the frame F1 built after
+/// it must not get F1 before S1 when a second scroll S2 arrives before F2 is
+/// built: F1 shows the rows S1 moved (spec/render.md "Stream Ordering").
+#[test]
+fn lagging_render_tap_never_delivers_a_frame_before_the_scroll_that_moved_its_rows() {
+    let mux = Mux::new_for_test("render-tap-scroll-order", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let pty = surface.as_pty().unwrap();
+    let attach = surface.attach_render_stream().unwrap();
+    let mut generation = pty.render.lock().unwrap().built_generation;
+    let mut frame = |text: &[u8]| {
+        let mut term = pty.term.lock().unwrap();
+        term.vt_write(text);
+        generation += 1;
+        pty.build_frame_locked(&mut term, generation, false).unwrap();
+        pty.render.lock().unwrap().latest.clone().unwrap()
+    };
+    let is_scroll = |event: &RenderAttachFrame, expected: u64| matches!(event, RenderAttachFrame::ScrollChanged { offset, at_bottom: false } if *offset == expected);
+
+    // S1, F1, S2, then the writer pops before F2 is built.
+    broadcast_render_scroll_locked(pty, (4, false));
+    let f1 = frame(b"\x1b[1;1Ha");
+    broadcast_render_scroll_locked(pty, (2, false));
+    let first = attach.stream.try_recv().unwrap();
+    assert!(is_scroll(&first, 4), "S1 must come before F1, got {first:?}");
+    let second = attach.stream.try_recv().unwrap();
+    assert!(
+        matches!(&second, RenderAttachFrame::Frame(frame) if Arc::ptr_eq(frame, &f1)),
+        "F1 follows S1, got {second:?}"
+    );
+    let third = attach.stream.try_recv().unwrap();
+    assert!(is_scroll(&third, 2), "S2 follows F1, got {third:?}");
+    assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Empty)));
+
+    // S1, F1, S2, F2 undrained: the newest position leads the coalesced frame,
+    // and the first event is still a scroll-changed.
+    broadcast_render_scroll_locked(pty, (4, false));
+    frame(b"\x1b[2;1Hb");
+    broadcast_render_scroll_locked(pty, (2, false));
+    let f2 = frame(b"\x1b[3;1Hc");
+    let first = attach.stream.try_recv().unwrap();
+    assert!(is_scroll(&first, 2), "the newest scroll leads the coalesced frame, got {first:?}");
+    let RenderAttachFrame::Frame(coalesced) = attach.stream.try_recv().unwrap() else {
+        panic!("the coalesced frame follows the scroll");
+    };
+    assert_eq!(coalesced.frame.seq, f2.frame.seq);
+    assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Empty)));
+}
+
 #[test]
 fn render_attachments_are_bounded_across_a_mux() {
     const EXPECTED_MAX_ATTACHMENTS: usize = 64;

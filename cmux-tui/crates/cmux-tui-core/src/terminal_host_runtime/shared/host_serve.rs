@@ -913,9 +913,11 @@ impl ClientControl {
         let frames = self.frames.clone();
         let lane = self.lane.clone();
         // The thread ends with the client; nothing joins it.
-        let spawned = cmux_threads::spawn(
+        let spawned = crate::supervised::spawn_at(
             "terminal-host-client-control",
             cmux_threads::ThreadQos::UserInitiated,
+            crate::supervised::Fatal,
+            crate::supervised::ShutdownBehavior::Continue,
             move || run_control(&frames, &lane),
         );
         match spawned {

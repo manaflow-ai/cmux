@@ -85,29 +85,33 @@ final class AgentPaneDictation {
     var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     static let holdThreshold: TimeInterval = 0.35
 
+    /// - Parameters:
+    ///   - mainThread: The app's main-thread scheduling; its deadlines run the default session (its stop deadline
+    ///     and its events), and its notices end a hold and stop on sleep.
+    ///   - makeSession: Makes the session on first use; nil makes the on-device one.
     init(
         input: InputEventTap,
         mainThread: AgentPaneMainThread,
         send: @escaping (DictationUpdate) -> Void,
         microphone: DictationMicrophone = .shared,
-        makeSession: @escaping () -> DictationSession = { AgentPaneDictation.defaultSession() }
+        makeSession: (() -> DictationSession)? = nil
     ) {
         self.input = input
         self.mainThread = mainThread
         self.send = send
         self.microphone = microphone
-        self.makeSession = makeSession
+        self.makeSession = makeSession ?? { AgentPaneDictation.defaultSession(deadlines: mainThread.deadlines) }
     }
 
     var phase: DictationPhase { session?.phase ?? .idle }
 
     /// The on-device engine. Debug builds hear a recorded clip instead when
     /// `CMUX_NEXT_DICTATION_AUDIO_FILE` names one (machines without a microphone).
-    static func defaultSession() -> DictationSession {
+    static func defaultSession(deadlines: MainDeadlineScheduler) -> DictationSession {
         #if DEBUG
-        if let recorded = DictationSession.recorded() { return recorded }
+        if let recorded = DictationSession.recorded(deadlines: deadlines) { return recorded }
         #endif
-        return DictationSession()
+        return DictationSession(deadlines: deadlines)
     }
 
     func handle(_ command: AgentPaneDictationCommand) {
