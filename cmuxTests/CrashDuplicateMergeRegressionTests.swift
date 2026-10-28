@@ -8,6 +8,37 @@ import Testing
 #endif
 
 extension CrashDiagnosticSessionPolicyTests {
+    @Test("A large restored generation retains every panel and its scrollback")
+    func crashMergeLargeScrollbackGeneration() throws {
+        let scrollback = String(repeating: "x", count: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal)
+        let workspaces = (0..<41).map { index -> SessionWorkspaceSnapshot in
+            var workspace = terminalWorkspaceSnapshot(currentDirectory: "/work/\(index)")
+            workspace.workspaceId = UUID()
+            workspace.panels = (0..<4).map { _ in
+                terminalPanelSnapshot(
+                    id: UUID(), directory: workspace.currentDirectory,
+                    terminal: SessionTerminalPanelSnapshot(workingDirectory: workspace.currentDirectory, scrollback: scrollback)
+                )
+            }
+            workspace.layout = .pane(SessionPaneLayoutSnapshot(
+                panelIds: workspace.panels.map(\.id), selectedPanelId: workspace.panels[0].id
+            ))
+            return workspace
+        }
+        let window = crashTestWindow(workspaces)
+        let start = ContinuousClock.now
+        let restored = try #require(SessionPersistencePolicy.snapshotForLiveRestore(AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion, createdAt: 10, windows: [window, window]
+        )))
+        let elapsed = start.duration(to: .now)
+        #expect(restored.windows.count == 1)
+        let panels = restored.windows[0].tabManager.workspaces.flatMap(\.panels)
+        #expect(panels.count == 164)
+        #expect(Set(panels.map(\.id)) == Set(workspaces.flatMap(\.panels).map(\.id)))
+        #expect(panels.allSatisfy { $0.terminal?.scrollback == scrollback })
+        print("Crash merge: 41 workspaces, 164 panels, \(164 * scrollback.utf8.count) scrollback bytes per generation, elapsed \(elapsed)")
+    }
+
     @Test("Recovered scrollback in only one crash generation survives metadata selection")
     func crashMergeKeepsPartiallyRecoveredScrollback() throws {
         let original = crashTestWindow([crashTestWorkspace("api", agents: ["a"])])
