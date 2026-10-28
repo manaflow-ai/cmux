@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { variantAgentCommand } from "../services/runs/agentCommand";
+import { variantAgentCommand } from "../services/runs/legacy/agentCommand";
 import { runChild } from "./helpers/run-child";
 
 const ATTEMPT = "4429d817-69f4-429c-9524-34e8fcd2591c";
@@ -57,7 +57,7 @@ test("variant instruction reaches codex as one literal argument", async () => {
 });
 
 test("instruction text with String.replace patterns is inserted verbatim into the guest script", async () => {
-  const { withVariantExecution } = await import("../services/runs/agentCommand");
+  const { withVariantExecution } = await import("../services/runs/legacy/agentCommand");
   const source = "set -eu\n# CMUX_VARIANT_EXECUTION\nprintf '%s\\n' 'cmux-run:marker'";
   for (const instruction of ["keep $& and $' and $` literal", "plain"]) {
     const script = withVariantExecution(source, instruction, ATTEMPT);

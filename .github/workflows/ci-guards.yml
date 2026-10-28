@@ -81,6 +81,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: A red runner guard check cannot skip or excuse another
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_ci_guard_check_isolation.py
+
       - name: Validate macOS runner guards
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh
@@ -127,6 +131,10 @@ jobs:
       - name: Validate the repository variable check
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_check_repo_variables.py
+
+      - name: Validate no runs-on waits on one machine through a variable's value
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_runs_on_values.py
 
       - name: Validate the cloud overflow switch
         if: ${{ matrix.group == 'ci' }}
@@ -1413,6 +1421,7 @@ jobs:
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_nightly_off_blacksmith.py
           python3 tests/test_classic_nightly_build_runner.py
+          python3 tests/test_ci_publisher_mac_jobs_move.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
 
       - name: Validate test compilation cache seeding

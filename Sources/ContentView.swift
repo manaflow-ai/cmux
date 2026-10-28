@@ -15797,9 +15797,10 @@ struct SidebarFooterButtons: View {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
     }
 
+    /// Account and sign-in state only: the flow refetches on a team change.
     private var billingPlanRefreshID: String? {
         guard let flow = accountFlow, let accountID = flow.currentIdentity?.id else { return nil }
-        return "\(accountID):\(flow.confirmedTeamID ?? "personal"):\(flow.isAuthenticated)"
+        return "\(accountID):\(flow.isAuthenticated)"
     }
 
     private var isProStatusKnownForUpgrade: Bool {

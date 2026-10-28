@@ -18,8 +18,11 @@ permissions:
   contents: read
   actions: read
 
+# One group per run: every write is conditional, so runs never need to wait
+# for each other, and a shared group let a pull request run replace a waiting
+# repair.
 concurrency:
-  group: repair-nightly-appcast-content-types
+  group: repair-nightly-appcast-content-types-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:

@@ -1,4 +1,4 @@
-import { getStackServerApp } from "../../app/lib/stack";
+import { getStackServerApp } from "../../../app/lib/stack";
 import { isRunCloudOperationPending, parseRunCloudResponse, RunCloudOperationPending, RunCloudHttpError } from "./cloudClientContract";
 
 export { isRunCloudOperationPending, RunCloudOperationPending } from "./cloudClientContract";

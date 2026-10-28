@@ -4,9 +4,9 @@ name: CI cloud overflow probe
 # (2026-09-29: from about 10:15Z, 1 of about 1,986 runners online and about
 # 150 runs queued for two hours), the runner variables that send overflow
 # there (LINUX_RUNNER, CI_TRUSTED_RUNNER, MACOS_RUNNER_*, CI_PAID_MACOS_OVERFLOW) are pointed at
-# the owned pools and GitHub-hosted Linux, and pointed back once it serves
+# the owned pools and another Blacksmith Linux size, and pointed back once it serves
 # again. One probe, one switch: `probe` asks for a Blacksmith label and only
-# prints a line; `watch`, on a GitHub-hosted runner, waits for it.
+# prints a line; `watch`, on another Blacksmith pool, waits for it.
 # scripts/ci/cloud_overflow_switch.py has the rules:
 #
 # - The probe starts within CI_CLOUD_PROBE_MINUTES (default 5) of being
@@ -55,7 +55,7 @@ jobs:
     name: Blacksmith probe
     if: github.repository_owner == 'manaflow-ai'
     # The Blacksmith label overflow uses, never the variable's failover:
-    # while overflow is off LINUX_RUNNER names GitHub-hosted, so the record
+    # while overflow is off LINUX_RUNNER names the failover size, so the record
     # keeps the label to probe (cloud_overflow_switch.probe_label()).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'workflow_dispatch' && inputs.probe_label != '' && inputs.probe_label || startsWith(fromJSON(vars.CI_CLOUD_OVERFLOW_SAVED || '{"probe":""}').probe, 'blacksmith-') && fromJSON(vars.CI_CLOUD_OVERFLOW_SAVED).probe || startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 2
@@ -67,7 +67,18 @@ jobs:
   watch:
     name: Watch the probe and switch overflow
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing
+    # Never GitHub-hosted Ubuntu (Leo, 2026-10-27: "just put it on blacksmith /
+    # 16vcpu blacksmiths do exist"). On 2026-10-27 the watch queued 94 minutes
+    # (19:22Z to 20:56Z) on hosted ubuntu-24.04, which the switch's own
+    # failover had filled; this run held the concurrency group meanwhile, so
+    # every later scheduled run was evicted with no jobs and nothing decided.
+    # While overflow is on, the watch takes a Blacksmith Linux size the probe
+    # does not ask for (the switch's Linux failover). While it is off, Linux
+    # overflow is on that size, so the watch takes Blacksmith macOS: it can
+    # still put overflow back however the Linux sizes fare. The same holds
+    # whenever the probe itself asks for 16 vCPU (LINUX_RUNNER or a drill
+    # naming it), so the watch never queues behind its own probe.
+    runs-on: ${{ (vars.CI_CLOUD_OVERFLOW_SAVED || startsWith(vars.LINUX_RUNNER, 'blacksmith-16vcpu-') || startsWith(inputs.probe_label, 'blacksmith-16vcpu-')) && 'blacksmith-6vcpu-macos-26' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     permissions:
       actions: write

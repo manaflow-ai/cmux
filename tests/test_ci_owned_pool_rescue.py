@@ -1492,10 +1492,60 @@ class StrandedCancel(unittest.TestCase):
         self.assertEqual(rescue.cancel_marks([f"{rescue.CANCEL_SENT} run 5 attempt 1{rescue.EVERY_JOB}",
                                               f"{rescue.CANCEL_SENT} run 6 attempt 10"]),
                          {(5, 1): "sent all", (6, 10): "sent"})
+
+    def test_a_rewatch_that_finds_a_stopped_rescue_resumes_its_re_run(self):
+        # The refusals-only rewatch after a queue alarm, and the E2E watch of the next attempt, can also find a run a
+        # rescue cancelled and stopped before re-running: both finish that re-run, as the first watch does.
+        for case in ("refusals only", "next attempt"):
+            clock = Clock()
+            api = CancelledAPI(clock)
+            looks = iter([("rescue", "queue alarm"), ("resume", "all")])
+            resumed = []
+
+            def resume_rerun(api, target, *, now, sleep, log, every_job):
+                resumed.append((target.attempt, every_job))
+                return "re-ran it"
+            target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY, refusals_only=case == "refusals only")
+            with unittest.mock.patch.object(rescue, "watch", lambda *args, **kwargs: next(looks)), \
+                    unittest.mock.patch.object(rescue, "resume_rerun", resume_rerun), \
+                    unittest.mock.patch.object(rescue, "hold_for_destination",
+                                               lambda client, target, outcome, reason, **_: (outcome, reason, "")), \
+                    unittest.mock.patch.object(rescue, "rescue",
+                                               lambda *args, **kwargs: f"re-ran every job of run {RUN_ID}"):
+                result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                       log=lambda _: None)
+            self.assertEqual(result, "done", case)
+            self.assertEqual(resumed, [(1 if case == "refusals only" else 2, True)], case)
         # A mark logged with Windows line endings still counts.
         self.assertEqual(rescue.cancel_marks([f"{rescue.CANCEL_SETTLED} run 5 attempt 1\r\n",
                                               f"{rescue.CANCEL_SENT} run 6 attempt 2{rescue.EVERY_JOB}\r\n"]),
                          {(5, 1): "settled", (6, 2): "sent all"})
+
+    def test_the_next_attempt_s_destination_hold_resumes_a_stopped_rescue(self):
+        # The hold (the real one) watches on while the re-run's label is stalled, and finds attempt 2 cancelled by a
+        # rescue that stopped before re-running it: that re-run is finished, never left cancelled.
+        clock = Clock()
+        api = CancelledAPI(clock)
+        looks = iter([("rescue", "queue alarm"), ("rescue", "queue alarm"), ("resume", "failed")])
+        verdicts = iter([("free", BLACKSMITH), ("stalled", BLACKSMITH)])
+        resumed, logged = [], []
+
+        def resume_rerun(api, target, *, now, sleep, log, every_job):
+            resumed.append((target.attempt, every_job))
+            return "re-ran it"
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
+        with unittest.mock.patch.object(rescue, "watch", lambda *args, **kwargs: next(looks)), \
+                unittest.mock.patch.object(rescue, "resume_rerun", resume_rerun), \
+                unittest.mock.patch.object(rescue, "repicks", lambda target: False), \
+                unittest.mock.patch.object(rescue, "pull_moved", lambda *args: False), \
+                unittest.mock.patch.object(rescue, "move_verdict", lambda *args, **kwargs: next(verdicts)), \
+                unittest.mock.patch.object(rescue, "rescue",
+                                           lambda *args, **kwargs: f"re-ran every job of run {RUN_ID}"):
+            result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                   log=logged.append)
+        self.assertEqual(result, "done", logged)
+        self.assertEqual(resumed, [(2, False)], logged)
+        self.assertTrue(any("is stalled" in line for line in logged), logged)
 
     def test_a_rescue_history_past_the_page_cap_leaves_the_run_cancelled(self):
         api = rescue.GitHub("t", "manaflow-ai/cmux")
@@ -1537,6 +1587,18 @@ class StrandedCancel(unittest.TestCase):
         self.assertNotIn("status=completed", asked[0])
         self.assertEqual([path for path in asked if "/attempts/" in path],
                          ["/actions/runs/3/attempts/2/jobs?per_page=20", "/actions/runs/3/attempts/1/jobs?per_page=20"])
+
+    def test_a_cancel_after_the_watch_looked_is_never_re_run(self):
+        # The watch found a refusal; before rescue() read the run, someone cancelled it. No cancel was this rescue's.
+        clock = Clock()
+        api = CancelledAPI(clock, cancelled=True, note="The run was canceled by @leo.")
+        clock.sleep(60)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
+        for refused in (True, None):
+            result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None,
+                                   failed_only=True, refused=refused, refusal=True)
+            self.assertEqual(result, "not rescued: the run was cancelled by @leo meanwhile; left cancelled", refused)
+        self.assertEqual(mutations(api), [])
 
     def test_a_re_run_of_the_rescue_workflow_acts_on_nothing(self):
         # Its marks could fall outside rescue_jobs()' creation window (the run keeps attempt 1's created_at).
@@ -4533,6 +4595,12 @@ jobs:
   sign-nightly-identity-legacy:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || 'blacksmith-6vcpu-macos-26' }}
 """
+# nightly-next's verify jobs (feat-cmux-next's nightly.yml): an owned Mac on attempt 1, the alternate after.
+SIGN_VERIFY_WORKFLOW = """  verify-signed-nightly:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+  verify-final-dmg-nightly:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+"""
 # The same jobs before the alternate label (nightly.yml before #26171): a re-run takes the stalled label again.
 SIGN_WORKFLOW_BEFORE = """
 jobs:
@@ -4882,6 +4950,132 @@ class NightlySigningStall(unittest.TestCase):
             _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
         self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
         self.assertIn("its signing jobs take their alternate macOS label", summary)
+
+    def later_attempt(self, attempt, jobs, *, after=None):
+        """Attempt `attempt` of a nightly-next push run (a re-run the sweeper adopted), its jobs `jobs`; after a
+        re-run, attempt + 1's jobs are `after`."""
+        clock = Clock()
+        api = NightlyAPI(clock, lambda seconds: [], workflow=SIGN_WORKFLOW + SIGN_VERIFY_WORKFLOW,
+                         rerun_jobs=lambda seconds: jobs(seconds) if api.attempt == attempt else (after or jobs)(seconds))
+        api.attempt = attempt
+        target = rescue.sweep_target(dict(nightly_event(head_branch="nightly-next")["workflow_run"],
+                                          run_attempt=attempt, status="in_progress"), "manaflow-ai/cmux", late=False)
+        self.assertIsInstance(target, rescue.Target)
+        return clock, api, target
+
+    def test_a_later_attempt_s_stalled_sign_and_verify_jobs_get_a_full_re_run(self):
+        # Run 40500413442: attempt 2's legacy sign queued on blacksmith-12vcpu-macos-26 from 13:01Z and its two verify
+        # jobs from 15:15Z, everything else finished. A re-run of failed jobs would read attempt 2's own pick again.
+        stalled = "blacksmith-12vcpu-macos-26"
+
+        def attempt_2(seconds):
+            done = [dict(job("decide", status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"]), id=1,
+                         conclusion="success"),
+                    dict(job("build-nightly-app", status="completed", labels=[BLACKSMITH], runner="bs-1"), id=2,
+                         conclusion="success"),
+                    dict(job("build-sign-notarize-nightly (arm64)", status="completed", labels=[stalled], runner="bs-2"),
+                         id=3, conclusion="success")]
+            return done + [dict(job("sign-nightly-identity-legacy", labels=[stalled], created=60), id=4),
+                           dict(job("Verify signed nightly app (arm64)", labels=[stalled], created=90), id=5),
+                           dict(job("Verify final nightly DMG (arm64)", labels=[stalled], created=90), id=6)]
+
+        def attempt_3(seconds):
+            # The pickers ran again: the signing and verify jobs take a label that is running (or an owned Mac).
+            return [dict(job("pick-nightly-sign-runner", status="completed", labels=["ubuntu-24.04"]), id=11,
+                         conclusion="success"),
+                    dict(job("sign-nightly-identity-legacy", status="in_progress", labels=[BLACKSMITH], runner="bs-9"),
+                         id=12),
+                    dict(job("Verify signed nightly app (arm64)", status="in_progress", labels=[LIGHT],
+                             runner="mini-1"), id=13)]
+        for attempt in (2, 3):
+            clock, api, target = self.later_attempt(attempt, attempt_2, after=attempt_3)
+            lines = []
+            result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                   log=lines.append)
+            self.assertEqual(result, "done", lines)
+            # A full re-run (the pickers choose again), never a re-run of failed jobs onto the stalled label.
+            self.assertEqual(mutations(api), ["cancel", "rerun"], attempt)
+            self.assertEqual(api.attempt, attempt + 1)
+            self.assertTrue(any(f"attempt {attempt + 1}'s pickers choose its signing labels again" in line
+                                for line in lines), lines)
+            self.assertGreaterEqual(api.first_cancel, 90 + rescue.SIGN_STALL_SECONDS)
+            # The next attempt's sign and verify jobs run where the pickers put them: nothing more to rescue there.
+            next_target = dataclasses.replace(target, attempt=attempt + 1)
+            api.calls.clear()
+            api.finished = lambda seconds: False
+            rescue.follow(api, next_target, seconds=30, queue_rounds="0", now=clock.now,
+                          sleep=clock.sleep, log=lines.append)
+            self.assertEqual(mutations(api), [], attempt)
+
+    def test_a_later_attempt_with_an_accepted_owned_job_still_watches_its_signing(self):
+        # A re-run the sweeper adopted (no marker, so not a full re-run) whose app build an owned Mac took: the watch
+        # must not stop at "the fleet accepted the retry" before its sign and verify jobs have stalled long enough.
+        stalled = "blacksmith-12vcpu-macos-26"
+
+        def attempt_n(seconds):
+            done = [dict(job("decide", status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"]), id=1,
+                         conclusion="success"),
+                    dict(job("build-nightly-app", status="completed", labels=[LIGHT], runner="mini-2"), id=2,
+                         conclusion="success")]
+            return done + [dict(job("sign-nightly-identity-legacy", labels=[stalled], created=60), id=4),
+                           dict(job("Verify signed nightly app (arm64)", labels=[stalled], created=90), id=5)]
+
+        def after(seconds):
+            return [dict(job("sign-nightly-identity-legacy", status="in_progress", labels=[LIGHT], runner="mini-1"),
+                         id=12)]
+        for attempt in (2, 3):
+            clock, api, target = self.later_attempt(attempt, attempt_n, after=after)
+            self.assertFalse(target.full_rerun)
+            lines = []
+            result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                   log=lines.append)
+            self.assertEqual(result, "done", lines)
+            self.assertFalse(any("the fleet accepted the retry" in line for line in lines), lines)
+            self.assertEqual(mutations(api), ["cancel", "rerun"], (attempt, lines))
+            self.assertEqual(api.attempt, attempt + 1)
+            self.assertGreaterEqual(api.first_cancel, 90 + rescue.SIGN_STALL_SECONDS)
+
+    def test_the_sweeper_adopts_a_nightly_next_re_run_on_blacksmith(self):
+        # Run 40500413442's attempt 2 left no marker (its build picker chose Blacksmith): the sweeper lists it.
+        run = dict(nightly_event(head_branch="nightly-next")["workflow_run"], id=7, run_attempt=2,
+                   status="in_progress")
+
+        class API(SweepAPI):
+            listed = 0
+
+            def nightly_reruns(self, count):
+                API.listed += 1
+                return [(7, 2)]
+        api = API([run])
+        watched, _ = Sweeper.sweep(Sweeper(), api, ticks=rescue.SIDE_FAILURE_TICKS + 1)
+        self.assertEqual(watched, [(7, 2, False)])
+        self.assertEqual(API.listed, 2)  # every SIDE_FAILURE_TICKS ticks
+        # The listing reads nightly-next's unfinished runs and keeps attempts 2 through SIGN_RESCUE_LAST_ATTEMPT.
+        github = rescue.GitHub("t", "manaflow-ai/cmux")
+        asked = []
+
+        def request(method, path, **_):
+            asked.append(path)
+            return {"workflow_runs": [dict(run, run_attempt=attempt, id=attempt) for attempt in (1, 2, 3, 4)]
+                    + [dict(run, id=9, head_branch="main")]}
+        github.request = request
+        self.assertEqual(github.nightly_reruns(5), [(2, 2), (3, 3)] * 2)
+        self.assertTrue(all("branch=nightly-next" in path and "nightly.yml" in path for path in asked))
+
+    def test_a_later_attempt_never_cancels_started_work_and_stops_at_the_last_attempt(self):
+        # The arm64 sign/notarize job still runs on attempt 2: the stalled legacy sign waits for it.
+        clock, api, target = self.later_attempt(2, signing_run(started_at=300))
+        rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                      log=lambda _: None)
+        self.assertEqual(mutations(api), [])
+        # Past SIGN_RESCUE_LAST_ATTEMPT a full re-run would build the app once more: left to the nightly helper.
+        last = rescue.SIGN_RESCUE_LAST_ATTEMPT + 1
+        clock, api, target = self.later_attempt(last, signing_run())
+        rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                      log=lambda _: None)
+        self.assertEqual(mutations(api), [])
+        self.assertTrue(rescue.signing_rerun_full(2))
+        self.assertFalse(rescue.signing_rerun_full(1))
 
     def test_signing_stall_rules(self):
         now = START + dt.timedelta(seconds=60 + rescue.SIGN_STALL_SECONDS)

@@ -367,7 +367,7 @@ if ! awk '
   /^  generate-nightly-deltas:/ { job="delta"; next }
   /^  republish-nightly-deltas:/ { job="republish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  job == "delta" && /needs: \[decide, build-nightly-app, publish-nightly\]/ { saw_publish_need=1 }
+  job == "delta" && /needs: \[decide, build-nightly-app, publish-nightly(, pick-classic-sign-runner)?\]/ { saw_publish_need=1 }
   job == "delta" && /fail-fast: false/ { saw_matrix=1 }
   job == "republish" && /needs: \[decide, build-nightly-app, publish-nightly, generate-nightly-deltas\]/ { saw_delta_need=1 }
   job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
@@ -968,8 +968,8 @@ job_if() {
 PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')"
 if [ "$(job_if build-nightly-app)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE\"" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
-  || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
-  || [ "$(job_if resolve-nightly-cmux-tui-client)" != "$(job_if build-sign-notarize-nightly)" ] \
+  || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'\"" ] \
+  || [ "$(job_if resolve-nightly-cmux-tui-client)" != "$(job_if build-nightly-ghostty-cli-helper)" ] \
   || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.should_publish != 'true' && $PUBLISH_SCHEDULE" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1

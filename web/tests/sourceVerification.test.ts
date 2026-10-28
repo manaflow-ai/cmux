@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { normalizeRunSpec, type RunSpec } from "../services/runs/spec";
+import { normalizeRunSpec, type RunSpec } from "../services/runs/legacy/spec";
 import {
   assertFreestyleSource,
   githubRepositoryUrl,
@@ -13,7 +13,7 @@ import {
   setupExecutionCommand,
   sourceVerificationCommand,
   SourceVerificationError,
-} from "../services/runs/sourceVerification";
+} from "../services/runs/legacy/sourceVerification";
 
 const digest = "sha256:" + "a".repeat(64);
 const commit = "0123456789abcdef0123456789abcdef01234567";
