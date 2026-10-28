@@ -816,7 +816,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             }
             let id = DaemonTree.tabID(surface: surface)
             let tree = try await sync.listNow()
-            guard let copy = tree.workspaces.flatMap(\.tabs).first(where: { $0.id == id }) else {
+            // A chat of the Mac's Home forks there too (its tabs are listed apart).
+            guard let copy = (tree.workspaces + tree.homeWorkspaces).flatMap(\.tabs).first(where: { $0.id == id }) else {
                 throw WorkspaceCreationError("The new tab didn't appear on the Mac")
             }
             return copy

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// A workspace's panes as its Mac lays them out (cmux-tui `list-workspaces`: screens, each
@@ -18,9 +19,12 @@ public struct WorkspaceLayout: Hashable, Sendable {
         public var isFocused: Bool
         /// The pane is zoomed on the Mac (it fills its screen there).
         public var isZoomed: Bool
+        /// Every tab the pane holds on the Mac, listed by the phone or not (a `move-tab` index counts them all).
+        public var tabCount: Int
 
         public init(id: Int, name: String = "", tabIDs: [String], activeTabID: String? = nil,
-                    isFocused: Bool = false, isZoomed: Bool = false) {
+                    isFocused: Bool = false, isZoomed: Bool = false, tabCount: Int? = nil) {
+            self.tabCount = tabCount ?? tabIDs.count
             self.id = id
             self.name = name
             self.tabIDs = tabIDs
@@ -75,6 +79,40 @@ public struct WorkspaceLayout: Hashable, Sendable {
             }
         }
 
+        /// The node without the panes `gone` (dead panes the Mac still keeps a leaf for): a split
+        /// whose side is all gone is its other side. Nil when nothing is left.
+        public func removing(_ gone: Set<Int>) -> Node? {
+            guard !gone.isEmpty else { return self }
+            switch self {
+            case .pane(let id): return gone.contains(id) ? nil : self
+            case .stack(let panes, let expanded):
+                let kept = panes.filter { !gone.contains($0) }
+                guard let first = kept.first else { return nil }
+                return .stack(kept, expanded: kept.contains(expanded) ? expanded : first)
+            case .split(let id, let axis, let ratio, let first, let second):
+                switch (first.removing(gone), second.removing(gone)) {
+                case let (a?, b?): return .split(id: id, axis: axis, ratio: ratio, first: a, second: b)
+                case let (a?, nil): return a
+                case let (nil, b?): return b
+                case (nil, nil): return nil
+                }
+            }
+        }
+
+        /// Each shown pane's frame in `rect` at the split ratios (a stack shows its expanded pane).
+        public func frames(in rect: CGRect) -> [Int: CGRect] {
+            switch self {
+            case .pane(let id): return [id: rect]
+            case .stack(_, let expanded): return [expanded: rect]
+            case .split(_, let axis, let ratio, let first, let second):
+                let share = min(max(ratio, 0.05), 0.95)
+                let (a, b) = axis == .horizontal
+                    ? rect.divided(atDistance: rect.width * share, from: .minXEdge)
+                    : rect.divided(atDistance: rect.height * share, from: .minYEdge)
+                return first.frames(in: a).merging(second.frames(in: b)) { lhs, _ in lhs }
+            }
+        }
+
         /// The directions `pane` has a neighbor in, read from its splits: a pane in a side by
         /// side split's first half has one to its right, in the second half one to its left.
         func neighbors(of pane: Int) -> Set<PaneSwap> {
@@ -125,6 +163,21 @@ public struct WorkspaceLayout: Hashable, Sendable {
             self.panes = panes
             self.root = root
             self.equalizable = equalizable ?? root.map { [$0] } ?? []
+        }
+
+        /// New Pane (Auto Layout), as the Mac's (Zellij's new pane): the largest shown pane splits
+        /// along its longer side (right on a tie). The phone has no window, so sizes are read in a
+        /// 16:10 Mac window at the Mac's ratios.
+        public var autoLayoutSplit: (pane: Int, direction: PaneSplit)? {
+            guard let root else { return panes.first.map { ($0.id, .right) } }
+            let frames = root.frames(in: CGRect(x: 0, y: 0, width: 16, height: 10))
+            let order = panes.map(\.id)
+            guard let (pane, frame) = frames.max(by: { lhs, rhs in
+                let (a, b) = (lhs.value.width * lhs.value.height, rhs.value.width * rhs.value.height)
+                // A tie goes to the pane listed first.
+                return abs(a - b) < 0.0001 ? (order.firstIndex(of: lhs.key) ?? 0) > (order.firstIndex(of: rhs.key) ?? 0) : a < b
+            }) else { return nil }
+            return (pane, frame.width >= frame.height ? .right : .down)
         }
 
         /// The splits Equalize Splits would change.
@@ -303,7 +356,8 @@ public protocol WorkspacePaneBackend: AnyObject {
     /// Split Right / Down / Left / Up: a new pane beside `pane` with a new terminal in it,
     /// returned once the Mac lists it.
     func split(_ pane: Int, _ direction: PaneSplit, in workspace: Workspace) async throws -> WorkspaceTab
-    /// New Pane (Auto Layout) (`new-pane`) or New Column (`new-pane-right`), from `pane`'s column.
+    /// New Pane (Auto Layout) (a split of the screen's largest pane along its longer side, as the
+    /// Mac's) or New Column (`new-pane-right`, a viewport column after `pane`'s).
     func newPane(from pane: Int, column: Bool, in workspace: Workspace) async throws -> WorkspaceTab
     /// Toggle Pane Zoom.
     func toggleZoom(_ pane: Int, in workspace: Workspace) async throws
@@ -320,7 +374,7 @@ public protocol WorkspacePaneBackend: AnyObject {
     func undoLayout(in workspace: Workspace, confirming revision: UInt64?) async throws -> LayoutUndoOutcome
     /// Move Tab to New Split: a new pane on `edge` of the tab's pane, holding the tab.
     func moveTab(_ tab: WorkspaceTab, toNewSplit edge: TabSplitEdge, in workspace: Workspace) async throws
-    /// Move Tab to New Column: a new viewport column right of the tab's, holding the tab.
+    /// Move Tab to New Column: a new viewport column after the screen's last, holding the tab (as the Mac's).
     func moveTabToNewColumn(_ tab: WorkspaceTab, in workspace: Workspace) async throws
     /// Move Tab to Pane…: the end of another pane's tabs.
     func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws

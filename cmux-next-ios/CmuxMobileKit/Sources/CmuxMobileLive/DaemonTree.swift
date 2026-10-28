@@ -146,6 +146,7 @@ public struct DaemonTree: Sendable {
                 let activePane = screen["active_pane"] as? Int
                 if screen["active"] as? Bool == true, let activePane { panes[key] = activePane }
                 var layoutPanes: [WorkspaceLayout.Pane] = []
+                var deadPanes: Set<Int> = []
                 for case let pane as [String: Any] in screen["panes"] as? [Any] ?? [] {
                     var paneTabIDs: [String] = []
                     var paneActiveTab: String?
@@ -188,16 +189,22 @@ public struct DaemonTree: Sendable {
                         paneTabIDs.append(id)
                         if pane["active_tab"] as? Int == index { paneActiveTab = id }
                     }
-                    if let paneID = pane["id"] as? Int, pane["dead"] as? Bool != true {
-                        layoutPanes.append(WorkspaceLayout.Pane(
-                            id: paneID, name: pane["name"] as? String ?? "", tabIDs: paneTabIDs, activeTabID: paneActiveTab,
-                            isFocused: paneID == activePane, isZoomed: paneID == screen["zoomed_pane"] as? Int))
+                    if let paneID = pane["id"] as? Int {
+                        if pane["dead"] as? Bool == true {
+                            deadPanes.insert(paneID)
+                        } else {
+                            layoutPanes.append(WorkspaceLayout.Pane(
+                                id: paneID, name: pane["name"] as? String ?? "", tabIDs: paneTabIDs, activeTabID: paneActiveTab,
+                                isFocused: screen["active"] as? Bool == true && paneID == activePane,
+                                isZoomed: paneID == screen["zoomed_pane"] as? Int, tabCount: paneTabs.count))
+                        }
                     }
                 }
                 if let screenID = screen["id"] as? Int {
                     layoutScreens.append(WorkspaceLayout.Screen(
                         id: screenID, name: screen["name"] as? String ?? "", isActive: screen["active"] as? Bool == true,
-                        panes: layoutPanes, root: Self.node(screen["layout"]), equalizable: Self.equalizable(screen)))
+                        panes: layoutPanes, root: Self.node(screen["layout"])?.removing(deadPanes),
+                        equalizable: Self.equalizable(screen).compactMap { $0.removing(deadPanes) }))
                 }
             }
             let source = activeTab ?? (ws["screens"] as? [[String: Any]])?.first.flatMap { ($0["panes"] as? [[String: Any]])?.first?["tabs"] as? [[String: Any]] }?.first

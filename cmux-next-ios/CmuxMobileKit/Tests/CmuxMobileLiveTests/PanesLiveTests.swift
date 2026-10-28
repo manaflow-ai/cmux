@@ -22,10 +22,31 @@ import Testing
             }
         }
         var commands: [String] { mutations.compactMap { $0["cmd"] as? String } }
+        /// What the mock Mac has made so far: a split's new pane 9 (s50), a fork's tab s41.
+        private var made: Set<String> = []
+        func make(_ thing: String) { lock.withLock { _ = made.insert(thing) } }
+        func has(_ thing: String) -> Bool { lock.withLock { made.contains(thing) } }
     }
 
-    /// wk1, one screen: pane 1 (left, 70%) holds s10, s11 and the chat s12 (and its fork s41);
-    /// right of it pane 2 (s20) above pane 3 (s30, s40, the new pane's terminal).
+    /// The tree as the mock Mac has it now: after a split, pane 9 (s50) right of pane 1; after a
+    /// fork, the copy s41 at the end of pane 1.
+    nonisolated static func tree(_ seen: Seen) -> String {
+        var tree = Self.tree
+        if seen.has("fork") {
+            tree = tree.replacingOccurrences(of: #"{"surface":12,"kind":"conversation","title":"","conversation":{"agent_session":{"host":"install:x","session":"sess-a","harness":"claude"}}}"#,
+                                             with: #"{"surface":12,"kind":"conversation","title":"","conversation":{"agent_session":{"host":"install:x","session":"sess-a","harness":"claude"}}},{"surface":41,"kind":"conversation","title":"","conversation":{"agent_session":{"host":"install:x","session":"sess-f","harness":"claude"}}}"#)
+        }
+        if seen.has("split") {
+            tree = tree.replacingOccurrences(of: #""a":{"type":"leaf","pane":1}"#,
+                                             with: #""a":{"type":"split","split":10,"dir":"right","ratio":0.5,"a":{"type":"leaf","pane":1},"b":{"type":"leaf","pane":9}}"#)
+                .replacingOccurrences(of: #"{"id":2,"name":"logs""#,
+                                      with: #"{"id":9,"name":"","active_tab":0,"tabs":[{"surface":50,"kind":"pty","title":"zsh","dead":false,"terminal_id":"term_n"}]},{"id":2,"name":"logs""#)
+        }
+        return tree
+    }
+
+    /// wk1, one screen: pane 1 (left, 70%) holds s10, s11 and the chat s12;
+    /// right of it pane 2 (s20) above pane 3 (s30, s40).
     nonisolated static let tree = #"""
     {"workspaces":[
       {"id":1,"key":"wk1","name":"main","screens":[{"id":5,"name":"","active":true,"active_pane":1,"zoomed_pane":null,
@@ -35,8 +56,7 @@ import Testing
         {"id":1,"name":null,"active_tab":1,"tabs":[
           {"surface":10,"kind":"pty","title":"zsh","dead":false,"terminal_id":"term_a"},
           {"surface":11,"kind":"pty","title":"build","dead":false,"terminal_id":"term_b"},
-          {"surface":12,"kind":"conversation","title":"","conversation":{"agent_session":{"host":"install:x","session":"sess-a","harness":"claude"}}},
-          {"surface":41,"kind":"conversation","title":"","conversation":{"agent_session":{"host":"install:x","session":"sess-f","harness":"claude"}}}]},
+          {"surface":12,"kind":"conversation","title":"","conversation":{"agent_session":{"host":"install:x","session":"sess-a","harness":"claude"}}}]},
         {"id":2,"name":"logs","active_tab":0,"tabs":[{"surface":20,"kind":"pty","title":"tail","dead":false,"terminal_id":"term_l"}]},
         {"id":3,"name":"","active_tab":0,"tabs":[
           {"surface":30,"kind":"pty","title":"zsh","dead":false,"terminal_id":"term_c"},
@@ -53,12 +73,14 @@ import Testing
                 let line: String
                 switch object["cmd"] as? String ?? "" {
                 case "list-workspaces":
-                    line = #"{"id":"\#(id)","ok":true,"data":\#(tree.replacingOccurrences(of: "\n", with: ""))}"#
+                    line = #"{"id":"\#(id)","ok":true,"data":\#(tree(seen).replacingOccurrences(of: "\n", with: ""))}"#
                 case "list-agents":
                     line = #"{"id":"\#(id)","ok":true,"data":{"agents":[]}}"#
-                case "split", "new-pane", "new-pane-right":
-                    line = #"{"id":"\#(id)","ok":true,"data":{"surface":40}}"#
+                case "split", "new-pane-right":
+                    seen.make("split")
+                    line = #"{"id":"\#(id)","ok":true,"data":{"surface":50}}"#
                 case "new-conversation-tab":
+                    seen.make("fork")
                     line = #"{"id":"\#(id)","ok":true,"data":{"surface":41}}"#
                 case "undo-layout" where object["confirm_close"] as? Bool == true:
                     line = #"{"id":"\#(id)","ok":true,"data":{"undone":true,"screen":5,"revision":9}}"#
@@ -113,7 +135,8 @@ import Testing
         let layout = try #require(workspace.layout)
         #expect(layout.screens.map(\.id) == [5])
         #expect(layout.panes.map(\.id) == [1, 2, 3])
-        #expect(layout.pane(1)?.tabIDs == ["s10", "s11", "s12", "s41"])
+        #expect(layout.pane(1)?.tabIDs == ["s10", "s11", "s12"])
+        #expect(layout.pane(3)?.tabCount == 2)
         #expect(layout.pane(1)?.activeTabID == "s11")
         #expect(layout.pane(1)?.isFocused == true)
         #expect(layout.pane(2)?.isFocused == false)
@@ -162,28 +185,51 @@ import Testing
     @Test func splitRightDownAndLeft() async throws {
         let seen = Seen()
         let (backend, workspace) = try await connected(seen)
-        let tab = try await backend.split(1, .right, in: workspace)
-        #expect(tab.id == "s40")
+        // Split Left: the daemon's split right, then the old pane swaps with the new one (pane 9,
+        // which the Mac lists only after the split).
+        let tab = try await backend.split(1, .left, in: workspace)
+        #expect(tab.id == "s50")
         _ = try await backend.split(2, .down, in: workspace)
-        // Split Left: the daemon's split right, then the two panes swap.
-        _ = try await backend.split(1, .left, in: workspace)
         let lines = seen.mutations
-        #expect(seen.commands == ["split", "split", "split", "swap-pane"])
+        #expect(seen.commands == ["split", "swap-pane", "split"])
         #expect(lines[0]["pane"] as? Int == 1 && lines[0]["dir"] as? String == "right")
-        #expect(lines[1]["pane"] as? Int == 2 && lines[1]["dir"] as? String == "down")
-        #expect(lines[2]["dir"] as? String == "right")
-        #expect(lines[3]["pane"] as? Int == 1 && lines[3]["target"] as? Int == 3)
+        #expect(lines[1]["pane"] as? Int == 1 && lines[1]["target"] as? Int == 9)
+        #expect(lines[2]["pane"] as? Int == 2 && lines[2]["dir"] as? String == "down")
         // Only the lane's creation fields: no program, folder or environment.
-        #expect(lines.prefix(3).allSatisfy { Set($0.keys).subtracting(["id", "cmd"]).isSubset(of: ["pane", "dir"]) })
+        #expect(lines.filter { $0["cmd"] as? String == "split" }.allSatisfy { Set($0.keys).subtracting(["id", "cmd"]).isSubset(of: ["pane", "dir"]) })
     }
 
-    @Test func newPaneAndNewColumn() async throws {
+    /// New Pane (Auto Layout) is the Mac's: the largest pane (pane 1, 70% wide) splits along its
+    /// longer side; never the daemon's `new-pane`. New Column is `new-pane-right`.
+    @Test func newPaneSplitsTheLargestPaneAndNewColumn() async throws {
         let seen = Seen()
         let (backend, workspace) = try await connected(seen)
         _ = try await backend.newPane(from: 2, column: false, in: workspace)
         _ = try await backend.newPane(from: 2, column: true, in: workspace)
-        #expect(seen.commands == ["new-pane", "new-pane-right"])
-        #expect(seen.mutations.allSatisfy { $0["pane"] as? Int == 2 && $0.count == 3 })
+        let lines = seen.mutations
+        #expect(seen.commands == ["split", "new-pane-right"])
+        #expect(lines[0]["pane"] as? Int == 1 && lines[0]["dir"] as? String == "right")
+        #expect(lines[1]["pane"] as? Int == 2 && lines[1].count == 3)
+    }
+
+    @Test func autoLayoutPicksTheLargestPaneAndItsLongerSide() {
+        // A tall right half (two stacked quarters beside a half): the half splits; a wide half splits down.
+        let tall = WorkspaceLayout.Screen(id: 1, isActive: true, panes: [1, 2, 3].map { WorkspaceLayout.Pane(id: $0, tabIDs: []) },
+                                          root: .split(id: 1, axis: .horizontal, ratio: 0.5, first: .pane(1),
+                                                       second: .split(id: 2, axis: .vertical, ratio: 0.5, first: .pane(2), second: .pane(3))))
+        #expect(tall.autoLayoutSplit?.pane == 1)
+        #expect(tall.autoLayoutSplit?.direction == .down)
+        let one = WorkspaceLayout.Screen(id: 1, isActive: true, panes: [WorkspaceLayout.Pane(id: 4, tabIDs: [])], root: .pane(4))
+        #expect(one.autoLayoutSplit?.pane == 4)
+        #expect(one.autoLayoutSplit?.direction == .right)
+    }
+
+    @Test func deadPanesLeaveTheTree() {
+        let root = WorkspaceLayout.Node.split(id: 1, axis: .horizontal, ratio: 0.5, first: .pane(1),
+                                              second: .split(id: 2, axis: .vertical, ratio: 0.5, first: .pane(2), second: .pane(3)))
+        #expect(root.removing([3]) == .split(id: 1, axis: .horizontal, ratio: 0.5, first: .pane(1), second: .pane(2)))
+        #expect(root.removing([1, 2, 3]) == nil)
+        #expect(WorkspaceLayout.Node.stack([4, 5], expanded: 5).removing([5]) == .stack([4], expanded: 4))
     }
 
     @Test func zoomSwapRenameAndClose() async throws {
@@ -235,6 +281,8 @@ import Testing
 
     @Test func undoRepliesAreReadStrictly() throws {
         #expect(try LiveWorkspaceCreationBackend.undoOutcome(["data": ["undone": true, "screen": 1, "revision": 2]]) == .undone)
+        // The applied variant needs its screen and revision.
+        #expect(throws: WorkspaceCreationError.self) { try LiveWorkspaceCreationBackend.undoOutcome(["data": ["undone": true]]) }
         #expect(throws: WorkspaceCreationError.self) {
             try LiveWorkspaceCreationBackend.undoOutcome(["data": ["undone": true, "confirmation_required": true]])
         }
@@ -254,8 +302,8 @@ import Testing
         #expect(seen.commands == ["move-tab-to-split", "move-tab-to-column", "move-tab"])
         #expect(lines[0]["surface"] as? Int == 30 && lines[0]["pane"] as? Int == 3 && lines[0]["edge"] as? String == "top")
         #expect(lines[1]["surface"] as? Int == 30 && lines[1]["pane"] as? Int == 3)
-        // The end of pane 1's four tabs.
-        #expect(lines[2]["pane"] as? Int == 1 && lines[2]["index"] as? Int == 4)
+        // Past the end of pane 1's three tabs.
+        #expect(lines[2]["pane"] as? Int == 1 && lines[2]["index"] as? Int == 3)
     }
 
     @Test func aPanesOnlyTabIsNotSplitOut() async throws {

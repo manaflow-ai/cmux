@@ -66,9 +66,16 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
         return tab
     }
 
+    /// New Column is `new-pane-right`. New Pane (Auto Layout) is the Mac's: a split of the
+    /// screen's largest pane along its longer side (never the daemon's `new-pane`, which lays the
+    /// whole column out again).
     public func newPane(from pane: Int, column: Bool, in workspace: Workspace) async throws -> WorkspaceTab {
         let client = try self.client(for: pane, in: workspace)
-        return try await openTab(client, column ? "new-pane-right" : "new-pane", ["pane": pane])
+        if column { return try await openTab(client, "new-pane-right", ["pane": pane]) }
+        guard let (target, direction) = layout(of: workspace)?.screen(of: pane)?.autoLayoutSplit else {
+            throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes yet")
+        }
+        return try await split(target, direction, in: workspace)
     }
 
     public func toggleZoom(_ pane: Int, in workspace: Workspace) async throws {
@@ -114,6 +121,8 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
             }
             if !splits.isEmpty { _ = try? await sync.listNow() }
         } catch let error as DaemonReplyError {
+            // Splits set before the refusal stay: the page shows them.
+            _ = try? await sync.listNow()
             throw WorkspaceCreationError(error.message)
         }
         return splits.count
@@ -154,7 +163,8 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
     /// revision and the panes it closes); anything else is a protocol error.
     nonisolated static func undoOutcome(_ reply: [String: Any]) throws -> LayoutUndoOutcome {
         let data = reply["data"] as? [String: Any] ?? [:]
-        if data["undone"] as? Bool == true, data["confirmation_required"] as? Bool != true { return .undone }
+        if data["undone"] as? Bool == true, data["confirmation_required"] as? Bool != true,
+           data["screen"] != nil, data["revision"] is NSNumber { return .undone }
         if data["undone"] as? Bool == false, data["confirmation_required"] as? Bool == true,
            let revision = (data["revision"] as? NSNumber)?.uint64Value, let closes = data["closes_panes"] as? [Any] {
             return .needsConfirmation(revision: revision, closing: closes.count)
@@ -181,12 +191,12 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
     /// `move-tab` to the end of `pane`'s tabs (its insertion point past the last).
     public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws {
         let (client, surface) = try target(tab, in: workspace)
-        guard layout(of: workspace)?.pane(pane) != nil else {
+        guard let destination = layout(of: workspace)?.pane(pane) else {
             throw WorkspaceCreationError("That pane is no longer on the Mac.", isForPerson: true)
         }
         guard sync.tree?.tabPlaces[tab.id]?.pane != pane else { return }
-        let count = (sync.tree?.tabPlaces ?? [:]).values.filter { $0.pane == pane }.count
-        try await perform(client, "move-tab", ["surface": surface, "pane": pane, "index": count])
+        // Past every tab the pane holds on the Mac, the ones the phone doesn't list too.
+        try await perform(client, "move-tab", ["surface": surface, "pane": pane, "index": destination.tabCount])
     }
 
     /// Fork Conversation to a destination, as the Mac's `openFork`: the copy opens as a tab

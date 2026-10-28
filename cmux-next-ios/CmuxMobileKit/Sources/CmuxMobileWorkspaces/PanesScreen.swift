@@ -143,7 +143,8 @@ struct PanesScreen: View {
                 Button(direction.title, systemImage: direction.systemImage) { Task { await source.swap(pane, direction) } }
             }
             Button("Rename Pane…", systemImage: "pencil") {
-                paneName = ""
+                // The current name, so Rename without typing keeps it.
+                paneName = pane.name
                 source.renamingPane = pane
             }
         }

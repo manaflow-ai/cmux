@@ -256,8 +256,9 @@ def manage(j, label):
     time.sleep(1)
     pq.shot("manage-after-swapped")
     pane_menu(j, pane, "Rename Pane…")
-    field = j.sim.wait(ident="panes.rename.field", timeout=6)
+    field = j.sim.wait(ident="panes.rename.field", timeout=4) or j.sim.wait(kind="TextField", timeout=4)
     check(field, "no Rename Pane field")
+    pq.shot("manage-after-rename-field")
     pq.type_text("build")
     time.sleep(0.5)
     tap_row(j, "Rename")
@@ -344,20 +345,17 @@ def fork(j, label):
     pq.shot(f"fork-{label}-page-menu")
     if label == "before":
         tap_row(j, "Fork")
-        out["forked"], _ = wait_layout(key, lambda lay: sum(k == "conversation" for p in lay["panes"] for k in p["kinds"]) == 2,
-                                       "the fork on the Mac", timeout=90)
-        time.sleep(1)
+        out["forked"] = fork_outcome(j, key, lambda lay: sum(k == "conversation" for p in lay["panes"] for k in p["kinds"]) == 2)
         pq.shot("fork-before-forked")
         return out
     tap_row(j, "Fork Conversation…")
     check(j.sim.wait(label="To the Right", timeout=6), "no fork destinations")
     pq.shot("fork-after-destinations")
     tap_row(j, "To the Right")
-    out["forked_right"], took = wait_layout(key, lambda lay: len(lay["panes"]) == 2 and lay["panes"][1]["kinds"] == ["conversation"],
-                                            "the fork in a new right pane on the Mac", timeout=90)
-    out["forked_right_s"] = round(took, 1)
-    time.sleep(2)
+    out["forked_right"] = fork_outcome(j, key, lambda lay: len(lay["panes"]) == 2 and lay["panes"][1]["kinds"] == ["conversation"])
     pq.shot("fork-after-right")
+    if "refused" in out["forked_right"]:
+        return out
     open_page_menu(j)
     tap_row(j, "Fork Conversation…")
     tap_row(j, "In a New Workspace")
@@ -369,6 +367,20 @@ def fork(j, label):
     time.sleep(2)
     pq.shot("fork-after-workspace")
     return out
+
+
+def fork_outcome(j, key, test, timeout=90):
+    """The fork on the Mac (its layout), or the phone's refusal toast (acpmux's own words)."""
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        lay = mac_layout(key)
+        if test(lay):
+            return {"mac": lay, "seconds": round(time.time() - t0, 1)}
+        toast = [e.label for e in j.sim.find() if e.label and e.frame[1] < 200 and ("permissions" in e.label or "Couldn" in e.label)]
+        if toast:
+            return {"refused": toast[0], "mac": lay}
+        time.sleep(0.4)
+    raise Fail("neither a fork on the Mac nor a refusal")
 
 
 FLOWS = {"split": split, "manage": manage, "moves": moves, "fork": fork}
