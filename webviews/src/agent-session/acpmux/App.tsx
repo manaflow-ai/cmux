@@ -453,6 +453,9 @@ import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { RetryBackoff } from "../../pages/shared/retryBackoff";
+import { callNative } from "./callNative";
+import type { MeasurableRenderer, NativeRegistry, OpenDiff, RowProps } from "./rows/rowProps";
+import { resumeAgentPair, editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -460,21 +463,6 @@ import { RetryBackoff } from "../../pages/shared/retryBackoff";
 /// cards (conversation/CodeBlock.tsx, conversation/EditDiff.tsx), so opening it waits on nothing.
 const loadDiffPanel = () => import("./DiffPanel");
 const DiffPanel = lazy(() => loadDiffPanel().then((module) => ({ default: module.DiffPanel })));
-
-type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
-type NativeRegistry = Record<string, MeasurableRenderer>;
-/// `onOpenDiff` opens the changes of the turn holding `rowId`, at `path` when given; focus
-/// returns to `opener` when the view closes.
-type OpenDiff = (rowId: string, path?: string, opener?: HTMLElement) => void;
-type RowProps = {
-  row: AcpmuxRow;
-  sessionId?: string;
-  onToggleActivity: (id: string) => void;
-  expanded: boolean;
-  controls?: string;
-  onOpenDiff?: OpenDiff;
-  githubRepository?: string;
-};
 
 declare global {
   interface Window {
@@ -650,12 +638,6 @@ function failedRowOf(error: unknown): string | undefined {
   return typeof row === "string" ? row : undefined;
 }
 
-function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-  const direct = window.cmuxAcpmuxActions?.[method];
-  if (direct) return direct(params) as Promise<T>;
-  return postNative<T>(method, params);
-}
-
 /// Withdraws a queued prompt before its turn starts; false when it already started.
 const removeQueued = (promptId: string) =>
   callNative<{ removed?: boolean } | null>("chat.queue.remove", { promptId }).then(
@@ -668,13 +650,6 @@ const sendWhenTaken = (steer: boolean) => (text: string, attachments: ComposerAt
   new Promise<void>((resolve, reject) => {
     callNative("chat.send", { text, attachments, accepted: () => resolve(), steer }).then(() => resolve(), reject);
   });
-
-/// Resumes the chat's paused messages with another agent (conversation/AgentPairNote.tsx).
-const resumeAgentPair = (peer: string) => callNative("chat.agentPair.resume", { peer });
-
-/// Changes a waiting prompt (`_acpmux/queue_edit`); false when it already started.
-const editQueued = (promptId: string, edit: QueueEdit) =>
-  callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => result?.ok === true);
 
 /// The width the header's tools take in the pane's tab row, so the App narrows the tabs (header/tabRow.ts).
 const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools", { width }).catch(() => undefined);
@@ -1255,12 +1230,6 @@ const EditedFilesRow = memo(
     a.onOpenDiff === b.onOpenDiff,
 );
 
-/// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
-const openOfferChat = (sessionId: string) => void callNative("chat.offer.open", { sessionId }).catch(() => undefined);
-/// Opens the chat that sent this one a message, from its received line's chip: any chat the daemon
-/// lists, this Mac's or a peer's, beside this one or in the tab that shows it (`sender`).
-const openSenderChat = (sessionId: string) =>
-  void callNative("chat.offer.open", { sessionId, sender: true }).catch(() => undefined);
 /// Reply on another agent's message card (`chat.message.reply`): its sender gets it in the thread.
 const replyToMessage = (message: IncomingMessage, text: string) =>
   callNative<void>("chat.message.reply", {
