@@ -891,11 +891,29 @@ relative to the ghostty-next tree; `std` paths are Zig 0.16.0's, the pin's `mini
 
 ### Answer
 
-1. **Config parse: yes, and it already runs off main.** p02-threads-129 (`a649fdca30f`, `60ecabf1a97`) runs
-   every `ghostty_config_*` load and finalize on `GhosttyLaneConfigLoader` (the files lane at `.userBlocking`,
-   `GhosttyConfigLoading.swift`) and applies the result on main once (`GhosttyRuntime+ConfigLoad.swift`).
-   026 (`7bb7b45647b`) put the launch build on that path. The read below finds no reason to move it back
-   and no new work. No follow-up task.
+1. **Config parse: yes. The applied config already builds off main; the keybind configs do not.**
+   p02-threads-129 (`a649fdca30f`, `60ecabf1a97`) builds the applied config (`GhosttyConfigInputs.buildConfig`)
+   on `GhosttyLaneConfigLoader` (the files lane at `.userBlocking`, `GhosttyConfigLoading.swift`) and applies
+   the result on main once (`GhosttyRuntime+ConfigLoad.swift`). 026 (`7bb7b45647b`) put the launch build on
+   that path. But main still builds and finalizes two other kinds of config, at launch and again on every
+   config change and every keyboard-layout change. `GhosttyKeybindSync.load()`
+   (`GhosttyKeyBindingLayer.swift:135-157`) runs on the main actor (CmuxNextApp and CmuxNextTerminal build with
+   `uiSwiftSettings`, `.defaultIsolation(MainActor.self)`, `Package.swift:206-208`), from `start()`, from
+   `onConfigChange` and from `KeyboardLayoutObserver`:
+   - **The keybind defaults config.** `load()` reads `GhosttyRuntime.defaultHostKeybinds`
+     (`GhosttyHostKeybinds.swift:144-160`) synchronously: `ghostty_config_new`, `loadKeybindDefaults`,
+     `ghostty_config_finalize`. The memo keeps the result, so this is once per runtime: the first `load()` at
+     launch.
+   - **The claim configs.** `load()`'s `claimsTask` is a `Task {}` made on the main actor, so it runs there;
+     only `configTexts` is `@concurrent`. It calls `GhosttyRuntime.userClaimedKeys`, and
+     `GhosttyKeyClaims.claimed(_:user:texts:)` builds and finalizes `defaultsConfig()` and
+     `unbindConfig(triggers:)` (`GhosttyKeyClaims.swift:88-112`, `118-129`) on every `load()`.
+
+   Each finalize does the blocking work in "Why the config parse is safe off main" (`getpwuid_r`, file loads).
+   The code's own note puts the claims at about 20 ms of main thread at launch (cx-z9kz0,
+   `GhosttyKeyBindingLayer.swift:145`). Follow-up 112-F2 moves both off main. The other `ghostty_config_new`
+   callers are test readers (`withScratchConfig`'s `configText:` readers, `configDiagnostics(configFile:)`,
+   `loadedFiles(configFile:)`, `defaultFilesFontSize`).
 2. **`ghostty_init`: no. It stays in `main()` between M8 and M9 (`CmuxNextApp.swift:82`), as the first
    libghostty call, before the second thread starts.** Nothing in it needs the main thread. But it writes
    process-global state that no lock guards: the environment, the C locale, signal dispositions and the
@@ -907,7 +925,8 @@ relative to the ghostty-next tree; `std` paths are Zig 0.16.0's, the pin's `mini
    p50 (section 13, S7). So no follow-up task moves it. Its own interval is the always-on signpost
    `launch.ghostty_init` (068, `TerminalTimings.ghosttyInitBegan`): read it in the next fleet launch run, and
    reopen this spike only if its p50 is 2 ms or more, from "What a move needs" below.
-3. **Side finding: `ghostty_init` undoes the app's SIGPIPE policy.** This needs a fix: follow-up 112-F1.
+3. **Side finding: `ghostty_init` undoes the app's SIGPIPE policy, and so does an in-process
+   `CefInitialize`.** This needs a fix: follow-up 112-F1.
 
 ### What `ghostty_init` does
 
@@ -982,28 +1001,96 @@ relative to the ghostty-next tree; `std` paths are Zig 0.16.0's, the pin's `mini
   `GhosttyRuntime+UnfocusedSplit.swift:40`). `GhosttyRuntime.initializeLibrary()` does that without
   building the runtime. Change them at the next edit of those files; no task of its own.
 
-### Follow-up 112-F1: `ghostty_init` takes back the app's SIGPIPE policy
+### Follow-up 112-F1: `ghostty_init` and an in-process `CefInitialize` take back the app's SIGPIPE policy
 
 - **Finding (from the source; no launch was run).** `main()` installs the app's signal policy (M5,
   `CmuxNextApp.swift:70`): a caught no-op SIGPIPE handler, because an ignored SIGPIPE stays ignored across
-  `exec` in every child (`ChildSignalDefaults.swift:7-21`). Then `main()` calls `ghostty_init`
-  (`CmuxNextApp.swift:82`), which sets SIGPIPE two times: a no-op handler (G3), then `SIG_IGN` (G5,
-  `global.zig:415-426`). The last write wins, so the app runs with SIGPIPE ignored. Every child that the
-  app starts without `POSIX_SPAWN_SETSIGDEF` (for example a Foundation `Process`) starts with SIGPIPE
-  ignored: the `yes | head` spin that `ChildSignalDefaults` exists to stop. The ChromiumHost and the crash
-  watcher pass `POSIX_SPAWN_SETSIGDEF` (`ChromiumHostLauncher.swift:170`, `CrashWatcher.swift:145`), so they
-  are safe. `ChildSignalDefaultsTests` calls the policy alone, so it cannot see the order.
-- **Files.** `CmuxNextApp/CmuxNextApp.swift`, and a test in `CmuxNextAppTests` or `CmuxNextTerminalTests`.
-- **Change.** Install the signal policy after `GhosttyRuntime.initializeLibrary()`, as one named launch
-  step: the process signal policy, after the last library that writes it. Keep `OpenFileLimit().raise()`
-  before `ghostty_init`: its `Change.before` must stay launchd's limit for the shells (`OpenFileLimit.swift`).
-  G6 then sets the soft limit above the 65,536 ceiling. Either accept that and say so in `OpenFileLimit`'s
-  note, or apply `Change.after` again after `ghostty_init`. If CEF ever runs in the app process, check
-  `CefInitialize` the same way: Chromium's `SetupSignalHandlers` (`content/app/content_main_runner_impl.cc`)
-  ignores SIGPIPE.
-- **Acceptance.** In a tagged launch after `startup_complete`, `ps -o sigignore= -p <app pid>` does not
-  have SIGPIPE's bit (signal 13, `0x1000`) set, and a `Process` child of the app has the default SIGPIPE
-  disposition.
-- **Test phase.** A regression test that runs the launch's process prelude (the library init, then the
-  policy) and reads `sigaction(SIGPIPE)`: the handler is not `SIG_IGN`. It fails while the policy runs before
-  `ghostty_init`. Run it with `ChildSignalDefaultsTests` in a fleet `swift test`.
+  `exec` in every child (`ChildSignalDefaults.swift:7-21`). Then two libraries set SIGPIPE back to `SIG_IGN`:
+  - `ghostty_init` (`CmuxNextApp.swift:82`) sets SIGPIPE two times: a no-op handler (G3), then `SIG_IGN` (G5,
+    `global.zig:415-426`). The last write wins, so the app runs with SIGPIPE ignored from launch.
+  - `CefInitialize`, in the app process. That is the Release behavior today, not a future case:
+    `AppServices.chromiumHostSupervisor` returns nil outside `DEBUG || CMUX_BENCH_HOOKS`
+    (`AppServices+Chromium.swift:119-130`), and nil keeps Chromium tabs in this process. Debug builds with the
+    host switch off do the same. The first in-process Chromium tab, or a warm start (`CEFEngine.warmStart`),
+    runs `CefInitialize` on the main thread (`CEFEngine.swift:13`, `202-212`). Chromium's `SetupSignalHandlers`
+    (`content/app/content_main_runner_impl.cc`) resets the signal actions and sets SIGPIPE to `SIG_IGN`
+    (`AppRunMarker+Chromium.swift:7-9` already notes the reset). The reinstall closure of
+    `AppRunMarker.keepSignalHandlers` (`AppRunMarker+Chromium.swift:12-22`, run by `CEFEngine.onReady` and
+    `onStartFailed`) puts back the run marker's handlers, Sentry's and `QuitSignal.reclaim()`, but not
+    `ChildSignalDefaults.installAppSignalPolicy()`, whose only call is `CmuxNextApp.swift:70`.
+
+  Every child that the app starts after either write without `POSIX_SPAWN_SETSIGDEF` (for example a Foundation
+  `Process`) starts with SIGPIPE ignored: the `yes | head` spin that `ChildSignalDefaults` exists to stop. The
+  ChromiumHost and the crash watcher pass `POSIX_SPAWN_SETSIGDEF` (`ChromiumHostLauncher.swift:170`,
+  `CrashWatcher.swift:145`), so they are safe. `ChildSignalDefaultsTests` calls the policy alone, so it cannot
+  see either order.
+- **Files.** `CmuxNextApp/CmuxNextApp.swift`, `CmuxNextApp/Crash/AppRunMarker+Chromium.swift`,
+  `CmuxNextApp/AppServices+Chromium.swift` (the doc of `chromiumEngineHook`, which lists what the hook puts back),
+  and tests in `CmuxNextAppTests` (`CrashMarkerChildTests.swift` already runs a child through
+  `keepSignalHandlers` and a failed `CefInitialize`) and `CmuxNextCompatTests`.
+- **Change.** The app signal policy runs after each library that writes it:
+  - After `GhosttyRuntime.initializeLibrary()` in `main()`, as one named launch step: the process signal
+    policy, after the last library that writes it at launch.
+  - In `keepSignalHandlers`'s reinstall closure, for `onReady` and `onStartFailed` both:
+    `ChildSignalDefaults.installAppSignalPolicy()` first, then the marker's, Sentry's and `QuitSignal`'s
+    handlers as today. The policy changes TERM, INT and HUP only when they are `SIG_IGN`, so
+    `QuitSignal.reclaim()` after it still owns them.
+
+  Keep `OpenFileLimit().raise()` before `ghostty_init`: its `Change.before` must stay launchd's limit for the
+  shells (`OpenFileLimit.swift`). G6 then sets the soft limit above the 65,536 ceiling. Either accept that and
+  say so in `OpenFileLimit`'s note, or apply `Change.after` again after `ghostty_init`.
+- **Acceptance.** In a tagged Release-configuration launch (Chromium in process), open a Chromium tab (or let
+  the warm start run). Then `ps -o sigignore= -p <app pid>` does not have SIGPIPE's bit (signal 13, `0x1000`)
+  set, and a `Process` child that the app starts after that tab has the default SIGPIPE disposition. The same
+  check after `startup_complete`, before any Chromium tab, covers the `ghostty_init` order.
+- **Test phase.** Two regression tests that read `sigaction(SIGPIPE)` and expect a handler that is not
+  `SIG_IGN`:
+  - The launch's process prelude (the library init, then the policy). It fails while the policy runs before
+    `ghostty_init`.
+  - The CEF reinstall path, as a `CrashMarkerChildTests` child: `keepSignalHandlers` on an engine, SIGPIPE set
+    to `SIG_IGN` as Chromium's reset leaves it, then the existing missing-runtime `warmStart`, which fails and
+    runs `onStartFailed`. Setting `SIG_IGN` first keeps the test independent of how far the failed start gets.
+    It fails while the reinstall closure leaves the policy out.
+
+  Run both with `ChildSignalDefaultsTests` in a fleet `swift test` (`CmuxNextAppTests`, `CmuxNextCompatTests`).
+
+### Follow-up 112-F2: the keybind configs build on the files lane
+
+- **Finding.** Answer 1: main builds and finalizes the keybind defaults config (`defaultHostKeybinds`, once
+  per runtime, at launch) and the two claim configs (`GhosttyKeyClaims.defaultsConfig()` and
+  `unbindConfig(triggers:)`, through `userClaimedKeys`, on every `GhosttyKeybindSync.load()`: at launch, on every
+  config change and on every keyboard-layout change). Each finalize may block (`getpwuid_r`, file loads).
+  Chrome's rule is the same as for the applied config: blocking work runs `MayBlock` in the thread pool, and
+  the UI thread gets the result (`PostTaskAndReplyWithResult`, `base/task/thread_pool.h`;
+  `base/threading/thread_restrictions.h`).
+- **Files.** `CmuxNextTerminal/GhosttyHostKeybinds.swift`, `CmuxNextTerminal/GhosttyKeyClaims.swift`,
+  `CmuxNextTerminal/GhosttyConfigLoading.swift`, `CmuxNextTerminal/GhosttyBuiltConfig.swift`,
+  `CmuxNextTerminal/GhosttyConfigInputs+Build.swift`, `CmuxNextTerminal/GhosttyRuntime+ConfigLoad.swift`,
+  `CmuxNextApp/Focus/Keybindings/GhosttyKeyBindingLayer.swift`; tests in `CmuxNextTerminalTests` and
+  `CmuxNextAppTests/MenuKeyRoutingTests.swift`.
+- **Change.** Main keeps only the reads that need no build: `ghostty_config_key_is_binding` and
+  `GhosttyHostKeybind.read` on configs that are already finalized.
+  - **Defaults.** The applied config's lane build also builds the keybind defaults config when the runtime
+    has none yet (the first build: the launch build of 026). `GhosttyBuiltConfig` carries it with its
+    `[GhosttyHostKeybind]`, and main adopts both once, as it adopts the applied config. The runtime keeps that
+    finalized defaults config for its life (the defaults never change; one config), and `defaultHostKeybinds`
+    and the claims read it. `defaultHostKeybinds` then never calls `ghostty_config_new`: it returns the adopted
+    list, or `[]` before the first config is applied, as today without a config.
+  - **Unbinds.** `load()`'s claims job builds the unbind config on the files lane through
+    `GhosttyConfigLoading` (a second method beside `load(_:apply:)`): one lane job reads the loaded files
+    (today's `configTexts`) and builds and finalizes the `ignore` config from their `unbind` triggers. Main gets
+    the finalized config (nil when no file has an `unbind` line) as one owned handle that it frees once, then
+    runs `GhosttyKeyClaims.claimed(_:user:defaults:unbinds:)` on the live applied config, the kept defaults
+    config and that handle. The user config never leaves main: a reload frees it there.
+  - Every config build goes through `blockingFFI` (`FFI+Blocking.swift`), so the Debug main-thread blocking
+    detector reports a build that comes back to main.
+  - A newer `load()` cancels the older claims job, as today; a superseded unbind config is freed, not applied.
+- **Acceptance.** In a tagged Debug launch, the main-thread blocking detector records no `ffi` call from
+  `GhosttyHostKeybinds.swift` or `GhosttyKeyClaims.swift`: at launch, after a Ghostty config reload and after an
+  input-source change. The routed keybinds and the claims for the configs of `MenuKeyRoutingTests` are the same
+  as before the change.
+- **Test phase.** In `CmuxNextTerminalTests`, with a test `GhosttyConfigLoading` that records where each build
+  runs: the first applied build carries the defaults and later builds do not, and the unbind build runs in the
+  loader, not on the main actor (fails today: the builds run in `userClaimedKeys` on main).
+  `MenuKeyRoutingTests` keeps its claims result through the new path. Run in a fleet `swift test`
+  (`CmuxNextTerminalTests`, `CmuxNextAppTests`).
