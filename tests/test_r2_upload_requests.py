@@ -127,6 +127,148 @@ class R2UploadRequestsTests(unittest.TestCase):
         scheme = "https" if tls else "http"
         return f"{scheme}://127.0.0.1:{server.server_port}", requests
 
+    def start_flaky_endpoint(self, failures):
+        """A bucket whose first PUTs fail: "503", "drop" (the connection closes
+        with no answer, as a stalled write that timed out), or "lost" (the
+        object is stored, then the connection closes before the answer)."""
+        requests, stored, pending = [], {}, list(failures)
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def record(self):
+                body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                requests.append((self.command, self.path))
+                if self.command == "PUT" and pending:
+                    failure = pending.pop(0)
+                    if failure == "lost":
+                        stored[self.path] = body
+                    if failure in ("drop", "lost"):
+                        self.close_connection = True
+                        self.connection.close()
+                        return
+                    status, response = int(failure), b""
+                elif self.command == "PUT":
+                    if self.headers.get("If-None-Match") == "*" and self.path in stored:
+                        status, response = 412, b""
+                    else:
+                        stored[self.path] = body
+                        status, response = 200, b""
+                elif self.path in stored:
+                    status, response = 200, stored[self.path] if self.command == "GET" else b""
+                else:
+                    status, response = 404, b""
+                self.send_response(status)
+                self.send_header("ETag", '"etag-1"')
+                self.send_header("Content-Length", str(len(response)))
+                self.end_headers()
+                self.wfile.write(response)
+
+            do_PUT = do_GET = do_HEAD = record
+
+            def log_message(self, *_args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        server.socket = self.tls_context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+
+        def stop():
+            server.shutdown()
+            thread.join()
+            server.server_close()
+
+        self.addCleanup(stop)
+        return f"https://127.0.0.1:{server.server_port}", requests, stored
+
+    def test_transient_failures_are_retried(self):
+        # Run 40629788539: one PUT's "write operation timed out" failed the
+        # whole cmux-tui tree publication.
+        self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
+        for failures in (["503"], ["drop"], ["drop", "503", "429"]):
+            for flags in ((), ("--write-once",)):
+                with self.subTest(failures=failures, flags=flags):
+                    endpoint, requests, stored = self.start_flaky_endpoint(failures)
+                    result = self.upload("appcast.xml", *flags, endpoint=endpoint)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("Uploaded", result.stdout)
+                    self.assertEqual(stored, {"/cmux-binaries/nightly/appcast.xml": BODY})
+                    self.assertEqual([r[0] for r in requests].count("PUT"), len(failures) + 1)
+                    self.assertIn(f"attempt 1 of 4 failed", result.stderr)
+
+    def test_a_write_once_put_that_landed_unanswered_reads_as_present(self):
+        self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
+        endpoint, requests, stored = self.start_flaky_endpoint(["lost"])
+        result = self.upload("appcast.xml", "--write-once", endpoint=endpoint)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Already present with matching digest", result.stdout)
+        self.assertEqual([r[0] for r in requests], ["HEAD", "PUT", "HEAD", "GET"])
+
+    def test_retries_are_bounded_and_permanent_errors_are_not_retried(self):
+        self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
+        endpoint, requests, stored = self.start_flaky_endpoint(["503"] * 6)
+        result = self.upload("appcast.xml", endpoint=endpoint)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual([r[0] for r in requests].count("PUT"), 4)
+        self.assertIn("R2 upload failed: HTTP 503", result.stderr)
+        endpoint, requests, stored = self.start_flaky_endpoint(["403"])
+        result = self.upload("appcast.xml", endpoint=endpoint)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual([r[0] for r in requests].count("PUT"), 1)
+        self.assertIn("R2 upload failed: HTTP 403", result.stderr)
+
+    def download(self, endpoint, key="nightly/appcast.xml"):
+        target = self.root / "downloaded"
+        result = subprocess.run(
+            [sys.executable, str(UPLOADER), "--endpoint-url", endpoint, "--bucket", "cmux-binaries",
+             "--key", key, "--download-to", str(target)],
+            env=self.env, capture_output=True, text=True, timeout=10,
+        )
+        return result, target
+
+    def test_download_reads_the_object_from_r2_whole_or_not_at_all(self):
+        # Run 40637082673: files.cmux.com served a kept publication's 31 MB
+        # binary at 4-35 KB/s and the publish job failed after 20 minutes.
+        self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
+        endpoint, requests, stored = self.start_flaky_endpoint([])
+        stored["/cmux-binaries/nightly/appcast.xml"] = BODY
+        result, target = self.download(endpoint)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(target.read_bytes(), BODY)
+        self.assertEqual([r[0] for r in requests], ["GET"])
+        result, target = self.download(endpoint, key="nightly/missing.xml")
+        self.assertEqual(result.returncode, 22, "a missing object exits like curl --fail")
+        self.assertFalse(target.with_name("downloaded.partial").exists())
+        self.assertEqual([r[0] for r in requests], ["GET", "GET"], "a 404 is not retried")
+
+    def test_download_retries_a_dropped_read(self):
+        self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
+        drops = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                drops.append(self.path)
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(BODY)))
+                self.end_headers()
+                # The first answer stops halfway, as a stalled transfer does.
+                self.wfile.write(BODY if len(drops) > 1 else BODY[: len(BODY) // 2])
+                if len(drops) == 1:
+                    self.close_connection = True
+
+            def log_message(self, *_args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        server.socket = self.tls_context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), thread.join(), server.server_close()))
+        result, target = self.download(f"https://127.0.0.1:{server.server_port}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(target.read_bytes(), BODY)
+        self.assertEqual(len(drops), 2)
+        self.assertIn("attempt 1 of 4 failed", result.stderr)
+
     def test_plaintext_endpoints_are_rejected_before_sending_credentials(self):
         endpoint, requests = self.start_endpoint(tls=False)
         self.env["AWS_SESSION_TOKEN"] = "example-session-token"
