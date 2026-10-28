@@ -9,13 +9,16 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
     /// The chrome-parity dogfood builds (`chrome-parity-v2-1`, ...): every switch the chrome-parity work added that is
     /// off by default in DEV, less the ones above. Names this build's registry does not declare are ignored, as
     /// ``FeatureList`` ignores unknown names in any input.
-    public static let chromeParity = FeatureDogfoodSet(tagPrefix: "chrome-parity-", names: [
+    public static let chromeParity = FeatureDogfoodSet(tagPrefix: "chrome-parity-", names: shippedNames.union(benchNames))
+
+    /// The set's names every build compiles: no benchOnly feature (`check-no-bench-hooks.sh` refuses a shipped app
+    /// that contains one).
+    public static let shippedNames: Set<String> = [
         "agentChromium",
         "agentPageRendererSharing",
         "automationBurstSnap",
         "browserLaunchPictures",
         "cefAttachedPages",
-        "cefHelperHost",
         "cefLaunchOrigin",
         "cefLayerHosting",
         "cefMergedEvents",
@@ -23,13 +26,6 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "cefPumpInputPolicy",
         "cefTimerSlack",
         "chromiumAdBlockerAtFirstTab",
-        "chromiumHostDragIn",
-        "chromiumHostFileDialogs",
-        "chromiumHostIdleExit",
-        "chromiumHostPopupMenus",
-        "chromiumHostResizeFence",
-        "chromiumHostSuggestions",
-        "chromiumHostWidgets",
         "chromiumSpareAfterFirstTab",
         "chromiumTabVisibility",
         "cmuxPageRendererSharing",
@@ -113,7 +109,24 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "visibilityGatedHosting",
         "vsyncHub",
         "windowOcclusionFamily",
-    ])
+    ]
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The set's benchOnly names, compiled only where those features are declared (Debug and bench builds).
+    public static let benchNames: Set<String> = [
+        "cefHelperHost",
+        "chromiumHostDragIn",
+        "chromiumHostFileDialogs",
+        "chromiumHostIdleExit",
+        "chromiumHostPopupMenus",
+        "chromiumHostResizeFence",
+        "chromiumHostSuggestions",
+        "chromiumHostWidgets",
+    ]
+    #else
+    /// No benchOnly name in a shipped app.
+    public static let benchNames: Set<String> = []
+    #endif
 
     /// The tag prefix of the builds this set is for.
     public let tagPrefix: String

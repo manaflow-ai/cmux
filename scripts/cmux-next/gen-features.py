@@ -564,6 +564,11 @@ def swift(features):
         body += "    #if %s\n%s    #endif\n\n" % (BENCH_ONLY_CONDITION, "\n".join(blocks[len(shipped):]))
         registered = "    #if %s\n%s    #else\n%s    #endif\n" % (
             BENCH_ONLY_CONDITION, registered, _swift_registered(shipped))
+        # The bench-only names, for the builds that declare them (tests check a shipped list names none of them).
+        bench_names = "\n".join("        %s," % _string(f["name"]) for f in features[len(shipped):])
+        registered += ("\n    #if %s\n    /// The benchOnly features' names: compiled only where they are, never in a shipped app.\n"
+                       "    public static let benchOnlyNames: Set<String> = [\n%s\n    ]\n    #endif\n") % (
+            BENCH_ONLY_CONDITION, bench_names)
     comment = "\n".join("// " + line for line in HEADER.split("\n"))
     return """{comment}
 

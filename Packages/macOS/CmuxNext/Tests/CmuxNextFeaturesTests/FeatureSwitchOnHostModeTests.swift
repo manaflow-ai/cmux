@@ -4,8 +4,9 @@ import Testing
 /// Feature switch policy (plans/cmux-next/feature-switch-policy.md, rule 1), batch "host mode" (2026-10-28): the
 /// Chromium Host mode switches, which act only while Chromium tabs run in the host (cefHelperHost, Debug and bench
 /// builds) and whose unit tests pass on the fleet: each switch below is on by default in DEV and NIGHTLY and stays
-/// off in Release, so DEV, NIGHTLY and dogfood builds run the path every day instead of only through a dogfood
-/// list.
+/// off in Release. Host mode exists only in Debug and bench builds (ChromiumHostSupervisor is compiled only there), so
+/// these switches are benchOnly: a Debug DEV or NIGHTLY build runs the path every day; a shipped NIGHTLY or Release app
+/// declares none of them. Turning host mode on in a shipped build takes benchOnly and the guard off again together.
 struct FeatureSwitchOnHostModeTests {
     static let names = [
         "chromiumHostChoosers",

@@ -3051,4 +3051,28 @@ nonisolated extension Feature {
         .windowOcclusionFamily,
     ]
     #endif
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The benchOnly features' names: compiled only where they are, never in a shipped app.
+    public static let benchOnlyNames: Set<String> = [
+        "cefHelperHost",
+        "cefLayerHostingEveryPage",
+        "chromiumHostChoosers",
+        "chromiumHostDragIn",
+        "chromiumHostFileDialogs",
+        "chromiumHostHangBanner",
+        "chromiumHostIdleExit",
+        "chromiumHostInputRing",
+        "chromiumHostLocks",
+        "chromiumHostNoSpareWindow",
+        "chromiumHostPopupMenus",
+        "chromiumHostResizeFence",
+        "chromiumHostRestoreTabs",
+        "chromiumHostSuggestions",
+        "chromiumHostTabs",
+        "chromiumHostWidgets",
+        "perfLabCanary",
+        "perfLabKillProbe",
+    ]
+    #endif
 }
