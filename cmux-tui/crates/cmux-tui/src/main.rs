@@ -587,18 +587,10 @@ struct Args {
 pub(crate) struct BoundPid {
     pub(crate) pid: u32,
     /// When that process started (`cmux_tui_core::process_started_ms`), as
-    /// `server ensure` saw it: the owner checks it after arming its watch,
-    /// so a pid reused between the check and the watch is never watched.
+    /// the launcher saw it (`<pid>@<ms>`; read at startup when absent): the
+    /// owner checks it after arming its watch, so a reused pid is never
+    /// watched.
     pub(crate) started_ms: Option<u64>,
-}
-
-impl std::fmt::Display for BoundPid {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.started_ms {
-            Some(started) => write!(formatter, "{}@{started}", self.pid),
-            None => write!(formatter, "{}", self.pid),
-        }
-    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -664,8 +656,8 @@ fn parse_owner_host_color(flag: &str, value: &str) -> Result<cmux_tui_core::Rgb,
 }
 
 /// `--exit-with-pid` (startup and `server ensure`): a process id above 1
-/// (pid 1 never exits, so binding to it would bind to nothing). The owner
-/// `server ensure` spawns also gets the process's start time, `<pid>@<ms>`.
+/// (pid 1 never exits, so binding to it would bind to nothing), optionally
+/// with the process's start time, `<pid>@<ms>`.
 pub(crate) fn parse_exit_with_pid(value: &str) -> Result<BoundPid, String> {
     let error = || "--exit-with-pid needs a process id above 1".to_string();
     let (pid, started) = match value.split_once('@') {

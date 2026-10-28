@@ -4,72 +4,36 @@ use super::{Flags, UsageError};
 use crate::cli::lifecycle::ServerAction;
 use crate::local_owner::EnsureWebSocket;
 
-/// `server ensure [--terminal-reap-grace-seconds <n>] [--exit-with-pid <pid>]
-/// [--install-key-stdin] [--restore-progress] [--replace-unresponsive]
-/// [--ws-loopback [--ws-allow-origin <origin>[,<origin>...]]]`: the grace has
-/// the owner's own startup bounds, checked before any spawn.
+/// `server ensure [--terminal-reap-grace-seconds <n>] [--install-key-stdin]
+/// [--restore-progress] [--replace-unresponsive] [--ws-loopback [--ws-allow-origin <origin>[,<origin>...]]]`: the
+/// grace has the owner's own startup bounds, checked before any spawn.
 pub(super) fn parse(flags: &mut Flags) -> Result<ServerAction, UsageError> {
     let install_key_stdin = flags.boolean("install-key-stdin");
     let progress = flags.boolean("restore-progress");
     let websocket = websocket(flags)?;
     let replace_unresponsive = flags.boolean("replace-unresponsive");
-    let exit_with_pid =
-        flags.take("exit-with-pid").map(|value| exit_with_pid(&value)).transpose()?;
-    let terminal_reap_grace = match flags.take("terminal-reap-grace-seconds") {
-        Some(value) => {
-            let seconds = value
-                .parse::<u64>()
-                .map_err(|_| UsageError::new("--terminal-reap-grace-seconds must be an integer"))?;
-            let grace = cmux_tui_core::validate_terminal_reap_grace(
-                std::time::Duration::from_secs(seconds),
-            )
-            .map_err(|error| UsageError::new(error.to_string()))?;
-            Some(grace)
-        }
-        None => None,
+    let Some(value) = flags.take("terminal-reap-grace-seconds") else {
+        return Ok(ServerAction::Ensure {
+            terminal_reap_grace: None,
+            install_key_stdin,
+            progress,
+            websocket,
+            replace_unresponsive,
+        });
     };
+    let seconds = value
+        .parse::<u64>()
+        .map_err(|_| UsageError::new("--terminal-reap-grace-seconds must be an integer"))?;
+    let grace =
+        cmux_tui_core::validate_terminal_reap_grace(std::time::Duration::from_secs(seconds))
+            .map_err(|error| UsageError::new(error.to_string()))?;
     Ok(ServerAction::Ensure {
-        terminal_reap_grace,
-        exit_with_pid,
+        terminal_reap_grace: Some(grace),
         install_key_stdin,
         progress,
         websocket,
         replace_unresponsive,
     })
-}
-
-/// `--exit-with-pid <pid>`: the owner this call spawns ends its terminals
-/// and exits once that process dies (a test or CI launcher's own pid, so a
-/// launcher killed before its cleanup leaves nothing running). The process
-/// must exist now: an owner bound to a gone pid would exit at once. Its
-/// start time goes to the owner with the pid, so a pid reused before the
-/// owner arms its watch counts as the process having exited.
-fn exit_with_pid(value: &str) -> Result<crate::BoundPid, UsageError> {
-    let mut bound = crate::parse_exit_with_pid(value).map_err(UsageError::new)?;
-    #[cfg(unix)]
-    {
-        let pid = bound.pid;
-        // SAFETY: signal 0 only checks that the process exists.
-        let gone = unsafe { libc::kill(pid as libc::pid_t, 0) } != 0
-            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
-        if gone {
-            return Err(UsageError::new(format!("--exit-with-pid {pid}: no such process")));
-        }
-        // Required: without it the owner could not tell a reused pid from
-        // the launcher (a launcher that exits right here has no start time).
-        if bound.started_ms.is_none() {
-            let started = cmux_tui_core::process_started_ms(pid).ok_or_else(|| {
-                UsageError::new(format!("--exit-with-pid {pid}: cannot read when it started"))
-            })?;
-            bound.started_ms = Some(started);
-        }
-        Ok(bound)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = &mut bound;
-        Err(UsageError::new(format!("--exit-with-pid is unsupported on {}", std::env::consts::OS)))
-    }
 }
 
 /// `--ws-loopback` (private app contract): an owner this call spawns opens

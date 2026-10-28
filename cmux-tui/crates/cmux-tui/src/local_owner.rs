@@ -206,11 +206,6 @@ pub(crate) struct OwnerSpec {
     /// `--terminal-reap-grace-seconds` for the owner. Reaping is opt-in, so
     /// `None` starts an owner that never reaps unplaced terminals.
     pub terminal_reap_grace: Option<Duration>,
-    /// `--exit-with-pid` for an owner this call spawns: it ends its
-    /// terminals and exits once that process dies. `None` (the app, the
-    /// interactive client, the Chief) starts an owner that outlives every
-    /// client by design; a running owner keeps the binding it started with.
-    pub exit_with_pid: Option<crate::BoundPid>,
     /// The app's install key for an owner this call spawns (`server ensure
     /// --install-key-stdin`); a running owner never receives it.
     pub install_key: Option<cmux_tui_core::server::FrontendKey>,
@@ -728,9 +723,6 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     }
     if let Some(grace) = spec.terminal_reap_grace {
         command.arg("--terminal-reap-grace-seconds").arg(grace.as_secs().to_string());
-    }
-    if let Some(pid) = spec.exit_with_pid {
-        command.arg("--exit-with-pid").arg(pid.to_string());
     }
     if let Some(websocket) = &spec.websocket {
         command.arg("--ws").arg("127.0.0.1:0");

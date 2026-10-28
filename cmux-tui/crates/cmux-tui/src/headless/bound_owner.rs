@@ -7,16 +7,16 @@
 //! the launcher is killed first (a cancelled job, SIGKILL), nothing stopped
 //! the owner, and it kept its terminals and the runner's work tree for days
 //! (HQ REPAIR.md "Orphaned cmux-tui holds runner dirs"). Such a launcher
-//! passes its own pid (`server ensure --exit-with-pid $$`); once that
+//! passes its own pid (`--headless --exit-with-pid $$`); once that
 //! process dies, the owner ends its terminals (no one will adopt them) and
 //! leaves through the normal shutdown path.
 //!
 //! The watch is armed at startup, before the owner reports itself ready, so
 //! an owner asked to exit with a process never runs unbound: a watch that
 //! cannot be armed (no pidfd on an old Linux kernel, a seccomp denial) fails
-//! the start. `server ensure` passes the process's start time with its pid
-//! (`<pid>@<ms>`; a direct `--exit-with-pid <pid>` reads it before arming);
-//! once the watch is armed the owner compares it, so a pid that was reused
+//! the start. A launcher may pass the process's start time with its pid
+//! (`<pid>@<ms>`); without it the owner reads it before arming. Once the
+//! watch is armed the owner compares it, so a pid that was reused
 //! before the watch counts as the process having exited. When the owner
 //! stops while the bound process has exited too, its terminals still end.
 //!
@@ -60,9 +60,8 @@ impl Process {
 }
 
 /// Arms the watch on `bound`'s process. An error fails the owner's start.
-/// The start time comes from `server ensure` (`<pid>@<ms>`); a direct
-/// `--exit-with-pid <pid>` reads it here, before the watch, and fails when
-/// it cannot.
+/// The start time comes from the launcher (`<pid>@<ms>`), else it is read
+/// here, before the watch, and the start fails when it cannot be.
 pub(crate) fn arm(bound: BoundPid) -> io::Result<Armed> {
     let started_ms = match bound.started_ms {
         Some(started) => started,

@@ -1,4 +1,4 @@
-//! `server ensure --exit-with-pid <pid>`: a detached owner bound to the
+//! `--headless --exit-with-pid <pid>`: a detached owner bound to the
 //! process that started it. A test or CI launcher that is killed before its
 //! cleanup runs (`server stop --end-terminals` in a trap) left its owner and
 //! terminal hosts running for days, re-parented to init (HQ REPAIR.md
@@ -68,52 +68,47 @@ impl Fixture {
         command
             .args(["server", action, "--json", "--session", &self.session, "--socket"])
             .arg(&self.socket)
-            // The spawned owner inherits this environment, so its durable
-            // state and configuration stay inside the fixture directory.
-            .env("CMUX_TUI_STATE_DIR", self.state())
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"));
         command
     }
 
-    /// A launcher like check-daemon-capabilities.sh: a shell that runs
-    /// `server ensure` (bound to the shell's own pid with `bound`), says
-    /// `ready`, then stays alive as `sleep` under the same pid until killed.
+    /// A launcher like a CI probe: a shell that starts a headless owner in
+    /// the background (bound to the shell's own pid with `bound`), prints
+    /// its pid, then stays alive as `sleep` under the same pid until killed.
     fn launch(&self, bound: bool) -> Launched {
-        let out = self.dir.join("ensure.json");
         let script = r#"bin=$1; shift
 if [ -n "$BIND" ]; then set -- "$@" --exit-with-pid $$; fi
-"$bin" "$@" > "$OUT" 2> "$OUT.err"
-echo ready
+"$bin" "$@" < /dev/null > "$LOG" 2>&1 &
+echo $!
 exec sleep 600"#;
-        let command = self.server("ensure");
-        let program = command.get_program().to_owned();
-        let args: Vec<_> = command.get_args().map(ToOwned::to_owned).collect();
         let mut shell = Command::new("/bin/sh");
-        shell.arg("-c").arg(script).arg("sh").arg(program).args(args).env("OUT", &out);
-        for (key, value) in command.get_envs() {
-            if let Some(value) = value {
-                shell.env(key, value);
-            }
-        }
+        shell
+            .args(["-c", script, "sh", env!("CARGO_BIN_EXE_cmux-tui"), "--headless", "--session"])
+            .arg(&self.session)
+            .arg("--socket")
+            .arg(&self.socket)
+            .arg("--state")
+            .arg(self.state())
+            .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
+            .env("LOG", self.dir.join("owner.log"));
         if bound {
             shell.env("BIND", "1");
         }
         let mut child = shell.stdin(Stdio::null()).stdout(Stdio::piped()).spawn().unwrap();
         let mut line = String::new();
         BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
-        let mut launched = Launched { child: Some(child), owner: 0 };
-        assert_eq!(line.trim(), "ready", "the launcher died before ensure finished");
-        let ensured = fs::read(&out).unwrap();
-        let ensured: serde_json::Value = serde_json::from_slice(&ensured).unwrap_or_else(|_| {
-            panic!(
-                "server ensure failed: {}\nstderr: {}",
-                String::from_utf8_lossy(&ensured),
-                fs::read_to_string(format!("{}.err", out.display())).unwrap_or_default()
-            )
-        });
-        assert_eq!(ensured["status"], "started", "{ensured}");
-        let owner = ensured["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok());
-        launched.owner = owner.expect("owner pid");
+        let owner = line.trim().parse().expect("the launcher printed no owner pid");
+        let launched = Launched { child: Some(child), owner };
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while transport::connect(&self.socket).is_err() {
+            assert!(
+                cpu(owner).is_some() && Instant::now() < deadline,
+                "the owner did not serve {}: {}",
+                self.socket.display(),
+                fs::read_to_string(self.dir.join("owner.log")).unwrap_or_default()
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
         launched
     }
 
@@ -168,7 +163,7 @@ impl Drop for Fixture {
     }
 }
 
-/// The launcher shell this test started, and the owner its ensure spawned.
+/// The launcher shell this test started, and the owner it started.
 struct Launched {
     child: Option<Child>,
     owner: u32,
@@ -291,20 +286,26 @@ fn a_bound_owner_exits_and_ends_its_terminals_when_its_launcher_is_killed() {
 }
 
 #[test]
-fn ensure_refuses_to_bind_an_owner_to_a_pid_no_process_has() {
+fn an_owner_bound_to_a_pid_no_process_has_refuses_to_start() {
     let fixture = Fixture::new("gone");
     // A process that has exited and been reaped: its pid names nothing.
     let mut gone = Command::new("/bin/sh").args(["-c", "exit 0"]).spawn().unwrap();
     gone.wait().unwrap();
-    let pid = gone.id();
-    let output = fixture.server("ensure").args(["--exit-with-pid", &pid.to_string()]).output();
-    let output = output.unwrap();
-    assert!(
-        !output.status.success(),
-        "ensure bound an owner to pid {pid}, which no process has: {}",
-        String::from_utf8_lossy(&output.stdout)
-    );
-    assert!(fixture.server("status").output().unwrap().status.code() != Some(0));
+    let pid = gone.id().to_string();
+    let mut owner = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .args(["--headless", "--session", &fixture.session, "--socket"])
+        .arg(&fixture.socket)
+        .arg("--state")
+        .arg(fixture.state())
+        .args(["--exit-with-pid", &pid])
+        .env("CMUX_TUI_CONFIG", fixture.dir.join("config.json"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let status = owner.wait().unwrap();
+    assert!(!status.success(), "an owner bound to gone pid {pid} started");
 }
 
 #[test]
@@ -322,8 +323,8 @@ fn an_unbound_owner_outlives_its_killed_launcher_without_spinning() {
         "the orphaned owner used {used:?} of CPU in {SURVIVAL_WINDOW:?} after its launcher died"
     );
     // Still serving: a later client reattaches to the same owner.
-    let again = fixture.server("ensure").output().unwrap();
-    let again: serde_json::Value = serde_json::from_slice(&again.stdout).unwrap();
-    assert_eq!(again["status"], "running", "{again}");
-    assert_eq!(again["pid"].as_u64(), Some(u64::from(owner)), "{again}");
+    let status = fixture.server("status").output().unwrap();
+    let status: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(status["status"], "running", "{status}");
+    assert_eq!(status["pid"].as_u64(), Some(u64::from(owner)), "{status}");
 }
