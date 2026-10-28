@@ -1301,7 +1301,10 @@
 }
 /* The context ring ends the quiet row, as Claude Code's does: no pill on hover or while its card
    shows (Leo 2026-10-21; the card is the feedback), the row's outline under keyboard focus. */
-.acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 4px; }
+/* The ring's glyph (12 px, centered in its 22 px box) sits 22 px in from the box's right, as the mic's
+   glyph does: the ring's right edge sat 10 px in, so its glyph was 21 px in; 1 px more of right margin
+   moves it under the mic (composer-alignment-centers.test.ts measured 21 px). */
+.acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 4px; margin-inline-end: 1px; }
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }
 
 /* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's field and rows,

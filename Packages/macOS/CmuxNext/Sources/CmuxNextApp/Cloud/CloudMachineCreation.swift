@@ -113,7 +113,8 @@ final class CloudMachineCreation: Identifiable {
     /// or the app server's `plan_required`.
     nonisolated static func proRefusal(_ error: any Error) -> ProRefusal? {
         if case let CloudAPIError.planRequired(message, url, plan) = error { return ProRefusal(message: message, upgradeURL: url, plan: plan) }
-        // The plan gate refused a free plan before any request: its card already offered an upgrade.
+        // The plan gate refused a free plan before any request: a person's create already showed its
+        // card, and an agent's shows none (the agent reports the refusal), so no second offer either way.
         if case CloudMachineCreateFlow.Failure.upgradeRequired(.freePlan) = error { return ProRefusal(plan: "pro", offered: true) }
         guard let failure = error as? CloudAppOpFailure, failure.code == CloudAppOpFailure.planRequired else { return nil }
         // The app server's message is the backend's English text, not the person's language: the dialog's own copy stands in.
@@ -258,6 +259,9 @@ struct CloudCreationFlow {
     let show: @MainActor (String, CloudMachineCreation) -> Void
     /// A refusal a paid plan lifts (``CloudMachineCreation/proRefusal(_:)``): offers that plan.
     var planRequired: @MainActor (CloudMachineCreation.ProRefusal) -> Void = { _ in }
+    /// Whether a person's own gesture started the create: only then does a refusal reach
+    /// `planRequired` (an agent's or the CLI's create fails with the plan, which the caller offers).
+    var startedByPerson = false
 
     /// Starts the requested bootstrap (``CloudMachineRequest/script``), then applies the requested
     /// machine config (``CloudMachineRequest/machineConfig``), each only while ``needsScript`` or
@@ -326,6 +330,7 @@ struct CloudCreationFlow {
 
     private func run(_ creation: CloudMachineCreation) {
         let create = create, open = open, show = show, bootstrap = bootstrap, creations = creations, planRequired = planRequired
+        let startedByPerson = startedByPerson
         // task-owner: the creation's one run; cancelled by retry, dismiss or machine removal
         creation.task = Task { @MainActor in
             do {
@@ -364,7 +369,7 @@ struct CloudCreationFlow {
             } catch {
                 guard !Task.isCancelled else { return }
                 creation.fail(error)
-                if let refusal = creation.planRefusal { planRequired(refusal) }
+                if let refusal = creation.planRefusal, startedByPerson { planRequired(refusal) }
             }
         }
     }

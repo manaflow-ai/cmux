@@ -13,6 +13,12 @@ import { questionCases, questionPart } from "./question-cases.ts"
  * person resets that thread only).
  * The ninth op, `question.answer`, and the `question` part are in question-cases.ts.
  */
+const createdHead = (request: Parameters<typeof create>[0]) => {
+  const result = create(request)
+  if (!result.ok) throw new Error(result.code)
+  return result.head
+}
+
 export const localCases = (c: Corpus): void => {
   const ALICE = "user_local"
   const MUX = "agent_mux"
@@ -206,6 +212,18 @@ export const localCases = (c: Corpus): void => {
   c.op(budget, "budget: malformed parts report invalid_parts first", MUX, "m11", send("m11", []), "invalid_parts")
   budget.advance(1)
   c.op(budget, "budget: at the gap", MUX, "m11", send("m11", parts("now")), "commit")
+
+  // The gap's free first round: with two agents, both answer a person's text at once; the third
+  // agent text since that person waits the gap (agent-to-agent traffic stays spaced).
+  const round = new CoreHost(createdHead({ ...base, participants: [human(ALICE), agent(MUX), agent("agent_two")] }))
+  round.send(ALICE, "h1", "status?")
+  c.op(round, "gap round: the first agent answers the person", MUX, "r1", send("r1", parts("fine")), "commit")
+  round.advance(50)
+  c.op(round, "gap round: the second agent answers within the gap", "agent_two", "r2", send("r2", parts("also fine")), "commit")
+  round.advance(50)
+  c.op(round, "gap round: a third agent text within the gap is refused", MUX, "r3", send("r3", parts("re")), "agent_rate")
+  round.advance(1_950)
+  c.op(round, "gap round: at the gap", MUX, "r3", send("r3", parts("re")), "commit")
 
   // The work-card bypass: text-less work cards between agent texts must not reset or hide the count.
   const cards = new CoreHost()

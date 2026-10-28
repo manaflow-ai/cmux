@@ -9,7 +9,8 @@
                   `-` は標準入力から読むため、秘密鍵のファイルが不要です
   --client-token-stdin  標準入力の最初の行（`-` の設定より前）からクライアントトークンを読み、
                   それを示すクライアントだけに提供します（サイドカーは
-                  `remote connect --wireguard-hub-token-stdin` で受け取ります）
+                  `remote connect --wireguard-hub-token-stdin` で受け取ります）。トークンのない
+                  クライアントはポート 22 にのみ届きます（`wg dial`: ssh が両端を自ら認証します）
   --socket パス   提供する Unix ソケット。親ディレクトリは 0700、ソケットは 0600 で作成します
   --control パス  制御ソケット（改行区切り JSON）も提供します: `path.get`、
                   `path.subscribe`（`path.changed` イベント）、`datagram.bind`（オーバーレイ UDP

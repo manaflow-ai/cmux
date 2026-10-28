@@ -8,7 +8,7 @@ import type { SpeedTiers } from "./FastToggle";
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
 export type ModelPickerProps = {
-  /// `top`: the harness's curated models, listed first (topModels/); the rest fold under More models.
+  /// `top`: the harness's own model-menu order, when reported; other models fold under More models.
   catalog: (AcpmuxSnapshot["catalog"][number] & { top?: readonly string[] })[];
   harness?: string;
   model?: string;
@@ -73,7 +73,7 @@ export type ModelPickerProps = {
   /// `to` gets the acpmux profile id; `ready` false (a turn running, a queued prompt) disables it.
   fork?: { to(harness: string): void; ready: boolean };
   /// The installed acpmux profiles each catalog entry stands for, by its id (pickerProfiles.ts): the
-  /// launch configurations its Profile row lists. An entry with none listed is its own profile.
+  /// launch configurations shown as named harness entries. An entry with none listed is its own profile.
   profiles?: Readonly<Record<string, readonly PickerProfile[]>>;
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;

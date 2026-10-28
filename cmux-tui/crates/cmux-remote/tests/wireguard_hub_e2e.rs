@@ -163,16 +163,21 @@ async fn sidecar_reaches_a_daemon_through_the_hub() {
     assert_eq!(client.receive().await.unwrap().unwrap().payload, screen.as_slice());
 
     // Another program of this user that finds the socket but lacks the token
-    // reaches nothing: no-auth is refused, and so is a wrong token.
+    // reaches only ssh (`cmux wg dial`, which ssh authenticates end to end):
+    // the daemon's port is refused by ruleset, and a wrong token gets nothing.
     let mut anonymous = UnixStream::connect(&socket_path).await.unwrap();
     anonymous.write_all(&[0x05, 1, 0x00]).await.unwrap();
     let mut chosen = [0u8; 2];
     anonymous.read_exact(&mut chosen).await.unwrap();
-    assert_eq!(chosen, [0x05, 0xFF], "a hub with a token must refuse no-auth");
+    assert_eq!(chosen, [0x05, 0x00], "no-auth is the ssh-only lane");
     let target = format!("{server_v6}");
     let tokenless = SocksDialer::new(socket_path.clone());
-    let refused = tokenless.dial(&target, 1337).await.err().expect("no token, no tunnel");
-    assert!(refused.to_string().contains("method 0xff"), "{refused}");
+    let refused = tokenless.dial(&target, 1337).await.err().expect("no token, no daemon");
+    assert!(refused.to_string().contains("reply 0x02"), "{refused}");
+    // Port 22 passes the hub's rule: nothing listens there in this test, so the
+    // tunnel's own answer (connection refused) comes back, not the ruleset's.
+    let ssh = tokenless.dial("10.200.0.2", 22).await.err().expect("nothing listens on 22");
+    assert!(ssh.to_string().contains("reply 0x05"), "{ssh}");
     let forged =
         SocksDialer::new(socket_path.clone()).with_token(HubClientToken::generate().unwrap());
     let refused = forged.dial(&target, 1337).await.err().expect("wrong token, no tunnel");

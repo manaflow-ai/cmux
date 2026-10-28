@@ -34,8 +34,8 @@ struct CloudLinkReconnectingTests {
 
     /// A short temp root with a stand-in `cmux-tui`: `wg hub` takes its client token and config on
     /// stdin (kept as `hub-token` and `hub-stdin` for the test), and `remote connect`, which must
-    /// read the same token on stdin, prints the link's snapshots: connected, reconnecting
-    /// once `drop` exists, connected once `back` exists; it ends once `gone` exists before `drop`.
+    /// read the same token on stdin, prints the link's snapshots: connected, reconnecting once
+    /// `drop` exists, connected once `back` exists; it ends once `gone` exists before `drop`.
     /// The attach answer says the caller owns the machine.
     struct Fixture {
         let root: URL

@@ -158,14 +158,28 @@ where
 
 // ---- server side -----------------------------------------------------------
 
+/// What a client's greeting earned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Greeting {
+    /// Refused (no acceptable method, or a wrong token): the client may not send a request.
+    Refused,
+    /// No token is configured, or the client presented it: any request the server allows.
+    Authenticated,
+    /// A token is configured and the client chose no-auth, which `open` allowed: the server
+    /// narrows what such a client may reach.
+    Open,
+}
+
 /// Negotiate the method with a client. Without a `token` the server accepts
-/// only no-auth; with one it accepts only username/password whose password
-/// equals the token (compared in constant time). Returns `true` when the
-/// client may send a request; `false` after refusing it.
+/// only no-auth. With one, a client that offers username/password must send
+/// the token as its password (compared in constant time); a client that
+/// offers only no-auth is [`Greeting::Open`] when `open` allows it, else
+/// refused.
 pub(crate) async fn server_greet<S>(
     stream: &mut S,
     token: Option<&[u8]>,
-) -> Result<bool, SocksError>
+    open: bool,
+) -> Result<Greeting, SocksError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -176,13 +190,21 @@ where
     }
     let mut methods = vec![0u8; usize::from(head[1])];
     stream.read_exact(&mut methods).await?;
-    let method = if token.is_some() { METHOD_USER_PASSWORD } else { METHOD_NO_AUTH };
+    let method = match token {
+        None => METHOD_NO_AUTH,
+        Some(_) if methods.contains(&METHOD_USER_PASSWORD) => METHOD_USER_PASSWORD,
+        Some(_) if open => METHOD_NO_AUTH,
+        Some(_) => METHOD_USER_PASSWORD,
+    };
     if !methods.contains(&method) {
         stream.write_all(&[VERSION, METHOD_UNACCEPTABLE]).await?;
-        return Ok(false);
+        return Ok(Greeting::Refused);
     }
     stream.write_all(&[VERSION, method]).await?;
-    let Some(token) = token else { return Ok(true) };
+    let Some(token) = token else { return Ok(Greeting::Authenticated) };
+    if method == METHOD_NO_AUTH {
+        return Ok(Greeting::Open);
+    }
 
     let mut version = [0u8; 1];
     stream.read_exact(&mut version).await?;
@@ -198,7 +220,7 @@ where
     let accepted = password.len() == token.len() && bool::from(password.as_slice().ct_eq(token));
     let status = if accepted { AUTH_SUCCEEDED } else { AUTH_FAILED };
     stream.write_all(&[USER_PASSWORD_VERSION, status]).await?;
-    Ok(accepted)
+    Ok(if accepted { Greeting::Authenticated } else { Greeting::Refused })
 }
 
 /// Read one request after a successful greeting.
@@ -297,7 +319,10 @@ mod tests {
         let (mut client, mut server) = tokio::io::duplex(256);
         let target: SocketAddr = "[fd7a::10]:1337".parse().unwrap();
         let server_side = async {
-            assert!(server_greet(&mut server, None).await.unwrap());
+            assert_eq!(
+                server_greet(&mut server, None, false).await.unwrap(),
+                Greeting::Authenticated
+            );
             let request = server_read_request(&mut server).await.unwrap();
             assert_eq!(request.command, COMMAND_CONNECT);
             assert_eq!(request.target, Target::Ip(target));
@@ -314,7 +339,10 @@ mod tests {
         let (mut client, mut server) = tokio::io::duplex(256);
         let target: SocketAddr = "10.149.25.1:6901".parse().unwrap();
         let server_side = async {
-            assert!(server_greet(&mut server, Some(b"secret-token")).await.unwrap());
+            assert_eq!(
+                server_greet(&mut server, Some(b"secret-token"), true).await.unwrap(),
+                Greeting::Authenticated
+            );
             let request = server_read_request(&mut server).await.unwrap();
             assert_eq!(request.target, Target::Ip(target));
             server_reply(&mut server, REPLY_SUCCEEDED, None).await.unwrap();
@@ -330,12 +358,39 @@ mod tests {
         for offered in [Some(&b"wrong-token!"[..]), Some(&b"short"[..]), None] {
             let (mut client, mut server) = tokio::io::duplex(256);
             let (admitted, connected) = tokio::join!(
-                server_greet(&mut server, Some(b"secret-token")),
+                server_greet(&mut server, Some(b"secret-token"), false),
                 client_connect(&mut client, target, offered),
             );
-            assert!(!admitted.unwrap(), "{offered:?} must not be admitted");
+            assert_eq!(admitted.unwrap(), Greeting::Refused, "{offered:?} must not be admitted");
             assert!(connected.is_err(), "{offered:?} must not connect");
         }
+    }
+
+    /// A hub with a token that leaves an open lane (ssh, which authenticates itself) greets a
+    /// tokenless client as `Open`, so the hub can narrow it; a wrong token is still refused.
+    #[tokio::test]
+    async fn a_tokenless_client_is_open_only_where_the_hub_allows_it() {
+        let target: SocketAddr = "10.149.25.1:22".parse().unwrap();
+        let (mut client, mut server) = tokio::io::duplex(256);
+        let server_side = async {
+            assert_eq!(
+                server_greet(&mut server, Some(b"secret-token"), true).await.unwrap(),
+                Greeting::Open
+            );
+            let request = server_read_request(&mut server).await.unwrap();
+            assert_eq!(request.target, Target::Ip(target));
+            server_reply(&mut server, REPLY_SUCCEEDED, None).await.unwrap();
+        };
+        let client_side = async { client_connect(&mut client, target, None).await.unwrap() };
+        tokio::join!(server_side, client_side);
+
+        let (mut client, mut server) = tokio::io::duplex(256);
+        let (admitted, connected) = tokio::join!(
+            server_greet(&mut server, Some(b"secret-token"), true),
+            client_connect(&mut client, target, Some(b"wrong-token!")),
+        );
+        assert_eq!(admitted.unwrap(), Greeting::Refused);
+        assert!(connected.is_err());
     }
 
     #[tokio::test]
@@ -343,10 +398,10 @@ mod tests {
         let (mut client, mut server) = tokio::io::duplex(256);
         let target: SocketAddr = "10.149.25.1:6901".parse().unwrap();
         let (admitted, connected) = tokio::join!(
-            server_greet(&mut server, None),
+            server_greet(&mut server, None, false),
             client_connect(&mut client, target, Some(b"secret-token")),
         );
-        assert!(!admitted.unwrap());
+        assert_eq!(admitted.unwrap(), Greeting::Refused);
         assert!(connected.is_err());
     }
 }

@@ -6,14 +6,15 @@ import Testing
 /// A create cmux Pro would allow fails its creation and offers Pro once, with
 /// the server's reason and link; any other refusal only fails the creation.
 @MainActor @Suite struct CloudCreationProOfferTests {
-    private func run(failingWith error: any Error) async -> (CloudMachineCreation, [CloudMachineCreation.ProRefusal]) {
+    private func run(failingWith error: any Error, startedByPerson: Bool = true) async -> (CloudMachineCreation, [CloudMachineCreation.ProRefusal]) {
         var offers: [CloudMachineCreation.ProRefusal] = []
         let flow = CloudCreationFlow(
             creations: CloudCreations(),
             create: { _ in throw error },
             open: { _ in "" },
             show: { _, _ in },
-            planRequired: { offers.append($0) }
+            planRequired: { offers.append($0) },
+            startedByPerson: startedByPerson
         )
         let creation = flow.start(in: nil, existing: nil)
         await creation.task?.value
@@ -51,6 +52,18 @@ import Testing
         let refusal = CloudMachineCreation.ProRefusal(plan: "pro", offered: true)
         #expect(creation.planRefusal == refusal)
         #expect(offers == [refusal], "the flow hands the refusal on; the offer skips it because the gate's card showed")
+    }
+
+    /// The Pro card is for the person who asked for the machine: an agent's or the CLI's create that
+    /// the server refuses fails with the plan (the agent offers the checkout), and pops no dialog.
+    @Test func anAgentsServerRefusedCreateOffersNothing() async {
+        let url = URL(string: "https://cmux.com/pricing")
+        let (creation, offers) = await run(failingWith: CloudAPIError.planRequired(message: "Cloud VMs require a cmux Pro subscription.", upgradeURL: url),
+                                           startedByPerson: false)
+        #expect(offers.isEmpty, "an agent's create showed the person a Pro offer")
+        #expect(creation.planRefusal?.plan == "pro", "the caller still gets the plan")
+        let (_, appOffers) = await run(failingWith: CloudAppOpFailure(code: CloudAppOpFailure.planRequired, message: "no Cloud plan"), startedByPerson: false)
+        #expect(appOffers.isEmpty)
     }
 
     @Test func aFullPlanNamesNoPlan() async {

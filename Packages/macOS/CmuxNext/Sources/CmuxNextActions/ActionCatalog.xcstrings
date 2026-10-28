@@ -94589,31 +94589,136 @@
         }
       }
     },
-    "action.cloudEnrollMachine": {
-      "comment": "Cloud machine action: make the machine reachable by ssh from this Mac and add it as an agent host.",
+    "action.session.moveFromBuild": {
+      "comment": "Command palette action: move live terminals and agent chats from another cmux build running on this Mac (dev, nightly, classic) into this one.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Enroll Machine as Agent Host"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "マシンをエージェントホストとして登録"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Maschine als Agent-Host einrichten"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Inscrire la machine comme hôte d’agents"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Registrar la máquina como host de agentes"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "تسجيل الجهاز كمضيف للوكلاء"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "머신을 에이전트 호스트로 등록"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "将机器登记为代理主机"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "將機器登記為代理主機"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Upiši mašinu kao host za agente"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Tilmeld maskine som agentvært"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Registra la macchina come host degli agenti"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ចុះឈ្មោះម៉ាស៊ីនជាម៉ាស៊ីនមេសម្រាប់ភ្នាក់ងារ"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Registrer maskinen som agentvert"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Zarejestruj maszynę jako host agentów"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Registrar máquina como host de agentes"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Зарегистрировать машину как хост агентов"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ลงทะเบียนเครื่องเป็นโฮสต์ของเอเจนต์"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Makineyi ajan ana bilgisayarı olarak kaydet"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Зареєструвати машину як хост агентів"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Đăng ký máy làm máy chủ tác tử"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Sessions from Another cmux Build…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungen aus einem anderen cmux-Build verschieben…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer les sessions d’un autre build de cmux…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل الجلسات من إصدار cmux آخر…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover sesiones desde otra compilación de cmux…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從其他 cmux 版本移入工作階段…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从其他 cmux 版本移入会话…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 cmux 빌드에서 세션 옮기기…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の cmux ビルドからセッションを移動…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premjesti sesije iz druge cmux verzije…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt sessioner fra et andet cmux-build…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta le sessioni da un’altra build di cmux…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទីវគ្គពី cmux build ផ្សេងទៀត…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt økter fra et annet cmux-bygg…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieś sesje z innej kompilacji cmux…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover Sessões de Outra Compilação do cmux…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенести сеансы из другой сборки cmux…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายเซสชันจาก cmux บิลด์อื่น…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturumları Başka Bir cmux Derlemesinden Taşı…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенести сеанси з іншої збірки cmux…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển phiên từ bản dựng cmux khác…"
+          }
+        }
       }
     },
     "action.workspace.nameFromActivity": {
@@ -94747,138 +94852,6 @@
         }
       }
     },
-    "action.session.moveFromBuild": {
-      "comment": "Command palette action: move live terminals and agent chats from another cmux build running on this Mac (dev, nightly, classic) into this one.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move Sessions from Another cmux Build…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sitzungen aus einem anderen cmux-Build verschieben…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Déplacer les sessions d’un autre build de cmux…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "نقل الجلسات من إصدار cmux آخر…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mover sesiones desde otra compilación de cmux…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "從其他 cmux 版本移入工作階段…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "从其他 cmux 版本移入会话…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다른 cmux 빌드에서 세션 옮기기…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "別の cmux ビルドからセッションを移動…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Premjesti sesije iz druge cmux verzije…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Flyt sessioner fra et andet cmux-build…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sposta le sessioni da un’altra build di cmux…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្លាស់ទីវគ្គពី cmux build ផ្សេងទៀត…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Flytt økter fra et annet cmux-bygg…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przenieś sesje z innej kompilacji cmux…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mover Sessões de Outra Compilação do cmux…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Перенести сеансы из другой сборки cmux…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ย้ายเซสชันจาก cmux บิลด์อื่น…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oturumları Başka Bir cmux Derlemesinden Taşı…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Перенести сеанси з іншої збірки cmux…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chuyển phiên từ bản dựng cmux khác…"
-          }
-        }
-      }
-    },
     "action.agentChat.subagentLimit": {
       "extractionState": "manual",
       "localizations": {
@@ -95008,6 +94981,33 @@
             "value": "Giới hạn tác tử phụ của cuộc trò chuyện…"
           }
         }
+      }
+    },
+    "action.cloudEnrollMachine": {
+      "comment": "Cloud machine action: make the machine reachable by ssh from this Mac and add it as an agent host.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Enroll Machine as Agent Host"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシンをエージェントホストとして登録"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maschine als Agent-Host einrichten"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Inscrire la machine comme hôte d’agents"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Registrar la máquina como host de agentes"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تسجيل الجهاز كمضيف للوكلاء"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신을 에이전트 호스트로 등록"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "将机器登记为代理主机"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "將機器登記為代理主機"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Upiši mašinu kao host za agente"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tilmeld maskine som agentvært"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Registra la macchina come host degli agenti"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ចុះឈ្មោះម៉ាស៊ីនជាម៉ាស៊ីនមេសម្រាប់ភ្នាក់ងារ"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Registrer maskinen som agentvert"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zarejestruj maszynę jako host agentów"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Registrar máquina como host de agentes"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Зарегистрировать машину как хост агентов"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ลงทะเบียนเครื่องเป็นโฮสต์ของเอเจนต์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Makineyi ajan ana bilgisayarı olarak kaydet"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зареєструвати машину як хост агентів"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Đăng ký máy làm máy chủ tác tử"}}
       }
     },
     "action.cloudApplyMachineConfig": {
