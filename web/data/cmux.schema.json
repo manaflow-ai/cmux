@@ -2500,7 +2500,7 @@
         "bindings": {
           "type": "object",
           "default": {},
-          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, an array for a chord, null, an empty string, none, clear, unbound, or disabled to unbind.",
+          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, a two-item array for a chord, {\"any\": [...]} for several keys on one action, null, an empty string, none, clear, unbound, or disabled to unbind.",
           "propertyNames": {
             "enum": [
               "openSettings",

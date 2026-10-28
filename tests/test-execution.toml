@@ -2174,3 +2174,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_swift_linux_packages.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_shortcut_alternates_documented.py"
+lane = "linux-guard"

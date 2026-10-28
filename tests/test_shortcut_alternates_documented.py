@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""The `{"any": [...]}` binding form is described wherever the forms are listed.
+
+web/data/cmux.schema.json accepts several keys for one action since #25619, but
+every place that enumerates the accepted `shortcuts.bindings` values still said
+"a string, a two-item array for a chord, or null" (#25564). A user reading the
+docs site, or an agent reading the cmux-settings and cmux-keyboard-shortcuts
+skill references, binds one key where two would work and the feature is
+invisible. The schema is the source of truth: these tests are skipped entirely
+when it stops accepting the form, so dropping the form means dropping the prose
+rather than leaving a stale requirement here.
+
+    python3 tests/test_shortcut_alternates_documented.py
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SCHEMA = ROOT / "web" / "data" / "cmux.schema.json"
+EN_MESSAGES = ROOT / "web" / "messages" / "en.json"
+CONFIGURATION_PAGE = ROOT / "web" / "app" / "[locale]" / "(landing)" / "docs" / "configuration" / "page.tsx"
+KEYBOARD_SHORTCUTS_PAGE = ROOT / "web" / "app" / "[locale]" / "(landing)" / "docs" / "keyboard-shortcuts" / "page.tsx"
+CONFIGURATION_DOC = ROOT / "docs" / "configuration.md"
+ALL_KEYS = ROOT / "skills" / "cmux-settings" / "references" / "all-keys.md"
+SHORTCUT_ACTIONS = ROOT / "skills" / "cmux-settings" / "references" / "shortcut-actions.md"
+SHORTCUTS_SKILL = ROOT / "skills" / "cmux-keyboard-shortcuts" / "SKILL.md"
+
+# The rule the keyboard-shortcuts page renders for the alternates form.
+ANY_RULE_KEY = "chordsRuleAny"
+
+
+def schema() -> dict:
+    return json.loads(SCHEMA.read_text())
+
+
+def any_branch(document: dict) -> dict | None:
+    """The `$defs.shortcutBinding` branch that takes `{"any": [...]}`."""
+    branches = document["$defs"]["shortcutBinding"]["oneOf"]
+    for branch in branches:
+        if branch.get("required") == ["any"]:
+            return branch
+    return None
+
+
+def bindings_description(document: dict) -> str:
+    return document["properties"]["shortcuts"]["properties"]["bindings"]["description"]
+
+
+def names_the_any_form(text: str) -> bool:
+    """Prose that names the form, not just the English word "any".
+
+    Tolerates the quoting each surface needs: JSON escapes, a JSX string
+    literal, and the ICU `'{'` escape a next-intl message uses for a literal
+    brace.
+    """
+    return bool(re.search(r"['\"]?\{['\"`\s]*any", text))
+
+
+class SchemaAcceptsAlternatesTests(unittest.TestCase):
+    """The premise of every other test here."""
+
+    def test_schema_has_exactly_one_any_branch(self):
+        document = schema()
+        branches = document["$defs"]["shortcutBinding"]["oneOf"]
+        matches = [branch for branch in branches if branch.get("required") == ["any"]]
+        self.assertEqual(
+            len(matches), 1,
+            "web/data/cmux.schema.json should accept the alternates form in exactly one "
+            f"$defs.shortcutBinding branch; found {len(matches)}",
+        )
+
+    def test_any_items_accept_a_key_and_a_chord(self):
+        branch = any_branch(schema())
+        self.assertIsNotNone(branch)
+        items = branch["properties"]["any"]["items"]["oneOf"]
+        kinds = {"array" if item.get("type") == "array" else "stroke" for item in items}
+        self.assertEqual(
+            kinds, {"stroke", "array"},
+            "each `any` item should be a key string or a two-item chord array",
+        )
+
+
+class AlternatesDocumentedTests(unittest.TestCase):
+    """Every enumeration of the accepted binding values names the form."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.document = schema()
+        if any_branch(cls.document) is None:
+            raise unittest.SkipTest(
+                "web/data/cmux.schema.json no longer accepts {\"any\": [...]}; "
+                "drop the prose this test guards instead of skipping it"
+            )
+
+    def test_schema_bindings_description_names_the_form(self):
+        description = bindings_description(self.document)
+        self.assertTrue(
+            names_the_any_form(description),
+            "shortcuts.bindings in web/data/cmux.schema.json lists the accepted values and is "
+            "the hover help every JSON editor shows; it must name the alternates form. Got: "
+            f"{description!r}",
+        )
+
+    def test_configuration_docs_page_names_the_form(self):
+        text = CONFIGURATION_PAGE.read_text()
+        section = text.partition('id="shortcuts-bindings"')[2].partition('id="shortcuts-when"')[0]
+        self.assertTrue(section, "the shortcuts.bindings section moved; update this test")
+        self.assertTrue(
+            names_the_any_form(section),
+            "the shortcuts.bindings section of the docs site enumerates the accepted values "
+            "and must name the alternates form",
+        )
+
+    def test_keyboard_shortcuts_page_renders_an_alternates_rule(self):
+        page = KEYBOARD_SHORTCUTS_PAGE.read_text()
+        self.assertIn(
+            f't("{ANY_RULE_KEY}")', page,
+            f"the keyboard-shortcuts page lists the binding-value rules; add {ANY_RULE_KEY} "
+            "beside chordsRuleSingle and chordsRuleArray",
+        )
+
+    def test_english_catalog_has_the_alternates_rule(self):
+        rules = json.loads(EN_MESSAGES.read_text())["docs"]["keyboardShortcuts"]
+        self.assertIn(
+            ANY_RULE_KEY, rules,
+            f"web/messages/en.json needs docs.keyboardShortcuts.{ANY_RULE_KEY}; the other "
+            "locales fall back to English",
+        )
+        self.assertTrue(
+            names_the_any_form(rules[ANY_RULE_KEY]),
+            f"docs.keyboardShortcuts.{ANY_RULE_KEY} must name the form it describes",
+        )
+
+    def test_alternates_rule_escapes_its_braces_for_icu(self):
+        """next-intl reads a bare `{` as an argument, so the form needs `'{'`."""
+        message = json.loads(EN_MESSAGES.read_text())["docs"]["keyboardShortcuts"][ANY_RULE_KEY]
+        bare = message.replace("'{'", "").replace("'}'", "")
+        self.assertNotIn(
+            "{", bare,
+            f"docs.keyboardShortcuts.{ANY_RULE_KEY} describes a JSON object, so every literal "
+            "brace needs the ICU escape (`'{'` and `'}'`, as docs.api.socketCallout does); a "
+            "bare brace makes next-intl read it as a message argument",
+        )
+        self.assertNotIn("}", bare)
+
+    def test_configuration_doc_names_the_form(self):
+        self.assertTrue(
+            names_the_any_form(CONFIGURATION_DOC.read_text()),
+            "docs/configuration.md documents the alternates form (#25619); keep it",
+        )
+
+    def test_all_keys_reference_names_the_form(self):
+        rows = [
+            line for line in ALL_KEYS.read_text().splitlines()
+            if line.startswith("| `shortcuts.bindings`")
+        ]
+        self.assertEqual(len(rows), 1, "expected one shortcuts.bindings row in all-keys.md")
+        self.assertTrue(
+            names_the_any_form(rows[0]),
+            "the shortcuts.bindings row of skills/cmux-settings/references/all-keys.md copies "
+            "the schema description and must name the alternates form",
+        )
+
+    def test_shortcut_actions_reference_names_the_form(self):
+        self.assertTrue(
+            names_the_any_form(SHORTCUT_ACTIONS.read_text()),
+            "skills/cmux-settings/references/shortcut-actions.md lists the accepted binding "
+            "values an agent may write and must name the alternates form",
+        )
+
+    def test_keyboard_shortcuts_skill_names_the_form(self):
+        self.assertTrue(
+            names_the_any_form(SHORTCUTS_SKILL.read_text()),
+            "skills/cmux-keyboard-shortcuts/SKILL.md lists the accepted binding values an "
+            "agent may write and must name the alternates form",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

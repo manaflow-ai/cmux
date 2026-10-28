@@ -38,6 +38,7 @@ fi
 - Setting path: `shortcuts.bindings.<actionId>`.
 - Single stroke: `"cmd+b"`.
 - Chord: `["ctrl+b","c"]`. The first stroke needs a modifier unless the key is Space. The second stroke can be bare.
+- Several keys for one action: `{"any": ["ctrl+tab", "cmd+]"]}`. Each item is a single stroke or a chord, and every one runs the action. The first item is the key menus and the command palette show. An empty list (`{"any": []}`) unbinds. Numbered families take one key.
 - Unbind: prefer `null` for explicit unbinds. `""`, `"none"`, `"clear"`, `"unbound"`, and `"disabled"` are accepted aliases, but `null` is the clearest JSON value and matches the templates below.
 - `selectSurfaceByNumber`, `selectWorkspaceByNumber` and `focusPaneByNumber` must use a digit from 1 to 9. `cmd+1` means the full `cmd+1` through `cmd+9` family.
 - System-wide shortcuts: `showHideAllWindows` (needs Settings > Global Hotkey), `palette.startAgentFromAnyApp` (needs `app.startAgentGlobalHotKey`) and `home.messageChiefFromAnyApp` (default `ctrl+opt+cmd+c`, registered while the Chief pet is on). They cannot be chords, require modifiers, and may be rejected by macOS if reserved.
