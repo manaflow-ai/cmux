@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "units": "css-px",
+  "collector": "d09f357bec3e494478e4ca9982ad7c6dfbf3a842",
+  "artifactSha256": "b6840b2f6a054c8d696e2d85bc85286db4811d1c30976132d8ecc60820ceed98",
+  "captures": [
+    {
+      "source": "agent-pane.chat-inspector--full--en--Apple_System_Colors_Light--w420-chromium.png",
+      "sourceSha256": "7d4ff485205444ead95b2d43553898babdf2eaa17bc4e4fea45fc121c3aefe62",
+      "cropCssPx": [
+        98,
+        8,
+        308,
+        196
+      ],
+      "dpr": 2,
+      "crop": "session-info-labels-before-light.png",
+      "revision": "46f577914ea05e6fe8c96774d301dd0eca7b6588",
+      "labels": {
+        "Environment": 128,
+        "Context": 126,
+        "Connectors": 126,
+        "Changes": 106
+      }
+    },
+    {
+      "source": "agent-pane.chat-inspector--full--en--Apple_System_Colors--w420-chromium.png",
+      "sourceSha256": "2559202976e2f1c4005bef7e81e539a194f6e2553728501842f7b81333e4b493",
+      "cropCssPx": [
+        98,
+        8,
+        308,
+        196
+      ],
+      "dpr": 2,
+      "crop": "session-info-labels-before-dark.png",
+      "revision": "46f577914ea05e6fe8c96774d301dd0eca7b6588",
+      "labels": {
+        "Environment": 128,
+        "Context": 126,
+        "Connectors": 126,
+        "Changes": 106
+      }
+    },
+    {
+      "source": "agent-pane.chat-inspector--full--en--Apple_System_Colors_Light--w420-chromium.png",
+      "sourceSha256": "5372aefcbdbc2500be002ab77578c70dc537933936a3420acfea86c2ac8166a0",
+      "cropCssPx": [
+        98,
+        8,
+        308,
+        196
+      ],
+      "dpr": 2,
+      "crop": "session-info-labels-after-light.png",
+      "revision": "570ac1218357dde5e8fc2434c72b0e798f7b4c6a",
+      "labels": {
+        "Environment": 128,
+        "Context": 128,
+        "Connectors": 128,
+        "Changes": 106
+      }
+    },
+    {
+      "source": "agent-pane.chat-inspector--full--en--Apple_System_Colors--w420-chromium.png",
+      "sourceSha256": "c3fef2350cb3d20eb85d7a4306f181f39aaae697516eccc96ac7f1fbd6dfd626",
+      "cropCssPx": [
+        98,
+        8,
+        308,
+        196
+      ],
+      "dpr": 2,
+      "crop": "session-info-labels-after-dark.png",
+      "revision": "570ac1218357dde5e8fc2434c72b0e798f7b4c6a",
+      "labels": {
+        "Environment": 128,
+        "Context": 128,
+        "Connectors": 128,
+        "Changes": 106
+      }
+    }
+  ]
+}
