@@ -267,7 +267,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: calc(var(--ui-row-height) + var(--ui-popup-padding) * 2);
+  box-sizing: border-box;
+  height: var(--ui-row-height);
   margin: 0;
   padding-inline: var(--ui-row-padding-inline);
   border-block-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
@@ -365,9 +366,9 @@
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
-  padding: 6px;
+  padding: 0;
   overflow-y: auto;
-  scroll-padding-block: 6px;
+  scroll-padding-block: 0;
 }
 .acpmux-quick-body[data-scrolled] { mask-image: linear-gradient(to bottom, transparent, #000 6px); }
 .acpmux-quick-list,
@@ -438,3 +439,8 @@
 .ui-menu-item.acpmux-quick-offer {
   padding-inline-start: calc(var(--ui-row-padding-inline) + 12px);
 }
+
+/* Search and selectable rows share one inset and row height, without list-wrapper padding. */
+.acpmux-mp-search { box-sizing: border-box; height: var(--ui-row-height); padding-inline: var(--ui-row-padding-inline); }
+.acpmux-mp-models { padding: 0; }
+.acpmux-mp-row { padding-inline: var(--ui-row-padding-inline); }

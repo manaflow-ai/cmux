@@ -13,7 +13,7 @@ import { AgentMark, agentBrand, hasAgentMark, knownMark } from "../shared/AgentM
 import { agentName, agentDisplayName } from "./agents";
 import { agentKey } from "../shared/agentKey";
 import { isDefaultChoice } from "./defaultChoice";
-import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
+import { CheckIcon, ChevronIcon, PICKER_LABELS } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, useT } from "./i18n";
@@ -1291,7 +1291,6 @@ export function ModelPicker(props: ModelPickerProps) {
           )}
           <div className="acpmux-mp-content flex min-w-0 flex-1 flex-col">
             <div className="acpmux-mp-search flex h-9 flex-none items-center gap-2 border-b-[0.5px] border-edge pr-1.5 pl-3 text-muted focus-within:text-fg">
-              <SearchIcon size={15} />
               <PickerComboboxInput
                 ref={search}
                 type="search"

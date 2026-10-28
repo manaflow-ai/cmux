@@ -1,7 +1,7 @@
 import React, { Fragment, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AgentMark, hasAgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
-import { SearchIcon, type Choice } from "./ComposerPickers";
+import { type Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
 import { useComposerSettings, type ReasoningSliderStyle, type HarnessPlacement } from "./composerSettings";
@@ -729,7 +729,6 @@ export function QuickModelMenu({
       >
         {showField && (
           <div className="acpmux-quick-search">
-            <SearchIcon size={14} />
             <input
               ref={field}
               type="search"
