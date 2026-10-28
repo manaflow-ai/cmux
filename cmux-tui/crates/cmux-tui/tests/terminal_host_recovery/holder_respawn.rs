@@ -141,3 +141,60 @@ fn a_respawn_after_logout_under_the_holder_model_starts_on_the_holder() {
     let (shell, holder) = assert_on_the_holder(&harness, surface, "respawned", "after the logout");
     reap.0.extend([shell, holder]);
 }
+
+/// The holder starts a respawned shell at once (a terminal host waits for
+/// the respawn to commit): a shell that exits before the commit must still
+/// end its terminal, never leave it `running` with no shell.
+#[test]
+fn a_restarted_shell_that_exits_at_once_ends_its_terminal() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = holder_harness("holder-restart-exits-at-once");
+    // The restart runs the default shell, which exits at once.
+    harness.extra_env.push(("SHELL".into(), "/bin/false".into()));
+    // The shell's exit reaches the daemon before the respawn commits.
+    harness.extra_env.push(("CMUX_TUI_TEST_RESPAWN_INSTALL_DELAY_MS".into(), "500".into()));
+    harness.restart();
+    let workspace = &create_empty_workspace(&harness.socket, "holder-quick", "Holder quick");
+    let run = resource_request(
+        &harness.socket,
+        "holder-quick-run",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "argv":["/bin/sh","-c","exit 9"],
+            "on_exit":"keep",
+        }),
+        Some("holder-quick-run"),
+    );
+    assert!(run["value"]["tab_id"].is_string(), "{run}");
+    let terminal_id = tab_named(&harness, "Holder quick")["terminal_id"]
+        .as_str()
+        .expect("the run tab names its terminal")
+        .to_string();
+    let exited = wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "exited");
+    let first = exited["terminal_incarnation"].as_str().unwrap_or_default().to_string();
+    let dead = tab_named(&harness, "Holder quick");
+    let restarted = request_response(
+        &harness.socket,
+        serde_json::json!({"id":1,"cmd":"restart-tab","surface":dead["tab_resource_id"]}),
+    );
+    assert_eq!(restarted["ok"], true, "{restarted}");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        let incarnation = resolved["terminal_incarnation"].as_str().unwrap_or_default();
+        if resolved["lifecycle"] == "exited" && !incarnation.is_empty() && incarnation != first {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the restarted shell exited at once but its terminal never ended: {resolved}"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}

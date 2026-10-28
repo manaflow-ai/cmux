@@ -60,6 +60,9 @@ const DISABLE_ENV: &str = "CMUX_TUI_TEST_DISABLE_RESPAWN";
 /// Holds a scheduled respawn this long before it starts (tests of a close
 /// that races the respawn).
 const DELAY_ENV: &str = "CMUX_TUI_TEST_RESPAWN_DELAY_MS";
+/// Debug builds: holds a respawn this long between starting the new shell
+/// and committing it (tests of a shell that ends before the commit).
+const INSTALL_DELAY_ENV: &str = "CMUX_TUI_TEST_RESPAWN_INSTALL_DELAY_MS";
 /// Host-loss reasons (`TerminalEnd::wire_json` `reason`) that respawn.
 const RESPAWN_REASONS: &[&str] = &[
     "dead_before_adoption",
@@ -85,6 +88,7 @@ const RESPAWN_REASONS: &[&str] = &[
 pub(crate) struct TerminalRespawns {
     disabled: bool,
     delay: Option<Duration>,
+    install_delay: Option<Duration>,
     guard: Mutex<RespawnGuard>,
     /// Full argv of command terminals this daemon process launched. A later
     /// daemon reads the relaunch record's argv instead, which leaves out
@@ -135,6 +139,11 @@ impl TerminalRespawns {
             disabled: cfg!(test) || std::env::var(DISABLE_ENV).is_ok_and(|value| value == "1"),
             delay: std::env::var(DELAY_ENV)
                 .ok()
+                .and_then(|value| value.parse().ok())
+                .map(Duration::from_millis),
+            install_delay: cfg!(debug_assertions)
+                .then(|| std::env::var(INSTALL_DELAY_ENV).ok())
+                .flatten()
                 .and_then(|value| value.parse().ok())
                 .map(Duration::from_millis),
             guard: Mutex::new(RespawnGuard::from_env()),
@@ -538,6 +547,11 @@ impl Mux {
             &launch.seed,
         )?;
         let _pending_host_release = PendingTerminalHostRelease(surface.clone());
+        if let Some(delay) = self.terminal_respawns.install_delay {
+            // wakeup-allow: debug a test hook on this respawn worker, read only
+            // in debug builds and only when the test sets its variable.
+            std::thread::sleep(delay);
+        }
         let mut forgot_kept = false;
         let activated = match self.install_respawned_runtime(&plan, &surface) {
             Ok(true) => {
