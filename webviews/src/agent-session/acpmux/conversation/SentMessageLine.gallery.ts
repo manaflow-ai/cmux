@@ -10,8 +10,12 @@ import type { Play } from "../../../gallery/play";
 import { activity, assistant, chat, session, summary, tool, user, SESSION_ID } from "../../../gallery/fixtures/acpmux";
 
 /// A Claude Code Bash call as acpmux records it: its title the command's first 120 characters.
-const bash = (command: string, description: string, status: string, fields: { output?: string } = {}) =>
-  tool(command.slice(0, 120), "execute", status, { command, description, ...fields });
+const bash = (
+  command: string,
+  description: string,
+  status: string,
+  fields: { output?: string; startedAt?: number; endedAt?: number } = {},
+) => tool(command.slice(0, 120), "execute", status, { command, description, ...fields });
 
 const REPORT =
   "Merged #4182 (retry banner shows once per outage). The review passed; its one red, the release notary, is red on base too.";
@@ -61,12 +65,13 @@ const writeRecorded = bash(
   `cat > /tmp/net-retries/summary.md <<'EOF'\n## Recorded report\n\n- **#4182** merged; checks pass.\n- Follow-up stays with the toast owner.\nEOF`,
   "Write the report for the send",
   "completed",
+  { startedAt: 1, endedAt: 1.5 },
 );
 const recordedFileSend = bash(
   "acpmux send --no-wait reports:leo - < /tmp/net-retries/summary.md",
   "Send the recorded report to Leo",
   "completed",
-  { output: "queued" },
+  { output: "queued", startedAt: 2 },
 );
 const failed = bash(
   "acpmux send perf-lane 'Profile the transcript scroll on the long fixture.'",

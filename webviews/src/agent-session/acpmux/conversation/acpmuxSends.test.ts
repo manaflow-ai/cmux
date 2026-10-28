@@ -118,6 +118,9 @@ describe("acpmuxSend", () => {
     expect(read("acpmux send lane - < /tmp/message <<EOF\nbody\nEOF")?.text).toBe("body\n");
     expect(read("echo secret >/dev/null | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
     expect(read("echo shown 2>/dev/null | acpmux send lane -")?.text).toBe("shown");
+    // A non-zero-fd here-document is not the producer's stdin, even when it is piped onward.
+    expect(read("cat 1<<'EOF' | acpmux send lane -\nwrong fd\nEOF")?.text).toBeUndefined();
+    expect(read("cat 3<<<'wrong fd' | acpmux send lane -")?.text).toBeUndefined();
     expect(read("acpmux send lane")).toEqual({ target: "lane", noWait: false });
   });
 
@@ -285,6 +288,14 @@ describe("acpmuxSend", () => {
     expect(recordedMessageBodyChanges("cat > /tmp/message <<'EOF'\n\\\nEOF")).toEqual([
       { path: "/tmp/message", text: "\\\n" },
     ]);
+    expect(read("acpmux send lane - 3<<<'SECRET'")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane - 1<<'EOF'\nSECRET\nEOF")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane - <<'EOF'\nSECRET\nEOF\n0>/tmp/out")).toEqual({
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
+    expect(read("acpmux send lane - <<EOF\nfirst \\\nsecond\nEOF")).toEqual({ target: "lane", noWait: false });
     expect(read("cat > /tmp/message >> /tmp/other <<'EOF'\nambiguous\nEOF\nacpmux send lane - < /tmp/message")).toEqual(
       {
         target: "lane",

@@ -241,7 +241,6 @@ export function shellCommands(line: string): ShellCommand[] {
       const fd = /^\d+/.exec(redirect[0])?.[0];
       if (op.startsWith("<")) {
         stdinRedirects += 1;
-        if (stdinRedirects > 1) stdinUnsafe = true;
       }
       if (WRITES.has(op) || op === ">&" || op === "<&") {
         redirectWrites += 1;
@@ -265,29 +264,49 @@ export function shellCommands(line: string): ShellCommand[] {
       }
       if ((op.startsWith(">") || op.startsWith("&>")) && (fd === undefined || fd === "1") && target.text !== "1")
         stdout = true;
-      // The last redirect of stdin wins: one after a here-document takes its place.
-      const takesStdin = (fd === undefined || fd === "0") && (op.startsWith("<") || op === "<>");
+      // The last redirect of stdin wins: one after a here-document takes its place. A here-string
+      // is handled below and must not be mistaken for a file redirect (`<<<` starts with `<`).
+      const takesStdin = (fd === undefined || fd === "0") && (op === "<" || op === "<>" || op === "<<" || op === "<<-");
       if (takesStdin) {
-        if (stdin !== undefined || stdinFile !== undefined) stdinUnsafe = true;
-        if (op !== "<" && op !== "<<" && op !== "<<-") stdinUnsafe = true;
+        if ((stdin !== undefined && stdin !== "file") || stdinQuoted) stdinUnsafe = true;
         for (const doc of docs) doc.stdin = false;
-        stdinFile = op.startsWith("<") && op !== "<<" && op !== "<<-" && op !== "<<<" ? target : undefined;
+        stdinFile = op === "<" || op === "<>" ? target : undefined;
       }
       if (op === "<<" || op === "<<-") {
-        if (fd !== undefined && fd !== "0") redirectUnsafe = true;
+        if (fd !== undefined && fd !== "0") {
+          redirectUnsafe = true;
+          stdinUnsafe = true;
+        }
         const quoted = /['"\\]/.test(line.slice(start, next));
-        const doc = { delimiter: target.text, strip: op === "<<-", quoted, stdin: true, command: {} };
+        const doc = {
+          delimiter: target.text,
+          strip: op === "<<-",
+          quoted,
+          stdin: fd === undefined || fd === "0",
+          command: {},
+        };
         pending.push(doc);
         docs.push(doc);
         stdin = undefined;
         stdinFile = undefined;
-        stdinQuoted = quoted;
+        // A non-zero descriptor's heredoc is not this command's stdin. Do not leave its quoted
+        // metadata behind for stdinOf or a following pipe to mistake for fd 0.
+        stdinQuoted = fd === undefined || fd === "0" ? quoted : false;
       } else if (op === "<<<") {
-        stdinUnsafe = true;
-        stdin = { text: `${target.text}\n`, literal: target.literal };
+        if (fd !== undefined || stdinQuoted || stdinFile !== undefined) stdinUnsafe = true;
+        if (fd === undefined || fd === "0") stdin = { text: `${target.text}\n`, literal: target.literal };
+        else redirectUnsafe = true;
       } else if (op === "<" || op === "<>") {
-        stdinUnsafe = true;
         stdin = "file";
+      }
+      // An fd 0 output redirect replaces any earlier heredoc/file source. This is distinct from
+      // ordinary stdout `> out`, which leaves a command's stdin intact (`cat <<EOF > out`).
+      if (fd === "0" && (op.startsWith(">") || op.startsWith("&>"))) {
+        for (const doc of docs) doc.stdin = false;
+        stdin = undefined;
+        stdinFile = undefined;
+        stdinQuoted = false;
+        stdinUnsafe = true;
       }
       continue;
     }
@@ -773,6 +792,9 @@ export function acpmuxSend(
     else others += 1;
   }
   const send: AcpmuxSend = { ...found };
+  // A redirect or write after the send can alter stdin/file state before the shell opens it.
+  if (commands.slice(at + 1).some((command) => command.writes || command.redirectUnsafe || command.stdinUnsafe))
+    delete send.text;
   delete send.others;
   delete send.ownsExit;
   delete send.unsure;
@@ -824,6 +846,7 @@ function stdinOf(
   recordedFiles: ReadonlyMap<string, ShellWord>,
 ): ShellWord | "file" | undefined {
   const command = commands[index]!;
+  if (command.stdinUnsafe && command.stdin !== "file") return undefined;
   const own = command.stdin;
   if (own) {
     if (own === "file" && command.stdinFile?.literal) return recordedFiles.get(command.stdinFile.text) ?? own;
@@ -831,7 +854,7 @@ function stdinOf(
   }
   const before = commands[index - 1];
   // Its stdout sent elsewhere (`echo x >/dev/null | …`), nothing comes down the pipe.
-  if (before?.op !== "|" || before.stdout) return undefined;
+  if (before?.op !== "|" || before.stdout || before.stdinUnsafe) return undefined;
   const words = unwrapped(before.words);
   const name = program(words[0]);
   if (name === "cat" && words.length === 1) return before.stdin;

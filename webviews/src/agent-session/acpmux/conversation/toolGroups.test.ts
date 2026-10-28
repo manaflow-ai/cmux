@@ -138,7 +138,7 @@ test("a later accepted writer replaces all prior path spellings, and unknown tim
   const alias = item({
     title: "Bash",
     kind: "execute",
-    command: "cat > /tmp/./a <<'EOF'\nNEW\nEOF",
+    command: "cat > /private/tmp/a <<'EOF'\nNEW\nEOF",
     startedAt: 3,
     endedAt: 4,
   });
@@ -151,6 +151,45 @@ test("a later accepted writer replaces all prior path spellings, and unknown tim
   );
   expect(unknownOrder?.type).toBe("send");
   if (unknownOrder?.type === "send") expect(unknownOrder.send.text).toBeUndefined();
+
+  const overlap = toolGroups([
+    first,
+    { ...alias, tool: { ...alias.tool!, endedAt: 8 } },
+    { ...send, tool: { ...send.tool!, startedAt: 5 } },
+  ]).find((entry) => entry.type === "send");
+  expect(overlap?.type).toBe("send");
+  if (overlap?.type === "send") expect(overlap.send.text).toBeUndefined();
+});
+
+test("background writers use their completion time for send provenance", () => {
+  const writer = item({
+    title: "Bash",
+    kind: "execute",
+    command: "cat > /tmp/background.md <<'EOF'\nfinished later\nEOF",
+    startedAt: 1,
+    // The foreground call ended before the background shell did.
+    endedAt: 2,
+    background: { state: "completed", endedAt: 10 },
+  });
+  const beforeBackgroundEnds = item({
+    title: "Bash",
+    kind: "execute",
+    command: "acpmux send lane - < /tmp/background.md",
+    startedAt: 5,
+  });
+  const unresolved = toolGroups([writer, beforeBackgroundEnds]).find((entry) => entry.type === "send");
+  expect(unresolved?.type).toBe("send");
+  if (unresolved?.type === "send") expect(unresolved.send.text).toBeUndefined();
+
+  const afterBackgroundEnds = item({
+    title: "Bash",
+    kind: "execute",
+    command: "acpmux send lane - < /tmp/background.md",
+    startedAt: 11,
+  });
+  const resolved = toolGroups([writer, afterBackgroundEnds]).find((entry) => entry.type === "send");
+  expect(resolved?.type).toBe("send");
+  if (resolved?.type === "send") expect(resolved.send.text).toBe("finished later\n");
 });
 
 test("producer cache remains bounded across many completed writer replays", () => {
@@ -160,6 +199,8 @@ test("producer cache remains bounded across many completed writer replays", () =
       title: "Bash",
       kind: "execute",
       command: `cat > /tmp/message-${index}.md <<'EOF'\nbody ${index}\nEOF`,
+      startedAt: index * 2 + 1,
+      endedAt: index * 2 + 2,
     }),
   );
   toolGroups(rows);
@@ -183,11 +224,12 @@ test("unchanged streamed tool revisions reuse the bounded body parser cache", ()
     kind: "execute",
     command: "acpmux send lane - < /tmp/review.md",
     startedAt: 3,
+    endedAt: 4,
   });
   toolGroups([writer, send]);
   expect(recordedMessageBodyParseCountForTests()).toBe(2);
   // Streaming appends a new tool but keeps the prior tool snapshots unchanged.
-  const later = item({ title: "Bash", kind: "execute", command: "echo done" });
+  const later = item({ title: "Bash", kind: "execute", command: "echo done", startedAt: 5, endedAt: 6 });
   toolGroups([writer, send, later]);
   expect(recordedMessageBodyParseCountForTests()).toBe(3);
   toolGroups([writer, send, later]);

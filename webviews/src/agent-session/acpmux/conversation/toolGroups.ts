@@ -120,6 +120,15 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
         messageFileEndedAt.clear();
         return;
       }
+      // A background call's foreground row can finish before the actual shell. Use the
+      // background completion timestamp for provenance; without it, ordering against a later
+      // send is unknown and the body must remain unresolved.
+      const endedAt = tool.background ? tool.background.endedAt : tool.endedAt;
+      if (endedAt === undefined) {
+        messageFiles.clear();
+        messageFileEndedAt.clear();
+        return;
+      }
       for (const change of recordedMessageBodyChangesForTool(tool)) {
         if ("reset" in change) {
           messageFiles.clear();
@@ -135,7 +144,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
           messageFiles.clear();
           messageFileEndedAt.clear();
           messageFiles.set(change.path, change.text);
-          messageFileEndedAt.set(change.path, tool.endedAt);
+          messageFileEndedAt.set(change.path, endedAt);
           while (messageFiles.size > 64) messageFiles.delete(messageFiles.keys().next().value!);
         }
       }
