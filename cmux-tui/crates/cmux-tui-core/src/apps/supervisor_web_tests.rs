@@ -290,6 +290,26 @@ fn an_app_store_bundle_lands_only_when_its_hash_and_package_check_out() {
         put(&f, "octo/board", "1.0.0", &hash(&both), &both).unwrap_err(),
         "apps.registry.manifest"
     );
+    // In another case, a case-insensitive disk would open it as cmux-app.json.
+    let mut cased = files.clone();
+    cased.insert("Cmux-App.v2.json".into(), files["cmux-app.json"].clone());
+    assert_eq!(
+        put(&f, "octo/board", "1.0.0", &hash(&cased), &cased).unwrap_err(),
+        "apps.registry.manifest"
+    );
+    let mut renamed = files.clone();
+    let manifest = renamed.remove("cmux-app.json").unwrap();
+    renamed.insert("CMUX-APP.json".into(), manifest);
+    assert_eq!(
+        put(&f, "octo/board", "1.0.0", &hash(&renamed), &renamed).unwrap_err(),
+        "apps.registry.manifest"
+    );
+    let mut folded = files.clone();
+    folded.insert("web/App.js".into(), STANDARD.encode("x"));
+    assert_eq!(
+        put(&f, "octo/board", "1.0.0", &hash(&folded), &folded).unwrap_err(),
+        "apps.registry.path"
+    );
     assert!(app_entry(&f.supervisor.list(), "octo/board").is_null(), "nothing landed yet");
     assert!(!f.state.join("apps/registry/octo.board").exists());
 

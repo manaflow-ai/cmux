@@ -145,6 +145,9 @@ describe("app registry submit", () => {
     // Both names: the daemon would install the other one.
     const both = { ...b, files: { ...b.files, "cmux-app.json": b64(JSON.stringify(b.manifest)) } }
     expect((await submit("app_dev_gina", both)).body.error.code).toBe("registry.manifest_file")
+    // A second manifest in another case would be the one a case-insensitive disk installs.
+    const cased = { ...b, files: { ...b.files, "Cmux-App.json": b64(JSON.stringify(b.manifest)) } }
+    expect((await submit("app_dev_gina", cased)).body.error.code).toBe("registry.manifest_file")
     // A pane policy that could name a URL to send to is refused.
     const leaky = { ...manifestOf("gina/pane", "1.0.0"), runtime: { web: { root: "web", csp: "img-src 'self'; report-uri https://evil.example/r" } } }
     const leakyBody = { ...b, manifest: leaky, files: { ...b.files, "cmux-app.v2.json": b64(JSON.stringify(leaky)) } }

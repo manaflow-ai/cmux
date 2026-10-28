@@ -201,9 +201,12 @@ export const checkSubmission = async (body: unknown): Promise<{ ok: true; value:
   if (total > MAX_DECODED_BYTES) return refuse(413, "registry.too_large", `a bundle is at most ${MAX_DECODED_BYTES} bytes decoded`)
   // A path that is also a directory of another path cannot be written.
   for (const f of decoded) if (decoded.some((g) => g.path.toLowerCase().startsWith(`${f.path.toLowerCase()}/`))) return refuse(400, "registry.path", `${f.path} is both a file and a directory`)
-  // The daemon's catalog reads cmux-app.json when both exist: one manifest file, so the
-  // reviewer approves the manifest that installs.
-  if (MANIFEST_FILES.every((p) => decoded.some((f) => f.path === p))) return refuse(400, "registry.manifest_file", "a bundle has one manifest file")
+  // The daemon's catalog reads cmux-app.json when both exist, and a Mac disk ignores case: one
+  // manifest file, named in lowercase, so the reviewer approves the manifest that installs.
+  const manifestLike = decoded.filter((f) => (MANIFEST_FILES as ReadonlyArray<string>).includes(f.path.toLowerCase()))
+  if (manifestLike.length > 1 || manifestLike.some((f) => !(MANIFEST_FILES as ReadonlyArray<string>).includes(f.path))) {
+    return refuse(400, "registry.manifest_file", "a bundle has one manifest file, named in lowercase")
+  }
   const manifestFile = MANIFEST_FILES.map((p) => decoded.find((f) => f.path === p)).find(Boolean)
   if (!manifestFile) return refuse(400, "registry.manifest_file", `the bundle must contain ${MANIFEST_FILES.join(" or ")}`)
   let parsed: unknown

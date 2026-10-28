@@ -22,6 +22,8 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     private weak var client: AppsClient?
     /// The hot reload watch; dropping it (the view gone, or out of its window) ends it.
     private var reloads: ReloadWatch?
+    /// The app's file revision the page last loaded (nil before the first watch).
+    private var seenRevision: Int?
     /// Times the page reloaded for a file change (tests read it).
     private(set) var hotReloads = 0
     /// Called for each navigation the pane refused (tests wait on it).
@@ -77,12 +79,14 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
         let app = pane.appID
         let (first, later) = ObservationStream.current { [weak client] in client?.fileRevisions[app] ?? 0 }
         // task-owner: this view, through ReloadWatch; cancelled when the view leaves its window or goes
+        // Files saved while the pane was out of its window reload it on the way back.
+        if let seenRevision, seenRevision != first { filesChanged() }
+        seenRevision = first
         reloads = ReloadWatch(task: Task { [weak self] in
-            var seen = first
             for await revision in later {
                 guard let self else { return }
-                guard revision != seen else { continue }
-                seen = revision
+                guard revision != seenRevision else { continue }
+                seenRevision = revision
                 filesChanged()
             }
         })

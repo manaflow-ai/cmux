@@ -89,10 +89,18 @@ fn decoded(p: &PutParams) -> Result<BTreeMap<String, Vec<u8>>, ApiError> {
         return Err(bad("apps.registry.too_large", format!("a bundle has 1 to {MAX_FILES} files")));
     }
     let mut files = BTreeMap::new();
+    let mut folded = std::collections::BTreeSet::new();
     let mut total = 0usize;
     for (path, body) in &p.files {
         if !safe_path(path) {
             return Err(bad("apps.registry.path", format!("{path}: not a safe relative path")));
+        }
+        // Paths that differ only in case land on one file of a case-insensitive disk.
+        if !folded.insert(path.to_ascii_lowercase()) {
+            return Err(bad(
+                "apps.registry.path",
+                format!("{path}: another path differs only in case"),
+            ));
         }
         let bytes = STANDARD
             .decode(body)
@@ -104,10 +112,18 @@ fn decoded(p: &PutParams) -> Result<BTreeMap<String, Vec<u8>>, ApiError> {
         files.insert(path.clone(), bytes);
     }
     // The registry reads `cmux-app.v2.json` first and the catalog
-    // `cmux-app.json`: with both, a reviewer could approve one manifest and
-    // the Mac install the other.
-    if [catalog::V2_MANIFEST, "cmux-app.json"].iter().all(|name| files.contains_key(*name)) {
-        return Err(bad("apps.registry.manifest", "a bundle has one manifest file"));
+    // `cmux-app.json`, and the disk may ignore case: with two manifest files
+    // in any case, a reviewer could approve one and the Mac install the other.
+    let manifests = [catalog::V2_MANIFEST, "cmux-app.json"];
+    let manifest_like =
+        files.keys().filter(|path| manifests.contains(&path.to_ascii_lowercase().as_str()));
+    if manifest_like.clone().count() > 1
+        || manifest_like.clone().any(|path| !manifests.contains(&path.as_str()))
+    {
+        return Err(bad(
+            "apps.registry.manifest",
+            "a bundle has one manifest file, named in lowercase",
+        ));
     }
     if bundle_sha256(&files) != p.sha256.to_ascii_lowercase() {
         return Err(bad("apps.registry.hash", "the bundle does not match the listing's hash"));
@@ -138,6 +154,19 @@ impl Supervisor {
             })?;
         let files = decoded(&p)?;
         let _one_put = self.registry_puts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // First source wins in the catalog: a bundled or extra folder with the
+        // same id would shadow the copy, so nothing is written for it.
+        let shadowed = self
+            .inner
+            .lock()
+            .unwrap()
+            .catalog
+            .packages
+            .get(&p.app)
+            .is_some_and(|package| package.source != Source::Registry);
+        if shadowed {
+            return Err(bad("apps.registry.shadowed", "another copy of this app is installed"));
+        }
         let namespace = cmux_app_manifest::app_namespace(&p.app);
         // Staged beside the registry folder (same volume, so the rename below
         // is atomic) and never inside it, where a catalog read would see it.
