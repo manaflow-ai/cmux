@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextFocus
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -106,30 +107,6 @@ enum TabCloseGuard {
         }
     }
 
-    /// The workspace a close of `closing` empties: `pane` is the only pane it shows and the close leaves it with no tab.
-    /// That close is the workspace's own (one intent, one animation: handoff/motion-cascade.md rules 1 and 2): it runs
-    /// as Close Workspace (Cmd-Shift-W), never as a tab close then a pane close then a workspace close. Nil otherwise.
-    static func emptiedWorkspace(_ pane: PaneController, closing: [StripTabID]) -> String? {
-        guard let content = pane.workspace, empties(pane, closing: closing),
-              content.layoutModel.screens.reduce(0, { $0 + $1.layout.panes.count }) == 1 else { return nil }
-        return content.workspace.id
-    }
-
-    /// Whether `press`, a person's Close Tab in `window`, repeats the held key that closed a workspace there: it closes
-    /// nothing. The window shows another workspace now, whose tabs the held key never aimed at (the rule of a repeat
-    /// aimed at an emptied pane, ``PaneCloseAim``, across the workspace boundary: handoff/motion-cascade.md rule 6). A
-    /// new key press starts over.
-    static func repeatsPastWorkspaceClose(_ press: PaneCloseAim.Press, in window: WindowState?) -> Bool {
-        guard press.isKey, let window else { return false }
-        if !press.isRepeat { window.closeKeyHeldPastWorkspace = false }
-        return press.isRepeat && window.closeKeyHeldPastWorkspace
-    }
-
-    /// `press` closed its workspace in `window`: its repeats close nothing while the key stays held.
-    static func noteWorkspaceClosed(by press: PaneCloseAim.Press, in window: WindowState?) {
-        if press.isKey { window?.closeKeyHeldPastWorkspace = true }
-    }
-
     /// Whether closing `closing` leaves `pane` with no tab (tabs whose close is still asking count as closed).
     static func empties(_ pane: PaneController, closing: [StripTabID]) -> Bool {
         let pages = pane.services.closedTabs?.undoToasts.pageClosing
@@ -216,5 +193,42 @@ enum TabCloseGuard {
     static func displayName(_ agent: String?) -> String {
         guard let agent, let first = agent.first else { return ConfirmationStrings.theAgent }
         return first.uppercased() + agent.dropFirst()
+    }
+}
+
+/// A person's Close Tab that empties the only pane of its workspace is that workspace's close (Lawrence 2026-10-28,
+/// handoff/motion-cascade.md rules 1 and 2: "cmd w on last tab in workspace should ... just be same as cmd shift w
+/// animation, not animate closing the tab first, then the workspace"). It runs Close Workspace for that row from the
+/// press's turn: the row leaves, the selection moves and the next workspace shows, the daemon's close runs behind and
+/// the workspace can be reopened. Before, the tab left, an empty pane stayed for a daemon round trip, and the empty-
+/// workspace repair closed the workspace about three round trips later, ending its terminals.
+///
+/// Only a close nothing can hold back takes this route: no live terminal (its close can ask about a running program or
+/// a working agent, ``close(_:on:services:window:close:)``), no live page that decides its own close (`beforeunload`, `BrowserUserClosing`),
+/// and no tab of the pane whose close is still asking or deciding. Those keep the tab close, which asks first.
+@MainActor
+extension TabCloseGuard {
+    /// Closes `closing`'s workspace as Close Workspace does, when `closing` is every tab of the only pane of its
+    /// workspace and nothing can hold the close back; marks `pane` emptied by `press`, so a held key's repeats close
+    /// nothing in the next workspace (``PaneCloseAim``). Returns false, doing nothing, otherwise (the caller closes the
+    /// tabs) or when Close Workspace does not run.
+    static func closeWorkspaceIfEmptied(_ ctx: AppActionContext, emptying pane: PaneController, closing: [StripTabID],
+                                        by press: PaneCloseAim.Press) -> Bool {
+        guard let content = pane.workspace, closing.count == pane.orderedIDs.count,
+              Set(closing) == Set(pane.orderedIDs),
+              content.layoutModel.screens.reduce(0, { $0 + $1.layout.panes.count }) == 1,
+              closing.allSatisfy({ closesQuietly($0, in: pane) }) else { return false }
+        guard ctx.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: content.workspace.id)) else { return false }
+        content.focus.noteEmptied(pane.paneKey, by: press)
+        return true
+    }
+
+    /// Whether `id`'s close cannot be held back: no question can apply and no page decides it.
+    private static func closesQuietly(_ id: StripTabID, in pane: PaneController) -> Bool {
+        let key = id.rawValue
+        if asking.contains(key) || pane.services.closedTabs?.undoToasts.pageClosing.contains(key) == true { return false }
+        if let tab = pane.tab(id), tab.kind == .pty, !tab.dead { return false }
+        if pane.services.cache.browsers[key]?.tab is any BrowserUserClosing { return false }
+        return true
     }
 }

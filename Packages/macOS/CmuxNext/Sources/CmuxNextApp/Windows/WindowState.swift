@@ -69,10 +69,6 @@ final class WindowState {
     /// rooms share a browser profile (space-switch-fast).
     private(set) var roomBrowserProfileID: String?
 
-    /// A person's held Cmd-W closed its workspace here (``TabCloseGuard/noteWorkspaceClosed(by:in:)``): its repeats close
-    /// nothing until a new press. Read only by Close Tab, so not observed.
-    @ObservationIgnored var closeKeyHeldPastWorkspace = false
-
     /// Reads a room's browser profile (the window's controller sets it from the home store).
     @ObservationIgnored var roomBrowserProfileOf: (@MainActor (ProfileID) -> String?)? {
         didSet { refreshRoomBrowserProfile() }
