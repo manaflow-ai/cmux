@@ -274,3 +274,33 @@ async fn approve_and_remove_are_logged_in_the_order_they_happened() {
     }
     c.cancel(&session).await;
 }
+
+/// The owner declines a prompt a restart restored before its task claims it: the restored task
+/// then finds it gone, and its `withdrawn` never replaces the decline, so a client waiting on the
+/// prompt id is told `queue.declined` (review of #26747).
+#[tokio::test]
+async fn a_decline_before_the_restored_task_claims_it_stays_the_answer() {
+    let dir = std::env::temp_dir().join(format!("acpmux-approval-{}", uuid::Uuid::now_v7()));
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    c.queue(held(&session, "g-1", "guest words")).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    c.call("_acpmux/queue_decline", answer(&session, "g-1", None)).await;
+    // Its task starts now and finds the restored prompt gone.
+    hub.resume_queues();
+    c.call("session/prompt", prompt(&session, "p-owner", "owner words", None)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let mut resend = held(&session, "g-1", "guest words");
+    resend["_meta"]["acpmux"]["resend"] = json!(true);
+    let answer = c.reply("session/prompt", resend).await;
+    assert_eq!(reason(&answer), "queue.declined", "{answer}");
+    assert!(!ran(&mut c, &session, "g-1").await, "a declined prompt ran");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
