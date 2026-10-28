@@ -444,8 +444,12 @@ impl Drop for Session {
     }
 }
 
+/// `close_range` flag: mark the range close-on-exec instead of closing it.
+#[cfg(target_os = "linux")]
+const CLOSE_RANGE_CLOEXEC: libc::c_uint = 1 << 2;
+
 /// In the child before exec: the channel on fd 3 without close-on-exec, and
-/// every other inherited descriptor above 2 closed.
+/// every other inherited descriptor above 3 close-on-exec.
 fn child_fds(fd: libc::c_int, max_fd: libc::c_int) -> std::io::Result<()> {
     // SAFETY: plain descriptor syscalls on this (forked, single-threaded) process.
     unsafe {
@@ -456,13 +460,15 @@ fn child_fds(fd: libc::c_int, max_fd: libc::c_int) -> std::io::Result<()> {
         } else if libc::dup2(fd, 3) != 3 {
             return Err(std::io::Error::last_os_error());
         }
-        // Linux closes every descriptor above 3 at once, whatever the limit.
+        // Close-on-exec, not closed: `Command::spawn` reports a failed exec
+        // over a private pipe, and closing it aborts the child instead. Linux
+        // marks every descriptor above 3 at once, whatever the limit.
         #[cfg(target_os = "linux")]
-        if libc::syscall(libc::SYS_close_range, 4_u32, u32::MAX, 0_u32) == 0 {
+        if libc::syscall(libc::SYS_close_range, 4_u32, u32::MAX, CLOSE_RANGE_CLOEXEC) == 0 {
             return Ok(());
         }
         for other in 4..max_fd {
-            libc::close(other);
+            libc::fcntl(other, libc::F_SETFD, libc::FD_CLOEXEC);
         }
     }
     Ok(())

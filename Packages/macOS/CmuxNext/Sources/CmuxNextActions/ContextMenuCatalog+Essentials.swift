@@ -47,14 +47,14 @@ nonisolated enum ContextMenuEssentials {
     ]
 
     /// The workspace menu opened on one of several selected rows, as Chrome's menu on several
-    /// selected tabs (Leo 2026-10-20): New Workspace Below and Add to New Group; Duplicate, Move ▸,
+    /// selected tabs (Leo 2026-10-20): New Workspace Below and Group Selected Workspaces (the Cmd-Shift-G action); Duplicate, Move ▸,
     /// Pin and Mute; More; then Close Workspaces, Close Other Workspaces and Close Workspaces Below,
     /// which keep the selection (`WorkspaceBulkClose.keeping`); then Reopen Closed Workspace. Its
     /// rows act on every selected row (`WindowMembershipHandlers.rowTargets`) and say so
     /// (`NSMenu.namingWorkspaceSelection`).
     static let selectionMenus: [ActionMenuContext: Rows] = [
         // The color row becomes the header's swatches, which color every selected row (MenuIdentityHeader).
-        .workspaceRow: Rows(top: [.choices("palette.workspaceColor"), .action("workspace.newBelow"), .action("workspace.moveToNewGroup"), .separator,
+        .workspaceRow: Rows(top: [.choices("palette.workspaceColor"), .action("workspace.newBelow"), .action("groupSelectedWorkspaces"), .separator,
                                   .action("workspace.duplicate"), .folder(.move, []), .action("palette.toggleWorkspacePin"),
                                   .action("workspace.toggleAudioMute"), .separator],
                             close: ["closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow"],

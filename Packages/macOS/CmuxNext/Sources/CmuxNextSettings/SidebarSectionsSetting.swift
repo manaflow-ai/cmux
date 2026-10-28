@@ -25,6 +25,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showSpacesPath = ["sidebar", "showSpaces"]
     public static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public static let showSearchButtonPath = ["sidebar", "showSearchButton"]
+    public static let noFadePath = ["sidebar", "noFade"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
     public static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
     public static let showTimestampsPath = ["sidebar", "showTimestamps"]
@@ -192,6 +193,13 @@ public nonisolated enum SidebarSectionsSetting {
                                                        "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette."),
                               kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showSearchButton),
                               keywords: ["sidebar", "search", "find", "magnifying glass", "everything", "footer", "hide", "show"]),
+            // Show Whole Sidebar (No Fade): the list shows with no edge fade and the profile and search bar hides.
+            SettingDescriptor(noFadePath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.noFade", "Show Whole Sidebar Without Fade"),
+                              help: SettingsText.keyed("settings.sidebar.noFade.help",
+                                                       "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows."),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.noFade),
+                              keywords: ["sidebar", "fade", "whole", "full", "everything", "edges", "profile", "search", "footer", "show", "hide"]),
         ]
     }
 
@@ -274,6 +282,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.showSpaces = flag(root, showSpacesPath, fallback: result.showSpaces, &diagnostics)
         result.showProfileControl = flag(root, showProfileControlPath, fallback: result.showProfileControl, &diagnostics)
         result.showSearchButton = flag(root, showSearchButtonPath, fallback: result.showSearchButton, &diagnostics)
+        result.noFade = flag(root, noFadePath, fallback: result.noFade, &diagnostics)
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)

@@ -69,6 +69,50 @@ export function heightFoldInFlight(row: Element): boolean {
 
 const always = () => true;
 
+/// The resize each box is playing (`playResize`), so a resize that ends late lets go of only its own.
+const resizing = new WeakMap<HTMLElement, Animation>();
+
+/// Slides a box that stays drawn from the height it was drawn at before a change (`from`, read before
+/// it) to the height it lays out at now: a cut card opening whole, or cut again. The fold's duration
+/// and easing, clipped while it plays; at once when the fold may not move. A resize that turns back
+/// midway starts from where it was drawn, as `from` is read while it plays.
+export function playResize(node: HTMLElement, from: number): void {
+  resizing.get(node)?.cancel();
+  const ms = foldMs(node);
+  const to = node.getBoundingClientRect().height;
+  if (ms <= 0 || Math.abs(to - from) < 0.5) return;
+  // The rows below are placed before paint while it plays, as a fold's are (`heightFoldInFlight`).
+  const row = node.closest(".acpmux-row");
+  if (row) heightFolds.set(row, performance.now() + ms + HEIGHT_FOLD_SETTLE_MS);
+  node.style.overflow = "hidden";
+  // `max-height` too: a cut box's own max-height would otherwise hold it short while it opens.
+  const animation = node.animate(
+    [
+      { height: `${from}px`, maxHeight: `${from}px` },
+      { height: `${to}px`, maxHeight: `${to}px` },
+    ],
+    { duration: ms, easing: foldMotion.easing(node) },
+  );
+  resizing.set(node, animation);
+  const release = () => {
+    if (resizing.get(node) !== animation) return;
+    resizing.delete(node);
+    node.style.overflow = "";
+  };
+  animation.onfinish = release;
+  animation.oncancel = release;
+}
+
+/// Stops the resize `node` is playing, if any (`playResize`), leaving it at the height it lays out at.
+export function cancelResize(node: HTMLElement): void {
+  const animation = resizing.get(node);
+  if (!animation) return;
+  // Let go of the clip now: the cancel event comes after this frame's paint.
+  resizing.delete(node);
+  node.style.overflow = "";
+  animation.cancel();
+}
+
 /// Holds `node` shut (height and opacity 0, its body clipped), or with `undefined`, lets it take its
 /// own size again.
 function pin(node: HTMLElement, value: 0 | undefined): void {

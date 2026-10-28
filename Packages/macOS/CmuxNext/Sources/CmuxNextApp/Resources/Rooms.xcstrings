@@ -2348,6 +2348,661 @@
           }
         }
       }
+    },
+    "rooms.refusal.defaultsMustBeText" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd and env take text; pass one empty (--cwd= or --env=) to clear it"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يأخذ cwd وenv نصًا؛ مرّر أحدهما فارغًا (--cwd= أو --env=) لمسحه"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd i env primaju tekst; proslijedite jedan prazan (--cwd= ili --env=) da ga obrišete"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd og env tager tekst; angiv en tom (--cwd= eller --env=) for at rydde den"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd und env nehmen Text; übergib einen leer (--cwd= oder --env=), um ihn zu löschen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd y env aceptan texto; pasa uno vacío (--cwd= o --env=) para borrarlo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd et env prennent du texte ; passez-en un vide (--cwd= ou --env=) pour l’effacer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd ed env accettano testo; passane uno vuoto (--cwd= o --env=) per cancellarlo"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd と env にはテキストを指定します。消去するには空で渡してください (--cwd= または --env=)"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd និង env ទទួលអត្ថបទ; ផ្ញើមួយទទេ (--cwd= ឬ --env=) ដើម្បីសម្អាតវា"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd와 env는 텍스트를 받습니다. 지우려면 빈 값으로 전달하세요 (--cwd= 또는 --env=)"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd og env tar tekst; send en tom (--cwd= eller --env=) for å fjerne den"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd i env przyjmują tekst; przekaż jeden pusty (--cwd= lub --env=), aby go wyczyścić"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd e env recebem texto; passe um vazio (--cwd= ou --env=) para limpá-lo"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd и env принимают текст; передайте пустое значение (--cwd= или --env=), чтобы очистить его"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd และ env รับข้อความ; ส่งค่าว่าง (--cwd= หรือ --env=) เพื่อล้างค่านั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd ve env metin alır; temizlemek için birini boş geçin (--cwd= veya --env=)"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd і env приймають текст; передайте порожнє значення (--cwd= або --env=), щоб очистити його"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd và env nhận văn bản; truyền một giá trị rỗng (--cwd= hoặc --env=) để xóa nó"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd 和 env 接受文本；传入空值（--cwd= 或 --env=）可清除"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd 和 env 接受文字；傳入空值（--cwd= 或 --env=）可清除"
+          }
+        }
+      }
+    },
+    "rooms.refusal.cwdMustBeAbsolute" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd must be an absolute directory or start with ~"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يجب أن يكون cwd مجلدًا مطلقًا أو يبدأ بـ ~"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd mora biti apsolutni direktorij ili počinjati sa ~"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd skal være en absolut mappe eller starte med ~"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd muss ein absolutes Verzeichnis sein oder mit ~ beginnen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd debe ser un directorio absoluto o empezar por ~"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd doit être un dossier absolu ou commencer par ~"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd deve essere una directory assoluta o iniziare con ~"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd は絶対パスのディレクトリか ~ で始まる必要があります"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd ត្រូវតែជាថតដាច់ខាត ឬចាប់ផ្ដើមដោយ ~"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd는 절대 경로 디렉터리이거나 ~로 시작해야 합니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd må være en absolutt mappe eller starte med ~"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd musi być katalogiem bezwzględnym lub zaczynać się od ~"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd deve ser um diretório absoluto ou começar com ~"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd должен быть абсолютным каталогом или начинаться с ~"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd ต้องเป็นไดเรกทอรีแบบสัมบูรณ์หรือขึ้นต้นด้วย ~"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd mutlak bir dizin olmalı veya ~ ile başlamalıdır"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd має бути абсолютним каталогом або починатися з ~"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd phải là thư mục tuyệt đối hoặc bắt đầu bằng ~"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd 必须是绝对目录或以 ~ 开头"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cwd 必須是絕對目錄或以 ~ 開頭"
+          }
+        }
+      }
+    },
+    "rooms.clearDefaultsTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear the terminal defaults of “%@”?"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "مسح إعدادات الطرفية الافتراضية لـ “%@”؟"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obrisati zadane postavke terminala za „%@“?"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ryd terminalstandarderne for “%@”?"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal-Standards von „%@“ löschen?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Borrar los valores de terminal de «%@»?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Effacer les réglages de terminal de « %@ » ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancellare i valori predefiniti del terminale di “%@”?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” のターミナル既定値を消去しますか？"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "សម្អាតលំនាំដើមស្ថានីយរបស់ “%@”?"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”의 터미널 기본값을 지울까요?"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fjerne terminalstandardene for «%@»?"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wyczyścić domyślne ustawienia terminala „%@”?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Limpar os padrões de terminal de “%@”?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Очистить параметры терминала «%@»?"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ล้างค่าเริ่มต้นเทอร์มินัลของ “%@” หรือไม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” için terminal varsayılanları temizlensin mi?"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Очистити типові налаштування термінала «%@»?"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Xóa mặc định terminal của “%@”?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清除“%@”的终端默认值？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清除「%@」的終端機預設值？"
+          }
+        }
+      }
+    },
+    "rooms.clearDefaultsBody" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New terminals in this space stop starting in its directory and stop getting its environment variables."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لن تبدأ الطرفيات الجديدة في هذه المساحة في مجلدها ولن تحصل على متغيرات بيئتها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Novi terminali u ovom prostoru više ne počinju u njegovom direktoriju niti dobijaju njegove varijable okruženja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nye terminaler i dette område starter ikke længere i dets mappe og får ikke længere dets miljøvariabler."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neue Terminals in diesem Space starten nicht mehr in seinem Verzeichnis und erhalten seine Umgebungsvariablen nicht mehr."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los terminales nuevos de este espacio dejan de abrirse en su directorio y de recibir sus variables de entorno."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les nouveaux terminaux de cet espace ne démarrent plus dans son dossier et ne reçoivent plus ses variables d’environnement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I nuovi terminali di questo spazio non partono più nella sua directory e non ricevono più le sue variabili d’ambiente."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このスペースの新しいターミナルは、そのディレクトリで開始されず、その環境変数も受け取らなくなります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ស្ថានីយថ្មីក្នុងលំហនេះនឹងលែងចាប់ផ្ដើមក្នុងថតរបស់វា ហើយលែងទទួលអថេរបរិស្ថានរបស់វា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 스페이스의 새 터미널은 더 이상 해당 디렉터리에서 시작하지 않고 환경 변수도 받지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nye terminaler i dette området starter ikke lenger i mappen og får ikke lenger miljøvariablene."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nowe terminale w tym obszarze przestaną uruchamiać się w jego katalogu i otrzymywać jego zmienne środowiskowe."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Novos terminais neste espaço deixam de iniciar no diretório dele e de receber as variáveis de ambiente dele."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новые терминалы в этой области перестанут запускаться в её каталоге и получать её переменные окружения."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เทอร์มินัลใหม่ในพื้นที่นี้จะไม่เริ่มในไดเรกทอรีของพื้นที่และไม่ได้รับตัวแปรสภาพแวดล้อมของพื้นที่อีก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu alandaki yeni terminaller artık onun dizininde başlamaz ve ortam değişkenlerini almaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нові термінали в цьому просторі більше не запускатимуться в його каталозі й не отримуватимуть його змінні середовища."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal mới trong không gian này sẽ không còn bắt đầu trong thư mục của nó và không nhận biến môi trường của nó nữa."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此空间中的新终端将不再从其目录启动，也不再获得其环境变量。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此空間中的新終端機將不再從其目錄啟動，也不再取得其環境變數。"
+          }
+        }
+      }
+    },
+    "rooms.clearDefaults" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "مسح"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obriši"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ryd"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Löschen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Borrar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Effacer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancella"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "消去"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "សម្អាត"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "지우기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fjern"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wyczyść"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Limpar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Очистить"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ล้าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Temizle"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Очистити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Xóa"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清除"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清除"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

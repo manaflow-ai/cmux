@@ -42,7 +42,7 @@ extension UpdaterService {
     /// (``cardReleaseNotesURL``); the others act here.
     public func performCardAction(_ action: UpdateCardAction) {
         switch action {
-        case .update: installClicked()
+        case .update: downloadClicked()
         case .retry: checkForUpdates()
         case .details: presentUpdateUI?()
         case .releaseNotes: break

@@ -1,9 +1,8 @@
 // The composer's location strip (hq#1957 composer location strip). Leo: the folder and host row
 // ("Choose folder ⌄ · cosmic-gray ⌄") sat inside the card as a second row under the controls,
-// wasting space. It is now a tab on the card's top edge in the chat composer, and text a few px
-// over the card in the New Tab's (#21133):
-//   - the strip's bottom edge is the card's top edge (New Tab: a few px above it), and it stays
-//     within the card's sides;
+// wasting space. It is now text a few px over the card, in the chat composer as in the New Tab's
+// (#21133; Leo 2026-10-25, Cmd-I's new chat "a different style from everything else"):
+//   - the strip stands a few px above the card's top edge, and it stays within the card's sides;
 //   - the card holds one controls row and no location row;
 //   - the strip is as tall with no project, with one and while the host loads;
 //   - only a new chat has the strip, before its first send: a started chat's card stands alone,
@@ -14,8 +13,6 @@
 //   - the folder popover filters with its search field and tells duplicate names apart;
 //   - the folder popover folds a repository's worktrees under one row (Austin 2026-10-20: each cmux
 //     worktree listed as a project of its own), opened by → or the count and found by branch;
-//   - the strip and the card read as one surface: no hairline draws across the seam where the
-//     strip stands on the card (Leo: the card's top hairline showed under the strip).
 //   - design panel (compact composer): the strip's first and last marks line up with the prompt's
 //     edges, with no gap where it stands inside the card's corner; no "·" floats between folder
 //     and computer; in a narrow pane the folder cuts in the middle ("atl…web"), the computer shows
@@ -25,7 +22,6 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import { PNG } from "pngjs";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -148,12 +144,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         expect(measured.strip).not.toBeNull();
         expect(measured.stripFolder).toBe(true);
         const { strip, card } = measured as { strip: Rect; card: Rect };
-        // The New Tab's strip is text a few px over its card (Cursor's home, #21133); the chat's
-        // stands on the card's top edge.
-        if (surface.card === ".nt-box") {
-          expect(card.top - strip.bottom).toBeGreaterThanOrEqual(2);
-          expect(card.top - strip.bottom).toBeLessThanOrEqual(8);
-        } else expect(Math.abs(strip.bottom - card.top)).toBeLessThanOrEqual(1);
+        // The strip is text a few px over its card (Cursor's home, #21133), the chat's as the New Tab's.
+        expect(card.top - strip.bottom).toBeGreaterThanOrEqual(2);
+        expect(card.top - strip.bottom).toBeLessThanOrEqual(8);
         expect(strip.left).toBeGreaterThanOrEqual(card.left - 0.5);
         expect(strip.right).toBeLessThanOrEqual(card.right + 0.5);
         expect(measured.controlRows).toBe(1);
@@ -355,49 +348,6 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.close();
   });
 
-  // The seam: one column through the strip's empty fill and down into the card, at 2x. A line across
-  // the seam is a row far from its neighbors' tone; the strip's and the card's fills are the same.
-  // The New Tab has no seam: its strip is text over the card, which keeps its whole rim (#21133).
-  for (const surface of [
-    { name: "the chat composer", entry: "agent-pane.composer-strip", variant: "project", card: ".acpmux-composer-box" },
-  ])
-    test(`${surface.name}: no hairline across the seam under the strip`, async () => {
-      const page = await browser!.newPage({ viewport: { width: 720, height: 560 }, deviceScaleFactor: 2 });
-      await page.goto(stageURL(surface.entry, surface.variant));
-      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-      await page.evaluate(async () => {
-        await document.fonts.ready;
-        (document.activeElement as HTMLElement | null)?.blur();
-      });
-      const probe = await page.evaluate((card) => {
-        const strip = document.querySelector(".acpmux-composer-strip")!.getBoundingClientRect();
-        const box = document.querySelector(card)!.getBoundingClientRect();
-        // A column where the strip shows only its own fill (no control over it).
-        for (let x = strip.left + 24; x < strip.right - 24; x += 2) {
-          const hit = document.elementFromPoint(x, strip.top + strip.height / 2);
-          if (hit?.closest(".acpmux-composer-strip") && !hit.closest("button, a, span, svg, input, [role]"))
-            return { x, seam: box.top };
-        }
-        return null;
-      }, surface.card);
-      expect(probe).not.toBeNull();
-      const png = PNG.sync.read(
-        await page.screenshot({ clip: { x: probe!.x, y: probe!.seam - 4, width: 1, height: 8 } }),
-      );
-      await page.close();
-      const tones: number[] = [];
-      for (let y = 0; y < png.height; y++) {
-        const at = (png.width * y + Math.floor(png.width / 2)) * 4;
-        tones.push(0.2126 * png.data[at]! + 0.7152 * png.data[at + 1]! + 0.0722 * png.data[at + 2]!);
-      }
-      const sorted = [...tones].sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)]!;
-      const worst = Math.max(...tones.map((tone) => Math.abs(tone - median)));
-      expect({ worst: Math.round(worst), tones: tones.map(Math.round) }).toEqual({
-        worst: Math.min(Math.round(worst), 5),
-        tones: tones.map(Math.round),
-      });
-    });
   /** Runs in the page: the strip's controls against the prompt's edges. */
   function measureMarks() {
     const rect = (element: Element | null | undefined) => {
@@ -588,36 +538,5 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.close();
     expect(after.edge).toBe(before.edge);
     expect(after.rect).toEqual(before.rect);
-  });
-
-  // Inside the card's corner: one column just inside the strip's side, from the strip down into the
-  // card. The card's corner has dropped there, and a gap would show the page between the two.
-  test("the chat composer: no gap where the strip stands inside the card's corner", async () => {
-    const page = await browser!.newPage({ viewport: { width: 420, height: 560 }, deviceScaleFactor: 2 });
-    await page.goto(stageURL("agent-pane.composer-strip", "project"));
-    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.evaluate(async () => {
-      await document.fonts.ready;
-      (document.activeElement as HTMLElement | null)?.blur();
-    });
-    const at = await page.evaluate(() => {
-      const strip = document.querySelector(".acpmux-composer-strip")!.getBoundingClientRect();
-      const card = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
-      return { x: strip.left + 1, seam: card.top, inside: strip.left - card.left };
-    });
-    // The strip stands inside the corner's 18 px radius (that is what lines its marks up).
-    expect(at.inside).toBeLessThan(18);
-    const png = PNG.sync.read(await page.screenshot({ clip: { x: at.x, y: at.seam - 4, width: 1, height: 8 } }));
-    await page.close();
-    const tones: number[] = [];
-    for (let y = 0; y < png.height; y++) {
-      const offset = (png.width * y + png.width - 1) * 4;
-      tones.push(0.2126 * png.data[offset]! + 0.7152 * png.data[offset + 1]! + 0.0722 * png.data[offset + 2]!);
-    }
-    const worst = Math.max(...tones.map((tone) => Math.abs(tone - tones[0]!)));
-    expect({ worst: Math.round(worst), tones: tones.map(Math.round) }).toEqual({
-      worst: Math.min(Math.round(worst), 5),
-      tones: tones.map(Math.round),
-    });
   });
 });

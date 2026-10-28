@@ -76,6 +76,19 @@ Ways a message used to end with no reply, and what happens now:
 - The turn fails, times out, or is cut (acpmux lost, an upstream error past
   `MAX_CUTS`): the failure text posts as before; when nothing posts, the
   message waits for a retry.
+
+A turn an error a retry may clear ends is cut, not failed, and runs again on
+the resume note (`brain/turns.rs` `cut_kind`, issue 25577): the classes a
+subagent auto-resumes on (`auto_resume::classify_error`: 429 and rate
+limits, 500, 502, 503, 504, 529, overloaded) run again after
+`UPSTREAM_RESUME_BACKOFF` (15 s, 45 s, 120 s); a network error (DNS, a
+dropped connection, `fetch failed`, the Mac offline) waits until the model
+endpoint answers (`auto_resume::wait_online`, every 30 s, at most 6 h) and
+then runs again no sooner than that backoff. A person's message starts the
+turn at once. At most `MAX_CUTS` (3) cuts in a row; a usage limit is never
+cut. A cut turn's resume is saved with the host state, so a host that quits
+while it waits (Cmd+Q, an update) runs the task again when it starts. Tests:
+`tests/chief_turn_retry.rs`.
 - The owner refuses the reply post (any reject other than `agent_rate`,
   which retries on its own): the message waits for a retry.
 - The host dies before the reply posts: the ledger survives the restart.
@@ -158,6 +171,20 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   the ids at once (ids are unique per home, kept in host.json).
 - `spawn` takes an optional `effort` (low, medium, high, xhigh, max): how
   hard its subagents think; by default the calling turn's effort.
+- `cloud_workspace {title, size?, machine?}` (`optchat-chief cloud-workspace
+  [--size S] [--machine machine:ID] "title"`, `src/cloud_workspace.rs`) starts a
+  cmux Cloud workspace for a task through the app's control socket
+  (`CMUX_SOCKET_PATH`): `cloudListMachines`, then `newCloudMachine {name}` (the
+  title lowercased with dashes), which makes the machine and opens its first
+  workspace in the sidebar under the machine; with `machine` it runs
+  `newCloudWorkspace` on that machine instead (keyed, so a retry never opens a
+  second one). The runs are `script` origin: the app's rules for an agent's
+  create apply (on a paid plan it makes the machine at once), so the Chief calls
+  it only for a machine the person asked for. A machine of that name, or a create
+  of that name the list's `creating` still shows, is answered, never made again;
+  an app without `creating` gets the names this host asked for, held 20 minutes.
+  It rides on the `spawn` grant and runs only in the owner's turn; subagents do
+  not have it; a host with no app answers that it has none.
 - First message: the view at spawn time (one block per cached piece), then
   `Your task:\n\n<task>`. System prompt: section 9's subagent prompt (agent
   renamed Chief), VIEW_DOC, a short cmux section, then the person profile
@@ -237,7 +264,10 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   (a record from before launches were saved takes its task from the spawn
   call in the log, and the floor of that moment).
 - A turn whose subagents are at work gets `Subagents at work now: a1, a3.`
-  after the view, before its new messages (never logged).
+  after the view, before its new messages (never logged), with a line that
+  their tasks are not done until each reports, so the Chief never reports a
+  task finished while its subagent still runs; its reply also carries those
+  messages as `answers_pending`.
 - `chief.stop` stops only the running turn; subagents at work and queued
   ones go on. It answers `{"stopped": bool}`. The Chief's own `stop` tool
   (`{"tool": "stop", "end_turn": true}` on the tools socket, or any call from

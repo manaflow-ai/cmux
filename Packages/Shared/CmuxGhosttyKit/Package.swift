@@ -82,6 +82,13 @@ import PackageDescription
 // has then); ghostty_surface_fit_grid gives the grid a size will fit without
 // resizing; the grid metrics say whether the alternate screen is active;
 // kitty graphics follow upstream #14811 and #14812.
+// Since 0cb7e1e04..9ce9b7d08: ghostty_surface_present_host_frame_ready
+// presents a drawn host-size frame without waiting, a content-only frame of a
+// host-sized surface reaches the screen without the main thread, the bash
+// 4.4-5.2 integration reads the history entry without a second fork, and an
+// iOS renderer has vsync: a CADisplayLink (80-120 Hz, 120 preferred) paces
+// draws to at most one per display refresh (it drew one per output batch,
+// 190-270 frames a second on a 120 Hz iPhone).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -106,8 +113,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-723c4ab93e70c6be896bd9b6d0ad42f2a5fbfedc-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "9cf0bdc5f8ef77adfa28ff2fdcd373c4ee8aac9021b228746b043931ac741052"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-9ce9b7d08472f6249d0bc8ce14b7087049613e73-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "4277faf01e59b9af97d2bb9a5ad4b866fc762f20144e21b5e3583b1bf31de58c"
         ),
     ]
 )

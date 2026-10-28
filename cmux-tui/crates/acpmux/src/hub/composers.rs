@@ -242,6 +242,7 @@ impl Hub {
                     "queuedAt": q.queued_at,
                     "held": q.held,
                     "fromAgent": q.run.agent,
+                    "author": crate::author::listed(q.run.provenance.as_ref()),
                     "surface": label(&q.prompt_id),
                 })
             })

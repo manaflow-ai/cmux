@@ -47,10 +47,15 @@
 //!   new (the cut turn already holds them), so attempt `n` follows the attempts before it back
 //!   to the turn the connection first cut, and resumes what each of those held.
 //! - Usage limits and sign-in failures are not transport errors: the fallback profile handles
-//!   those (`turns.rs`). A daemon restart mid-turn stays `outcome_unknown` (`mod.rs`).
+//!   those (`turns.rs`). A daemon restart mid-turn settles the turn `outcome_unknown` (`mod.rs`)
+//!   and queues its continuation first in the chat's queue (`restart_resume.rs`).
 //! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
 //! - `_acpmux/retry` retries a failed turn on demand, taking over a continuation that waits
 //!   ([`retry_turn`]).
+
+// A turn a daemon restart cut off is continued from the restored queue.
+#[path = "restart_resume.rs"]
+mod restart_resume;
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
 use crate::rpc::RpcError;
@@ -147,6 +152,9 @@ fn settled_retry_row(
 
 /// What a failed turn needs to be continued.
 pub(super) struct CutTurn<'a> {
+    /// The family sender its prompt spoke for (`subsession_guard::is_family`); its
+    /// continuation speaks for it too, and is checked as its message.
+    pub from: Option<&'a str>,
     pub prompt_id: &'a str,
     pub turn_id: &'a str,
     pub control: Control,
@@ -341,6 +349,7 @@ impl Hub {
         let (root, turn_id, error) =
             (root.to_owned(), cut.turn_id.to_owned(), cut.error.to_owned());
         let (control, trust_gate) = (cut.control, cut.trust_gate);
+        let from = cut.from.map(str::to_owned);
         let (hub, session) = (self.clone(), session.clone());
         // Off the turn's path: the turn lock is still held here.
         tokio::spawn(async move {
@@ -378,8 +387,14 @@ impl Hub {
                     () = wake.notified() => {}
                 }
             }
-            let cut =
-                CutTurn { prompt_id: &root, turn_id: &turn_id, control, trust_gate, error: &error };
+            let cut = CutTurn {
+                from: from.as_deref(),
+                prompt_id: &root,
+                turn_id: &turn_id,
+                control,
+                trust_gate,
+                error: &error,
+            };
             hub.auto_resume(&session, cut, attempt).await;
         });
     }
@@ -436,15 +451,40 @@ impl Hub {
         }
     }
 
+    /// Tests: the chat's turn `turn` ends with its continuation not settled yet (`Mark::Ending`),
+    /// or with `None` nothing pending.
+    #[cfg(test)]
+    pub(super) fn set_ending_for_test(&self, session: &Session, turn: Option<&str>) {
+        let mut pending = self.auto_resumes.lock();
+        match turn {
+            Some(turn) => pending.insert(session.id.clone(), Mark::Ending(turn.to_owned())),
+            None => pending.remove(&session.id),
+        };
+    }
+
     /// Starts the chat's turn (`run_prompt`). A continuation (`after` its cut turn) that Stop
-    /// or close overtook since it fired is refused instead, in one step with Stop's check.
+    /// or close overtook since it fired is refused instead, in one step with Stop's check. A
+    /// prompt that never waits (`exclusive`, `PromptOptions::no_queue`) is refused `retry.busy`
+    /// while a continuation may still answer for the chat's cut turn (under the lock its fire
+    /// takes) or Claude Code runs a turn of its own: the last check before its turn is set.
     pub(super) fn start_turn(
         &self,
         session: &Session,
         after: Option<&str>,
+        exclusive: bool,
+        subagent_retry: bool,
         turn: super::TurnInfo,
     ) -> Result<(), RpcError> {
         let mut pending = self.auto_resumes.lock();
+        let continuation = matches!(
+            pending.get(&session.id),
+            Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_))
+        );
+        if exclusive
+            && (continuation || session.harness_turn.load(std::sync::atomic::Ordering::SeqCst))
+        {
+            return Err(retry_turn::busy());
+        }
         if let Some(cut) = after {
             let mark = match pending.get(&session.id) {
                 Some(Mark::Firing(t)) if t == cut => Some(true),
@@ -460,9 +500,10 @@ impl Hub {
                 return Err(stopped());
             }
         }
-        // A subagent retry skipped since its prompt went out does not start (`subagent_retry.rs`).
+        // A subagent retry skipped since its prompt went out, or that no attempt of this daemon
+        // sent (one a restart or a move restored), does not start (`subagent_retry.rs`).
         let prompt_id = turn.prompt_id.clone();
-        self.subagent_retries.start(&session.id, &prompt_id, || {
+        self.subagent_retries.start(&session.id, &prompt_id, subagent_retry, || {
             *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = Some(turn);
         })
     }
@@ -584,7 +625,10 @@ impl Hub {
             return;
         }
         let held = self.held_by(session, root, cut_turn);
-        let provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn});
+        let mut provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn});
+        if let Some(from) = cut.from {
+            provenance["from"] = json!(from);
+        }
         // Whether the attempt reached the chat (its turn started): one refused before that
         // (its folder gone, a dispatch check) leaves no record a watcher hears but this skip.
         let accepted = Arc::new(std::sync::atomic::AtomicBool::new(false));

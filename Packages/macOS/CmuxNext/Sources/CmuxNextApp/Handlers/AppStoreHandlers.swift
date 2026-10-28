@@ -2,21 +2,27 @@ import CmuxNextActions
 import CmuxNextApps
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextSettings
 
 /// App Store actions (plans/cmux-next/app-platform.md section 3). Opening
 /// the window from automation never installs anything; installs are the
 /// window's buttons.
 enum AppStoreHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let previewTitle = SettingsSchema.descriptor(for: CmuxConfigSnapshot.previewFeaturesPath)?.title
+            ?? CmuxConfigSnapshot.previewFeaturesPath.joined(separator: ".")
         let services = context.services
+        let preview: @MainActor () -> String? = { [weak services] in
+            services?.settings?.snapshot.previewFeatures == true ? nil : previewTitle
+        }
         // The App Store is an internal page (a tab of the active window).
         services.pages.register(services.apps)
         // `category` (cmux's features) is still accepted and ignored: those are Settings now.
-        registry.bind("appStore.show", run: { invocation in
+        registry.bind("appStore.show", unavailable: preview, invoke: { invocation in
             let app = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces)
             services.apps.showStore(appID: app?.isEmpty == false ? app : nil, tab: invocation["tab"]?.stringValue.flatMap(AppStoreTab.init(argument:)), focus: invocation.allowsViewChange)
         })
-        registry.bind("appStore.showInstalled", run: { invocation in
+        registry.bind("appStore.showInstalled", unavailable: preview, invoke: { invocation in
             services.apps.showStore(tab: .installed, focus: invocation.allowsViewChange)
         })
         // Hide and unhide (V9): apps-set hidden on the supervisor with the
