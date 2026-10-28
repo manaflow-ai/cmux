@@ -36,8 +36,8 @@ public final class LinkRouter {
 
     private let openSystemURL: (URL) -> Void
 
-    public init(openSystemURL: @escaping (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }) {
-        self.openSystemURL = openSystemURL
+    public init(openSystemURL: ((URL) -> Void)? = nil) {
+        self.openSystemURL = openSystemURL ?? { NSWorkspace.shared.openInBackground($0) }
     }
 
     /// Shift-Command on a click: open the link in the browser the setting does not pick.
