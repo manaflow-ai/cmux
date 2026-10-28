@@ -16,6 +16,11 @@ extension FeedCoordinator {
     /// orderly application termination is acknowledged by AppKit.
     @MainActor
     func flushPersistenceForTermination() async {
-        await store?.flushPersistence()
+        guard let store else { return }
+        if !(await store.flushPersistence()) {
+            // Quit must not describe a completed attempt as a durable save.
+            // Raw filesystem details were logged privately by the store.
+            StartupBreadcrumbLog.append("feed.persistence.flush.failed")
+        }
     }
 }

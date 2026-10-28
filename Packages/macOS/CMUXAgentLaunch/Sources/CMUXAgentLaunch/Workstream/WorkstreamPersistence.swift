@@ -29,6 +29,7 @@ public actor WorkstreamPersistence {
     let decoder: JSONDecoder
     let fileManager: FileManager
     private var handle: FileHandle?
+    private var clearTask: Task<Void, Error>?
     let uptimeNanoseconds: @Sendable () -> UInt64
 
     /// A malformed append-only row must not turn startup into an unbounded
@@ -75,7 +76,10 @@ public actor WorkstreamPersistence {
 
     /// Appends a single item as a JSON line. Creates the file and parent
     /// directory lazily on first write.
-    public func append(_ item: WorkstreamItem) throws {
+    public func append(_ item: WorkstreamItem) async throws {
+        // Clearing must save its floor before deleting the journal. Do not let
+        // an append land in that journal while the sidecar write is suspended.
+        while let clearTask { _ = await clearTask.result }
         let data = try encoder.encode(item.redactedForPersistence())
         var line = data
         line.append(0x0A) // "\n"
@@ -265,6 +269,19 @@ public actor WorkstreamPersistence {
 
     /// Truncates the JSONL file. Used by `cmux feed clear`.
     public func clear() async throws {
+        if let clearTask {
+            try await clearTask.value
+            return
+        }
+        let task = Task {
+            defer { clearTask = nil }
+            try await clearJournal()
+        }
+        clearTask = task
+        try await task.value
+    }
+
+    private func clearJournal() async throws {
         // The byte count is part of the legacy revision fallback. Snapshot it
         // into the durable sidecar before deleting the log, otherwise a clear
         // after a byte-heavy run could make the next process advertise a

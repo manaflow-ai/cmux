@@ -17,6 +17,7 @@ struct WorkstreamPersistenceFailureTests {
         await store.flushPersistence()
         #expect(!store.hasPendingPersistenceWrites)
         #expect(store.lastPersistenceError != nil)
+        #expect(await store.flushPersistence() == false)
     }
 
     @Test("A failed append remains observable after draining")
@@ -33,6 +34,7 @@ struct WorkstreamPersistenceFailureTests {
         await store.flushPersistence()
         #expect(!store.hasPendingPersistenceWrites)
         #expect(store.lastPersistenceError != nil)
+        #expect(await store.flushPersistence() == false)
     }
 
     @Test("Draining includes writes queued while the earlier sidecar write is suspended")

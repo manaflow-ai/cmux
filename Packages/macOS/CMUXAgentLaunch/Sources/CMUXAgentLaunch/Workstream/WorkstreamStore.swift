@@ -355,6 +355,7 @@ public final class WorkstreamStore {
     private var revisionPersistenceTail: Task<Void, Never>?
     /// Journal and sidecar writes queued but not yet finished.
     private var queuedPersistenceWrites = 0
+    private var persistenceWriteFailed = false
 
     /// Whether a journal or revision write is still in flight. App quit
     /// checks this synchronously and, when it is true, waits for
@@ -377,6 +378,8 @@ public final class WorkstreamStore {
             do {
                 try await persistence.recordRevision(value)
             } catch {
+                self?.lastPersistenceError = .revisionWrite
+                self?.persistenceWriteFailed = true
                 workstreamPersistenceLogger.error(
                     "workstream revision sidecar write failed error=\(String(describing: error), privacy: .private(mask: .hash))"
                 )
@@ -393,6 +396,8 @@ public final class WorkstreamStore {
             do {
                 try await persistence.append(item)
             } catch {
+                self?.lastPersistenceError = .journalAppend
+                self?.persistenceWriteFailed = true
                 workstreamPersistenceLogger.error(
                     "workstream journal append failed error=\(String(describing: error), privacy: .private(mask: .hash))"
                 )
@@ -401,11 +406,16 @@ public final class WorkstreamStore {
         }
     }
 
-    /// Waits until every append issued so far has been written, for callers
-    /// (and tests) that must read the log back.
-    public func flushPersistence() async {
-        await persistenceTail?.value
-        await revisionPersistenceTail?.value
+    /// Drains journal and revision writes, including writes queued while this
+    /// actor is suspended. Returns false if any write failed during this store's
+    /// lifetime: completing an attempt does not establish durable persistence.
+    @discardableResult
+    public func flushPersistence() async -> Bool {
+        repeat {
+            await persistenceTail?.value
+            await revisionPersistenceTail?.value
+        } while queuedPersistenceWrites > 0
+        return !persistenceWriteFailed
     }
 
     private func insert(_ item: WorkstreamItem) {
