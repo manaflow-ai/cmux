@@ -224,7 +224,9 @@ final class PaneToolbar {
             button.isHidden ? nil : ActionID(rawValue: item.id)
         }
         let tabOwn = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
-                                              entries: tabActions().filter { !buttons.contains($0) && !Self.overflowTabTrimmedActions.contains($0) }.map { .action($0) })
+                                              entries: tabActions().filter {
+                                                  !buttons.contains($0) && (!Self.overflowTabTrimmedActions.contains($0) || pinned.contains($0.rawValue))
+                                              }.map { .action($0) })
         if !menu.items.isEmpty, !tabOwn.items.isEmpty { menu.addItem(.separator()) }
         for item in tabOwn.items {
             tabOwn.removeItem(item)
