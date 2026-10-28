@@ -183,6 +183,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit.</string>
+			<key>pfm_name</key>
+			<string>app.showMenuBarIcon</string>
+			<key>pfm_title</key>
+			<string>Show Menu Bar Icon</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>minimal</string>
 			<key>pfm_description</key>
 			<string>The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.</string>
@@ -696,7 +708,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_description</key>
 			<string>After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it.</string>
 			<key>pfm_name</key>
@@ -1725,6 +1737,34 @@
 			<real>1</real>
 			<key>pfm_title</key>
 			<string>Idle For</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace.</string>
+			<key>pfm_name</key>
+			<string>workspaces.hibernation.enabled</string>
+			<key>pfm_title</key>
+			<string>Hibernate Idle Workspaces</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>60</integer>
+			<key>pfm_description</key>
+			<string>A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.</string>
+			<key>pfm_name</key>
+			<string>workspaces.hibernation.idleMinutes</string>
+			<key>pfm_range_max</key>
+			<real>10080</real>
+			<key>pfm_range_min</key>
+			<real>5</real>
+			<key>pfm_title</key>
+			<string>Hibernate After</string>
 			<key>pfm_type</key>
 			<string>real</string>
 		</dict>
@@ -4631,6 +4671,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show.</string>
+			<key>pfm_name</key>
+			<string>sidebar.controlsOnHover</string>
+			<key>pfm_title</key>
+			<string>Show Sidebar Controls Only on Hover</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Workspace rows show only their icon, name and unread mark, and section titles become thin lines.</string>
 			<key>pfm_name</key>
 			<string>sidebar.minimal</string>
@@ -4839,7 +4891,7 @@
 			<key>pfm_default</key>
 			<string>hover</string>
 			<key>pfm_description</key>
-			<string>On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons.</string>
+			<string>Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then.</string>
 			<key>pfm_name</key>
 			<string>sidebar.spacesVisibility</string>
 			<key>pfm_range_list</key>
@@ -6905,6 +6957,18 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
+			<string>Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win.</string>
+			<key>pfm_name</key>
+			<string>browser.openSignInPagesInCmux</string>
+			<key>pfm_title</key>
+			<string>Open Sign-In Pages in cmux Browser</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
 			<string>When off, links clicked in terminal output open in your default browser.</string>
 			<key>pfm_name</key>
 			<string>browser.openTerminalLinksInCmuxBrowser</string>
@@ -7792,6 +7856,30 @@
 			<string>Classic Home</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room.</string>
+			<key>pfm_name</key>
+			<string>labs.voiceRoom</string>
+			<key>pfm_title</key>
+			<string>Voice Room</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>The room's web address. Empty uses the room server on this Mac.</string>
+			<key>pfm_name</key>
+			<string>labs.voiceRoomURL</string>
+			<key>pfm_title</key>
+			<string>Voice Room Address</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

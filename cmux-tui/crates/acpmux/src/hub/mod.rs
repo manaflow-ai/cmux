@@ -12,10 +12,12 @@ mod agent_pairs;
 pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
+mod bg_tasks;
 mod btw;
 mod exit_reason;
+pub(crate) mod session_auth;
 pub(crate) mod subagent_retry;
-mod turn_errors;
+pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
@@ -36,10 +38,13 @@ mod handoff;
 mod harness_view;
 mod harness_watch;
 mod health_view;
-mod idle;
+pub(super) mod idle;
+mod idle_census;
+pub(crate) use idle_census::LaunchServers;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
+pub(crate) mod list_guard;
 mod live_models;
 mod locate;
 pub mod media_handles;
@@ -211,9 +216,10 @@ use tokio::sync::{Mutex, Notify, RwLock, broadcast, mpsc, oneshot};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// How long a session's harness may sit unused (no client, no turn, no
-/// activity) before it exits; the session resumes on its next prompt.
-pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+/// How long a session's harness may sit unused (no turn, nothing queued, no
+/// question waiting, no activity) before it hibernates: it exits and the
+/// session resumes on its next prompt (`idle.rs`).
+pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(2 * 60);
 /// Git hash and date stamped at build time (see build.rs).
 pub const BUILD: &str = env!("ACPMUX_BUILD");
 
@@ -372,7 +378,10 @@ pub struct Hub {
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
-    pub(super) events: broadcast::Sender<HubEvent>,
+    /// Every change watchers hear of, counted for the session list guard (`list_guard.rs`).
+    pub(super) events: list_guard::Events,
+    /// The shared, paced full session list (`list_guard.rs`).
+    pub(crate) list_guard: list_guard::ListGuard,
     /// `_acpmux/models` replies now asking peers for theirs
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
@@ -444,6 +453,10 @@ pub struct Hub {
     pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
     /// A session harness unused for this long exits (`idle.rs`); None: never.
     pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
+    /// The background-task runner's binary and spool segment a test set (`bg_tasks.rs`).
+    pub(super) bg_runner: StdMutex<Option<(crate::self_command::SelfCommand, u64)>>,
+    /// Background-task starts, one at a time (`bg_tasks.rs`).
+    pub(super) bg_starts: tokio::sync::Mutex<()>,
     /// The harnesses the model probes may start (`ACPMUX_PROBE_HARNESSES`);
     /// None: every harness.
     pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
@@ -539,6 +552,10 @@ pub struct Hub {
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
     pub pairing: Arc<crate::pairing::Pairing>,
+    /// The optional embedded tailnet node. It is initialized lazily so the
+    /// default daemon never starts or links a node without an explicit request.
+    #[cfg(all(unix, feature = "tailnet"))]
+    pub(crate) tailnet_controller: std::sync::OnceLock<Arc<crate::tailnet::embedded::Controller>>,
     /// Brief identities shared by dispatch, report and MCP clients.
     pub(crate) briefs: dispatch::Briefs,
     /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
@@ -562,7 +579,7 @@ impl Hub {
     }
 
     fn build(config: Config, store: Box<dyn Store>, mailbox: Mailbox, deferred: bool) -> Arc<Self> {
-        let (events, _) = broadcast::channel(8192);
+        let events = list_guard::Events::new(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
@@ -582,6 +599,7 @@ impl Hub {
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,
+            list_guard: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
             started_at: now_ms(),
@@ -613,6 +631,8 @@ impl Hub {
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
+            bg_runner: StdMutex::new(None),
+            bg_starts: tokio::sync::Mutex::new(()),
             probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
             idle_reaper: AtomicBool::new(false),
@@ -663,6 +683,8 @@ impl Hub {
             peer_accepts: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
+            #[cfg(all(unix, feature = "tailnet"))]
+            tailnet_controller: std::sync::OnceLock::new(),
             briefs,
         });
         if let Ok(c) = hub.config.try_read() {
@@ -726,6 +748,18 @@ impl Hub {
 
     pub fn mailbox(&self) -> &Mailbox {
         &self.mailbox
+    }
+
+    #[cfg(all(unix, feature = "tailnet"))]
+    pub(crate) fn tailnet_controller(&self) -> Arc<crate::tailnet::embedded::Controller> {
+        self.tailnet_controller
+            .get_or_init(|| {
+                crate::tailnet::embedded::Controller::new(
+                    crate::tailnet::embedded::state_dir(&crate::config::home()),
+                    crate::hand::pair::hostname(),
+                )
+            })
+            .clone()
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
@@ -847,6 +881,8 @@ impl Hub {
     }
 
     pub(super) fn make_session(&self, mut meta: SessionMeta) -> Arc<Session> {
+        // Hibernated before a restart: marked again, so it wakes on a click and draws no row.
+        let hibernated_at = if meta.hibernated_ms != 0 { self.clock_now().max(1) } else { 0 };
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
         meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
@@ -859,6 +895,8 @@ impl Hub {
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
+            harness_use: RwLock::new(()),
+            idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
             loading: AtomicBool::new(false),
             replaying: StdMutex::new(Vec::new()),
@@ -916,6 +954,9 @@ impl Hub {
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             last_active: AtomicU64::new(self.clock_now()),
+            hibernated_at: AtomicU64::new(hibernated_at),
+            wake_cause: StdMutex::new(None),
+            agent_requests: std::sync::atomic::AtomicUsize::new(0),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),

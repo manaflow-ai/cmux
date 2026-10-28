@@ -151,6 +151,7 @@ final class NotificationCenterService {
         desktop.onOpen = { [weak self] id, surface in
             if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
             if let request = AppBrowserPasskeyHost.requestID(banner: id) { self?.onPasskeyBanner?(request); return }
+            if self?.services?.agentTabs.pageChats.runNotices?.open(banner: id) == true { return }
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }
@@ -470,6 +471,8 @@ final class NotificationCenterService {
             return
         }
         if decision.acknowledge {
+            // Read on sight: under `sounds.when = always` it still sounds (no banner shows for it).
+            soundGate.playSeen(decision, sounds: preferences.sounds)
             acknowledge(located.tab)
             return
         }

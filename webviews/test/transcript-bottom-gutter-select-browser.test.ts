@@ -92,7 +92,8 @@ await requireBrowserLane("transcript-bottom-gutter-select-browser.test.ts", asyn
           strip: { x: strip.left + 22, y: strip.top + strip.height / 2 },
           left: { x: column.left / 2, y: strip.top + strip.height / 2 },
           right: { x: (column.right + view.right) / 2, y: strip.top + strip.height / 2 },
-          end: { x: column.left + 180, y: column.top + 4 },
+          // The first line's start, so the drag's selection runs from "Alpha" down to the strip.
+          end: { x: column.left + 1, y: column.top + 4 },
         };
       });
       for (const [zone, from] of Object.entries({

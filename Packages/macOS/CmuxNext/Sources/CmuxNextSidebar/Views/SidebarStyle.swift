@@ -6,12 +6,17 @@ import CmuxNextIcons
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
-    /// How much shorter than the list's inset a row ends on the right: none. #22733 stopped the
-    /// pills `Metrics.space4` short of the sidebar's edge; Leo 2026-10-21 took it back ("bring back
-    /// the length, so we can have more content per sidebar row"). Pinned rows and list blocks
-    /// read it too, so every row still ends at one x. (Kept when #23783's corner close was
-    /// reverted, Lawrence 2026-10-23: only the close's look went back.)
-    static var rowTrailingTrim: CGFloat { 0 }
+    /// How much shorter than the list's inset a row ends on the right: negative, so a row's fill runs
+    /// past the inset to `rowEdgeGap` from the sidebar's right edge. #22733 stopped the pills
+    /// `Metrics.space4` short of the sidebar's edge; Leo 2026-10-21 took it back ("bring back the
+    /// length, so we can have more content per sidebar row"), and 2026-10-27 shrank what was left
+    /// ("the sidebar workspace highlight button area ... The gap between the row and the, you know,
+    /// the drag, the actual sidebar end"). Pinned rows and list blocks read it too, so every row
+    /// still ends at one x; the left inset and the content's insets inside the fill are unchanged.
+    static var rowTrailingTrim: CGFloat { rowEdgeGap - horizontalInset }
+    /// The space between a row's fill and the sidebar's right edge (Leo 2026-10-27: "like say one or
+    /// two pixels, 1.5").
+    static let rowEdgeGap: CGFloat = 1.5
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
@@ -35,6 +40,10 @@ enum SidebarStyle {
         if swatch { return leading + iconSide + Metrics.space3 + Metrics.space1 }
         return leading + iconSide + Metrics.space3 - Swift.max(0, (iconSide - kindGlyphSize) / 2)
     }
+    /// The one text column after a leading glyph in a row whose first ink starts at `leading`: Home's and every
+    /// band row's label, a pinned row's title (after its pin), a workspace row's title after its icon. Lawrence
+    /// 2026-10-28: "home and pinned are not aligned".
+    static func leadingTextX(leading: CGFloat) -> CGFloat { titleTextX(leading: leading, iconSide: iconBox) }
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }

@@ -1,3 +1,5 @@
+@import "./question/questionCard.css";
+
 .acpmux-shell{position:relative;height:100%;display:flex;color:var(--agent-text);font:13px var(--font-ui);background:var(--agent-page-bg);overflow:clip}.acpmux-header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex:0 0 var(--acpmux-header-height,28px);box-sizing:border-box;padding:0 8px;white-space:nowrap}.acpmux-scroll{flex:1;overflow:auto;contain:strict}.acpmux-spacer{position:relative;min-height:100%}.acpmux-thread{position:absolute;inset:0 0 auto;padding:16px var(--cv-inset,max(18px,calc((100% - 760px)/2)));}.acpmux-row{position:absolute;left:var(--cv-inset,max(18px,calc((100% - 760px)/2)));right:var(--cv-inset,max(18px,calc((100% - 760px)/2)));min-height:34px;box-sizing:border-box;padding-bottom:8px;contain:layout paint}.acpmux-row.acpmux-user,.acpmux-row.acpmux-assistant{padding-bottom:var(--cv-message-gap,8px)}.acpmux-user{display:flex;justify-content:flex-end}.acpmux-bubble,.acpmux-user-bubble{max-width:78%;padding:9px 12px;box-sizing:border-box;border-radius:16px;background:color-mix(in srgb,var(--agent-accent) 20%,transparent);white-space:pre-wrap}.acpmux-markdown{line-height:20px}.acpmux-markdown>*{margin:8px 0 0}.acpmux-markdown>:first-child{margin-top:0}.acpmux-markdown code{font:11.5px var(--font-mono)}.acpmux-markdown blockquote{padding-left:12px;border-left:2px solid var(--agent-border);color:var(--agent-soft)}.acpmux-markdown pre,.acpmux-activity-item pre{padding:9px;border-radius:8px;overflow:auto;background:var(--agent-input-bg);font:12px var(--font-mono)}.acpmux-summary,.acpmux-muted{color:var(--agent-muted);font-size:11px;padding:8px 0}.acpmux-activity-toggle{border:0;background:none;color:var(--agent-muted);padding:5px 0;cursor:pointer}.acpmux-activity-items{border-left:1px solid var(--agent-border);padding-left:12px;color:var(--agent-soft)}.acpmux-activity-item{padding:3px 0}.acpmux-glyph{display:inline-block;width:18px;color:var(--agent-accent)}.acpmux-permission{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2)));min-width:0;min-height:0;flex-shrink:0}.acpmux-asks-stack{display:flex;flex-direction:column;gap:8px;padding-bottom:10px}.acpmux-asks-stack .acpmux-trust-ask{margin-bottom:0}.acpmux-permission-card{min-inline-size:0;margin:0;padding:11px;border:1px solid var(--agent-accent);border-radius:12px;background:var(--agent-surface-elevated)}.acpmux-permission-buttons{display:flex;gap:7px;margin-top:9px}.acpmux-permission-buttons button{border:0;border-radius:6px;padding:7px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
 /* The chat header's height (.acpmux-header); the Inspector over the chat starts under it (inspector/inspector.css). */
 .acpmux-shell{--acpmux-header-height:28px}
@@ -41,7 +43,7 @@
 .acpmux-composer{position:relative;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px;font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
 .acpmux-composer-box{--acpmux-composer-radius:22px;position:relative;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--acpmux-composer-radius);--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);box-shadow:var(--acpmux-card-ring)}
 .acpmux-composer-box button{font:inherit}
-.acpmux-composer-field{display:block;box-sizing:border-box;width:100%;min-height:0;max-height:40vh;margin:0;padding:15px 16px 8px;border:0;outline:0;background:transparent;resize:none;field-sizing:content;font-family:inherit;font-size:15px;line-height:22px;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text))}
+.acpmux-composer-field{display:block;box-sizing:border-box;width:100%;min-height:0;max-height:40vh;margin:0;padding:15px 16px 8px;border:0;outline:0;background:transparent;resize:none;field-sizing:content;font-family:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height);color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text))}
 .acpmux-composer-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
 /* The bar is one 28px line on an 8px rhythm: every control (+, the chips, the ring, the mic, Send) is 28px tall, 8px apart,
    and 10px from the box edge, so (48 - 28) / 2 is the same inset on every side. */
@@ -119,6 +121,7 @@
 .acpmux-menu-end{right:0;transform-origin:var(--transform-origin,bottom right)}
 .acpmux-menu-section+.acpmux-menu-section{margin-top:6px;padding-top:6px;box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge)}
 .acpmux-menu-header{display:flex;align-items:center;min-height:24px;padding:0 8px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-composer-plus .acpmux-menu-header{background-image:linear-gradient(var(--surface-popup),var(--surface-popup))}
 .acpmux-menu-item{display:flex;align-items:center;gap:8px;min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius)}
 .acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .acpmux-menu .ui-menu-check{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--acpmux-composer-dim);font-family:var(--font-ui);font-size:var(--text-detail);line-height:1;letter-spacing:var(--text-detail--letter-spacing)}
@@ -157,7 +160,7 @@
 /* The field row is the text area: the I-beam over all of it, and a press anywhere in it focuses the field (NewTabPage); its switch keeps the arrow. The box has no hover state (Leo 2026-10-18). */
 .acpmux-newtab-switch{cursor:default}
 .acpmux-newtab-row>.acpmux-icon{color:var(--acpmux-composer-dim)}
-.acpmux-newtab-field{flex:1;min-width:0;height:100%;border:0;outline:0;padding:0;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:15px}
+.acpmux-newtab-field{flex:1;min-width:0;height:100%;border:0;outline:0;padding:0;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content)}
 .acpmux-newtab-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
 .acpmux-newtab-switch{flex:none;display:flex;gap:2px;margin:0;min-width:0;border:0;padding:3px;border-radius:15px;background:color-mix(in srgb,var(--agent-text) 6%,var(--acpmux-base))}
 .acpmux-newtab-kind{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:0;border-radius:12px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:13px;white-space:nowrap}
@@ -165,7 +168,9 @@
 .acpmux-newtab-kind.is-selected{background:var(--acpmux-composer-bg);color:var(--agent-text);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-1)}
 .acpmux-newtab kbd{font:11.5px/1 var(--font-ui);color:var(--acpmux-composer-dim)}
 .acpmux-newtab-kind kbd{margin-left:2px;opacity:.85}
-.acpmux-newtab-under{display:flex;align-items:center;gap:8px;height:42px;padding:0 8px 0 10px;border-top:.5px solid color-mix(in srgb,var(--agent-text) 7%,transparent);font-size:13px}
+.acpmux-newtab-under,.acpmux-newtab-foot{display:flex;align-items:center;gap:8px;height:42px;padding:0 8px 0 10px;border-top:.5px solid color-mix(in srgb,var(--agent-text) 7%,transparent);font-size:13px}
+.acpmux-newtab-foot{height:auto;min-height:calc(var(--ds-control-row) + var(--ds-space-3) + 4 * var(--cmux-hairline,.5px));gap:var(--ds-space-2);padding:0 var(--ds-space-2) 0 calc(var(--ds-space-2) + var(--ds-space-1) / 2);border-top:var(--cmux-hairline,.5px) solid color-mix(in srgb,var(--agent-text) 7%,transparent);font-size:var(--text-body)}
+.acpmux-newtab-foot .acpmux-composer-foot{flex:1 1 auto;min-width:0}
 .acpmux-newtab-context{flex:1;min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden}
 .acpmux-newtab-context .acpmux-chips{flex:none}
 .acpmux-newtab-chip{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:6px;color:var(--acpmux-composer-dim);white-space:nowrap}
@@ -220,11 +225,11 @@
 /* One compact muted line per queued prompt, as ChatGPT and Codex draw them (Leo, 2026-10-21): no header and no number; a hairline between rows. */
 .acpmux-queued{position:relative;grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:start;min-width:0;min-height:24px;padding:3px 6px 3px 12px;box-sizing:border-box;color:var(--agent-text)}
 .acpmux-composer-queue>li+li{box-shadow:inset 0 var(--cmux-hairline,.5px) 0 var(--acpmux-composer-edge)}
-.acpmux-queued-text{display:block;min-width:0;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;line-height:18px;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere}
+.acpmux-queued-text{display:block;min-width:0;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height);text-align:left;white-space:pre-wrap;overflow-wrap:anywhere}
 /* One line, cut with an ellipsis, until the row is opened; the cut sits on the button's text, as WebKit lays a button out as its own box. */
 .acpmux-queued-clamp{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.acpmux-queued-text[data-open] .acpmux-queued-clamp{white-space:pre-wrap;overflow-wrap:anywhere}
-/* The actions show on the row's hover and while focus is in it (a key on the row, Tab to a button), and stay while the ⋯ menu is open. A pointer that cannot hover sees them always. The 22px actions center on the text's first 18px line and take no more height than it. */
-.acpmux-queued-actions{grid-column:2;display:flex;align-items:center;gap:2px;margin:-2px 0;opacity:0}
+/* The actions show on the row's hover and while focus is in it (a key on the row, Tab to a button), and stay while the ⋯ menu is open. A pointer that cannot hover sees them always. The 22px actions center on the text's first line (its height follows the chat font size, #26523) and the row takes no more height from them than that line. */
+.acpmux-queued-actions{grid-column:2;display:flex;align-items:center;gap:2px;height:var(--text-content--line-height);opacity:0}
 .acpmux-queued:is(:hover,:focus-within) .acpmux-queued-actions,.acpmux-queued:has([aria-expanded=true]) .acpmux-queued-actions{opacity:1}
 @media (hover:none){.acpmux-queued-actions{opacity:1}}
 .acpmux-queued-action{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim)}
@@ -292,7 +297,7 @@
 .acpmux-project-button{display:inline-flex;align-items:center;gap:5px;height:24px;max-width:220px;padding:0;border:0;border-radius:3px;background:none;color:var(--agent-muted);font:inherit;cursor:pointer;white-space:nowrap}
 .acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{color:var(--agent-text);background:none}
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
-.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);font-size:13px;--acpmux-project-menu-edge:4px}
+.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);max-height:none;overflow:visible;font-size:13px;--acpmux-project-menu-edge:4px}
 .acpmux-project-menu .acpmux-menu-item{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-project-search{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-project-browse{padding-inline:var(--acpmux-project-menu-edge)}
@@ -355,7 +360,7 @@
 .acpmux-home-list{padding:6px;border-radius:18px;background:color-mix(in srgb,var(--acpmux-composer-bg) 72%,transparent)}
 .acpmux-home-list ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px}
 .acpmux-home-label{margin:0;padding:4px 10px 2px;font-size:13px;line-height:20px;font-weight:500;color:var(--agent-muted)}
-.acpmux-home-row{display:flex;align-items:center;gap:10px;width:100%;height:40px;padding:0 10px;border:0;border-radius:10px;background:none;color:var(--agent-text);font:inherit;font-size:14px;text-align:left;cursor:pointer}
+.acpmux-home-row{display:flex;align-items:center;gap:8px;width:100%;height:40px;padding:0 8px;border:0;border-radius:10px;background:none;color:var(--agent-text);font:inherit;font-size:14px;text-align:left;cursor:pointer}
 .acpmux-home-row:hover{background:var(--acpmux-menu-hover)}
 .acpmux-home-row:focus-visible{background:var(--acpmux-menu-hover);outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-home-row>.acpmux-icon{flex:none;color:var(--agent-muted)}
@@ -655,13 +660,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-tab[aria-current=step]{background:var(--acpmux-question-highlight);color:var(--agent-text)}
 .acpmux-question-body{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
 .acpmux-question[data-preview] .acpmux-question-body{padding-right:12px}
-.acpmux-question-rows{flex:1 1 260px;display:flex;flex-direction:column;min-width:0}
-.acpmux-question-row{display:flex;align-items:flex-start;gap:10px;width:100%;box-sizing:border-box;padding:10px 14px;border:0;border-radius:0;background:transparent;color:var(--agent-text);font:inherit;text-align:left}
-.acpmux-question-row+.acpmux-question-row{box-shadow:inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-question-edge)}
-.acpmux-question-row:hover{background-color:var(--acpmux-question-hover)}
-.acpmux-question-row[data-highlighted]{background-color:var(--acpmux-question-highlight)}
 .acpmux-question-tab:focus-visible,.acpmux-question-actions button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:-2px}
-.acpmux-question-row[aria-disabled=true]{pointer-events:none}
 .acpmux-question-text{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
 .acpmux-question-label{line-height:19px;font-weight:var(--weight-emphasis);overflow-wrap:anywhere}
 .acpmux-question-detail{color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}
@@ -672,10 +671,6 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-mark[data-chosen]{border-color:var(--agent-text)}
 .acpmux-question-mark[data-chosen]:not([data-multi])::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--agent-text)}
 .acpmux-question-mark[data-chosen][data-multi]{border-color:transparent;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent);color:var(--agent-text)}
-.acpmux-question-other{align-items:center}
-.acpmux-question-other .acpmux-question-mark{margin-top:0}
-.acpmux-question-other input{flex:1;min-width:0;height:22px;padding:0;border:0;outline:none;background:none;color:var(--agent-text);font:inherit;caret-color:var(--cmux-caret, var(--agent-text))}
-.acpmux-question-other input::placeholder{color:var(--agent-muted)}
 .acpmux-question-preview{flex:1 1 280px;display:flex;flex-direction:column;gap:6px;min-width:0;margin:10px 0;padding:10px;border-radius:10px;background:color-mix(in srgb,var(--agent-text) 4%,var(--agent-page-bg,var(--acpmux-base)))}
 .acpmux-question-preview-label{color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-question-preview pre{margin:0;overflow:auto;white-space:pre;font:var(--text-detail)/1.45 var(--font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);color:var(--agent-text)}
@@ -695,7 +690,6 @@ fieldset.acpmux-question[hidden]{display:none}
 /* A refused reply: why, above Skip and Submit, which work again for a retry. */
 .acpmux-question-error{margin:0;padding:8px 14px 0;color:var(--agent-status-failure);font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow-wrap:anywhere;user-select:text;-webkit-user-select:text;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-question-error-reason{color:var(--agent-muted)}
-.acpmux-question-actions{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 12px;box-shadow:inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-question-edge)}
 .acpmux-question-skip{padding:5px 10px;border:0;border-radius:8px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-question-skip:hover:not(:disabled){background:var(--acpmux-question-hover);color:var(--agent-text)}
 .acpmux-question-submit{display:inline-flex;align-items:center;gap:6px;padding:5px 6px 5px 12px;border:0;border-radius:8px;background:var(--agent-text);color:var(--acpmux-base,var(--agent-accent-text,Canvas));font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing)}
@@ -713,7 +707,6 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-cancelled{padding:4px 2px;color:var(--agent-muted);font-size:12px;line-height:18px;overflow-wrap:anywhere}
 /* A single permission card's receipt (permissions/record.ts): one muted line where it was answered. */
 .acpmux-permission-record{padding:4px 2px;color:var(--agent-muted);font-size:var(--text-detail);line-height:18px;overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}
-@media (prefers-reduced-motion:no-preference){.acpmux-question-row{transition:background-color var(--agent-motion-hover,120ms) var(--agent-ease-out,ease-out)}}
 
 /* Keep the legacy cascade and slash surfaces on the same surface as Base UI's Menu and Popover: the
    liquid glass (.ui-glass, ui/popupSurface.css), whose frost keeps the transcript under it from
@@ -837,3 +830,18 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-display-reset:hover { background: color-mix(in srgb, var(--agent-text) 8%, transparent); }
 .acpmux-trust-ask[data-asking]{color:var(--agent-text);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 45%,transparent)}.acpmux-trust-ask-action.acpmux-trust-ask-primary{background:color-mix(in srgb,var(--agent-accent) 14%,transparent);font-weight:500}.acpmux-trust-ask-action.acpmux-trust-ask-primary:hover{background:color-mix(in srgb,var(--agent-accent) 22%,transparent)}
 .acpmux-trust-ask[data-asking]{flex-wrap:wrap;row-gap:6px;padding-top:7px;padding-bottom:7px}.acpmux-trust-ask-body{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:2px}.acpmux-trust-ask-body .acpmux-trust-ask-text{white-space:normal;overflow-wrap:anywhere;font-weight:500}.acpmux-trust-ask-detail{color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:1.35;overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}.acpmux-trust-ask-actions{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto}
+
+/* Search fields and their rows share the menu row metrics. Keep this override at the end so
+   legacy palettes that still emit the old fallback sizes resolve to the shared tokens. */
+.acpmux-file-search input { height: var(--ui-row-height); padding-inline: var(--ui-row-padding-inline); }
+.acpmux-file-result { min-height: var(--ui-row-height); padding-inline: var(--ui-row-padding-inline); }
+.acpmux-project-menu .acpmux-project-search { height: var(--ui-row-height); margin-block-end: 0; padding-inline: var(--ui-row-padding-inline); box-sizing: border-box; }
+.acpmux-project-menu .acpmux-project-search-field { height: var(--ui-row-height); margin-block-end: 0; padding-inline: var(--acpmux-project-menu-edge); }
+.acpmux-project-folders { max-height: min(45vh, 300px); overflow-y: auto; }
+.acpmux-project-folders.ui-combobox-scroll { overflow: hidden; }
+/* A paused or starting Cloud machine's banner (PeerCopyBanner.tsx): the title line holds the spinner, or Resume in the inline and button arms of `paused-machine-resume`. */
+.acpmux-peer-copy-title{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin:0}
+.acpmux-peer-copy-spinner{align-self:center;flex:none;color:var(--agent-muted)}
+.acpmux-peer-copy[data-arm=button] .acpmux-peer-copy-title{align-items:center;justify-content:space-between}
+.acpmux-peer-copy-resume{flex:none;border:0;border-radius:6px;padding:4px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:pointer}
+.acpmux-peer-copy-resume:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
