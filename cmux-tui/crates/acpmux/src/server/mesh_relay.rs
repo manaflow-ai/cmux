@@ -163,7 +163,7 @@ async fn inbox(
                     let (client, control, in_flight) =
                         (client.clone(), control.clone(), in_flight.clone());
                     deliveries.spawn(async move {
-                        if let Some(ack) = deliver(&hub, &message, control.as_ref()).await
+                        if let Some(ack) = deliver(&hub, &message, control.as_ref(), None).await
                             && let Err(e) = client.ack(&message.message_id, &clip(ack)).await
                         {
                             // Its lease brings it back, and that delivery answers with this one.
@@ -234,11 +234,17 @@ fn sender_name(message: &InMessage) -> String {
 
 /// Deliver one message: the ack to send, or None to leave it unacked (a target that did not
 /// answer in time, or this daemon's own connection failing), so its lease brings it back.
+/// `own_daemon` is this daemon's id at the hub, when known; a message for another host or daemon
+/// is refused before anything acts on it, a control message's hook included.
 pub async fn deliver(
     hub: &Arc<Hub>,
     message: &InMessage,
     control: &dyn ControlHook,
+    own_daemon: Option<&str>,
 ) -> Option<Ack> {
+    if let Err(why) = hub.mesh_for_here(&message.to, own_daemon) {
+        return Some(Ack::refused(why));
+    }
     match message.kind {
         Kind::Prompt => {}
         Kind::Control => return control.control(hub, message).await,
@@ -247,7 +253,7 @@ pub async fn deliver(
     if message.body.trim().is_empty() {
         return Some(Ack::refused("the message is empty"));
     }
-    let session = match hub.mesh_target(&message.to) {
+    let session = match hub.mesh_target(&message.to, own_daemon) {
         Ok(session) => session,
         Err(why) => return Some(Ack::refused(why)),
     };
