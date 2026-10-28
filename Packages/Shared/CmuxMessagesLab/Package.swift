@@ -90,6 +90,14 @@ let stabilitySettingGroups: [(targets: [String], settings: [SwiftSetting])] = [
         targets: [
             "MessagesLabHome",
             "MessagesLabHomeTests",
+        ],
+        settings: [
+            .strictMemorySafety(),
+            .enableUpcomingFeature("StrictConcurrency"),
+        ]
+    ),
+    (
+        targets: [
             "MessagesLabSidebar",
             "MessagesLabSidebarTests",
         ],
