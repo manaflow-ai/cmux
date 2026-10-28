@@ -6550,7 +6550,12 @@ function AcpmuxPane() {
   const cloudRecovery = useCloudChatRecovery({
     cloud: cloudChatIdentity,
     session: snapshot.missingSession ?? snapshot.sessionId,
-    active: cloudChatRecoveryActive(!!snapshot.unavailable, snapshot.sessionId, snapshot.rows.length, snapshot.connection === "connected"),
+    active: cloudChatRecoveryActive(
+      !!snapshot.unavailable,
+      snapshot.sessionId,
+      snapshot.rows.length,
+      snapshot.connection === "connected",
+    ),
     recheck: recheckCloudChat,
   });
   const cloudUnavailable =

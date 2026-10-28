@@ -42,6 +42,11 @@ export function cloudChatUnavailable(
 
 // A disconnected native wire may never reach sessions.list. Its empty selected chat can show
 // recovery, but a cached transcript stays visible through transient transport failures.
-export function cloudChatRecoveryActive(unavailable: boolean, session: string | undefined, rowCount: number, connected: boolean): boolean {
+export function cloudChatRecoveryActive(
+  unavailable: boolean,
+  session: string | undefined,
+  rowCount: number,
+  connected: boolean,
+): boolean {
   return unavailable || (!!session && rowCount === 0 && !connected);
 }
