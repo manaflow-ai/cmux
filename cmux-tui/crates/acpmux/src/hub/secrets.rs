@@ -34,6 +34,7 @@
 //! often the value is used, not what a command it runs may do with it.
 
 use super::{Hub, Session, SessionStatus};
+use crate::no_panic::JsonExt;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -94,13 +95,17 @@ async fn read_capped(pipe: Option<impl AsyncRead + Unpin>, cap: usize) -> (Vec<u
         }
         let room = cap - kept.len();
         cut |= n > room;
-        kept.extend_from_slice(&chunk[..n.min(room)]);
+        kept.extend(chunk.iter().take(n.min(room)));
     }
     (kept, cut)
 }
 
 /// How many bytes at the end of `bytes` begin `value`: a value the cap cut
 /// off, which masking would miss (KMP over the last `value.len()` bytes).
+#[allow(
+    clippy::indexing_slicing,
+    reason = "KMP: k < value.len() at every value[k] and 0 < k <= value.len() at every fail[k - 1]; fail has value.len() entries"
+)]
 fn cut_value_len(bytes: &[u8], value: &[u8]) -> usize {
     if value.is_empty() {
         return 0;
@@ -117,7 +122,7 @@ fn cut_value_len(bytes: &[u8], value: &[u8]) -> usize {
         fail[i] = k;
     }
     k = 0;
-    for &b in &bytes[bytes.len().saturating_sub(value.len())..] {
+    for &b in bytes.iter().skip(bytes.len().saturating_sub(value.len())) {
         if k == value.len() {
             k = fail[k - 1];
         }
@@ -134,14 +139,13 @@ fn cut_value_len(bytes: &[u8], value: &[u8]) -> usize {
 /// What a command printed (read with room for one value past the cap), the
 /// value masked before the cap cuts it: a value across the cut would
 /// otherwise leave its first bytes.
-fn mask((bytes, cut): (Vec<u8>, bool), value: &str) -> String {
-    let end = if cut { bytes.len() - cut_value_len(&bytes, value.as_bytes()) } else { bytes.len() };
-    let masked = String::from_utf8_lossy(&bytes[..end]).replace(value, MASK);
-    let mut end = masked.len().min(MAX_OUTPUT_BYTES);
-    while !masked.is_char_boundary(end) {
-        end -= 1;
+fn mask((mut bytes, cut): (Vec<u8>, bool), value: &str) -> String {
+    if cut {
+        bytes.truncate(bytes.len().saturating_sub(cut_value_len(&bytes, value.as_bytes())));
     }
-    masked[..end].to_owned()
+    let mut masked = String::from_utf8_lossy(&bytes).replace(value, MASK);
+    masked.truncate(masked.floor_char_boundary(MAX_OUTPUT_BYTES));
+    masked
 }
 
 /// The variables a secret's command keeps from the daemon, besides the login
@@ -208,7 +212,7 @@ impl Hub {
         let Some(Some(value)) = answer else {
             return Ok(json!({"declined": true, "name": name, "outcome": outcome}));
         };
-        let secret_ref = format!("secret_{}", &super::person::new_nonce()[..32]);
+        let secret_ref = format!("secret_{}", super::person::random_hex::<16>());
         let mut held = self.secrets.held.lock().unwrap_or_else(|e| e.into_inner());
         held.retain(|_, h| h.at.elapsed() < HELD_TTL);
         if held.len() >= HELD_LIMIT
@@ -350,7 +354,7 @@ impl Hub {
             session,
             "mux",
             "secret_run",
-            json!({"env": env, "argv": argv, "exitCode": result["exitCode"]}),
+            json!({"env": env, "argv": argv, "exitCode": result.field("exitCode")}),
         );
         Ok(result)
     }
@@ -377,5 +381,34 @@ impl Secrets {
             .unwrap_or_else(|e| e.into_inner())
             .values()
             .any(|p| p.session == session)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_value_the_cap_cut_loses_its_first_bytes_too() {
+        assert_eq!(cut_value_len(b"out: tok", b"token"), 3);
+        assert_eq!(cut_value_len(b"out: aa", b"aab"), 2);
+        assert_eq!(cut_value_len(b"out: token", b"token"), 5);
+        assert_eq!(cut_value_len(b"out!", b"token"), 0);
+        assert_eq!(cut_value_len(b"", b"token"), 0);
+        assert_eq!(cut_value_len(b"out", b""), 0);
+        assert_eq!(
+            mask((b"a token, then tok".to_vec(), true), "token"),
+            format!("a {MASK}, then ")
+        );
+        assert_eq!(mask((b"a tok".to_vec(), false), "token"), "a tok");
+    }
+
+    #[test]
+    fn masked_output_ends_on_a_character_at_the_cap() {
+        let mut bytes = vec![b'a'; MAX_OUTPUT_BYTES - 1];
+        bytes.extend("é tail".as_bytes());
+        let out = mask((bytes, false), "secret");
+        assert_eq!(out.len(), MAX_OUTPUT_BYTES - 1);
+        assert!(out.bytes().all(|b| b == b'a'));
     }
 }
