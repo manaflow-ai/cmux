@@ -554,6 +554,51 @@ struct DockSocketLifecycleTests {
         }
     }
 
+    @Test("Window Dock terminal identifies as the caller from its own environment")
+    @MainActor
+    func windowDockTerminalIdentifiesAsCaller() throws {
+        try withDockAvailable {
+            try withSocketAppContext { _, workspace, windowId in
+                let createResult = try v2Result(
+                    method: "surface.create",
+                    params: ["placement": "dock", "type": "terminal", "focus": false]
+                )
+                let dockSurfaceIdRaw = try #require(createResult["dock_surface_id"] as? String)
+                let dockSurfaceId = try #require(UUID(uuidString: dockSurfaceIdRaw))
+
+                // A window Dock terminal's CMUX_WORKSPACE_ID is the window id, and
+                // `cmux restore --surface` sends it with CMUX_SURFACE_ID as the caller.
+                let identifyResult = try v2Result(
+                    method: "system.identify",
+                    params: [
+                        "caller": [
+                            "workspace_id": windowId.uuidString,
+                            "surface_id": dockSurfaceId.uuidString,
+                        ],
+                    ]
+                )
+                let caller = try #require(identifyResult["caller"] as? [String: Any])
+                #expect(caller["surface_id"] as? String == dockSurfaceId.uuidString)
+                #expect(caller["window_id"] as? String == windowId.uuidString)
+                #expect(caller["workspace_id"] as? String == windowId.uuidString)
+                #expect(caller["surface_type"] as? String == "terminal")
+
+                // A surface outside this window's Dock is not claimed for it.
+                let mainSurfaceId = try #require(workspace.focusedPanelId)
+                let mismatchResult = try v2Result(
+                    method: "system.identify",
+                    params: [
+                        "caller": [
+                            "workspace_id": windowId.uuidString,
+                            "surface_id": mainSurfaceId.uuidString,
+                        ],
+                    ]
+                )
+                #expect(mismatchResult["caller"] is NSNull)
+            }
+        }
+    }
+
     @Test("Window Dock owner pane mutations do not fall back to selected workspace")
     @MainActor
     func windowDockOwnerPaneMutationDoesNotFallBackToSelectedWorkspace() throws {
