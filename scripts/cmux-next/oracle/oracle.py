@@ -400,6 +400,9 @@ def load_case(path: Path, case_id: str, *, check_id: bool = True) -> Tuple[Optio
 
 def load_corpus(root: Path) -> Tuple[List[Case], List[str]]:
     """Every tests/oracle/corpus/<suite>/**/<case>.json; the id is the path without .json."""
+    import corpus_store  # noqa: PLC0415 - sibling: the stored suites of the repository corpus (tests/oracle/corpus-store.json)
+
+    corpus_store.ensure(root)
     cases: List[Case] = []
     errors: List[str] = []
     if not root.is_dir():

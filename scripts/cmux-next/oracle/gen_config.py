@@ -8,6 +8,9 @@ The app (Swift `EffectiveSettings.merge` and `SettingDescriptor`) and the daemon
 `EffectiveSettings::merge`, `schema::accepts`) each read cmux.json. This tool writes the corpus both
 read, and compares what the two dump executables print for it:
 
+The corpus is not committed: `python3 -I scripts/cmux-next/oracle/corpus_store.py ensure --suite config` (or this
+tool) writes it before a dump.
+
   swift: swift run --package-path Packages/macOS/CmuxNext OracleConfigDump --corpus tests/oracle/corpus/config
   rust:  cargo run -p cmux-config --example oracle_effective -- --corpus tests/oracle/corpus/config
 
@@ -708,6 +711,11 @@ def cmd_gen(argv: Sequence[str]) -> int:
         print(f"gen_config: {error}", file=sys.stderr)
         return 2
     if args.check:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import corpus_store  # noqa: PLC0415 - sibling: the suite is written at use time, not committed
+
+        if args.out.name == "config":
+            corpus_store.ensure(args.out.parent, ["config"])
         problems = check_corpus(args.out, files)
         for problem in problems[:50]:
             print(problem)

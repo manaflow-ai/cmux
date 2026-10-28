@@ -59,6 +59,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import corpus_store  # noqa: E402 - sibling: tests/oracle/corpus/tla is a pinned artifact, not committed
 REPO = HERE.parents[2]
 FORMAL = REPO / "plans" / "cmux-next" / "formal"
 ACTIONMAP = FORMAL / "oracle-actionmap.json"
@@ -1659,6 +1661,8 @@ def cmd_vm(argv: Sequence[str]) -> int:
     parser.add_argument("--isolation", default="auto")
     parser.add_argument("--out", type=Path, help="write each run result here")
     args = parser.parse_args(argv)
+    if args.corpus.name == SUITE:
+        corpus_store.ensure(args.corpus.parent, [SUITE])  # the pinned suite (tests/oracle/corpus-store.json)
     specs = load_actionmap()
     wanted = {s for value in args.spec for s in value.split(",") if s}
     paths: List[Path] = []
@@ -1707,6 +1711,8 @@ def cmd_generate(argv: Sequence[str]) -> int:
         if only:
             files.pop(COVERAGE)
         if args.check:
+            if args.out.name == SUITE:
+                corpus_store.ensure(args.out.parent, [SUITE])  # the pinned suite (tests/oracle/corpus-store.json)
             problems = drift(args.out, files, slugs)
             if rendered != existing:
                 problems.append(f"{expectations_file.name}: the generated block differs from coverage.json")

@@ -49,6 +49,11 @@ verify_pin() {
       CMUX_CUA_ASSET_CACHE_DIR="$CACHE_ROOT/cua" \
         "$SCRIPT_DIR/ensure-cua-pinned-asset.sh" "$ROOT/$relative" >/dev/null
       ;;
+    tests/oracle/corpus-store/*.pin.json)
+      echo "Checking $relative in the controller/R2 store"
+      CMUX_CUA_ASSET_CACHE_DIR="$CACHE_ROOT/oracle-corpus" \
+        "$SCRIPT_DIR/ensure-cua-pinned-asset.sh" "$ROOT/$relative" >/dev/null
+      ;;
     *)
       echo "error: no pinned-asset verifier is registered for $relative" >&2
       return 1

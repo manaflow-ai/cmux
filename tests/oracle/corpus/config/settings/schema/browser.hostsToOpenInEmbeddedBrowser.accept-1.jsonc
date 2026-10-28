@@ -1,8 +1,0 @@
-{
-  "browser": {
-    "hostsToOpenInEmbeddedBrowser": [
-      "localhost",
-      "*.example.com"
-    ]
-  }
-}

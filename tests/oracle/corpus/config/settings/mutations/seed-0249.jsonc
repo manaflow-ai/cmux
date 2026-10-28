@@ -1,6 +1,0 @@
-{// a { brace
-"sidebar":{"hoverCards":{"sections":{/* * */ "waiting":null,},},"workspaceRow":{"browser":{// a { brace
-"directory":true,},"mixed":{// a { brace
-"ports":null,},"agent":{// note
-"process":false,},},"detailedStatusIcons":true},/* * */ "diff":{"expandUnchanged":null},/* {"k": 1} */ "updates":{"idleInstallQuietSeconds":302.5e0},/* * */ "history":{"closed":{/* block */ "maxAgeDays":3650.0,}},// "quoted"
-"appearance":{"metrics":{/* block */ "chromeFontSize":40E-1,/* // inside */ "tabMinInactiveWidth":16}}}

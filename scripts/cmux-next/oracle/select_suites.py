@@ -505,6 +505,11 @@ def classify(smap: SuiteMap, graph: CargoGraph, repo: Path, path: str) -> PathVe
 def load_cases(corpus: Path) -> Dict[str, List[Tuple[str, frozenset, Tuple[str, ...]]]]:
     """Per suite: (case id, requires, platforms) of every case file, as oracle.py's load_corpus reads them."""
     out: Dict[str, List[Tuple[str, frozenset, Tuple[str, ...]]]] = {}
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    import corpus_store  # noqa: E402,PLC0415 - sibling: the stored suites (tests/oracle/corpus-store.json)
+
+    corpus_store.ensure(corpus)
     if not corpus.is_dir():
         return out
     for path in sorted(corpus.rglob("*.json")):
