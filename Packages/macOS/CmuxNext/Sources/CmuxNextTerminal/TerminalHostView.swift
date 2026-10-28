@@ -431,5 +431,8 @@ public final class TerminalHostView: NSView {
         aroundListener.host = self
         superview?.themeScope.addResponder(aroundListener)
         paintBackground()
+        // A move within one window (from a hidden pane to a shown one, or back) gives the surface no window move
+        // and maybe no hide or unhide: its draw pause, which reads AppKit's hidden state, follows here.
+        current?.ancestorsMoved()
     }
 }

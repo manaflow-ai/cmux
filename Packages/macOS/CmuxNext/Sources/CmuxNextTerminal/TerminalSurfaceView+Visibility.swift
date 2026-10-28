@@ -29,6 +29,18 @@ extension TerminalSurfaceView {
         updateOcclusion()
     }
 
+    /// The surface or a container above it moved within its window (``TerminalHostView``'s move, the surface's own
+    /// move between hosts): the draw pause reads AppKit's hidden state, which a reparent can change with no hide,
+    /// unhide or window move, so it is computed again (a no-op when nothing changed). Transitions only.
+    func ancestorsMoved() {
+        updateOcclusion()
+    }
+
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        ancestorsMoved()
+    }
+
     /// In a window and no container above parked (``ParkingContainer``): read when the view changes windows,
     /// when a container above tells its observers it parked, and when ``visibilityNode`` shows.
     func syncPlacement() {
