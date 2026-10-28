@@ -81,7 +81,7 @@ fn start_custom_daemon(dir: &Path) -> CustomDaemon {
             "--listen",
             "127.0.0.1:0",
             "--token",
-            "restart-token",
+            "restart+a=",
             "--ready-fd",
             "1",
             "--log",
@@ -226,12 +226,12 @@ fn cli_daemon_restart_preserves_custom_listener_and_token() {
         .expect("custom daemon status");
     let listen = before["listen"].as_str().expect("custom listen").to_owned();
     assert!(!listen.ends_with(":0"), "daemon did not report bound listener: {listen}");
-    assert!(before["webUrl"].as_str().unwrap().contains("token=restart-token"));
+    assert!(before["webUrl"].as_str().unwrap().contains("token=restart+a="));
 
     let restarted = cli(&dir, &["--json", "daemon", "restart"]);
     assert!(restarted.status.success(), "restart: {}", text(&restarted));
     let after: serde_json::Value = serde_json::from_slice(&cli(&dir, &["--json", "daemon", "status"]).stdout)
         .expect("restarted daemon status");
     assert_eq!(after["listen"], listen);
-    assert!(after["webUrl"].as_str().unwrap().contains("token=restart-token"));
+    assert!(after["webUrl"].as_str().unwrap().contains("token=restart+a="));
 }

@@ -56,12 +56,17 @@ fn preserve_restart_listener(status: &Value) -> Result<()> {
     let token = status
         .get("webUrl")
         .and_then(Value::as_str)
-        .and_then(|url| reqwest::Url::parse(url).ok())
-        .and_then(|url| {
-            url.query_pairs()
-                .find(|(key, _)| key == "token")
-                .map(|(_, value)| value.into_owned())
-        });
+        .and_then(|url| url.split_once('?').and_then(|(_, query)| cmux_local_auth::query_token(query)))
+        .map(str::to_owned);
+    // Tagged/dev homes deliberately cannot claim the shared fixed port. A
+    // restart cannot reapply that policy after stopping the explicit daemon,
+    // so refuse before shutdown rather than silently moving the listener.
+    let shared_home = dirs::home_dir().map(|h| h.join(".acpmux")) == Some(crate::config::home());
+    if !shared_home && listen.ends_with(":47811") {
+        return Err(anyhow!(
+            "cannot restart a non-shared daemon on reserved listener {listen}; stop it manually and choose another port"
+        ));
+    }
     let mut config = Config::load()?;
     let websocket = config.websocket.get_or_insert_with(|| WebSocketConfig {
         listen: listen.to_owned(),
