@@ -4,23 +4,21 @@ import Testing
 @Suite("Terminal line-editor undo")
 struct TerminalLineEditorUndoTests {
     @Test func commandZAtAPromptReplaysLineEditorUndo() {
-        #expect(TerminalLineEditorUndo.shouldReplay(
+        #expect(TerminalLineEditorUndo(
             isUndoChord: true,
             hasGhosttyBinding: false,
             isComposing: false,
-            keyboardCopyModeActive: false,
-            isAlternateScreenActive: { false }
-        ))
+            keyboardCopyModeActive: false
+        ).shouldReplay(isAlternateScreenActive: { false }))
     }
 
     @Test func fullScreenApplicationsKeepTheOriginalKeystroke() {
-        #expect(!TerminalLineEditorUndo.shouldReplay(
+        #expect(!TerminalLineEditorUndo(
             isUndoChord: true,
             hasGhosttyBinding: false,
             isComposing: false,
-            keyboardCopyModeActive: false,
-            isAlternateScreenActive: { true }
-        ))
+            keyboardCopyModeActive: false
+        ).shouldReplay(isAlternateScreenActive: { true }))
     }
 
     struct OtherOwner: Sendable, CustomTestStringConvertible {
@@ -39,13 +37,12 @@ struct TerminalLineEditorUndoTests {
     ])
     func otherOwnersOfTheKeystrokeWinWithoutReadingTheScreen(owner: OtherOwner) {
         var readScreen = false
-        #expect(!TerminalLineEditorUndo.shouldReplay(
+        #expect(!TerminalLineEditorUndo(
             isUndoChord: owner.isUndoChord,
             hasGhosttyBinding: owner.hasGhosttyBinding,
             isComposing: owner.isComposing,
-            keyboardCopyModeActive: owner.keyboardCopyModeActive,
-            isAlternateScreenActive: { readScreen = true; return false }
-        ))
+            keyboardCopyModeActive: owner.keyboardCopyModeActive
+        ).shouldReplay(isAlternateScreenActive: { readScreen = true; return false }))
         #expect(!readScreen)
     }
 }

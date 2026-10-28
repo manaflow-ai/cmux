@@ -6693,13 +6693,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
         let isUndoChord = flags == [.command] && event.cmuxIsUndoRedoCommandEquivalent
-        guard TerminalLineEditorUndo.shouldReplay(
+        let keystroke = TerminalLineEditorUndo(
             isUndoChord: isUndoChord,
             // A pending sequence or key table also owns the next keystroke.
             hasGhosttyBinding: isUndoChord && (!keySequence.isEmpty || !keyTables.isEmpty
                 || ghosttyBindingFlags(for: event, surface: surface) != nil),
             isComposing: hasMarkedText(),
-            keyboardCopyModeActive: keyboardCopyModeActive,
+            keyboardCopyModeActive: keyboardCopyModeActive
+        )
+        guard keystroke.shouldReplay(
             isAlternateScreenActive: { terminalSurface?.isAlternateScreenActive() == true }
         ) else { return false }
         return performBindingAction(TerminalLineEditorUndo.bindingAction)

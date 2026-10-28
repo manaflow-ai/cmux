@@ -10,7 +10,7 @@
 /// The terminal cannot tell a line editor from any other program reading the
 /// main screen, so a program without one (`cat`, a plain `read`) receives the
 /// byte as input, as it would from a typed `Ctrl+_`.
-public enum TerminalLineEditorUndo {
+public struct TerminalLineEditorUndo: Equatable, Sendable {
     /// The Ghostty binding action that writes `Ctrl+_` to the pty.
     ///
     /// A raw byte rather than a synthesized key event: no layout has a
@@ -18,28 +18,38 @@ public enum TerminalLineEditorUndo {
     /// editors read the legacy C0 byte even after negotiating `CSI u`.
     public static let bindingAction = "text:\\x1f"
 
-    /// Whether a keystroke should be replayed as line-editor undo.
-    ///
-    /// - Parameters:
-    ///   - isUndoChord: The event is exactly Cmd+Z in the current layout, with
-    ///     no Shift, Option, or Control.
-    ///   - hasGhosttyBinding: The user's Ghostty config binds the chord, which
-    ///     then wins over this default.
-    ///   - isComposing: An input method has marked text, which owns the key.
-    ///   - keyboardCopyModeActive: Copy mode owns the keyboard.
-    ///   - isAlternateScreenActive: Read only when every other condition
-    ///     holds, because it serializes the viewport. A full-screen
-    ///     application decides what its own keys mean, so it keeps the
-    ///     original keystroke.
-    /// - Returns: `true` when the caller should send ``bindingAction`` and
-    ///   consume the keystroke.
-    public static func shouldReplay(
+    /// The event is exactly Cmd+Z in the current layout, with no Shift,
+    /// Option, or Control.
+    public var isUndoChord: Bool
+    /// The user's Ghostty config binds the chord, which then wins over this
+    /// default.
+    public var hasGhosttyBinding: Bool
+    /// An input method has marked text, which owns the key.
+    public var isComposing: Bool
+    /// Copy mode owns the keyboard.
+    public var keyboardCopyModeActive: Bool
+
+    public init(
         isUndoChord: Bool,
         hasGhosttyBinding: Bool,
         isComposing: Bool,
-        keyboardCopyModeActive: Bool,
-        isAlternateScreenActive: () -> Bool
-    ) -> Bool {
+        keyboardCopyModeActive: Bool
+    ) {
+        self.isUndoChord = isUndoChord
+        self.hasGhosttyBinding = hasGhosttyBinding
+        self.isComposing = isComposing
+        self.keyboardCopyModeActive = keyboardCopyModeActive
+    }
+
+    /// Whether the keystroke should be replayed as line-editor undo.
+    ///
+    /// - Parameter isAlternateScreenActive: Read only when every other
+    ///   condition holds, because it serializes the viewport. A full-screen
+    ///   application decides what its own keys mean, so it keeps the original
+    ///   keystroke.
+    /// - Returns: `true` when the caller should send ``bindingAction`` and
+    ///   consume the keystroke.
+    public func shouldReplay(isAlternateScreenActive: () -> Bool) -> Bool {
         guard isUndoChord, !hasGhosttyBinding, !isComposing, !keyboardCopyModeActive else {
             return false
         }
