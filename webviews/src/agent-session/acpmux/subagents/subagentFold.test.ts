@@ -83,9 +83,13 @@ test("live child replies stay unsettled and keep the producer revision stable", 
 test("the first nonempty child thought settles reply Sources without rescanning later chunks", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
-  feed(fold, say("See https://example.com/guide, acme/app#7, and https://github.com/acme/app/issues/7#issuecomment-123"), {
-    subagent: "a",
-  });
+  feed(
+    fold,
+    say("See https://example.com/guide, acme/app#7, and https://github.com/acme/app/issues/7#issuecomment-123"),
+    {
+      subagent: "a",
+    },
+  );
   const live = sessionSummary(fold.views().a!, "acme/app");
   expect(live.sources).toEqual([]);
   const think = (text: string) =>
