@@ -66,17 +66,18 @@ import Testing
         #expect(Set(controller.parked.keys) == recent)
         #expect(controller.parked["k0"] == nil)
 
-        // The one shown just before swaps back in warm.
-        let previous = try #require(controller.parked[keys[count - 2]])
-        state.showWorkspace(keys[count - 2])
-        controller.showWorkspace(requested: state.workspaceID)
-        #expect(controller.content === previous, "a recent workspace mounted again instead of swapping in warm")
-        // The oldest parked one swaps back in warm too: parking the current one does not trim it first.
+        // With the set full, the oldest parked one swaps back in warm: parking the current one does not trim it.
         let oldestKey = try #require(controller.parked.min { $0.value.parkedSerial < $1.value.parkedSerial }?.key)
         let oldest = try #require(controller.parked[oldestKey])
         state.showWorkspace(oldestKey)
         controller.showWorkspace(requested: state.workspaceID)
         #expect(controller.content === oldest, "showing the oldest parked workspace evicted it")
+        #expect(controller.parked.count == ParkedWorkspaceBudget.standard.capacity)
+        // The one shown just before swaps back in warm.
+        let previous = try #require(controller.parked[keys[count - 1]])
+        state.showWorkspace(keys[count - 1])
+        controller.showWorkspace(requested: state.workspaceID)
+        #expect(controller.content === previous, "a recent workspace mounted again instead of swapping in warm")
         // An evicted one mounts again when shown.
         state.showWorkspace("k0")
         controller.showWorkspace(requested: state.workspaceID)
