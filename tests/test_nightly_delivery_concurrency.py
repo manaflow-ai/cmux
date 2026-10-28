@@ -292,17 +292,31 @@ def test_the_tick_marks_every_revisions_promotion_request(tmp_path: Path) -> Non
     real.chmod(0o755)
     env = {"PATH": "/usr/bin:/bin", "GH_REAL": str(real), "GH_TICK_CACHE": str(tmp_path), "LOG": str(tmp_path / "log")}
     sha = "a" * 40
-    for args in (
-        ["workflow", "run", "nightly.yml", "--repo", "o/r", "--ref", "main", "-f", f"promote_nightly_next_sha={sha}"],
-        ["workflow", "run", "nightly.yml", "--repo", "o/r", "--ref", "main", "-f", f"promote_nightly_next_sha=tick:{sha}"],
-        ["workflow", "run", "cmux-tui-artifacts.yml", "--repo", "o/r", "--ref", "feat-cmux-next"],
-    ):
-        subprocess.run(["bash", str(tmp_path / "gh"), *args], env=env, check=True)
-    assert (tmp_path / "log").read_text(encoding="utf-8").splitlines() == [
-        f"workflow run nightly.yml --repo o/r --ref main -f promote_nightly_next_sha=tick:{sha}",
-        f"workflow run nightly.yml --repo o/r --ref main -f promote_nightly_next_sha=tick:{sha}",
-        "workflow run cmux-tui-artifacts.yml --repo o/r --ref feat-cmux-next",
+    head = ["workflow", "run", "nightly.yml", "--repo", "o/r", "--ref", "main"]
+    forms = [  # (as a revision passes it, as main must receive it)
+        (["-f", f"promote_nightly_next_sha={sha}"], ["-f", f"promote_nightly_next_sha=tick:{sha}"]),
+        (["-f", f"promote_nightly_next_sha=tick:{sha}"], ["-f", f"promote_nightly_next_sha=tick:{sha}"]),
+        (["--raw-field", f"promote_nightly_next_sha={sha}"], ["--raw-field", f"promote_nightly_next_sha=tick:{sha}"]),
+        ([f"-fpromote_nightly_next_sha={sha}"], [f"-fpromote_nightly_next_sha=tick:{sha}"]),
+        ([f"-Fpromote_nightly_next_sha={sha}"], [f"-Fpromote_nightly_next_sha=tick:{sha}"]),
+        ([f"--field=promote_nightly_next_sha={sha}"], [f"--field=promote_nightly_next_sha=tick:{sha}"]),
     ]
+    for sent, _ in forms:
+        subprocess.run(["bash", str(tmp_path / "gh"), *head, *sent], env=env, check=True)
+    other = ["workflow", "run", "cmux-tui-artifacts.yml", "--repo", "o/r", "--ref", "feat-cmux-next"]
+    subprocess.run(["bash", str(tmp_path / "gh"), *other], env=env, check=True)
+    assert (tmp_path / "log").read_text(encoding="utf-8").splitlines() == [
+        *(" ".join([*head, *got]) for _, got in forms), " ".join(other)]
+
+
+def test_a_landing_request_never_enters_the_promote_queue() -> None:
+    """GitHub keeps one waiting job in nightly-next-promote and cancels it when another request arrives, so a
+    landing's request must be skipped at the job, not after it queued: there it would evict the tick's request."""
+    job = load(WORKFLOWS / "nightly.yml")["jobs"]["promote-nightly-next"]
+    assert job["concurrency"]["group"] == "nightly-next-promote"
+    assert job["if"].endswith(
+        "&& (contains(inputs.promote_nightly_next_sha, 'tick:') || github.triggering_actor != 'github-actions[bot]')"
+    ), job["if"]
 
 
 def test_nightly_push_runs_never_share_a_build_group() -> None:
@@ -366,4 +380,9 @@ if __name__ == "__main__":
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()
     test_nightly_push_runs_never_share_a_build_group()
     test_classic_publishers_write_only_while_they_hold_the_lease()
+    test_the_tick_is_the_only_cadence_and_the_only_promoter()
+    test_a_landing_request_never_enters_the_promote_queue()
+    import tempfile
+    with tempfile.TemporaryDirectory() as scratch:
+        test_the_tick_marks_every_revisions_promotion_request(Path(scratch))
     print("PASS: nightly and DEV delivery never cancel or replace waiting builds")

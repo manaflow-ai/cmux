@@ -183,8 +183,9 @@ jobs:
           if [[ "${1:-} ${2:-} ${3:-}" == "workflow run nightly.yml" ]]; then
             args=()
             for arg in "$@"; do
-              if [[ "$arg" == promote_nightly_next_sha=* && "$arg" != promote_nightly_next_sha=tick:* ]]; then
-                arg="promote_nightly_next_sha=tick:${arg#promote_nightly_next_sha=}"
+              # Any form: "-f k=v" (k=v alone), "-fk=v", "--field=k=v", -F, --raw-field.
+              if [[ "$arg" == *promote_nightly_next_sha=* && "$arg" != *promote_nightly_next_sha=tick:* ]]; then
+                arg="${arg/promote_nightly_next_sha=/promote_nightly_next_sha=tick:}"
               fi
               args+=("$arg")
             done

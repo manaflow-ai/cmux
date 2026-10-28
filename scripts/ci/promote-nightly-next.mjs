@@ -823,7 +823,9 @@ async function evictedCandidates({ github, core, owner, repo, sha, runId, now })
 // workflow dispatches with, is a landing's: older revisions of
 // request-nightly-next.sh (each cmux-tui artifacts run checks out its own
 // commit) still send one on every landing, and it is skipped here. A person's
-// dispatch (any other actor) is decided as before.
+// dispatch (any other actor) is decided as before. The promote job's `if:` in
+// nightly.yml applies the same rule first, so a landing's request never joins
+// the promote queue, where it would evict the tick's waiting request.
 export const TICK_PREFIX = 'tick:';
 export const LANDING_ACTOR = 'github-actions[bot]';
 
