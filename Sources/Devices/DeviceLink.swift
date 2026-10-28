@@ -8,35 +8,6 @@ import OSLog
 
 nonisolated private let deviceLinkLog = Logger(subsystem: "dev.cmux", category: "device-link")
 
-/// Errors a device link raises to its provider and mirror sessions.
-enum DeviceLinkError: Error, LocalizedError, Equatable {
-    case notConnected
-    case blocked(String)
-    case hostRejected(code: String?, message: String)
-    case malformedResponse(String)
-    /// The host's status carried no identity: it did not accept this account.
-    case identityUnproven
-    /// The host answered as a different Mac (or app instance) than the one dialed.
-    case identityMismatch
-
-    var errorDescription: String? {
-        switch self {
-        case .notConnected:
-            return String(localized: "devices.link.error.notConnected", defaultValue: "This Mac is not connected right now.")
-        case .blocked(let reason):
-            return reason
-        case .hostRejected:
-            return String(localized: "devices.link.error.hostRejected", defaultValue: "The other Mac could not complete this action. Check its connection and try again.")
-        case .malformedResponse:
-            return String(localized: "devices.link.error.malformed", defaultValue: "The Mac sent an unexpected reply. Update cmux on both Macs and try again.")
-        case .identityUnproven:
-            return String(localized: "devices.link.error.identityUnproven", defaultValue: "This Mac did not confirm it is signed into your account.")
-        case .identityMismatch:
-            return String(localized: "devices.link.error.identityMismatch", defaultValue: "A different Mac answered at this address. Pair it again from Settings › Devices.")
-        }
-    }
-}
-
 /// One live connection from this Mac to another Mac's cmux app: the shared
 /// mobile RPC client over the route ``DeviceRouteSelector`` picked with the
 /// pairing store's grant, the synced workspace mirror (`mobile.sync.fetch` +
@@ -95,7 +66,6 @@ final class DeviceLink {
     private var eventTask: Task<Void, Never>?
     private var waitTask: Task<Void, Never>?
     private var fetchTask: Task<Void, Never>?
-    private var streamID = UUID().uuidString.lowercased()
     private var generation: UInt64 = 0
 
     init(
@@ -366,7 +336,16 @@ final class DeviceLink {
                 }
             },
             authenticate: { client, deadline in
-                try await self.authenticateClient(client, deadline: deadline)
+                do {
+                    let events = try await DeviceLinkHostHandshake(
+                        instance: record.instance, clientID: self.clientID, topics: Self.eventTopics
+                    ).authenticate(client, deadline: deadline)
+                    return (client, events)
+                } catch {
+                    if self.connection?.client === client { self.connection = nil }
+                    await client.disconnect()
+                    throw error
+                }
             }
         )
     }
@@ -392,51 +371,6 @@ final class DeviceLink {
             legacyTailscaleAuthorizationEvidence: selection.evidence,
             sessionPurpose: .backgroundControl
         )
-    }
-
-    private func authenticateClient(
-        _ client: MobileCoreRPCClient,
-        deadline: ContinuousClock.Instant
-    ) async throws -> (client: MobileCoreRPCClient, events: AsyncStream<MobileEventEnvelope>) {
-        do {
-            streamID = UUID().uuidString.lowercased()
-            // Transport establishment consumes the existing probe budget.
-            let remaining = ContinuousClock.now.duration(to: deadline)
-            guard remaining > .zero else { throw MobileShellConnectionError.requestTimedOut }
-            let parts = remaining.components
-            let timeout = UInt64(parts.seconds) * 1_000_000_000 + UInt64(parts.attoseconds / 1_000_000_000)
-            // Identity first. The probe is read-only and authenticated, and the
-            // paired status reply names the Mac that answered; nothing is
-            // subscribed or exposed until that matches this row exactly.
-            let probe = try MobileCoreRPCClient.requestData(method: "mobile.events.probe", params: [
-                "client_id": clientID,
-                "stream_id": streamID,
-            ])
-            let (_, status) = try await client.sendRequestAndAuthenticatedHostStatus(
-                probe,
-                timeoutNanoseconds: timeout,
-                hostStatusTimeoutNanoseconds: { timeout }
-            )
-            try DeviceLinkHostIdentity.verify(statusResponse: status, expected: instance)
-            let events = await client.subscribe(to: Self.eventTopics)
-            let subscribe = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(method: "mobile.events.subscribe", params: [
-                    "client_id": clientID,
-                    "stream_id": streamID,
-                    "topics": Array(Self.eventTopics).sorted(),
-                ]),
-                timeoutNanoseconds: timeout
-            )
-            guard let object = try JSONSerialization.jsonObject(with: subscribe) as? [String: Any],
-                  object["stream_id"] as? String == streamID else {
-                throw DeviceLinkError.malformedResponse("mobile.events.subscribe")
-            }
-            return (client, events)
-        } catch {
-            if connection?.client === client { connection = nil }
-            await client.disconnect()
-            throw error
-        }
     }
 
     // MARK: - Sync and events
