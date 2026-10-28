@@ -126,6 +126,10 @@ public final class FrameWriter: Sendable {
     /// Bytes waiting for the socket, not counting the step in flight (diagnostics, tests).
     public var queuedBytes: Int { state.withLock { $0.queuedBytes } }
 
+    /// Bytes ``enqueue(_:priority:fds:)`` takes now before it refuses with ``Failure/backlog(queued:)``: a caller
+    /// with a burst it must not cut (a paste) checks the whole burst against it first.
+    public var room: Int { max(0, limit - queuedBytes) }
+
     /// Stops writing; queued messages are dropped and their descriptors closed. The owner shuts the socket down,
     /// which also ends a send in progress.
     public func close() {

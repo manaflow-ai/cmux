@@ -66,6 +66,13 @@ extension LineTransport {
         var timeout: Duration
     }
 
+    /// The refusal of a request whose line of `bytes` passes ``maxRequestLineBytes``: it fails alone, as the
+    /// daemon's own refusal would, and the connection stays.
+    static func requestTooLarge(cmd: String, bytes: Int) -> DaemonError {
+        .command(cmd: cmd, message: "request too large: \(bytes) bytes, the daemon reads at most \(maxRequestLineBytes)",
+                 code: requestTooLargeCode)
+    }
+
     static func closedError(_ reason: TransportCloseReason) -> DaemonError {
         switch reason {
         case .closedByClient: .connectionClosed(reason: "closed by client")

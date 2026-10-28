@@ -38,6 +38,12 @@ final class LineTransport: Sendable {
 
     /// Inbound limit: the server may send up to 32 MiB (VT replay).
     static let maxLineBytes = 64 << 20
+    /// Outbound limit: the longest request line cmux-tui reads, its `\n` excluded (`MAX_JSON_LINE_BYTES`,
+    /// cmux-tui-core server.rs, which is `REMOTE_CLIENT_MESSAGE_MAX_BYTES`). A longer one fails alone
+    /// (``requestTooLargeCode``).
+    static let maxRequestLineBytes = 16 << 20
+    /// The `code` of a request refused because its line passes ``maxRequestLineBytes``.
+    static let requestTooLargeCode = "request_too_large"
     /// SO_SNDBUF and SO_RCVBUF of the socket, and the reader's read size: the daemon's own value
     /// (p05-ipc-083), so a burst of output or a pipelined handshake moves in a few reads, not in hundreds
     /// of the 8 KiB AF_UNIX default.
@@ -166,6 +172,8 @@ final class LineTransport: Sendable {
     }
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
+    /// Bytes the writer takes now before it refuses a write, which ends the connection (``SocketWriter/room``).
+    var writerRoom: Int { writer.room }
     /// The connection runs through a bridge child (``DaemonBridge``), which carries bytes but no descriptors.
     var bridged: Bool { child != nil }
     /// The writer queue's class (``DaemonWireStats/Role/writerQoS``; tests).
@@ -262,6 +270,12 @@ final class LineTransport: Sendable {
             }
             let payload: Data
             do { payload = try body(id) } catch { return error }
+            // A line the daemon would not read fails alone, before the wire: cmux-tui ends the connection on a
+            // longer line (`line_too_long`), and with it every view and request it carries. Mojo refuses an
+            // oversize message at its send the same way (mojo/core/core.cc, `kMaxMessageNumBytes`).
+            if framing?.method(for: waiter.cmd, bodyBytes: payload.count) == nil, payload.count > Self.maxRequestLineBytes {
+                return Self.requestTooLarge(cmd: waiter.cmd, bytes: payload.count)
+            }
             let stamp = recorder?.requestSent(waiter.cmd)
             let timed: (deadline: DeadlineHeap.Deadline, now: Duration)? =
                 if let deadline, case .reply = waiter { (deadline: deadline, now: elapsed()) } else { nil }
@@ -283,7 +297,10 @@ final class LineTransport: Sendable {
             return .failure(early)
         }
         if let writeFailure {
-            failAll(.lost(writeFailure))
+            // The writer refused the message (the daemon stopped reading, or the socket failed): the connection
+            // ends here, socket and reader too, so its owner hears the close and reconnects. Failing only the
+            // requests left the transport closed for every later send while its reader kept delivering.
+            shutDown(.lost(writeFailure))
             return .failure(DaemonError.connectionClosed(reason: writeFailure))
         }
         return .success(submittedID)
@@ -291,7 +308,13 @@ final class LineTransport: Sendable {
 
     /// Closes the socket; pending requests fail with `.connectionClosed`.
     func close() {
-        failAll(.closedByClient)
+        shutDown(.closedByClient)
+    }
+
+    /// Fails every pending request with `reason` and shuts the socket down: the reader then reads its end,
+    /// and its close goes to the owner (``start(dispatch:onCausedEvent:onClose:)``) with `reason`.
+    private func shutDown(_ reason: TransportCloseReason) {
+        failAll(reason)
         socket.withLock { socket in
             if socket.fd >= 0 { Darwin.shutdown(socket.fd, SHUT_RDWR) }
         }

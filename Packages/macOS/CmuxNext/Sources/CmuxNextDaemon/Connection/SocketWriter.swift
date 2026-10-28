@@ -67,6 +67,9 @@ final class SocketWriter: Sendable {
     /// Bytes waiting for the socket (diagnostics, tests).
     var queuedBytes: Int { writer.queuedBytes }
 
+    /// Bytes a write takes now before the backlog refuses it (``FrameWriter/room``).
+    var room: Int { writer.room }
+
     /// Stops writing; queued bytes are dropped. The owner shuts the
     /// descriptor down, which also ends a write in progress.
     func close() {
