@@ -167,12 +167,12 @@ const TASKS: &[Task] = &[
     },
     Task {
         id: "accounts",
-        summary: "Sign in to cmux and see each agent provider's sign-in",
+        summary: "Check and recover cmux and agent-provider sign-ins",
         setup: None,
         check: &["cmux accounts list --json"],
         apply: &["cmux cloud sign-in"],
         person: Some("the cmux sign-in in the browser"),
-        prompt: "Check my sign-ins: run `cmux accounts list --json`. If I am signed out of cmux, run `cmux cloud sign-in` and tell me to finish it in the browser. Then tell me which agent providers are signed in.",
+        prompt: "Check and recover my sign-ins: run `cmux accounts list --json`. If cmux is signed out, run `cmux cloud sign-in` and tell me to finish it in the browser; if the command or browser reports offline or Cloud unavailable, stop and tell me to reconnect before retrying. If a provider is missing or expired, open Settings > Accounts and use Sign In or Re-authenticate (or run `cmux accounts reauth --provider PROVIDER`), then run the list again. If I picked the wrong cmux account, use Switch Account in Settings > Accounts and verify the masked account; if a saved key is missing or unreadable, use Add Key there and save or send it without printing the secret. Tell me which providers remain unavailable and never claim an unknown or Keychain-backed sign-in is valid.",
     },
     Task {
         id: "cloud_machine",
@@ -401,6 +401,27 @@ mod tests {
         assert!(page.contains(STATUS_PROMPT));
         for task in TASKS {
             assert!(page.contains(&format!("```text\n{}\n```", task.prompt)), "{}", task.id);
+        }
+    }
+
+    /// The accounts prompt is the single human recovery path. Keep the
+    /// generated prompt useful for the states the Accounts screen exposes,
+    /// without teaching agents to claim that an unknown Keychain sign-in is
+    /// healthy.
+    #[test]
+    fn accounts_prompt_names_each_recovery_state() {
+        let prompt = TASKS.iter().find(|task| task.id == "accounts").unwrap().prompt;
+        for phrase in [
+            "cmux accounts list --json",
+            "cmux cloud sign-in",
+            "command or browser reports offline or Cloud unavailable",
+            "missing or expired",
+            "cmux accounts reauth --provider PROVIDER",
+            "Switch Account",
+            "saved key is missing or unreadable",
+            "never claim an unknown or Keychain-backed sign-in is valid",
+        ] {
+            assert!(prompt.contains(phrase), "accounts prompt missing {phrase:?}: {prompt}");
         }
     }
 }
