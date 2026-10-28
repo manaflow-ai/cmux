@@ -28,6 +28,7 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
             allowed_origins: Vec::new(),
             allowed_hosts: Vec::new(),
             token_rotated: 1,
+            allow_insecure_network: false,
         }),
         ..Default::default()
     };

@@ -1,7 +1,8 @@
 //! The acpmux web listener applies the localhost listener rule
 //! (plans/cmux-next/identity.md section 4): a foreign or `null` Origin, a
 //! rebinding Host, and a missing or wrong token are refused before the
-//! dashboard or the WebSocket protocol starts.
+//! dashboard or the WebSocket protocol starts. The token comes only from a
+//! header (`server/ws_auth.rs`), never the URL.
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -10,7 +11,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
-use acpmux::server::{AGENT_PANE_ORIGIN, bind_ws, serve_ws};
+use acpmux::server::{AGENT_PANE_ORIGIN, bind_ws, bind_ws_with, serve_ws};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -40,10 +41,18 @@ async fn status(port: u16, request: String) -> u16 {
     head.split_whitespace().nth(1).and_then(|code| code.parse().ok()).expect("status line")
 }
 
-fn upgrade(query: &str, host: &str, origin: Option<&str>) -> String {
+/// An upgrade request with `token` as its bearer token (none when empty).
+fn upgrade(token: &str, host: &str, origin: Option<&str>) -> String {
+    upgrade_at("", token, host, origin)
+}
+
+/// `upgrade` of `/<path>`.
+fn upgrade_at(path: &str, token: &str, host: &str, origin: Option<&str>) -> String {
     let origin = origin.map(|o| format!("Origin: {o}\r\n")).unwrap_or_default();
+    let auth =
+        if token.is_empty() { String::new() } else { format!("Authorization: Bearer {token}\r\n") };
     format!(
-        "GET /{query} HTTP/1.1\r\nHost: {host}\r\n{origin}Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+        "GET /{path} HTTP/1.1\r\nHost: {host}\r\n{origin}{auth}Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
     )
 }
 
@@ -56,29 +65,26 @@ fn page(query: &str, host: &str, origin: Option<&str>) -> String {
 async fn websocket_with_token_and_allowed_origin_upgrades() {
     let port = listener().await;
     let host = format!("127.0.0.1:{port}");
-    let query = format!("?token={TOKEN}");
-    assert_eq!(status(port, upgrade(&query, &host, None)).await, 101);
-    assert_eq!(status(port, upgrade(&query, &host, Some(AGENT_PANE_ORIGIN))).await, 101);
+    assert_eq!(status(port, upgrade(TOKEN, &host, None)).await, 101);
+    assert_eq!(status(port, upgrade(TOKEN, &host, Some(AGENT_PANE_ORIGIN))).await, 101);
     let own = format!("http://localhost:{port}");
-    assert_eq!(status(port, upgrade(&query, &host, Some(&own))).await, 101);
+    assert_eq!(status(port, upgrade(TOKEN, &host, Some(&own))).await, 101);
 }
 
 #[tokio::test]
 async fn websocket_with_foreign_origin_is_refused_even_with_the_token() {
     let port = listener().await;
     let host = format!("127.0.0.1:{port}");
-    let query = format!("?token={TOKEN}");
     for origin in ["https://evil.example", "null", "file://", "http://127.0.0.1:1"] {
-        assert_eq!(status(port, upgrade(&query, &host, Some(origin))).await, 403, "{origin}");
+        assert_eq!(status(port, upgrade(TOKEN, &host, Some(origin))).await, 403, "{origin}");
     }
 }
 
 #[tokio::test]
 async fn websocket_with_a_rebinding_host_is_refused() {
     let port = listener().await;
-    let query = format!("?token={TOKEN}");
     let host = format!("evil.example:{port}");
-    assert_eq!(status(port, upgrade(&query, &host, None)).await, 403);
+    assert_eq!(status(port, upgrade(TOKEN, &host, None)).await, 403);
 }
 
 #[tokio::test]
@@ -86,18 +92,7 @@ async fn websocket_without_or_with_a_wrong_token_is_refused() {
     let port = listener().await;
     let host = format!("127.0.0.1:{port}");
     assert_eq!(status(port, upgrade("", &host, None)).await, 401);
-    assert_eq!(status(port, upgrade("?token=wrong", &host, None)).await, 401);
-}
-
-#[tokio::test]
-async fn dashboard_page_needs_token_and_own_origin() {
-    let port = listener().await;
-    let host = format!("127.0.0.1:{port}");
-    let query = format!("?token={TOKEN}");
-    assert_eq!(status(port, page(&query, &host, None)).await, 200);
-    assert_eq!(status(port, page("", &host, None)).await, 401);
-    assert_eq!(status(port, page(&query, &host, Some("https://evil.example"))).await, 403);
-    assert_eq!(status(port, page(&query, "evil.example", None)).await, 403);
+    assert_eq!(status(port, upgrade("wrong", &host, None)).await, 401);
 }
 
 /// Send one raw request and return the whole response head.
@@ -132,8 +127,8 @@ async fn websocket_with_only_a_query_token_is_refused() {
     let port = listener().await;
     let host = format!("127.0.0.1:{port}");
     let query = format!("?token={TOKEN}");
-    assert_eq!(status(port, upgrade(&query, &host, None)).await, 401);
-    assert_eq!(status(port, upgrade(&query, &host, Some(AGENT_PANE_ORIGIN))).await, 401);
+    assert_eq!(status(port, upgrade_at(&query, "", &host, None)).await, 401);
+    assert_eq!(status(port, upgrade_at(&query, "", &host, Some(AGENT_PANE_ORIGIN))).await, 401);
 }
 
 /// A browser cannot set an Authorization header: it offers the token as a
@@ -233,8 +228,7 @@ async fn a_head_larger_than_the_peek_window_is_refused() {
     let host = format!("127.0.0.1:{port}");
     // A long path pushes `Origin` past the bytes the listener inspects.
     let long = "a".repeat(4000);
-    let query = format!("{long}?token={TOKEN}");
-    let request = upgrade(&query, &host, Some("https://evil.example"));
+    let request = upgrade_at(&long, TOKEN, &host, Some("https://evil.example"));
     assert_eq!(status(port, request).await, 403);
 }
 
@@ -243,7 +237,7 @@ async fn a_page_request_with_large_localhost_cookies_is_served() {
     let port = listener().await;
     let host = format!("127.0.0.1:{port}");
     let cookie = format!("Cookie: c={}\r\n", "x".repeat(12 * 1024));
-    let request = format!("GET /?token={TOKEN} HTTP/1.1\r\nHost: {host}\r\n{cookie}\r\n");
+    let request = format!("GET / HTTP/1.1\r\nHost: {host}\r\n{cookie}\r\n");
     assert_eq!(status(port, request).await, 200);
 }
 
@@ -258,16 +252,15 @@ async fn a_dev_origin_is_accepted_only_when_the_daemon_was_given_it() {
     let port = bound.local_addr().unwrap().port();
     tokio::spawn(serve_ws(hub, bound, TOKEN.into()));
     let host = format!("127.0.0.1:{port}");
-    let query = format!("?token={TOKEN}");
-    assert_eq!(status(port, upgrade(&query, &host, Some("http://127.0.0.1:4176"))).await, 101);
+    assert_eq!(status(port, upgrade(TOKEN, &host, Some("http://127.0.0.1:4176"))).await, 101);
     let plain = listener().await;
     let host = format!("127.0.0.1:{plain}");
-    assert_eq!(status(plain, upgrade(&query, &host, Some("http://127.0.0.1:4176"))).await, 403);
+    assert_eq!(status(plain, upgrade(TOKEN, &host, Some("http://127.0.0.1:4176"))).await, 403);
 }
 
 #[tokio::test]
 async fn a_wide_bind_keeps_the_host_rule() {
-    // A non-loopback `websocket.listen` widens the bind, never the Host
+    // A non-loopback `websocket.listen` (opted in) widens the bind, never the Host
     // rule: a DNS-rebound name is refused. Names clients use come from
     // `websocket.allowedHosts`; address literals pass (a rebound page always
     // sends the domain name it loaded from).
@@ -279,16 +272,16 @@ async fn a_wide_bind_keeps_the_host_rule() {
         allowed_origins: Vec::new(),
         allowed_hosts: vec!["mini.tail1234.ts.net".into()],
         token_rotated: 0,
+        allow_insecure_network: true,
     });
     let store = acpmux::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub: Arc<Hub> = Hub::new(config, store);
-    let bound = bind_ws("0.0.0.0:0").await.unwrap();
+    let bound = bind_ws_with("0.0.0.0:0", true).await.unwrap();
     let port = bound.local_addr().unwrap().port();
     tokio::spawn(serve_ws(hub, bound, TOKEN.into()));
-    let query = format!("?token={TOKEN}");
     for host in [format!("evil.example:{port}"), "other.tail1234.ts.net".to_owned()] {
-        assert_eq!(status(port, upgrade(&query, &host, None)).await, 403, "{host}");
-        assert_eq!(status(port, page(&query, &host, None)).await, 403, "page {host}");
+        assert_eq!(status(port, upgrade(TOKEN, &host, None)).await, 403, "{host}");
+        assert_eq!(status(port, page("", &host, None)).await, 403, "page {host}");
     }
     for host in [
         format!("mini.tail1234.ts.net:{port}"),
@@ -296,7 +289,7 @@ async fn a_wide_bind_keeps_the_host_rule() {
         format!("10.0.0.5:{port}"),
         format!("[fd7a:115c:a1e0::1]:{port}"),
     ] {
-        assert_eq!(status(port, upgrade(&query, &host, None)).await, 101, "{host}");
+        assert_eq!(status(port, upgrade(TOKEN, &host, None)).await, 101, "{host}");
     }
 }
 
@@ -308,9 +301,11 @@ async fn a_frame_past_sixteen_mib_is_read() {
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message;
     let port = listener().await;
-    let url = format!("ws://127.0.0.1:{port}/?token={TOKEN}");
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let mut req = format!("ws://127.0.0.1:{port}/").into_client_request().unwrap();
+    req.headers_mut().insert("authorization", format!("Bearer {TOKEN}").parse().unwrap());
     let (mut ws, _) =
-        tokio_tungstenite::connect_async_with_config(url, Some(acpmux::server::ws_config()), false)
+        tokio_tungstenite::connect_async_with_config(req, Some(acpmux::server::ws_config()), false)
             .await
             .expect("upgrade");
     let init = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -339,8 +334,7 @@ async fn a_websocket_upgrade_that_stalls_midway_is_closed() {
     let port = listener().await;
     let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
     // The head routes it to the WebSocket path; the blank line that ends it never comes.
-    let partial =
-        format!("GET /?token={TOKEN} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n");
+    let partial = format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n");
     stream.write_all(partial.as_bytes()).await.unwrap();
     let mut buf = [0u8; 64];
     let read = tokio::time::timeout(std::time::Duration::from_secs(9), stream.read(&mut buf)).await;

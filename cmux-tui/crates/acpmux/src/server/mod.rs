@@ -491,19 +491,49 @@ const INDEX_HTML: &str = include_str!("../../web/index.html");
 ///
 /// Every request passes the localhost listener rule first
 /// (plans/cmux-next/identity.md section 4): a loopback `Host`, no foreign
-/// `Origin`, and the token, which is mandatory.
+/// `Origin`, and, for the WebSocket, the token, which is mandatory and
+/// comes only from a header (`ws_auth.rs`).
 pub async fn listen_ws(hub: Arc<Hub>, addr: String, token: String) -> Result<()> {
     let listener = bind_ws(&addr).await?;
     serve_ws(hub, listener, token).await
 }
 
-/// Bind the dashboard/WebSocket port. `127.0.0.1:0` picks a free port; read
-/// it back with `local_addr`.
+/// Bind the dashboard/WebSocket port on loopback. `127.0.0.1:0` picks a free
+/// port; read it back with `local_addr`. A network address is refused
+/// (`ws_auth::check_listen`); [`bind_ws_with`] takes the person's opt-in.
 pub async fn bind_ws(addr: &str) -> Result<TcpListener> {
+    bind_ws_with(addr, false).await
+}
+
+/// [`bind_ws`], binding a network (non-loopback) address too when
+/// `allow_network` (`--insecure-network-listen`,
+/// `websocket.allowInsecureNetwork`).
+pub async fn bind_ws_with(addr: &str, allow_network: bool) -> Result<TcpListener> {
+    check_listen_address(addr, allow_network).await?;
     let listener = TcpListener::bind(addr).await.with_context(|| format!("bind {addr}"))?;
-    let local = listener.local_addr().map(|a| a.to_string()).unwrap_or_else(|_| addr.to_owned());
-    tracing::info!("web + websocket listening on {local}");
+    let bound = listener.local_addr().with_context(|| format!("bind {addr}"))?;
+    // The address that was bound, should a name resolve differently now.
+    ws_auth::check_listen(addr, &[bound], allow_network)?;
+    if !ws_auth::is_loopback(&bound) {
+        tracing::warn!(
+            "the web + websocket listener {bound} is on a network address (opted in): plain ws:// sends the listener token in clear"
+        );
+    }
+    tracing::info!("web + websocket listening on {bound}");
     Ok(listener)
+}
+
+/// Refuse `addr` before binding it when any address it names is not
+/// loopback and the person did not opt in.
+pub async fn check_listen_address(addr: &str, allow_network: bool) -> Result<()> {
+    if allow_network {
+        return Ok(());
+    }
+    let addrs: Vec<std::net::SocketAddr> = match addr.parse() {
+        Ok(one) => vec![one],
+        Err(_) => tokio::net::lookup_host(addr).await.map(Iterator::collect).unwrap_or_default(),
+    };
+    ws_auth::check_listen(addr, &addrs, false)
 }
 
 /// The origin of the app's bundled agent pane page (a `cmux-agent` URL
@@ -660,7 +690,7 @@ pub async fn serve_ws_with(
             // upgrade request for the callback.
             let head_text = String::from_utf8_lossy(head.get(..n).unwrap_or(&head)).into_owned();
             if !head_text.to_ascii_lowercase().contains("upgrade: websocket") {
-                serve_http(stream, &policy, &token, peer).await;
+                serve_http(stream, &policy, peer).await;
                 return;
             }
             let expected = token.clone();
@@ -696,15 +726,22 @@ pub async fn serve_ws_with(
                     values("origin").into_iter().map(str::to_owned).collect();
                 *record_peer.lock().unwrap_or_else(|e| e.into_inner()) =
                     values(peer_auth::HEADER).into_iter().map(str::to_owned).collect();
-                let header = req
-                    .headers()
-                    .get("authorization")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(cmux_local_auth::bearer_token);
-                let query = req.uri().query().and_then(cmux_local_auth::query_token);
+                // Only a header carries the token, never the URL (`ws_auth.rs`).
+                let presented =
+                    ws_auth::presented(&values("authorization"), &values("sec-websocket-protocol"))
+                        .map_err(refuse)?;
                 let tickets = values(crate::pairing::TICKET_HEADER);
-                let proof = pairing::admit(&pairing_hub, peer, header.or(query), &tickets, &expected);
+                let proof = pairing::admit(&pairing_hub, peer, presented.token, &tickets, &expected);
                 *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
+                let mut resp = resp;
+                if presented.answer_protocol {
+                    resp.headers_mut().insert(
+                        "sec-websocket-protocol",
+                        tokio_tungstenite::tungstenite::http::HeaderValue::from_static(
+                            ws_auth::PROTOCOL,
+                        ),
+                    );
+                }
                 Ok(resp)
             };
             // A client that stalls mid-upgrade gets the same deadline as the peek above: it
@@ -912,12 +949,12 @@ async fn read_http_head(stream: &mut tokio::net::TcpStream) -> Option<String> {
 }
 
 /// Minimal HTTP for the dashboard. The whole head passes the listener rule
-/// first; then GET / with a matching token serves the page, and anything
-/// else is 401 or 404.
+/// first; then GET / serves the page, and anything else is 404. The page is
+/// static and holds no secret: it reads the token from its URL fragment,
+/// which never reaches a server, and its WebSocket presents it.
 async fn serve_http(
     mut stream: tokio::net::TcpStream,
     policy: &ListenerPolicy,
-    token: &str,
     peer: std::net::SocketAddr,
 ) {
     let Some(head) = read_http_head(&mut stream).await else {
@@ -933,22 +970,18 @@ async fn serve_http(
     let mut parts = first.split_whitespace();
     let method_ = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("/");
-    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    let path = target.split_once('?').map_or(target, |(path, _)| path);
     let (status, body, ctype) = if !method_.eq_ignore_ascii_case("get") {
         ("405 Method Not Allowed", "method not allowed".to_owned(), "text/plain")
     } else if path == "/health" {
         ("200 OK", "ok".to_owned(), "text/plain")
     } else if path == "/" || path == "/index.html" {
-        if cmux_local_auth::check_token(cmux_local_auth::query_token(query), token).is_ok() {
-            ("200 OK", INDEX_HTML.to_owned(), "text/html; charset=utf-8")
-        } else {
-            ("401 Unauthorized", "<!doctype html><meta charset=utf-8><title>acpmux</title><p style=\"font-family:system-ui;padding:2rem\">This dashboard needs its token. Run <code>acpmux web</code> in a terminal to get the full link.</p>".to_owned(), "text/html; charset=utf-8")
-        }
+        ("200 OK", INDEX_HTML.to_owned(), "text/html; charset=utf-8")
     } else {
         ("404 Not Found", "not found".to_owned(), "text/plain")
     };
     let response = format!(
-        "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\ncache-control: no-store\r\nconnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\ncache-control: no-store\r\nreferrer-policy: no-referrer\r\nconnection: close\r\n\r\n{body}",
         body.len()
     );
     let _ = stream.write_all(response.as_bytes()).await;
@@ -1390,6 +1423,7 @@ mod pending;
 mod place;
 mod processes;
 mod worktrees;
+pub mod ws_auth;
 use crate::hub::is_permission_ask;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
