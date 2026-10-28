@@ -31,7 +31,7 @@ enum TabCloseGuard {
     /// `close` gets what the question asked the terminals, so the close's undo
     /// toast decision does not ask them again (one daemon read per Cmd-W, not two).
     ///
-    /// The daemon pushes each terminal's shell state (``pushedState(_:)``): terminals that sit at their prompt
+    /// The daemon pushes each terminal's shell state (``PushedShellState``): terminals whose own shell sits idle at its prompt
     /// close in the person's own turn with no read, and a running command asks in that turn, so a quick next
     /// Cmd-W goes to the question and never closes an idle neighbour behind it (Lawrence 2026-10-28, shortcut
     /// spam). Only a terminal whose shell reports no state (no shell integration) is read first.
@@ -50,7 +50,8 @@ enum TabCloseGuard {
         // question, in the person's own turn.
         guard !terminals.isEmpty else { return answer(tabs, ids: ids, asked: [:], window: window, services: services, close: close) }
         // Every asked terminal's state is pushed: the close, or the question, in the person's own turn.
-        if let pushed = PushedShellState.programs(terminals) {
+        let typed = { [weak window] (uptime: TimeInterval) in services.keyRouter.typed(in: window, after: uptime) }
+        if let pushed = PushedShellState.programs(terminals, typedSince: typed) {
             guard pushed.values.contains(where: { $0 != nil }) else {
                 return answer(tabs, ids: ids, asked: pushed, window: window, services: services, close: close)
             }

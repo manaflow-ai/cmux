@@ -41,6 +41,10 @@ final class TerminalScroller: NSScrollView, ScrollGeometryClient {
     /// The style changed; the host lays out again (``reservedWidth``).
     var onStyleChange: (() -> Void)?
 
+    /// Stays on the main thread (p03-rendering-110): every wheel event is the terminal's (`onWheel`), which
+    /// moves Ghostty's viewport per event; a responsive gesture would scroll the empty document instead.
+    override class var isCompatibleWithResponsiveScrolling: Bool { false }
+
     init() {
         super.init(frame: .zero)
         drawsBackground = false

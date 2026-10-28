@@ -20,8 +20,16 @@ extension KeyRouter {
             if routesBareKey(event, in: window) { return true }
             if typesAhead(event, in: window) || typesIntoPrimaryInput(event, in: window) { return true }
         }
+        lastTypingKey = (window?.windowNumber ?? 0, event.timestamp)
         onTyping?(window)
         return false
+    }
+
+    /// Whether a typing key went to `window`'s focused view after `uptime` (a close reads a terminal's pushed idle
+    /// state only when no key could have started a command since, `PushedShellState`). O(1): one stored key per app.
+    func typed(in window: NSWindow?, after uptime: TimeInterval) -> Bool {
+        guard let last = lastTypingKey else { return false }
+        return last.window == (window?.windowNumber ?? 0) && last.at > uptime
     }
 
     /// A key on a screen whose primary input claims it (R65; Home's message

@@ -142,6 +142,7 @@ public final class SessionStateStore {
                        commandSinceMs: tab.terminalResourceID.flatMap { state?.terminalBusySinceMs[$0] },
                        promptSinceMs: tab.terminalResourceID.flatMap { state?.terminalPromptSinceMs[$0] },
                        lastOutputMs: tab.terminalResourceID.flatMap { state?.terminalLastOutputMs[$0] },
+                       shellIdleSinceMs: tab.terminalResourceID.flatMap { state?.terminalShellIdleSinceMs[$0] },
                        commandInUse: tab.terminalResourceID.map { state?.terminalCommandInUse.contains($0) == true } ?? false)
     }
 

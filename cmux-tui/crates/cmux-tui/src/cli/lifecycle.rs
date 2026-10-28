@@ -523,7 +523,7 @@ impl StopWait<'_> {
                 if Instant::now() >= deadline {
                     return Ok(());
                 }
-                std::thread::sleep(STOP_POLL_INTERVAL);
+                cmux_blocking::thread::sleep(STOP_POLL_INTERVAL);
             }
             let Ok(stream) =
                 cmux_tui_core::server::connect_session_socket(self.socket, self.socket_is_derived)
@@ -581,7 +581,7 @@ impl StopWait<'_> {
                 if Instant::now() >= deadline {
                     return Err(self.give_up(phase, started));
                 }
-                std::thread::sleep(STOP_POLL_INTERVAL);
+                cmux_blocking::thread::sleep(STOP_POLL_INTERVAL);
             }
         }
     }

@@ -127,6 +127,13 @@ impl Surface {
         // host, before it can read the reply from the new stream.
         #[cfg(any(unix, windows))]
         if let Some(pty) = self.as_pty() {
+            // The grant's holder writes Input and Paste frames to the host
+            // directly: this daemon no longer sees all of the terminal's
+            // input, so its shell never reads idle again (noted before the
+            // grant exists).
+            if matches!(&*pty.runtime.lock().recover_poison(), PtyRuntime::Hosted(_)) {
+                self.note_unseen_shell_input();
+            }
             let pending = match &*pty.runtime.lock().recover_poison() {
                 PtyRuntime::Hosted(host) => Some(host.begin_renderer_grant(ttl)),
                 PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => None,

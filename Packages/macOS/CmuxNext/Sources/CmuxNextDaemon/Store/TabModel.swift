@@ -133,6 +133,14 @@ public final class TabModel: Identifiable {
     public internal(set) var promptSinceMs: UInt64?
     /// This clock's time when `promptSinceMs` arrived: another machine's daemon may run ahead.
     @ObservationIgnored public private(set) var promptSeenAt: Date?
+    /// Since when the terminal's own shell sits idle at its prompt (`extra.shell_idle.since_ms`): the daemon saw
+    /// its process hold the PTY's foreground, still running the program it spawned, and no input since the prompt.
+    /// Nil whenever a command, a nested shell (ssh), an `exec`ed program or typed input may be there, or unknown.
+    /// A close may skip its question only when this is set.
+    public internal(set) var shellIdleSinceMs: UInt64?
+    /// When (system uptime, the clock of `NSEvent.timestamp`) this app applied the current ``shellIdleSinceMs``: a key
+    /// typed into the terminal after it may have started a command the daemon has not reported yet.
+    @ObservationIgnored public private(set) var shellIdleSeenAt: TimeInterval?
     /// When the terminal last printed (`extra.last_output.at_ms`).
     public internal(set) var lastOutputMs: UInt64?
     /// This clock's time when `lastOutputMs` arrived: another machine's daemon may run ahead.
@@ -316,8 +324,13 @@ public final class TabModel: Identifiable {
 
     /// Lays the daemon's tab record and terminal progress over the record.
     func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?, programStatus: [ProgramStatusRecord] = [],
-                    commandSinceMs: UInt64? = nil, promptSinceMs: UInt64? = nil, lastOutputMs: UInt64? = nil, commandInUse: Bool = false) {
+                    commandSinceMs: UInt64? = nil, promptSinceMs: UInt64? = nil, lastOutputMs: UInt64? = nil,
+                    shellIdleSinceMs: UInt64? = nil, commandInUse: Bool = false) {
         let record = record ?? SessionStateMirror.TabRecord()
+        if self.shellIdleSinceMs != shellIdleSinceMs {
+            shellIdleSeenAt = shellIdleSinceMs.map { _ in ProcessInfo.processInfo.systemUptime }
+            self.shellIdleSinceMs = shellIdleSinceMs
+        }
         if self.commandInUse != commandInUse { self.commandInUse = commandInUse }
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }

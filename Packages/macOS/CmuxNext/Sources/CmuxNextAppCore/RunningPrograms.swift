@@ -19,16 +19,16 @@ extension Dictionary where Key == SurfaceID, Value == String? {
     public func covers(_ tabs: [TabModel]) -> Bool { tabs.allSatisfy { keys.contains($0.surface) } }
 }
 
-/// What the daemon pushes about a terminal's shell (OSC 133 marks of its shell integration and the daemon's
-/// `extra.activity`), and what a close may read from it without asking the terminal (Lawrence 2026-10-28,
-/// shortcut spam: a close decides in the person's own turn).
+/// What the daemon pushes about a terminal's shell, and what a close may read from it without asking the terminal
+/// (Lawrence 2026-10-28, shortcut spam: a close decides in the person's own turn).
 ///
-/// Limits (a close's undo toast still reads what ran, after the close): a nested shell with its own OSC 133 marks
-/// (ssh or `docker exec` into an integrated shell) reports its prompt, so the tab reads idle while ssh runs; it then
-/// closes without the question (its terminal survives the reap grace, and Undo brings it back). A command typed a
-/// moment before the press may not be pushed yet. A shell replaced without integration (`exec bash`) can leave a
-/// stale running command, which asks once. A daemon check of the PTY's foreground leader against the shell would
-/// close these (cmux-tui follow-up).
+/// Idle comes only from the daemon's `extra.shell_idle` (``TabModel/shellIdleSinceMs``, cmux-tui
+/// cp/daemon-foreground-state): the PTY's foreground group is the terminal's own interactive shell, at its prompt,
+/// and no input reached the daemon since that prompt; a nested shell over ssh, `exec sh`, a script and input that may
+/// bypass the daemon never read idle. A key typed into the window after the app applied that state
+/// (`typedSince`) may have started a command the daemon has not reported yet: then the state is unknown. Busy comes
+/// from a running command (``TabModel/commandSinceMs``, ``TabModel/commandInUse``). Everything else is unknown, and a
+/// close reads the terminal (or asks). A daemon without `shell_idle` never reads idle, so nothing closes unasked.
 public enum PushedShellState: Equatable, Sendable {
     /// At its prompt: nothing runs in the foreground.
     case idle
@@ -38,18 +38,21 @@ public enum PushedShellState: Equatable, Sendable {
     case unknown
 
     /// `tab`'s pushed state (``TabModel/commandSinceMs``, ``TabModel/commandInUse``, ``TabModel/promptSinceMs``).
+    /// `typedSince`: whether a key was typed into the tab's window after `uptime` (nil: none known).
     @MainActor
-    public init(_ tab: TabModel) {
-        if tab.commandSinceMs != nil || tab.commandInUse { self = .busy } else { self = tab.promptSinceMs != nil ? .idle : .unknown }
+    public init(_ tab: TabModel, typedSince: (TimeInterval) -> Bool = { _ in false }) {
+        if tab.commandSinceMs != nil || tab.commandInUse { self = .busy; return }
+        guard tab.shellIdleSinceMs != nil, let seen = tab.shellIdleSeenAt, !typedSince(seen) else { self = .unknown; return }
+        self = .idle
     }
 
     /// What `terminals` run from their pushed states alone: nil for an idle one, ``RunningPrograms/unnamed`` for a
     /// running command (its name comes from a read), or nil overall when one reports no state.
     @MainActor
-    public static func programs(_ terminals: [TabModel]) -> RunningPrograms? {
+    public static func programs(_ terminals: [TabModel], typedSince: (TimeInterval) -> Bool = { _ in false }) -> RunningPrograms? {
         var programs: RunningPrograms = [:]
         for tab in terminals {
-            switch PushedShellState(tab) {
+            switch PushedShellState(tab, typedSince: typedSince) {
             case .idle: programs[tab.surface] = .some(nil)
             case .busy: programs[tab.surface] = .some(RunningPrograms.unnamed)
             case .unknown: return nil

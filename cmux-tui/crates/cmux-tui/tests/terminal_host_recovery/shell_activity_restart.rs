@@ -133,6 +133,9 @@ fn reattach_keeps_shell_prompt_across_a_daemon_restart() {
     });
     assert!(after.get("activity").is_none(), "a prompt is no command: {after}");
     assert_kept_since(&after["prompt"]["since_ms"], killed_at, "the prompt");
+    // The new daemon did not see the input written since that prompt: the
+    // shell is not idle until its next prompt.
+    assert!(after.get("shell_idle").is_none(), "input since the prompt is unknown: {after}");
     close(&harness, terminal_id, incarnation);
 }
 

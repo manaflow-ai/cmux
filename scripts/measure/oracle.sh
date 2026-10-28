@@ -135,8 +135,12 @@ diff = sys.stdin.buffer.read()
 print(hashlib.sha256(diff).hexdigest() if diff else "none")')"
 step+=(--source-diff "$source_diff")
 build_start=$SECONDS
+# The checkout is reused: a submodule an earlier step initialized stays at that step's commit, so it is moved to
+# this commit's gitlink whenever it differs (fleet.py refuses a build whose submodules are off their gitlinks).
 for sub in ghostty ghostty-next; do
-  [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"
+  if [ ! -e "$sub/.git" ] || [ "$(git -C "$sub" rev-parse HEAD)" != "$(git rev-parse "HEAD:$sub")" ]; then
+    git submodule update --init --depth 1 "$sub"
+  fi
 done
 if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
   rm -rf GhosttyKit.xcframework

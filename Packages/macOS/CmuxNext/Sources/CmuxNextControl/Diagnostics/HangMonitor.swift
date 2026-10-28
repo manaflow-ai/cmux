@@ -188,7 +188,7 @@ struct HangMonitor {
         switch name {
         case "daemon.line": return .daemonReader
         case "terminal.feed": return .terminalOutput
-        case "lane.files", "lane.system", "lane.cpu": return .backgroundWork
+        case "lane.files", "lane.system", "lane.cpu", "lane.bulk-files": return .backgroundWork
         default: break
         }
         switch kind {

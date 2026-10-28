@@ -143,6 +143,26 @@ struct CmdWSpamTests {
         }
     }
 
+    /// The lead, 2026-10-28: a command typed a moment before the press (its key reached the window, the daemon has not
+    /// reported the command yet) must never close unasked: the pushed idle state is stale, so the close reads first.
+    @Test func aKeyTypedJustBeforeThePressMakesTheIdleStateUnknown() async throws {
+        try await Self.withZshApp(settings: nil) { services, connection in
+            let (pane, ids) = try await Self.terminalTabs(2, services, connection, atPrompt: true)
+            let tab = try #require(services.daemon.store.tab(id: ids[0]))
+            pane.select(TabID(ids[0]))
+            #expect(TabCloseGuard.pushedState(tab) == .idle)
+            // A typing key into the window, after the app applied the idle state.
+            let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                   windowNumber: pane.view.window?.windowNumber ?? 0, context: nil, characters: "s",
+                                                   charactersIgnoringModifiers: "s", isARepeat: false, keyCode: 1))
+            _ = services.keyRouter.typesIntoFocusedView(key, in: pane.view.window)
+            let typed = { (uptime: TimeInterval) in services.keyRouter.typed(in: pane.view.window, after: uptime) }
+            #expect(PushedShellState(tab, typedSince: typed) == .unknown, "a key typed after the idle state still read idle")
+            #expect(Self.press(services, repeat: false))
+            #expect(pane.orderedIDs.count == 2, "the close did not read the terminal first: it closed in the press's turn")
+        }
+    }
+
     /// hold-shortcuts-ux.md 3: key repeat never crosses a boundary. A held Cmd-W closes the pane's tabs at the
     /// repeat rate and stops before its last tab; a new physical press closes that one (and the pane).
     @Test func aHeldCmdWStopsBeforeThePanesLastTabAndANewPressClosesIt() async throws {
@@ -199,8 +219,8 @@ struct CmdWSpamTests {
         try await PinnedPageTests.until({ surfaces.allSatisfy { store.tab(surface: $0) != nil } && pane.orderedIDs.count == count },
                                         report: { "the pane holds \(pane.orderedIDs)" })
         if atPrompt {
-            try await PinnedPageTests.until({ surfaces.allSatisfy { store.tab(surface: $0)?.promptSinceMs != nil } },
-                                            within: .seconds(30), report: { "the daemon never reported a prompt (zsh integration)" })
+            try await PinnedPageTests.until({ surfaces.allSatisfy { store.tab(surface: $0)?.shellIdleSinceMs != nil } },
+                                            within: .seconds(30), report: { "the daemon never reported an idle shell (zsh integration, shell_idle)" })
         }
         let ids = surfaces.compactMap { store.tab(surface: $0)?.id }
         let window = try #require(services.windows.active?.workspaceContent)

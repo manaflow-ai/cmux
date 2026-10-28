@@ -59,6 +59,8 @@ final class KeyRouter: BrowserKeyRouting {
     let inputDispatch: InputDispatchContext
     /// The key whose binding runs now: a tab switch's or a pane focus move's input stage reads it.
     let keyInput = KeyInputScope()
+    /// The window number and time of the last typing key the router handed to a focused view (``typed(in:after:)``).
+    var lastTypingKey: (window: Int, at: TimeInterval)?
     /// Notes what happens to the key `debug.key` dispatches (nil otherwise).
     var trace: ((String) -> Void)?
     /// The leader's which-key overlay, shown while Cmd-J waits.

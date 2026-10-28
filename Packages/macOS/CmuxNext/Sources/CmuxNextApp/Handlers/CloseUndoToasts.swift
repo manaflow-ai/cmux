@@ -225,7 +225,7 @@ final class CloseUndoToasts {
         }
         TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window) { [weak services] asked in
             guard user, let undo = services?.closedTabs?.undoToasts else { return closeAll(nil, false) }
-            undo.decideFirst(tabs, on: daemon, asked: asked) { costly in closeAll(undo, costly) }
+            undo.decideFirst(tabs, on: daemon, asked: asked, window: first.view.window) { costly in closeAll(undo, costly) }
         }
     }
 
@@ -235,7 +235,8 @@ final class CloseUndoToasts {
     /// answers for the rest. Only a terminal that reports no state is read: its process-info request goes out
     /// before the close (a closed terminal is detached and reaped after the daemon's grace, cx-lb4al), `run` gets
     /// nil (deciding) and the toast waits for the read (``decided(_:costly:)``).
-    func decideFirst(_ tabs: [TabModel], on daemon: DaemonService, asked: RunningPrograms = [:],
+    /// `window`: where the closing tabs show (a key typed there after a terminal's idle state makes it unknown).
+    func decideFirst(_ tabs: [TabModel], on daemon: DaemonService, asked: RunningPrograms = [:], window: NSWindow? = nil,
                      then run: @escaping @MainActor (_ costly: Bool?) -> Void) {
         switch services.map({ CloseToastRule(services: $0).decide(tabs) }) ?? .skip {
         case .show: run(true)
@@ -243,7 +244,8 @@ final class CloseUndoToasts {
         case .askTerminals(let terminals) where asked.covers(terminals):
             run(terminals.contains { asked[$0.surface].flatMap { $0 } != nil })
         case .askTerminals(let terminals):
-            if let pushed = PushedShellState.programs(terminals.filter { !asked.covers([$0]) }) {
+            let typed = { [weak window] (uptime: TimeInterval) in self.services?.keyRouter.typed(in: window, after: uptime) ?? true }
+            if let pushed = PushedShellState.programs(terminals.filter { !asked.covers([$0]) }, typedSince: typed) {
                 return run(terminals.contains { (asked[$0.surface] ?? pushed[$0.surface]).flatMap { $0 } != nil })
             }
             // The close does not wait for the read: the tabs leave the strip in this turn. The read is queued in this turn
