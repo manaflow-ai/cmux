@@ -52,7 +52,7 @@ import {
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { WaitingMessagesCard } from "./conversation/WaitingMessagesCard";
-import { groupWaitingTurn } from "./conversation/waitingMessages";
+import { groupAgentMessages, groupWaitingTurn } from "./conversation/waitingMessages";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
@@ -5177,6 +5177,14 @@ function AcpmuxPane() {
     subagentTray,
     workflowLabsEnabled,
   ]);
+  // Consecutive received agent messages stay quiet until opened as one fold. The card keeps the
+  // original rows inside it, so each sender's shared presentation and actions remain unchanged.
+  const lastAgentMessageRows = useRef<readonly AcpmuxRow[] | undefined>(undefined);
+  const agentMessageRows = useMemo(() => {
+    const grouped = groupAgentMessages(turnRowsShown, lastAgentMessageRows.current);
+    lastAgentMessageRows.current = grouped;
+    return grouped;
+  }, [turnRowsShown]);
   // Another agent's messages waiting in the queue: their received cards after the running turn, in
   // the queue's order (conversation/queuedMessages.ts), never composer-queue rows; two or more, one
   // card that holds them (conversation/waitingMessages.ts). A chat with none keeps its rows as they
@@ -5189,8 +5197,8 @@ function AcpmuxPane() {
     return (lastQueuedTail.current = groupWaitingTurn(lastQueuedRows.current, lastQueuedTail.current));
   }, [childRows, snapshot.queue]);
   const transcriptRows = useMemo(
-    () => (queuedRows.length ? [...turnRowsShown, ...queuedRows] : turnRowsShown),
-    [turnRowsShown, queuedRows],
+    () => (queuedRows.length ? [...agentMessageRows, ...queuedRows] : agentMessageRows),
+    [agentMessageRows, queuedRows],
   );
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's

@@ -56,6 +56,53 @@ export function groupWaitingTurn(tail: readonly AcpmuxRow[], last?: readonly Acp
   return card === before ? last! : [card];
 }
 
+/// Consecutive received agent messages in the transcript get the same quiet fold as messages
+/// waiting in the queue. The records remain individual rows inside the fold, so sender identity,
+/// Reply and Find still belong to the message that acpmux recorded. A non-message row ends a run.
+export function groupAgentMessages(rows: readonly AcpmuxRow[], last?: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
+  const previous = new Map(
+    (last ?? [])
+      .filter((row) => row.kind === WAITING_MESSAGES && row.waiting?.delivery === "chat")
+      .map((row) => [row.id, row] as const),
+  );
+  const out: AcpmuxRow[] = [];
+  let run: AcpmuxRow[] = [];
+  const flush = () => {
+    if (run.length < 2) out.push(...run);
+    else {
+      const id = `messages-${run[0]!.id}`;
+      const before = previous.get(id);
+      const same =
+        before?.waiting?.rows.length === run.length && before.waiting.rows.every((row, index) => row === run[index]);
+      if (same) out.push(before);
+      else {
+        const lastRow = run[run.length - 1]!;
+        out.push({
+          id,
+          version: (before?.version ?? 0) + 1,
+          at: run[0]!.at,
+          kind: WAITING_MESSAGES,
+          text: run.map((row) => row.incoming?.kind === "message" ? row.incoming.message.text : "").join("\n\n"),
+          untyped: true,
+          joined: run.map((row) => row.id),
+          waiting: { delivery: "chat", rows: run },
+          ...(lastRow.lastTurn ? { lastTurn: true } : {}),
+        });
+      }
+    }
+    run = [];
+  };
+  for (const row of rows) {
+    if (row.kind === "user" && row.incoming?.kind === "message") run.push(row);
+    else {
+      flush();
+      out.push(row);
+    }
+  }
+  flush();
+  return out.length === rows.length && out.every((row, index) => row === rows[index]) ? rows : out;
+}
+
 /// Where the steers that wait were in the running turn's drawn rows last time, and the cards their
 /// runs drew as (`groupWaitingSteps`).
 export type WaitingSteps = {
