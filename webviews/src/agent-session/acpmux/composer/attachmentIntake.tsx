@@ -345,7 +345,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// again. A send keeps waiting through a failure (`holdsSend`): it goes with the chip once Retry
   /// makes it, or without it once its × drops it (and whatever `make` answers later).
   const [attachLater] = useState(
-    () => (name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string) => {
+    () => (name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string, _stop?: () => void) => {
       const batch = { scope: live.current.options.scope, hostMade: true };
       const chip: PendingAttachment = {
         id: crypto.randomUUID(),

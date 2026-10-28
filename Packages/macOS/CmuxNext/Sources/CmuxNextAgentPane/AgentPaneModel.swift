@@ -454,6 +454,7 @@ public final class AgentPaneModel {
             onDictation(command)
             return AgentPaneReply.success()
         case .dictationRecordingUpload(let path): return await AgentPaneDictationUpload.respond(path, in: self)
+        case .dictationRecordingCancel: return Self.unsupported("dictation.recording.cancel")
         case .openFile(let path, let target): return await openFile(path, target: target)
         case .quickDismiss, .quickSetOnTop, .quickSetCollapsed, .quickFloatingState, .quickContext, .quickOpenInWindow, .quickStartInBackground:
             return await quick?.respond(to: request, in: self) ?? Self.unsupported(String(describing: request))

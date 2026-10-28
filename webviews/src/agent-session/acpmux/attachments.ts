@@ -650,6 +650,13 @@ export async function remoteRecordingAttachment(
   }
 }
 
+/// Stops the host's upload of a long recording whose pending chip went (`dictation.recording.cancel`,
+/// the same path). Red stub: nothing is asked.
+export function stopRemoteRecording(
+  _audio: DictationRecording,
+  _call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+): void {}
+
 /// The notice for a recording that goes no further than its transcript: the host left it out
 /// (`DictationUpdate.audioOmitted`), `audioAttachment` refused it past `MAX_AUDIO_BYTES` (an old
 /// host's inline clip), its file stays on this Mac for a chat that runs elsewhere, or the host could
