@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 public enum DraftStateMigration {
     public static let directoryName = "drafts-v1"
@@ -55,7 +55,6 @@ public enum DraftStateMigration {
         for home in homes {
             guard let sessions = try? fileManager.contentsOfDirectory(
                 at: home.appending(path: "sessions"), includingPropertiesForKeys: [.isDirectoryKey]) else { continue }
-            }
             for session in sessions {
                 let metadata = session.appending(path: "session.json")
                 guard let data = try? Data(contentsOf: metadata),
@@ -66,8 +65,8 @@ public enum DraftStateMigration {
                 latest[id] = (date, object["composerDraft"] as? String)
             }
         }
-        for (id, (_, text)) in latest where drafts[id] == nil,
-            let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        for (id, (_, text)) in latest where drafts[id] == nil {
+            guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             drafts[id] = text
         }
         guard !drafts.isEmpty else { return }
