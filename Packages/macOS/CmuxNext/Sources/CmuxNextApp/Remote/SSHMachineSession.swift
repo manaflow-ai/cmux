@@ -13,13 +13,18 @@ import CmuxNextWakeups
 /// machine's daemon is its own tree and sidebar section.
 @Observable
 final class SSHMachineSession {
-    struct DaemonObservationKey: Equatable {
-        let startup: DaemonStartupState
-        let recoveryAttempt: Int
+    struct DaemonFailure: Equatable {
+        let attemptID: UInt64
+        let error: String
     }
 
-    static func daemonObservationKey(startup: DaemonStartupState, recoveryAttempt: Int) -> DaemonObservationKey {
-        DaemonObservationKey(startup: startup, recoveryAttempt: recoveryAttempt)
+    struct DaemonObservationKey: Equatable {
+        let startup: DaemonStartupState
+        let attemptID: UInt64
+    }
+
+    static func daemonObservationKey(startup: DaemonStartupState, attemptID: UInt64) -> DaemonObservationKey {
+        DaemonObservationKey(startup: startup, attemptID: attemptID)
     }
 
     /// Its route and name; Add Machine may rename it (`SSHHost.named`), never reroute it.
@@ -44,7 +49,7 @@ final class SSHMachineSession {
     /// link came up at least once, cleared when the daemon connects or the
     /// link stops (cx-zdh8). Before the link comes up, SSH's own status
     /// says what is wrong.
-    var daemonFailure: String?
+    var daemonFailure: DaemonFailure?
     /// The SSH link came up since the last connect (ssh reached the machine).
     @ObservationIgnored private var linkReached = false
     @ObservationIgnored private var startupError: DaemonError?
@@ -56,10 +61,9 @@ final class SSHMachineSession {
     @ObservationIgnored var offersInstall = false
     @ObservationIgnored var onStatusChange: ((SSHMachineSession, SSHConnectionMachine.Status) -> Void)?
     @ObservationIgnored var connectRecovery: SSHConnectRecovery?
-    /// Changes on every explicit retry, even when the transport reports the same failure.
-    var connectRecoveryAttempt = 0
-    /// Suppresses the old recovery state while a user retry is opening a new attempt.
-    var connectRecoveryRetrying = false
+    /// Changes at the start of every user or automatic connection attempt, even when the
+    /// transport and daemon report the same failure again.
+    private(set) var connectionAttemptID: UInt64 = 0
     @ObservationIgnored var connectPresentationTask: Task<Void, Never>?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
     @ObservationIgnored private var startupTask: Task<Void, Never>?
@@ -81,30 +85,31 @@ final class SSHMachineSession {
         // task-owner: follows the daemon's first-connect state for the session's life; cancelled in close()
         startupTask = Task { [weak self] in
             for await observation in ObservationStream({
-                Self.daemonObservationKey(startup: daemon.startup, recoveryAttempt: self?.connectRecoveryAttempt ?? 0)
+                Self.daemonObservationKey(startup: daemon.startup, attemptID: self?.connectionAttemptID ?? 0)
             }) {
+                guard let self, observation.attemptID == self.connectionAttemptID else { continue }
                 let startup = observation.startup
                 guard case .unavailable(let error) = startup else {
-                    self?.startupError = nil
-                    self?.daemonFailure = nil
+                    self.startupError = nil
+                    self.daemonFailure = nil
                     continue
                 }
-                self?.startupError = error
-                await self?.updateDaemonFailure(link: link)
+                self.startupError = error
+                await self.updateDaemonFailure(link: link, attemptID: observation.attemptID, error: error)
             }
         }
     }
 
     /// The daemon failure text, once both the daemon gave up and the link
     /// came up.
-    private func updateDaemonFailure(link: SSHMachineLink) async {
-        guard let error = startupError, linkReached else {
+    private func updateDaemonFailure(link: SSHMachineLink, attemptID: UInt64, error: DaemonError) async {
+        guard linkReached else {
             daemonFailure = nil
             return
         }
         let output = await link.output()
-        guard startupError == error, linkReached else { return }
-        daemonFailure = Self.failureText(error.description, output: output)
+        guard startupError == error, connectionAttemptID == attemptID, linkReached else { return }
+        daemonFailure = DaemonFailure(attemptID: attemptID, error: Self.failureText(error.description, output: output))
     }
 
     /// The daemon's error, then the link's output when it adds to it.
@@ -127,14 +132,16 @@ final class SSHMachineSession {
     private func linkStatusChanged(_ status: SSHConnectionMachine.Status) {
         guard linkStatus != status else { return }
         linkStatus = status
-        connectRecoveryRetrying = false
         switch status {
         case .connected:
             if !linkReached {
                 linkReached = true
                 let link = link
                 // task-owner: one actor hop to read the link's output
-                Task { [weak self] in await self?.updateDaemonFailure(link: link) }
+                Task { [weak self] in
+                    guard let self, let error = self.startupError else { return }
+                    await self.updateDaemonFailure(link: link, attemptID: self.connectionAttemptID, error: error)
+                }
             }
         case .connecting, .reconnecting, .failed: break
         case .offline, .authFailed, .hostKeyUntrusted, .unreachable, .needsInstall, .installing, .installFailed:
@@ -147,6 +154,7 @@ final class SSHMachineSession {
     /// Starts connecting (or reconnecting after a disconnect).
     func connect() {
         autoConnect = true
+        beginConnectionAttempt()
         linkStatus = .connecting
         let link = link
         // task-owner: opens the gate first, so the daemon loop's first endpoint call can dial
@@ -164,6 +172,16 @@ final class SSHMachineSession {
             // Already running (a reconnect): wake its wait.
             self.daemon.retryWake.fire()
         }
+    }
+
+    /// Stamps a new connection attempt before waking either the SSH link or the daemon.
+    /// Clearing both state machines in this turn prevents an observation from replaying the
+    /// previous attempt's failure while the new one is still opening.
+    func beginConnectionAttempt() {
+        connectionAttemptID &+= 1
+        startupError = nil
+        daemonFailure = nil
+        daemon.beginAttempt()
     }
 
     /// An event that may let a blocked attempt succeed: opens the gate,

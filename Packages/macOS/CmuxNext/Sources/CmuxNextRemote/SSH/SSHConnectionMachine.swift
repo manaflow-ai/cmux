@@ -100,7 +100,11 @@ public struct SSHConnectionMachine: Hashable, Sendable {
             status = .offline
             blocked = true
         case .attemptStarted:
-            if status != .offline { status = .connecting }
+            // An automatic transport attempt may reopen only failures whose gate is
+            // still eligible. Auth, host-key, install and in-use states stay blocked
+            // until their authorized wake arrives.
+            guard mayAttempt else { return }
+            status = .connecting
         case .probed(let need):
             guard need != .none else { return }
             status = .needsInstall(need)
