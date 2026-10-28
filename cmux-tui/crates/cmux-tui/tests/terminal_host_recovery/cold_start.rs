@@ -271,8 +271,17 @@ fn an_attach_after_ready_respawns_its_terminal_before_the_queued_ends() {
 fn terminals_with_no_host_record_end_after_the_answer_and_respawn_across_a_restart() {
     const COUNT: usize = 40;
     let (mut harness, records, _last, content) = cold_session("cold-start-no-records", COUNT);
-    for (path, _) in &records {
+    // A cleared folder takes every file of a host: its record, endpoint,
+    // liveness proof and lock. A record deleted alone leaves the endpoint,
+    // which the respawned host could not take.
+    for (path, record) in &records {
         let _ = fs::remove_file(path);
+        let _ = fs::remove_file(&record.endpoint);
+        for entry in fs::read_dir(harness.host_root()).unwrap().flatten() {
+            if entry.file_name().to_string_lossy().contains(record.terminal_id.as_str()) {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
     }
     // The ends wait long enough for a restart to find every row adopting.
     harness.extra_env.push(("CMUX_TUI_TEST_ADOPTION_DELAY_MS".to_string(), "30000".to_string()));
