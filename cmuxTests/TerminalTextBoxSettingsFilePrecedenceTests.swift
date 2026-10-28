@@ -34,7 +34,7 @@ struct TerminalTextBoxSettingsFilePrecedenceTests {
         }
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func reloadConfigAppliesUnchangedSettingsFileOverDivergedDefaults() async throws {
         try await withSettingsFile { defaults, settingsFileURL in
             let notificationCenter = NotificationCenter()
@@ -54,13 +54,20 @@ struct TerminalTextBoxSettingsFilePrecedenceTests {
                 expectDivergedValuesKept(defaults)
 
                 // A Settings-driven Ghostty reload keeps the Settings change.
-                GhosttyApp.shared.reloadConfiguration(source: "settings.terminal.ghosttyOption")
-                await drainMainQueue()
+                await awaitReloadCommit { commitCompletion in
+                    GhosttyApp.shared.reloadConfiguration(
+                        source: "settings.terminal.ghosttyOption",
+                        commitCompletion: commitCompletion
+                    )
+                }
                 expectDivergedValuesKept(defaults)
 
                 // `cmux reload-config` reloads the unchanged file.
-                TerminalController.shared.controlSidebarReloadConfig()
-                await drainMainQueue()
+                await awaitReloadCommit { commitCompletion in
+                    TerminalController.shared.controlSidebarReloadConfigWithAdmission(
+                        commitCompletion: commitCompletion
+                    )
+                }
 
                 expectFileValuesApplied(defaults)
             }
@@ -99,6 +106,17 @@ struct TerminalTextBoxSettingsFilePrecedenceTests {
     ) {
         #expect(defaults.object(forKey: showKey) as? Bool == false, sourceLocation: sourceLocation)
         #expect(defaults.object(forKey: focusKey) as? Bool == false, sourceLocation: sourceLocation)
+    }
+
+    /// Returns once the reload's settings step ran: the commit callback fires
+    /// after it whether or not the Ghostty configuration commits.
+    private func awaitReloadCommit(
+        _ enqueue: (@escaping GhosttyApp.ConfigurationReloadCommitCompletion) -> Bool
+    ) async {
+        await withCheckedContinuation { continuation in
+            let admitted = enqueue { _ in continuation.resume() }
+            #expect(admitted)
+        }
     }
 
     /// Runs after every block already queued on the main queue.
