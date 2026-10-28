@@ -101,7 +101,8 @@ enum BrowserToolbarHandlers {
         buttons.refresh()
         let icons = services.workspaceQueries
         if finished {
-            return BrowserDownloadsPopup.shared.showFinished(list, buttons: buttons, on: services.mainWork, icons: icons, showFolder: showFolder)
+            return BrowserDownloadsPopup.shared.showFinished(list, buttons: buttons, on: services.mainWork, deadlines: services.mainDeadlines,
+                                                              icons: icons, showFolder: showFolder)
         }
         BrowserDownloadsPopup.shared.toggle(list, buttons: buttons, on: services.mainWork, icons: icons, showFolder: showFolder)
         return true

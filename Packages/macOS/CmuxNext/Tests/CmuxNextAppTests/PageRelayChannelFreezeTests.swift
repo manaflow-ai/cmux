@@ -413,6 +413,12 @@ nonisolated final class FakePageRelaySocket: Sendable {
         for client in clients { _ = Self.send(["event": name], to: client) }
     }
 
+    /// Sends `line`, a whole subscribe-stream event as the daemon writes it, to every open connection.
+    func publish(line: [String: Any]) {
+        let clients = state.withLock { $0.clients }
+        for client in clients { _ = Self.send(line, to: client) }
+    }
+
     func stop() {
         shutdown(listener, SHUT_RDWR)
         close(listener)

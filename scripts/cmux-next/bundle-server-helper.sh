@@ -174,6 +174,16 @@ swift_flags=(
   -enable-upcoming-feature InternalImportsByDefault
   "$optimize"
 )
+# file:line for crash reports, through the dSYM kept beside the app (below).
+# With debug info the swift driver runs dsymutil at the link and stops with
+# `unableToFind(tool: "dsymutil")` when there is none (the Linux pool's
+# components build). A Mac always has /usr/bin/dsymutil; elsewhere the helper
+# builds without debug info, as acpmux and the Chief do there.
+if command -v dsymutil >/dev/null 2>&1; then
+  swift_flags+=(-gline-tables-only)
+else
+  echo "note: no dsymutil on PATH: the server helper builds without a dSYM" >&2
+fi
 # CmuxSafeConcurrency's own settings (its Package.swift).
 safe_flags=(
   -swift-version 6
@@ -212,6 +222,11 @@ for arch in $archs; do
   xcrun swiftc "${swift_flags[@]}" -target "$target" -module-name cmux_server_helper \
     -I "$out" -L "$out" -lCmuxNextServerHelper -lCmuxNextCompat -lCmuxSafeConcurrency \
     -o "$out/cmux-server-helper" "$sources/CmuxNextServerHelperDaemon/main.swift"
+  # The driver writes the dSYM when it links with debug info; if it did not,
+  # dsymutil reads what the static libraries hold.
+  [[ -d "$out/cmux-server-helper.dSYM" ]] ||
+    xcrun dsymutil "$out/cmux-server-helper" -o "$out/cmux-server-helper.dSYM" ||
+    echo "warning: no dSYM for the $arch server helper" >&2
   slices+=("$out/cmux-server-helper")
 done
 
@@ -223,6 +238,10 @@ else
   lipo -create -output "$helper" "${slices[@]}"
 fi
 chmod 0755 "$helper"
+# Beside the app, outside the bundle, where the nightly's Sentry upload reads.
+dsyms=()
+for slice in "${slices[@]}"; do dsyms+=("$slice.dSYM"); done
+"$(dirname "${BASH_SOURCE[0]}")/lipo-dsym.sh" "$TARGET_BUILD_DIR/cmux-server-helper.dSYM" "${dsyms[@]}"
 
 if [[ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" && -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]]; then
   codesign --force --options runtime --identifier cmux-server-helper --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$helper" >/dev/null

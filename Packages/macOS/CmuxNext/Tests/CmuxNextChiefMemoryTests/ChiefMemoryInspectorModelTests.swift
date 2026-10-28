@@ -93,6 +93,22 @@ private final class Person {
         #expect(names == ["0+8", "4+1", "0+8"])
     }
 
+    /// A tab whose view was discarded (`memoryDiscardInternalPages`, p07-memory-027) opens on the
+    /// node and the search it showed: its first reload reads the node and searches again, so the
+    /// field and the list agree. A query whose hits never showed is not searched.
+    @Test(arguments: [true, false])
+    func aRestoredModelReadsItsNodeAndSearchesAgainOnItsFirstReload(searched: Bool) async {
+        let source = FakeMemory()
+        let model = ChiefMemoryInspectorModel(source: source, confirmDelete: { _, _ in true })
+        model.restore(trail: ["0+8", "4+1"], query: "secret", searched: searched)
+        await model.reload()
+        #expect(model.detail?.message?.text == "hello there", "the last node of the trail shows")
+        #expect(model.hits.map(\.name) == (searched ? ["5+1"] : []))
+        await model.reload()
+        let searches = await source.calls.filter { $0.path == "/api/search" }.map { $0.query["q"] }
+        #expect(searches == (searched ? ["secret"] : []), "only the first reload after a restore searches")
+    }
+
     @Test func anEditSendsTheTargetAndTextThenReadsAgain() async {
         let source = FakeMemory()
         let model = ChiefMemoryInspectorModel(source: source, confirmDelete: { _, _ in true })

@@ -50,7 +50,7 @@ import Testing
                                                infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
             let defaults = try #require(UserDefaults(suiteName: id))
             updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
-                                     enableSparkle: false, recordsUpdates: false, work: BackgroundWork(label: "test.managed-bridge"))
+                                     enableSparkle: false, recordsUpdates: false, work: BackgroundWork(label: "test.managed-bridge"), deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
             updater.announcementsFetch = false
             let configuration = CloudConfiguration.resolve(bundleID: id, bundled: [:], process: [:], isDebugBuild: false)
             auth = CloudAuth(configuration: configuration, environment: [:], defaults: defaults)
@@ -76,7 +76,7 @@ import Testing
         #expect(rig.auth.managedTeamID == "team_acme", "start applied the managed team and nothing cleared it")
 
         await rig.settings.reload()
-        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.2))
+        runMainLoopPass(for: 0.2)
         #expect(rig.updater.managedMinimumVersion == "9.0.0", "the first load keeps the minimum")
         #expect(rig.updater.managedChannel == .stable)
         #expect(rig.auth.managedTeamID == "team_acme", "the first load keeps the managed team")

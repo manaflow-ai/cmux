@@ -52,7 +52,7 @@ import Testing
         hostPressureSpin(until: { !seen.landed.isEmpty }, rig: rig)
         #expect(seen.landed == [false])
         #expect(seen.classes == [.automation], "the CLI's move ended outside one automation task")
-        guard let task = tasks.first else { return Issue.record("the move reported no work to the capturing run") }
+        guard let task = tasks.first else { Issue.record("the move reported no work to the capturing run"); return }
         let failure = await task.value
         #expect(failure?.message == "the daemon refused the move")
         withExtendedLifetime(services) {}

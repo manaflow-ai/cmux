@@ -32,6 +32,7 @@ import { stopDevServer } from "./support/devServer";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
+import { perfSeries, recordPerfResults } from "../scripts/perf-result.mjs";
 
 await requireBrowserLane("diff-paint-perf.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -55,6 +56,9 @@ await requireBrowserLane("diff-paint-perf.test.ts", async () => {
   let server: ChildProcess | null = null;
   let base = "";
   let browser: Browser | undefined;
+  /// Each fixture's raw runs, written as result-v1 when PERF_RESULT_DIR is set (the lab's
+  /// webviews-chromium story), also when a budget below fails.
+  const perfRuns: ReturnType<typeof perfSeries>[] = [];
 
   beforeAll(async () => {
     const port = await new Promise<number>((resolve) => {
@@ -81,6 +85,7 @@ await requireBrowserLane("diff-paint-perf.test.ts", async () => {
   afterAll(async () => {
     await browser?.close();
     stopDevServer(server);
+    if (perfRuns.length > 0) recordPerfResults({ story: "webviews-chromium", engine: "chromium", series: perfRuns });
   });
 
   /// Runs in the page before its scripts: marks, after each painted frame (installPaintedFrames),
@@ -153,6 +158,23 @@ await requireBrowserLane("diff-paint-perf.test.ts", async () => {
       const runs: Run[] = [];
       for (let run = 0; run < RUNS; run += 1) runs.push(await open(fixture));
       console.log(`diff-paint-perf ${fixture}: ${JSON.stringify(runs)} budget ${JSON.stringify(budget)}`);
+      perfRuns.push(
+        perfSeries(
+          `web.diff_paint.${fixture}.first_row`,
+          "ms",
+          runs.map((run) => run.firstRow),
+        ),
+        perfSeries(
+          `web.diff_paint.${fixture}.first_highlight`,
+          "ms",
+          runs.map((run) => run.firstHighlight),
+        ),
+        perfSeries(
+          `web.diff_paint.${fixture}.complete`,
+          "ms",
+          runs.map((run) => run.complete),
+        ),
+      );
       // The best of the runs: the first one also pays the dev server's cold module cache.
       const best = (key: "firstRow" | "firstHighlight") => Math.min(...runs.map((run) => run[key]));
       expect(runs.every((run) => run.files === (fixture === "mixed" ? 2001 : 51))).toBe(true);

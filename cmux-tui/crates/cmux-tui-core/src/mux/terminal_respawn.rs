@@ -49,6 +49,10 @@ use crate::terminal_host_protocol::TerminalExit;
 #[cfg(any(unix, windows))]
 use crate::terminal_loss_log::Prefilled;
 
+#[cfg(any(unix, windows))]
+use cmux_threads::work::{Lane, Priority, Shutdown};
+#[cfg(any(unix, windows))]
+use supervisor::PendingRespawn;
 pub(crate) use supervisor::RespawnGuard;
 
 /// Disables respawn for a daemon (tests that exercise dead tabs).
@@ -82,9 +86,6 @@ pub(crate) struct TerminalRespawns {
     disabled: bool,
     delay: Option<Duration>,
     guard: Mutex<RespawnGuard>,
-    /// Wakes respawn workers that wait out a backoff delay when the owner
-    /// shuts down ([`TerminalRespawns::wake_all`]).
-    wake: (Mutex<()>, Condvar),
     /// Full argv of command terminals this daemon process launched. A later
     /// daemon reads the relaunch record's argv instead, which leaves out
     /// credential-like arguments. Entries go when their terminal is closed;
@@ -137,7 +138,6 @@ impl TerminalRespawns {
                 .and_then(|value| value.parse().ok())
                 .map(Duration::from_millis),
             guard: Mutex::new(RespawnGuard::from_env()),
-            wake: (Mutex::new(()), Condvar::new()),
             argv: Mutex::default(),
             seeds: Mutex::default(),
         }
@@ -248,21 +248,27 @@ impl Mux {
                 return;
             }
         };
-        let Some(mux) = self.exit_settles.owner() else {
-            self.abandon_terminal_respawn(terminal_id);
-            return;
-        };
-        let name = format!("terminal-respawn-{terminal_id}");
-        let spawned = std::thread::Builder::new().name(name).spawn(move || {
-            let delay = plan.delay.max(mux.terminal_respawns.delay.unwrap_or_default());
-            if mux.wait_respawn_backoff(delay) {
-                mux.run_terminal_respawn(plan);
-            } else {
-                mux.abandon_terminal_respawn(&plan.terminal_id);
-            }
-        });
-        if let Err(error) = spawned {
-            eprintln!("cmux-tui: no thread to respawn terminal {terminal_id}: {error}");
+        let delay = plan.delay.max(self.terminal_respawns.delay.unwrap_or_default());
+        let mut pending = PendingRespawn { plan: Some(plan), owner: self.work_owner() };
+        // A work item at the backoff's end (`supervisor.rs`), not a thread
+        // asleep for it. Dropped unrun at shutdown, `PendingRespawn`
+        // abandons the attempt.
+        let posted = self.post_mux_work_after(
+            delay,
+            Priority::UserVisible,
+            Lane::System,
+            Shutdown::ContinueOnShutdown,
+            move |owner| {
+                let Some(mux) = owner.upgrade() else { return };
+                if mux.respawn_stopping() {
+                    return;
+                }
+                let Some(plan) = pending.plan.take() else { return };
+                // The launch waits for the new host's handshake.
+                cmux_threads::work::will_block(|| mux.run_terminal_respawn(plan));
+            },
+        );
+        if posted.is_err() {
             self.abandon_terminal_respawn(terminal_id);
         }
     }
@@ -500,7 +506,7 @@ impl Mux {
             if plan.user_restart {
                 wait_for_old_hosts(&root, &plan.terminal_id);
             }
-            remove_dead_host_records(&root, &plan.terminal_id);
+            remove_dead_host_records(&root, &plan.terminal_id, self.host_panic_log().as_ref());
             // Another thread (startup reconciliation, an adoption thread)
             // may be between removing the old record and its endpoint: the
             // launch below would refuse the endpoint, or that removal would
@@ -642,12 +648,18 @@ impl Mux {
 /// host can publish its own. A live record is left alone (the launch then
 /// fails and the loss stands).
 #[cfg(any(unix, windows))]
-fn remove_dead_host_records(root: &Path, terminal_id: &str) {
+fn remove_dead_host_records(
+    root: &Path,
+    terminal_id: &str,
+    panic_log: Option<&crate::terminal_host_runtime::HostPanicLog>,
+) {
     let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(root) else {
         return;
     };
     for (path, record) in records.iter().filter(|(_, record)| record.terminal_id == terminal_id) {
-        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(path, record);
+        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
+            path, record, panic_log,
+        );
     }
 }
 

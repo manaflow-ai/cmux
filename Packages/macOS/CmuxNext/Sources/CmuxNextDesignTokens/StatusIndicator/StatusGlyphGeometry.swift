@@ -1,22 +1,24 @@
-package import CoreGraphics
+package import CmuxNextCompat
+package import Foundation
 
 /// Paths the indicator layer and the image export share, so an exported
 /// status image (`StatusIconSet.image`) has the live glyph's geometry. All
-/// in unflipped (bottom-left) space.
+/// in unflipped (bottom-left) space, as ``OutlinePath`` values the drawing side
+/// turns into `CGPath`s (`cgPath`).
 package nonisolated struct StatusGlyphGeometry {
     package nonisolated init() {}
     /// A ring that starts at 12 o'clock and runs clockwise, so `strokeEnd`
     /// reads as progress.
-    package static func ringPath(in rect: CGRect, thickness: CGFloat) -> CGPath {
+    package static func ringPath(in rect: CGRect, thickness: CGFloat) -> OutlinePath {
         let radius = max(0, min(rect.width, rect.height) / 2 - thickness / 2)
-        let path = CGMutablePath()
+        var path = OutlinePath()
         path.addArc(center: CGPoint(x: rect.midX, y: rect.midY), radius: radius,
                     startAngle: .pi / 2, endAngle: .pi / 2 - 2 * .pi, clockwise: true)
         return path
     }
 
-    package static func checkPath(in rect: CGRect) -> CGPath {
-        let path = CGMutablePath()
+    package static func checkPath(in rect: CGRect) -> OutlinePath {
+        var path = OutlinePath()
         path.move(to: CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.5))
         path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.38, y: rect.minY + rect.height * 0.12))
         path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
@@ -53,10 +55,15 @@ package nonisolated struct StatusGlyphGeometry {
     }
 
     /// The path of one working element in its own frame.
-    package static func repeatedElementPath(_ frame: CGRect, bars: Bool) -> CGPath {
+    package static func repeatedElementPath(_ frame: CGRect, bars: Bool) -> OutlinePath {
         let bounds = CGRect(origin: .zero, size: frame.size)
-        guard bars else { return CGPath(ellipseIn: bounds, transform: nil) }
-        let radius = bounds.width / 2
-        return CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        var path = OutlinePath()
+        if bars {
+            let radius = bounds.width / 2
+            path.addRoundedRect(in: bounds, cornerWidth: radius, cornerHeight: radius)
+        } else {
+            path.addEllipse(in: bounds)
+        }
+        return path
     }
 }
