@@ -80,6 +80,30 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(dev["Upload this host's cache record"]["with"]["name"],
                          place.HOLDER_PREFIX + "${{ steps.dev-holder.outputs.holder }}")
 
+    def test_a_dev_daily_compile_is_placed_on_the_nearest_cache_first(self):
+        job = self.jobs["dev-daily-place"]
+        for clause in ("github.event_name == 'workflow_dispatch'", "inputs.dev_daily == true",
+                       "github.repository == 'manaflow-ai/cmux'", "github.run_attempt == 1",
+                       "vars.CMUX_NEXT_DEV_COMPILE_AFFINITY", "!cancelled()"):
+            self.assertIn(clause, job["if"])
+        step = {s.get("id"): s for s in job["steps"]}["place"]
+        self.assertEqual(step["continue-on-error"], "true", "a failed placement keeps the compile's route")
+        self.assertIn("scripts/ci/dev_landing_place.py", step["run"])
+        self.assertIn("FRESH_LABEL", step["env"])
+        self.assertLessEqual(int(step["env"]["WAIT_SECONDS"]), 300, "a fallback within minutes")
+        self.assertIn("inputs.same_tree_sha || inputs.dev_daily_sha", step["env"]["SHA"])
+        compile_job = self.jobs["cmux-scheme-compile"]
+        self.assertIn("dev-daily-place", compile_job["needs"])
+        runs_on, label = compile_job["runs-on"], compile_job["env"]["CMUX_NEXT_RUNNER"]
+        pick = "needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)"
+        self.assertIn(pick, runs_on)
+        # The label copy is the same expression with the placement's first label for its list.
+        self.assertEqual(label, runs_on.replace(pick, "needs.dev-daily-place.outputs.runner_label != '' && "
+                                                      "needs.dev-daily-place.outputs.runner_label"))
+        self.assertLess(runs_on.index(pick), runs_on.index("needs.macos-placement.outputs.fresh_runner"))
+        self.assertLess(runs_on.index("github.event.pull_request.head.repo.full_name != github.repository"),
+                        runs_on.index(pick), "a fork never reads it")
+
     def test_a_push_has_one_producer_of_its_dev_app(self):
         # While the landing compile is on, cmux-scheme-compile builds a push's DEV app only when it is off.
         dev = {step.get("id"): step for step in self.jobs["cmux-scheme-compile"]["steps"]}
