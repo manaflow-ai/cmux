@@ -37,7 +37,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
-const { installMessageMenuReporter, messageMenuTarget, setMessageMenuSource } =
+const { installMessageMenuReporter, messageMenuTarget, openMessageMenu, setMessageMenuSource } =
   await import("../src/agent-session/acpmux/conversation/messageMenu");
 
 const prompt: AcpmuxRow = { id: "prompt", version: 1, at: 1, kind: "user", text: "Make the chart" };
@@ -88,6 +88,31 @@ test("an answer's turn footer has More, which reports the answer as its right-cl
   expect(report).toMatchObject({ text: "Here is the chart.", markdown: "Here is **the chart**." });
   const { popUp } = report;
   expect(popUp).toBeDefined();
+  expect(button!.hasAttribute("data-popup-open")).toBe(true);
+  expect(typeof report.popupId).toBe("string");
+  doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: report.popupId }));
+  expect(button!.hasAttribute("data-popup-open")).toBe(false);
+});
+
+test("a stale native dismissal cannot clear a newer More menu", async () => {
+  const button = more(footer.id, ".cv-turn-actions")!;
+  const first = (await press(button))!;
+  const second = (await press(button))!;
+  expect(second.popupId).not.toBe(first.popupId);
+  doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: first.popupId }));
+  expect(button.hasAttribute("data-popup-open")).toBe(true);
+  doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: second.popupId }));
+  expect(button.hasAttribute("data-popup-open")).toBe(false);
+});
+
+test("reporter teardown clears the open marker", async () => {
+  const remove = installMessageMenuReporter(doc, () => ({ postMessage: () => {} }));
+  const button = more(footer.id, ".cv-turn-actions")!;
+  expect(openMessageMenu(answer.id, button)).toBe(true);
+  expect(button.hasAttribute("data-popup-open")).toBe(true);
+  remove();
+  expect(button.hasAttribute("data-popup-open")).toBe(false);
+  expect(openMessageMenu(answer.id, button)).toBe(false);
 });
 
 test("a footer with no answer has no More", async () => {
