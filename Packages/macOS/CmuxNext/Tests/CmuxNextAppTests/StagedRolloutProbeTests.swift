@@ -69,11 +69,12 @@ import Testing
     }
 
     /// A held newest build that needs a newer macOS is not named either: the install is outside its stage.
-    @Test func aHeldBuildIsNotNamedAsNeedingANewerMacOS() {
+    @Test func aHeldBuildIsNotNamedAsNeedingANewerMacOS() throws {
         var prober = UpdateProber(fetcher: Feed(xml: ""), architecture: .arm64)
         prober.rollout = StagedRollout(seed: 1)
-        let item = AppcastItem(version: "500", minimumSystemVersion: SystemVersion("99.0"), rolloutPercent: "0")
-        #expect(prober.held(.requiresNewerSystem(item, required: SystemVersion("99.0")!)) == .upToDate(latest: nil))
+        let floor = try #require(SystemVersion("99.0"))
+        let item = AppcastItem(version: "500", minimumSystemVersion: floor, rolloutPercent: "0")
+        #expect(prober.held(.requiresNewerSystem(item, required: floor)) == .upToDate(latest: nil))
         #expect(prober.held(.updateAvailable(item)) == .upToDate(latest: nil))
         let open = AppcastItem(version: "500")
         #expect(prober.held(.updateAvailable(open)) == .updateAvailable(open))
