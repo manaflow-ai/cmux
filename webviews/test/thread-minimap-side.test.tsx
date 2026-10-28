@@ -49,9 +49,10 @@ Object.assign(scope, replacements);
 // jsdom has no layout: a 600 px viewport (the transcript's first height) over a long conversation,
 // and a scroll offset the test moves as the reader would.
 const VIEWPORT = 600;
+let paneWidth = 1040;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
 // Wide enough for the minimap's gutter (ThreadMinimap MIN_GUTTER).
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => paneWidth });
 const offsets = new WeakMap<object, number>();
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   configurable: true,
@@ -166,3 +167,59 @@ test.each(["compact", "full"])(
     }
   },
 );
+
+// The current base allows the left rail to overlap the text by at most 8px. A right rail's
+// fixed 16px inset needs 44px of gutter for that same limit, rather than the left rail's 28px.
+for (const arm of ["compact", "full"]) {
+  for (const width of [780, 800, 808])
+    test(`${arm}: a right rail at pane width ${width} never takes more than 8px of transcript input`, async () => {
+      paneWidth = width;
+      setChatDisplay({ "agentPane.display.minimap": arm, [RAIL_SIDE_KEY]: "right" });
+      const root = createRoot(document.getElementById("root")!);
+      try {
+        await act(async () =>
+          root.render(
+            <VirtualTranscript
+              rows={turnView(turns, new Set())}
+              sessionId="rail-side-room"
+              onToggleActivity={() => {}}
+              expanded={new Set()}
+            />,
+          ),
+        );
+        const rail = document.querySelector<HTMLElement>(".acpmux-minimap__rail");
+        if (width < 808) expect(rail === null).toBe(true);
+        else {
+          expect(rail).not.toBeNull();
+          expect(rail!.style.right).toBe("16px");
+        }
+      } finally {
+        await act(async () => root.unmount());
+        paneWidth = 1040;
+        setChatDisplay({});
+      }
+    });
+
+  test(`${arm}: the left rail remains available at pane width 780`, async () => {
+    paneWidth = 780;
+    setChatDisplay({ "agentPane.display.minimap": arm });
+    const root = createRoot(document.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(turns, new Set())}
+            sessionId="rail-left-room"
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
+      );
+      expect(document.querySelector(".acpmux-minimap__rail")).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      paneWidth = 1040;
+      setChatDisplay({});
+    }
+  });
+}

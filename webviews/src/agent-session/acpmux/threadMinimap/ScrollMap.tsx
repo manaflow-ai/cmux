@@ -13,7 +13,7 @@ import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, reducedMotion, stopScroll } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
-import { RAIL_RIGHT, useRailSide } from "./railSide";
+import { RAIL_RIGHT, railSideFits, useRailSide } from "./railSide";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import type { usePromptMarks } from "./promptMarks";
 import {
@@ -104,7 +104,12 @@ export function ScrollMap({
   const press = useRef<Press | undefined>(undefined);
   const placement = railPlacement(transcriptColumn(width).inset);
   const { side, inset, menu } = useRailSide(placement.left);
-  const shown = turns.length >= MAP_MIN_PROMPTS && scrolls && height > 4 * MAP_MARGIN && !placement.hidden;
+  const shown =
+    turns.length >= MAP_MIN_PROMPTS &&
+    scrolls &&
+    height > 4 * MAP_MARGIN &&
+    !placement.hidden &&
+    railSideFits(side, transcriptColumn(width).inset);
 
   /// The marks the view bar covers (first and last place in `marks`), for their "current" tone.
   /// The bar moves by style on each scroll frame; this renders only when the covered marks change.

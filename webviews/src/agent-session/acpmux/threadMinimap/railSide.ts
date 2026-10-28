@@ -8,10 +8,15 @@ import type React from "react";
 import { changeChatDisplay, RAIL_SIDE_KEY, useChatDisplay } from "../chatDisplay";
 import { useT } from "../i18n";
 import type { ContextMenuItem } from "../../../ui/ContextMenu";
+import { RAIL_MAX_OVERLAP, ROW_WIDTH } from "./model";
 /// The saved right-edge choice keeps its original inset; the left follows the text gutter.
 export const RAIL_RIGHT = 16;
 
 export type RailSide = "left" | "right";
+
+/// The left rail's placement already limits overlap; the fixed right inset needs more room.
+export const railSideFits = (side: RailSide, gutter: number): boolean =>
+  side !== "right" || gutter >= RAIL_RIGHT + ROW_WIDTH - RAIL_MAX_OVERLAP;
 
 /// The rail's edge, its inset from that edge, and the right-click menu's one item: a toggle to the
 /// other edge. Moving back to the left removes the key, so the default (left) holds again.

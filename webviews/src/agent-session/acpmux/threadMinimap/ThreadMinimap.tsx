@@ -16,7 +16,7 @@ import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
-import { RAIL_RIGHT, useRailSide } from "./railSide";
+import { RAIL_RIGHT, railSideFits, useRailSide } from "./railSide";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
@@ -232,7 +232,12 @@ export function ThreadMinimap({
   const { side, inset, menu } = useRailSide(placement.left);
   // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail. The
   // one full-width rail hides only below its usable horizontal gutter.
-  const shown = arm === "compact" && turns.length >= MIN_PROMPTS && height >= ROW_PITCH && !placement.hidden;
+  const shown =
+    arm === "compact" &&
+    turns.length >= MIN_PROMPTS &&
+    height >= ROW_PITCH &&
+    !placement.hidden &&
+    railSideFits(side, gutter(width));
   const overflow = turns.length * ROW_PITCH > height;
 
   /// What the handlers below read: the turns and layout as of the last commit.
