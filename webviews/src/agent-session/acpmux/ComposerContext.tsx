@@ -14,6 +14,14 @@ import {
 } from "./EnvironmentPicker";
 import { machineColor } from "./machineColor";
 import {
+  MachineLinkMark,
+  computerLink,
+  pickableDown,
+  reconnectsOnUse,
+  usePaneMachineLink,
+  type MachineLink,
+} from "./machineLink";
+import {
   isCloudMachineRow,
   refreshCloudMachines,
   runCloudMachine,
@@ -69,7 +77,14 @@ type Location = {
   section?: string;
   disabled?: boolean;
 };
-type Computer = Location & { kind: EnvironmentKind; connected?: boolean; state?: string; cloudMachine?: CloudMachine };
+/// `link`: the machine's link as the strip's mark draws it (machineLink.tsx), when one is known.
+type Computer = Location & {
+  kind: EnvironmentKind;
+  connected?: boolean;
+  state?: string;
+  link?: MachineLink;
+  cloudMachine?: CloudMachine;
+};
 const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
 const NO_PEER_STATES: Record<string, string> = {};
@@ -108,6 +123,7 @@ export function ComposerContext({
   cloudMachines,
   onCloudMachine = (machine) => void runCloudMachine(machine),
   runMode,
+  onReconnectMachine,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -167,21 +183,33 @@ export function ComposerContext({
   onCloudMachine?(machine: CloudMachine): void;
   /// A new chat's Run as in the environment picker (Persistent or Sandboxed, hq#3367).
   runMode?: RunModeRows;
+  /// Reconnects machine `id` (`local`: the machine this chat runs on) when the person picks it
+  /// while it is down; the pick then goes on as any pick (Leo, 2026-10-28).
+  onReconnectMachine?(id: string): void;
 }) {
   const newChat = !started && onProject !== undefined;
   const accountMachines = useCloudMachines();
   const shownMachines = cloudMachines ?? accountMachines;
+  // The App's word for the machine this chat runs on (a chat on another machine; none on this Mac).
+  const paneLink = usePaneMachineLink();
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
   // one's transport and state, in both the environment picker and the plain Computer menu; for a
   // new chat, then the account's Cloud machines acpmux does not list (a paused one, say).
   const computers = useMemo(() => {
-    const listed = availableComputers(summary, sessions, peers, peerKinds, localName, peerConnected, peerStates);
-    if (!newChat) return listed;
+    const listed: Computer[] = availableComputers(summary, sessions, peers, peerKinds, localName, peerConnected, peerStates);
     const detail = t(CONTEXT_LABELS.cloud);
-    return withCloudMachines(listed, shownMachines, peers, computerId(summary)).map((row) =>
-      isCloudMachineRow(row) ? { ...row, detail } : row,
-    );
-  }, [summary, sessions, peers, peerKinds, peerConnected, peerStates, localName, newChat, shownMachines]);
+    const rows: Computer[] = !newChat
+      ? listed
+      : withCloudMachines(listed, shownMachines, peers, computerId(summary)).map((row) =>
+          isCloudMachineRow(row) ? { ...row, detail } : row,
+        );
+    // Each machine's link, for the strip's mark and the list's: acpmux's for a peer, the App's for
+    // the machine this chat runs on.
+    return rows.map((row) => {
+      const link = isCloudMachineRow(row) ? undefined : computerLink(row, paneLink);
+      return link ? { ...row, link } : row;
+    });
+  }, [summary, sessions, peers, peerKinds, peerConnected, peerStates, localName, newChat, shownMachines, paneLink]);
   // The list opened, and every few seconds while it is open: acpmux's peers and, for a new chat,
   // the app's Cloud machines are read again.
   const onRefreshMachines =
@@ -200,10 +228,14 @@ export function ComposerContext({
       return {
         ...computer,
         section: t(SECTION_LABELS[sections.get(computer.id) ?? "fleet"]),
-        // An account Cloud machine acpmux does not list says what a pick does, and is a pick.
+        // An account Cloud machine acpmux does not list says what a pick does, and is a pick; so is
+        // a machine acpmux lists that is down or on its way (its pick reconnects it).
         ...(ready
           ? {}
-          : { ...(isCloudMachineRow(computer) ? {} : { disabled: true }), detail: environmentStateLabel(computer) }),
+          : {
+              ...(isCloudMachineRow(computer) || pickableDown(computer) ? {} : { disabled: true }),
+              detail: environmentStateLabel(computer),
+            }),
       };
     });
   }, [computers]);
@@ -241,6 +273,13 @@ export function ComposerContext({
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
   const readOnly = started || onProject === undefined;
+  // The chosen machine's link after its name: green, a spinner on its way, red when down.
+  const currentMark = currentComputer?.link ? (
+    <MachineLinkMark
+      link={currentComputer.link}
+      {...(currentComputer.id === "local" && paneLink?.words ? { words: paneLink.words } : {})}
+    />
+  ) : undefined;
   const sandboxPicked = runMode?.mode === "sandboxed" && !started && !readOnly;
   const newChats = started && onNewChat !== undefined;
   const branch = summary?.branch;
@@ -284,6 +323,8 @@ export function ComposerContext({
   };
   const pickComputer = (id: string) => {
     if (pickCloudMachine(id)) return;
+    // A down machine, picked: it reconnects on its own (the current one too), and the pick goes on.
+    if (!readOnly && reconnectsOnUse(computers.find((computer) => computer.id === id)?.link)) onReconnectMachine?.(id);
     if (!readOnly && id !== selectedComputer) {
       setSelectedComputer(id);
       const folder = availableFolders(summary, sessions, id)[0]?.id;
@@ -411,6 +452,7 @@ export function ComposerContext({
                       />
                     }
                     value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+                    mark={savedPick ? undefined : currentMark}
                     chevron
                   />
                 )
@@ -431,6 +473,7 @@ export function ComposerContext({
               kind="computer"
               icon={<ComputerIcon name={currentComputer?.kind === "local" ? undefined : currentComputer?.label} />}
               value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+              mark={currentMark}
               options={menuComputers}
               selected={selectedComputer}
               disabled={computerDisabled}
@@ -551,11 +594,14 @@ function normalizeCwd(cwd?: string): string | undefined {
 function LocationFace({
   icon,
   value,
+  mark,
   chevron,
   middle = false,
 }: {
   icon?: React.ReactNode;
   value: string;
+  /// After the name: a machine's link (machineLink.tsx).
+  mark?: React.ReactNode;
   chevron: boolean;
   middle?: boolean;
 }) {
@@ -571,6 +617,7 @@ function LocationFace({
       ) : (
         <span className="acpmux-location-label">{value}</span>
       )}
+      {mark}
       {chevron && (
         <span className="ui-ghost-icon" aria-hidden="true">
           <ChevronIcon />
@@ -644,6 +691,7 @@ function LocationPicker({
   selected,
   disabled,
   icon,
+  mark,
   middle = false,
   kind,
   allowPath = false,
@@ -661,6 +709,8 @@ function LocationPicker({
   selected?: string;
   disabled: boolean;
   icon?: React.ReactNode;
+  /// After the name: a machine's link (machineLink.tsx).
+  mark?: React.ReactNode;
   /// The name is cut in the middle (a folder's).
   middle?: boolean;
   /// "computer": the picker whose name gives way to its icon in a narrow strip.
@@ -705,7 +755,7 @@ function LocationPicker({
           aria-label={label + ": " + value}
           title={label + ": " + (allowPath && selected ? selected : value)}
         >
-          <LocationFace icon={icon} value={value} chevron={false} middle={middle} />
+          <LocationFace icon={icon} value={value} mark={mark} chevron={false} middle={middle} />
         </span>
       </span>
     );
@@ -714,7 +764,7 @@ function LocationPicker({
     setOpen(false);
     setQuery("");
   };
-  const button = <LocationFace icon={icon} value={value} chevron middle={middle} />;
+  const button = <LocationFace icon={icon} value={value} mark={mark} chevron middle={middle} />;
   // The folder field suggests folder paths; a typed path that names none is offered as typed.
   const typedPath = allowPath && /^(?:\/|~\/)/.test(query.trim()) ? query.trim() : undefined;
   const suggestions = shown.map((option) => option.id);

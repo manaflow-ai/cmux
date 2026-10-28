@@ -49,6 +49,19 @@ const baseProps = {
 
 /// 21 machines, as `acpmux host ls` lists them on a Mac with a fleet.
 const fleetProps = { ...baseProps, ...fleetPeers() };
+/// A new chat on build-box, an SSH machine whose link acpmux names `state`.
+function linkProps(state: string): ComponentProps<typeof ComposerContext> {
+  const { projectChoices: _projects, ...rest } = baseProps;
+  return {
+    ...rest,
+    environments: true,
+    peers: ["build-box", "Cloud machine"],
+    peerKinds: { "build-box": "ssh", "Cloud machine": "cloud" },
+    peerConnected: { "build-box": state === "connected", "Cloud machine": true },
+    peerStates: { "build-box": state, "Cloud machine": "connected" },
+    summary: { sessionId: "", harness: "claude", host: "build-box", peer: "build-box" },
+  };
+}
 /// The account's Cloud machines acpmux does not list (cloudMachines.ts): paused, ready and booting.
 const accountMachines = [
   { id: "vm-build", name: "build box", stage: "paused" },
@@ -529,7 +542,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "environment-picker-fleet": {
       height: 760,
-      note: "Preview: every machine acpmux lists (21, from `host ls`), in This Mac, My machines and Cloud and VMs sections; in each the machines a chat can start on come first, in number order, and the rest are greyed with their state (Offline, Reconnecting, Connecting) and are no pick.",
+      note: "Preview: every machine acpmux lists (21, from `host ls`), in This Mac, My machines and Cloud and VMs sections; in each the machines a chat can start on come first, in number order, each with its link mark (green once its handshake finished, a spinner on its way, red when down), then the rest with their state (Offline, Reconnecting, Connecting); picking a down one reconnects it.",
       props: { ...fleetProps, environments: true },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
@@ -538,12 +551,27 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "computer-menu-fleet": {
       height: 760,
-      note: "Previews off: the plain Computer menu lists the same 21 machines in the same sections, greyed the same way.",
+      note: "Previews off: the plain Computer menu lists the same 21 machines in the same sections, a down one saying its state; picking it reconnects it.",
       props: fleetProps,
       play: async (ctx) => {
         await openComputer(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length > 20);
       },
+    },
+    // The machine-state feed (Leo, 2026-10-28: "you just get a little green dot ... as if you were
+    // working on your own computer, but now it's remote"): a new chat on another machine, with no
+    // project, in each of the three link states the strip shows after the machine's name.
+    "machine-link-connected": {
+      note: "A new chat on build-box with no project: a green dot after its name, only once acpmux says its handshake finished.",
+      props: linkProps("connected"),
+    },
+    "machine-link-connecting": {
+      note: "The same chat while build-box reconnects (or its link is up but its handshake is not done): the turning ring, never a pulsing dot.",
+      props: linkProps("reconnecting"),
+    },
+    "machine-link-offline": {
+      note: "The same chat while build-box is down: a red dot. Picking it, or sending, reconnects it; the send goes out once it is back.",
+      props: linkProps("offline"),
     },
     "machine-colors": {
       note: "Another machine keeps one color from its name (machineColor) in the list, so two SSH machines and a Cloud machine tell apart at a glance; this Mac stays quiet.",

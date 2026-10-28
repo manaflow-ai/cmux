@@ -295,6 +295,8 @@ type Props = {
   offloads?: readonly OffloadKind[];
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
+  /// A down machine was picked: reconnect it (ComposerContext `onReconnectMachine`).
+  onReconnectMachine?(id: string): void;
   /// The folder menu's quiet line while a new chat has no folder (ComposerContext `folderNote`).
   folderNote?: string;
   /// A new chat's Run as rows in the environment picker (Persistent or Sandboxed, hq#3367).
@@ -373,6 +375,7 @@ export function Composer({
   onOffload,
   offloads,
   onRefreshMachines,
+  onReconnectMachine,
   folderNote,
   runMode,
   localName,
@@ -1618,6 +1621,7 @@ export function Composer({
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
       {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
+      {...(onReconnectMachine ? { onReconnectMachine } : {})}
       {...(folderNote ? { folderNote } : {})}
       {...(runMode ? { runMode } : {})}
       environments={environments}

@@ -49,6 +49,22 @@ struct AgentPaneStatusReplyShapeTests {
         #expect(peer["downSince"] == nil && peer["error"] == nil && peer["url"] == nil)
     }
 
+    /// A down machine the person picked reconnects through the relay (direct.ts reconnectPeer): only
+    /// `name` and `wait`, no gesture, and its reply is the same filtered peer list, never a URL.
+    @Test func aPeerReconnectPassesWithItsPeerListFiltered() throws {
+        #expect(AcpmuxPaneMethods.requests.contains("_acpmux/peer_reconnect"))
+        #expect(AcpmuxPaneMethods.knownParams["_acpmux/peer_reconnect"]?.params == ["name", "wait"])
+        #expect(AcpmuxPaneMethods.gestureRules["_acpmux/peer_reconnect"] == nil)
+        let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/peer_reconnect"])
+        let text = AcpmuxPaneMethods.filteredReply(["result": ["peers": [
+            ["name": "gpu-box", "url": "ssh://dev@gpu-box", "connected": true, "state": "connected", "token": "x"],
+        ]]], shape: shape, pageID: "9")
+        let reply = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        let peer = try #require(try Self.peers(reply).first)
+        #expect(peer["name"] as? String == "gpu-box" && peer["transport"] as? String == "ssh" && peer["state"] as? String == "connected")
+        #expect(peer["url"] == nil && peer["token"] == nil)
+    }
+
     @Test func aLastSeenThatIsNotANumberIsDropped() throws {
         let peers = try Self.peers(Self.reply(["peers": [
             ["name": "one", "lastSeen": true, "attempts": "3"],

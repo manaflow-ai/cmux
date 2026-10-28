@@ -26,14 +26,18 @@ nonisolated extension AcpmuxPaneMethods {
     /// peerConnectedFromStatus), and its link `state`, `lastSeen` (ms) and failed `attempts`, which
     /// tell a chat on a machine that is not connected (with when it was last seen) from a deleted
     /// one, and from one whose machine is still connecting (chatUnavailable.ts).
+    /// `_acpmux/peer_reconnect` answers the same peer list, cut the same way.
     public static let replyShapes: [String: ReplyShape] = [
-        "_acpmux/status": .object([
-            "peers": .list(.object([
-                "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
-                "state": .string, "lastSeen": .number, "attempts": .number,
-            ])),
-        ]),
+        "_acpmux/status": peerList,
+        "_acpmux/peer_reconnect": peerList,
     ]
+
+    static let peerList: ReplyShape = .object([
+        "peers": .list(.object([
+            "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
+            "state": .string, "lastSeen": .number, "attempts": .number,
+        ])),
+    ])
 
     /// `value` cut to `shape`: nil when it does not fit (a list keeps only the items that fit).
     static func filtered(_ value: Any, to shape: ReplyShape) -> Any? {

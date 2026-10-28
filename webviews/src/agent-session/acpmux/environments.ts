@@ -1,3 +1,4 @@
+import type { MachineLink } from "./machineLink";
 /// Where a chat runs, as the environment picker (EnvironmentPicker.tsx) lists it: this computer, an
 /// SSH machine (an `ssh://` acpmux peer) or a Cloud machine (any other peer, or a Cloud chat's host).
 /// The machines are the composer's computers (ComposerContext availableComputers): acpmux's peers
@@ -6,7 +7,15 @@ export type EnvironmentKind = "local" | "ssh" | "cloud";
 /// `connected`: what acpmux last said of an SSH or Cloud machine it lists; absent when it said nothing.
 /// `state`: its link state as acpmux says it (`connecting`, `connected`, `degraded`, `reconnecting`,
 /// `offline`; acpmux peer_link.rs `PeerState`), absent from an older daemon or relay.
-export type Environment = { id: string; label: string; kind: EnvironmentKind; connected?: boolean; state?: string };
+/// `link`: what the strip's mark draws for it (machineLink.tsx), set by the composer.
+export type Environment = {
+  id: string;
+  label: string;
+  kind: EnvironmentKind;
+  connected?: boolean;
+  state?: string;
+  link?: MachineLink;
+};
 
 /// The location row's connect choices and the app action each runs (the agent pane allows exactly
 /// these; AgentPaneModel.connectActions): SSH… connects a machine, New Cloud Machine creates one on

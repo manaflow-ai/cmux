@@ -1372,27 +1372,31 @@
 .acpmux-env-popover .acpmux-env-icon { flex: none; color: var(--agent-muted); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="ssh"] { color: var(--agent-ansi-2, currentColor); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="cloud"] { color: var(--agent-ansi-4, currentColor); }
-/* A remote machine's status, as acpmux last said: a filled dot when connected, a ring when not. */
-.acpmux-env-row .acpmux-env-status {
+/* A machine's link (machineLink.tsx), in the strip after its name and in the machine list: green
+   once its handshake finished, the turning ring while it connects or reconnects (never a pulsing
+   dot), red when down, grey when paused. The sidebar's machine header draws the same word. */
+.acpmux-link-mark {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 10px;
+  margin-left: 6px;
+  color: var(--agent-muted);
+}
+.acpmux-link-mark:not([data-link="connecting"])::before {
+  content: "";
   width: 6px;
   height: 6px;
-  margin-left: 6px;
-  position: relative;
   border-radius: 50%;
-  box-sizing: border-box;
+  background: currentColor;
 }
-/* The status in words, for screen readers only (the pane does not load ui.css's .ui-sr-only). */
-.acpmux-env-status-text {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-.acpmux-env-row .acpmux-env-status[data-connected="true"] { background: var(--agent-success, var(--acpmux-add, currentColor)); }
-.acpmux-env-row .acpmux-env-status[data-connected="false"] { border: 1px solid var(--agent-muted); }
+.acpmux-link-mark[data-link="connected"] { color: var(--agent-status-success, var(--acpmux-add, currentColor)); }
+.acpmux-link-mark[data-link="offline"] { color: var(--agent-danger, var(--acpmux-del, currentColor)); }
+.acpmux-link-mark[data-link="attention"] { color: var(--agent-warning, var(--agent-muted)); }
+/* In the strip the mark sits between the name and the chevron, at the name's own gap. */
+.acpmux-location-button .acpmux-link-mark { margin-left: 4px; margin-right: 2px; }
 /* A machine a chat cannot start on yet (still connecting, reconnecting, offline): greyed, its state
    in words where the shortcut would be. */
 .acpmux-env-row[data-ready="false"],

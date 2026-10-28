@@ -20,6 +20,7 @@ import {
 import { type CloudMachine, isCloudMachineRow } from "./cloudMachines";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
+import { MachineLinkMark, pickableDown, reconnectsOnUse } from "./machineLink";
 import type { RunModeRows } from "./sandboxRun";
 
 /// The sections (environments.ts `environmentSections`): This Mac, My machines, Cloud and VMs.
@@ -377,10 +378,10 @@ export function EnvironmentPicker({
   const autoHighlighted = useRef<string | undefined>(undefined);
   const submit = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
-    // A machine still connecting or down is listed, greyed, in its place, but is no pick: the list
-    // stays open.
+    // A machine acpmux lists that is down or on its way is a pick, which reconnects it (Leo,
+    // 2026-10-28); one acpmux no longer lists is no pick: the list stays open.
     const machine = positions.get(value)?.environment;
-    if (machine && !environmentReady(machine) && !isCloudMachineRow(machine)) return;
+    if (machine && !environmentReady(machine) && !isCloudMachineRow(machine) && !pickableDown(machine)) return;
     close();
     if (value === ACTION + "cloud" && sandboxFace) {
       if (sandboxed) focusPrompt();
@@ -390,7 +391,11 @@ export function EnvironmentPicker({
     // A machine, or New Cloud Machine (⌥ shows it while Sandboxed is the pick): Persistent again.
     if (!action || value === ACTION + "cloud") persistent();
     if (action) action.run();
-    else if (value === currentRow) focusPrompt();
+    else if (value === currentRow) {
+      // The chat's own machine, down: picking it again reconnects it.
+      if (machine && reconnectsOnUse(machine.link)) onPick(value);
+      focusPrompt();
+    }
     else if (value.startsWith(SAVED)) saved?.onPick(value.slice(SAVED.length));
     else if (machine) onPick(value);
   };
@@ -476,8 +481,9 @@ export function EnvironmentPicker({
     const { environment, index, sectionStart } = position;
     const number = numbers.get(environment.id);
     const ready = environmentReady(environment);
-    // An account Cloud machine acpmux does not list is a pick (it resumes or opens), not greyed.
-    const greyed = !ready && !isCloudMachineRow(environment);
+    // An account Cloud machine acpmux does not list is a pick (it resumes or opens), not greyed; so
+    // is a machine acpmux lists that is down or on its way (its pick reconnects it).
+    const greyed = !ready && !isCloudMachineRow(environment) && !pickableDown(environment);
     return (
       <span
         className="acpmux-location-row acpmux-env-row"
@@ -492,16 +498,11 @@ export function EnvironmentPicker({
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{environment.label}</span>
         </span>
-        {/* A machine a chat cannot start on yet says why, greyed; one that can shows a status dot.
-            Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
+        {/* A machine a chat cannot start on yet says why; each machine with a known link shows it
+            as the strip does (machineLink.tsx): green, a spinner on its way, red when down. This
+            Mac never shows one. */}
         {!ready && <span className="acpmux-env-state">{environmentStateLabel(environment)}</span>}
-        {ready && environment.kind !== "local" && environment.connected !== undefined && (
-          <span className="acpmux-env-status" data-connected={String(environment.connected)}>
-            <span className="acpmux-env-status-text">
-              {t(environment.connected ? "composer.envConnected" : "composer.envNotConnected")}
-            </span>
-          </span>
-        )}
+        {environment.link && <MachineLinkMark link={environment.link} />}
         {number !== undefined && <kbd className="acpmux-env-key">⌥⌘{number}</kbd>}
         <span className="acpmux-location-check" aria-hidden="true">
           {environment.id === checkedRow && <CheckIcon />}
