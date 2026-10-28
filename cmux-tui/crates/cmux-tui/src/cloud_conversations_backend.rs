@@ -98,7 +98,7 @@ fn file_body(
     progress: Arc<UploadProgress>,
 ) -> reqwest::Body {
     use tokio::io::AsyncReadExt;
-    let file = tokio::fs::File::from_std(file);
+    let file = tokio::fs::File::from_std(file).take(len);
     let chunks = futures_util::stream::try_unfold((file, 0u64), move |(mut file, read_so_far)| {
         let progress = progress.clone();
         async move {
@@ -454,6 +454,57 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
     use super::*;
+
+    /// The declared part length is a hard boundary even when it is not a
+    /// 64 KiB multiple. A server must never receive the next part's bytes.
+    #[test]
+    fn streamed_put_stops_at_a_non_aligned_declared_length() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let (seen, received) = mpsc::channel();
+        let declared = UPLOAD_CHUNK_BYTES as u64 + 17;
+        std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(socket.try_clone().unwrap());
+            let mut length = None;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = Some(value.trim().parse::<usize>().unwrap());
+                }
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            let length = length.unwrap();
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).unwrap();
+            reader.get_mut().set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+            let mut extra = [0; 1];
+            let extra_byte = reader.read(&mut extra).unwrap_or(0) != 0;
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 11\r\nconnection: close\r\n\r\n{\"ok\":true}")
+                .unwrap();
+            seen.send((body, extra_byte)).unwrap();
+        });
+        let path =
+            std::env::temp_dir().join(format!("cmux-stream-boundary-{}", std::process::id()));
+        let mut source = std::fs::File::create(&path).unwrap();
+        source.write_all(&vec![b'a'; declared as usize]).unwrap();
+        source.write_all(b"NEXT-PART").unwrap();
+        drop(source);
+        let file = std::fs::File::open(&path).unwrap();
+        let backend = RemoteCloudBackend::new().unwrap();
+        backend
+            .put(&format!("{origin}/upload"), &[], PutBody::File { file, len: declared })
+            .unwrap();
+        let (body, extra) = received.recv().unwrap();
+        let _ = std::fs::remove_file(path);
+        assert_eq!(body.len(), declared as usize);
+        assert!(body.iter().all(|byte| *byte == b'a'));
+        assert!(!extra, "streamed body crossed the declared part boundary");
+    }
 
     /// Review of #26498: a slow uplink or a slow final answer is not a stall.
     /// One read of the body is small enough that hyper asks for the next one
