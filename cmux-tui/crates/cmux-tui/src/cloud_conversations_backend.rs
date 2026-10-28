@@ -97,9 +97,19 @@ fn file_body(
     started: Instant,
     progress: Arc<UploadProgress>,
 ) -> reqwest::Body {
+    reqwest::Body::wrap_stream(file_chunks(file, len, started, progress))
+}
+
+/// [`file_body`]'s chunks: the file read from where it stands, a chunk at a time.
+fn file_chunks(
+    file: std::fs::File,
+    len: u64,
+    started: Instant,
+    progress: Arc<UploadProgress>,
+) -> impl futures_util::Stream<Item = std::io::Result<Vec<u8>>> + Send + 'static {
     use tokio::io::AsyncReadExt;
     let file = tokio::fs::File::from_std(file);
-    let chunks = futures_util::stream::try_unfold((file, 0u64), move |(mut file, read_so_far)| {
+    futures_util::stream::try_unfold((file, 0u64), move |(mut file, read_so_far)| {
         let progress = progress.clone();
         async move {
             let mut chunk = vec![0; UPLOAD_CHUNK_BYTES];
@@ -115,8 +125,7 @@ fn file_body(
             chunk.truncate(read);
             Ok(Some((chunk, (file, read_so_far))))
         }
-    });
-    reqwest::Body::wrap_stream(chunks)
+    })
 }
 
 fn elapsed_ms(started: Instant) -> u64 {
@@ -470,6 +479,24 @@ mod tests {
         // A body that stopped moving, or a reply that never comes, still ends.
         assert!(stall_left(UPLOAD_STALL, false).is_zero());
         assert!(stall_left(UPLOAD_REPLY, true).is_zero());
+    }
+
+    /// Review of #26498 at 2eba8e2f: a staged file's body was read to its end,
+    /// not its declared length, so a file positioned past its start (or longer
+    /// than `len`) sent bytes the Content-Length did not count.
+    #[tokio::test]
+    async fn a_file_body_sends_exactly_len_bytes_from_where_the_file_stands() {
+        use std::io::{Seek, SeekFrom, Write as _};
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(b"0123456789abcdefghij").unwrap();
+        file.seek(SeekFrom::Start(7)).unwrap();
+        let progress = Arc::new(UploadProgress::default());
+        let chunks: Vec<Vec<u8>> = file_chunks(file, 4, Instant::now(), progress.clone())
+            .map(|chunk| chunk.unwrap())
+            .collect()
+            .await;
+        assert_eq!(chunks.concat(), b"789a");
+        assert!(progress.sent.load(Ordering::Relaxed), "its last byte marks it sent");
     }
 
     /// Review of #26498 at 6a89561a: the reply body of a streamed upload was
