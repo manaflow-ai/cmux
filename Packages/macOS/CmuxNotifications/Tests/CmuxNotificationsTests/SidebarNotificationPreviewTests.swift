@@ -33,4 +33,19 @@ struct SidebarNotificationPreviewTests {
         )
         #expect(manualUnread.previewText(.unread) == "Done")
     }
+
+    @Test(arguments: [1, 2])
+    func blankUnreadNotificationDoesNotPreviewANewerReadMessage(unreadCount: Int) {
+        let unread = SidebarWorkspaceUnreadSummary(
+            unreadCount: unreadCount,
+            latestNotificationText: "Already read",
+            latestUnreadNotificationText: nil,
+            hasUnreadNotification: true,
+            hasLatestNotification: true
+        )
+        #expect(unread.previewText(.unread) == nil)
+        #expect(unread.previewText(.latest) == "Already read")
+        #expect(unread.previewText(.hidden) == nil)
+    }
+
 }

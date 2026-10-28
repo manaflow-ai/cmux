@@ -8,6 +8,8 @@ public struct SidebarWorkspaceUnreadSummary: Equatable, Sendable {
     public var latestNotificationText: String?
     /// The trimmed body or title of the latest unread notification, when present.
     public var latestUnreadNotificationText: String?
+    /// Whether an unread notification exists, even when its preview text is empty.
+    public var hasUnreadNotification: Bool
     /// The stable identity of the latest notification, when present.
     public var latestNotificationId: UUID?
     /// The creation time of the latest notification, when present.
@@ -20,6 +22,7 @@ public struct SidebarWorkspaceUnreadSummary: Equatable, Sendable {
         unreadCount: Int,
         latestNotificationText: String?,
         latestUnreadNotificationText: String? = nil,
+        hasUnreadNotification: Bool = false,
         latestNotificationId: UUID? = nil,
         latestNotificationCreatedAt: Date? = nil,
         hasLatestNotification: Bool = false
@@ -27,6 +30,7 @@ public struct SidebarWorkspaceUnreadSummary: Equatable, Sendable {
         self.unreadCount = unreadCount
         self.latestNotificationText = latestNotificationText
         self.latestUnreadNotificationText = latestUnreadNotificationText
+        self.hasUnreadNotification = hasUnreadNotification
         self.latestNotificationId = latestNotificationId
         self.latestNotificationCreatedAt = latestNotificationCreatedAt
         self.hasLatestNotification = hasLatestNotification
