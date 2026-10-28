@@ -4,6 +4,15 @@
 use crate::no_panic::JsonExt;
 use serde_json::Value;
 
+/// A peer daemon's connection never lists this host's peers: `_acpmux/peers`, `_acpmux/status`
+/// and the `peer_*` replies answer it with an empty `peers` (as `_acpmux/peer_status` answers it
+/// with this machine's row only). Nothing on a peer reads them.
+pub(super) fn hide_peers_from_peer(reply: &mut Value) {
+    if let Some(peers) = reply.get_mut("peers").filter(|p| p.is_array()) {
+        *peers = Value::Array(Vec::new());
+    }
+}
+
 /// A remote-origin (Web) connection never learns a token: not the
 /// dashboard link (`webUrl` carries this listener's token) and not the
 /// userinfo, query or fragment of a peer's URL (a user may have written a

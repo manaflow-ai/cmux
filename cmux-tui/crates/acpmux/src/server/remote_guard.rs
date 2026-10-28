@@ -583,6 +583,9 @@ pub(super) fn after(
         && let Ok(v) = reply
     {
         super::redact::redact_for_remote(m, v);
+        if origin == super::Origin::Peer {
+            super::redact::hide_peers_from_peer(v);
+        }
     }
 }
 
