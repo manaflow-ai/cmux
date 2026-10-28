@@ -65,6 +65,33 @@ struct HeldKeyReplayTests {
         #expect(replay.stage(.creation).maxNanos == 100_000_000)
     }
 
+    /// A key replayed, held again by the dispatch the replay ran (the launch picture: undecided, then for a terminal
+    /// still a picture) and sent again later is ONE key with ONE hold: from its first hold to its last send.
+    @Test func aKeyHeldAgainByItsOwnReplayCountsOnceWithItsWholeHold() {
+        let ledger = KeyArrivalLedger()
+        let clock = Clock()
+        let replay = HeldKeyReplay(ledger: ledger) { clock.nanos }
+        let event = Self.key(2, at: 30)
+        _ = ledger.arrived(event, at: 30_001_000_000)
+        ledger.held(event, by: .launchPicture, at: 30_001_000_000)
+        clock.nanos = 30_021_000_000
+        replay.replay(event, heldBy: .launchPicture, keyWindow: nil) { _ in }
+        clock.nanos = 30_201_000_000
+        replay.replay(event, heldBy: .launchPicture, keyWindow: nil) { _ in }
+        let stage = replay.stage(.launchPicture)
+        #expect(stage.count == 1, "one key counted \(stage.count) times")
+        #expect(stage.maxNanos == 200_000_000)
+        #expect(stage.totalNanos == 200_000_000)
+        #expect(stage.overLimit == 1)
+        #expect(stage.buckets.reduce(0, +) == 1)
+        #expect(stage.buckets[5] == 1)  // 200 ms: the 100-250 ms bucket
+    }
+
+    /// The stage table is indexed by the path's raw value.
+    @Test func holdPathRawValuesAreTheirIndexes() {
+        #expect(KeyArrivalLedger.HoldPath.allCases.map { Int($0.rawValue) } == Array(0 ..< KeyArrivalLedger.HoldPath.allCases.count))
+    }
+
     @Test func theSenderGivesTheKeyToTheViewNamed() {
         let replay = HeldKeyReplay(ledger: nil) { 0 }
         let view = KeyView()
