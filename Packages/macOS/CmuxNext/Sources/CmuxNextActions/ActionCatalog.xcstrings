@@ -16257,7 +16257,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create Cloud Directory…"
+            "value": "クラウドディレクトリを作成…"
           }
         },
         "ar": {
@@ -16388,7 +16388,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Read Cloud File…"
+            "value": "クラウドファイルを読む…"
           }
         },
         "ar": {
@@ -16519,7 +16519,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Remove Cloud File…"
+            "value": "クラウドファイルを削除…"
           }
         },
         "ar": {
@@ -16650,7 +16650,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud File Details…"
+            "value": "クラウドファイルの詳細…"
           }
         },
         "ar": {
@@ -16781,7 +16781,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Write Cloud File…"
+            "value": "クラウドファイルに書き込む…"
           }
         },
         "ar": {
@@ -16912,7 +16912,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List Cloud Files…"
+            "value": "クラウドファイルを一覧表示…"
           }
         },
         "ar": {
@@ -17436,7 +17436,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prepare Cloud File Transfer…"
+            "value": "クラウドファイル転送を準備…"
           }
         },
         "ar": {
@@ -76297,7 +76297,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Increase Interface Scale"
+            "value": "インターフェイスの拡大率を上げる"
           }
         },
         "km": {
@@ -76428,7 +76428,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Decrease Interface Scale"
+            "value": "インターフェイスの拡大率を下げる"
           }
         },
         "km": {
@@ -76559,7 +76559,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Reset Interface Scale"
+            "value": "インターフェイスの拡大率をリセット"
           }
         },
         "km": {

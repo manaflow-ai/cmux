@@ -46568,7 +46568,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "value": "新規ターミナルでワークスペースを開く"
           }
         },
         "km": {
@@ -46699,7 +46699,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "タブの代わりに、現在のスペースに新しいワークスペースを作成します。Option キーを押しながらクリックすると、その 1 回だけ逆になります。"
           }
         },
         "km": {
@@ -68052,7 +68052,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Interface Scale"
+            "value": "インターフェイスの拡大率"
           }
         },
         "km": {
@@ -82670,7 +82670,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Check Spelling While Typing"
+            "value": "入力中にスペルをチェック"
           }
         },
         "km": {
@@ -82801,7 +82801,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Underlines misspellings and offers system suggestions in the composer."
+            "value": "入力欄でスペルの誤りに下線を引き、システムの候補を表示します。"
           }
         },
         "km": {

@@ -25222,7 +25222,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+            "value": "cmux からの承認は、あなただけが所有する Cloud マシンでのみ使えます"
           }
         },
         "km": {
@@ -25353,7 +25353,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "the machine is not running"
+            "value": "マシンが実行されていません"
           }
         },
         "km": {
@@ -25484,7 +25484,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+            "value": "そのマシンのエージェントデーモンは古く、cmux からの承認に対応していません。マシンを更新してから、もう一度お試しください"
           }
         },
         "km": {

@@ -4205,7 +4205,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an absolute Cloud file path without '..'."
+            "value": "'..' を含まない Cloud ファイルの絶対パスを指定してください。"
           }
         },
         "ar": {
@@ -4336,7 +4336,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "書き込むファイルの内容を指定してください。"
           }
         },
         "ar": {
@@ -4467,7 +4467,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "転送用の Ed25519 SSH 公開鍵を指定してください。"
           }
         },
         "ar": {
@@ -4598,7 +4598,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud Files"
+            "value": "Cloud ファイル"
           }
         },
         "ar": {
@@ -4771,7 +4771,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud Networks"
+            "value": "Cloud ネットワーク"
           }
         },
         "km": {
@@ -4902,7 +4902,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud Firewall Rules"
+            "value": "Cloud ファイアウォールルール"
           }
         },
         "km": {
@@ -4991,7 +4991,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud File Contents"
+            "value": "Cloud ファイルの内容"
           }
         },
         "ar": {
@@ -5122,7 +5122,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud File Details"
+            "value": "Cloud ファイルの詳細"
           }
         },
         "ar": {
@@ -5253,7 +5253,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud File Transfer"
+            "value": "Cloud ファイル転送"
           }
         },
         "ar": {
