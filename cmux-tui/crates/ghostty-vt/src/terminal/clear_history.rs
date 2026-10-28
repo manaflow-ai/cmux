@@ -137,11 +137,13 @@ impl Terminal {
 
 /// Finds a `CSI <n>;<n> r` (DECSTBM) or `CSI <n>;<n> s` (DECSLRM) sequence.
 fn contains_margin_sequence(bytes: &[u8]) -> bool {
-    bytes.windows(2).enumerate().any(|(at, pair)| {
-        pair == b"\x1b["
-            && bytes[at + 2..]
-                .iter()
-                .find(|byte| !(byte.is_ascii_digit() || **byte == b';'))
-                .is_some_and(|end| *end == b'r' || *end == b's')
+    // The first piece precedes any ESC.
+    bytes.split(|byte| *byte == 0x1b).skip(1).any(|after_escape| {
+        after_escape
+            .strip_prefix(b"[")
+            .and_then(|parameters| {
+                parameters.iter().find(|byte| !(byte.is_ascii_digit() || **byte == b';'))
+            })
+            .is_some_and(|end| *end == b'r' || *end == b's')
     })
 }

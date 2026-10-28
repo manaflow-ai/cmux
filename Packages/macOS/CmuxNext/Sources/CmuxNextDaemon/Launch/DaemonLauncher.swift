@@ -241,15 +241,14 @@ public struct DaemonLauncher: Sendable {
     /// `CMUX_NEXT_TUI_BIN`, then `Contents/Resources/bin/cmux-tui`.
     public static func resolveBinary(bundle: Bundle, environment: [String: String]) throws -> URL {
         var searched: [String] = []
-        let fileManager = FileManager.default
         if let override = environment[binaryOverrideKey], !override.isEmpty {
             searched.append(override)
-            if fileManager.isExecutableFile(atPath: override) { return URL(fileURLWithPath: override) }
+            if FileManager.checked.isExecutableFile(atPath: override) { return URL(fileURLWithPath: override) }
         }
         if let resources = bundle.resourceURL {
             let bundled = resources.appendingPathComponent("bin/cmux-tui")
             searched.append(bundled.path)
-            if fileManager.isExecutableFile(atPath: bundled.path) { return bundled }
+            if FileManager.checked.isExecutableFile(atPath: bundled.path) { return bundled }
         }
         throw DaemonError.binaryNotFound(searched: searched)
     }

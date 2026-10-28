@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxNextCompat
 
 /// Add Files to Project's disk writes (cx-ncc.67), off the main actor: a picked file can be large or
 /// on a slow volume. An agent in the chat folder can write there while this runs, so nothing is
@@ -28,7 +29,7 @@ nonisolated enum AgentPaneProjectCopy {
     /// end in one. A link there now is refused.
     static func append(_ lines: [String], to path: String) -> Bool {
         // SAFETY: open reads the NUL-terminated copy of the path made for the call.
-        let fd = unsafe open(path, O_RDWR | O_APPEND | O_NOFOLLOW | O_CLOEXEC)
+        let fd = unsafe blockingOpen(path, O_RDWR | O_APPEND | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { return false }
         defer { close(fd) }
         var info = stat()
@@ -37,7 +38,7 @@ nonisolated enum AgentPaneProjectCopy {
         var text = lines.joined(separator: "\n") + "\n"
         var last: UInt8 = 0
         // SAFETY: pread writes at most 1 byte into `last`, a local UInt8.
-        if info.st_size > 0, unsafe pread(fd, &last, 1, info.st_size - 1) == 1, last != UInt8(ascii: "\n") { text = "\n" + text }
+        if info.st_size > 0, unsafe blockingPread(fd, &last, 1, info.st_size - 1) == 1, last != UInt8(ascii: "\n") { text = "\n" + text }
         let bytes = Array(text.utf8)
         // SAFETY: write reads bytes.count bytes from the array's own storage, lent for the call.
         return unsafe write(fd, bytes, bytes.count) == bytes.count
@@ -47,7 +48,7 @@ nonisolated enum AgentPaneProjectCopy {
     /// missing.
     private static func openContext(_ folder: String) -> Int32? {
         // SAFETY: open reads the NUL-terminated copy of the path made for the call.
-        var fd = unsafe open(folder, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        var fd = unsafe blockingOpen(folder, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         guard fd >= 0 else { return nil }
         for component in [".cmux", "context"] {
             // SAFETY: mkdirat and openat read the NUL-terminated copy of the name made for each call.
@@ -67,7 +68,7 @@ nonisolated enum AgentPaneProjectCopy {
     private static func copy(_ source: URL, into context: Int32) -> String? {
         // Non-blocking: a FIFO swapped in for the file must not hang the copy; it fails the check below.
         // SAFETY: open reads the NUL-terminated copy of the path made for the call.
-        let input = unsafe open(source.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        let input = unsafe blockingOpen(source.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
         guard input >= 0 else { return nil }
         defer { close(input) }
         var info = stat()

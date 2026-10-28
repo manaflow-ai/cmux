@@ -1,4 +1,5 @@
-public import CmuxNextDesign
+public import CmuxNextAppearance
+public import CmuxNextDesignTokens
 
 /// `appearance.sidebarSurface` in cmux.json (`SidebarSurface`): "same" (the
 /// default) draws the sidebar on the main pane's surface; "separate" shades

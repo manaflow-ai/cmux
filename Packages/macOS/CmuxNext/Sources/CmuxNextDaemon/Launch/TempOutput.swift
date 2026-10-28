@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CmuxNextCompat
 
 /// An anonymous (already unlinked) temp file.
 final class TempOutput {
@@ -16,7 +17,7 @@ final class TempOutput {
         }
         guard fd >= 0 else { throw DaemonError.launchFailed("mkstemp: \(POSIXErrorText(errno))") }
         // SAFETY: unlink reads the template, now the NUL-terminated path mkstemp created, lent for the call.
-        unsafe template.withUnsafeBufferPointer { buffer in if let base = unsafe buffer.baseAddress { _ = unsafe unlink(base) } }
+        unsafe template.withUnsafeBufferPointer { buffer in if let base = unsafe buffer.baseAddress { _ = unsafe blockingUnlink(base) } }
         handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     }
 
@@ -28,7 +29,7 @@ final class TempOutput {
         let byteCount = Int(clamping: size)
         var data = Data(count: byteCount)
         // SAFETY: pread writes at most byteCount bytes, the size of `data`, into its storage, lent for the call.
-        let count = unsafe data.withUnsafeMutableBytes { unsafe pread(fd, $0.baseAddress, byteCount, 0) }
+        let count = unsafe data.withUnsafeMutableBytes { unsafe blockingPread(fd, $0.baseAddress, byteCount, 0) }
         return count > 0 ? data.prefix(count) : Data()
     }
 }

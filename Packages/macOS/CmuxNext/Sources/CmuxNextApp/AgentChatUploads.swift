@@ -88,7 +88,7 @@ struct AgentChatUploads {
                 return AgentPaneReply.success(reply)
             case .chunk(let token, let offset, let data):
                 guard var stage = stages[token], stage.session == session, stage.received == offset, offset + data.count <= stage.size, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
-                do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                do { let handle = try FileHandle.blockingForWriting(to: stage.file); try handle.blockingSeekToEnd(); try handle.blockingWrite(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 stage.received += data.count; stage.expires = Date().addingTimeInterval(stageLifetime); stages[token] = stage
                 armExpiry(expiry, work: work)
                 return AgentPaneReply.success(["offset": stage.received])
@@ -154,13 +154,13 @@ struct AgentChatUploads {
     nonisolated static func write(_ files: [AgentPaneUpload], in folder: URL) throws -> [String] {
         let manager = FileManager.default, owner: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
         // The root too, owner-only, when the chat's folder is the first under it.
-        try manager.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: owner)
-        try manager.createDirectory(at: folder, withIntermediateDirectories: false, attributes: owner)
+        try FileManager.checked.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: owner)
+        try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: false, attributes: owner)
         return try files.enumerated().map { index, file in
             let parent = folder.appending(path: String(index), directoryHint: .isDirectory)
-            try manager.createDirectory(at: parent, withIntermediateDirectories: false, attributes: owner)
+            try FileManager.checked.createDirectory(at: parent, withIntermediateDirectories: false, attributes: owner)
             let url = parent.appending(path: file.name, directoryHint: .notDirectory)
-            guard manager.createFile(atPath: url.path, contents: file.data, attributes: [.posixPermissions: 0o600]) else {
+            guard FileManager.checked.createFile(atPath: url.path, contents: file.data, attributes: [.posixPermissions: 0o600]) else {
                 throw CocoaError(.fileWriteUnknown)
             }
             return url.path
@@ -210,12 +210,11 @@ extension AgentChatUploads {
     @discardableResult
     nonisolated static func sweep(_ root: URL, now: Date) -> Int {
         let cutoff = now.addingTimeInterval(-maximumAge)
-        let manager = FileManager.default
         var removed = 0
         func sweepUploads(in folder: URL) {
             for upload in realFolders(in: folder) where isUploadName(upload.lastPathComponent) {
                 let made = (try? upload.resourceValues(forKeys: [.creationDateKey]))?.creationDate
-                if let made, made < cutoff, (try? manager.removeItem(at: upload)) != nil { removed += 1 }
+                if let made, made < cutoff, (try? FileManager.checked.removeItem(at: upload)) != nil { removed += 1 }
             }
         }
         sweepUploads(in: root)
@@ -225,7 +224,7 @@ extension AgentChatUploads {
             sweepUploads(in: chat)
             // rmdir(2) refuses a folder that is not empty: an upload written into it meanwhile stays.
             // SAFETY: rmdir reads the NUL-terminated copy of the path Swift makes for the call.
-            _ = unsafe rmdir(chat.path)
+            _ = unsafe blockingRmdir(chat.path)
         }
         return removed
     }

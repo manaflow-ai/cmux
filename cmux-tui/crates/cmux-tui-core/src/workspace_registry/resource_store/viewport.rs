@@ -43,13 +43,21 @@ pub struct RegistryRow {
 impl RegistryViewport {
     /// One column with two or more rows: columns mode with one column.
     pub fn has_lone_row_column(&self) -> bool {
-        self.columns.len() == 1 && self.columns[0].rows.len() >= 2
+        matches!(self.columns.as_slice(), [column] if column.rows.len() >= 2)
     }
 
     /// One pinned column (`pinned-dock-alone-v1`): Home's dock with nothing
     /// beside it, columns mode with one column.
     pub fn has_lone_pinned_column(&self) -> bool {
-        matches!(self.columns.as_slice(), [column] if column.dock.is_some_and(|dock| dock.pinned))
+        self.lone_pinned_column().is_some()
+    }
+
+    /// The column of [`Self::has_lone_pinned_column`].
+    pub fn lone_pinned_column(&self) -> Option<&RegistryViewportColumn> {
+        match self.columns.as_slice() {
+            [column] if column.dock.is_some_and(|dock| dock.pinned) => Some(column),
+            _ => None,
+        }
     }
 
     /// The form written to `viewport_json`. A lone column with rows is stored
@@ -98,12 +106,12 @@ pub(super) fn validate_registry_viewport(
         width.is_finite()
             && (crate::MIN_VIEWPORT_PANE_WIDTH..=crate::MAX_VIEWPORT_PANE_WIDTH).contains(&width)
     };
-    if viewport.columns.is_empty() {
+    let Some(first_column) = viewport.columns.first() else {
         if viewport.base_width.is_some() {
             anyhow::bail!("viewport metadata has no columns");
         }
         return Ok(());
-    }
+    };
     if viewport.columns.len() < 2
         && !viewport.has_lone_row_column()
         && !viewport.has_lone_pinned_column()
@@ -112,7 +120,7 @@ pub(super) fn validate_registry_viewport(
     }
     let base_width =
         viewport.base_width.ok_or_else(|| anyhow::anyhow!("viewport is missing base width"))?;
-    if !valid_width(base_width) || viewport.columns[0].width != base_width {
+    if !valid_width(base_width) || first_column.width != base_width {
         anyhow::bail!("viewport has invalid base width {base_width}");
     }
     let mut column_ids = HashSet::new();
@@ -165,8 +173,8 @@ pub(super) fn validate_registry_viewport(
     if &covered_splits != screen_splits {
         anyhow::bail!("viewport columns do not cover the screen splits");
     }
-    let mut projected = viewport.columns[0].layout.clone();
-    let mut width_before = viewport.columns[0].width;
+    let mut projected = first_column.layout.clone();
+    let mut width_before = first_column.width;
     for column in viewport.columns.iter().skip(1) {
         projected = RegistryLayoutNode::Split {
             split: column.id.clone(),

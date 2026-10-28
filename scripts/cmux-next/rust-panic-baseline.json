@@ -903,11 +903,11 @@
    "unreachable": 0,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 103,
-   "string_slice": 1,
+   "indexing_slicing": 0,
+   "string_slice": 0,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 115,
-   "cast_possible_truncation": 15
+   "arithmetic_side_effects": 92,
+   "cast_possible_truncation": 14
   },
   "ghostty-vt-sys": {
    "unwrap_used": 0,

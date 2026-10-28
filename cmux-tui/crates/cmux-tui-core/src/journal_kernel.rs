@@ -1,5 +1,5 @@
 use crate::panic_free::RecoverPoison;
-use cmux_threads::checked::sync as waits;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock, Weak};
@@ -203,7 +203,7 @@ struct JournalFanoutState {
 pub(crate) struct JournalKernel {
     state: Mutex<JournalFanoutState>,
     changed: Condvar,
-    tailer: Mutex<Option<std::thread::JoinHandle<()>>>,
+    tailer: Mutex<Option<supervised::SupervisedThread<()>>>,
     enabled: bool,
     producers: RwLock<HashMap<String, Arc<CompiledJournalProducer>>>,
     /// The registry file, so a reader behind the ring opens its own
@@ -293,9 +293,11 @@ impl JournalKernel {
         head_sequence: u64,
     ) -> anyhow::Result<()> {
         let weak = Arc::downgrade(kernel);
-        let tailer = cmux_threads::spawn(
+        let tailer = supervised::spawn_at(
             "mux-session-journal-fanout",
             crate::thread_qos::ThreadType::Utility.qos(),
+            Fatal,
+            ShutdownBehavior::Continue,
             move || {
                 run_tailer(weak, reader, head_sequence);
             },
@@ -396,7 +398,7 @@ impl JournalKernel {
             self.changed.notify_all();
         }
         if let Some(tailer) = self.tailer.lock().recover_poison().take()
-            && waits::join(tailer).is_err()
+            && tailer.join().is_err()
         {
             eprintln!("cmux-tui: session journal tailer panicked during shutdown");
         }

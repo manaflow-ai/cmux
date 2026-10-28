@@ -194,6 +194,7 @@ public actor V2ControlService {
         applyWatchdogTask?.cancel()
         let dependencies = dependencies
         applyWatchdogTask = Task { [weak self] in
+            // wakeup-allow: deadline 300 s for the app to apply a snapshot; its acknowledgement cancels it
             do { try await dependencies.sleep(300) }
             catch { return }
             await self?.applyWatchdogFired(run: run, sequence: sequence)
@@ -294,6 +295,7 @@ public actor V2ControlService {
             try await withOnceThrowingContinuation { continuation in
                 var request = Pending(attemptID: attemptID, schemaID: schemaID, runID: run, continuation: continuation)
                 request.deadline = Task { [weak self, dependencies, configuration] in
+                    // wakeup-allow: deadline of one request, cancelled when its reply finishes it
                     do { try await dependencies.sleep(configuration.requestTimeout) }
                     catch { return }
                     await self?.finish(requestID, attemptID: attemptID, result: .failure(V2ControlFailure.requestTimedOut))

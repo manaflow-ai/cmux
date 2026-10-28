@@ -104,26 +104,25 @@ public final class AgentPaneDraftAttachments {
     }
 
     private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], to folder: URL, in directory: URL, limit: Int) -> [String] {
-        let manager = FileManager.default
         let kept = saved(in: folder)?.files ?? [:]
         // A chat past the limit keeps nothing rather than some of its chips.
         guard !attachments.isEmpty, let moved = AgentPaneAttachmentFiles.moveOut(attachments, to: folder, within: limit, kept: kept),
               !moved.attachments.isEmpty else {
-            try? manager.removeItem(at: folder)
+            try? FileManager.checked.removeItem(at: folder)
             return []
         }
         do {
-            try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+            try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true)
             let list = try JSONEncoder().encode(Saved(attachments: moved.attachments, files: moved.files.isEmpty ? nil : moved.files))
             try list.write(to: folder.appending(path: listName), options: .atomic)
         } catch {
-            try? manager.removeItem(at: folder)
+            try? FileManager.checked.removeItem(at: folder)
             return []
         }
         // Files no chip names any more (a chip taken out) go.
         let named = Set(moved.files.values).union([listName])
-        for name in (try? manager.contentsOfDirectory(atPath: folder.path)) ?? [] where !named.contains(name) {
-            try? manager.removeItem(at: folder.appending(path: name))
+        for name in (try? FileManager.checked.contentsOfDirectory(atPath: folder.path)) ?? [] where !named.contains(name) {
+            try? FileManager.checked.removeItem(at: folder.appending(path: name))
         }
         prune(directory)
         return moved.files.keys.sorted()
@@ -131,14 +130,13 @@ public final class AgentPaneDraftAttachments {
 
     /// Only the ``limit`` most recently written chats stay.
     private nonisolated static func prune(_ directory: URL) {
-        let manager = FileManager.default
-        let folders = (try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        let folders = (try? FileManager.checked.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         guard folders.count > limit else { return }
         let written = { (folder: URL) in
             (try? folder.appending(path: listName).resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
         }
         for folder in folders.sorted(by: { written($0) > written($1) }).dropFirst(limit) {
-            try? manager.removeItem(at: folder)
+            try? FileManager.checked.removeItem(at: folder)
         }
     }
 }

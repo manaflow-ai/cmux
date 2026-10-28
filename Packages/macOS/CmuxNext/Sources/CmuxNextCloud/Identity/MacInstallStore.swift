@@ -2,6 +2,7 @@ public import CmuxInstallAuthCore
 public import CmuxNextWakeups
 import CryptoKit
 public import Foundation
+import CmuxNextCompat
 
 /// Where the Mac app keeps its install keys and records (cx-wb5.64), one
 /// key per Stack user (two users on one Mac never share or rotate each
@@ -68,13 +69,13 @@ enum OwnerOnlyFile {
                                                 attributes: [.posixPermissions: 0o700])
         guard chmod(directory.path, 0o700) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EPERM) }
         let temporary = directory.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
-        let fd = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        let fd = blockingOpen(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        let written = data.withUnsafeBytes { buffer in buffer.baseAddress.map { Darwin.write(fd, $0, buffer.count) } ?? 0 }
-        let synced = fsync(fd) == 0
+        let written = data.withUnsafeBytes { buffer in buffer.baseAddress.map { blockingWrite(fd, $0, buffer.count) } ?? 0 }
+        let synced = blockingFsync(fd) == 0
         close(fd)
-        guard written == data.count, synced, rename(temporary.path, url.path) == 0 else {
-            unlink(temporary.path)
+        guard written == data.count, synced, blockingRename(temporary.path, url.path) == 0 else {
+            _ = blockingUnlink(temporary.path)
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
         }
     }
