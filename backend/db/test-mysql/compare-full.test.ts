@@ -160,7 +160,7 @@ run("projection full compare", () => {
   it("the SELECT-only handles refuse a write before it reaches the database", async () => {
     const seen: Array<string> = []
     const raw = { query: async (q: string) => (seen.push(q), { rows: [] }) }
-    for (const q of ["INSERT INTO teams VALUES (1)", " update teams set x = 1", "DELETE FROM teams", "WITH d AS (DELETE FROM teams RETURNING 1) SELECT 1", "SET x = 1"]) {
+    for (const q of ["INSERT INTO teams VALUES (1)", " update teams set x = 1", "DELETE FROM teams", "WITH d AS (DELETE FROM teams RETURNING 1) SELECT 1", "SET x = 1", "SELECT 1; DELETE FROM teams"]) {
       await expect(selectOnlyPg(raw).query(q)).rejects.toThrow("read-only")
       await expect(selectOnlyMy(raw).query(q)).rejects.toThrow("read-only")
     }

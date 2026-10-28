@@ -6,23 +6,30 @@
  * numbers) and the two sorted streams are merged: a key only one side has, or a key whose row hash
  * differs, is a suspect. Suspects are read again by key at the end of the table, and only those that
  * still differ are reported, so a row written to the primary while the shadow catches up is not a
- * difference. Junk teams are left out on both sides, as the 5,000-row compare does (cmux#26748).
+ * difference. Junk teams are left out on both sides, as the 5,000-row compare does (cmux#26748): a row
+ * whose team column (TEAM_COLUMN) names a junk team is dropped as it is read, and a row with no team
+ * stays. (Dropped here rather than in SQL, so no query carries the list of junk teams.)
+ *
+ * No snapshot: keys never change, so every row that exists for the whole pass is read on both sides
+ * and compared. A row written while the pass runs may be read on one side only or in two states; that
+ * is a suspect, settled by the recheck. A row inserted behind the cursor on both sides is not seen
+ * until the next pass.
  *
  * Reads only. Both database handles go through `selectOnly`, which refuses any statement that is not a
- * SELECT, and nothing here takes a MySQL writer: the full pass never repairs, whatever the primary is.
+ * single SELECT, and nothing here takes a MySQL writer: the full pass never repairs, whatever the primary is.
  */
-import { NUMERIC_KEYS, PROJECTION_TABLES, myExcludeTeams, pgExcludeTeams, rowHash, shapeRow, sharedColumns, type MyLike, type PgLike } from "./projection-compare.ts"
+import { NUMERIC_KEYS, PROJECTION_TABLES, TEAM_COLUMN, rowHash, shapeRow, sharedColumns, type MyLike, type PgLike } from "./projection-compare.ts"
 
 type Row = Record<string, unknown>
 type Key = ReadonlyArray<string | number>
 
-/** A database handle that runs SELECT statements only; anything else is refused before it reaches the database. */
-const SELECT_ONLY = /^\s*select\s/i
+/** A database handle that runs single SELECT statements only; anything else, or a second statement after a `;`, is refused before it reaches the database. */
+const isSelect = (sql: string) => /^\s*select\s/i.test(sql) && !sql.includes(";")
 export const selectOnlyPg = (db: PgLike): PgLike => ({
-  query: (sql, values) => (SELECT_ONLY.test(sql) ? db.query(sql, values) : Promise.reject(new Error(`full compare is read-only: refused ${sql.trim().split(/\s/)[0]}`)))
+  query: (sql, values) => (isSelect(sql) ? db.query(sql, values) : Promise.reject(new Error(`full compare is read-only: refused ${sql.trim().split(/\s/)[0]}`)))
 })
 export const selectOnlyMy = (db: MyLike): MyLike => ({
-  query: (sql, values) => (SELECT_ONLY.test(sql) ? db.query(sql, values) : Promise.reject(new Error(`full compare is read-only: refused ${sql.trim().split(/\s/)[0]}`)))
+  query: (sql, values) => (isSelect(sql) ? db.query(sql, values) : Promise.reject(new Error(`full compare is read-only: refused ${sql.trim().split(/\s/)[0]}`)))
 })
 
 /** The pass stopped at its per-invocation bound (rows read or wall time); the table it was in is incomplete. */
@@ -95,28 +102,25 @@ interface Side {
   byKeys(keys: ReadonlyArray<Key>): Promise<Array<Row>>
 }
 
-const pgSide = (pgc: PgLike, table: string, keys: ReadonlyArray<string>, columns: ReadonlyArray<string>, exclude: ReadonlyArray<string>): Side => {
+const pgSide = (pgc: PgLike, table: string, keys: ReadonlyArray<string>, columns: ReadonlyArray<string>): Side => {
   const order = keys.map((k) => (NUMERIC_KEYS.has(k) ? `"${k}"` : `"${k}" COLLATE "C"`)).join(", ")
   // now() is not an immutable function, so Hyperdrive never answers these reads from its query cache.
   const select = `SELECT now() AS uncached_at, ${columns.map((c) => `"${c}"`).join(", ")} FROM ${table}`
   return {
     page: async (after, limit) => {
       const values: Array<unknown> = []
-      const conds = [pgExcludeTeams(table, exclude, values)]
-      if (after) conds.push(afterCondition(keys, after, (k, op, v) => (values.push(v), NUMERIC_KEYS.has(k) || op === "=" ? `"${k}" ${op} $${values.length}` : `"${k}" COLLATE "C" ${op} $${values.length}`)))
-      const where = conds.filter(Boolean).join(" AND ")
-      return (await pgc.query(`${select}${where ? ` WHERE ${where}` : ""} ORDER BY ${order} LIMIT ${limit}`, values)).rows
+      const where = after ? ` WHERE ${afterCondition(keys, after, (k, op, v) => (values.push(v), NUMERIC_KEYS.has(k) || op === "=" ? `"${k}" ${op} $${values.length}` : `"${k}" COLLATE "C" ${op} $${values.length}`))}` : ""
+      return (await pgc.query(`${select}${where} ORDER BY ${order} LIMIT ${limit}`, values)).rows
     },
     byKeys: async (wanted) => {
       const values: Array<unknown> = []
-      const scope = pgExcludeTeams(table, exclude, values)
       const match = wanted.map((key) => `(${keys.map((k, j) => (values.push(key[j]), `"${k}" = $${values.length}`)).join(" AND ")})`).join(" OR ")
-      return (await pgc.query(`${select} WHERE ${scope ? `${scope} AND ` : ""}(${match})`, values)).rows
+      return (await pgc.query(`${select} WHERE ${match}`, values)).rows
     }
   }
 }
 
-const mySide = (my: MyLike, table: string, keys: ReadonlyArray<string>, columns: ReadonlyArray<string>, exclude: ReadonlyArray<string>): Side => {
+const mySide = (my: MyLike, table: string, keys: ReadonlyArray<string>, columns: ReadonlyArray<string>): Side => {
   const order = keys.map((k) => `\`${k}\``).join(", ")
   // NOW(3) keeps Hyperdrive from answering these reads from its query cache.
   const select = `SELECT NOW(3) AS uncached_at, ${columns.map((c) => `\`${c}\``).join(", ")} FROM \`${table}\``
@@ -124,16 +128,13 @@ const mySide = (my: MyLike, table: string, keys: ReadonlyArray<string>, columns:
   return {
     page: async (after, limit) => {
       const values: Array<unknown> = []
-      const conds = [myExcludeTeams(table, exclude, values)]
-      if (after) conds.push(afterCondition(keys, after, (k, op, v) => (values.push(v), `\`${k}\` ${op} ?`)))
-      const where = conds.filter(Boolean).join(" AND ")
-      return rows(`${select}${where ? ` WHERE ${where}` : ""} ORDER BY ${order} LIMIT ${limit}`, values)
+      const where = after ? ` WHERE ${afterCondition(keys, after, (k, op, v) => (values.push(v), `\`${k}\` ${op} ?`))}` : ""
+      return rows(`${select}${where} ORDER BY ${order} LIMIT ${limit}`, values)
     },
     byKeys: async (wanted) => {
       const values: Array<unknown> = []
-      const scope = myExcludeTeams(table, exclude, values)
       const match = wanted.map((key) => `(${keys.map((k, j) => (values.push(key[j]), `\`${k}\` = ?`)).join(" AND ")})`).join(" OR ")
-      return rows(`${select} WHERE ${scope ? `${scope} AND ` : ""}(${match})`, values)
+      return rows(`${select} WHERE ${match}`, values)
     }
   }
 }
@@ -150,23 +151,28 @@ class KeysetStream {
   constructor(
     private readonly side: Side,
     private readonly keyOf: (r: Row) => Key,
+    private readonly keep: (r: Row) => boolean,
     private readonly name: string,
     private readonly pageSize: number,
     private readonly budget: FullBudget
   ) {}
   async peek(): Promise<Row | undefined> {
-    if (this.i < this.buf.length) return this.buf[this.i]
-    if (this.done) return undefined
-    checkBudget(this.budget)
-    // Never more rows than the bound has left: a short last page is only "done" when it is shorter than asked for.
-    const limit = Math.min(this.pageSize, this.budget.maxRows - this.budget.rowsRead)
-    this.buf = await this.side.page(this.after, limit)
-    this.i = 0
-    this.pages += 1
-    charge(this.budget, this.buf.length)
-    if (this.buf.length < limit) this.done = true
-    if (this.buf.length > 0) this.after = this.keyOf(this.buf[this.buf.length - 1]!)
-    return this.buf[0]
+    // A page of junk-team rows only leaves nothing to merge: read on until a kept row or the end.
+    while (this.i >= this.buf.length) {
+      if (this.done) return undefined
+      checkBudget(this.budget)
+      // Never more rows than the bound has left: a short last page is only "done" when it is shorter than asked for.
+      const limit = Math.min(this.pageSize, this.budget.maxRows - this.budget.rowsRead)
+      const raw = await this.side.page(this.after, limit)
+      this.pages += 1
+      charge(this.budget, raw.length)
+      if (raw.length < limit) this.done = true
+      // The cursor moves past every row read, kept or not.
+      if (raw.length > 0) this.after = this.keyOf(raw[raw.length - 1]!)
+      this.buf = raw.filter(this.keep)
+      this.i = 0
+    }
+    return this.buf[this.i]
   }
   next(): void {
     const key = this.keyOf(this.buf[this.i]!)
@@ -187,7 +193,11 @@ export const compareTableFull = async (pgc: PgLike, my: MyLike, table: string, o
   const pageSize = options.pageSize ?? 1000
   const recheckCap = options.recheckCap ?? 20_000
   const shared = (await sharedColumns(pgc, my, table)).filter((c) => !spec.skip.includes(c))
-  const columns = [...new Set([...spec.key, ...shared])]
+  const teamColumn = TEAM_COLUMN[table]
+  const columns = [...new Set([...spec.key, ...(teamColumn ? [teamColumn] : []), ...shared])]
+  const junk = new Set(options.excludeTeams)
+  // As pgScope/myScope in projection-compare.ts: a row of a junk team is left out, a row with no team stays.
+  const keep = (r: Row) => !teamColumn || r[teamColumn] === null || r[teamColumn] === undefined || !junk.has(String(r[teamColumn]))
   const keyOf = (r: Row): Key =>
     spec.key.map((k) => {
       if (!NUMERIC_KEYS.has(k)) return String(r[k])
@@ -198,10 +208,10 @@ export const compareTableFull = async (pgc: PgLike, my: MyLike, table: string, o
     })
   const keyText = (key: Key) => key.map(String).join("/")
   const hashOf = (r: Row) => rowHash(shapeRow(r, shared))
-  const pgSideT = pgSide(pgc, table, spec.key, columns, options.excludeTeams)
-  const mySideT = mySide(my, table, spec.key, columns, options.excludeTeams)
-  const pgStream = new KeysetStream(pgSideT, keyOf, "postgres", pageSize, options.budget)
-  const myStream = new KeysetStream(mySideT, keyOf, "mysql", pageSize, options.budget)
+  const pgSideT = pgSide(pgc, table, spec.key, columns)
+  const mySideT = mySide(my, table, spec.key, columns)
+  const pgStream = new KeysetStream(pgSideT, keyOf, keep, "postgres", pageSize, options.budget)
+  const myStream = new KeysetStream(mySideT, keyOf, keep, "mysql", pageSize, options.budget)
 
   const suspects: Array<Key> = []
   let unchecked = 0
@@ -240,8 +250,8 @@ export const compareTableFull = async (pgc: PgLike, my: MyLike, table: string, o
       i += slice.length
       const [pgRows, myRows] = [await pgSideT.byKeys(slice), await mySideT.byKeys(slice)]
       charge(options.budget, pgRows.length + myRows.length)
-      const pgHash = new Map(pgRows.map((r) => [keyText(keyOf(r)), hashOf(r)]))
-      const myHash = new Map(myRows.map((r) => [keyText(keyOf(r)), hashOf(r)]))
+      const pgHash = new Map(pgRows.filter(keep).map((r) => [keyText(keyOf(r)), hashOf(r)]))
+      const myHash = new Map(myRows.filter(keep).map((r) => [keyText(keyOf(r)), hashOf(r)]))
       for (const key of slice.map(keyText)) {
         const p = pgHash.get(key)
         const m = myHash.get(key)
