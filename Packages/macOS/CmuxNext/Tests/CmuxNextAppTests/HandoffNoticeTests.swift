@@ -172,9 +172,16 @@ struct HandoffNoticeTests {
             }
         }
         let starting = SandboxRunFollower.Source.readHandoff(Data(#"{"handoff":{"status":"starting","version":7,"turn":1,"state":"open"}}"#.utf8))
-        guard case .going(cursor: 7, notice: nil, _) = starting else { return Issue.record("starting is progress") }
+        guard case .going(let cursor, let notice, _) = starting, cursor == 7, notice == nil else {
+            Issue.record("starting is progress")
+            return
+        }
         let done = SandboxRunFollower.Source.readHandoff(Data(#"{"handoff":{"status":"done","version":8,"turn":2,"state":"open"}}"#.utf8))
-        guard case .going(cursor: 8, notice: CloudTaskNotice(key: "2:done", outcome: .succeeded), _) = done else { return Issue.record("a turn's done goes on") }
+        guard case .going(let doneCursor, let doneNotice, _) = done, doneCursor == 8,
+              doneNotice == CloudTaskNotice(key: "2:done", outcome: .succeeded) else {
+            Issue.record("a turn's done goes on")
+            return
+        }
     }
 
     @Test func theBannerNamesTheChatThenWhatHappened() throws {
