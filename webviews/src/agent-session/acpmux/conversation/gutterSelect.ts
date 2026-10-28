@@ -99,6 +99,17 @@ export function caretAt(doc: Document, x: number, y: number): Caret | undefined 
   return undefined;
 }
 
+/// A transcript surface can paint selectable code inside an open shadow root (@pierre/diffs).
+/// Events retargeted to its host still carry the composed path, so leave those presses to the
+/// browser's native shadow selection instead of treating the host's row padding as a gap.
+function shadowTextPress(event: PointerEvent): boolean {
+  return event.composedPath().some((part) => {
+    if (typeof ShadowRoot !== "undefined" && part instanceof ShadowRoot) return true;
+    if (part instanceof Node && part.getRootNode() instanceof ShadowRoot) return true;
+    return part instanceof Element && part.shadowRoot !== null;
+  });
+}
+
 type CaretHit = { caret: Caret; row: HTMLElement };
 
 /// A text node that the browser would include in a native selection. Mounted rows are bounded by
@@ -413,6 +424,10 @@ export function installGutterSelect(
       event.shiftKey
     )
       return;
+    // Before classifying the target as row padding, preserve native ownership for any text surface
+    // painted in an open shadow root. The shadow component owns its own selection; this handler
+    // does not attempt to synthesize a range across that boundary.
+    if (shadowTextPress(event)) return;
     // A press that only closes an open composer menu does nothing else (menuPressGuard.ts).
     if (swallowsPress(doc)) return;
     // Only the transcript's empty gutter or row spacing: the scroller, its spacer and the thread's
