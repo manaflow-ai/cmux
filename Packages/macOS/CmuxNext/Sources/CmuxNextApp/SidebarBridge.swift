@@ -229,11 +229,14 @@ final class SidebarBridge {
 
     // MARK: Snapshot-first launch
 
-    /// Draws the window's saved sidebar (`SidebarSnapshotStore`) before the
-    /// window is presented, so its first frame has rows: its own saved
-    /// rows, or for the window a launch opens before it knows the saved
-    /// window ids, the most recently used window's. Loading sections with
-    /// nothing saved show placeholder rows.
+    /// Lays the window's saved sidebar (`SidebarSnapshotStore`) under the live
+    /// rows before the window is presented, so its first frame has rows: its
+    /// own saved rows, or for the window a launch opens before it knows the
+    /// saved window ids, the most recently used window's. Loading sections
+    /// with nothing saved show placeholder rows. The live rows show from the
+    /// rows pass `observe()` starts in this same turn: the seed maps no
+    /// workspace (it mapped every one, then the pass mapped them again: hot-path
+    /// audit 3, H14).
     private func seedFromSnapshot(_ state: WindowState) {
         let windows = services.windows
         let isLaunchWindow = windows.controllers.isEmpty && windows.registry.isLaunching
@@ -246,15 +249,6 @@ final class SidebarBridge {
             model.profiles = saved.sidebarProfiles
             model.activeProfileID = saved.sidebarActiveProfileID
         }
-        let (sections, launching, failed) = Self.liveSections(services.machines, registry: windows.registry, window: state, creations: services.cloud.creations,
-                                                              hidesHome: Self.hidesHome(services.sidebarLayout.document),
-                                                              newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store),
-                                                              muted: services.notifications.preferences.mutedWorkspaces,
-                                                              top: .make(services.sidebarLayout, machines: services.machines, room: state.profileID.rawValue),
-                                                              tabTitle: Self.tabTitle(services),
-                                                              groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig())
-        show(sections, layout: SidebarRows.visibleLayout(services.sidebarLayout.document, window: state.id, machines: services.machines,
-                                                         registry: windows.registry.value), launching: launching, failed: failed)
     }
 
     /// Shows `live` with loading sections filled from the seed, and the
