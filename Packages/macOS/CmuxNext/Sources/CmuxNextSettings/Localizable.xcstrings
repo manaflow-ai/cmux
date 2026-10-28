@@ -23023,6 +23023,530 @@
         }
       }
     },
+    "settings.labs.voiceRoom": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غرفة الصوت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glasovna soba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stemmerum"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprachraum"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice Room"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sala de voz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salle vocale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stanza vocale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ボイスルーム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទប់សំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "음성 룸"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Talerom"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokój głosowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sala de voz"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Голосовая комната"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ห้องเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ses Odası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Голосова кімната"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phòng thoại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "语音房间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "語音房間"
+          }
+        }
+      }
+    },
+    "settings.labs.voiceRoom.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غرفة غير رسمية تتحدث فيها مع الآخرين ومع Chief. أثناء فتح الغرفة، يحوّل cmux صوت الميكروفون إلى نص ويقرأ نص شاشتك على هذا الـMac، ثم يرسل ذلك النص إلى الغرفة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neslužbena soba u kojoj razgovarate s ljudima i Chiefom. Dok je soba otvorena, cmux na ovom Macu pretvara vaš mikrofon u tekst i čita tekst s ekrana, zatim taj tekst šalje u sobu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et uofficielt rum, hvor du taler med folk og Chief. Mens et rum er åbent, transskriberer cmux din mikrofon og læser skærmens tekst på denne Mac og sender teksten til rummet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein inoffizieller Raum, in dem du mit Menschen und Chief sprichst. Solange ein Raum offen ist, transkribiert cmux dein Mikrofon und liest den Text deines Bildschirms auf diesem Mac und sendet diesen Text an den Raum."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una sala no oficial donde hablas con personas y con Chief. Mientras la sala está abierta, cmux transcribe tu micrófono y lee el texto de tu pantalla en este Mac, y envía ese texto a la sala."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une salle non officielle où vous parlez avec des personnes et avec Chief. Tant qu’une salle est ouverte, cmux transcrit votre micro et lit le texte de votre écran sur ce Mac, puis envoie ce texte à la salle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una stanza non ufficiale dove parli con le persone e con Chief. Mentre una stanza è aperta, cmux trascrive il microfono e legge il testo dello schermo su questo Mac, poi invia quel testo alla stanza."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "人や Chief と話す非公式のルームです。ルームを開いている間、cmux はこの Mac 上でマイクを文字に起こし、画面のテキストを読み取って、そのテキストをルームに送ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទប់មិនផ្លូវការដែលអ្នកនិយាយជាមួយមនុស្ស និង Chief។ ពេលបន្ទប់បើក cmux បំលែងសំឡេងមីក្រូហ្វូនជាអត្ថបទ និងអានអត្ថបទលើអេក្រង់នៅលើ Mac នេះ រួចផ្ញើអត្ថបទនោះទៅបន្ទប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사람들, Chief와 대화하는 비공식 룸입니다. 룸이 열려 있는 동안 cmux는 이 Mac에서 마이크를 받아쓰고 화면의 텍스트를 읽은 다음 그 텍스트를 룸으로 보냅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et uoffisielt rom der du snakker med folk og Chief. Mens et rom er åpent, transkriberer cmux mikrofonen din og leser skjermteksten på denne Macen, og sender teksten til rommet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nieoficjalny pokój, w którym rozmawiasz z ludźmi i z Chiefem. Gdy pokój jest otwarty, cmux na tym Macu transkrybuje mikrofon i odczytuje tekst z ekranu, a potem wysyła ten tekst do pokoju."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma sala não oficial onde você conversa com pessoas e com o Chief. Enquanto a sala está aberta, o cmux transcreve seu microfone e lê o texto da sua tela neste Mac, depois envia esse texto para a sala."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Неофициальная комната, где вы говорите с людьми и с Chief. Пока комната открыта, cmux на этом Mac расшифровывает микрофон и читает текст с экрана, а затем отправляет этот текст в комнату."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ห้องที่ไม่เป็นทางการสำหรับคุยกับผู้คนและ Chief ขณะที่ห้องเปิดอยู่ cmux จะถอดเสียงจากไมค์และอ่านข้อความบนหน้าจอใน Mac เครื่องนี้ แล้วส่งข้อความนั้นไปยังห้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İnsanlarla ve Chief ile konuştuğunuz resmî olmayan bir oda. Oda açıkken cmux bu Mac'te mikrofonunuzu yazıya döker ve ekranınızdaki metni okur, sonra bu metni odaya gönderir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Неофіційна кімната, де ви розмовляєте з людьми та з Chief. Поки кімната відкрита, cmux на цьому Mac розшифровує мікрофон і читає текст з екрана, а потім надсилає цей текст у кімнату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một phòng không chính thức để bạn nói chuyện với mọi người và Chief. Khi phòng đang mở, cmux chép lời micrô và đọc chữ trên màn hình của bạn ngay trên máy Mac này, rồi gửi văn bản đó vào phòng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一个非官方房间，你可以在其中与他人和 Chief 交谈。房间打开期间，cmux 会在这台 Mac 上转写你的麦克风并读取屏幕上的文字，然后把这些文字发送到房间。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一個非官方房間，你可以在其中與他人和 Chief 交談。房間開啟期間，cmux 會在這台 Mac 上轉寫你的麥克風並讀取螢幕上的文字，然後把這些文字傳送到房間。"
+          }
+        }
+      }
+    },
+    "settings.labs.voiceRoomURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عنوان غرفة الصوت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresa glasovne sobe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stemmerummets adresse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprachraum-Adresse"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice Room Address"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dirección de la sala de voz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresse de la salle vocale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indirizzo della stanza vocale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ボイスルームのアドレス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាសយដ្ឋានបន្ទប់សំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "음성 룸 주소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taleromadresse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adres pokoju głosowego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endereço da sala de voz"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адрес голосовой комнаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่อยู่ห้องเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ses Odası Adresi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адреса голосової кімнати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Địa chỉ phòng thoại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "语音房间地址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "語音房間位址"
+          }
+        }
+      }
+    },
+    "settings.labs.voiceRoomURL.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عنوان الويب للغرفة. إذا كان فارغًا يُستخدم خادم الغرفة على هذا الـMac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Web adresa sobe. Prazno koristi server sobe na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rummets webadresse. Tom bruger rumserveren på denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Webadresse des Raums. Leer nutzt den Raumserver auf diesem Mac."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The room's web address. Empty uses the room server on this Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La dirección web de la sala. Vacío usa el servidor de salas de este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’adresse web de la salle. Vide utilise le serveur de salle de ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’indirizzo web della stanza. Vuoto usa il server delle stanze di questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ルームの Web アドレス。空欄のときはこの Mac のルームサーバーを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាសយដ្ឋានវេបរបស់បន្ទប់។ ទុកទទេ ប្រើម៉ាស៊ីនមេបន្ទប់នៅលើ Mac នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "룸의 웹 주소입니다. 비워 두면 이 Mac의 룸 서버를 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rommets nettadresse. Tom bruker romserveren på denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adres internetowy pokoju. Puste używa serwera pokoju na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O endereço da web da sala. Vazio usa o servidor de salas deste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Веб-адрес комнаты. Если пусто, используется сервер комнаты на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่อยู่เว็บของห้อง ถ้าเว้นว่างจะใช้เซิร์ฟเวอร์ห้องบน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odanın web adresi. Boş bırakılırsa bu Mac'teki oda sunucusu kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Веб-адреса кімнати. Якщо порожньо, використовується сервер кімнати на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Địa chỉ web của phòng. Để trống sẽ dùng máy chủ phòng trên máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "房间的网址。留空则使用这台 Mac 上的房间服务器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "房間的網址。留空則使用這台 Mac 上的房間伺服器。"
+          }
+        }
+      }
+    },
     "settings.layout.centerFocusedColumn": {
       "extractionState": "manual",
       "localizations": {

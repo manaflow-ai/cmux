@@ -28,6 +28,12 @@ enum ComputerUseSessionStrings {
         String(localized: "handlers.computerUse.helperNotRunning", defaultValue: "The Computer Use helper is not running.",
                table: "MiscHandlers", bundle: .module)
     }
+    /// The helper had exited without its exit being noticed; it is starting again.
+    static var helperRestarting: String {
+        String(localized: "handlers.computerUse.helperRestarting",
+               defaultValue: "The Computer Use helper had stopped, so cmux is starting it again. Try again in a moment.",
+               table: "MiscHandlers", bundle: .module)
+    }
     static var hostUnreachable: String {
         String(localized: "handlers.computerUse.hostUnreachable", defaultValue: "The Computer Use helper did not answer.",
                table: "MiscHandlers", bundle: .module)
