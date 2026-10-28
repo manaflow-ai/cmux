@@ -530,6 +530,11 @@ test("a chat's peer on a connection that lists no peers is not shown down", asyn
   // This machine's own acpmux that no longer lists it: not connected, as before.
   const [gone] = knownMachines([], chats, {}, [], {}, {});
   expect(peerLink(gone!)).toBe("offline");
+  // Until a read answers, this machine's own acpmux's list is not known either.
+  const failed = await client("connected", { events: true, failStatus: 1 });
+  expect(failed.last()?.peersUnlisted).toBe(true);
+  await failed.client.refreshPeersOnOpen();
+  expect(failed.last()?.peersUnlisted).toBeUndefined();
   // The pane says so in its snapshot on another host's connection, and not on this machine's own.
   expect((await client("connected", { events: true, origin: "peer" })).last()?.peersUnlisted).toBe(true);
   expect((await client("connected", { events: true })).last()?.peersUnlisted).toBeUndefined();

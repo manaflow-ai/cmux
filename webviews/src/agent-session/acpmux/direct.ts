@@ -1478,6 +1478,8 @@ export class AcpmuxDirectClient {
   /// one said since it began alone, and lays them again on any list it installs itself.
   private peerPushLog = new Map<string, { count: number; params: unknown }>();
   /// The peer list was read on this connection: until it is (a failed read), opening the list reads it.
+  /// `peerListKnown`: some read has answered since this page connected (a later failure keeps it).
+  private peerListKnown = false;
   private peersRead = false;
   /// Each peer's last push taken (its `at`): a lagging watcher's repeat of an older note is not news.
   private peerNoteAt = new Map<string, number>();
@@ -4696,7 +4698,9 @@ export class AcpmuxDirectClient {
       peerKinds: this.peerKinds,
       peerConnected: this.peerConnected,
       peerStates: this.peerStates,
-      ...(this.listsPeers ? {} : { peersUnlisted: true as const }),
+      // No list read yet (or another host's connection, which reads none): a chat's peer it does
+      // not name is not known to be down.
+      ...(this.listsPeers && this.peerListKnown ? {} : { peersUnlisted: true as const }),
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: summary
         ? {
@@ -6700,6 +6704,7 @@ export class AcpmuxDirectClient {
       this.peerReadApplied = ++this.peerReadsStarted;
       this.readPeers(reply);
       this.peersRead = true;
+      this.peerListKnown = true;
       for (const [peer, entry] of this.peerPushLog) if (pushedSince(peer)) this.applyPeerState(entry.params, true);
       if (!this.snapshotHold) this.emit();
       return;
@@ -6736,6 +6741,7 @@ export class AcpmuxDirectClient {
         this.peerReadApplied = number;
         this.readPeers(status);
         this.peersRead = true;
+        this.peerListKnown = true;
         for (const params of this.pushedDuringReads.values()) this.applyPeerState(params, true);
       }
       return status;
