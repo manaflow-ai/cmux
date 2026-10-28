@@ -70,13 +70,9 @@ impl Store {
         self.dir.join(format!("{id}.bundle"))
     }
 
-    /// The bounded finished-answer memo in the daemon state directory, or
-    /// beside archive manifests for a standalone CLI pass.
+    /// The bounded finished-answer memo shared by every daemon on this host.
     pub fn finished_path(&self) -> PathBuf {
-        std::env::var_os("ACPMUX_HOME").map(PathBuf::from).map_or_else(
-            || self.dir.join("finished-answers.json"),
-            |home| home.join("worktree-finished-answers.json"),
-        )
+        self.dir.join("finished-answers.json")
     }
 
     pub fn save(&self, manifest: &Manifest) -> Result<(), String> {

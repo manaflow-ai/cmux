@@ -3,7 +3,7 @@
 //! an optional lock, so a scan never rewrites an index and never makes a
 //! worktree look used.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -12,6 +12,7 @@ use cmux_git::Repository;
 use cmux_git::run::Override;
 use serde::{Deserialize, Serialize};
 
+pub use crate::finished_memo::FinishedMemo;
 use crate::git::{self, is_object_id, records};
 
 /// Ignored folders that only hold what a build or an install made, by name
@@ -177,7 +178,7 @@ fn common_dir(folder: &Path) -> Option<PathBuf> {
 
 /// Reads a repository's linked worktrees and their facts.
 pub fn scan(common_dir: &Path, bases: &[String]) -> Result<Repo, String> {
-    scan_with_memo(common_dir, bases, Arc::new(FinishedMemo::memory()))
+    scan_with_memo(common_dir, bases, Arc::clone(&FINISHED))
 }
 
 /// Reads a repository using the supplied finished-answer memo. The memo is
@@ -512,7 +513,7 @@ fn operation(git_dir: &Path) -> Option<String> {
 
 /// How HEAD's work is on a base: in it, or merged into it changing nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-enum Finish {
+pub(crate) enum Finish {
     InBase,
     Squashed,
 }
@@ -525,95 +526,32 @@ enum Finish {
 /// half an hour a pass. Keyed by the worktree too (its config may merge
 /// differently), and never used in a repository with replacement refs or
 /// grafts, which change history without changing ids.
-type Answers = HashMap<(PathBuf, String, String), Option<Finish>>;
-/// The most pairs a [`FinishedMemo`] keeps; past it, it starts over.
-const MAX_REMEMBERED: usize = 16_384;
-
-#[derive(Debug, Serialize, Deserialize)]
-struct StoredAnswer {
-    root: PathBuf,
-    head: String,
-    base: String,
-    answer: Option<Finish>,
-}
-
-/// The finished answers for one pass. A path is optional so ordinary library
-/// scans stay memory-only; the daemon gives it its private state file.
-#[derive(Debug)]
-pub struct FinishedMemo {
-    path: Option<PathBuf>,
-    answers: Mutex<Answers>,
-}
-
-impl FinishedMemo {
-    /// Starts an in-memory memo for callers that do not own a state dir.
-    pub fn memory() -> Self {
-        Self { path: None, answers: Mutex::default() }
-    }
-
-    /// Loads valid answers from `path`; corrupt or oversized state is ignored.
-    pub fn load(path: PathBuf) -> Self {
-        let answers = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Vec<StoredAnswer>>(&bytes).ok())
-            .map(|entries| {
-                entries
-                    .into_iter()
-                    .take(MAX_REMEMBERED)
-                    .map(|entry| ((entry.root, entry.head, entry.base), entry.answer))
-                    .collect()
-            })
-            .unwrap_or_default();
-        Self { path: Some(path), answers: Mutex::new(answers) }
-    }
-
-    /// Flushes the bounded memo atomically. Callers normally do this once at
-    /// the end of a pass so a large scan does not rewrite the whole file per
-    /// worktree.
-    pub fn flush(&self) {
-        let Some(path) = &self.path else { return };
-        let entries: Vec<_> = self
-            .answers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-            .into_iter()
-            .map(|((root, head, base), answer)| StoredAnswer { root, head, base, answer })
-            .collect();
-        let Ok(bytes) = serde_json::to_vec(&entries) else { return };
-        let temporary = path.with_extension("json.tmp");
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if std::fs::write(&temporary, bytes).is_ok() {
-            let _ = std::fs::rename(temporary, path);
-        }
-    }
-
-    fn key(root: &Path, head: &str, base: &str) -> (PathBuf, String, String) {
-        (root.to_path_buf(), head.to_string(), base.to_string())
-    }
-
-    fn remembered(&self, root: &Path, head: &str, base: &str) -> Option<Option<Finish>> {
-        let memo = self.answers.lock().unwrap_or_else(|e| e.into_inner());
-        memo.get(&Self::key(root, head, base)).copied()
-    }
-
-    fn remember(&self, root: &Path, head: &str, base: &str, answer: Option<Finish>) {
-        let mut memo = self.answers.lock().unwrap_or_else(|e| e.into_inner());
-        if memo.len() >= MAX_REMEMBERED {
-            memo.clear();
-        }
-        memo.insert(Self::key(root, head, base), answer);
-    }
-}
+static FINISHED: LazyLock<Arc<FinishedMemo>> = LazyLock::new(|| Arc::new(FinishedMemo::memory()));
 
 static MERGE_TREE: LazyLock<Mutex<()>> = LazyLock::new(Mutex::default);
 /// A branch larger than this is not worth attempting a memory-heavy merge.
 pub const MAX_SQUASH_COMMITS: u64 = 128;
-/// Address-space ceiling for one merge-tree child on Unix systems that
-/// support `RLIMIT_AS`.
+/// Linux address-space ceiling for one merge-tree child. Other platforms
+/// retain the deadline and serialization without an unsupported OS limit.
 pub const MERGE_TREE_MEMORY: u64 = 768 << 20;
+
+/// Nonblocking host-wide lock shared by daemon and standalone scans. Busy or
+/// unreadable means unknown, never a remembered negative answer. The lock is
+/// independent of the pass lock, which daemon callers already hold.
+fn merge_tree_claim() -> Option<std::fs::File> {
+    let dir = crate::Store::default_dir()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).truncate(false).read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = options.open(dir.join(".merge-tree.lock")).ok()?;
+    file.try_lock().ok()?;
+    Some(file)
+}
 
 /// Whether history in this repository can differ from what its ids say:
 /// replacement refs or a grafts file. Unreadable counts as yes.
@@ -708,12 +646,17 @@ fn finish(
     )?;
     // A conflict (`Ok(None)`) is never the base's tree. A run that could
     // not finish, or failed saying why, is no answer: not remembered.
-    let commits =
-        git::try_line(root, overrides, &["rev-list", "--count", &format!("{base}..{head}")])?;
+    let maximum = format!("--max-count={}", MAX_SQUASH_COMMITS + 1);
+    let commits = git::try_line(
+        root,
+        overrides,
+        &["rev-list", "--count", &maximum, &format!("{base}..{head}")],
+    )?;
     if !within_squash_limit(&commits) {
         return None;
     }
-    let _merge_guard = MERGE_TREE.lock().unwrap_or_else(|e| e.into_inner());
+    let _merge_guard = MERGE_TREE.try_lock().ok()?;
+    let _host_guard = merge_tree_claim()?;
     let merged = git::read_scratch_objects(
         root,
         overrides,

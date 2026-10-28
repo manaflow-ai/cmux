@@ -104,7 +104,8 @@ pub fn run_git_scratch_objects_within(
 }
 
 /// [`run_git_scratch_objects_within`] with an optional address-space limit for
-/// the child. A limit is best effort on platforms without `RLIMIT_AS`.
+/// the child on Linux. Other platforms keep the deadline without this limit.
+#[allow(clippy::too_many_arguments)]
 pub fn run_git_scratch_objects_within_limited(
     directory: &Path,
     overrides: &[Override],
@@ -228,6 +229,7 @@ fn lower(pid: u32) {
 #[cfg(not(unix))]
 fn lower(_pid: u32) {}
 
+#[allow(clippy::too_many_arguments)]
 fn run(
     directory: &Path,
     overrides: &[Override],
@@ -238,7 +240,7 @@ fn run(
     env: &[(&str, &OsStr)],
     address_space_limit: Option<u64>,
 ) -> Result<GitOutput, GitFailure> {
-    #[cfg(not(unix))]
+    #[cfg(not(target_os = "linux"))]
     let _ = address_space_limit;
     let deadline = deadline.min(DEADLINE);
     if deadline.is_zero() {
@@ -264,16 +266,23 @@ fn run(
     {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
         if let Some(limit) = address_space_limit {
             // SAFETY: this closure only changes the resource limit in the
             // child, between fork and exec; it touches no shared state.
             unsafe {
                 command.pre_exec(move || {
-                    let limit = libc::rlim_t::try_from(limit).map_err(|_| {
-                        std::io::Error::new(ErrorKind::InvalidInput, "memory limit")
-                    })?;
-                    let resource = libc::rlimit { rlim_cur: limit as _, rlim_max: limit as _ };
-                    if libc::setrlimit(libc::RLIMIT_AS, &resource) == 0 {
+                    let limit = limit as libc::rlim_t;
+                    let mut resource = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+                    if libc::getrlimit(libc::RLIMIT_AS as _, &mut resource) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    resource.rlim_cur = resource.rlim_cur.min(limit as _);
+                    resource.rlim_max = resource.rlim_max.min(limit as _);
+                    if libc::setrlimit(libc::RLIMIT_AS as _, &resource) == 0 {
                         Ok(())
                     } else {
                         Err(std::io::Error::last_os_error())
@@ -312,6 +321,9 @@ fn run(
     let (stdout, truncated) = stdout.join().unwrap_or_default();
     let (stderr, _) = stderr.join().unwrap_or_default();
     if !status.success() {
+        if status.code() != Some(1) && address_space_limit.is_some() {
+            return Err(GitFailure::Unavailable(format!("bounded git exited with {status}")));
+        }
         return Err(GitFailure::Exit(explained(String::from_utf8_lossy(&stderr).trim())));
     }
     Ok(GitOutput { stdout, truncated })
