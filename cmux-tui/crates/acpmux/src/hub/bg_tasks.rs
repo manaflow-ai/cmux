@@ -299,13 +299,25 @@ fn bg_task_ids(dir: &std::path::Path) -> std::io::Result<Vec<String>> {
     Ok(ids.into_iter().collect())
 }
 
-/// The folder's generation (`.generation`, made with the folder's first task when `make`).
+/// The folder's generation (`.generation`, made with the folder's first task when `make`). An
+/// empty file (a write a crash or a full disk cut short) is no generation: no task ever started
+/// with one, and `make` replaces it. A new one appears whole (written aside, then renamed), so a
+/// runner's stops always match the generation its folder holds.
 fn bg_generation(dir: &std::path::Path, make: bool) -> std::io::Result<String> {
     let path = dir.join(".generation");
-    match std::fs::read_to_string(&path) {
+    let read = std::fs::read_to_string(&path).and_then(|g| match g.trim() {
+        "" => Err(std::io::Error::new(std::io::ErrorKind::NotFound, "an empty generation")),
+        g => Ok(g.to_owned()),
+    });
+    match read {
         Err(e) if make && e.kind() == std::io::ErrorKind::NotFound => {
             let generation = uuid::Uuid::now_v7().simple().to_string();
-            std::fs::write(&path, &generation)?;
+            let aside = dir.join(format!(".generation.{generation}"));
+            std::fs::write(&aside, &generation)
+                .and_then(|()| std::fs::rename(&aside, &path))
+                .inspect_err(|_| {
+                    let _ = std::fs::remove_file(&aside);
+                })?;
             Ok(generation)
         }
         r => r,

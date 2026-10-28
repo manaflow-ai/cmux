@@ -318,9 +318,6 @@ async fn a_purge_never_stops_a_runner_of_another_generation() {
     std::fs::write(dir.join(".generation"), "a-later-folder").unwrap();
     assert!(acpmux::bg_run::request_stop(&dir, &task_id, "a-later-folder"));
     r.c.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await.unwrap();
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    assert!(alive(pid as u32), "a stop of another generation ended the task");
-    // Its own generation stops it, in the folder the purge moved aside.
     let aside = acpmux::config::home().join("bg").join(".purged");
     let moved = std::fs::read_dir(&aside)
         .unwrap()
@@ -328,6 +325,26 @@ async fn a_purge_never_stops_a_runner_of_another_generation() {
         .map(|e| e.path())
         .find(|p| p.file_name().unwrap().to_string_lossy().starts_with(&format!("{id}-")))
         .expect("the purge moved no folder aside");
+    // The runner's one reader took both stops off the FIFO, and a stop it acted on would have
+    // sent SIGTERM right then (a plain `sleep` ends at once); the margin covers that.
+    let ctl = acpmux::bg_run::ctl_path(&moved, &task_id);
+    r.until("the runner never read the stops", || unread(&ctl) == Some(0)).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(alive(pid as u32), "a stop of another generation ended the task");
+    // Its own generation stops it, in the folder the purge moved aside.
     assert!(acpmux::bg_run::request_stop(&moved, &task_id, &own), "the runner left its FIFO");
     r.until("a stop of the runner's own generation did not end it", || !alive(pid as u32)).await;
+}
+
+/// The bytes written to the FIFO at `path` that its reader has not read yet (`None`: no reader).
+#[cfg(unix)]
+fn unread(path: &std::path::Path) -> Option<usize> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::OpenOptionsExt;
+    let f =
+        std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(path).ok()?;
+    let mut n: libc::c_int = 0;
+    // SAFETY: FIONREAD into a c_int this function owns, on a descriptor it holds.
+    let r = unsafe { libc::ioctl(f.as_raw_fd(), libc::FIONREAD as _, &mut n) };
+    (r == 0).then_some(n as usize)
 }
