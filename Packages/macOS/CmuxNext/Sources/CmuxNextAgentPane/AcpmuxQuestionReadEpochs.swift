@@ -10,7 +10,8 @@ public nonisolated struct AcpmuxQuestionReadEpochs: Sendable, Equatable {
 
     public init() {}
 
-    /// Register a native relay token before sending its request. Tokens are one-use and bounded.
+    /// Register before sending. The caller supplies connection-unique monotonic relay tokens
+    /// (AcpmuxRequestIds); this bounded map permits an explicitly reissued retired integer.
     @discardableResult
     public mutating func issue(_ token: Int) -> Bool {
         guard !issued.keys.contains(token), issued.count < Self.limit else { return false }

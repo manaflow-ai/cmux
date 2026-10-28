@@ -34,7 +34,8 @@ struct AcpmuxQuestionReadEpochsTests {
         var reads = AcpmuxQuestionReadEpochs()
         #expect(reads.issue(7))
         #expect(!reads.issue(7))
-        for token in 8...AcpmuxQuestionReadEpochs.limit {
+        // Together with token 7 above, exactly limit distinct requests are outstanding.
+        for token in 1...AcpmuxQuestionReadEpochs.limit where token != 7 {
             #expect(reads.issue(token))
         }
         #expect(!reads.issue(AcpmuxQuestionReadEpochs.limit + 1))
