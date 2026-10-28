@@ -36,24 +36,25 @@ const GIB = 1024;
 export const AUTOSIZE_SESSION_NEED: AutosizeNeed = { memoryMb: 2 * GIB, cpus: 2, why: "fleet light-step grant" };
 
 /**
- * A task's need beyond the session, by kind and toolchain. Memory is the
- * fleet's measured grant for the same work (ci_step_mem.go, p95 of measured
- * peak growth plus 20%); cores are the fleet's: light work 2
- * (cpubudget ClassDefault), a compile or test run 8 (codex-lane-hosts: any
- * build selects e2-standard-8). A chat (agent turns, reads, edits) is light
- * work whatever the repo.
+ * A task's need beyond the session, by kind and toolchain: the fleet's
+ * measured grant for the same work. Memory from ci_step_mem.go (p95 of
+ * measured peak growth plus 20%), cores from ci_step_cpu.go (measured core
+ * use per step: Release compile 4, Rust check 8, Swift suites 6, webview
+ * tests 6). A step the fleet has no script for takes its isolated grant, on 8
+ * cores (codex-lane-hosts: a build selects e2-standard-8). A chat (agent
+ * turns, reads, edits) is light work whatever the repo.
  */
 export const TASK_NEEDS: Readonly<Record<Exclude<AutosizeTaskKind, "chat">, Readonly<Record<AutosizeToolchain, AutosizeNeed>>>> = {
   build: {
-    swift: { memoryMb: 13 * GIB, cpus: 8, why: "check-release-compile.sh grant" },
+    swift: { memoryMb: 13 * GIB, cpus: 4, why: "check-release-compile.sh grant" },
     rust: { memoryMb: 15 * GIB, cpus: 8, why: "cmux-tui-rust-check.sh grant" },
-    node: { memoryMb: 2 * GIB, cpus: 2, why: "light-step grant (webview, lint)" },
+    node: { memoryMb: 2 * GIB, cpus: 6, why: "webview tests grant" },
     unknown: { memoryMb: 8 * GIB, cpus: 8, why: "isolated-step grant" },
   },
   test: {
-    swift: { memoryMb: 11 * GIB, cpus: 8, why: "package-test-lane.sh grant" },
+    swift: { memoryMb: 11 * GIB, cpus: 6, why: "package-test-lane.sh grant" },
     rust: { memoryMb: 15 * GIB, cpus: 8, why: "cmux-tui-rust-check.sh grant" },
-    node: { memoryMb: 2 * GIB, cpus: 2, why: "light-step grant (webview, lint)" },
+    node: { memoryMb: 2 * GIB, cpus: 6, why: "webview tests grant" },
     unknown: { memoryMb: 8 * GIB, cpus: 8, why: "isolated-step grant" },
   },
 };
@@ -133,12 +134,16 @@ function measuredNeed(runs: readonly MeasuredRun[]) {
     const known = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0);
     return known.length ? p95(known) : null;
   };
-  // A run that ran short used all it had and wanted more: count it as needing the next shape up.
-  const memory = pick(runs.map((run) => (run.ranShort ? run.memoryMb + 1 : run.peakMemoryMb)));
+  const memory = pick(runs.map((run) => (run.ranShort ? undefined : run.peakMemoryMb)));
   const cpus = pick(runs.map((run) => run.meanBusyCpus));
   const disk = pick(runs.map((run) => run.peakDiskMb));
+  // A run that ran short used all it had and wanted more. Whatever the other
+  // runs say, the need is above the largest shape that ran short, so one
+  // failure is never outvoted by the percentile.
+  const shortMb = Math.max(0, ...runs.filter((run) => run.ranShort).map((run) => run.memoryMb + 1));
+  const memoryMb = memory === null ? null : withMargin(memory);
   return {
-    memoryMb: memory === null ? null : withMargin(memory),
+    memoryMb: shortMb > 0 ? Math.max(memoryMb ?? 0, shortMb) : memoryMb,
     cpus: cpus === null ? null : Math.ceil(cpus * MEASURED_MARGIN),
     diskMb: disk === null ? null : withMargin(disk),
   };

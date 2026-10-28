@@ -36,8 +36,8 @@ describe("pickMachineSize from the table (no earlier runs)", () => {
     expect(result).toMatchObject({ pick: "lg", vcpus: 8, memoryGb: 16, reason: "8 vCPU · 16 GB, picked for a Swift build" });
   });
 
-  test("a Node test is light work", () => {
-    expect(pick({ taskKind: "test", repo: { rootFiles: ["package.json"] } }).pick).toBe("sm");
+  test("a Node test needs little memory but the webview tests' 6 cores", () => {
+    expect(pick({ taskKind: "test", repo: { rootFiles: ["package.json"] } })).toMatchObject({ pick: "lg", reason: "8 vCPU · 16 GB, picked for a Node test" });
   });
 
   test("a build of an unknown toolchain gets the isolated-step grant", () => {
@@ -102,6 +102,12 @@ describe("pickMachineSize from measured runs", () => {
   test("an axis with no measurement keeps the table", () => {
     // Cores measured, memory not: the Swift build's 15 GiB stands.
     expect(pick({ taskKind: "build", repo: { rootFiles: ["Package.swift"] }, measuredRuns: [{ vcpus: 8, memoryMb: 16384, meanBusyCpus: 1 }] }).pick).toBe("lg");
+  });
+
+  test("one run that ran short is never outvoted by the percentile", () => {
+    const fine = Array.from({ length: 19 }, () => run(2000, 1));
+    const result = pick({ taskKind: "chat", measuredRuns: [...fine, { vcpus: 4, memoryMb: 8192, ranShort: true }] });
+    expect(result.pick).toBe("lg");
   });
 
   test("only the newest runs count", () => {
