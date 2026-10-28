@@ -304,7 +304,10 @@ pub(crate) async fn stream_prompt(
 ) -> Result<()> {
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
+    let attached = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
+    // Requests retain the peer route; streamed notifications carry the owning daemon's
+    // unqualified id, as the attach reply identifies it.
+    let event_id = attached["session"]["sessionId"].as_str().unwrap_or(id);
     let c = client.clone();
     let params = prompt.params(id, text, steer, None);
     let turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
@@ -366,7 +369,7 @@ pub(crate) async fn stream_prompt(
                 let Message::Notification { method: m, params } = m else { continue };
                 if m == method::MUX_DISCONNECTED { return Err(prompt.closed(&client, id, "streaming the session")); }
                 let p = params.unwrap_or(Value::Null);
-                if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
+                if p.get("sessionId").and_then(Value::as_str) != Some(event_id) { continue; }
                 if let Some(answer) = steered.heard(&m, &p) { break answer; }
                 if agent_activity(&m, &p) {
                     activity = true;
@@ -656,7 +659,8 @@ async fn collect_once(
 ) -> Result<CollectResult> {
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
+    let attached = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
+    let event_id = attached["session"]["sessionId"].as_str().unwrap_or(id);
     let c = client.clone();
     let params = prompt.params(id, text, opts.steer, None);
     let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
@@ -709,7 +713,7 @@ async fn collect_once(
                 let Message::Notification { method: m, params } = m else { continue };
                 if m == method::MUX_DISCONNECTED { return Err(prompt.closed(&client, id, "streaming the session")); }
                 let p = params.unwrap_or(Value::Null);
-                if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
+                if p.get("sessionId").and_then(Value::as_str) != Some(event_id) { continue; }
                 if let Some(answer) = steered.heard(&m, &p) { break answer; }
                 if agent_activity(&m, &p) {
                     activity = true;

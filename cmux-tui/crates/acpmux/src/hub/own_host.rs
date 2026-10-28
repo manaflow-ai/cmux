@@ -11,6 +11,11 @@ impl Hub {
     /// that name (its session is the one meant), so it can only reach a session the bare `NAME`
     /// names exactly.
     pub fn resolve(&self, key: &str) -> Result<Arc<Session>, RpcError> {
+        // A known peer's qualified stable id is authoritative, even when a local chat's
+        // display name happens to be that entire string. Leave it to peer forwarding.
+        if key.contains('/') && self.remote_sessions.lock().unwrap().contains_key(key) {
+            return Err(RpcError::not_found(format!("no local session with the id {key:?}")));
+        }
         let found = self.resolve_here(key);
         if found.as_ref().is_err_and(|e| e.code == RpcError::not_found("").code)
             && let Some((host, rest)) = key.split_once('/')

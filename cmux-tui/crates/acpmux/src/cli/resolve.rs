@@ -2,11 +2,69 @@
 //! `cmux.com/deeplink/agent?...` of a PR footer), a session id or a name names, on this daemon
 //! or a peer, with its host, ids, harness, model, folder, lane, pull requests and last turn.
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 
+use crate::cli::errors::{AppError, Code};
 use crate::cli::output::{age, print_json, short};
 use crate::rpc::method;
+
+/// Resolve a lifecycle operation once, before sending it to the owning daemon. A name is
+/// only a lookup key; every subsequent request carries the stable id and its peer route.
+pub(crate) async fn control_id(client: &crate::client::Client, key: &str) -> Result<String> {
+    let query = crate::cli::orchestrate::expand_session_key(key)?;
+    let reply =
+        client.request(method::MUX_RESOLVE, json!({"query": query})).await.map_err(|e| {
+            if e.downcast_ref::<crate::client::DaemonError>().is_some_and(|e| e.0.code == -32002) {
+                AppError::new(Code::NoSession, "no_session", e.to_string()).into()
+            } else {
+                e
+            }
+        })?;
+    let matches = reply["matches"]
+        .as_array()
+        .ok_or_else(|| anyhow!("resolve returned no session matches for {query:?}"))?;
+    if matches.is_empty() {
+        return Err(AppError::no_session(&query).into());
+    }
+    let [session] = matches.as_slice() else {
+        let candidates = matches
+            .iter()
+            .map(|s| {
+                format!(
+                    "{} ({})",
+                    s["name"].as_str().unwrap_or("?"),
+                    s["qualifiedSessionId"].as_str().unwrap_or("?")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(AppError::new(
+            Code::Usage,
+            "ambiguous_session",
+            format!(
+                "session {query:?} is ambiguous ({} matches); use a qualified session id: {candidates}",
+                matches.len()
+            ),
+        )
+        .into());
+    };
+    routed_id(session)
+}
+
+/// A create/resolve reply's stable id, qualified for subsequent requests on this daemon.
+pub(crate) fn routed_id(session: &Value) -> Result<String> {
+    let id = session["sessionId"]
+        .as_str()
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| anyhow!("the daemon returned no stable session id"))?;
+    // Local replies retain the unqualified id. For a peer, never lose its route by looking
+    // up the bare id a second time: another daemon may hold a copy of the same session.
+    Ok(match session["peer"].as_str() {
+        Some(peer) => format!("{peer}/{id}"),
+        None => id.to_owned(),
+    })
+}
 
 pub async fn run(query: String, json_out: bool) -> Result<()> {
     let query = crate::cli::orchestrate::expand_session_key(&query)?;

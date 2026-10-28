@@ -486,7 +486,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     }
                 },
             };
-            let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+            let id = crate::cli::resolve::routed_id(&v)?;
+            let session_id = v["sessionId"].as_str().unwrap_or_default();
             // Started past this host's lane cap: a warning, never a refusal (`hub/admission.rs`).
             if reused.is_none()
                 && let Some(w) =
@@ -498,7 +499,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .pointer("/_meta/acpmux/name")
                 .or_else(|| v.get("name"))
                 .and_then(Value::as_str)
-                .unwrap_or(&id)
+                .unwrap_or(session_id)
                 .to_owned();
             // A failed sidebar step only warns: the prompt is still sent.
             let show = || {
@@ -507,7 +508,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     // Generated names can be identical on independent peers.
                     let title =
                         launch.name.as_ref().map(|_| launch.title.as_deref().unwrap_or(&name));
-                    if let Err(e) = launch::show_in_group(&id, title, group) {
+                    if let Err(e) = launch::show_in_group(session_id, title, group) {
                         eprintln!("acpmux: {e:#}");
                     }
                 }
@@ -539,13 +540,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 } else if first.is_some() {
                     println!(
                         "reused {name} ({}): it had no prompt yet, so its first prompt is queued",
-                        &id[..8.min(id.len())]
+                        &session_id[..8.min(session_id.len())]
                     );
                 } else {
                     println!(
                         "reused {name} ({}): it already runs, so the prompt was not sent again; \
                          use `acpmux send {name}` to give it more",
-                        &id[..8.min(id.len())]
+                        &session_id[..8.min(session_id.len())]
                     );
                 }
                 return Ok(());
@@ -565,8 +566,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 print_json(&info);
             } else if !one_shot {
                 let folder = v.pointer("/_meta/acpmux/cwd").and_then(Value::as_str);
-                let line =
-                    crate::cli::session_folder::created_line(&name, &id, host.as_deref(), folder);
+                let line = crate::cli::session_folder::created_line(
+                    &name,
+                    session_id,
+                    host.as_deref(),
+                    folder,
+                );
                 println!("{line}");
                 if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
                     let g = |k: &str| w.get(k).and_then(Value::as_str).unwrap_or_default();
@@ -600,7 +605,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     }
                     let r = outcome?;
                     if json_out {
-                        let mut out = json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": ephemeral});
+                        let mut out = json!({"sessionId": session_id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": ephemeral});
+                        if v["peer"].is_string() {
+                            out["peer"] = v["peer"].clone();
+                            out["qualifiedSessionId"] = json!(id);
+                        }
                         if let Some(a) = v.pointer("/_meta/acpmux/admission") {
                             out["admission"] = a.clone();
                         }
@@ -645,7 +654,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if args.detach || json_out {
                 return Ok(());
             }
-            crate::tui::run(client, Some(id)).await
+            crate::tui::run(client, Some(session_id.to_owned())).await
         }
         Command::Send {
             session,
