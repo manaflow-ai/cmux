@@ -74,7 +74,7 @@ export function groupAgentMessages(rows: readonly AcpmuxRow[], last?: readonly A
       const before = previous.get(id);
       const oldRows = before?.waiting?.rows;
       const same = oldRows?.length === run.length && oldRows.every((row, index) => row === run[index]);
-      if (same) out.push(before);
+      if (before && same) out.push(before);
       else {
         const lastRow = run[run.length - 1]!;
         out.push({
@@ -82,7 +82,7 @@ export function groupAgentMessages(rows: readonly AcpmuxRow[], last?: readonly A
           version: (before?.version ?? 0) + 1,
           at: run[0]!.at,
           kind: WAITING_MESSAGES,
-          text: run.map((row) => row.incoming?.kind === "message" ? row.incoming.message.text : "").join("\n\n"),
+          text: run.map((row) => (row.incoming?.kind === "message" ? row.incoming.message.text : "")).join("\n\n"),
           untyped: true,
           joined: run.map((row) => row.id),
           waiting: { delivery: "chat", rows: run },

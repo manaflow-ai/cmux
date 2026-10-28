@@ -1422,7 +1422,7 @@ export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edg
 
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
 export function layoutConversation(
-  rows: AcpmuxRow[],
+  rows: readonly AcpmuxRow[],
   width: number,
   cache = new Map<string, PreparedRow>(),
   measureOverride?: (row: AcpmuxRow, width: number) => number | undefined,
