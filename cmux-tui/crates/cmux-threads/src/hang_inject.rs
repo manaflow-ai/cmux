@@ -6,7 +6,7 @@
 //! `chrome://uithreadhang` and `chrome://gpuhang` run the hang on the thread
 //! itself (content/browser/renderer_host/debug_urls.cc, `HangCurrentThread`).
 //!
-//! One file of two 4 KiB pages, `/tmp/cmux-hang-inject-<uid>.page`
+//! One file of four 4 KiB pages, `/tmp/cmux-hang-inject-<uid>.page`
 //! (`CMUX_HANG_INJECT_PAGE` names another file), is mapped shared by every
 //! debug cmux process that opens a watched scope: the daemon, its holder, its
 //! terminal hosts and acpmux. An entry names a lane and the one pid that may
@@ -17,7 +17,10 @@
 //! The rest of the file is the registry: each process publishes the lanes it
 //! watches ([`publish`], once per thread registration or hang site), so
 //! hang-matrix.py tells a lane no thread registers from one that did not run.
-//! A registration of a process that has exited is reused.
+//! A registration of a process that has exited is reused. The last two pages
+//! say where each process's cmux-hang-watch writes its records
+//! ([`publish_hang_file`]): the daemon, its holder, each terminal host and
+//! acpmux each write `hangs-<pid>.jsonl` in a folder of their own.
 //!
 //! The scope's cost ([`hold_if_armed`]) is one load of the mapping and one
 //! relaxed load of the armed count while nothing is armed. Release builds do
@@ -26,7 +29,7 @@
 use std::io;
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering, fence};
 use std::time::Duration;
 
 /// The environment variable that names the page file (tests, a second matrix).
@@ -41,8 +44,13 @@ pub const ENTRIES: usize = 32;
 pub const NAME_BYTES: usize = 32;
 /// Registrations one page holds.
 pub const REGISTRATIONS: usize = 95;
-/// The bytes the page file is sized to (two 4 KiB pages: the arms, then the registry).
-pub const PAGE_BYTES: usize = 8192;
+/// Processes whose hang file one page holds.
+pub const HANG_FILES: usize = 32;
+/// Bytes of a hang file's path one entry keeps.
+pub const PATH_BYTES: usize = 240;
+/// The bytes the page file is sized to (four 4 KiB pages: the arms, the
+/// registry, then the hang files).
+pub const PAGE_BYTES: usize = 16384;
 
 const NAME_WORDS: usize = NAME_BYTES / 8;
 const MAGIC: u64 = u64::from_le_bytes(*b"cmuxhgi2");
@@ -80,6 +88,19 @@ struct Registration {
 
 const _: () = assert!(size_of::<Registration>() == 64);
 
+const PATH_WORDS: usize = PATH_BYTES / 8;
+
+/// Where one process's cmux-hang-watch writes its records (256 bytes). `word`
+/// is a registration's: the state in the low byte, the pid above it.
+#[repr(C, align(64))]
+struct HangFile {
+    word: AtomicU64,
+    len: AtomicU64,
+    path: [AtomicU64; PATH_WORDS],
+}
+
+const _: () = assert!(size_of::<HangFile>() == 256);
+
 /// The shared page: a header line, then the entries.
 #[repr(C, align(64))]
 pub struct Page {
@@ -89,6 +110,7 @@ pub struct Page {
     _header: [AtomicU64; 6],
     entries: [Entry; ENTRIES],
     registrations: [Registration; REGISTRATIONS],
+    hang_files: [HangFile; HANG_FILES],
 }
 
 const _: () = assert!(size_of::<Page>() <= PAGE_BYTES);
@@ -111,6 +133,13 @@ pub struct Registered {
     pub pid: u32,
 }
 
+/// A live process's hang file, as [`Page::hang_files`] reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PublishedHangFile {
+    pub pid: u32,
+    pub path: PathBuf,
+}
+
 /// Why an arm or the page map failed.
 #[derive(Debug)]
 pub enum InjectError {
@@ -123,6 +152,8 @@ pub enum InjectError {
     BadBlock,
     /// The pid is 0.
     BadPid,
+    /// The hang file's path is not UTF-8, or longer than [`PATH_BYTES`].
+    BadPath,
     /// The lane is armed already for that process.
     AlreadyArmed,
     /// Every entry is armed, or every registration is a live process's.
@@ -144,6 +175,7 @@ impl std::fmt::Display for InjectError {
             ),
             InjectError::BadBlock => f.write_str("ms must be 1 to 30000"),
             InjectError::BadPid => f.write_str("pid must be a process id"),
+            InjectError::BadPath => f.write_str("the hang file's path is not UTF-8 or too long"),
             InjectError::AlreadyArmed => f.write_str("this lane is armed already for that process"),
             InjectError::Full => f.write_str("every hang-injection entry is armed"),
             InjectError::Format => f.write_str("the hang-injection page holds another format"),
@@ -262,6 +294,13 @@ impl Page {
                     _pad: [const { AtomicU64::new(0) }; 3],
                 }
             }; REGISTRATIONS],
+            hang_files: [const {
+                HangFile {
+                    word: AtomicU64::new(REG_FREE),
+                    len: AtomicU64::new(0),
+                    path: [const { AtomicU64::new(0) }; PATH_WORDS],
+                }
+            }; HANG_FILES],
         }
     }
 
@@ -454,6 +493,90 @@ impl Page {
             .count()
     }
 
+    /// Publishes that process `pid` writes its hang records to `path`; once
+    /// per process (a second call keeps the first path). An entry of a
+    /// process that has exited is reused.
+    pub fn publish_hang_file(&self, path: &std::path::Path, pid: u32) -> Result<(), InjectError> {
+        self.publish_hang_file_with(path, pid, alive)
+    }
+
+    fn publish_hang_file_with(
+        &self,
+        path: &std::path::Path,
+        pid: u32,
+        alive: impl Fn(u32) -> bool,
+    ) -> Result<(), InjectError> {
+        let bytes = path.to_str().ok_or(InjectError::BadPath)?.as_bytes();
+        if bytes.is_empty() || bytes.len() > PATH_BYTES {
+            return Err(InjectError::BadPath);
+        }
+        if pid == 0 {
+            return Err(InjectError::BadPid);
+        }
+        let published = (u64::from(pid) << 8) | REG_PUBLISHED;
+        if self.hang_files.iter().any(|file| file.word.load(Ordering::Acquire) == published) {
+            return Ok(());
+        }
+        let claimed = self.hang_files.iter().find(|file| {
+            let word = file.word.load(Ordering::Relaxed);
+            let owner = u32::try_from(word >> 8).unwrap_or(0);
+            (word == REG_FREE || (word & 0xFF == REG_PUBLISHED && !alive(owner)))
+                && file
+                    .word
+                    .compare_exchange(
+                        word,
+                        (u64::from(pid) << 8) | REG_WRITING,
+                        Ordering::Acquire,
+                        Ordering::Relaxed,
+                    )
+                    .is_ok()
+        });
+        let Some(file) = claimed else { return Err(InjectError::Full) };
+        // Seqlock write: a reader that saw the entry's old word sees it change.
+        fence(Ordering::Release);
+        let mut padded = [0u8; PATH_BYTES];
+        padded[..bytes.len()].copy_from_slice(bytes);
+        for (stored, chunk) in file.path.iter().zip(padded.chunks_exact(8)) {
+            let mut le = [0u8; 8];
+            le.copy_from_slice(chunk);
+            stored.store(u64::from_le_bytes(le), Ordering::Relaxed);
+        }
+        file.len.store(u64::try_from(bytes.len()).unwrap_or(0), Ordering::Relaxed);
+        file.word.store(published, Ordering::Release);
+        Ok(())
+    }
+
+    /// The hang file of every live process that published one.
+    pub fn hang_files(&self) -> Vec<PublishedHangFile> {
+        self.hang_files_with(alive)
+    }
+
+    fn hang_files_with(&self, alive: impl Fn(u32) -> bool) -> Vec<PublishedHangFile> {
+        let mut found = Vec::new();
+        for file in &self.hang_files {
+            let word = file.word.load(Ordering::Acquire);
+            let pid = u32::try_from(word >> 8).unwrap_or(0);
+            if word & 0xFF != REG_PUBLISHED || !alive(pid) {
+                continue;
+            }
+            let len =
+                usize::try_from(file.len.load(Ordering::Relaxed)).unwrap_or(0).min(PATH_BYTES);
+            let mut bytes = [0u8; PATH_BYTES];
+            for (stored, chunk) in file.path.iter().zip(bytes.chunks_exact_mut(8)) {
+                chunk.copy_from_slice(&stored.load(Ordering::Relaxed).to_le_bytes());
+            }
+            // Seqlock read: an entry another process reused meanwhile is skipped.
+            fence(Ordering::Acquire);
+            if file.word.load(Ordering::Acquire) != word {
+                continue;
+            }
+            if let Ok(path) = std::str::from_utf8(&bytes[..len]) {
+                found.push(PublishedHangFile { pid, path: PathBuf::from(path) });
+            }
+        }
+        found
+    }
+
     /// Every armed or taken entry.
     pub fn entries(&self) -> Vec<EntryState> {
         self.entries
@@ -537,8 +660,8 @@ pub fn map(path: &std::path::Path) -> Result<&'static Page, InjectError> {
     }
     let bytes = PAGE_BYTES as u64;
     if metadata.len() < bytes {
-        // Grows a new file with zeros (an empty page), or an older one-page file by its registry
-        // (zeros: free); never shrinks one another process mapped.
+        // Grows a new file with zeros (an empty page), or an older shorter file by its registry
+        // and hang files (zeros: free); never shrinks one another process mapped.
         file.set_len(bytes).map_err(InjectError::Io)?;
     }
     // SAFETY: a new shared read-write mapping of PAGE_BYTES of an open file at
@@ -586,6 +709,15 @@ pub fn any_armed() -> bool {
 pub fn publish(lane: &str) {
     if let Some(page) = page() {
         let _ = page.register(lane, std::process::id());
+    }
+}
+
+/// Publishes that this process's cmux-hang-watch writes its records to
+/// `path` (its `hangs-<pid>.jsonl`); nothing when the page is not mapped,
+/// full, or the path does not fit.
+pub fn publish_hang_file(path: &std::path::Path) {
+    if let Some(page) = page() {
+        let _ = page.publish_hang_file(path, std::process::id());
     }
 }
 

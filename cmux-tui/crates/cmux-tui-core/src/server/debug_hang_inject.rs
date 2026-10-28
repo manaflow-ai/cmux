@@ -19,14 +19,18 @@
 //! "pid": 123}` arms (`ms` defaults to 3000, `pid` to the daemon);
 //! `"action": "disarm"` with `lane` (and `pid`) disarms; `"action": "list"`
 //! arms nothing. Every answer has the page, its entries, the daemon's pid, its
-//! hang log, its own lanes with their hang tiers, and the lanes every live
+//! hang log, its own lanes with their hang tiers, the lanes every live
 //! process published to the page's registry (`registered`, with
-//! `registrations_free`: 0 means a lane missing from it may still run).
+//! `registrations_free`: 0 means a lane missing from it may still run), and
+//! the `hangs-<pid>.jsonl` each live process's cmux-hang-watch writes
+//! (`hang_files`).
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use cmux_threads::hang_inject::{self, EntryState, InjectError, Page, Registered};
+use cmux_threads::hang_inject::{
+    self, EntryState, InjectError, Page, PublishedHangFile, Registered,
+};
 use serde_json::{Map, Value, json};
 
 use super::{MessageWriter, Response, WatchKind, send_request_error, send_response};
@@ -56,6 +60,7 @@ const DAEMON_LANES: &[WatchKind] = &[
     WatchKind::PtyInput,
     WatchKind::AttachOut,
     WatchKind::RenderAttachOut,
+    WatchKind::SnapshotAttachOut,
 ];
 
 /// What a request asks for.
@@ -192,6 +197,13 @@ fn answer(
         ),
     );
     reply.insert("registrations_free".into(), json!(page.map_or(0, Page::registrations_free)));
+    // Where each live process's cmux-hang-watch writes `hangs-<pid>.jsonl` (each has its own folder).
+    reply.insert(
+        "hang_files".into(),
+        Value::Array(
+            page.map_or_else(Vec::new, Page::hang_files).iter().map(hang_file_json).collect(),
+        ),
+    );
     reply.insert(
         "lanes".into(),
         Value::Array(
@@ -210,6 +222,10 @@ fn entry_json(entry: &EntryState) -> Value {
 
 fn registered_json(registered: &Registered) -> Value {
     json!({"lane": registered.lane, "pid": registered.pid})
+}
+
+fn hang_file_json(file: &PublishedHangFile) -> Value {
+    json!({"pid": file.pid, "path": file.path.display().to_string()})
 }
 
 fn millis(duration: Duration) -> u64 {

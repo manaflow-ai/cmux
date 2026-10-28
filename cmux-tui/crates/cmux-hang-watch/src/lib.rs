@@ -1033,7 +1033,15 @@ impl std::error::Error for InitError {
 /// Starts this process's watch: hangs go to `<dir>/hangs-<pid>.jsonl`, on the trace clock, with the
 /// default [`Config`]. Call it early in `main`; a thread that registers before it is not watched.
 pub fn init(dir: impl AsRef<Path>) -> Result<(), InitError> {
-    init_process(Config::default(), Arc::new(TraceClock), Box::new(JsonlSink::in_dir(dir)))
+    let sink = JsonlSink::in_dir(dir);
+    // Debug builds: where this process's records go, for hang-matrix.py (each process has its own
+    // folder).
+    #[cfg(debug_assertions)]
+    let path = sink.path().to_path_buf();
+    init_process(Config::default(), Arc::new(TraceClock), Box::new(sink))?;
+    #[cfg(debug_assertions)]
+    cmux_threads::hang_inject::publish_hang_file(&path);
+    Ok(())
 }
 
 /// [`init`] with every input given.

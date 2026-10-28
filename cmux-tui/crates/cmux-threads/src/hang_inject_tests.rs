@@ -137,6 +137,48 @@ fn hold_if_armed_on_takes_only_from_the_page_it_is_given() {
     assert!(mine.entries()[0].taken);
 }
 
+/// Each process publishes one hang file; a long path is refused, and the
+/// entry of a process that exited is reused.
+#[test]
+fn a_hang_file_is_published_once_per_process_and_reused_after_it_exits() {
+    let page = Page::new();
+    let live = |_pid| true;
+    let host = std::path::Path::new("/tmp/host-7.trace/hangs-7.jsonl");
+    page.publish_hang_file_with(host, 7, live).unwrap();
+    page.publish_hang_file_with(std::path::Path::new("/tmp/other/hangs-7.jsonl"), 7, live).unwrap();
+    let daemon = std::path::Path::new("/Users/me/Library/Logs/cmux/hangs-8.jsonl");
+    page.publish_hang_file_with(daemon, 8, live).unwrap();
+    assert_eq!(
+        page.hang_files_with(live),
+        [
+            PublishedHangFile { pid: 7, path: host.into() },
+            PublishedHangFile { pid: 8, path: daemon.into() }
+        ],
+        "the first path of a process stays"
+    );
+    let long = format!("/{}", "x".repeat(PATH_BYTES));
+    assert!(matches!(
+        page.publish_hang_file_with(std::path::Path::new(&long), 9, live),
+        Err(InjectError::BadPath)
+    ));
+    let longest = format!("/{}", "y".repeat(PATH_BYTES - 1));
+    page.publish_hang_file_with(std::path::Path::new(&longest), 9, live).unwrap();
+    assert!(page.hang_files_with(live).iter().any(|file| file.path.as_os_str() == &*longest));
+    assert!(matches!(page.publish_hang_file_with(host, 0, live), Err(InjectError::BadPid)));
+
+    for pid in 10..(10 + HANG_FILES as u32 - 3) {
+        page.publish_hang_file_with(host, pid, live).unwrap();
+    }
+    assert!(matches!(page.publish_hang_file_with(host, 500, live), Err(InjectError::Full)));
+    let seven_exited = |pid| pid != 7;
+    assert!(!page.hang_files_with(seven_exited).iter().any(|file| file.pid == 7));
+    let acpmux = std::path::Path::new("/tmp/acpmux/hangs-500.jsonl");
+    page.publish_hang_file_with(acpmux, 500, seven_exited).unwrap();
+    let files = page.hang_files_with(seven_exited);
+    assert!(files.contains(&PublishedHangFile { pid: 500, path: acpmux.into() }), "{files:?}");
+    assert_eq!(files.len(), HANG_FILES);
+}
+
 /// The page as a mapped file, and the process's own page under a watcher.
 #[cfg(unix)]
 mod unix {

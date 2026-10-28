@@ -27,7 +27,8 @@ fn every_watch_kind_is_listed() {
             | WatchKind::LineOut
             | WatchKind::PtyInput
             | WatchKind::AttachOut
-            | WatchKind::RenderAttachOut => DAEMON_LANES.contains(&kind),
+            | WatchKind::RenderAttachOut
+            | WatchKind::SnapshotAttachOut => DAEMON_LANES.contains(&kind),
             #[cfg(unix)]
             WatchKind::HolderLink => DAEMON_LANES.contains(&kind),
             WatchKind::OwnerTest => !DAEMON_LANES.contains(&kind),

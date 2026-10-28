@@ -19,26 +19,37 @@ Lanes (LANES, by process):
   daemon  a scope of the daemon's request watchdog (`mux-conn`, `journal-writer`, ...): the daemon's
           `debug-hang-inject {lane, ms}` arms it; the record is a line of the daemon's hang log
           (`owner-hangs-<session>.jsonl`, named in the reply's `hang_log`). The daemon's cmux-hang-watch
-          threads (task 073: `mux-control-dispatch`, `mux-terminal-work`, the journal writer, and `mux-conn` and
-          `mux-line-out` under the same names) are armed the same way; their record is a `hangs-<pid>.jsonl` line.
-  holder  the holder loop (`holder-loop`): armed through the daemon for the holder's pid; the holder sends its
-          hang to the daemon, which writes it to the same hang log.
+          threads (task 073: `mux-terminal-work`, `mux-session-journal-writer`, and the `mux-conn` readers and
+          `mux-line-out` writers under the request watchdog's names) are armed the same way; their record is a line
+          of the daemon's `hangs-<pid>.jsonl`.
+  holder  the holder loop (`holder-loop`, cmux_threads::hang): armed through the daemon for the holder's pid; the
+          holder sends its hang to the daemon, which writes it to the same hang log. Its cmux-hang-watch poll
+          thread (`cmux-holder-poll`) writes the holder's own `hangs-<pid>.jsonl`.
   host, acpmux
-          threads registered with cmux-hang-watch in a terminal host or acpmux: armed through the daemon for
-          that pid; the record is a line of `hangs-<pid>.jsonl` in `--rust-hang-dir`.
+          threads registered with cmux-hang-watch in a terminal host (`terminal-host-pty`, ...) or acpmux
+          (`acpmux-config-writer`, ...): armed through the daemon for that pid; the record is a line of that
+          process's `hangs-<pid>.jsonl`.
+
+Each process's cmux-hang-watch writes `hangs-<pid>.jsonl` in a folder of its own (the daemon's log folder, the
+holder's socket trace folder, the host's trace folder, $ACPMUX_HOME) and publishes the file to the injection page;
+the daemon's `debug-hang-inject` reply lists them (`hang_files`). `--rust-hang-dir` is only a fallback for a
+process that published none: a lane whose record goes to a hang file that neither names is NOT-MEASURABLE, and it
+is not armed.
 
 Each lane blocks for at least 3 s, and longer when its hang tier is later (a lane's block is its tier plus
 BLOCK_MARGIN), so its tier is always reached while it is busy. A lane PASSES when exactly 1 new record names it,
 that record has at least MIN_FRAMES frames (MIN_FRAMES_X86 on x86_64), and the watcher saw it within its tier
-plus its watcher's minimum deadline plus 1 s. A lane the build does not register is NOT-REGISTERED, one whose
+plus its watcher's minimum deadline plus 1 s. `mux-conn` and `mux-line-out` are watched twice, by the request
+watchdog and by cmux-hang-watch under the same name; one block may be inside both scopes (an arm that lands while
+the outer one is open), so each of those lanes passes with exactly 1 record per watcher that saw it. A lane the build does not register is NOT-REGISTERED, one whose
 work did not run within TRIGGER_SECONDS is NOT-TRIGGERED, and one the script cannot tell is registered (a daemon
 with no lane registry, or a full registry) is UNKNOWN; all three count as not passed.
 
 Which lanes are registered: the app's `debug.hang_inject` reply lists its HangWatch names; the daemon's
 `debug-hang-inject` reply lists its request-watchdog lanes and the registry of the injection page, where every
 debug process publishes the lanes it watches with its pid (`registered`). Every registered lane of the app and of
-this tag's processes that LANES does not name is added with a default tier (EXTRA_TIER_MS), so no registered lane
-goes unblocked.
+this tag's processes that LANES does not name is added with the longest budget a scope has (EXTRA_TIER_MS, the
+10 s default deadline), so no registered lane goes unblocked.
 
 Fatal case (skipped by --skip-fatal): the app is launched with CMUX_NEXT_SENTRY_RECORDER=<dir> (task 086), the
 main thread is kept busy for 5 s, the script SIGKILLs the app it started after FATAL_KILL_AFTER seconds, launches
@@ -79,8 +90,9 @@ DAEMON_PERIOD_MS, HOLDER_PERIOD_MS = 1_000, 100
 RUST_WATCH_PERIOD_MS = 1_000
 # The main thread's hang tier: a main stall shorter than this is a jank, not a hang record.
 MAIN_HANG_TIER_MS = 250
-# The tier of a registered lane LANES does not name: its owner's budget is not known here, so its block covers the
-# longest lane budget (an app lane's bound does not depend on its budget; a cmux-hang-watch record carries its own).
+# The budget of a registered lane LANES does not name: its owner's budget is not known here, so it is the longest one
+# a scope takes, the default deadline (HangWatch.watch's 10 s, cmux_hang_watch::DEFAULT_DEADLINE). An app lane's tier
+# is this plus APP_HANG_AFTER_MS; a cmux-hang-watch record carries its own deadline for its bound.
 EXTRA_TIER_MS = 10_000
 # The fatal case: how long main is busy, and when the script kills the app.
 FATAL_HANG_MS, FATAL_KILL_AFTER = 5_000, 3.0
@@ -106,6 +118,18 @@ class Lane:
     trigger: str
     # False for a registered lane LANES does not name (added by extra_lanes with EXTRA_TIER_MS).
     known: bool = True
+    # Where its records go: "app" (debug.hangs), "log" (the daemon's hang log), "file" (the process's
+    # hangs-<pid>.jsonl), "log+file" (both watchers watch it), "any" (a lane extra_lanes adds: not known).
+    sink: str = "app"
+
+    @property
+    def watchers(self):
+        """How many watchers may record one block of this lane (one record each)."""
+        return 2 if self.sink == "log+file" else 1
+
+    @property
+    def needs_hang_file(self):
+        return "file" in self.sink
 
     @property
     def block_ms(self):
@@ -121,8 +145,14 @@ def app_lane(name, budget_ms, trigger):
     return Lane(name, "app", budget_ms + APP_HANG_AFTER_MS, APP_PERIOD_MS, trigger)
 
 
-def daemon_lane(name, hang_ms, trigger):
-    return Lane(name, "daemon", hang_ms, DAEMON_PERIOD_MS, trigger)
+def daemon_lane(name, hang_ms, trigger, sink="log"):
+    return Lane(name, "daemon", hang_ms, DAEMON_PERIOD_MS, trigger, sink=sink)
+
+
+def watch_lane(name, process, deadline_ms, trigger):
+    """A thread registered with cmux-hang-watch: its tier is its scope's deadline, its record a hangs-<pid>.jsonl
+    line."""
+    return Lane(name, process, deadline_ms, RUST_WATCH_PERIOD_MS, trigger, sink="file")
 
 
 # Every lane done check 7 names. The app lanes' budgets are their owners' deadlines (LineTransport, SocketWriter,
@@ -146,25 +176,92 @@ LANES = (
     app_lane("chromium.io", 1_000, "activity"),
     app_lane("remote.view", 100, "activity"),
     app_lane("acpmux.pane", 1_000, "activity"),
-    daemon_lane("mux-conn", 2_000, "daemon"),
+    # The request watchdog's lanes (WatchKind::name). The `mux-conn` readers and the `mux-line-out` writers are also
+    # cmux-hang-watch threads of the same name (one arm per name and pid: the scope that opens first takes it; the
+    # reader's frame scope has a 1 s deadline, FRAME_HANG_DEADLINE).
+    daemon_lane("mux-conn", 2_000, "daemon", sink="log+file"),
     daemon_lane("journal-writer", 2_000, "activity"),
     daemon_lane("holder-link", 1_000, "typing"),
-    daemon_lane("mux-line-out", 100, "daemon"),
+    daemon_lane("mux-line-out", 100, "daemon", sink="log+file"),
     daemon_lane("mux-pty-input", 100, "typing"),
     daemon_lane("mux-attach-out", 100, "typing"),
     daemon_lane("mux-render-attach-out", 100, "typing"),
-    # The daemon's cmux-hang-watch threads (task 073), by thread name; `mux-conn` and `mux-line-out` are the lanes
-    # above (one arm per name and pid: whichever of the two scopes opens first takes it). A request's deadline is
-    # its MethodClass's (1 to 10 s): the block covers 10 s, and the bound is the record's own deadline.
-    daemon_lane("mux-control-dispatch", 10_000, "daemon"),
-    daemon_lane("mux-terminal-work", 5_000, "activity"),
-    daemon_lane("mux-session-journal-writer", 5_000, "activity"),
-    Lane("holder-loop", "holder", 100, HOLDER_PERIOD_MS, "typing"),
-    Lane("host-pty", "host", 1_000, RUST_WATCH_PERIOD_MS, "typing"),
-    Lane("host-parser", "host", 1_000, RUST_WATCH_PERIOD_MS, "typing"),
-    Lane("acpmux-sync", "acpmux", 1_000, RUST_WATCH_PERIOD_MS, "activity"),
-    Lane("acpmux-runtime", "acpmux", 1_000, RUST_WATCH_PERIOD_MS, "activity"),
+    daemon_lane("mux-snapshot-attach-out", 100, "typing"),
+    # The daemon's other cmux-hang-watch threads (task 073), by thread name and scope deadline.
+    watch_lane("mux-terminal-work", "daemon", 10_000, "activity"),
+    watch_lane("mux-session-journal-writer", "daemon", 5_000, "activity"),
+    Lane("holder-loop", "holder", 100, HOLDER_PERIOD_MS, "typing", sink="log"),
+    watch_lane("cmux-holder-poll", "holder", 2_000, "typing"),
+    # A terminal host's loops (HostLoop::thread_name, HostLoop::deadline).
+    watch_lane("terminal-host-pty", "host", 2_000, "typing"),
+    watch_lane("terminal-host-parser", "host", 1_000, "typing"),
+    watch_lane("terminal-host-client-input", "host", 2_000, "typing"),
+    # acpmux's sync threads (SyncThread::register(THREAD, WRITE_ITEM 5 s | BLOCKING_ITEM 10 s)) and its blocking
+    # pool (BLOCKING_THREAD, BLOCKING_ITEM).
+    watch_lane("acpmux-config-writer", "acpmux", 5_000, "activity"),
+    watch_lane("acpmux-meta-writer", "acpmux", 5_000, "activity"),
+    watch_lane("acpmux-log-writer", "acpmux", 5_000, "activity"),
+    watch_lane("acpmux-chat-watch", "acpmux", 10_000, "activity"),
+    watch_lane("acpmux-git-watch", "acpmux", 10_000, "activity"),
+    watch_lane("acpmux-harness-watch", "acpmux", 10_000, "activity"),
+    watch_lane("acpmux-settings-watch", "acpmux", 10_000, "activity"),
+    watch_lane("acpmux-blocking", "acpmux", 10_000, "activity"),
 )
+
+# Where each Rust lane's name and deadline are declared (under cmux-tui/crates): the self-test reads these lines, so
+# a renamed thread or a changed deadline fails there and not as a NOT-REGISTERED lane on the fleet.
+SCOPES_RS = "cmux-tui-core/src/server/request_watchdog_scopes.rs"
+HOST_RS = "cmux-tui-core/src/terminal_host_runtime/shared/host_shared.rs"
+RUST_LANE_SOURCES = {
+    "mux-conn": [(SCOPES_RS, 'Self::MuxConn => "mux-conn"'),
+                 ("cmux-tui-core/src/server/listen.rs", '"mux-conn"'),
+                 ("cmux-tui-core/src/server/request_hang_watch.rs",
+                  "FRAME_HANG_DEADLINE: Duration = Duration::from_secs(1)")],
+    "journal-writer": [(SCOPES_RS, 'Self::JournalWriter => "journal-writer"')],
+    "holder-link": [(SCOPES_RS, 'Self::HolderLink => "holder-link"')],
+    "mux-line-out": [(SCOPES_RS, 'Self::LineOut => "mux-line-out"'),
+                     ("cmux-tui-core/src/server/line_connection.rs", 'ThreadKind::Io, "mux-line-out")')],
+    "mux-pty-input": [(SCOPES_RS, 'Self::PtyInput => "mux-pty-input"')],
+    "mux-attach-out": [(SCOPES_RS, 'Self::AttachOut => "mux-attach-out"')],
+    "mux-render-attach-out": [(SCOPES_RS, 'Self::RenderAttachOut => "mux-render-attach-out"')],
+    "mux-snapshot-attach-out": [(SCOPES_RS, 'Self::SnapshotAttachOut => "mux-snapshot-attach-out"')],
+    "mux-terminal-work": [("cmux-tui-core/src/mux/terminal_work.rs", '"mux-terminal-work"'),
+                          ("cmux-tui-core/src/mux/terminal_work.rs",
+                           "TERMINAL_JOB_HANG_DEADLINE: Duration = cmux_hang_watch::DEFAULT_DEADLINE")],
+    "mux-session-journal-writer": [("cmux-tui-core/src/journal_ingress.rs", '"mux-session-journal-writer"'),
+                                   ("cmux-tui-core/src/journal_ingress.rs",
+                                    "JOURNAL_BATCH_HANG_DEADLINE: Duration = Duration::from_secs(5)")],
+    "holder-loop": [("cmux-holder/src/holder/hang.rs", 'HangSite::new("holder-loop", Duration::from_millis(100))')],
+    "cmux-holder-poll": [("cmux-holder/src/holder.rs", 'POLL_THREAD: &str = "cmux-holder-poll"'),
+                         ("cmux-holder/src/holder.rs", "TURN_DEADLINE: Duration = Duration::from_secs(2)")],
+    "terminal-host-pty": [(HOST_RS, 'HostLoop::Pty => "terminal-host-pty"'),
+                          (HOST_RS, "HostLoop::Pty | HostLoop::ClientInput => Duration::from_secs(2)")],
+    "terminal-host-parser": [(HOST_RS, 'HostLoop::Parser => "terminal-host-parser"'),
+                             (HOST_RS, "HostLoop::Parser => Duration::from_secs(1)")],
+    "terminal-host-client-input": [(HOST_RS, 'HostLoop::ClientInput => "terminal-host-client-input"')],
+    "acpmux-config-writer": [("acpmux/src/hub/config_writer.rs", 'THREAD: &str = "acpmux-config-writer"'),
+                             ("acpmux/src/hub/config_writer.rs", "SyncThread::register(THREAD, WRITE_ITEM)")],
+    "acpmux-meta-writer": [("acpmux/src/hub/meta_writer.rs", 'THREAD: &str = "acpmux-meta-writer"'),
+                           ("acpmux/src/hub/meta_writer.rs", "SyncThread::register(THREAD, WRITE_ITEM)")],
+    "acpmux-log-writer": [("acpmux/src/store/log_writer.rs", 'THREAD: &str = "acpmux-log-writer"'),
+                          ("acpmux/src/store/log_writer.rs", "SyncThread::register(THREAD, WRITE_ITEM)")],
+    "acpmux-chat-watch": [("acpmux/src/chats/watch.rs", 'THREAD: &str = "acpmux-chat-watch"'),
+                          ("acpmux/src/chats/watch.rs", "SyncThread::register(THREAD, BLOCKING_ITEM)")],
+    "acpmux-git-watch": [("acpmux/src/hub/git_watch.rs", 'THREAD: &str = "acpmux-git-watch"'),
+                         ("acpmux/src/hub/git_watch.rs", "SyncThread::register(THREAD, BLOCKING_ITEM)")],
+    "acpmux-harness-watch": [("acpmux/src/hub/harness_watch.rs", 'THREAD: &str = "acpmux-harness-watch"'),
+                             ("acpmux/src/hub/harness_watch.rs", "SyncThread::register(THREAD, BLOCKING_ITEM)")],
+    "acpmux-settings-watch": [("acpmux/src/hub/settings_watch.rs", 'THREAD: &str = "acpmux-settings-watch"'),
+                              ("acpmux/src/hub/settings_watch.rs", "SyncThread::register(THREAD, BLOCKING_ITEM)")],
+    "acpmux-blocking": [("acpmux/src/daemon/hang_watch.rs", 'BLOCKING_THREAD: &str = "acpmux-blocking"')],
+}
+# The deadlines the RUST_LANE_SOURCES lines name.
+RUST_DEADLINE_SOURCES = (
+    ("acpmux/src/daemon/hang_watch.rs", "WRITE_ITEM: Duration = Duration::from_secs(5)"),
+    ("acpmux/src/daemon/hang_watch.rs", "BLOCKING_ITEM: Duration = cmux_hang_watch::DEFAULT_DEADLINE"),
+    ("cmux-hang-watch/src/lib.rs", "DEFAULT_DEADLINE: Duration = Duration::from_secs(10)"),
+)
+RUST_CRATES = os.path.join(os.path.dirname(os.path.dirname(HERE)), "cmux-tui", "crates")
 
 
 @dataclasses.dataclass
@@ -177,6 +274,8 @@ class Record:
     source: str
     # The scope's own deadline when the record carries it (cmux-hang-watch); 0 otherwise.
     deadline_ms: float = 0.0
+    # The process that wrote it, when its source says (a hangs-<pid>.jsonl line); None otherwise.
+    pid: int = None
 
 
 # ----------------------------------------------------------------------------------------------- record parsers
@@ -222,9 +321,10 @@ def daemon_hang_lines(text):
     return records
 
 
-def rust_watch_lines(text):
+def rust_watch_lines(text, pid=None):
     """Lines of cmux-hang-watch's `hangs-<pid>.jsonl` (schema 1) as Records: the registered thread name is the
-    lane, and the watcher saw it `deadline_ms + overdue_ms` after the scope opened."""
+    lane, and the watcher saw it `deadline_ms + overdue_ms` after the scope opened. `pid` is the file's process,
+    for a line that does not name its own."""
     records = []
     for line in text.splitlines():
         try:
@@ -237,7 +337,8 @@ def rust_watch_lines(text):
         records.append(Record(lane=str(row.get("thread") or ""), thread=str(row.get("thread") or ""),
                               frames=len(frames),
                               seen_after_ms=float(row.get("deadline_ms") or 0) + float(row.get("overdue_ms") or 0),
-                              source="hangs-<pid>.jsonl", deadline_ms=float(row.get("deadline_ms") or 0)))
+                              source="hangs-<pid>.jsonl", deadline_ms=float(row.get("deadline_ms") or 0),
+                              pid=row.get("pid") if isinstance(row.get("pid"), int) else pid))
     return records
 
 
@@ -267,25 +368,37 @@ def min_frames(machine=None):
     return MIN_FRAMES_X86 if (machine or platform.machine()) == "x86_64" else MIN_FRAMES
 
 
-def judge(lane, records, machine=None):
-    """(status, detail) of one lane from the new records: PASS when exactly one names the lane, with enough frames,
-    within its bound. The main thread's record is a stall the watchdog writes when the turn ends: it counts when it
-    lasted most of the block (other short stalls may come and go), and its time is its length, not a bound."""
-    mine = [record for record in records if record.lane == lane.name]
+def judge(lane, records, machine=None, pid=None):
+    """(status, detail) of one lane from the new records: PASS when exactly one names the lane (one per watcher
+    that saw it, for a lane two watchers watch), each with enough frames, within its bound. A record of another
+    process than `pid` (the one armed) is not this block's. The main thread's record is a stall the watchdog writes
+    when the turn ends: it counts when it lasted most of the block (other short stalls may come and go), and its
+    time is its length, not a bound."""
+    mine = [record for record in records if record.lane == lane.name
+            and (pid is None or record.pid is None or record.pid == pid)]
     if lane.process == "main":
         mine = [record for record in mine if record.seen_after_ms >= 0.9 * lane.block_ms]
-    if len(mine) != 1:
-        return "FAIL", f"{len(mine)} records name {lane.name} (want exactly 1)"
-    record, need = mine[0], min_frames(machine)
-    if record.frames < need:
-        return "FAIL", f"{record.frames} frames (want >= {need}) in {record.source}"
-    seen = lane_seen_ms(lane, record)
-    if lane.process == "main":
-        return "PASS", f"a {seen:.0f} ms stall with {record.frames} frames"
-    bound = record_bound_ms(lane, record)
-    if seen > bound:
-        return "FAIL", f"seen {seen:.0f} ms after the scope opened (bound {bound:.0f} ms)"
-    return "PASS", f"thread {record.thread or '?'}, {record.frames} frames, seen at {seen:.0f} ms (bound {bound:.0f})"
+    by_source = {}
+    for record in mine:
+        by_source.setdefault(record.source, []).append(record)
+    if not mine or len(by_source) > lane.watchers or any(len(rows) != 1 for rows in by_source.values()):
+        counts = ", ".join(f"{len(rows)} in {source}" for source, rows in sorted(by_source.items()))
+        want = "exactly 1" if lane.watchers == 1 else "exactly 1 per watcher"
+        return "FAIL", f"{len(mine)} records name {lane.name}{f' ({counts})' if counts else ''} (want {want})"
+    details = []
+    for source in sorted(by_source):
+        record, need = by_source[source][0], min_frames(machine)
+        if record.frames < need:
+            return "FAIL", f"{record.frames} frames (want >= {need}) in {record.source}"
+        seen = lane_seen_ms(lane, record)
+        if lane.process == "main":
+            return "PASS", f"a {seen:.0f} ms stall with {record.frames} frames"
+        bound = record_bound_ms(lane, record)
+        if seen > bound:
+            return "FAIL", f"seen {seen:.0f} ms after the scope opened (bound {bound:.0f} ms) in {record.source}"
+        details.append(f"thread {record.thread or '?'}, {record.frames} frames, seen at {seen:.0f} ms "
+                       f"(bound {bound:.0f}) in {record.source}")
+    return "PASS", "; ".join(details)
 
 
 def record_bound_ms(lane, record):
@@ -347,16 +460,44 @@ def extra_lanes(lanes, app_names, reply, roles):
     named = {lane.name for lane in lanes}
     extra = []
     for name in sorted(set(app_names or ()) - named - {"main"}):
-        extra.append(dataclasses.replace(app_lane(name, EXTRA_TIER_MS - APP_HANG_AFTER_MS, "activity"), known=False))
+        extra.append(dataclasses.replace(app_lane(name, EXTRA_TIER_MS, "activity"), known=False))
         named.add(name)
     periods = {"daemon": DAEMON_PERIOD_MS, "holder": HOLDER_PERIOD_MS}
     for name, pid in sorted(registry_rows(reply) or (), key=lambda row: (str(row[0]), str(row[1]))):
         role = roles.get(pid)
         if role is None or name in named:
             continue
-        extra.append(Lane(name, role, EXTRA_TIER_MS, periods.get(role, RUST_WATCH_PERIOD_MS), "activity", known=False))
+        # A host's and acpmux's lanes are cmux-hang-watch threads; a daemon's or holder's may be either watcher's.
+        sink = "file" if role in ("host", "acpmux") else "any"
+        extra.append(Lane(name, role, EXTRA_TIER_MS, periods.get(role, RUST_WATCH_PERIOD_MS), "activity", known=False,
+                          sink=sink))
         named.add(name)
     return tuple(extra)
+
+
+def hang_files(reply):
+    """{pid: path} of the daemon reply's `hang_files`: where each live process's cmux-hang-watch writes."""
+    return {row["pid"]: str(row["path"]) for row in (reply or {}).get("hang_files") or []
+            if isinstance(row, dict) and isinstance(row.get("pid"), int) and row.get("path")}
+
+
+def hang_file_of(pid, reply, rust_hang_dir=None):
+    """The `hangs-<pid>.jsonl` of process `pid`: the one it published, else the one in `rust_hang_dir`, else None."""
+    if pid is None:
+        return None
+    published = hang_files(reply).get(pid)
+    if published:
+        return published
+    return os.path.join(rust_hang_dir, f"hangs-{pid}.jsonl") if rust_hang_dir else None
+
+
+def unreadable(lane, pid, reply, rust_hang_dir=None):
+    """Why `lane`'s record cannot be read (a reason; None when it can): a lane whose record goes to its process's
+    hangs-<pid>.jsonl needs that file, published to the page or in --rust-hang-dir. Such a lane is not armed."""
+    if not lane.needs_hang_file or hang_file_of(pid, reply, rust_hang_dir):
+        return None
+    return (f"the {lane.process} (pid {pid}) published no hang file and no --rust-hang-dir was given: "
+            f"its {lane.name} record cannot be read, so it is not armed")
 
 
 def classify_process(command):
@@ -445,12 +586,15 @@ class Matrix:
     def cursor(self):
         hangs = self.rpc("debug.hangs", {}) or {}
         log = self.daemon_reply.get("hang_log")
-        rust = {path: os.path.getsize(path) for path in self.rust_logs()}
+        rust = {path: os.path.getsize(path) if os.path.exists(path) else 0 for path in self.rust_logs().values()}
         return {"thread_hangs": last_sequence(hangs.get("thread_hangs")), "stalls": last_sequence(hangs.get("records")),
                 "daemon_log": os.path.getsize(log) if log and os.path.exists(log) else 0, "rust": rust}
 
     def rust_logs(self):
-        return glob.glob(os.path.join(self.opts.rust_hang_dir, "hangs-*.jsonl")) if self.opts.rust_hang_dir else []
+        """{pid: hangs-<pid>.jsonl} of this tag's daemon, holder, hosts and acpmux (a file may not exist yet)."""
+        reply = self.daemon_list()
+        files = {pid: hang_file_of(pid, reply, self.opts.rust_hang_dir) for pid in self.roles()}
+        return {pid: path for pid, path in files.items() if path}
 
     def new_records(self, cursor):
         records = []
@@ -461,10 +605,12 @@ class Matrix:
             with open(log, encoding="utf-8", errors="replace") as handle:
                 handle.seek(cursor["daemon_log"])
                 records += daemon_hang_lines(handle.read())
-        for path in self.rust_logs():
+        for pid, path in self.rust_logs().items():
+            if not os.path.exists(path):
+                continue
             with open(path, encoding="utf-8", errors="replace") as handle:
                 handle.seek(cursor["rust"].get(path, 0))
-                records += rust_watch_lines(handle.read())
+                records += rust_watch_lines(handle.read(), pid)
         return records
 
     # Arming and triggering.
@@ -556,6 +702,10 @@ class Matrix:
                                "(no lane registry, or it is full)")
         if not registered:
             return "NOT-REGISTERED", f"the {lane.process} registers no {lane.name}"
+        pid = self.pid_of(lane.process) if lane.process != "app" else None
+        why = unreadable(lane, pid, self.daemon_list(), self.opts.rust_hang_dir)
+        if why:
+            return "NOT-MEASURABLE", why
         cursor = self.cursor()
         armed, why = self.arm(lane)
         if not armed:
@@ -568,7 +718,7 @@ class Matrix:
             self.trigger(lane.trigger)
             time.sleep(TRIGGER_EVERY)  # harness: trigger pacing until the lane takes its arm
         time.sleep((lane.block_ms + lane.period_ms + 1_500) / 1000)  # harness: the block and its report
-        return judge(lane, self.new_records(cursor))
+        return judge(lane, self.new_records(cursor), pid=pid)
 
     def run_main(self, lane):
         cursor = self.cursor()
@@ -727,7 +877,30 @@ def self_test():
         check(lane.process in ("main", "app", "daemon", "holder", "host", "acpmux"), f"{lane.name}: known process")
         check(len(lane.name) <= 32 and all(c.islower() or c.isdigit() or c in "._-" for c in lane.name),
               f"{lane.name}: an injectable name")
+        check(lane.sink in ("app", "log", "file", "log+file", "any"), f"{lane.name}: known sink")
+        check((lane.sink == "app") == (lane.process in ("main", "app")), f"{lane.name}: app lanes go to debug.hangs")
+        if lane.process not in ("main", "app"):
+            pins = RUST_LANE_SOURCES.get(lane.name)
+            check(bool(pins), f"{lane.name}: its declaration is pinned (RUST_LANE_SOURCES)")
+            for path, line in pins or ():
+                full = os.path.join(RUST_CRATES, path)
+                text = open(full, encoding="utf-8").read() if os.path.exists(full) else ""
+                check(line in text, f"{lane.name}: {path} declares {line!r}")
+    check(set(RUST_LANE_SOURCES) == {lane.name for lane in LANES if lane.process not in ("main", "app")},
+          "every pinned Rust lane is in LANES")
+    for path, line in RUST_DEADLINE_SOURCES:
+        full = os.path.join(RUST_CRATES, path)
+        check(os.path.exists(full) and line in open(full, encoding="utf-8").read(), f"{path} declares {line!r}")
+    scopes = open(os.path.join(RUST_CRATES, SCOPES_RS), encoding="utf-8").read()
+    name_fn = scopes.split("const fn name(self)", 1)[1].split("\n    }\n", 1)[0]
+    kinds = {line.split('=> "')[1].split('"')[0] for line in name_fn.splitlines() if '=> "' in line}
+    missing = kinds - {"owner-hang-test"} - {lane.name for lane in LANES}
+    check(len(kinds) >= 9 and not missing, f"every request-watchdog lane (WatchKind::name) is in LANES ({sorted(missing)})")
     check(app_lane("lane.system", 10_000, "activity").block_ms == 13_600, "a 10 s lane blocks past its 12 s tier")
+    unnamed = extra_lanes(LANES, ["scope.on-the-default-deadline"], {}, {})[0]
+    check(unnamed.tier_ms == EXTRA_TIER_MS + APP_HANG_AFTER_MS, f"an unnamed app lane's tier is 12 s ({unnamed.tier_ms})")
+    check(unnamed.block_ms > 10_000 + APP_HANG_AFTER_MS + APP_PERIOD_MS,
+          f"an unnamed app lane on HangWatch's 10 s default deadline is busy past its hang ({unnamed.block_ms})")
 
     hangs = {"thread_hangs": [
         {"kind": "hang", "scope": "daemon.line", "thread": "com.cmuxterm.daemon.reader", "duration_ms": 2050.5,
@@ -782,30 +955,63 @@ def self_test():
     check(len(hang_tier(records + daemon + [dataclasses.replace(stalls[0], seen_after_ms=250)])) == 5,
           "thread hangs, daemon lines and a 250 ms main stall are hangs")
 
-    dispatch = next(lane for lane in LANES if lane.name == "mux-control-dispatch")
-    query = rust_watch_lines(json.dumps({"schema": 1, "thread": "mux-control-dispatch", "deadline_ms": 1000,
+    work = next(lane for lane in LANES if lane.name == "mux-terminal-work")
+    query = rust_watch_lines(json.dumps({"schema": 1, "thread": "mux-terminal-work", "deadline_ms": 1000,
                                          "overdue_ms": 900, "stack": {"frames": [{}] * 6}}))
-    check(judge(dispatch, query, "arm64")[0] == "PASS" and "bound 3000" in judge(dispatch, query, "arm64")[1],
+    check(judge(work, query, "arm64")[0] == "PASS" and "bound 3000" in judge(work, query, "arm64")[1],
           "a hang-watch record's bound is its own deadline's")
     late_query = [dataclasses.replace(query[0], seen_after_ms=3_500)]
-    check(judge(dispatch, late_query, "arm64")[0] == "FAIL", "past its own deadline's bound fails")
-    check(dispatch.block_ms > 10_000 + DAEMON_PERIOD_MS, "the dispatch block covers a 10 s MethodClass")
+    check(judge(work, late_query, "arm64")[0] == "FAIL", "past its own deadline's bound fails")
+    check(work.block_ms > 10_000 + RUST_WATCH_PERIOD_MS, "the terminal-work block covers its 10 s deadline")
+
+    # mux-conn: one block inside the request watchdog's scope and the reader's hang-watch scope.
+    conn = next(lane for lane in LANES if lane.name == "mux-conn")
+    watchdog_line = daemon_hang_lines(json.dumps({"event": "hang", "scope": "mux-conn", "method": "identify",
+                                                  "hang_ms": 2000, "busy_ms": 2400, "stack": [{}] * 6}))
+    reader_line = rust_watch_lines(json.dumps({"schema": 1, "pid": 20, "thread": "mux-conn", "deadline_ms": 1000,
+                                               "overdue_ms": 400, "stack": {"frames": [{}] * 6}}))
+    check(conn.watchers == 2 and judge(conn, watchdog_line + reader_line, "arm64", pid=20)[0] == "PASS",
+          "one record per watcher of a twice-watched lane passes")
+    check(judge(conn, reader_line, "arm64", pid=20)[0] == "PASS", "the reader's scope alone passes")
+    check(judge(conn, watchdog_line + watchdog_line, "arm64", pid=20)[0] == "FAIL", "two records of one watcher fail")
+    check(judge(work, query + [dataclasses.replace(query[0], source="daemon hang log")], "arm64")[0] == "FAIL",
+          "a lane one watcher watches fails with two records")
+    host = next(lane for lane in LANES if lane.name == "terminal-host-pty")
+    pty = rust_watch_lines(json.dumps({"schema": 1, "thread": "terminal-host-pty", "deadline_ms": 2000,
+                                       "overdue_ms": 300, "stack": {"frames": [{}] * 6}}), pid=30)
+    other_host = [dataclasses.replace(pty[0], pid=31)]
+    check(pty[0].pid == 30 and judge(host, pty + other_host, "arm64", pid=30)[0] == "PASS",
+          "another host's record of the same lane is not this block's")
+    check(judge(host, other_host, "arm64", pid=30)[0] == "FAIL", "only another host's record fails")
+
+    files = {"hang_files": [{"pid": 20, "path": "/logs/hangs-20.jsonl"}, {"pid": "x", "path": "/y"}, {"pid": 30}]}
+    check(hang_files(files) == {20: "/logs/hangs-20.jsonl"}, f"the reply's hang files parse ({hang_files(files)})")
+    check(hang_file_of(20, files, "/dir") == "/logs/hangs-20.jsonl", "a published hang file wins")
+    check(hang_file_of(30, files, "/dir") == os.path.join("/dir", "hangs-30.jsonl"), "--rust-hang-dir is the fallback")
+    check(hang_file_of(30, files) is None and hang_file_of(None, files, "/dir") is None, "no hang file")
+    check(unreadable(host, 30, files) is not None, "a host lane with no hang file is not armed")
+    check(unreadable(host, 20, files) is None and unreadable(host, 30, files, "/dir") is None,
+          "a published or given hang file is read")
+    check(unreadable(next(lane for lane in LANES if lane.name == "journal-writer"), 30, {}) is None,
+          "a daemon-log lane needs no hang file")
+    check(unreadable(conn, 30, {}) is not None, "a twice-watched lane needs its hang file too")
 
     page = [{"lane": "mux-conn", "pid": 11, "taken": False}, {"lane": "mux-conn", "pid": 12, "taken": True}]
     check(not arm_waits(page, "mux-conn", 12), "another pid's untaken arm is not this run's")
     check(arm_waits(page, "mux-conn", 11) and not arm_waits(page, "holder-link", 11), "an untaken arm of the pid waits")
     check(not arm_waits(None, "mux-conn", 11), "no entries")
 
-    reply = {"registered": [{"lane": "host-pty", "pid": 30}, {"lane": "acpmux-sync", "pid": 40},
-                            {"lane": "mux-control-dispatch", "pid": 20}, {"lane": "other-tag", "pid": 99}],
+    reply = {"registered": [{"lane": "terminal-host-pty", "pid": 30}, {"lane": "acpmux-config-writer", "pid": 40},
+                            {"lane": "mux-terminal-work", "pid": 20}, {"lane": "other-tag", "pid": 99}],
              "registrations_free": 3}
-    check(lane_registered("host-pty", 30, reply) is True, "a registered host lane")
-    check(lane_registered("host-parser", 30, reply) is False, "an unregistered host lane is NOT-REGISTERED")
-    check(lane_registered("host-pty", 31, reply) is False, "another host's registration is not this one's")
-    check(lane_registered("host-parser", 30, dict(reply, registrations_free=0)) is None, "a full registry: UNKNOWN")
-    check(lane_registered("host-parser", 30, {}) is None, "no registry: UNKNOWN")
+    check(lane_registered("terminal-host-pty", 30, reply) is True, "a registered host lane")
+    check(lane_registered("terminal-host-parser", 30, reply) is False, "an unregistered host lane is NOT-REGISTERED")
+    check(lane_registered("terminal-host-pty", 31, reply) is False, "another host's registration is not this one's")
+    check(lane_registered("terminal-host-parser", 30, dict(reply, registrations_free=0)) is None,
+          "a full registry: UNKNOWN")
+    check(lane_registered("terminal-host-parser", 30, {}) is None, "no registry: UNKNOWN")
     check(lane_registered("mux-conn", 20, {}, ["mux-conn"]) is True, "a daemon's own lane")
-    check(lane_registered("host-pty", None, reply) is None, "no process: UNKNOWN")
+    check(lane_registered("terminal-host-pty", None, reply) is None, "no process: UNKNOWN")
 
     roles = {20: "daemon", 30: "host", 40: "acpmux"}
     extra = extra_lanes(LANES, ["main", "daemon.line", "terminal-output", "localpty"],
@@ -816,6 +1022,10 @@ def self_test():
     check(by_name["terminal-output"].process == "app" and not by_name["terminal-output"].known
           and by_name["terminal-output"].block_ms > EXTRA_TIER_MS, "an extra app lane blocks past the default tier")
     check(by_name["mux-journal-x"].process == "daemon", "an extra daemon lane is armed for the daemon")
+    host_extra = extra_lanes(LANES, [], {"registered": [{"lane": "terminal-host-new", "pid": 30}]}, roles)[0]
+    check(host_extra.needs_hang_file and host_extra.block_ms > EXTRA_TIER_MS + RUST_WATCH_PERIOD_MS,
+          "an extra host lane is a hang-watch thread on the default deadline")
+    check(not by_name["mux-journal-x"].needs_hang_file, "an extra daemon lane may be either watcher's")
 
     tiers = lanes_with_daemon_tiers(LANES, {"lanes": [{"name": "mux-conn", "hang_ms": 4000}, {"name": "x"}]})
     check(next(l for l in tiers if l.name == "mux-conn").tier_ms == 4000, "the daemon's own tiers win")
@@ -858,7 +1068,8 @@ def parse_args(argv):
     parser.add_argument("--skip-fatal", action="store_true")
     parser.add_argument("--soak", type=float, default=0.0, help="minutes of STRESS soak (done check 7: 10)")
     parser.add_argument("--exclusive-host", action="store_true", help="allow a real sleep (pmset schedule wake)")
-    parser.add_argument("--rust-hang-dir", help="where cmux-hang-watch writes hangs-<pid>.jsonl")
+    parser.add_argument("--rust-hang-dir", help="where to look for the hangs-<pid>.jsonl of a process that "
+                                                "published none to the injection page (the reply's hang_files)")
     parser.add_argument("--self-test", action="store_true")
     return parser.parse_args(argv)
 
