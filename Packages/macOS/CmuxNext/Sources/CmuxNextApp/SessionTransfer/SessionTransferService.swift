@@ -243,7 +243,7 @@ final class SessionTransferService {
     /// Creates `item` in a new workspace of the active window and returns the workspace id.
     private func create(_ item: SessionTransferItem, workspaceName: String? = nil) async throws -> String {
         guard let services else { throw Failure.unavailable }
-        let target = services.windows.targetWindow(preferring: services.windows.active?.state.id)
+        let target = services.windows.targetWindow(preferring: services.windows.activeWindowID)
         let name = workspaceName ?? (item.title.isEmpty ? nil : item.title)
         switch item.kind {
         case .agent:
