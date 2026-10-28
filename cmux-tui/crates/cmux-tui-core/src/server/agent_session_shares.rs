@@ -492,10 +492,11 @@ impl LinkShares {
             let share = find(shares, &p.share_id)?;
             let Some(guest_id) = &p.guest_id else {
                 let was_live = share.live().is_ok();
+                let was_provisioning = share.state == ShareState::Provisioning;
                 let changed = share.state != ShareState::Revoked;
                 share.state = ShareState::Revoked;
                 if changed
-                    && share.room.is_some()
+                    && (share.room.is_some() || was_provisioning)
                     && !share.pending_room_ops.iter().any(|o| o["op"] == "delete")
                 {
                     share.pending_room_ops.push(json!({"op": "delete"}));
@@ -554,7 +555,8 @@ impl LinkShares {
             .filter(|s| {
                 !room_deletes.contains(&s.share_id)
                     && s.expires_at > now
-                    && (s.state == ShareState::Active || !s.pending_room_ops.is_empty())
+                    && (matches!(s.state, ShareState::Active | ShareState::Provisioning)
+                        || !s.pending_room_ops.is_empty())
             })
             .map(|s| s.expires_at)
             .min();
@@ -642,6 +644,9 @@ pub(super) fn handle(
                 return Err("share.bad_request");
             }
             let session = tab_session(mux, p.surface).ok_or("share.not_a_chat")?;
+            if shares.bridge.invalid() {
+                return Err("share.room_unreachable");
+            }
             match shares.bridge.room() {
                 None => shares.insert(directory, session, p.surface, ttl, uses, false),
                 Some(room) => {

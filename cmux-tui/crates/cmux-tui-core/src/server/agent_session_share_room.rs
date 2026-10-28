@@ -51,6 +51,7 @@ pub(in crate::server) struct Room {
 #[derive(Default)]
 pub(in crate::server) struct Bridge {
     room: Mutex<Option<Room>>,
+    invalid: Mutex<bool>,
     runtime: OnceLock<Option<tokio::runtime::Runtime>>,
 }
 
@@ -78,12 +79,18 @@ fn origin(raw: &str) -> Option<String> {
 
 impl Bridge {
     /// Sets the room new shares are provisioned in (`None`: links have no URL). False when `url`
-    /// is no https origin (then sharing links is off).
+    /// is no https origin (including an explicit empty string): creation fails with
+    /// `share.room_unreachable`, while an unset room preserves local sharing.
     pub(in crate::server) fn configure(&self, url: Option<&str>, timing: Timing) -> bool {
         let room = url.and_then(origin).map(|url| Room { url, timing });
         let valid = room.is_some() || url.is_none();
+        *self.invalid.lock().unwrap_or_else(|e| e.into_inner()) = !valid;
         *self.room.lock().unwrap_or_else(|e| e.into_inner()) = room;
         valid
+    }
+
+    pub(super) fn invalid(&self) -> bool {
+        *self.invalid.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub(super) fn room(&self) -> Option<Room> {
@@ -404,7 +411,24 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
         let op = json!({"op": "delete"});
         let mut wait = timing.backoff_min;
         let mut attempted = false;
+        let mut acknowledged = false;
         loop {
+            if acknowledged {
+                let saved = {
+                    let Some(mux) = weak.upgrade() else { return };
+                    change(&mux, &id, |s| {
+                        abandon_share(s, false);
+                        s.pending_room_ops.retain(|pending| pending != &op);
+                        ((), true)
+                    }).is_some()
+                };
+                if saved {
+                    return;
+                }
+                tokio::time::sleep(wait).await;
+                wait = (wait * 2).min(timing.backoff_max);
+                continue;
+            }
             let target = {
                 let Some(mux) = weak.upgrade() else { return };
                 let mut unsaved = false;
@@ -412,13 +436,19 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
                     unsaved = !retire(&mux, &id, url, token);
                 }
                 let Some(v) = view(&mux, &id) else { return };
+                let owner_held = held.as_ref().is_some_and(|held| matches!(held, Held::Owner(_)));
+                if owner_held && !v.delete {
+                    // Retry the durable revoke while retaining the owner credential for the
+                    // room call when the write is still refused.
+                    abandon(&mux, &id, true);
+                }
                 if attempted && shares(&mux).now() >= v.expires_at {
                     if v.delete {
                         done(&mux, &id, &op);
                     }
                     return;
                 }
-                if !v.delete && !unsaved {
+                if !v.delete && !unsaved && !owner_held {
                     return;
                 }
                 let (url, bearer) = match &held {
@@ -441,7 +471,8 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
             let reply = call(reqwest::Method::DELETE, &url, &target.1, None, timing.request).await;
             attempted = true;
             if reply.is_some_and(|(status, _)| matches!(status, 200..=299 | 404 | 410)) {
-                return weak.upgrade().map_or((), |mux| done(&mux, &id, &op));
+                acknowledged = true;
+                continue;
             }
             if let Some(mux) = weak.upgrade() {
                 if view(&mux, &id).is_some_and(|v| shares(&mux).now() >= v.expires_at) {
@@ -501,7 +532,7 @@ pub(super) fn expired(shares: &LinkShares) {
 pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
     let shares = shares(mux);
     if !shares.bridge.configure(room, Timing::default()) {
-        eprintln!("cmux-tui: the link share room is not an https origin; links get no URL");
+        eprintln!("cmux-tui: the link share room is invalid; link creation is disabled");
     }
     shares.serve(mux);
     let Some(directory) = mux.session_state_directory() else { return };
