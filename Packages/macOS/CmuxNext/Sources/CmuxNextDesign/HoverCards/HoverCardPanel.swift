@@ -88,6 +88,8 @@ final class HoverCardPanel: NSPanel {
     private(set) var escapeGeometry: HoverCardEscapeGeometry?
     /// The scope the card draws in; a retarget within it adopts nothing again.
     private weak var adoptedScope: ThemeScope?
+    /// The clock shows are timed on (Core Animation's media time); tests pass their own.
+    var now: () -> CFTimeInterval = CACurrentMediaTime
 
     init() {
         // `PopupHostView` resets an overlay card to the popup radius; the host's radius below sets it back.
