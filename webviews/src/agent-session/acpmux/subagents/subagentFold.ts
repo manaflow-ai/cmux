@@ -610,7 +610,9 @@ export class SubagentFold {
       const settled =
         update.status === undefined ? tools.get(call) : update.status === "completed" || update.status === "failed";
       // New tools and every update of a settled tool change the summary, even without a status.
-      streaming = tools.has(call) && !settled;
+      // A running-tool update can arrive immediately after the reply was settled; keep the
+      // reply's settled state authoritative so the child summary revision is published.
+      streaming = tools.has(call) && !settled && !replySettled;
       tools.set(call, settled ?? false);
       this.viewTools.set(id, tools);
     }
