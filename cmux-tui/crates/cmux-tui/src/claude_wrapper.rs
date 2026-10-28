@@ -116,7 +116,7 @@ fn shim_directory() -> Option<PathBuf> {
 /// This cmux-tui binary's canonical path, which the shim and fallback hooks run.
 fn current_executable() -> anyhow::Result<PathBuf> {
     let executable = std::env::current_exe().context("resolve the cmux-tui executable")?;
-    Ok(executable.canonicalize().unwrap_or(executable))
+    Ok(cmux_blocking::fs::canonicalize(&executable).unwrap_or(executable))
 }
 
 /// A launch gets hooks only inside a cmux-tui terminal whose session socket
@@ -135,7 +135,7 @@ fn should_inject(args: &[OsString], getenv: impl Fn(&str) -> Option<OsString>) -
     let Some(socket) = getenv("CMUX_TUI_SOCKET").filter(|value| !value.is_empty()) else {
         return false;
     };
-    if !fs::metadata(socket).is_ok_and(|metadata| metadata.file_type().is_socket()) {
+    if !cmux_blocking::fs::metadata(socket).is_ok_and(|metadata| metadata.file_type().is_socket()) {
         return false;
     }
     let args = args.iter().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
@@ -215,7 +215,7 @@ fn read_settings_argument(value: &OsStr) -> anyhow::Result<Map<String, Value>> {
         Some(text) if text.trim_start().starts_with('{') => text.as_bytes().to_vec(),
         _ => {
             let mut data = Vec::new();
-            fs::File::open(value)
+            cmux_blocking::fs::open(value)
                 .context("open settings")?
                 .take(MAX_SETTINGS_BYTES + 1)
                 .read_to_end(&mut data)
@@ -252,17 +252,19 @@ fn merge_settings(target: &mut Map<String, Value>, source: Map<String, Value>) {
 /// private file. The directory and file modes are re-asserted on reuse
 /// because merged settings can hold a launcher's credentials.
 fn write_settings_file(dir: &Path, data: &[u8], now: SystemTime) -> anyhow::Result<PathBuf> {
-    fs::create_dir_all(dir).context("create the settings directory")?;
-    fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+    cmux_blocking::fs::create_dir_all(dir).context("create the settings directory")?;
+    crate::blocking::fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
     let digest = Sha256::digest(data);
     let name = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
     let path = dir.join(format!("{name}.json"));
     prune_settings_files(dir, &path, now);
-    let reusable = fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file())
-        && fs::read(&path).is_ok_and(|existing| existing == data);
+    let reusable = cmux_blocking::fs::symlink_metadata(&path)
+        .is_ok_and(|metadata| metadata.is_file())
+        && cmux_blocking::fs::read(&path).is_ok_and(|existing| existing == data);
     if reusable {
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
-        fs::File::options().write(true).open(&path)?.set_modified(now)?;
+        crate::blocking::fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+        crate::blocking::fs::open_with(fs::File::options().write(true), &path)?
+            .set_modified(now)?;
         return Ok(path);
     }
     agent_hook_install::atomic_write(&path, data, Some(0o600))?;
@@ -271,7 +273,7 @@ fn write_settings_file(dir: &Path, data: &[u8], now: SystemTime) -> anyhow::Resu
 
 /// Removes merged settings files, other than `keep`, idle past the retention.
 fn prune_settings_files(dir: &Path, keep: &Path, now: SystemTime) {
-    let Ok(entries) = fs::read_dir(dir) else {
+    let Ok(entries) = cmux_blocking::fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
@@ -285,7 +287,7 @@ fn prune_settings_files(dir: &Path, keep: &Path, now: SystemTime) {
             .filter(fs::Metadata::is_file)
             .and_then(|metadata| now.duration_since(metadata.modified().ok()?).ok());
         if idle.is_some_and(|idle| idle > SETTINGS_RETENTION) {
-            let _ = fs::remove_file(path);
+            let _ = cmux_blocking::fs::remove_file(path);
         }
     }
 }
@@ -297,7 +299,7 @@ fn find_real_claude(path: &OsStr, shim_dir: Option<&Path>) -> Option<PathBuf> {
         .filter(|dir| !dir.as_os_str().is_empty() && !is_shim_directory(dir, shim_dir))
         .map(|dir| dir.join("claude"))
         .find(|candidate| {
-            candidate.metadata().is_ok_and(|metadata| metadata.is_file())
+            cmux_blocking::fs::metadata(candidate).is_ok_and(|metadata| metadata.is_file())
                 && current_process_can_execute(candidate)
                 && !is_claude_shim(candidate)
         })
@@ -339,7 +341,7 @@ fn is_shim_directory(dir: &Path, shim_dir: Option<&Path>) -> bool {
     };
     dir == shim_dir
         || matches!(
-            (dir.canonicalize(), shim_dir.canonicalize()),
+            (cmux_blocking::fs::canonicalize(dir), cmux_blocking::fs::canonicalize(shim_dir)),
             (Ok(dir), Ok(shim_dir)) if dir == shim_dir
         )
 }
@@ -347,7 +349,7 @@ fn is_shim_directory(dir: &Path, shim_dir: Option<&Path>) -> bool {
 /// Whether the file at `path` (following links) is a cmux-tui `claude` shim.
 fn is_claude_shim(path: &Path) -> bool {
     let mut head = Vec::new();
-    fs::File::open(path)
+    cmux_blocking::fs::open(path)
         .and_then(|file| file.take(MAX_SHIM_PROBE_BYTES).read_to_end(&mut head))
         .is_ok()
         && head.windows(SHIM_MARKER.len()).any(|window| window == SHIM_MARKER.as_bytes())
@@ -356,13 +358,14 @@ fn is_claude_shim(path: &Path) -> bool {
 /// Writes `<dir>/claude` (0700 in a 0700 directory) when its content changed.
 fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
     let script = shim_script(executable, dir)?;
-    fs::create_dir_all(dir).context("create the shim directory")?;
-    fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+    cmux_blocking::fs::create_dir_all(dir).context("create the shim directory")?;
+    crate::blocking::fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
     let path = dir.join("claude");
-    let current = fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file())
-        && fs::read(&path).is_ok_and(|existing| existing == script.as_bytes());
+    let current = cmux_blocking::fs::symlink_metadata(&path)
+        .is_ok_and(|metadata| metadata.is_file())
+        && cmux_blocking::fs::read(&path).is_ok_and(|existing| existing == script.as_bytes());
     if current {
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+        crate::blocking::fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
     } else {
         agent_hook_install::atomic_write(&path, script.as_bytes(), Some(0o700))?;
     }

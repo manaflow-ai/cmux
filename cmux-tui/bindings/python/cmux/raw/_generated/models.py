@@ -823,6 +823,12 @@ class BookmarkImportNode:
 
 
 @dataclass(frozen=True)
+class BridgeHelloResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BridgeHelloResult'
+    features: List[str]
+
+
+@dataclass(frozen=True)
 class BrowserFrame:
     __cmux_schema_path__: ClassVar[str] = 'types/BrowserFrame'
     data: Base64
@@ -3598,6 +3604,12 @@ class BindConversationTabSessionResult:
     surface: Id
     conversation: ConversationTabRecord
     replayed: bool
+
+
+@dataclass(frozen=True)
+class BridgeHelloRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/bridge-hello/request'
+    features: List[str]
 
 
 @dataclass(frozen=True)
@@ -7832,6 +7844,7 @@ __all__ = [
     'Bookmark',
     'BookmarkChangeResult',
     'BookmarkImportNode',
+    'BridgeHelloResult',
     'BrowserFrame',
     'BrowserHostProviderResult',
     'BrowserProviderSnapshot',
@@ -8130,6 +8143,7 @@ __all__ = [
     'AttachSurfaceRequest',
     'BindConversationTabSessionRequest',
     'BindConversationTabSessionResult',
+    'BridgeHelloRequest',
     'BrowserActivateRequest',
     'BrowserBackRequest',
     'BrowserForwardRequest',
