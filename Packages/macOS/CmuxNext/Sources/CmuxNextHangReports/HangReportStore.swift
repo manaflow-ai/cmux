@@ -29,7 +29,6 @@ public actor HangReportStore {
 
     /// The folder that holds every hang report file.
     public nonisolated let directory: URL
-    private let manager = FileManager.default
     /// The actor's executor: its file work blocks this queue, not the pool.
     private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.app.next.hang-reports.store", qos: .utility)
 
@@ -65,7 +64,7 @@ public actor HangReportStore {
     /// The saved aggregate, removed from disk (it joins the collector's).
     public func takePending() -> StallAggregate? { take(StallAggregate.self, from: pendingURL) }
 
-    private func removePending() { try? manager.removeItem(at: pendingURL) }
+    private func removePending() { try? FileManager.checked.removeItem(at: pendingURL) }
 
     /// The main-thread part a quit saved, removed from disk (it joins the ledger's).
     public func takePendingMainThread() -> MainThreadReportLedger.Saved? {
@@ -93,19 +92,19 @@ public actor HangReportStore {
 
     /// Queues a report body; the oldest go when more than ``outboxLimit`` wait.
     public func enqueue(_ body: Data, reportId: String) {
-        try? manager.createDirectory(at: outboxURL, withIntermediateDirectories: true)
+        try? FileManager.checked.createDirectory(at: outboxURL, withIntermediateDirectories: true)
         write(body, to: outboxURL.appending(path: "\(reportId).json"))
         let entries = outbox(now: Date())
-        for entry in entries.dropLast(Self.outboxLimit) { try? manager.removeItem(at: entry.url) }
+        for entry in entries.dropLast(Self.outboxLimit) { try? FileManager.checked.removeItem(at: entry.url) }
     }
 
     /// The waiting reports, oldest first; older than ``outboxMaxAge`` are deleted.
     public func outbox(now: Date) -> [(url: URL, body: Data)] {
-        let files = (try? manager.contentsOfDirectory(at: outboxURL, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        let files = (try? FileManager.checked.contentsOfDirectory(at: outboxURL, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         let dated = files.filter { $0.pathExtension == "json" }.compactMap { url -> (URL, Date)? in
             let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
             if now.timeIntervalSince(date) > Self.outboxMaxAge {
-                try? manager.removeItem(at: url)
+                try? FileManager.checked.removeItem(at: url)
                 return nil
             }
             return (url, date)
@@ -116,21 +115,21 @@ public actor HangReportStore {
     }
 
     /// Deletes one outbox entry.
-    public func remove(_ url: URL) { try? manager.removeItem(at: url) }
+    public func remove(_ url: URL) { try? FileManager.checked.removeItem(at: url) }
 
     // MARK: Last report and send log
 
     /// Keeps the readable copy of a report that was sent.
     public func saveLastReport(_ readable: Data) {
         write(readable, to: lastReportURL)
-        try? manager.removeItem(at: previewURL)
+        try? FileManager.checked.removeItem(at: previewURL)
     }
 
     /// Keeps the readable preview View Hang Report opens.
     public func savePreview(_ readable: Data) { write(readable, to: previewURL) }
 
     /// Whether a report was ever sent from this Mac.
-    public func hasLastReport() -> Bool { manager.fileExists(atPath: lastReportURL.path) }
+    public func hasLastReport() -> Bool { FileManager.checked.fileExists(atPath: lastReportURL.path) }
 
     /// The send log (empty when missing).
     public func sendLog() -> SendLog {
@@ -149,13 +148,13 @@ public actor HangReportStore {
         try? FileManager.checked.removeItem(at: pendingMainThreadURL)
         try? FileManager.checked.removeItem(at: pendingBlockingSitesURL)
         try? FileManager.checked.removeItem(at: pendingBlackBoxURL)
-        try? manager.removeItem(at: outboxURL)
-        try? manager.removeItem(at: previewURL)
+        try? FileManager.checked.removeItem(at: outboxURL)
+        try? FileManager.checked.removeItem(at: previewURL)
     }
 
     private func write(_ data: Data?, to url: URL) {
         guard let data else { return }
-        try? manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? FileManager.checked.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: url, options: .atomic)
     }
 }

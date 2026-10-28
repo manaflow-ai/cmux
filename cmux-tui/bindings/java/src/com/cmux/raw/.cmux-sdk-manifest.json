@@ -746,6 +746,16 @@
       "size": 4354
     },
     {
+      "path": "BridgeHelloRequest.java",
+      "sha256": "2209699e6fd22f40d1bdeb2e53bb97e21bf5e0998b17729a28448222c135197a",
+      "size": 2163
+    },
+    {
+      "path": "BridgeHelloResult.java",
+      "sha256": "f96482f2c1492c0f37a4286aa79d5d1a07e300f54abc848960148e427728285b",
+      "size": 2076
+    },
+    {
       "path": "BrowserActivateRequest.java",
       "sha256": "6bdb2c997a17d53d400628e0c82d03f47834209c8063e6caf8d081ad6c55a1d3",
       "size": 2077
@@ -1382,8 +1392,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "e59786f61bdee6b43554ceb7933eda4051715d1e3889f50afdcf967c2a439a43",
-      "size": 98350
+      "sha256": "59ec5faf2005cce68e67e75adc2d34c7961878d310ca2db92e8e5313c5ce8c94",
+      "size": 98827
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -2142,8 +2152,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "27486c5b048e3c4c6f89a12fd042419aed115c44f8a791ca91fbe70b8bdb88f7",
-      "size": 86733
+      "sha256": "b2afb657c8adc7f40e88dc9fd616ff631c6c361bd2843b7c0b86df284aedf5d5",
+      "size": 87224
     },
     {
       "path": "GetBlobRequest.java",
@@ -3012,7 +3022,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "4cb81ed01915a55031aab264815dffa4174f1140e7c65bef6ac66ccf52300111",
+      "sha256": "aa5f479b21e80209637d6106f821096be3995e793380fae6d0a1d0659e27996f",
       "size": 8063
     },
     {
@@ -3724,6 +3734,26 @@
       "path": "SetSplitRatioRequest.java",
       "sha256": "cf8889ee1d32de4657cf5268e3f478438b31ee6e5bda26e74b9fef70bd52f0ce",
       "size": 3374
+    },
+    {
+      "path": "SetStreamPriorityRequest.java",
+      "sha256": "dbe61a7ec2c4fc72887cd40d81eccf83afbd912338b719dbfca2f3b247e711ef",
+      "size": 2867
+    },
+    {
+      "path": "SetStreamPriorityRequestPriority.java",
+      "sha256": "d5c0c2f14e62d6a8865590682819ddea1f3e7ac478e5fe1216229bf1455773fd",
+      "size": 1010
+    },
+    {
+      "path": "SetStreamPriorityResult.java",
+      "sha256": "b025581bc3880a9610dba79f3b872f44954516003fd7f5ca1def664b569f7e23",
+      "size": 2745
+    },
+    {
+      "path": "SetStreamPriorityResultOutcome.java",
+      "sha256": "37c02f75ab36456e86187f59ace07262e8a137b940a2e126bd9dd9ba6ac9fde8",
+      "size": 974
     },
     {
       "path": "SetTabPinnedRequest.java",
@@ -4507,7 +4537,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd",
+  "ir_sha256": "7eb0d8fcc1fcd2e08b9ee438f00a912bc444483f3223f60cf30047b093765ee6",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

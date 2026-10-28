@@ -286,12 +286,12 @@ class DiffTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def run_dir(self, name: str, rows: Sequence[Tuple[str, Dict[str, Any]]]) -> Path:
+    def run_dir(self, name: str, rows: Sequence[Tuple[str, Dict[str, Any]]], sha: str = "0" * 40) -> Path:
         path = self.dir / name
         cases = {case: {"suite": case.split("/")[0], "result": "Pass", "outcome": "expected", "flaky": False,
                         "reasons": [], "attempts": 1, "checkpoints": 1} for case, _ in rows}
         selection = sorted(cases)
-        receipt = {"schema": oracle.RUN_SCHEMA, "runId": name, "sha": "0" * 40, "dry_run": False,
+        receipt = {"schema": oracle.RUN_SCHEMA, "runId": name, "sha": sha, "dry_run": False,
                    "platform": "linux", "product": "daemon", "arm": None,
                    "config": {"product": "daemon", "build": "debug", "arm": None, "shard_total": 1, "seed": None,
                               "shard_index": 0},
@@ -368,8 +368,9 @@ class DiffTests(unittest.TestCase):
 
     def test_queued_base_head_diff_runs_the_plan_build_on_the_base_side(self) -> None:
         # `oracle.py diff --base --head` on the VM: two `linux_run.sh run` jobs; a v0 plan reaches both.
-        a = self.run_dir("a", [("s/c", snap(layout=NC, daemon={"n": 1}))])
-        b = self.run_dir("b", [("s/c", snap(layout=NC, daemon={"n": 1}))])
+        # Each run is of the commit its side built: the base of the plan's build, the head of head (task 112).
+        a = self.run_dir("a", [("s/c", snap(layout=NC, daemon={"n": 1}))], sha="c" * 40)
+        b = self.run_dir("b", [("s/c", snap(layout=NC, daemon={"n": 1}))], sha="b" * 40)
         plan = self.plan(buildSha="c" * 40)
         commands: list = []
 
@@ -378,17 +379,21 @@ class DiffTests(unittest.TestCase):
                 commands.append(list(command))
                 self.returncode = 0
                 self.dir = (a, b)[len(commands) - 1]
+                # linux_run.sh run's build receipt (`--receipt`): the commit it built (task 112).
+                receipt = Path(command[command.index("--receipt") + 1])
+                receipt.write_text(json.dumps({"schema": "cmux-oracle-build-v1", "sha": command[3], "gitlinks": {}}))
 
             def communicate(self) -> Tuple[str, None]:
                 return f"{self.dir}\n", None
 
         out = self.dir / "cmp"
+        out.mkdir()  # cmd_diff makes it before queued_diff
         args = oracle.build_parser().parse_args(["diff", "--base", "a" * 40, "--head", "b" * 40, "--out", str(out),
                                                  "--expectations-root", str(self.dir / "no-expectations")])
         sides, expected = oracle.diff_sides(args, {})
         with unittest.mock.patch.object(oracle, "queued_overlay", return_value=plan), \
                 unittest.mock.patch.object(oracle, "subprocess", types.SimpleNamespace(
-                    Popen=FakePopen, run=subprocess.run, PIPE=subprocess.PIPE)), \
+                    Popen=FakePopen, run=subprocess.run, PIPE=subprocess.PIPE, DEVNULL=subprocess.DEVNULL)), \
                 unittest.mock.patch.object(oracle, "resolve_commit", side_effect=lambda ref: ref), \
                 contextlib.redirect_stdout(io.StringIO()):
             code = oracle.queued_diff(args, sides, expected, out)
@@ -397,6 +402,8 @@ class DiffTests(unittest.TestCase):
         comparison = json.loads((out / "comparison.json").read_text())
         self.assertEqual((code, comparison["overlay"]["mode"], comparison["compared"]), (0, "v0", 1))
         self.assertEqual(list(comparison["overlay"]["notComparableFacets"]), ["layout"])
+        self.assertEqual((comparison["builds"]["base"]["sha"], comparison["builds"]["head"]["sha"]),
+                         ("c" * 40, "b" * 40))
 
 
 class CliTests(PrepareCase):
