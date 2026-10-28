@@ -38,4 +38,13 @@ struct TestFeedConsentTests {
         #expect(comparator.compare("100", "100") == .orderedSame)
         #expect(comparator.compare("99", "100") == .orderedAscending)
     }
+
+    /// A pin another process wrote into the app's defaults (any process of
+    /// this user can) never applies by itself at a NIGHTLY launch: the
+    /// person is asked again first.
+    @Test func aNightlyPinNeedsTheQuestionAgainAtLaunch() {
+        #expect(UpdaterService.pinnedTestFeedAtLaunch(track: .nightly) == .askFirst)
+        #expect(UpdaterService.pinnedTestFeedAtLaunch(track: .development) == .apply)
+        #expect(UpdaterService.pinnedTestFeedAtLaunch(track: .stable) == .refuse)
+    }
 }
