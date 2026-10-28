@@ -52,11 +52,18 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
     await vite?.close();
   });
 
-  /// A New Tab page, as Cmd-T opens one, on the in-page mock daemon.
-  async function newTab(name: string): Promise<Page> {
+  /// A New Tab page, as Cmd-T opens one, on the in-page mock daemon; `classic` shows the Classic
+  /// template (NewTabPage.tsx) instead of the default one (NewTabScreen.tsx).
+  async function newTab(name: string, classic = false): Promise<Page> {
     const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
-    await page.addInitScript(() => {
-      const newTab = { kind: "agent", hotkeys: {}, home: "/Users/you", projects: [] };
+    await page.addInitScript((classic) => {
+      const newTab = {
+        kind: "agent",
+        hotkeys: {},
+        home: "/Users/you",
+        projects: [],
+        ...(classic ? { template: "classic" } : {}),
+      };
       Object.assign(window, {
         __cmuxNewTabContext: newTab,
         webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
@@ -64,10 +71,10 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
           ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true, newTab }),
         },
       });
-    });
+    }, classic);
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
-    await page.locator(".nt-field").waitFor();
+    await page.locator(classic ? "input.acpmux-newtab-field" : ".nt-field").waitFor();
     return page;
   }
 
@@ -136,6 +143,83 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       await page.locator(".nt-box .acpmux-attachment-image").waitFor();
       await page.keyboard.press("Enter");
       await page.locator(".cv-user__images img").first().waitFor({ timeout: 30_000 });
+      await page.close();
+    },
+  );
+
+  // Austin 2026-10-21: a pasted image went only by its ×. Backspace with the caret at the field's
+  // start takes back the last chip, one per press; Backspace in the text still edits the text.
+  test.each(engines.map(([name]) => name))(
+    "%s: Backspace at the field's start removes the last pasted image, one per press",
+    async (name) => {
+      const page = await newTab(name);
+      const field = page.locator(".nt-field");
+      await field.click();
+      for (const file of ["One.png", "Two.png"]) {
+        const data = await transfer(page, file);
+        await field.evaluate(
+          (node, data) =>
+            node.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true })),
+          data,
+        );
+      }
+      const images = page.locator(".nt-box .acpmux-attachment-image");
+      await images.nth(1).waitFor();
+      await page.keyboard.type("ab");
+      // A frame after each press, so a chip removed by mistake is gone before the count.
+      const frame = () => page.evaluate(() => new Promise((done) => requestAnimationFrame(done)));
+      await page.keyboard.press("Backspace");
+      await frame();
+      expect(await field.inputValue()).toBe("a");
+      expect(await images.count()).toBe(2);
+      await page.keyboard.press("Backspace");
+      await frame();
+      expect(await field.inputValue()).toBe("");
+      expect(await images.count()).toBe(2);
+      await page.keyboard.press("Backspace");
+      await page.waitForFunction(() => document.querySelectorAll(".nt-box .acpmux-attachment-image").length === 1);
+      await page.keyboard.press("Backspace");
+      await page.waitForFunction(() => document.querySelectorAll(".nt-box .acpmux-attachment").length === 0);
+      await page.close();
+    },
+  );
+
+  // The Classic New Tab page takes Backspace the same way, after its own: a "!" typed into the empty
+  // field switches it to a terminal, and Backspace first switches it back; the chips go after that.
+  test.each(engines.map(([name]) => name))(
+    "%s: on the Classic New Tab page, Backspace undoes a prefix first, then removes the last image",
+    async (name) => {
+      const page = await newTab(name, true);
+      const field = page.locator("input.acpmux-newtab-field");
+      await field.click();
+      for (const file of ["One.png", "Two.png"]) {
+        const data = await transfer(page, file);
+        await field.evaluate(
+          (node, data) =>
+            node.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true })),
+          data,
+        );
+      }
+      const images = page.locator(".acpmux-newtab .acpmux-attachment-image");
+      await images.nth(1).waitFor();
+      const kind = () => page.locator(".acpmux-newtab").getAttribute("data-kind");
+      expect(await kind()).toBe("agent");
+      await page.keyboard.type("!");
+      await page.waitForFunction(
+        () => document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "terminal",
+      );
+      expect(await field.inputValue()).toBe("");
+      // A frame after the press, so a chip removed by mistake is gone before the count.
+      await page.keyboard.press("Backspace");
+      await page.waitForFunction(() => document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "agent");
+      await page.evaluate(() => new Promise((done) => requestAnimationFrame(done)));
+      expect(await images.count()).toBe(2);
+      await page.keyboard.press("Backspace");
+      await page.waitForFunction(
+        () => document.querySelectorAll(".acpmux-newtab .acpmux-attachment-image").length === 1,
+      );
+      await page.keyboard.press("Backspace");
+      await page.waitForFunction(() => document.querySelectorAll(".acpmux-newtab .acpmux-attachment").length === 0);
       await page.close();
     },
   );

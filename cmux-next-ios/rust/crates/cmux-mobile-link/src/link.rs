@@ -688,6 +688,14 @@ impl Link {
         let nonce = self.inner.next_nonce.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         self.inner.pings.lock().unwrap_or_else(PoisonError::into_inner).insert(nonce, tx);
+        // A caller that stops waiting (a probe's timeout) takes its entry out.
+        struct Pending<'a>(&'a Inner, u64);
+        impl Drop for Pending<'_> {
+            fn drop(&mut self) {
+                self.0.pings.lock().unwrap_or_else(PoisonError::into_inner).remove(&self.1);
+            }
+        }
+        let _pending = Pending(&self.inner, nonce);
         let started = Instant::now();
         self.inner.send_control(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec()))?;
         let answered = rx
@@ -696,6 +704,40 @@ impl Link {
         let rtt = answered.saturating_duration_since(started);
         self.inner.rtt.send_replace(Some(rtt));
         Ok(rtt)
+    }
+
+    /// Whether the link is alive, within `timeout`: `Ok(Some(rtt))` on the
+    /// pong, `Ok(None)` as soon as any other frame arrives after the ping went
+    /// out (a pong can trail a full transmit queue on a slow relay; the link's
+    /// own keepalive counts any inbound frame as life too), `Err(Timeout)`
+    /// only when nothing at all came back, `Err(Closed)` once closed.
+    ///
+    /// Any frame proves only the peer-to-us direction: a link whose uplink
+    /// alone broke still reads alive here until the peer's own keepalive
+    /// closes it (15 s ping, 20 s timeout), the bound the link already had.
+    pub async fn probe(&self, timeout: Duration) -> Result<Option<Duration>, LinkError> {
+        /// How often arrivals are checked while the pong is outstanding.
+        const TRAFFIC_CHECK: Duration = Duration::from_millis(50);
+        let sent = Instant::now();
+        let deadline = sent + timeout;
+        let ping = self.ping();
+        tokio::pin!(ping);
+        loop {
+            let next = (Instant::now() + TRAFFIC_CHECK).min(deadline);
+            tokio::select! {
+                // The pong (or the close) first when both are ready.
+                biased;
+                result = &mut ping => return result.map(Some),
+                () = tokio::time::sleep_until(next) => {
+                    if self.inner.last_received() > sent {
+                        return Ok(None);
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(LinkError::Timeout);
+                    }
+                }
+            }
+        }
     }
 
     /// The latest measured round-trip time.
@@ -1378,6 +1420,41 @@ mod tests {
         let reason =
             tokio::time::timeout(Duration::from_secs(2), phone.closed()).await.expect("closes once quiet");
         assert_eq!(reason, "keepalive timed out");
+    }
+
+    /// The app's probes (its 15 s heartbeat, a foreground, a presence change)
+    /// ask whether the link is alive. A pong stuck behind a full transmit
+    /// queue on a slow relay is not a dead link: any frame from the peer
+    /// after the probe went out proves it alive, as for the link's own
+    /// keepalive. Only silence fails it. (Live, 2026-10-23: the phone closed
+    /// links whose tunnel was delivering, "peer closed the link" 22 to 24 s
+    /// after link up, with no WireGuard handshake timeout on the Mac.)
+    #[tokio::test]
+    async fn a_probe_counts_any_inbound_frame_and_fails_only_on_silence() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let config = LinkConfig { keepalive: None, ..LinkConfig::default() };
+        let phone = Link::new(a, Role::Phone, config, None);
+        // A peer that streams data and never answers pings.
+        let (_read, write) = tokio::io::split(b);
+        let mut peer = FramedWrite::new(write, FrameCodec);
+        let streaming = tokio::spawn(async move {
+            for _ in 0..20 {
+                if peer.send(Frame::new(2, FrameType::Data, vec![0u8; 16])).await.is_err() {
+                    return peer;
+                }
+                tokio::time::sleep(Duration::from_millis(40)).await;
+            }
+            peer
+        });
+        let alive = phone.probe(Duration::from_millis(400)).await;
+        assert!(matches!(alive, Ok(None)), "data arrived, yet the probe said {alive:?}");
+        let _peer = streaming.await.unwrap();
+        // Now silent: the probe fails at its timeout.
+        let silent = phone.probe(Duration::from_millis(300)).await;
+        assert!(matches!(silent, Err(LinkError::Timeout)), "{silent:?}");
+        // A peer that answers pings: the round trip.
+        let (phone, _mac) = pair();
+        assert!(matches!(phone.probe(Duration::from_secs(2)).await, Ok(Some(_))));
     }
 
     #[tokio::test]

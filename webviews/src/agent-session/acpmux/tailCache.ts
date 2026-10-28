@@ -29,12 +29,17 @@ export type KeptTail = {
 /// page holds, so a visit that paged older history in (megabytes of records) is not what the next
 /// open keeps. A truncated tail is no longer a whole transcript, so the chat can load its older
 /// history again.
-const KEPT_TAILS = 8;
+const KEPT_TAILS = 20;
+/// Chats read ahead (``rememberReadAhead``): the recent chats a person switches between and the ones
+/// asked for ahead of a press (a hover, the host's `chat.prefetch`). A tier of their own, so reading
+/// ahead never pushes a chat the reader opened out of ``keptTails``; a chat opened moves from this
+/// tier to that one. Page memory only: the host keeps what a page read, not what it guessed at.
+const READ_AHEAD_TAILS = 24;
 export const KEPT_EVENTS = 400;
 /// Most of a tail that crosses to the host, newest first. The page's own map holds the whole tail;
 /// what the host keeps is bounded in bytes as well as in records, because one chat's 400 records
 /// can be megabytes of pasted text. With the chat bound this is the whole of what the app holds:
-/// at most ``KEPT_TAILS`` chats of this, about 2 MiB, for every tab at once. A chat whose newest
+/// at most ``KEPT_TAILS`` chats of this, about 5 MiB, for every tab at once. A chat whose newest
 /// record alone is larger hands over nothing, rather than make the bound a chat's paste wide; it
 /// opens cold in the next tab, as it did before.
 const HOST_TAIL_BYTES = 256 * 1024;
@@ -44,12 +49,23 @@ const HOST_TAIL_BYTES = 256 * 1024;
 const HOST_TAIL_READ_MS = 250;
 
 const keptTails = new Map<string, KeptTail>();
+/// Tails read ahead, least recently read first; never handed to the host.
+const readAheadTails = new Map<string, KeptTail>();
 /// One host read per chat at a time, so a prefetch and the read that awaits it are one round trip.
 const reading = new Map<string, Promise<KeptTail | undefined>>();
 
 /// The tail this page holds for `sessionId`, if it read the chat already or took it from the host.
 export function keptTail(sessionId: string): KeptTail | undefined {
-  return keptTails.get(sessionId);
+  return keptTails.get(sessionId) ?? readAheadTails.get(sessionId);
+}
+
+/// Keeps a tail read ahead of any open of the chat, in this page only. A chat this page read itself
+/// keeps that tail, which is the newer one.
+export function rememberReadAhead(sessionId: string, tail: KeptTail): void {
+  if (keptTails.has(sessionId)) return;
+  readAheadTails.delete(sessionId);
+  readAheadTails.set(sessionId, tail);
+  while (readAheadTails.size > READ_AHEAD_TAILS) readAheadTails.delete(readAheadTails.keys().next().value!);
 }
 
 /// Keeps `tail` for this chat's next open, here and in the app host.
@@ -70,6 +86,7 @@ export function keptTail(sessionId: string): KeptTail | undefined {
 /// behind, which is the same thing `forgetTail` exists to prevent after a failed attach.
 export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = true): void {
   if (forThisPage) {
+    readAheadTails.delete(sessionId);
     keptTails.delete(sessionId);
     keptTails.set(sessionId, tail);
     while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
@@ -81,6 +98,7 @@ export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = tr
 /// failed): its next open reads acpmux again, in this tab and in the next one.
 export function forgetTail(sessionId: string): void {
   keptTails.delete(sessionId);
+  readAheadTails.delete(sessionId);
   reading.delete(sessionId);
   void callHost("chat.tail", { sessionId }).catch(() => undefined);
 }
@@ -222,5 +240,6 @@ function isEventRecord(value: unknown): value is EventRecord {
 /// Test seam: a fresh page, holding no tails of its own (the host keeps its own).
 export function resetKeptTailsForTests(): void {
   keptTails.clear();
+  readAheadTails.clear();
   reading.clear();
 }

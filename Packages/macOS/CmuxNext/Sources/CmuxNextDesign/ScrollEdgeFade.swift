@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// Which edges of a scrolling list have content hidden beyond them.
 public nonisolated struct ScrollEdges: OptionSet, Hashable, Sendable {
@@ -59,8 +60,13 @@ public nonisolated struct ScrollEdges: OptionSet, Hashable, Sendable {
 public final class ScrollEdgeFadeView: NSView {
     public let scrollView: NSScrollView
     public private(set) var edges: ScrollEdges = []
+    /// Whether hidden content fades at the edges. Off, the mask stays opaque at every edge, so the
+    /// whole list shows (`sidebar.noFade`). Setting it re-reads the edges at once.
+    public var fades = true {
+        didSet { if oldValue != fades { updateFade(animated: true) } }
+    }
     private let fadeMask = CAGradientLayer()
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
     private weak var observedDocument: NSView?
     /// The layer size and fade fraction the mask geometry was last set for; a scroll that finds
     /// either changed (a tunable edit, a resize with no layout yet) sets the geometry again.
@@ -81,25 +87,17 @@ public final class ScrollEdgeFadeView: NSView {
         let center = NotificationCenter.default
         // A scroll (the clip's bounds) changes only which edges hide content; the mask's geometry
         // follows this view's own size, so a scroll frame touches the mask only when an edge flips.
-        observers.append(center.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateEdges() } // main-proof: observer on queue: .main
+        observers.append(MainActorObservation(NSView.boundsDidChangeNotification, object: clip, center: center) { [weak self] in
+            self?.updateEdges()
         })
-        observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: clip, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateFade() } // main-proof: observer on queue: .main
+        observers.append(MainActorObservation(NSView.frameDidChangeNotification, object: clip, center: center) { [weak self] in
+            self?.updateFade()
         })
         updateFade(animated: false)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            for observer in observers { NotificationCenter.default.removeObserver(observer) }
-        }
-    }
 
     public override func layout() {
         super.layout()
@@ -155,7 +153,7 @@ public final class ScrollEdgeFadeView: NSView {
     public func updateFade(animated: Bool = true) {
         guard let layer else { return }
         observeDocument(scrollView.documentView)
-        let next = Self.hiddenEdges(of: scrollView)
+        let next = fades ? Self.hiddenEdges(of: scrollView) : []
         let fade = Self.fadeFraction(height: layer.bounds.height)
         maskedSize = layer.bounds.size
         maskedFraction = fade
@@ -177,7 +175,7 @@ public final class ScrollEdgeFadeView: NSView {
         guard let layer, layer.mask === fadeMask, layer.bounds.size == maskedSize,
               Self.fadeFraction(height: layer.bounds.height) == maskedFraction else { return updateFade() }
         observeDocument(scrollView.documentView)
-        setEdges(Self.hiddenEdges(of: scrollView), animated: true)
+        setEdges(fades ? Self.hiddenEdges(of: scrollView) : [], animated: true)
     }
 
     /// The band's share of the list height (the fade length, capped by the tunable).
@@ -196,8 +194,8 @@ public final class ScrollEdgeFadeView: NSView {
         guard let document, document !== observedDocument else { return }
         observedDocument = document
         document.postsFrameChangedNotifications = true
-        observers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: document, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateFade() } // main-proof: observer on queue: .main
+        observers.append(MainActorObservation(NSView.frameDidChangeNotification, object: document) { [weak self] in
+            self?.updateFade()
         })
     }
 }

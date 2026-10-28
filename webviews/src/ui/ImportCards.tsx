@@ -1,7 +1,7 @@
 // Import suggestion cards (Packages/macOS/CmuxNext CmuxNextImportCards): what this Mac has that cmux
 // can bring over. The host builds every card with its text already localized (ImportCardDeck) and
-// pushes the list; this draws it the same way on New Tab (a row of a few) and in Settings › Import
-// (every card, dismissed ones dimmed). A button press goes back as the card id and its action.
+// sends the list; this draws it in Settings › Import (every card, dismissed ones dimmed). Home and
+// New Tab show no import suggestion. A button press goes back as the card id and its action.
 import "./importCards.css";
 
 export type ImportCardButton = { action: string; title: string };
@@ -157,20 +157,18 @@ function Card({ card, onAction }: { card: ImportCardData; onAction: (id: string,
   );
 }
 
-/// The cards: `row` lays a few side by side (New Tab), `list` stacks every card (Settings › Import).
+/// The cards, stacked (Settings › Import).
 export function ImportCards({
   list,
-  layout,
   onAction,
   showTitle = true,
 }: {
   list: ImportCardList;
-  layout: "row" | "list";
   onAction: (id: string, action: string) => void;
   showTitle?: boolean;
 }) {
   return (
-    <section className="import-cards" data-layout={layout} aria-label={list.title || undefined}>
+    <section className="import-cards" aria-label={list.title || undefined}>
       {showTitle && list.title && <h2 className="import-cards-title">{list.title}</h2>}
       {list.cards.length === 0 && list.empty ? (
         <p className="import-cards-empty">{list.empty}</p>

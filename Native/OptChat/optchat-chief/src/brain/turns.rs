@@ -78,6 +78,9 @@ impl Brain {
         {
             return;
         }
+        // The turn that starts now takes the cut turn's resume note: its
+        // hold (a backoff, or a network cut's wait) is over.
+        self.resume_at = None;
         self.phase = Phase::Settling;
         // The bound counts from the first wait for this turn: a wait that
         // starts over (the log changed under it) does not reset it.
@@ -681,7 +684,7 @@ impl Brain {
                 model: engine.model.clone(),
                 effort: engine.effort.clone(),
                 preset,
-                tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
+                tags: crate::acpmux::turn_tags(&self.settings.chief_id, &self.settings.parent),
                 // Only the Chief's own turn gets the seal its `chiefs`
                 // tool needs (chief_profile.rs TURN_KEY_ENV).
                 env: [(
@@ -1080,10 +1083,17 @@ impl Brain {
             return;
         }
         let s = &outcome.stats;
+        // Who ended a cancelled turn: the Chief itself (`stop`, `sleep`, after
+        // it replied by send), the owner, or neither (a lost session).
+        let by_chief = self.tool_stopped || self.denial_stopped.is_some();
         let status = if superseded {
             "superseded"
         } else if outcome.refused && outcome.reply.is_none() {
             "refused"
+        } else if outcome.cancelled && by_chief {
+            "stopped"
+        } else if outcome.cancelled && self.owner_stopped {
+            "owner_stopped"
         } else if outcome.cancelled {
             "cancelled"
         } else if outcome.error.is_some() {
@@ -1100,7 +1110,12 @@ impl Brain {
                 "harness": self.turn_engine.as_ref().map(|e| e.harness.clone()),
                 "model": self.turn_engine.as_ref().and_then(|e| e.model.clone()),
                 "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
-                "error": outcome.error.as_deref().map(|e| self.trace.text(e)),
+                // A turn the Chief or the owner stopped ended as asked: no error.
+                "error": outcome
+                    .error
+                    .as_deref()
+                    .filter(|_| !matches!(status, "stopped" | "owner_stopped"))
+                    .map(|e| self.trace.text(e)),
                 "reply": outcome.reply.as_deref().map(|r| self.trace.text(r)),
                 "first_usage": s.first.as_ref().map(crate::trace::usage),
                 "usage": s.totals.as_ref().map(|(u, _)| crate::trace::usage(u)),
@@ -1206,11 +1221,30 @@ impl Brain {
         // NO_REPLY posts nothing: a Chief that reads every message stays
         // quiet with it (membership), and any Chief ends with it when a
         // reaction or its `reply` calls said it all (brain/replies.rs).
-        let text = if crate::membership::is_no_reply(&text) {
-            (self.log)(&format!(
-                "turn {key} answered {}: nothing posted",
-                crate::membership::NO_REPLY
-            ));
+        let said_no_reply = crate::membership::is_no_reply(&text);
+        let text = if said_no_reply {
+            // Never for a person's message of the Chief conversation: it
+            // stays in the reply ledger, and a retry turn answers it
+            // (reply_ledger.rs, user 2026-10-21).
+            let main = conversation.is_some() && conversation == self.state.conversation;
+            let person = main
+                && self.state.turn.as_ref().is_some_and(|t| {
+                    t.key == key
+                        && t.answers
+                            .iter()
+                            .any(|id| self.state.awaiting.iter().any(|a| &a.id == id))
+                });
+            if person {
+                (self.log)(&format!(
+                    "turn {key} answered {} with a person's message in the batch: refused; a retry turn answers it",
+                    crate::membership::NO_REPLY
+                ));
+            } else {
+                (self.log)(&format!(
+                    "turn {key} answered {}: nothing posted",
+                    crate::membership::NO_REPLY
+                ));
+            }
             String::new()
         } else {
             text
@@ -1295,6 +1329,13 @@ impl Brain {
             }
             thread
         };
+        // The owner stopped the turn: its messages need no reply (the person
+        // asked for the silence; reply_ledger.rs).
+        let not_needed = if owner_stopped {
+            answers.clone()
+        } else {
+            Vec::new()
+        };
         match conversation {
             Some(conversation) if !text.is_empty() => {
                 // Every mention of a subagent is its link (Lawrence 2026-10-10).
@@ -1308,8 +1349,12 @@ impl Brain {
                 (self.log)(&format!(
                     "turn {key} said nothing; it closes its messages with a done marker"
                 ));
+                // The marker stays out of the thread of the message it
+                // closes: the daemon counts every message of a thread as a
+                // reply, so a threaded marker gave the person's message a
+                // reply that opens to nothing, and Home quoted that message
+                // above it (cmux#23810). Its `answers` close the work alone.
                 let mut entry = answer_entry(conversation, key, "", answers, pending);
-                in_thread(&mut entry, thread);
                 if let cmux_conversation::Op::MessageSend { parts, .. } = &mut entry.op {
                     *parts = vec![cmux_conversation::Part::Work {
                         session,
@@ -1339,10 +1384,17 @@ impl Brain {
             _ => Vec::new(),
         };
         let main = self.turn_side().is_none();
+        // Any other end leaves what no post answered to a retry check.
+        self.reply_not_needed(&not_needed);
         self.state.turn = None;
         self.stop_wanted = false;
         self.save_with(extra);
         self.flush_outbox();
+        self.schedule_reply_checks(if said_no_reply {
+            super::reply_ledger::WHY_NO_REPLY
+        } else {
+            super::reply_ledger::WHY_SILENT
+        });
         // After the reply: a client drops the draft as the message lands.
         if let (Some(done), Some(conversation)) = (outcome_done, &done_conversation) {
             self.publish_draft(conversation, &done);
@@ -1381,8 +1433,13 @@ pub(super) enum Cut {
     Link,
     /// The model's endpoint answered a passing error (the sr2 gateway's
     /// 502 or a refused connection while it redeploys). It runs again after
-    /// an `UPSTREAM_RESUME_BACKOFF` wait.
+    /// an `UPSTREAM_RESUME_BACKOFF` wait. Also any other error a retry may
+    /// clear (`auto_resume::classify_error`: 429, 500, overloaded).
     Upstream,
+    /// The request did not reach the model (DNS, a dropped connection, the
+    /// Mac offline). It runs again once the model endpoint answers
+    /// (`auto_resume::wait_online`), and no sooner than an upstream wait.
+    Network,
 }
 
 /// Errors from the model's endpoint that a later try can cure.
@@ -1417,10 +1474,16 @@ pub(super) fn cut_kind(outcome: &TurnOutcome) -> Option<Cut> {
     {
         return Some(Cut::Link);
     }
-    UPSTREAM_TRANSIENT
-        .iter()
-        .any(|t| error.contains(t))
-        .then_some(Cut::Upstream)
+    if UPSTREAM_TRANSIENT.iter().any(|t| error.contains(t)) {
+        return Some(Cut::Upstream);
+    }
+    // The same classes a subagent's run auto-resumes on (issue 25577); a
+    // usage limit is not cured by a retry and stays the turn's failure.
+    match crate::auto_resume::classify_error(error) {
+        crate::auto_resume::StopKind::Transient(_) => Some(Cut::Upstream),
+        crate::auto_resume::StopKind::Network(_) => Some(Cut::Network),
+        _ => None,
+    }
 }
 
 impl Brain {
@@ -1446,6 +1509,37 @@ impl Brain {
         self.upstream_backoff = waits;
     }
 
+    /// How often a network cut checks the model endpoint (tests shorten it).
+    pub fn set_network_poll(&mut self, poll: std::time::Duration) {
+        self.network_poll = poll;
+    }
+
+    /// The model endpoint answers again after the network cut whose hold
+    /// is `hold` (or the wait for it ended, `!online`): the cut turn runs at
+    /// `not_before` at the earliest. A turn that started meanwhile (a
+    /// person's message) took the resume already and a newer cut has its own
+    /// hold, so a stale answer is ignored.
+    pub(super) fn network_back(
+        &mut self,
+        hold: std::time::Instant,
+        not_before: std::time::Instant,
+        online: bool,
+    ) {
+        if self.resume_at != Some(hold) || self.phase != Phase::Idle {
+            return;
+        }
+        if online {
+            (self.log)("the model endpoint answers again; the cut turn runs again");
+        } else {
+            (self.log)(&format!(
+                "the model endpoint did not answer for {} min; the cut turn runs again anyway",
+                crate::auto_resume::NETWORK_WAIT_MAX.as_secs() / 60
+            ));
+        }
+        self.resume_at = Some(not_before.max(std::time::Instant::now()));
+        self.on_resume_timer();
+    }
+
     /// The upstream resume wait is over: the cut turn may start.
     pub(super) fn on_resume_timer(&mut self) {
         if self
@@ -1460,17 +1554,52 @@ impl Brain {
     fn turn_cut(&mut self, key: &str, outcome: TurnOutcome, cut: Cut) {
         self.cuts += 1;
         let error = outcome.error.clone().unwrap_or_default();
+        let wait = self
+            .upstream_backoff
+            .get(self.cuts as usize - 1)
+            .or(self.upstream_backoff.last())
+            .copied()
+            .unwrap_or_default();
         let when = match cut {
             Cut::Link => "once acpmux is back".to_owned(),
             Cut::Upstream => {
-                let wait = self
-                    .upstream_backoff
-                    .get(self.cuts as usize - 1)
-                    .or(self.upstream_backoff.last())
-                    .copied()
-                    .unwrap_or_default();
                 self.resume_at = Some(std::time::Instant::now() + wait);
                 format!("in {} s", wait.as_secs())
+            }
+            Cut::Network => {
+                // Held until the probe answers; the timer only bounds the
+                // hold, so a probe thread that never answers cannot keep the
+                // task from running again.
+                let now = std::time::Instant::now();
+                let hold = now + crate::auto_resume::NETWORK_WAIT_MAX + wait;
+                self.resume_at = Some(hold);
+                let (tx, reach, poll) = (self.tx.clone(), self.reach.clone(), self.network_poll);
+                let probe = std::thread::Builder::new()
+                    .name("chief-network-wait".into())
+                    .spawn(move || {
+                        let online = crate::auto_resume::wait_online(
+                            &*reach,
+                            poll,
+                            crate::auto_resume::NETWORK_WAIT_MAX,
+                            std::thread::sleep,
+                        );
+                        let _ = tx.send(super::Input::NetworkBack {
+                            hold,
+                            not_before: now + wait,
+                            online,
+                        });
+                    });
+                match probe {
+                    Ok(_) => format!(
+                        "once the model endpoint answers (at least {} s)",
+                        wait.as_secs()
+                    ),
+                    // No thread to wait on: an upstream backoff instead.
+                    Err(e) => {
+                        self.resume_at = Some(now + wait);
+                        format!("in {} s (no endpoint probe: {e})", wait.as_secs())
+                    }
+                }
             }
         };
         (self.log)(&format!(
@@ -1550,6 +1679,10 @@ impl Brain {
         self.interrupt.set_gate(false);
         self.stop_wanted = false;
         self.save_with(extra);
+        self.schedule_reply_checks(&format!(
+            "the turn was cut ({})",
+            optchat_core::cut_at_bytes(&error, 120)
+        ));
         if main {
             self.set_typing(false);
         }

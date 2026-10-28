@@ -14,7 +14,7 @@ webviews/src/agent-session/acpmux/markdownField.css	size	4
 webviews/src/agent-session/acpmux/mockFixture.ts	size	2
 webviews/src/agent-session/acpmux/newtab/screen.css	size	15
 webviews/src/agent-session/acpmux/prototype/prototype.css	size	17
-webviews/src/agent-session/acpmux/styles.css	size	53
+webviews/src/agent-session/acpmux/styles.css	size	48
 webviews/src/agent-session/acpmux/subagents/subagents.css	size	2
 webviews/src/agent-session/acpmux/threadMinimap/threadMinimap.css	size	1
 webviews/src/gallery/env.ts	size	1
@@ -39,5 +39,5 @@ webviews/src/pages/settings/layout.css	size	10
 webviews/src/pages/settings/styles.css	size	14
 webviews/src/pages/shared/pageBase.css	size	1
 webviews/src/sidebar/AllChatsDesigns.css	size	3
-webviews/src/styles.css	size	12
+webviews/src/styles.css	size	11
 webviews/src/viewer-empty/styles.css	size	19

@@ -2,28 +2,36 @@
 """Guard against unannounced default changes (Leo 2026-10-13).
 
 A default is what someone gets without configuring anything: an action's
-default keys, a setting's default value, a Ghostty keybind cmux writes (an
-unbind takes a chord from Ghostty), a feature flag compiled on or off. Changing
-one changes what everyone gets, so it needs a call.
+default keys, a setting's default value, a Debug Tunable's `default:`, a
+Ghostty keybind cmux writes (an unbind takes a chord from Ghostty), a feature
+flag compiled on or off. Changing one changes what everyone gets, so it needs
+a call.
 
 schemas/defaults/<app>.json is the golden snapshot of every default, made from
 the sources of truth with no hand list:
 - cmux NEXT: plans/cmux-next/action-surfaces.json (each action's default
   shortcut, chord and aliases, exported from the catalog by Swift) and
   schemas/settings/settings-schema.json (each setting's default), both kept
-  current by the generated-files check; the Ghostty `keybind = ...` lines and
-  the `static let ...Enabled = true|false` flags in the app's Swift sources.
+  current by the generated-files check; the Ghostty `keybind = ...` lines, the
+  `static let ...Enabled = true|false` flags and each
+  `Tunable<T>.choice|toggle|number|color|spring("key", ..., default: ...)` in
+  the app's Swift sources. Tunable initializers/helpers and their symbolic source
+  dependencies also have conservative declaration fingerprints (not whole-file hashes),
+  so helper, interpolated-key and nonliteral defaults cannot silently remain unchanged
+  when their defining declaration changes. An edit to a tracked declaration's help text
+  also needs review; comments and formatting do not.
 
   python3 scripts/ci/defaults_guard.py snapshot           # regenerate it
   python3 scripts/ci/defaults_guard.py check-fresh        # it matches the sources
 
-check-fresh also recomputes the source stamp: SettingsSchemaExportTests writes
-schemas/settings-export/settings-schema.sources.sha256 with the schema, one
-`sha256  path` entry per CmuxNextSettings source it exported from and per export
-test, a blank line apart (outside schemas/settings, which is a web bundle input).
-A stamp that still conflicts after a merge is regenerated, never hand-merged. The schema and docs/mdm come
-from a Swift test, so committed files can agree with each other and still be
-stale against Swift (e190c402850c); a stamp that differs from the sources says so.
+The settings exports' source stamp is derived, never committed (Leo 2026-10-21):
+`source-stamp [--ref REF]` prints one `sha256  path` entry per CmuxNextSettings
+source and export test at REF, a blank line apart. Base autofix compares the
+stamp of the commit its exports were made at with the tip's: equal means the
+exports' inputs did not move. A committed copy changed in every pull request that
+touched a settings source and conflicted on nearly every base move (#22674); the
+exports themselves are checked against a fresh Swift export (the generated files
+job of cmux-next.yml).
   python3 scripts/ci/defaults_guard.py check --base B --head H [--pr N --repo R]
 
 `check` compares the defaults at the merge base with the ones at the head, each
@@ -69,19 +77,13 @@ OWNERS = ".github/defaults-call-owners.json"
 ACTION_SURFACES = "plans/cmux-next/action-surfaces.json"
 SETTINGS_SCHEMA = "schemas/settings/settings-schema.json"
 SWIFT_SOURCES = "Packages/macOS/CmuxNext/Sources"
-# The settings exporter's inputs and its stamp. Keep in step with
-# SettingsSchemaExportTests.sourceStamp (Swift), which writes the stamp.
-SETTINGS_STAMP = "schemas/settings-export/settings-schema.sources.sha256"
+# The settings exporter's inputs, which the source stamp hashes.
 SETTINGS_SOURCE_DIR = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
 SETTINGS_SOURCE_SUFFIXES = (".swift", ".xcstrings")
 SETTINGS_EXPORTER_FILES = (
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
 )
-STALE_EXPORTS = ("settings exports are stale against CmuxNextSettings sources: the PR autofix "
-                 "(.github/workflows/cmux-next-pr-autofix.yml) commits them to a pull request that changes "
-                 "these sources, and the base autofix after a merge; to regenerate them yourself, run "
-                 "scripts/cmux-next/regenerate-settings-exports.sh on a fleet Mac and commit what it writes")
 # Default bindings that step aside in a context (a code editor, a focused terminal): a change to
 # one changes what a key does there.
 KEY_BINDING_DEFAULTS = "Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift"
@@ -107,6 +109,9 @@ MODIFIER_ORDER = ("ctrl", "opt", "shift", "cmd")
 KEYBIND_RE = re.compile(r'"keybind\s*=\s*([^"=]+?)\s*=\s*([^"]*)"')
 YIELDS_RE = re.compile(r"static\s+let\s+(yieldsTo\w+)\s*:\s*Set<ActionID>\s*=\s*\[(.*?)\]", re.S)
 FLAG_RE = re.compile(r"\bstatic\s+(?:let|var)\s+(\w*Enabled)\s*(?::\s*Bool\s*)?=\s*(true|false)\b")
+# A Debug Tunable with a constant default. The call parser below handles commas and
+# parentheses in nested arguments and string literals; interpolated keys are skipped.
+TUNABLE_RE = re.compile(r'\bTunable<[\w.?]+>\s*\.(choice|toggle|number|color|spring)\(\s*"([^"\\]+)"')
 # An independent review's verdict on the exact head, on a comment's or review's first line:
 # "Review (subagent, correctness first): SHIP at <full head sha>". Same grammar as
 # scripts/ci/risk_tier.py RECEIPT (and next_autoland, merge_audit).
@@ -298,6 +303,12 @@ def defaults(tree: Tree) -> dict[str, object]:
                 found[f"ghostty.{trigger.strip()}"] = action.strip()
     for name, block in YIELDS_RE.findall(tree.read(KEY_BINDING_DEFAULTS) or ""):
         found[f"steps-aside.{name}"] = sorted(re.findall(r'"([^"]+)"', block))
+    sources = sorted(name for name in tree.files(SWIFT_SOURCES) if name.endswith(".swift"))
+    swift = {name: text.decode("utf-8") for name, text in tree.read_bytes(sources).items()}
+    found.update(tunable_source_defaults(swift))
+    for text in swift.values():
+        for key, value in tunables(text):
+            found[f"tunable.{key}"] = value
     for name, line in tree.grep(r"static +(let|var) +[A-Za-z0-9_]*Enabled *(: *Bool *)?= *(true|false)", SWIFT_SOURCES):
         for flag, value in FLAG_RE.findall(line):
             # The file's path under the sources keeps two `isEnabled` flags apart; a second one in
@@ -308,6 +319,200 @@ def defaults(tree: Tree) -> dict[str, object]:
                 key, n = f"{base}#{n}", n + 1
             found[key] = value == "true"
     return dict(sorted(found.items()))
+
+
+def call_arguments(text: str, start: int) -> list[str]:
+    """Return top-level arguments in a Swift call whose arguments start at ``start``."""
+    args, depth, current, i = [], 0, [], start
+    while i < len(text):
+        char = text[i]
+        if char == '"':
+            end = i + 1
+            while end < len(text) and text[end] not in '"\n':
+                end += 2 if text[end] == "\\" else 1
+            current.append(text[i:end + 1])
+            i = end + 1
+            continue
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif char == "," and depth == 0:
+            args.append("".join(current))
+            current = []
+            i += 1
+            continue
+        current.append(char)
+        i += 1
+    return [argument.strip() for argument in [*args, "".join(current)]]
+
+
+def strip_swift_comments(text: str) -> str:
+    """Replace Swift comments with spaces while preserving literals and newlines.
+
+    The defaults guard reads source as data, so it must not treat an example in a comment as a
+    live Tunable. Keeping string bytes and line breaks intact also means a quoted default retains
+    its exact contents when it is reported.
+    """
+    output, i, block_depth = [], 0, 0
+    while i < len(text):
+        if block_depth:
+            if text.startswith("/*", i):
+                block_depth += 1
+                output.extend("  ")
+                i += 2
+            elif text.startswith("*/", i):
+                block_depth -= 1
+                output.extend("  ")
+                i += 2
+            else:
+                output.append("\n" if text[i] == "\n" else " ")
+                i += 1
+            continue
+        if text.startswith("//", i):
+            output.extend("  ")
+            i += 2
+            while i < len(text) and text[i] != "\n":
+                output.append(" ")
+                i += 1
+            continue
+        if text.startswith("/*", i):
+            block_depth = 1
+            output.extend("  ")
+            i += 2
+            continue
+        if text[i] == '"':
+            end = i + 1
+            while end < len(text):
+                if text[end] == "\\":
+                    end += 2
+                elif text[end] == '"':
+                    end += 1
+                    break
+                else:
+                    end += 1
+            output.append(text[i:end])
+            i = end
+            continue
+        output.append(text[i])
+        i += 1
+    return "".join(output)
+
+
+# Source fingerprints complement the readable literal values. Swift defaults may be built by a
+# helper or depend on other declarations; reading an unchanged expression is not its value.
+# Track those declarations and their dependencies instead of evaluating untrusted Swift.
+SWIFT_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|[A-Za-z_]\w*|[^\s]', re.S)
+STATIC_DECL = re.compile(r"\bstatic\s+(let|var|func)\s+(`?\w+`?)")
+
+
+def static_declarations(text: str) -> list[tuple[str, str, list[str]]]:
+    """Static initializer/function tokens; comments and formatting do not change a stamp."""
+    text = strip_swift_comments(text)
+    found = []
+    # A help string may contain a Swift example; only actual declarations count.
+    syntax = SWIFT_TOKEN.sub(lambda match: " " * len(match.group())
+                             if match.group().startswith('"') else match.group(), text)
+    for match in STATIC_DECL.finditer(syntax):
+        kind, name = match.groups()
+        name = name.strip("`")
+        tokens = [kind, name]
+        depth, started, previous_end = 0, False, match.end()
+        for token in SWIFT_TOKEN.finditer(text, match.end()):
+            value = token.group()
+            gap = text[previous_end:token.start()]
+            if depth == 0 and started:
+                if value in ("}", ";"):
+                    break
+                if "\n" in gap and tokens[-1] not in ("=", ",", ".", ":", "+", "-", "*", "/", "%", "&", "|", "?", "??") and value not in (".", "{", "(", "+", "-", "*", "/", "%", "&", "|", "?", "=", "<", ">", "!"):
+                    break
+            if value in ("(", "[", "{"):
+                depth += 1
+            elif value in (")", "]", "}"):
+                if depth == 0:
+                    break
+                depth -= 1
+            if value == "=" or (value == "{" and kind in ("func", "var")):
+                started = True
+            tokens.append(value)
+            previous_end = token.end()
+        if started:
+            found.append((kind, name, tokens))
+    return found
+
+
+def tunable_source_defaults(sources: Mapping[str, str]) -> dict[str, object]:
+    """Fingerprint tunable initializers, their helpers and symbolic source dependencies.
+
+    This is conservative source tracking, not a Swift interpreter: editing a selected declaration's
+    help text or implementation also needs review. Unrelated declarations in its file do not.
+    Same-file names and qualified Type.member references resolve to all possible source declarations
+    (including extensions); ambiguity adds evidence rather than silently choosing one definition.
+    """
+    nodes, by_file_name, types = {}, {}, {}
+    for path, text in sources.items():
+        for type_name in re.findall(r"\b(?:enum|struct|class|extension)\s+(\w+)", strip_swift_comments(text)):
+            types.setdefault(type_name, set()).add(path)
+        for kind, name, tokens in static_declarations(text):
+            key = f"tunable-source.{path.removeprefix(SWIFT_SOURCES + '/')}:{name}"
+            while key in nodes:
+                key += "#"
+            nodes[key] = (path, kind, name, tokens)
+            by_file_name.setdefault((path, name), set()).add(key)
+    selected = {key for key, (_, _, _, tokens) in nodes.items()
+                if any(re.fullmatch(r"(?:Derived)?Tunable|\w+Tunable", token) for token in tokens)}
+    # A helper returning Tunable (e.g. points) has callers whose initializer has no Tunable token.
+    helper_names = {name for key, (_, kind, name, _) in nodes.items()
+                    if key in selected and kind == "func"}
+    for key, (_, _, _, tokens) in nodes.items():
+        if any(token in helper_names for token in tokens):
+            selected.add(key)
+    pending = list(selected)
+    while pending:
+        key = pending.pop()
+        path, _, _, tokens = nodes[key]
+        dependencies = set()
+        for i, token in enumerate(tokens):
+            dependencies.update(by_file_name.get((path, token), ()))
+            if i + 2 < len(tokens) and tokens[i + 1] == ".":
+                for owner in types.get(token, ()):
+                    dependencies.update(by_file_name.get((owner, tokens[i + 2]), ()))
+        for dependency in dependencies - selected:
+            selected.add(dependency)
+            pending.append(dependency)
+    return {key: hashlib.sha256(json.dumps(nodes[key][3], ensure_ascii=False).encode()).hexdigest()
+            for key in sorted(selected)}
+
+
+def tunables(text: str) -> list[tuple[str, object]]:
+    """Return (key, default) for Tunables with a literal default value."""
+    text = strip_swift_comments(text)
+    found = []
+    for match in TUNABLE_RE.finditer(text):
+        kind, key = match.groups()
+        value = next((argument.partition(":")[2].strip()
+                      for argument in call_arguments(text, match.end())
+                      if re.match(r"^default\s*:", argument)), None)
+        if value is None:
+            continue
+        if kind == "toggle" and value in ("true", "false"):
+            found.append((key, value == "true"))
+            continue
+        if value.startswith('"') and value.endswith('"'):
+            try:
+                found.append((key, json.loads(value)))
+                continue
+            except json.JSONDecodeError:
+                pass
+        if re.fullmatch(r"\.[A-Za-z_]\w*", value):
+            found.append((key, value[1:]))
+        elif re.fullmatch(r"-?\d+(?:\.\d+)?", value):
+            found.append((key, float(value)))
+        # Nonliteral defaults are covered by tunable-source dependency fingerprints above.
+        # Never present an expression such as devDefault as though it were the default value.
+    return found
 
 
 def render_snapshot(values: Mapping[str, object]) -> str:
@@ -598,11 +803,10 @@ def freshness(tree: Tree) -> list[str]:
 
 
 def settings_source_stamp(tree: Tree) -> str:
-    """SettingsSchemaExportTests.sourceStamp in Python: one `sha256  path` entry per exporter input
+    """The settings exports' source stamp: one `sha256  path` entry per exporter input
     (lowercase hex of the file's bytes, two spaces, the repository-relative path) in UTF-8 path
-    order, with a blank line between entries and a newline at the end. An entry per file, apart,
-    means two pull requests that edit different sources change lines git merges cleanly, and the
-    merged stamp is exactly the merged sources' (#21946)."""
+    order, with a blank line between entries and a newline at the end. It is derived for a
+    commit, never committed."""
     paths = list(SETTINGS_EXPORTER_FILES) + [
         path for path in tree.files(SETTINGS_SOURCE_DIR) if PurePosixPath(path).suffix in SETTINGS_SOURCE_SUFFIXES]
     paths.sort(key=lambda path: path.encode("utf-8"))
@@ -610,100 +814,17 @@ def settings_source_stamp(tree: Tree) -> str:
     return "\n\n".join(f"{hashlib.sha256(contents[path]).hexdigest()}  {path}" for path in paths) + "\n"
 
 
-def stamp_entries(stamp: str) -> dict[str, str]:
-    """path -> digest for each `sha256  path` line of a stamp."""
-    entries = {}
-    for line in stamp.splitlines():
-        digest, separator, path = line.partition("  ")
-        if separator:
-            entries[path] = digest
-    return entries
-
-
-def stamp_freshness(tree: Tree, base: Tree | None = None) -> tuple[list[str], list[str]]:
-    """(problems, notes) for the settings export stamp of `tree`. With `base`, a stale source whose
-    bytes and stamp entry are both the base's is the base's: a warning note, not a problem (the base
-    autofix regenerates the exports after each merge, so the base is often stale for minutes). One
-    whose bytes are the base's but whose stamp entry is not is the head's: a problem labeled as this
-    pull request's red, since the source's name makes it look like the base's."""
-    stamp = tree.read(SETTINGS_STAMP)
-    if stamp is None and SETTINGS_STAMP.rsplit("/", 1)[1] in (tree.read(SETTINGS_EXPORTER_FILES[1]) or ""):
-        # The tree's exporter writes the stamp, so a missing stamp is a deleted or never-run export.
-        return [f"DEFAULTS exports: {SETTINGS_STAMP} is missing; {STALE_EXPORTS}"], []
-    if stamp is None:
-        return [], [f"note: {SETTINGS_STAMP} is missing (a commit before the first stamped export); "
-                    "the settings exports are not checked against the Swift sources"]
-    actual = settings_source_stamp(tree)
-    if stamp == actual:  # exactly what SettingsSchemaExportTests writes and expects
-        return [], []
-    stored, current = stamp_entries(stamp), stamp_entries(actual)
-    if not stored:
-        return [f"DEFAULTS exports: {STALE_EXPORTS}",
-                f"  {SETTINGS_STAMP} is a single digest from before the per-source stamp"], []
-    moved = sorted((path for path in stored.keys() | current.keys() if stored.get(path) != current.get(path)),
-                   key=lambda path: path.encode("utf-8"))
-    if not moved:
-        return [f"DEFAULTS exports: {STALE_EXPORTS}",
-                f"  {SETTINGS_STAMP} lists the right digests but is not in the exporter's format"], []
-
-    def listed(paths: list[str]) -> list[str]:
-        lines = [f"  {path}: {'not stamped' if path not in stored else 'gone' if path not in current else 'changed'}"
-                 for path in paths[:20]]
-        return lines + ([f"  and {len(paths) - 20} more"] if len(paths) > 20 else [])
-
-    notes: list[str] = []
-    kept: list[str] = []
-    if base is not None:
-        base_stored = stamp_entries(base.read(SETTINGS_STAMP) or "")
-        base_current = stamp_entries(settings_source_stamp(base))
-        inherited = [path for path in moved
-                     if current.get(path) == base_current.get(path) and stored.get(path) == base_stored.get(path)]
-        if inherited:
-            moved = [path for path in moved if path not in inherited]
-            notes = [f"::warning title=Settings exports stale on the base::settings exports stale on the base "
-                     f"{(base.ref or str(base.root))[:12]} too, for sources not changed here; the base autofix "
-                     "regenerates them:", *listed(inherited)]
-        # A source the head left as the base has it, whose stamp entry is not the base's: a local base
-        # merge with cmux-generated-v1 kept this branch's stamp (#22762). The files are base sources,
-        # so the red reads as the base's; merged, it puts the old digests back on the base.
-        kept = [path for path in moved if current.get(path) == base_current.get(path)]
-        moved = [path for path in moved if path not in kept]
-    problems = [f"DEFAULTS exports: {STALE_EXPORTS}", *listed(moved)] if moved else []
-    if kept:
-        problems += ["::error title=Settings stamp: this pull request's red::DEFAULTS exports: this pull "
-                     "request's red, not the base's: its stamp keeps older digests than the base's for "
-                     "sources it did not change, as a local base merge with the "
-                     "cmux-generated-v1 driver does (it keeps this branch's stamp). Merged, this puts the old "
-                     "digests back on the base. Apply the pr-autofix-patch artifact of this head's cmux-next PR "
-                     "autofix run, or regenerate the exports, and push:", *listed(kept)]
-    return problems, notes
-
-
 def command_check_fresh(args: argparse.Namespace) -> int:
     tree = Tree.named(args.ref) if args.ref else Tree(None)
     problems = freshness(tree)
-    stamp_problems, notes = stamp_freshness(tree)
-    problems += stamp_problems
-    for note in notes:
-        print(note)
     for problem in problems:
         print(problem)
     return 1 if problems else 0
 
 
-def command_check_stamp(args: argparse.Namespace) -> int:
-    """Only the settings export stamp: exit 1 when the exports need the Swift export. With --base,
-    only the sources the head changed since the base fail."""
-    problems, notes = stamp_freshness(Tree.named(args.ref) if args.ref else Tree(None),
-                                      Tree.named(args.base) if args.base else None)
-    for line in problems + notes:
-        print(line)
-    return 1 if problems else 0
-
-
 def command_source_stamp(args: argparse.Namespace) -> int:
-    """The stamp the settings sources of a commit give (what the export would write there). Base autofix
-    compares it with the stamp its exports carry: equal means the exports' inputs did not move."""
+    """The stamp the settings sources of a commit give. Base autofix compares the stamp of the commit
+    its exports were made at with the tip's: equal means the exports' inputs did not move."""
     sys.stdout.write(settings_source_stamp(Tree.named(args.ref) if args.ref else Tree(None)))
     return 0
 
@@ -764,13 +885,9 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("snapshot", help="regenerate the golden snapshot from the sources").set_defaults(run=command_snapshot)
-    fresh = sub.add_parser("check-fresh", help="the committed snapshot matches the sources, and the settings export stamp matches the CmuxNextSettings sources")
+    fresh = sub.add_parser("check-fresh", help="the committed snapshot matches the sources")
     fresh.add_argument("--ref", help="a commit to check instead of the working tree")
     fresh.set_defaults(run=command_check_fresh)
-    stamp = sub.add_parser("check-stamp", help="only the settings export stamp matches the CmuxNextSettings sources")
-    stamp.add_argument("--ref", help="a commit to check instead of the working tree")
-    stamp.add_argument("--base", help="fail only for sources changed since this commit; the rest is the base's")
-    stamp.set_defaults(run=command_check_stamp)
     source = sub.add_parser("source-stamp", help="print the settings export stamp the CmuxNextSettings sources give")
     source.add_argument("--ref", help="a commit to read instead of the working tree")
     source.set_defaults(run=command_source_stamp)

@@ -64,6 +64,12 @@ class LiteralReadsCase(unittest.TestCase):
         root = Path(self.tmp.name).resolve()
         (root / "App").mkdir()
         (root / "App" / "README.md").write_text("app\n", encoding="utf-8")
+        (root / ".git").mkdir()
+        (root / ".git" / "config").write_text("[core]\n", encoding="utf-8")
+        (root / ".claude").mkdir()
+        (root / ".claude" / "settings.json").write_text("{}\n", encoding="utf-8")
+        (root / ".codex").mkdir()
+        (root / ".codex" / "hooks.json").write_text("{}\n", encoding="utf-8")
         (root / "schemas" / "settings").mkdir(parents=True)
         (root / "schemas" / "settings" / "schema.json").write_text("{}\n", encoding="utf-8")
         package = root / "Packages" / "macOS" / "CmuxNext"
@@ -72,6 +78,9 @@ class LiteralReadsCase(unittest.TestCase):
         (self.tests / "SomeTests.swift").write_text(
             'let fixture = "app/README.md"\n'
             'let schema = "schemas/settings/schema.json"\n'
+            'let checkoutState = ".git/config"\n'
+            'let home = ".claude/settings.json"\n'
+            'let codexHome = ".codex/hooks.json"\n'
             'let real = "App/README.md"\n',
             encoding="utf-8",
         )

@@ -19,6 +19,15 @@ public nonisolated protocol RemoteViewStreamSource: AnyObject, Sendable {
     func requestKeyframe()
 }
 
+/// A source whose pictures arrive already decoded (an RFB compatibility
+/// host sends pixels, not video): the pane presents them as they come, with
+/// no video decoder. `accessUnits()` stays empty for such a source.
+public nonisolated protocol RemoteViewFrameSource: RemoteViewStreamSource {
+    /// Pictures in display order, latest wins (bounded `bufferingNewest`).
+    /// Finishes when the session ends.
+    func decodedFrames() -> AsyncStream<RemoteDecodedFrame>
+}
+
 /// The remote cursor as the host reports it, in stream pixels. Shapes ride
 /// the control channel; `shapeHash` names a cached image.
 public nonisolated struct RemoteCursorState: Sendable, Hashable {

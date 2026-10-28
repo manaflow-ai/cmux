@@ -131,8 +131,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         metrics base: SidebarLayoutMetrics,
         options o: SidebarLayoutOptions = SidebarLayoutOptions()
     ) -> SidebarLayout {
-        // Minimal mode is visibly compact: shorter rows, thin group headers (cx-7swgy).
-        let m = o.minimal ? base.minimal : base
+        // Minimal mode is visibly compact: shorter rows, thin group headers (cx-7swgy); Expanded rows
+        // and headers are two lines. One `resolved` for every sizing site.
+        let m = base.resolved(for: o)
         // A new workspace's drop gap is a row: as short as minimal mode's rows.
         let gapHeight = max(0, o.gapHeight - (base.rowHeight - m.rowHeight))
         if o.hidesWorkspaces { return .empty }
@@ -150,8 +151,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         // first one keeps its empty placeholder, a drop target).
         let listsAnyMachineRow = sections.contains { $0.machine != nil && !$0.nodes.isEmpty }
         var previousWasMachine = false
-        // A block brings the band's own padding: the list's top padding goes after the blocks, as below the band.
-        var previousWasBlock = false
+        // After a document section with no groups, what the next section adds: the row spacing under its block, or
+        // nothing under its drop zone (or the drop's gap there), whose row already ends with it. nil: a section gap.
+        var afterBlock: CGFloat?
         var shownEmptyMachine = false
 
         func openGapIfNeeded(section: SectionID, group: GroupID?, index: Int) {
@@ -164,13 +166,26 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         var chats = SidebarChatHistoryPlacement(filtering ? nil : o.chatHistory, metrics: m)
         let lastMachine = sections.lastIndex { $0.machine != nil }
 
-        var firstSection = true, statusShown = false
+        var firstSection = true, statusShown = false, statusListed = false
         for (sectionIndex, section) in sections.enumerated() {
-            if let lastMachine, sectionIndex > lastMachine { chats.placeEarlier(&y) }
+            if let lastMachine, sectionIndex > lastMachine {
+                let before = y
+                chats.placeEarlier(&y)
+                // History drawn above: the sections after it no longer start the list.
+                if y != before { firstSection = false }
+            }
             // Group by Status lays every computer's rows out once, in place of their sections (`SidebarLayout+Status`).
             if o.grouping.byStatus && !filtering && section.machine != nil {
-                if !statusShown { rows += statusRows(sections, spaced: !firstSection, chats: &chats, options: o, metrics: m, y: &y) }
-                (statusShown, firstSection, previousWasMachine, previousWasBlock) = (true, false, false, false)
+                if !statusShown {
+                    statusShown = true
+                    let (start, pinnedChatsY) = (y, chats.pinnedY)
+                    let status = statusRows(sections, spacing: firstSection ? 0 : afterBlock ?? m.sectionSpacing, chats: &chats, options: o, metrics: m, y: &y)
+                    // Nothing listed (no visible workspace, no pinned chat): no spacing, and the sections around it
+                    // lay out as if the computers were not there.
+                    statusListed = !status.isEmpty || chats.pinnedY != pinnedChatsY
+                    if statusListed { rows += status } else { y = start }
+                }
+                if statusListed { (firstSection, previousWasMachine, afterBlock) = (false, false, nil) }
                 continue
             }
             // Nodes that remain, with their visible children.
@@ -179,6 +194,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             // subgroups: a group under a collapsed or hidden one hides too, and with a filter a
             // group shows while a group under it has a match (the path to the match).
             var hiddenGroups = Set<GroupID>()
+            // Groups that hold a subgroup: never drawn as empty, their subgroups follow them.
+            let subgroupParents = Set(section.nodes.compactMap { node -> GroupID? in
+                if case let .group(child) = node { child.parent } else { nil }
+            })
             let pathToMatch = filtering ? Self.pathToMatch(section, visible: o.visible) : []
             for node in section.nodes {
                 switch node {
@@ -222,20 +241,25 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let emptyDropZone = docID != nil && o.showEmptyPinned && !filtering // any document section takes a drop during a drag
             if isDocSection && nodes.isEmpty && blockHeight == 0 && !gapHere && !emptyDropZone { continue }
 
-            // The Chief's workspaces are a group only while it has some: nobody made the section, so an
-            // empty one draws nothing (a drop still opens it).
-            if section.machine?.id.isLocalChief == true && nodes.isEmpty && !gapHere { continue }
             // A remote group (remote-groups-DESIGN.md slice 4) and the Chief's workspaces are a section of
             // their own in one list too.
             let flat = o.flattensMachines && section.machine != nil && !Self.keepsHeaderInOneList(section)
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
             if flat && nodes.isEmpty { shownEmptyMachine = true }
-            // Consecutive computers in one list read as one list: no gap. A block brings its own padding.
+            // Consecutive computers in one list read as one list: no gap. A block brings its own top padding; under
+            // it the next row follows by the row spacing, as under any row (Leo 2026-10-21: no gap after the pins).
             if firstSection && blockHeight > 0 { y -= m.topPadding }
-            if !firstSection && !(flat && previousWasMachine) && blockHeight == 0 { y += previousWasBlock ? m.topPadding : m.sectionSpacing }
+            if !firstSection && !(flat && previousWasMachine) && blockHeight == 0 { y += afterBlock ?? m.sectionSpacing }
             firstSection = false
             if section.machine != nil { chats.placePinned(&y) }
-            previousWasBlock = blockHeight > 0 && nodes.isEmpty
+            // This section's own rows under its block: its groups, or its empty drop zone (or the drop's gap in the zone's
+            // place, so the rows below stay put). Any other gap alone opens right under the block and moves the rows
+            // below by exactly `gapShift`.
+            let rowsUnderBlock = blockHeight > 0
+                && (!nodes.isEmpty || (emptyDropZone && docID.map(o.emptyDocSections.contains) == true))
+            // An untitled section emptied by a drag has a 0 pt block and its drop zone (or the gap) alone.
+            let endsInZone = isDocSection && nodes.isEmpty && (blockHeight == 0 || rowsUnderBlock)
+            afterBlock = endsInZone ? 0 : blockHeight > 0 && nodes.isEmpty ? m.rowSpacing : nil
             // Only a headerless computer joins the next one: rows after a headed section (a remote group,
             // the Chief's) never read as its members.
             previousWasMachine = section.machine != nil && flat
@@ -245,7 +269,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
                     isCollapsed: false, childCount: 0, groupColor: nil
                 ))
-                y += blockHeight
+                y += blockHeight + (rowsUnderBlock ? m.rowSpacing : 0)
             }
             // Headers stay for the pinned area and for one section per
             // computer (`sidebar.groupByComputer`, opt-in), never in one list.
@@ -358,6 +382,12 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         }
                         return
                     }
+                    // An open group with nothing in it keeps one quiet member-sized row (user 9757): it reads as open
+                    // and empty, and a drop over it goes into the group. A drag's gap here takes its place.
+                    if members.isEmpty, o.gap?.group != group.id,
+                       Self.listsEmptyRow(group, filtering: filtering, hasSubgroups: subgroupParents.contains(group.id)) {
+                        y = Self.appendEmptyRow(group, section: section.id, parent: index, metrics: m, to: &rows, y: y)
+                    }
                     let fold = SidebarDoneFoldID(section: section.id, group: group.id)
                     let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents),
                                                  workspace: { if case let .workspace(ws) = members[$0] { ws } else { nil } }, fold: fold, options: o)
@@ -406,8 +436,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             }
                         }
                     }
+                    // The next row follows the last member by the row spacing alone (Leo 2026-10-21: no padding after groups).
                     openGapIfNeeded(section: section.id, group: group.id, index: members.count)
-                    y += m.groupBottomPadding
                 }
             }
             // Group by Folder lists groups, document items and every folder's rows as they are: no Done fold, no row limit.
@@ -443,7 +473,6 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 ))
                 y += m.groupHeaderHeight + m.rowSpacing
                 for index in indices { emit(index, nodes[index]) }
-                y += m.groupBottomPadding
             }
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }

@@ -41,10 +41,15 @@ python3 - "$ROOT/scripts/cmux-next/notices/bundle-map.json" <<'PY' || fail "bund
 import json, sys
 need = "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"
 entries = json.load(open(sys.argv[1]))["entries"]
-cef = [e for e in entries if "CREDITS.html" in " ".join(e["notices"])]
+# WebRTC also cites Chromium's CREDITS.html, but it is a separate framework
+# and does not load CEF. Select the CEF-linked paths explicitly so that a
+# Chromium attribution does not make this CEF license check a false positive.
 core = {"Contents/Frameworks/Chromium Embedded Framework.framework/*",
         "Contents/Frameworks/libcmux_cef_shim.dylib",
-        "Contents/Frameworks/cmux Helper*.app/Contents/MacOS/*"}
+        "Contents/Frameworks/cmux Helper*.app/Contents/MacOS/*",
+        "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
+        "Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper*.app/Contents/MacOS/*"}
+cef = [e for e in entries if e["path"] in core]
 assert core <= {e["path"] for e in cef} and all(need in e["notices"] for e in cef), cef
 PY
 printf 'cef-license tests: ok\n'

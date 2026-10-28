@@ -28,7 +28,7 @@ extension HomeService {
         cloudLink = Task {
             // A trigger: a daemon restart on the same connection refreshes the inbox again.
             for await link in ObservationStream({ () -> ObservationTrigger<HomeCloudLink.Link> in
-                let connection = local.supports(DaemonCapabilities.shared.cloudConversations) ? local.connection : nil
+                let connection = local.supports(DaemonCapability.cloudConversations.rawValue) ? local.connection : nil
                 return ObservationTrigger(HomeCloudLink.Link(endpoint: connection.map(CloudConversationClient.init),
                                                              id: connection.map(ObjectIdentifier.init),
                                                              userID: auth.isSignedIn ? auth.user?.id : nil,
@@ -36,7 +36,7 @@ extension HomeService {
                                                              server: Self.cloudServer(homeServer())))
             }) {
                 await linker.apply(link.value)
-                cloudInbox.connectionChanged(local.supports(DaemonCapabilities.shared.cloudConversations) ? local.connection : nil)
+                cloudInbox.connectionChanged(local.supports(DaemonCapability.cloudConversations.rawValue) ? local.connection : nil)
             }
         }
     }

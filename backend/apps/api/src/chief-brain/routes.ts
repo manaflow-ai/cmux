@@ -3,9 +3,10 @@ import { callerOf, type Fail } from "../home-attachments.ts"
 import { chiefOwnedBy } from "./brain-io.ts"
 import { brainName, type ConfigPatch } from "./brain-do.ts"
 import { childObject } from "./brain-spawn.ts"
+import { githubOf } from "../chief-brain-cc/github.ts"
 import { chiefMainConversation } from "../domains/user-chief.ts"
 import { PEER_NAME, PEER_TEXT_MAX } from "./brain-turn.ts"
-import { type ImportBody, type ImportFail, type ImportStatus, MAX_IMPORT_BODY, parseImportBody } from "./memory-import.ts"
+import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, type ImportStatus, MAX_IMPORT_BODY, type UndoBody, type UndoResult, parseAppendBody, parseImportBody } from "./memory-import.ts"
 
 /**
  * HTTP routes of the Chief brain (outside the op catalog, like the keyed acpmux start):
@@ -16,6 +17,8 @@ import { type ImportBody, type ImportFail, type ImportStatus, MAX_IMPORT_BODY, p
  *        effort: off | minimal | low | medium | high | xhigh | max (default low); model-gateway/routes.ts says who may use which
  *   POST /v1/chiefs/<agent>/peer            the owner: {from, text, key}: a message from one of the owner's Chiefs on
  *        another machine (the agent hub's forward, brain-turn.ts peerNote), queued in the chief's main conversation
+ *   GET  /v1/chiefs/<agent>/github          the owner: the Chief's GitHub login (who, kind, scopes, expiry; never the token)
+ *   POST /v1/chiefs/<agent>/github          the owner: {action: login | pat | mac | app | logout | status, ...} (chief-brain-cc/github.ts)
  *   GET  /v1/chiefs/<agent>/memory?conversation=<id>   the owner: the memory copy's state {count, nodes, state}
  *   PUT  /v1/chiefs/<agent>/memory?conversation=<id>   the owner: one batch of a Mac Chief's memory copy (memory-import.ts)
  *   GET  /v1/chiefs/<agent>/runs?conversation=<id>&before=<ms>&limit=<n>   a member: the chief's runs there, newest first
@@ -28,7 +31,7 @@ import { type ImportBody, type ImportFail, type ImportStatus, MAX_IMPORT_BODY, p
  * "The owner" is the chief's owner_user (MuxDO head) with a session, or an install whose grant
  * covers mutate-own; a chief's own token never changes its brain.
  */
-export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/(brain|memory|peer|runs(?:\/((?:run|sub)_[0-9]{1,15}))?)$/
+export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/(brain|github|memory|peer|runs(?:\/((?:run|sub)_[0-9]{1,15}))?)$/
 
 const NO_STORE = { "cache-control": "no-store" }
 const fail = (f: Fail) => Response.json({ ok: false, error: { code: f.code, message: f.message, ...f.extra } }, { status: f.status, headers: NO_STORE })
@@ -40,6 +43,7 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
   const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(agent))
   if (path === "memory") return handleMemoryImport(request, env, agent, brain)
   if (path === "peer") return handlePeer(request, env, agent)
+  if (path === "github") return handleGithub(request, env, agent)
   if (path === "brain") {
     if (request.method !== "GET" && request.method !== "PUT") return fail({ status: 405, code: "method_not_allowed", message: "GET or PUT" })
     const caller = await callerOf(request, env, "read")
@@ -89,7 +93,7 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
 type MemoryBrain = {
   status(): Promise<{ config: { enabled: boolean; brain_impl?: string } }>
   memoryImportStatus(): Promise<ImportStatus>
-  memoryImport(body: ImportBody, brainOn: boolean): Promise<ImportStatus | ImportFail>
+  memoryImport(body: ImportBody | AppendBody | UndoBody, brainOn: boolean): Promise<ImportStatus | ImportFail | (AppendResult & { ok: true }) | (UndoResult & { ok: true })>
 }
 
 /**
@@ -117,13 +121,15 @@ const handleMemoryImport = async (request: Request, env: Env, agent: string, set
   try {
     raw = JSON.parse(text)
   } catch {}
-  const body = parseImportBody(raw)
+  const appendBody = parseAppendBody(raw)
+  const body = appendBody ?? parseImportBody(raw)
   if ("ok" in body) return fail(body)
   const config = (await (settings as MemoryBrain).status()).config
   if (config.brain_impl !== undefined && config.brain_impl !== "pi") return fail({ status: 409, code: "brain_impl", message: "this Chief's brain keeps its own memory elsewhere" })
   const on = config.enabled
   const r = await brain.memoryImport(body, on)
-  return "ok" in r ? fail(r) : ok(r)
+  if ("ok" in r && r.ok === false) return fail(r)
+  return ok(r)
 }
 
 /** The body as text, or null when it is longer than `max` bytes (read with a cap: a large body is never held whole). */
@@ -166,4 +172,25 @@ const handlePeer = async (request: Request, env: Env, agent: string): Promise<Re
   const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation)))
   const r = await brain.peerNote({ agent, owner: owned.owner, conversation, from, text, key })
   return "skipped" in r ? fail({ status: 409, code: "chief_not_answering", message: `the chief does not answer now (${r.skipped})` }) : ok({ conversation, queued: r.queued })
+}
+
+/**
+ * GET/POST /v1/chiefs/<agent>/github (chief-brain-cc/github.ts): the owner reads or changes the Chief's GitHub
+ * login from Chief settings, with no turn. The answer is the status, never the token.
+ */
+const handleGithub = async (request: Request, env: Env, agent: string): Promise<Response> => {
+  if (request.method !== "GET" && request.method !== "POST") return fail({ status: 405, code: "method_not_allowed", message: "GET or POST" })
+  const caller = await callerOf(request, env, "read")
+  if ("status" in caller) return fail(caller)
+  const p = caller.principal
+  if (p.kind !== "session" && !(p.grant_classes ?? []).includes("mutate-own")) return fail({ status: 403, code: "auth.forbidden", message: "grant does not cover mutate-own" })
+  if (!(await chiefOwnedBy(env, agent, p))) return fail({ status: 403, code: "auth.forbidden", message: "only the chief's owner sees or changes its GitHub login" })
+  const body = request.method === "GET" ? { action: "status" } : ((await request.json().catch(() => null)) as Record<string, unknown> | null)
+  if (!body || typeof body !== "object" || Array.isArray(body) || typeof body.action !== "string" || /^github_|^wait$/.test(body.action)) {
+    return fail({ status: 400, code: "validation.invalid", message: "body is {action: login | pat | mac | app | logout | status, ...}" })
+  }
+  const r = await githubOf(env, agent).ccGithub(agent, body, false)
+  if (r.status === 200) return ok(r.json)
+  const message = String((r.json as { error?: unknown } | null)?.error ?? "the GitHub call failed")
+  return fail({ status: r.status, code: r.status === 503 ? "unavailable" : r.status === 400 ? "validation.invalid" : "upstream", message })
 }

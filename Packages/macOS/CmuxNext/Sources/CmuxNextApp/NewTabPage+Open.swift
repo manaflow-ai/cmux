@@ -3,7 +3,9 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
+import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextPalette
 import CmuxNextSettings
@@ -100,6 +102,9 @@ extension NewTabPage {
         let services = pane.services
         services.keyRouter.newTabInputCoordinator.cancel(in: pane.view.window)
         openingPanes.remove(ObjectIdentifier(pane))
+        // A pairing link (its room secret) is never searched, loaded or typed: the
+        // page stays, with what was typed, and Mac Screen says why.
+        if let refusal = MacScreenPages.pairingLinkRefusal(for: request.text) { return services.registry.refuse(refusal) }
         // The page closes one frame after the new tab shows, so the frame that builds the
         // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).
         let close: @MainActor (SurfaceID) -> Void = { [weak pane] _ in

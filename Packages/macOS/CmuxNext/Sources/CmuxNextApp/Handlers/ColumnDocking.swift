@@ -15,7 +15,7 @@ import CmuxNextSettings
 enum ColumnDocking {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         DockColumnHandlers.bind(into: registry, context: ctx)
-        registry.bind("tab.moveToNewDockColumn", requires: DaemonCapabilities.shared.dockColumns, daemon: ctx.services.activeDaemon,
+        registry.bind("tab.moveToNewDockColumn", requires: DaemonCapability.dockColumns.rawValue, daemon: ctx.services.activeDaemon,
                       run: { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
             let edge = invocation["edge"]?.stringValue.flatMap(DockEdge.init(rawValue:)) ?? defaultEdge
@@ -52,10 +52,10 @@ enum ColumnDocking {
     /// `set-column-dock`; a refusal throws its reason.
     static func apply(_ dock: DockColumn?, to column: LayoutColumn, in content: WorkspaceContentController,
                       transaction: LayoutTransactionID = .make()) throws {
-        let capability = DaemonCapabilities.shared.dockColumns
+        let capability = DaemonCapability.dockColumns.rawValue
         guard content.daemon.supports(capability) else { throw ActionFailure(message: content.daemon.missingCapabilityMessage(capability)) }
         // Top and bottom docks need a daemon that serves edge-docks-v1.
-        let docks = DaemonCapabilities.shared.edgeDocks
+        let docks = DaemonCapability.edgeDocks.rawValue
         if dock?.edge.isBand == true, !content.daemon.supports(docks) {
             throw ActionFailure(message: content.daemon.missingCapabilityMessage(docks))
         }

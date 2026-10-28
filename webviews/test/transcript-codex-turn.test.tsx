@@ -104,4 +104,41 @@ test("the check and time show only on hover or focus; the failure mark always", 
     /\.cv-tool:is\(:hover, :focus-visible\) :is\(\.cv-command__ok, \.cv-command__time\) \{\s*opacity: 1;/,
   );
   expect(css).not.toMatch(/cv-command__failed[^{]*\{[^}]*opacity: 0/);
+  expect(css).not.toMatch(/cv-tool__failed[^{]*\{[^}]*opacity: 0/);
+});
+
+// Leo (2026-10-21): "let's only show the green/red checkmark + time on hover for ours". A failed
+// call that is not a shell still says so in red at rest; a running one keeps its spinner.
+test("a failed tool call keeps its red mark at rest; a running one its spinner", () => {
+  const failed = renderToStaticMarkup(
+    <ToolRow item={shell("bad", { command: undefined, title: "Fetch docs", kind: "fetch", status: "failed" })} />,
+  );
+  expect(failed).toContain('class="cv-tool__failed"');
+  expect(failed).not.toContain("cv-command__ok");
+  const running = renderToStaticMarkup(
+    <CommandRow item={shell("live", { status: "in_progress", endedAt: undefined })} />,
+  );
+  expect(running).toContain("cv-spinner");
+  expect(running).not.toContain("cv-command__ok");
+  expect(running).not.toContain("cv-command__time");
+});
+
+test("the hover check and time fade as a message's hover row does", async () => {
+  const css = await Bun.file(
+    new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
+  ).text();
+  expect(css).toMatch(
+    /\.cv-tool :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: opacity var\(--cv-actions-out\)/,
+  );
+  expect(css).toMatch(
+    /\.cv-tool:hover :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: opacity var\(--cv-actions-in\) var\(--cv-actions-ease\) var\(--cv-actions-in-delay\)/,
+  );
+});
+
+test("a floating row Copy reserves the tool chevron slot", async () => {
+  const css = await Bun.file(
+    new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
+  ).text();
+  expect(css).toContain('.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool');
+  expect(css).toMatch(/\.acpmux-row\[data-floating-copy="true"\] > \.acpmux-row__copy \{\s*right: 24px;/);
 });

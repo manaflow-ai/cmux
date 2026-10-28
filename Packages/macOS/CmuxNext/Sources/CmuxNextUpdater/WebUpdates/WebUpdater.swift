@@ -25,6 +25,10 @@ public final class WebUpdater {
         case failed(String)
     }
 
+    /// A roll back asked for while a check runs: the check saves its own state when it ends and
+    /// would undo it.
+    nonisolated public struct Busy: Error, Sendable {}
+
     /// What the running app's own web bundles are.
     nonisolated public struct App: Sendable {
         /// `pages/web-abi.json` of the bundled pages.
@@ -51,6 +55,16 @@ public final class WebUpdater {
         }
     }
 
+    /// Whether a bundle takes web updates: NIGHTLY (`com.cmuxterm.app.nightly[.<tag>]`) and the tip
+    /// app (cmux NEXT DEV stamped with the tip feed, ``UpdateBuildIdentity/isTipBuild``), which both
+    /// follow feat-cmux-next. Other Debug and DEV builds keep a developer's own web, and Release and
+    /// RC builds the web they were built with.
+    public nonisolated static func takesUpdates(_ identity: UpdateBuildIdentity) -> Bool {
+        if identity.isTipBuild { return true }
+        guard let bundle = identity.bundleIdentifier else { return false }
+        return bundle == "com.cmuxterm.app.nightly" || bundle.hasPrefix("com.cmuxterm.app.nightly.")
+    }
+
     public typealias Fetch = @Sendable (URLRequest) async throws -> (Data, URLResponse)
     public typealias Download = @Sendable (URLRequest) async throws -> URL
 
@@ -61,15 +75,21 @@ public final class WebUpdater {
     public private(set) var lastCheck: Date?
     /// Why the newest pointer was not taken (an app too old for it, an older commit), nil when it was.
     public private(set) var lastRefusal: WebUpdateRefusal?
+    /// The update the launch check kept (nil: the bundled web), set with its tree.
+    public private(set) var launchVersion: WebUpdatePointer?
 
-    /// The app serves `tree` (nil: the bundled web) from its next safe point.
-    @ObservationIgnored public var onReady: (URL?) -> Void = { _ in }
+    /// The app serves `tree`, the kept tree of `pointer` (both nil: the bundled web), from its next
+    /// safe point.
+    @ObservationIgnored public var onReady: (_ tree: URL?, _ pointer: WebUpdatePointer?) -> Void = { _, _ in }
     /// Whether downloads may use Low Data Mode and expensive links (`updates.meteredNetwork`).
     @ObservationIgnored public var allowsConstrained = false
     @ObservationIgnored public var allowsExpensive = true
     /// The folder the app serves now; it is never pruned, even after a newer update or a roll
     /// back, until the next safe point swaps it out (``pruneUnused()``).
     @ObservationIgnored public var served: () -> URL? = { nil }
+    /// Whether cmux is in the front: checks come every ``interval`` there and every
+    /// ``backgroundInterval`` behind other apps (``noteActivation(stale:)`` brings one in).
+    @ObservationIgnored public var foreground = true
 
     let store: WebUpdateStore
     public let app: App
@@ -77,22 +97,36 @@ public final class WebUpdater {
     let base: URL
     let fetch: Fetch
     let download: Download
-    /// Between scheduled checks; the pointer is a small cached file, the archive is fetched only
-    /// for a new update.
+    /// Between scheduled checks while cmux is in the front; the pointer is a small cached file
+    /// read with its ETag (a 304 while unchanged), the archive is fetched only for a new update.
     let interval: Duration
+    /// Between scheduled checks while cmux is behind other apps. A swap there runs once cmux has
+    /// been behind for ``WebSwapGate/grace``, so this bounds how stale a backgrounded app gets:
+    /// at 600 s a merge reached a NIGHTLY behind another app 10.8 minutes later (2026-10-25),
+    /// past the five minutes Leo asked for. Each check is a small pointer read (a 304 while
+    /// unchanged), so every two minutes stays quiet.
+    let backgroundInterval: Duration
+    public nonisolated static let defaultBackgroundInterval: Duration = .seconds(120)
     /// The next scheduled check.
     @ObservationIgnored private let nextCheck: DemandTimer
     @ObservationIgnored private var etag: String?
     /// The launch check of the kept update; every check and channel change waits for it, so none
     /// sees the empty state before `state.json` is read.
     @ObservationIgnored private var launch: Task<URL?, Never>?
+    /// The last state write queued (a check keeping its update, a roll back, a channel's return to
+    /// the bundled web): each waits for the one before, so none saves over another.
+    @ObservationIgnored private var writing: Task<Void, Never>?
     /// Whether `updates.web` was read yet (before it, `channel` is only the off default).
     @ObservationIgnored private var followed = false
+    /// Counts ``follow(_:)`` calls, so a check that a channel change (even one changed back) ran
+    /// during books the next read at once.
+    @ObservationIgnored private var follows = 0
 
     public static let defaultBase = URL(string: "https://files.cmux.com/cmux-next-web/") ?? URL(fileURLWithPath: "/dev/null") // a test parses it
 
     public init(store: WebUpdateStore, app: App, keys: WebUpdateKeys = .bundled, base: URL = WebUpdater.defaultBase,
-                interval: Duration = .seconds(600), clock: any Clock<Duration> = ContinuousClock(),
+                interval: Duration = .seconds(60), backgroundInterval: Duration = WebUpdater.defaultBackgroundInterval,
+                clock: any Clock<Duration> = ContinuousClock(),
                 fetch: @escaping Fetch = { try await URLSession.shared.data(for: $0) },
                 download: @escaping Download = WebUpdater.downloadToFile) {
         self.store = store
@@ -100,6 +134,7 @@ public final class WebUpdater {
         self.keys = keys
         self.base = base
         self.interval = interval
+        self.backgroundInterval = backgroundInterval
         self.fetch = fetch
         self.download = download
         nextCheck = DemandTimer(owner: "web-updates.check", clock: clock)
@@ -115,6 +150,7 @@ public final class WebUpdater {
         let task = Task { @MainActor [weak self] () -> URL? in
             let (tree, state) = await Self.launchCheck(store: store, app: app, channel: channel)
             self?.state = state
+            self?.launchVersion = tree == nil ? nil : state.active
             return tree
         }
         launch = task
@@ -144,39 +180,63 @@ public final class WebUpdater {
         guard !followed || channel != self.channel else { return }
         followed = true
         self.channel = channel
+        follows += 1
         etag = nil
         nextCheck.cancel()
-        // task-owner: the launch check, then at most one state write; it ends by itself
-        Task { [weak self] in
+        // The launch check, then at most one state write, after the writes queued before it.
+        _ = enqueue { [weak self] in
             _ = await self?.launchTree()
             guard let self, self.channel == channel, let active = state.active,
                   channel == .off || active.channel != channel.rawValue else { return }
-            try? await serve(nil, refusingActive: false)
+            try await serve(nil, refusingActive: false)
         }
         guard channel != .off else { return }
         nextCheck.schedule(after: .zero) { @MainActor [weak self] in await self?.check() }
     }
 
-    /// The app came to the front: checks again when the last check is older than `stale`.
-    public func noteActivation(stale: TimeInterval = 120) {
-        guard channel != .off, phase != .checking, phase != .downloading,
-              Date().timeIntervalSince(lastCheck ?? .distantPast) > stale else { return }
+    /// The app came to the front: checks again when the last check is older than `stale`, else
+    /// books the next one at ``interval`` after the last (a check booked from the background
+    /// waited ``backgroundInterval``).
+    public func noteActivation(stale: TimeInterval = 60) {
+        foreground = true
+        guard channel != .off, phase != .checking, phase != .downloading else { return }
+        let since = Date().timeIntervalSince(lastCheck ?? .distantPast)
+        guard since > stale else {
+            nextCheck.schedule(after: Self.delay(after: since, interval: interval)) { @MainActor [weak self] in await self?.check() }
+            return
+        }
         // task-owner: one check; it ends by itself
         Task { await check() }
     }
 
+    /// cmux went behind other apps: the check booked a minute out moves to ``backgroundInterval``
+    /// after the last one.
+    public func noteBackground() {
+        foreground = false
+        guard channel != .off, phase != .checking, phase != .downloading, nextCheck.isScheduled else { return }
+        let since = Date().timeIntervalSince(lastCheck ?? .distantPast)
+        nextCheck.schedule(after: Self.delay(after: since, interval: backgroundInterval)) { @MainActor [weak self] in await self?.check() }
+    }
+
+    /// The wait from now for a check `interval` after one `since` seconds ago (none when overdue).
+    nonisolated static func delay(after since: TimeInterval, interval: Duration) -> Duration {
+        .milliseconds(Int(max(0, WebSwapGate.seconds(interval) - since) * 1000))
+    }
+
     /// Reads the channel's pointer and takes a new update.
     public func check() async {
+        await writing?.value
         guard channel != .off, phase != .checking, phase != .downloading else { return }
         phase = .checking
         _ = await launchTree()
-        let channel = channel
+        let channel = channel, follows = follows
         lastCheck = Date()
         // Each check books the next one, so a check started by hand pushes the schedule back; a
         // channel changed during the check reads its own pointer at once.
         defer {
             if self.channel != .off {
-                nextCheck.schedule(after: self.channel == channel ? interval : .zero) { @MainActor [weak self] in await self?.check() }
+                let next = foreground ? interval : backgroundInterval
+                nextCheck.schedule(after: self.follows == follows ? next : .zero) { @MainActor [weak self] in await self?.check() }
             }
         }
         do {
@@ -212,29 +272,32 @@ public final class WebUpdater {
                 if let refusal = error as? WebUpdateRefusal, Self.isLasting(refusal), self.channel == channel { etag = tag }
                 throw error
             }
-            guard self.channel == channel else {
-                // The channel changed during the download: drop the tree.
-                try? await Self.save(state, store: store, served: served())
+            // Kept after the state writes queued during the download (a channel change).
+            try await enqueue { [self] in
+                guard self.channel == channel else {
+                    // The channel changed during the download: drop the tree.
+                    try? await Self.save(state, store: store, served: served())
+                    phase = .idle
+                    return
+                }
+                var next = state
+                next.previous = state.active
+                next.active = pointer
+                next.floor = max(next.floor, pointer.committedAt)
+                try await Self.save(next, store: store, served: served())
+                guard self.channel == channel else {
+                    // The channel changed during the save: put the state back (and drop the
+                    // tree); the next check serves the right channel.
+                    try? await Self.save(state, store: store, served: served())
+                    phase = .idle
+                    return
+                }
+                state = next
+                etag = tag
+                lastRefusal = nil
                 phase = .idle
-                return
-            }
-            var next = state
-            next.previous = state.active
-            next.active = pointer
-            next.floor = max(next.floor, pointer.committedAt)
-            try await Self.save(next, store: store, served: served())
-            guard self.channel == channel else {
-                // The channel changed during the save: put the state back (and drop the tree);
-                // the next check serves the right channel.
-                try? await Self.save(state, store: store, served: served())
-                phase = .idle
-                return
-            }
-            state = next
-            etag = tag
-            lastRefusal = nil
-            phase = .idle
-            onReady(tree)
+                onReady(tree, pointer)
+            }.value
         } catch let refusal as WebUpdateRefusal {
             lastRefusal = refusal
             phase = refusal == .notNewer || Self.isAppTooOld(refusal) ? .idle : .failed(String(describing: refusal))
@@ -278,10 +341,27 @@ public final class WebUpdater {
     }
 
     /// Serves the update before the active one (the bundled web when there is none) from the next
-    /// safe point. A rolled-back update is not taken again; the next newer one is.
+    /// safe point. A rolled-back update is not taken again; the next newer one is. Refused
+    /// (``Busy``) while a check runs; a check started meanwhile waits for it.
     public func rollBack() async throws {
-        guard state.active != nil else { return }
-        try await serve(state.previous, refusingActive: true)
+        try await enqueue { [self] in
+            guard state.active != nil else { return }
+            guard phase != .checking, phase != .downloading else { throw Busy() }
+            try await serve(state.previous, refusingActive: true)
+        }.value
+    }
+
+    /// Runs `body` once the state write queued before it ends.
+    private func enqueue(_ body: @escaping @MainActor () async throws -> Void) -> Task<Void, any Error> {
+        let before = writing
+        // task-owner: one state write; it ends by itself
+        let task = Task { @MainActor in
+            await before?.value
+            try await body()
+        }
+        // task-owner: the queue's handle on that write; it ends with it
+        writing = Task { _ = try? await task.value }
+        return task
     }
 
     /// Serves `pointer`'s kept update (nil: the bundled web) from the next safe point; with
@@ -293,7 +373,7 @@ public final class WebUpdater {
         if refusingActive, let active = state.active { next.floor = max(next.floor, active.committedAt) }
         try await Self.save(next, store: store, served: served())
         state = next
-        onReady(pointer.map { store.tree(for: $0.key).root })
+        onReady(pointer.map { store.tree(for: $0.key).root }, pointer)
     }
 
     @concurrent nonisolated static func save(_ state: WebUpdateState, store: WebUpdateStore, served: URL? = nil) async throws {

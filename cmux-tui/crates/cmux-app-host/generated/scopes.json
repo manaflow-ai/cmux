@@ -713,6 +713,30 @@
       "scope": "github:external",
       "class": "mutation"
     },
+    "group.add_workspace": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.archive": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.create": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.get": {
+      "scope": "group:read",
+      "class": "read"
+    },
+    "group.list": {
+      "scope": "group:read",
+      "class": "read"
+    },
+    "group.rename": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
     "home.search": {
       "scope": "home:read",
       "class": "read"
@@ -1916,6 +1940,7 @@
     "browser.viewer.release",
     "browser.viewer.resize",
     "chief.archive",
+    "chief.delete",
     "client.cell_pixels.set",
     "client.detach",
     "client.get",

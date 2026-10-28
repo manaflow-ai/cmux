@@ -34,19 +34,19 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
 
-        let original = ThemeStore.shared.input
+        let original = ThemeScope.app.store.input
         let colors = Self.ghostty()
         GhosttyConfigBackground.loaded = GhosttyConfigBackground(opacity: colors.backgroundOpacity, blur: colors.backgroundBlur)
         defer {
             GhosttyRuntime.backgroundOverride = WindowBackgroundOverride()
             GhosttyConfigBackground.loaded = GhosttyConfigBackground()
-            ThemeStore.shared.apply(original)
+            ThemeScope.app.store.apply(original)
         }
         let scope = ThemeScope(level: .room)
         let terminal = TerminalThemeSetting(backdropScope: scope)
-        terminal.reload = { ThemeStore.shared.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }
+        terminal.reload = { ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }
         terminal.follow(settings)
-        ThemeStore.shared.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride))
+        ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride))
         #expect(scope.backdropSelection?.id == Self.work)
         return scope.shownWindowOpacity
     }

@@ -460,6 +460,7 @@ async fn a_chief_turn_gets_only_the_cmux_mcp_server() {
                 "+cmux-sessions",
                 "+cmux-subsessions",
                 "+cmux-forum",
+                "+acpmux",
             ],
         ),
         (
@@ -471,6 +472,7 @@ async fn a_chief_turn_gets_only_the_cmux_mcp_server() {
                 "+cmux-sessions",
                 "+cmux-subsessions",
                 "+cmux-forum",
+                "+acpmux",
             ],
         ),
     ] {

@@ -16,6 +16,11 @@ extension SidebarListViewComponents {
     /// (16% of the main thread while scrolling 1,000 rows, perf round 2). A view in another superview
     /// (a lift) leaves it, and a view the pool evicts leaves the list.
     func recycle(_ view: SidebarRowView) {
+        // A parked view must not retain a render-server move from the list it just left. In
+        // particular, a non-animated reload removes a row by recycling it directly, without
+        // passing it through RowMotion.run's stop set; leaving its additive spring active would
+        // keep the hidden row in the next layout's motion probe and on a later dequeue.
+        SidebarDragSpring.stop([view])
         if view.key == hoveredKey {
             hoveredKey = nil
             view.clearHoverImmediately()
@@ -47,9 +52,11 @@ extension SidebarListViewComponents {
             view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
             view.isEditing = groupEditor.shownGroup == id
             view.isKeyboardFocused = showsFocusRing && focusedGroup == id
+        case let (.emptyGroup(id), view as EmptyGroupRowView):
+            // The same New Workspace in Group as the header's + (one action path).
+            view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
         case let (.section(sectionID), view as SectionHeaderRowView):
-            // The Chief's group holds the workspaces it starts: no + of its own.
-            if case let .machine(machine) = sectionID, !machine.isLocalChief {
+            if case let .machine(machine) = sectionID {
                 view.allowsAdd = true
                 view.onAdd = { [weak self] in self?.model.send(.newWorkspace(machine: machine, group: nil)) }
             } else {

@@ -8,7 +8,7 @@
 //   /editor?file=     the code editor (editor-page.html, src/pages/editor) on any file in the home folder
 //   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html; prototype.html beside it);
 //                     POST /__dev-host/read answers its git and file-search reads (agentGitHost.ts)
-//   /history/ /apps/ /settings/ ...  React pages (src/pages/<page>/index.html, DEV_PAGES); `?mock` uses the page's in-memory provider
+//   /history/ /apps/ /settings/ ...  React pages (every src/pages/<page>/main.tsx); `?mock` uses the page's in-memory provider
 //   /gallery/         every component and page in named fixture states (src/gallery, galleryHost.ts)
 // scripts/agent-pane/dev-slot.sh runs one per slot next to a standalone acpmux daemon.
 //
@@ -144,7 +144,14 @@ function appHostServer(): Plugin {
               : { protocol: "ws", host: "127.0.0.1", clientPort: port, ...config.server?.ws },
           fs: config.server?.fs?.allow
             ? undefined
-            : { allow: [webviewsRoot, path.join(webviewsRoot, "..", "schemas/settings")] },
+            : {
+                allow: [
+                  webviewsRoot,
+                  path.join(webviewsRoot, "..", "schemas/settings"),
+                  // The UI font's WOFF2 (src/gallery/frame/uiFont.ts).
+                  path.join(webviewsRoot, "..", "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts"),
+                ],
+              },
         },
       };
     },
@@ -269,7 +276,7 @@ function devServerShell(): Plugin {
 /// directory), a second HTML entry beside the diff viewer's. The page itself runs the fragment
 /// handshake (devHost.ts) in Swift's place. Mirrors vite.config.acpmux-pane.mjs, which still
 /// serves the pane alone at its root.
-function agentPaneHost(): Plugin {
+export function agentPaneHost(): Plugin {
   const paneDir = path.join(webviewsRoot, "src/agent-session/acpmux");
   const paneURL = "/src/agent-session/acpmux";
   const sharedStyles = path.join(webviewsRoot, "src/agent-session/shared/styles.css");
@@ -357,27 +364,34 @@ function agentPaneHost(): Plugin {
   };
 }
 
-/// /<page>/ serves src/pages/<page>/index.html for the React pages (plans/cmux-next/react-pages.md).
+/// /<page>/ serves the React page in src/pages/<page>/ (plans/cmux-next/react-pages.md): every folder
+/// with a main.tsx, so a new page needs no list here (PageDevServerTests keeps the app's list equal).
+/// A viewer with its own document (<page>-page.html: diff, editor, markdown) keeps its own routes.
+/// The page's index.html when it has one, else the same shell build-pages-web.sh wraps the bundle in.
 /// The page boots its own client: the app bridge when present, else the mock provider with `?mock`.
-// The React pages under src/pages/<page>/index.html (scripts/cmux-next/build-pages-web.sh PAGES).
-const DEV_PAGES = [
-  "history",
-  "home-channels",
-  "apps",
-  "coderouter",
-  "cloud",
-  "keybindings",
-  "debug-settings",
-  "icon-picker",
-  "settings",
-  "passwords",
-  "changelog",
-  "files",
-  "stats",
-  "chief-usage",
-  "chief-views",
-  "mobile-pairing",
-];
+function isDevPage(page: string): boolean {
+  return (
+    fs.existsSync(path.join(webviewsRoot, "src/pages", page, "main.tsx")) &&
+    !fs.existsSync(path.join(webviewsRoot, `${page}-page.html`))
+  );
+}
+
+function devPageHTML(page: string): string {
+  const own = path.join(webviewsRoot, "src/pages", page, "index.html");
+  if (fs.existsSync(own)) return fs.readFileSync(own, "utf8");
+  return `<!doctype html>
+<html lang="en" data-cmux-page="${page}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  </head>
+  <body>
+    <main id="root"></main>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>
+`;
+}
 
 function pagesHost(): Plugin {
   return {
@@ -388,11 +402,11 @@ function pagesHost(): Plugin {
         const url = new URL(request.url ?? "/", "http://localhost");
         const match = url.pathname.match(/^\/([a-z-]+)\/?$/);
         const page = match?.[1];
-        if (!page || !DEV_PAGES.includes(page)) return next();
+        if (!page || !isDevPage(page)) return next();
         if (!url.pathname.endsWith("/")) return redirect(response, `/${page}/${url.search}`);
         const pageURL = `/src/pages/${page}`;
         try {
-          let html = fs.readFileSync(path.join(webviewsRoot, "src/pages", page, "index.html"), "utf8");
+          let html = devPageHTML(page);
           html = html.replace(/(\b(?:src|href)=")\.\//g, `$1${pageURL}/`);
           html = await server.transformIndexHtml(`${pageURL}/index.html`, html, request.originalUrl);
           send(response, 200, "text/html; charset=utf-8", html);
@@ -494,7 +508,14 @@ function viewerEmptyHost(): Plugin {
   };
 }
 
-type SidecarHost = { sidecar: string; cmux: string; root: string; token: string; protocolVersion: number };
+type SidecarHost = {
+  sidecar: string;
+  cmux: string;
+  root: string;
+  token: string;
+  protocolVersion: number;
+  capabilities: string[];
+};
 
 /// The diff viewer: /diff/ is index.html with src/diff/dev.ts as its entry. The server plays
 /// the two app roles the viewer needs: the `cmuxDiff` WebKit handler (POST /__cmux-diff/rpc pipes
@@ -556,7 +577,15 @@ function diffHost(): Plugin {
       }),
       { mode: 0o600 },
     );
-    host = { sidecar, cmux, root, token, protocolVersion: handshake.result.value.protocolVersion };
+    const capabilities: unknown = handshake.result.value.capabilities;
+    host = {
+      sidecar,
+      cmux,
+      root,
+      token,
+      protocolVersion: handshake.result.value.protocolVersion,
+      capabilities: Array.isArray(capabilities) ? capabilities.filter((item) => typeof item === "string") : [],
+    };
     return host;
   }
 

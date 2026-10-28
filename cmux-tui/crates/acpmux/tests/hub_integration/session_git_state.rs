@@ -294,6 +294,31 @@ async fn git_state_a_restart_tells_no_branch_the_log_already_told() {
     assert_eq!(told(&hub, &id), [json!("second"), json!("third")]);
 }
 
+/// Both a recorded branch and the absence of any `git` record are restored before
+/// attach. A first attach must not start a second scan over a long chat's history.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn git_state_restores_the_no_git_record_baseline_before_attach() {
+    let dir = scratch("unreported");
+    repo(&dir, "first");
+    let store = scratch("unreported-store");
+    let cfg = disk_config();
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &store).unwrap());
+    let mut c = connect(&hub).await;
+    let id = new_session(&mut c, &dir).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &store).unwrap());
+    assert!(hub.git_branch_tracked(&id), "startup left the Git baseline for attach to scan");
+    hub.start_harness_watch();
+    let mut c = connect(&hub).await;
+    hold(&mut c, &id).await;
+    git(&dir, &["checkout", "-q", "-b", "second"]);
+    assert_eq!(git_changed(&mut c, &id).await, "second");
+    assert_eq!(told(&hub, &id), [json!("second")]);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn git_state_of_a_purged_chat_is_forgotten() {
     let dir = scratch("purge");

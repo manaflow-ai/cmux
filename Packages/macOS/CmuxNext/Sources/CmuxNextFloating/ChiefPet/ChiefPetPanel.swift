@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextCompat
 
 /// The Chief pet: a small pixel character over a glass rail, floating over every app and every
 /// Space as the references draw it (`cmux-design-references` chief-water-reference: the pet,
@@ -34,7 +35,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     /// The pet was pulled back on its screen after a screen change (the bubble and reply box take their side again).
     var onKeptOnScreen: (() -> Void)?
     /// The didChangeScreenParameters observer's token, kept for the panel's life.
-    private var screenObserver: (any NSObjectProtocol)?
+    private var screenObserver: MainActorObservation?
 
     /// `notifications`: where screen-parameter changes are posted (AppKit posts to `.default`); tests give their own.
     public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard, notifications: NotificationCenter = .default) {
@@ -75,9 +76,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         visibleFrame = { [weak self] in self?.screen?.visibleFrame }
         // A resolution change, or the Dock or menu bar resizing, keeps the screen, so AppKit sends no
         // didChangeScreen; the visible frame still changes under the pet.
-        screenObserver = notifications.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
-                                                   object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.keepOnScreen() } // main-proof: observer on queue: .main
+        screenObserver = MainActorObservation(NSApplication.didChangeScreenParametersNotification, center: notifications) { [weak self] in
+            self?.keepOnScreen()
         }
     }
 
@@ -119,6 +119,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     }
 
     func dismiss() {
+        pet.runClip(false)  // hidden: the clip's loop stops
         orderOut(nil)
     }
 
@@ -155,7 +156,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
 /// The pet's content: the character, and the rail under it. A press that moves past
 /// `ChiefPetPlacement.dragSlop` drags the panel; one on the character that does not is a click.
 /// The rail's tools take their own clicks. Clicks work on the first press: the panel is never key.
-final class ChiefPetView: NSView {
+final class ChiefPetView: NSView, StatusIndicatorConfigClient {
     var onClick: (() -> Void)?
     /// After each step of a drag, with the panel already moved (the notices follow it live).
     var onDragMoved: (() -> Void)?
@@ -168,6 +169,8 @@ final class ChiefPetView: NSView {
     private let badgeView = ChiefPetBadge()
     /// The pixel character, drawn by a layer so it scales up with whole pixels.
     private let character = ChiefPetCharacter()
+    /// The person's upload, drawn instead of `image` while set (``play(_:)``).
+    private var clip: ChiefPetClip?
     /// Where the press started, in screen points, the panel's origin then, and whether it was on the character.
     private var press: (start: CGPoint, origin: CGPoint, onCharacter: Bool)?
     private var dragging = false
@@ -193,13 +196,54 @@ final class ChiefPetView: NSView {
         character.setAccessibilityLabel(ChiefPetStrings.accessibilityLabel)
         character.onPress = { [weak self] in self?.onClick?() }
         themedToolTip = ChiefPetStrings.accessibilityLabel
+        // Reduce Motion, calm mode and the speed setting reach the clip's loop at once, by the
+        // indicators' one broadcast (held weakly: it ends with the view).
+        StatusIndicatorAppearance.shared.register(self)
+    }
+
+    /// Loops just turned off (or on): the clip stops on its first frame (or moves again).
+    func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
+        reconcileClip()
+    }
+
+    /// Checks the clip's loop against the motion policy now (Reduce Motion, calm mode, the Home switch).
+    func reconcileClip() {
+        runClip(clipAllowed)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
     var image: NSImage? {
-        didSet { character.layer?.contents = image }
+        didSet { if clip == nil { character.layer?.contents = image } }
+    }
+
+    /// Draws `clip` (the person's upload) instead of `image`; nil draws `image` again. Its first
+    /// frame shows until `runClip(_:)` lets it move.
+    func play(_ clip: ChiefPetClip?) {
+        self.clip = clip
+        character.layer?.contents = clip?.frames.first ?? image
+        character.layer?.removeAnimation(forKey: "clip")
+        clipRuns = false
+        runClip(clipAllowed)
+    }
+
+    /// Whether the clip may move now (the controller's: the pet on screen and cmux active).
+    private var clipAllowed = false
+    private var clipRuns = false
+
+    /// Starts a moving clip's loop when `allowed` and loops may run (Reduce Motion, calm mode and the
+    /// Home motion switch off them), else removes it and the first frame stays. The loop's one stop and
+    /// cleanup: Core Animation runs it in the render server, with no timer here; it is removed when the
+    /// pet hides, cmux goes to the back, the upload changes, or loops turn off (``statusIndicatorConfigDidChange(_:)``).
+    func runClip(_ allowed: Bool) {
+        clipAllowed = allowed
+        guard let layer = character.layer else { return }
+        let loop = allowed ? clip.flatMap { Motion.home.clipAnimation($0.frames, delays: $0.delays) } : nil
+        guard (loop != nil) != clipRuns else { return }
+        layer.removeAnimation(forKey: "clip")
+        clipRuns = loop != nil
+        if let loop { layer.add(loop, forKey: "clip") }
     }
 
     override func layout() {

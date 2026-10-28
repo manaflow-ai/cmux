@@ -406,6 +406,8 @@ pub fn acknowledge_terminal_host_exit_record(
     Ok(true)
 }
 
+/// Tests write host records directly; the daemon queues them (`record_mirror`).
+#[cfg(test)]
 pub(crate) fn write_record(path: &Path, record: &TerminalHostRecord) -> anyhow::Result<()> {
     write_json_record(path, record)
 }
@@ -486,7 +488,28 @@ pub(crate) fn next_exit_persistence_retry_delay(delay: Duration) -> Duration {
     delay.saturating_mul(2).min(HOST_EXIT_PERSIST_RETRY_MAX)
 }
 
+#[cfg(test)]
 pub(crate) fn write_json_record(path: &Path, record: &impl Serialize) -> anyhow::Result<()> {
+    write_json_record_syncing_dir(path, record, true)
+}
+
+/// [`write_record`] without its directory entry sync, which the caller runs
+/// later: a new host syncs it after its Ready, off its terminal's first
+/// output (new-terminal-100x). The data barrier before the rename stays, so
+/// a power cut never leaves a torn record (an explicit reset refuses one);
+/// a lost entry only loses a host the same power cut killed.
+pub(crate) fn write_record_deferring_dir_sync(
+    path: &Path,
+    record: &TerminalHostRecord,
+) -> anyhow::Result<()> {
+    write_json_record_syncing_dir(path, record, false)
+}
+
+fn write_json_record_syncing_dir(
+    path: &Path,
+    record: &impl Serialize,
+    sync_dir: bool,
+) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         sys::prepare_private_dir(parent)?;
     }
@@ -501,7 +524,7 @@ pub(crate) fn write_json_record(path: &Path, record: &impl Serialize) -> anyhow:
         file.write_all(&bytes)?;
         sys::barrier_sync(&file)?;
         fs::rename(&temporary, path)?;
-        if let Some(parent) = path.parent() {
+        if sync_dir && let Some(parent) = path.parent() {
             sys::barrier_sync_dir(parent)?;
         }
         Ok(())

@@ -42,11 +42,19 @@ import Testing
         #expect(progress.summary == [CmuxStrings.turnReadFiles(2), CmuxStrings.turnRanCommands(2), "Telling a31"].joined(separator: " · ") + " ›")
     }
 
-    @Test func otherStepsCountAsSteps() {
+    @Test func genericStepsAreNeverCounted() {
         let progress = Self.progress(["Telling a31", "Starting 2 agents", "Checking on a31", "Checking on a7"])
-        #expect(progress.summary == CmuxStrings.turnSteps(3) + " ›")
+        #expect(progress.summary == "›")
         let mixed = Self.progress(["Running ls", "Running pwd", "Telling a31", "Starting 2 agents", "Checking on a31"])
-        #expect(mixed.summary == CmuxStrings.turnRanCommands(2) + " · " + CmuxStrings.turnMoreSteps(2) + " ›")
+        #expect(mixed.summary == CmuxStrings.turnRanCommands(2) + " ›")
+        for text in [progress.summary, mixed.summary].compactMap({ $0 }) {
+            #expect(!text.localizedCaseInsensitiveContains("step"))
+        }
+    }
+
+    @Test func planHeaderNeverCountsSteps() {
+        #expect(!CmuxStrings.planHeader(steps: 6, active: 0).contains("6"))
+        #expect(!CmuxStrings.planHeader(steps: 6, active: 3).localizedCaseInsensitiveContains("step"))
     }
 
     @Test func thinkingAndWritingAreNotSteps() {

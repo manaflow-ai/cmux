@@ -30,6 +30,25 @@ import Testing
         #expect(try unhideParkedTab(runtime) == 0)
     }
 
+    /// PL-cef-tab: showing a tab whose browser does not exist must not build its Chromium window
+    /// in that turn (CefBrowserHost::CreateBrowser holds the main thread for 80 ms to 0.8 s), so
+    /// the tab's toolbar and themed page area draw in the frame of the key that asked for it. The
+    /// browser follows after the frame commits, once per tab.
+    @Test func showingATabWithoutABrowserMakesItAfterTheTurnsFrame() throws {
+        SpyShim.reset()
+        let (runtime, root) = try Self.spyRuntime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
+        let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(tab)
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        host.present(tab, in: container)
+        #expect(SpyShim.createWindowCalls == 0, "the turn that shows the tab builds no Chromium window")
+        host.present(tab, in: container)
+        host.createDeferred()
+        #expect(SpyShim.createWindowCalls == 1, "built once, after the frame")
+    }
+
     /// A browser whose creation was under way when quit closed every browser: Chromium makes it
     /// after `cmux_shim_close_all`. Quit closes it too, so the wait for Chromium's windows ends and
     /// CefShutdown runs; it used to stay open until the wait ran out and CefShutdown was skipped.
@@ -133,6 +152,9 @@ import Testing
         parked.addSubview(tab.contentView)
         let before = SpyShim.createWindowCalls
         parked.isHidden = false
+        // The browser is made once the turn's frame committed (`CEFPaneHost.createAfterCommit`).
+        #expect(SpyShim.createWindowCalls == before, "no browser in the turn that shows the tab")
+        host.createDeferred()
         return SpyShim.createWindowCalls - before
     }
 }

@@ -51,7 +51,10 @@ extension BrowserTabState {
         return components?.url
     }
 
+    /// Safari's short label (TabsKitAddress.displayLabel(for:) is the toolbar's): the host,
+    /// or a local file's name, never a whole `file:` path.
     static func displayHost(_ url: URL?) -> String {
+        if let url, url.isFileURL { return url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent }
         guard let host = url?.host() else { return url?.absoluteString ?? "" }
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
@@ -86,6 +89,8 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// Why the Mac did not load an address (the address bar's, or a link's inside the
     /// page): shown over the page until the next navigation or a tap.
     public private(set) var notice: String?
+    /// The page's focused text field (`rb.text_input`): the keyboard rises for it.
+    public private(set) var field: StreamedBrowserField?
     /// The newest numbers for the overlay: frames per second, kbit/s,
     /// capture-to-decoded latency (median of the last second), decode time.
     public private(set) var meter = Meter()
@@ -129,6 +134,21 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// opens it: the Mac stopped the page, or another viewer took it.
     public private(set) var canReopen = false
     @ObservationIgnored private var samples: [Meter.Sample] = []
+    /// A shown page that stopped (no picture after a keyframe was asked for):
+    /// asks again, restarts the decoder, then opens the stream again.
+    @ObservationIgnored private var watchdog = BrowserStallWatchdog()
+    @ObservationIgnored private var watchdogTask: Task<Void, Never>?
+    /// How often the watchdog looks (tests replace it).
+    @ObservationIgnored var watchdogTick: @Sendable () async throws -> Void = {
+        try await ContinuousClock().sleep(for: .seconds(1))
+    }
+    /// The stream is being opened again after a stall: the page says so.
+    @ObservationIgnored private var reconnecting = false
+    /// Reconnects after a stall since the page last stayed live a while: after
+    /// ``maxStallReconnects`` the page waits for Reopen instead of cycling.
+    @ObservationIgnored private var stallReconnects = 0
+    static let maxStallReconnects = 3
+    static var reconnectingText: String { String(localized: "Reconnecting browser…") }
     /// A Back or Forward sent and not yet committed on the Mac (finding 5 of
     /// verify/parity-mac.md): the browser reports the old history while the page loads, so
     /// until the history moved the buttons follow the step, and a second step waits for it.
@@ -206,7 +226,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         guard connection == nil, !connecting, screen != nil else { return }
         connecting = true
         canReopen = false
-        phase = .connecting
+        phase = reconnecting ? .waiting(Self.reconnectingText) : .connecting
         let sink = Sink(model: self)
         self.sink = sink
         let open = open
@@ -266,6 +286,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         guard visible != before else { return }
         connection?.setVisible(visible)
         if welcomed { send(wire.visibility(visible)) }
+        updateWatch()
         // Shown again (on screen, app active) with its stream gone: open it.
         if visible { reconnect() }
     }
@@ -279,6 +300,7 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// another viewer took it).
     public func reopen() {
         autoReopens = 0
+        stallReconnects = 0
         if connection == nil { connect() }
     }
 
@@ -286,6 +308,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         connection?.close()
         connection = nil
         sink = nil
+        updateWatch()
     }
 
     private func opened(_ connection: any BrowserStreamConnection, sink: Sink) {
@@ -298,19 +321,24 @@ public final class StreamedBrowserModel: BrowserTabState {
         if !visible { connection.setVisible(false) }
         welcomed = false
         let decoder = decoder
-        decoder.requestKeyframe = { [weak connection] in connection?.requestKeyframe() }
+        decoder.requestKeyframe = { [weak connection, weak self] in
+            connection?.requestKeyframe()
+            Task { @MainActor in self?.watchdog.keyframeAsked(at: .now) }
+        }
         decoder.now = { [weak connection] in connection?.nowMicros() ?? 0 }
         decoder.reset()
     }
 
     private func unavailable() {
         connecting = false
+        reconnecting = false
         sink = nil
         phase = .unavailable
     }
 
     private func failed(_ reason: String) {
         connecting = false
+        reconnecting = false
         sink = nil
         phase = .waiting(reason)
     }
@@ -320,7 +348,10 @@ public final class StreamedBrowserModel: BrowserTabState {
         switch json["t"] as? String {
         case "welcome":
             welcomed = true
+            updateWatch()
             appliedScreen = nil
+            // The host reports focus only when it changes: a new session starts with none.
+            field = nil
             if let screen, let connection {
                 screenSeq = 0
                 try? connection.send(message: wire.open(tab: tab, viewer: "phone", screen: screen))
@@ -332,6 +363,9 @@ public final class StreamedBrowserModel: BrowserTabState {
             }
         case "refused", "ended":
             phase = .waiting(json["reason"] as? String ?? "The Mac ended the page")
+        case "rb.text_input":
+            let next = StreamedBrowserField(json: json)
+            if next != field { field = next }
         case "rb.navigate.refused":
             refused(code: json["code"] as? String, reason: json["reason"] as? String)
         case "rb.page":
@@ -349,10 +383,16 @@ public final class StreamedBrowserModel: BrowserTabState {
         connection = nil
         self.sink = nil
         welcomed = false
+        field = nil
         liveSince = nil
         decoder.reset()
+        updateWatch()
         log.info("browser \(self.tab, privacy: .public) closed: \(code, privacy: .public) \(reason, privacy: .public)")
         switch Self.afterClose(code: code, shown: visible, autoReopens: autoReopens) {
+        case .reconnect:
+            // The library's watchdog: the page stopped answering input, or the
+            // channel stopped moving. A new stream, and the page says so.
+            reconnectAfterStall()
         case .reopen:
             // The Mac stopped this page to make room (its host limit): a shown
             // page opens again at once, never a frozen frame.
@@ -372,10 +412,12 @@ public final class StreamedBrowserModel: BrowserTabState {
         }
     }
 
-    enum AfterClose: Equatable { case reopen, waitForView, offerReopen, waitForLink }
+    enum AfterClose: Equatable { case reopen, reconnect, waitForView, offerReopen, waitForLink }
 
     /// What a closed stream does next. `evicted`: cmux-mobile-host's host limit
-    /// stopped the page; `replaced`: another viewer opened the tab. A dropped
+    /// stopped the page; `replaced`: another viewer opened the tab; `stalled`:
+    /// the library's watchdog ended a stream that stopped answering; `eof`: the
+    /// Mac ended it (its browser host went away) with the link up. A dropped
     /// link reopens when the next link is up (``StreamedBrowserDirectory``).
     static func afterClose(code: String, shown: Bool, autoReopens: Int) -> AfterClose {
         switch code {
@@ -384,6 +426,10 @@ public final class StreamedBrowserModel: BrowserTabState {
             return autoReopens < maxAutoReopens ? .reopen : .offerReopen
         case "replaced":
             return .offerReopen
+        case "stalled", "eof":
+            // `eof`: the Mac ended the stream on a link that is still up (its
+            // browser host exited or crashed); a new open starts a new host.
+            return shown ? .reconnect : .waitForView
         default:
             return .waitForLink
         }
@@ -397,9 +443,14 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     private func note(_ shown: BrowserVideoDecoder.Shown) {
         if phase != .live { phase = .live }
+        reconnecting = false
+        watchdog.pictureShown(at: .now)
         let instant = ContinuousClock.now
         if let liveSince {
-            if liveSince.duration(to: instant) >= Self.forgiveAfter { autoReopens = 0 }
+            if liveSince.duration(to: instant) >= Self.forgiveAfter {
+                autoReopens = 0
+                stallReconnects = 0
+            }
         } else {
             liveSince = instant
         }
@@ -538,6 +589,104 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     func input(_ event: Data, mustDeliver: Bool = true) {
         try? connection?.send(input: event, mustDeliver: mustDeliver)
+        if connection != nil { watchdog.inputSent(at: .now) }
+    }
+
+    // MARK: Watchdog
+
+    /// Watches while the stream is open, welcomed and shown.
+    private func updateWatch() {
+        let watch = visible && welcomed && connection != nil
+        if !watch {
+            // Also after a reopen (the watchdog is restarted at the next welcome).
+            watchdogTask?.cancel()
+            watchdogTask = nil
+            if watchdog.watching { watchdog.stop() }
+        } else if !watchdog.watching {
+            watchdogTask?.cancel()
+            watchdog.start(at: .now)
+            let tick = watchdogTick
+            // task-owner: the model's watchdog; cancelled when the page stops being watched
+            watchdogTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await tick() } catch { return }
+                    guard let self else { return }
+                    self.checkStall(at: .now)
+                }
+            }
+        }
+    }
+
+    /// One look of the watchdog (tests call it with their own instants).
+    func checkStall(at now: ContinuousClock.Instant) {
+        switch watchdog.check(at: now) {
+        case .none:
+            break
+        case .askKeyframe:
+            connection?.requestKeyframe()
+        case .restartDecoder:
+            log.notice("browser \(self.tab, privacy: .public): no picture after a keyframe request; restarting the decoder")
+            decoder.reset()
+            connection?.requestKeyframe()
+        case .reopen:
+            log.notice("browser \(self.tab, privacy: .public): still no picture; opening the stream again")
+            reconnectAfterStall()
+        }
+    }
+
+    private func reconnectAfterStall() {
+        guard stallReconnects < Self.maxStallReconnects else {
+            close()
+            welcomed = false
+            reconnecting = false
+            canReopen = true
+            phase = .waiting(String(localized: "This page stopped responding."))
+            return
+        }
+        stallReconnects += 1
+        connection?.close()
+        connection = nil
+        sink = nil
+        welcomed = false
+        field = nil
+        liveSince = nil
+        decoder.reset()
+        updateWatch()
+        reconnecting = true
+        connect()
+    }
+
+    // MARK: Simulator surfaces (0...1 of the simulator's screen)
+
+    /// The simulator page's keyboard is up (its accessory bar toggles it).
+    public var wantsKeyboard = false
+
+    /// A finger on a simulator: `down`, `move` or `up` at 0...1 of its screen.
+    /// Moves may be dropped under load; down and up always arrive.
+    public func touch(_ kind: String, at point: CGPoint) {
+        input(wire.pointer(kind, x: Double(point.x), y: Double(point.y), buttons: kind == "up" ? 0 : 1),
+              mustDeliver: kind != "move")
+    }
+
+    /// Home or Lock on a simulator.
+    public func pressButton(_ button: String) {
+        input(wire.button(button))
+    }
+
+    /// `point` in a view of `size` showing `picture` aspect fit, as 0...1 of the
+    /// picture (top-left origin), clamped to its edges. Before the first frame the
+    /// picture is taken to fill the view.
+    public static func normalized(_ point: CGPoint, in size: CGSize, picture: CGSize) -> CGPoint {
+        guard size.width > 0, size.height > 0 else { return CGPoint(x: 0.5, y: 0.5) }
+        var drawn = CGRect(origin: .zero, size: size)
+        if picture.width > 0, picture.height > 0 {
+            let scale = min(size.width / picture.width, size.height / picture.height)
+            let fitted = CGSize(width: picture.width * scale, height: picture.height * scale)
+            drawn = CGRect(x: (size.width - fitted.width) / 2, y: (size.height - fitted.height) / 2,
+                           width: fitted.width, height: fitted.height)
+        }
+        let x = (point.x - drawn.minX) / drawn.width, y = (point.y - drawn.minY) / drawn.height
+        return CGPoint(x: min(max(x, 0), 1), y: min(max(y, 0), 1))
     }
 
     /// The CSS pixel under a point of a view of `size` points.
@@ -600,6 +749,8 @@ enum LinkErrorText {
     /// Mac's "this build has no browser host" (never shown as is).
     static func noBrowserHost(_ error: any Error) -> Bool {
         guard let error = error as? LinkError else { return false }
+        // `no_surface_host`: the Mac streams no simulators (an older Mac refuses `surface` as unknown).
+        if ["no_surface_host", "unknown_service"].contains(error.code) { return true }
         return error.code == "no_browser_host" || error.message.localizedCaseInsensitiveContains("no browser host")
     }
 

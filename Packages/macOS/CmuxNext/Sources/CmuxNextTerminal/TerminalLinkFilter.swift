@@ -108,10 +108,6 @@ extension SurfaceBridge {
     /// The pointer's position again, with the keys held now: a link filter answer that
     /// arrived after the move shows (or hides) its underline without another move.
     @MainActor func sendPointerAgain() {
-        guard let view, let surface = view.surface, let window = view.window else { return }
-        let point = view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
-        guard view.bounds.contains(point) else { return }
-        // Ghostty expects points with a top-left origin.
-        ghostty_surface_mouse_pos(surface, point.x, view.bounds.height - point.y, GhosttyInput.mods(NSEvent.modifierFlags))
+        view?.linkPointer.refresh()
     }
 }

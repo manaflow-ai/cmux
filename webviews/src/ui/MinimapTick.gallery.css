@@ -5,7 +5,7 @@
   min-height: 220px;
   padding: 28px;
   color: var(--cmux-text, CanvasText);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--font-ui);
 }
 
 .minimap-tick-gallery-copy {
@@ -13,12 +13,14 @@
   gap: 4px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .minimap-tick-gallery-copy strong {
   color: var(--cmux-text, CanvasText);
   font-size: var(--text-title);
   font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 .minimap-tick-gallery-strip {
@@ -77,4 +79,5 @@
   min-height: 18px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }

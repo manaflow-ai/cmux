@@ -9,8 +9,10 @@
 //! synced commit: about 25 MB/s of disk writes from three idle agents, and a
 //! 41.6 GB registry. These tests run the real daemon and check, at its files
 //! and its socket:
-//! - idle redrawing terminals change no file in the state folder in any mode,
-//!   and the journal holds no output;
+//! - idle redrawing terminals change no file in the state folder in any mode
+//!   but the registry, and the registry only by the terminal's `last_output`
+//!   time (`terminal.progress`, at most once per 5 s per printing terminal,
+//!   terminal_activity.rs); the journal holds no output;
 //! - after the daemon and its terminal hosts are killed (a reboot), the
 //!   respawned terminal shows its earlier screen in `snapshot` and `full`,
 //!   and nothing of it in `memory`, which leaves no output file on disk.
@@ -114,6 +116,30 @@ fn process_io(pid: u32) -> Option<(u64, Duration)> {
     Some((wchar, Duration::from_millis(ticks * 1000 / hertz)))
 }
 
+/// The journal's row count per kind.
+fn journal_kinds(state: &Path) -> std::collections::BTreeMap<String, i64> {
+    let connection = rusqlite::Connection::open_with_flags(
+        registry_path(state),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let mut statement =
+        connection.prepare("SELECT kind, count(*) FROM session_journal GROUP BY kind").unwrap();
+    statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+/// Whether `path` is the registry database or its WAL or shared-memory file.
+fn is_registry_file(path: &Path) -> bool {
+    path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
+        name.strip_prefix("workspace-registry.sqlite3")
+            .is_some_and(|rest| rest.is_empty() || rest == "-wal" || rest == "-shm")
+    })
+}
+
 fn idle_terminals_write_nothing(mode: &str) {
     let _exclusive = exclusive_process_test();
     let harness = harness(&format!("output-idle-{mode}"), mode);
@@ -130,6 +156,7 @@ fn idle_terminals_write_nothing(mode: &str) {
     // First frames, the first snapshots and the startup commits settle.
     std::thread::sleep(Duration::from_secs(3));
     let pid = harness.child.as_ref().unwrap().id();
+    let journal_before = journal_kinds(&harness.state);
     let before = file_states(&harness.state);
     let io_before = process_io(pid);
     let window = idle_window();
@@ -149,9 +176,28 @@ fn idle_terminals_write_nothing(mode: &str) {
             (cpu_after - cpu_before).as_secs_f64() * 100.0 / window.as_secs_f64(),
         );
     }
+    // The registry may take the terminals' last_output time (1f4437e6f08, #24084: a printing
+    // terminal pushes it at most once per 5 s): those commits, and nothing else.
+    let journal_after = journal_kinds(&harness.state);
+    let grown = journal_after
+        .iter()
+        .filter_map(|(kind, rows)| {
+            let added = rows - journal_before.get(kind).copied().unwrap_or(0);
+            (added != 0).then(|| (kind.clone(), added))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let progress = grown.get("terminal.progress").copied().unwrap_or(0);
+    let allowed =
+        i64::try_from(IDLE_TERMINALS).unwrap() * (i64::try_from(window.as_secs()).unwrap() / 5 + 1);
+    assert!(
+        grown.keys().all(|kind| kind == "terminal.progress") && progress <= allowed,
+        "idle redrawing terminals committed more than their last_output time in {mode} mode \
+         ({allowed} terminal.progress rows at most): {grown:?}"
+    );
     let changed = after
         .iter()
         .filter(|state| !before.contains(state))
+        .filter(|(path, _, _)| !is_registry_file(path))
         .map(|(path, len, _)| format!("{} ({len} bytes)", path.display()))
         .collect::<Vec<_>>();
     assert!(

@@ -3,38 +3,41 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 
 /// Screen name, color, icon, and pin actions.
 enum ScreenAppearanceHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
-        registry.bind("screen.rename", invoke: { invocation in
-            guard let ref = ctx.screen(invocation) else { return }
+        registry.bindEffect("screen.rename", effect: { invocation in
+            guard let ref = ctx.screen(invocation) else { return .done }
             if let name = invocation["name"]?.stringValue {
                 return ScreenCommands.rename(ref.screen, to: name, daemon: ref.daemon)
             }
             // Inline in the screen bar when it shows the screen, else a Cmd-Shift-P step.
-            if ref.content?.screenBar.beginRename(ref.screen) == true { return }
+            if ref.content?.screenBar.beginRename(ref.screen) == true { return .done }
             ctx.services.registry.ask("screen.rename", invocation, ActionArgumentAsk(argument: "name", initialText: ref.screen.name ?? ""))
+            return .done
         })
-        registry.bind("screen.clearName", invoke: { invocation in
-            guard let ref = ctx.screen(invocation) else { return }
-            ScreenCommands.rename(ref.screen, to: "", daemon: ref.daemon)
+        registry.bindEffect("screen.clearName", effect: { invocation in
+            guard let ref = ctx.screen(invocation) else { return .done }
+            return ScreenCommands.rename(ref.screen, to: "", daemon: ref.daemon)
         })
-        registry.bind("screen.setColor", invoke: { invocation in
-            guard let ref = metadataTarget(invocation, ctx) else { return }
-            guard let raw = invocation["color"]?.stringValue, GroupColor(rawValue: raw) != nil
-                ?? ctx.refuse(RefusalStrings.colorArgumentRequired) else { return }
-            ScreenCommands.setColor(ref.screen, raw, daemon: ref.daemon)
+        registry.bindEffect("screen.setColor", effect: { invocation in
+            guard let ref = metadataTarget(invocation, ctx) else { return .done }
+            guard let raw = invocation["color"]?.stringValue, GroupColor(rawValue: raw) != nil else {
+                return .refused(RefusalStrings.colorArgumentRequired)
+            }
+            return ScreenCommands.setColor(ref.screen, raw, daemon: ref.daemon)
         })
         for color in GroupColor.allCases {
-            registry.bind(ActionID(rawValue: "screen.color.\(color.rawValue)"), invoke: { invocation in
-                guard let ref = metadataTarget(invocation, ctx) else { return }
-                ScreenCommands.setColor(ref.screen, color.rawValue, daemon: ref.daemon)
+            registry.bindEffect(ActionID(rawValue: "screen.color.\(color.rawValue)"), effect: { invocation in
+                guard let ref = metadataTarget(invocation, ctx) else { return .done }
+                return ScreenCommands.setColor(ref.screen, color.rawValue, daemon: ref.daemon)
             })
         }
-        registry.bind("screen.clearColor", invoke: { invocation in
-            guard let ref = metadataTarget(invocation, ctx) else { return }
-            ScreenCommands.setColor(ref.screen, nil, daemon: ref.daemon)
+        registry.bindEffect("screen.clearColor", effect: { invocation in
+            guard let ref = metadataTarget(invocation, ctx) else { return .done }
+            return ScreenCommands.setColor(ref.screen, nil, daemon: ref.daemon)
         })
         registry.bind("screen.setIcon", invoke: { invocation in
             guard let ref = metadataTarget(invocation, ctx) else { return }
@@ -56,9 +59,9 @@ enum ScreenAppearanceHandlers {
             guard let ref = metadataTarget(invocation, ctx) else { return }
             change(IconHistory.screen(ctx), ref.screen, to: nil, origin: invocation.origin)
         })
-        registry.bind("screen.togglePin", invoke: { invocation in
-            guard let ref = metadataTarget(invocation, ctx) else { return }
-            ScreenCommands.setPinned(ref.screen, !ref.screen.pinned, daemon: ref.daemon)
+        registry.bindEffect("screen.togglePin", effect: { invocation in
+            guard let ref = metadataTarget(invocation, ctx) else { return .done }
+            return ScreenCommands.setPinned(ref.screen, !ref.screen.pinned, daemon: ref.daemon)
         })
     }
 
@@ -70,7 +73,7 @@ enum ScreenAppearanceHandlers {
 
     /// The targeted screen on a daemon with `screen-metadata-v1`.
     private static func metadataTarget(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> ScreenRef? {
-        guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.shared.screenMetadata, on: ref.daemon) else { return nil }
+        guard let ref = ctx.screen(invocation), ctx.require(DaemonCapability.screenMetadata.rawValue, on: ref.daemon) else { return nil }
         return ref
     }
 }

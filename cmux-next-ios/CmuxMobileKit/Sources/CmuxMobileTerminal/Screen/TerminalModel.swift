@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileArtifacts
 import Foundation
 import Observation
 import UIKit
@@ -33,8 +34,12 @@ public final class TerminalModel {
     /// Focus asked for before the composer was on screen (a new tab).
     var composerFocusOnAppear = false
     public internal(set) var attachments: [ComposerAttachment] = []
-    var showPhotoPicker = false
-    var showFileImporter = false
+    var showPhotoPicker = false {
+        didSet { updateCovered() }
+    }
+    var showFileImporter = false {
+        didSet { updateCovered() }
+    }
     /// Sends one attachment to the Mac and returns its path there (the
     /// link's `upload` service). Nil hides the attachment menu: without a
     /// Mac to receive them there is nothing honest to attach.
@@ -66,7 +71,10 @@ public final class TerminalModel {
     // Artifacts
     public internal(set) var artifacts: [TerminalArtifact] = []
     public var showArtifacts = false {
-        didSet { if showArtifacts, !oldValue { reconcileArtifactsWithScreen() } }
+        didSet {
+            if showArtifacts, !oldValue { reconcileArtifactsWithScreen() }
+            updateCovered()
+        }
     }
     var artifactPath: [TerminalArtifact] = []
     /// Previews of HTML and Markdown show their source.
@@ -127,6 +135,33 @@ public final class TerminalModel {
         self.connectionState = session.connectionState
         joystickEngine.send = { [weak self] direction in self?.joystick(direction) }
         collector = TerminalArtifactCollector { [weak self] list in self?.artifacts = list }
+        sizeClaimer = TerminalSizeClaimer(clock: ContinuousClock()) { [weak self] claims in
+            self?.session.setClaimsSize(claims)
+        }
+    }
+
+    // MARK: Size claim (PROTOCOL.md, "Terminal size claims")
+
+    /// Tells the session when this phone's size should count on the Mac:
+    /// only while the page is on screen, settled and taking input, the app is
+    /// in the foreground and no sheet covers it.
+    @ObservationIgnored private var sizeClaimer: TerminalSizeClaimer<ContinuousClock>!
+
+    /// The page is on screen, settled and taking input (true), or not: off
+    /// screen, behind another tab, zoomed out to the grid, mid-swipe.
+    public func setPageShown(_ shown: Bool) {
+        sizeClaimer.set(pageShown: shown)
+    }
+
+    /// The app is in the foreground (false: background, locked).
+    public func setAppActive(_ active: Bool) {
+        sizeClaimer.set(appActive: active)
+    }
+
+    /// A sheet of the page's own covers it (Files and Links, the photo
+    /// picker, the file importer).
+    private func updateCovered() {
+        sizeClaimer?.set(covered: showArtifacts || showPhotoPicker || showFileImporter)
     }
 
     /// The Mac's output after an attach is drawn: a held last frame (a cold
@@ -195,6 +230,8 @@ public final class TerminalModel {
             break
         case .inputNotSent:
             composerNotice = TerminalConnectionState.inputNotSentNotice
+        case .hostGrid, .hostGridOwner:
+            break
         }
     }
 
@@ -401,6 +438,12 @@ public final class TerminalModel {
         attachments.append(attachment)
     }
 
+    /// A tapped attachment, before sending: every attachment opens full screen, to swipe between.
+    func previewAttachment(_ id: ComposerAttachment.ID) {
+        let request = FilePreviewRequest(files: attachments.map(\.localFile), startingAt: id.uuidString)
+        controller?.presentFilePreview(request)
+    }
+
     func removeAttachment(_ id: ComposerAttachment.ID) {
         attachments.removeAll { $0.id == id }
         if attachments.isEmpty { attachmentError = nil }
@@ -474,6 +517,11 @@ public struct ComposerAttachment: Identifiable, Sendable {
 
     struct Unreadable: Error, LocalizedError {
         var errorDescription: String? { "its contents couldn't be read on this iPhone" }
+    }
+
+    /// The attachment as the file preview reads it.
+    public var localFile: LocalFile {
+        LocalFile(id: id.uuidString, name: name, data: data, isImage: kind == .image, fileURL: fileURL)
     }
 
     func contents() throws -> Data {

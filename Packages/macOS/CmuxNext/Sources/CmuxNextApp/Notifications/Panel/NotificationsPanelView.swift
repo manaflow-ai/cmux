@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextCompat
 
 /// The panel's window: a borderless child panel of the shell window (so it
 /// stays above Chromium page windows and moves with the window). It takes
@@ -67,7 +68,7 @@ final class NotificationsPanelView: NSView {
     private var listHeight: NSLayoutConstraint?
     private var tinted: [(ChromeLabel, NotificationRowView.Tone)] = []
     private(set) var rowViews: [NotificationRowView] = []
-    private var scrollerStyleObserver: (any NSObjectProtocol)?
+    private var scrollerStyleObserver: MainActorObservation?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -97,14 +98,6 @@ final class NotificationsPanelView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let scrollerStyleObserver { NotificationCenter.default.removeObserver(scrollerStyleObserver) }
-        }
-    }
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -137,10 +130,8 @@ final class NotificationsPanelView: NSView {
         // Thin, shown only while scrolling (SCROLLBARS-THIN).
         SystemScrollers.follow(scroll)
         // queue: .main: a post off main into this main-actor view trapped.
-        scrollerStyleObserver = NotificationCenter.default.addObserver(
-            forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.scroll.scrollerStyle = SystemScrollers.nativeStyle } // main-proof: observer on queue: .main
+        scrollerStyleObserver = MainActorObservation(NSScroller.preferredScrollerStyleDidChangeNotification) { [weak self] in
+            self?.scroll.scrollerStyle = SystemScrollers.nativeStyle
         }
         document.translatesAutoresizingMaskIntoConstraints = false
 

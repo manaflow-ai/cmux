@@ -217,7 +217,7 @@ nonisolated struct OmnibarStep {
     /// fresh ones arrive, but Enter no longer picks them. After an edit the
     /// highlight returns to the default row (the field shows the typed
     /// text); `keepSelection` keeps an arrowed row (engine switch).
-    mutating func refreshSuggestions(keepSelection: Bool = false) {
+    mutating func refreshSuggestions(keepSelection: Bool = false) { // perf-hot: 2ms omnibar-key (every typed key)
         if !state.popup.rows.isEmpty {
             state.popup.stale = true
             if !keepSelection {

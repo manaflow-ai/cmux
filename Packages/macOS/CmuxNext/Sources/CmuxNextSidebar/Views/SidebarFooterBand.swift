@@ -100,10 +100,9 @@ final class SidebarFooterBand {
 
     // MARK: Search button
 
-    /// The smallest side of the Search button: the macOS minimum control size (HIG, 28 pt).
-    static let searchButtonMinSide: CGFloat = 28
-    /// The Search button's side: the minimum control size, or the row where that is taller.
-    static var searchButtonSide: CGFloat { max(searchButtonMinSide, Metrics.sidebarRowHeight) }
+    /// The Search button's side: the footer row's height (one slim row, no extra padding; it was a
+    /// 28 pt HIG minimum that added 2 pt under the line). Lawrence 2026-10-27: footer too tall.
+    static var searchButtonSide: CGFloat { Metrics.sidebarRowHeight }
 
     /// The pinned footer section's padding under its last row. The footer is one line, the
     /// account control and the Search button centered on it, whose taller control ends on
