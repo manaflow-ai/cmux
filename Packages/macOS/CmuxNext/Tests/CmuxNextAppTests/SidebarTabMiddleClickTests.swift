@@ -159,21 +159,43 @@ struct SidebarTabMiddleClickTests {
         #expect(closed == ["tab:b"])
     }
 
-    /// A middle-click on a Search Tabs row closes that row's tab, as Cmd-W on it does; the selection stays where it was.
+    /// A middle-click on a Search Tabs row, through the shown palette (its content view, list and table), closes that
+    /// row's tab, as Cmd-W on it does; the selection stays where it was.
     @Test func aMiddleClickOnASearchTabsRowClosesItsTab() async throws {
+        _ = NSApplication.shared
         let source = MockTabSearchSource()
         let model = PaletteModel(usage: LocalPaletteUsageStore(persistence: nil))
+        let content = PaletteContentView(model: model)
+        let window = NSWindow(contentRect: content.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = content
+        window.orderFrontRegardless()
         model.push(.tabSearch(source: source))
+        let table = try #require(AANestedGroupsGalleryTests.all(content).lazy.compactMap { $0 as? PaletteTableView }.first)
+        // The rows as the list lays them out: each section's title row (if it has one), then its rows.
+        func displayed() -> [String?] {
+            model.sections.flatMap { section in (section.title.isEmpty ? [] : [nil]) + section.rows.map { Optional($0.id) } }
+        }
         let deadline = ContinuousClock.now + .seconds(5)
-        while (model.searchTask != nil || model.rows.filter { $0.id.hasPrefix("tab:") && $0.item.isEnabled }.count < 2), ContinuousClock.now < deadline {
+        while model.searchTask != nil || model.rows.filter({ $0.id.hasPrefix("tab:") && $0.item.isEnabled }).count < 2
+                || table.numberOfRows != displayed().count, ContinuousClock.now < deadline {
+            content.layoutSubtreeIfNeeded()
             try await Task.sleep(for: .milliseconds(10))
         }
-        let open = model.rows.filter { $0.id.hasPrefix("tab:") && $0.item.isEnabled }
-        try #require(open.count >= 2, "Search Tabs listed \(model.rows.map(\.id))")
+        content.layoutSubtreeIfNeeded()
+        let rows = displayed()
+        try #require(table.numberOfRows == rows.count, "the list shows \(table.numberOfRows) rows of \(rows.count)")
         let selected = model.selectedRowID
-        let target = try #require(open.first { $0.id != selected })
-        model.closeRow(rowID: target.id)
-        #expect(source.closed == [String(target.id.dropFirst("tab:".count))])
+        let enabled = Set(model.rows.filter { $0.item.isEnabled }.map(\.id))
+        let index = try #require(rows.indices.first { i in
+            guard let id = rows[i], id.hasPrefix("tab:"), id != selected, enabled.contains(id) else { return false }
+            return table.visibleRect.contains(NSPoint(x: table.rect(ofRow: i).midX, y: table.rect(ofRow: i).midY))
+        }, "no visible open tab row besides the selected one: \(rows)")
+        let target = try #require(rows[index])
+        table.otherMouseDown(with: try Self.middle(.otherMouseDown, row: index, in: table, window: window))
+        table.otherMouseUp(with: try Self.middle(.otherMouseUp, row: index, in: table, window: window))
+        #expect(source.closed == [String(target.dropFirst("tab:".count))])
         #expect(model.selectedRowID == selected)
     }
 }
