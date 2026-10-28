@@ -196,7 +196,7 @@ final class SidebarBridge {
                                                held: { machines.workspace(id: $0) != nil }) { id in
                 if let owner = registry.value.owner(of: id), owner != windowState.id { return true }
                 guard let workspace = WindowProfiles.qualified(id, machines: machines),
-                      let pin = WindowProfiles.membership(machines)?.pins[workspace] else { return false }
+                      let pin = WindowProfiles.membership(machines)?.pinned(workspace) else { return false }
                 return pin != windowState.profileID
             }
         }

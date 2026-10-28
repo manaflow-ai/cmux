@@ -15,19 +15,26 @@ struct RoomMembership: Equatable, Sendable {
 
     /// Sessions each room follows.
     var follows: [ProfileID: Set<String>] = [:]
-    /// The one room each pinned workspace is pinned to.
-    var pins: [Workspace: ProfileID] = [:]
+    /// The one room each pinned workspace is pinned to, by session then workspace key: the home session's own index
+    /// (`PersonalStore.pinnedRooms`), so a membership costs nothing to make.
+    var pins: [String: [String: ProfileID]] = [:]
+
+    /// The room `workspace` is pinned to, if any.
+    func pinned(_ workspace: Workspace) -> ProfileID? { pins[workspace.session]?[workspace.key] }
+
+    /// Whether any workspace is pinned.
+    var hasPins: Bool { pins.values.contains { !$0.isEmpty } }
 
     /// The rooms that show `workspace`, never empty.
     func rooms(of workspace: Workspace) -> Set<ProfileID> {
-        if let pinned = pins[workspace] { return [pinned] }
+        if let pinned = pinned(workspace) { return [pinned] }
         let followers = Set(follows.filter { $0.value.contains(workspace.session) }.keys)
         return followers.isEmpty ? [.defaultProfile] : followers
     }
 
     /// `rooms(of:).contains(room)` without building the set (the control snapshot asks it per workspace).
     func contains(_ workspace: Workspace, in room: ProfileID) -> Bool {
-        if let pinned = pins[workspace] { return pinned == room }
+        if let pinned = pinned(workspace) { return pinned == room }
         var followed = false
         for (follower, sessions) in follows where sessions.contains(workspace.session) {
             if follower == room { return true }
@@ -46,6 +53,6 @@ struct RoomMembership: Equatable, Sendable {
     /// Pins `workspace` to `room` (Move Workspace to Room), replacing any
     /// other pin.
     mutating func pin(_ workspace: Workspace, to room: ProfileID) {
-        pins[workspace] = room
+        pins[workspace.session, default: [:]][workspace.key] = room
     }
 }

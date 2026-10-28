@@ -10,15 +10,11 @@ import CmuxNextSidebar
 /// reports yet (just created for a window) shows.
 @MainActor
 enum WindowProfiles {
-    /// The home session's room rules, or nil in the fallback.
+    /// The home session's room rules, or nil in the fallback. O(1): the pins come as the store's own index.
     static func membership(_ machines: MachineRegistry) -> RoomMembership? {
         let personal = machines.local.store.personal
         guard personal.isLoaded else { return nil }
-        var membership = RoomMembership(follows: personal.follows)
-        for pin in personal.pins {
-            membership.pins[RoomMembership.Workspace(session: pin.sessionID, key: pin.workspaceKey.rawValue)] = pin.profile
-        }
-        return membership
+        return RoomMembership(follows: personal.follows, pins: personal.pinnedRooms)
     }
 
     /// `workspaceID` qualified by the session that owns it.
@@ -35,7 +31,7 @@ enum WindowProfiles {
 
     static func visible(_ members: [String], profile: ProfileID, machines: MachineRegistry) -> [String] {
         // No rooms, or none pinning or following anything while `default` shows: every member shows, none is read.
-        guard let membership = membership(machines), profile != .defaultProfile || !membership.pins.isEmpty || membership.follows.values.contains(where: { !$0.isEmpty }) else { return members }
+        guard let membership = membership(machines), profile != .defaultProfile || membership.hasPins || membership.follows.values.contains(where: { !$0.isEmpty }) else { return members }
         return members.filter { shows($0, profile: profile, machines: machines, membership: membership) }
     }
 
@@ -67,7 +63,7 @@ enum WindowProfiles {
     /// Workspaces of `daemon` in `room`, in daemon order.
     static func workspaces(of daemon: DaemonService, in room: ProfileID, machines: MachineRegistry) -> [WorkspaceModel] {
         // No rooms, or none pinning or following anything while `default` shows: no workspace's session or key is read.
-        guard let membership = membership(machines), room != .defaultProfile || !membership.pins.isEmpty || membership.follows.values.contains(where: { !$0.isEmpty }) else { return daemon.store.workspaces }
+        guard let membership = membership(machines), room != .defaultProfile || membership.hasPins || membership.follows.values.contains(where: { !$0.isEmpty }) else { return daemon.store.workspaces }
         return daemon.store.workspaces.filter { shows($0.id, profile: room, machines: machines, membership: membership) }
     }
 }
