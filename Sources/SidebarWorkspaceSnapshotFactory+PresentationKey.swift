@@ -37,6 +37,22 @@ extension SidebarWorkspaceSnapshotFactory {
         )
     }
 
+    /// Rows an incremental refresh rebuilds besides the ones that changed: every saved snapshot
+    /// whose key no longer matches. A rename can start or end a title collision, which changes
+    /// the host shown on other rows, and a group's color can change without its members changing
+    /// (the anchor moving into another byCwd entry).
+    @MainActor
+    static func staleWorkspaceIds(
+        workspaces: [Workspace],
+        savedSnapshots: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot],
+        currentKey: (Workspace) -> SidebarWorkspaceSnapshotBuilder.PresentationKey
+    ) -> [UUID] {
+        workspaces.compactMap { workspace in
+            guard let saved = savedSnapshots[workspace.id] else { return nil }
+            return saved.presentationKey == currentKey(workspace) ? nil : workspace.id
+        }
+    }
+
     static func presentationKey(
         settings: SidebarTabItemSettingsSnapshot,
         showsAgentActivity: Bool,

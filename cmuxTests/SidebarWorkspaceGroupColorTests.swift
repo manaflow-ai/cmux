@@ -77,8 +77,65 @@ struct SidebarWorkspaceGroupColorTests {
         #expect(key(groupColor: Self.groupColor) == key(groupColor: "#196F3D"))
     }
 
+    /// The incremental refresh rebuilds rows from `staleWorkspaceIds`. When the anchor moves into
+    /// another byCwd entry, only the anchor's row was refreshed, so the member must come back stale.
+    @Test func anchorMovingToAnotherByCwdColorMakesMemberRowsStale() throws {
+        let green = "#196F3D"
+        let blue = "#1565C0"
+        let (root, configStore) = try Self.makeConfigStore(byCwdColors: ["frontend": green, "backend": blue])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suiteName = "SidebarWorkspaceGroupColorTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let anchor = Workspace(title: "Anchor", initialSurface: .cloudVMLoading)
+        let member = Workspace(title: "Member", initialSurface: .cloudVMLoading)
+        let workspaces = [anchor, member]
+        defer { workspaces.forEach { $0.teardownAllPanels() } }
+        let group = Self.makeGroup(anchorWorkspaceId: anchor.id, customColor: nil)
+        anchor.groupId = group.id
+        member.groupId = group.id
+        anchor.currentDirectory = root.appendingPathComponent("frontend").path
+        func colors() -> [UUID: String] {
+            SidebarWorkspaceGroupAppearance.inheritedColorHexes(
+                workspaces: workspaces,
+                groups: [group],
+                configStore: configStore
+            )
+        }
+        func staleIds(saved: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot]) -> Set<UUID> {
+            let current = colors()
+            return Set(SidebarWorkspaceSnapshotFactory.staleWorkspaceIds(workspaces: workspaces, savedSnapshots: saved) {
+                SidebarWorkspaceSnapshotFactory.presentationKey(
+                    workspace: $0,
+                    settings: settings,
+                    showsAgentActivity: false,
+                    groupColorHex: current[$0.id],
+                    originColorHex: nil,
+                    hostTitleSuffix: nil
+                )
+            })
+        }
+        let before = colors()
+        #expect(before[member.id] == green)
+        let saved = Dictionary(uniqueKeysWithValues: workspaces.map { workspace in
+            (workspace.id, SidebarWorkspaceSnapshotFactory(
+                workspace: workspace,
+                settings: settings,
+                showsAgentActivity: false,
+                groupColorHex: before[workspace.id]
+            ).makeSnapshot())
+        })
+        #expect(staleIds(saved: saved).isEmpty)
+
+        anchor.currentDirectory = root.appendingPathComponent("backend").path
+
+        #expect(colors()[member.id] == blue)
+        #expect(staleIds(saved: saved).contains(member.id))
+    }
+
     @Test func membersOfAColoredGroupInheritItsColor() throws {
-        let (root, configStore) = try Self.makeConfigStore(byCwdColor: nil)
+        let (root, configStore) = try Self.makeConfigStore(byCwdColors: [:])
         defer { try? FileManager.default.removeItem(at: root) }
         let anchor = Workspace(title: "Anchor", initialSurface: .cloudVMLoading)
         let member = Workspace(title: "Member", initialSurface: .cloudVMLoading)
@@ -102,7 +159,7 @@ struct SidebarWorkspaceGroupColorTests {
     }
 
     @Test func workspaceWithAStaleGroupIdInheritsNothing() throws {
-        let (root, configStore) = try Self.makeConfigStore(byCwdColor: nil)
+        let (root, configStore) = try Self.makeConfigStore(byCwdColors: [:])
         defer { try? FileManager.default.removeItem(at: root) }
         let stray = Workspace(title: "Stray", initialSurface: .cloudVMLoading)
         defer { stray.teardownAllPanels() }
@@ -149,7 +206,7 @@ struct SidebarWorkspaceGroupColorTests {
 
     @Test func groupWithoutOwnColorUsesItsByCwdConfigColor() throws {
         let configColor = "#7A4FD8"
-        let (root, configStore) = try Self.makeConfigStore(byCwdColor: configColor)
+        let (root, configStore) = try Self.makeConfigStore(byCwdColors: ["": configColor])
         defer { try? FileManager.default.removeItem(at: root) }
         let anchor = Workspace(title: "Anchor", initialSurface: .cloudVMLoading)
         let member = Workspace(title: "Member", initialSurface: .cloudVMLoading)
@@ -187,13 +244,18 @@ struct SidebarWorkspaceGroupColorTests {
     }
 
     /// A config store reading only a temp `cmux.json`, never the user's own config.
-    private static func makeConfigStore(byCwdColor: String?) throws -> (URL, CmuxConfigStore) {
+    /// `byCwdColors` maps a subdirectory of the returned root ("" for the root itself) to a group color.
+    private static func makeConfigStore(byCwdColors: [String: String]) throws -> (URL, CmuxConfigStore) {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-group-color-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let entries = try byCwdColors.map { subdirectory, color in
+            let directory = subdirectory.isEmpty ? root : root.appendingPathComponent(subdirectory, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            return #""\#(directory.path)": { "color": "\#(color)" }"#
+        }
         let configURL = root.appendingPathComponent("cmux.json")
-        let byCwd = byCwdColor.map { #"{ "\#(root.path)": { "color": "\#($0)" } }"# } ?? "{}"
-        try #"{ "workspaceGroups": { "byCwd": \#(byCwd) } }"#
+        try #"{ "workspaceGroups": { "byCwd": { \#(entries.joined(separator: ", ")) } } }"#
             .write(to: configURL, atomically: true, encoding: .utf8)
         let configStore = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
         configStore.loadAll()

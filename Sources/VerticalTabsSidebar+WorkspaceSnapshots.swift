@@ -27,12 +27,11 @@ extension VerticalTabsSidebar {
         let mirrorDestinations = presentation.mirrorDestinations
         let hostTitleSuffixes = presentation.hostTitleSuffixes
         let groupColorHexes = workspaceGroupColorHexes(tabs: tabManager.tabs)
-        // A rename can start or end a title collision, which changes the host shown on OTHER rows,
-        // and a group's color can change without its members changing (the anchor moving into
-        // another byCwd entry). Rebuild every row whose saved key no longer matches.
-        let staleIds = tabManager.tabs.compactMap { workspace -> UUID? in
-            guard let saved = workspaceSnapshotCache.snapshotsById[workspace.id] else { return nil }
-            let key = SidebarWorkspaceSnapshotFactory.presentationKey(
+        let staleIds = SidebarWorkspaceSnapshotFactory.staleWorkspaceIds(
+            workspaces: tabManager.tabs,
+            savedSnapshots: workspaceSnapshotCache.snapshotsById
+        ) { workspace in
+            SidebarWorkspaceSnapshotFactory.presentationKey(
                 workspace: workspace,
                 settings: settings,
                 showsAgentActivity: showsAgentActivity,
@@ -40,7 +39,6 @@ extension VerticalTabsSidebar {
                 originColorHex: originColorHex(for: workspace, mirrorDestinations: mirrorDestinations),
                 hostTitleSuffix: hostTitleSuffixes[workspace.id]
             )
-            return saved.presentationKey == key ? nil : workspace.id
         }
         workspaceSnapshotCache.refresh(
             workspaceIds: workspaceIds.union(staleIds).union(presentation.changedMirrorWorkspaceIds)
