@@ -151,6 +151,12 @@
       "timeout": 10,
       "all": [
         {
+          "window_state": {
+            "window": "w2",
+            "open": false
+          }
+        },
+        {
           "daemon_line": "late-${nonce}-42"
         },
         {

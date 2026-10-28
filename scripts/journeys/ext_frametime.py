@@ -112,6 +112,9 @@ def cond_shown_draws_within(j, want, cache):
         "key_to_frame_ms": [_ms(draw_lo, mark), _ms(draw_hi, mark)],
         "frames": [base, samples[drew]["frames"]],
         "frame_ms": budget,
+        # The widest sample gap the answer depends on: a main-thread stall makes debug.surfaces (a main-actor
+        # read) wait, so the unpause and the draw can fall in one gap; then the bound is that gap, not a frame.
+        "resolution_ms": _ms(max(unpause_hi - unpause_lo, draw_hi - draw_lo), 0),
     })
     return show_to_draw_hi <= budget, detail
 

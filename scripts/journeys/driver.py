@@ -93,6 +93,15 @@ def now():
     return time.monotonic()
 
 
+# The window server's on-screen windows of layer 0, front to back: [{pid, owner, number, bounds}] (ensure_seen).
+WINDOW_LIST_JXA = """
+ObjC.import('CoreGraphics');
+const list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, 0)));
+JSON.stringify(list.filter(w => w.kCGWindowLayer === 0).map(w => ({pid: w.kCGWindowOwnerPID, owner: w.kCGWindowOwnerName,
+  number: w.kCGWindowNumber, bounds: w.kCGWindowBounds})));
+"""
+
+
 # The page browser journeys load: served by this driver on the mini's loopback, so its text never changes
 # under a journey (example.com's page changed and its frame no longer read "Example Domain": v2.2.4-opt gate,
 # restart-focus-browser and restart-focus-browser-keys). `${fixture_url}` and `${fixture_heading}` in a step.
@@ -984,6 +993,9 @@ class Journey:
 
     def adopt(self, term, pane_id, host_pid=None):
         """Makes daemon terminal `term` in pane `pane_id` the journey's current terminal."""
+        if self.term:
+            # The terminal adopted before: a later provisional-id re-read (wait_screen) never goes back to it.
+            self.adopted_terms = getattr(self, "adopted_terms", set()) | {self.term}
         self.term, self.pane = term, pane_id
         view = self.view_of_pane(pane_id) if host_pid is None else None
         if view and view.get("host_pid"):
@@ -1013,14 +1025,23 @@ class Journey:
             except StepError as error:
                 last = str(error)
                 if "selector.not_found" in last and self.pane:
-                    again = self.selected_terminal(self.pane)
-                    if again and again != self.term:
+                    try:
+                        again = self.selected_terminal(self.pane)
+                    except StepError:
+                        again = None
+                    if again and again != self.term and again not in getattr(self, "adopted_terms", set()):
                         self.term = again
+                        view = self.view_of_pane(self.pane)
+                        if view and view.get("host_pid"):
+                            self.host_pid = int(view["host_pid"])
                         continue
             time.sleep(0.2)
+        try:
+            named = self.selected_terminal(self.pane) if self.pane else None
+        except StepError as error:
+            named = f"unknown ({str(error)[-80:]})"
         raise StepError(f"terminal {self.term}: the daemon's screen never showed a prompt "
-                        f"(the topology names {self.selected_terminal(self.pane) if self.pane else None} for pane "
-                        f"{self.pane}): {last[-300:]}")
+                        f"(the topology names {named} for pane {self.pane}): {last[-300:]}")
 
     def step_focused_terminal(self, step):
         """After a key that makes a terminal (Ctrl-` New Terminal Tab, Cmd-D split, Home's Open a terminal):
@@ -1296,7 +1317,14 @@ class Journey:
             while not s["ok"]:
                 time.sleep(0.25)
                 tries += 1
-                seen = self.ensure_seen()
+                try:
+                    seen = self.ensure_seen()
+                except NotRun as error:
+                    # Judged after the other conditions: a real failure elsewhere stays a failure.
+                    s["not_run"] = str(error)
+                    break
+                except (StepError, OSError, ValueError) as error:
+                    seen = {"error": str(error)[-200:]}
                 ok, detail = self.evaluate(s["name"], s["cond"][s["name"]], {})
                 s["detail"] = dict(detail, tries=tries, seen=seen) if isinstance(detail, dict) else detail
                 if ok:
@@ -1317,6 +1345,9 @@ class Journey:
                               + (f" took {elapsed} ms > {limit} ms" if s["ok"]
                                  else " did not hold at the end" if s["negative"] else " never held"))
         result = {"polls": ticks, "since": since, "conditions": len(state)}
+        unjudged = [s["not_run"] for s in frames if s.get("not_run")]
+        if unjudged and len(failed) == len(unjudged):
+            raise NotRun(unjudged[0])
         if failed:
             raise StepError("; ".join(failed))
         return result
@@ -1333,40 +1364,70 @@ class Journey:
 
     def ensure_seen(self):
         """Frame checks judge what a person sees, so they read a window on screen. A capture mini's GUI login
-        is shared by its slots, and the app runs in the background: another slot's or app's window can cover
-        ours. AppKit then reports it occluded and an optimized build pauses its terminals by design (energy
-        saving; only Debug automation launches draw anyway, WindowDrawPolicy.isAutomationLaunch), so its
-        snapshot shows the panes empty though the text is live (v2.2.4-opt gate, 15 journeys,
-        handoff/v224-gate-triage.md). Before each frame read: debug.surfaces says whether the frame window's
-        visible panes are in an occluded window; if so, debug.window.focus brings that window to the front
-        (orderFrontRegardless, no app activation) and waits until AppKit reports it seen. A window still covered
-        after that is `not run` with the window server's order, never a pass or a fail. Returns what the
-        frame evidence keeps: the window, whether it was brought to the front, and each visible pane's
-        surface pause and drawing state at the read."""
+        is shared by its slots, and the app runs in the background: another app's window (another slot's
+        cmux, a browser) can cover ours. AppKit then reports it occluded and an optimized build pauses its
+        terminals by design (energy saving; only Debug automation launches draw anyway,
+        WindowDrawPolicy.isAutomationLaunch), so its snapshot shows the panes empty though the text is live
+        (v2.2.4-opt gate, 15 journeys, handoff/v224-gate-triage.md). Before each frame read: debug.surfaces
+        says whether the frame window's visible panes are in an occluded window. If so, the window server's
+        order says what covers it. Only when every window in front of it that overlaps it belongs to another
+        process does debug.window.focus bring it to the front (orderFrontRegardless, no app activation); a
+        cover by the app's own window, or a window not on screen at all, is the app's state and is left as
+        it is, so the frame check judges it. A window still covered by another app after that is `not run`
+        (NotRun). Returns what the frame evidence keeps: the window, the covers, whether it was brought to
+        the front, and each visible pane's surface pause and drawing state at the read."""
         report = self.app.rpc("debug.surfaces", {}) or {}
-        panes = [p for w in report.get("windows", []) for p in w.get("panes", []) if isinstance(p, dict)]
+        windows = [w for w in report.get("windows", []) if isinstance(w, dict)]
+        panes = [p for w in windows for p in w.get("panes", []) if isinstance(p, dict)]
         wid = self.frame_window(panes)
         shown = lambda rows: [p for p in rows if p.get("visible") and (p.get("grid") or {}).get("window") == wid]
         rows = shown(panes)
         record = {"window": wid, "brought_front": False}
         if wid and any(p.get("window_occluded") for p in rows):
-            self.app.rpc("debug.window.focus", {"window": wid})
-            record["brought_front"] = True
-            end = now() + 3
-            while True:
-                report = self.app.rpc("debug.surfaces", {}) or {}
-                rows = shown([p for w in report.get("windows", []) for p in w.get("panes", []) if isinstance(p, dict)])
-                if not any(p.get("window_occluded") for p in rows):
-                    break
-                if now() >= end:
-                    raise NotRun(f"window {wid} stays occluded on the shared capture host after debug.window.focus "
-                                 f"({sum(1 for p in rows if p.get('window_occluded'))} visible pane(s) paused): "
-                                 f"frame checks cannot judge it")
-                time.sleep(0.1)
+            number = next((w.get("window") for w in windows
+                           if any((p.get("grid") or {}).get("window") == wid for p in w.get("panes", []) or [])), None)
+            covers = self.covers_of(number)
+            record["covers"] = covers
+            # None: the window is not on screen at all (minimized, another Space): the app's state, left as it is.
+            foreign = covers is not None and all(c["pid"] != getattr(self.app, "pid", None) for c in covers)
+            if foreign:
+                self.app.rpc("debug.window.focus", {"window": wid})
+                record["brought_front"] = True
+                end = now() + 3
+                while True:
+                    report = self.app.rpc("debug.surfaces", {}) or {}
+                    rows = shown([p for w in report.get("windows", []) for p in w.get("panes", []) if isinstance(p, dict)])
+                    if not any(p.get("window_occluded") for p in rows):
+                        break
+                    if now() >= end:
+                        raise NotRun(f"window {wid} stays occluded on the shared capture host after debug.window.focus "
+                                     f"(covered by {covers[:4]}): frame checks cannot judge it")
+                    time.sleep(0.1)
         record["panes"] = [{"pane": p.get("pane"), "occluded": p.get("window_occluded"),
                             "paused": (p.get("surface") or {}).get("paused"),
                             "drawing": (p.get("surface") or {}).get("drawing")} for p in rows]
         return record
+
+    def covers_of(self, number):
+        """The on-screen windows in front of window NUMBER (the window server's id, debug.surfaces' `window`)
+        that overlap it, front to back, as {pid, owner, number}; None when NUMBER is not on screen or the
+        order cannot be read (then nothing is moved)."""
+        if number is None:
+            return None
+        try:
+            done = subprocess.run(["/usr/bin/osascript", "-l", "JavaScript", "-e", WINDOW_LIST_JXA],
+                                  capture_output=True, text=True, timeout=20)
+            listed = json.loads(done.stdout or "[]")
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return None
+        index = next((i for i, w in enumerate(listed) if str(w.get("number")) == str(number)), None)
+        if index is None:
+            return None
+        mine = listed[index]["bounds"]
+        overlaps = lambda b: (b["X"] < mine["X"] + mine["Width"] and mine["X"] < b["X"] + b["Width"]
+                              and b["Y"] < mine["Y"] + mine["Height"] and mine["Y"] < b["Y"] + b["Height"])
+        return [{"pid": w["pid"], "owner": w.get("owner"), "number": w.get("number")}
+                for w in listed[:index] if overlaps(w["bounds"])]
 
     def evaluate(self, name, want, cache):
         """(holds, detail) of one condition; `cache` keeps one read of each source per poll."""
