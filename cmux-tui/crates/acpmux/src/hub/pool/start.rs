@@ -122,7 +122,16 @@ impl Hub {
         lock(&self.pool.starting).insert(session_id.clone(), record.clone());
         let started =
             self.start_pooled(session_id.clone(), name, record.clone(), spec, claude, off).await;
-        let started = started.map(|p| Pooled { preview, ..p });
+        let launch = crate::agent::Launch::new(
+            &host_spec.program,
+            &host_spec.args,
+            &host_spec.env,
+            &host_spec.cwd,
+        );
+        let started = started.map(|p| {
+            *p.child.launch.lock().unwrap_or_else(|e| e.into_inner()) = Some(launch);
+            Pooled { preview, ..p }
+        });
         if started.is_err() {
             lock(&self.pool.starting).remove(&session_id);
         }
@@ -165,16 +174,7 @@ impl Hub {
             .await
             .unwrap_or_else(|_| Err(anyhow::anyhow!("no host link within {START_BUDGET:?}")));
         let child = match attached {
-            Ok(Attached::Ready(child, _, _)) => {
-                let launch = crate::agent::Launch::new(
-                    &host_spec.program,
-                    &host_spec.args,
-                    &host_spec.env,
-                    &host_spec.cwd,
-                );
-                *child.launch.lock().unwrap_or_else(|e| e.into_inner()) = Some(launch);
-                child
-            }
+            Ok(Attached::Ready(child, _, _)) => child,
             Ok(Attached::Incompatible { .. }) => {
                 end_pooled_host(&record).await;
                 anyhow::bail!("a host of this build refused its controller")

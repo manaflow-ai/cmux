@@ -72,6 +72,7 @@ impl Hub {
             };
         }
         // Windows: no census, and closing the job ends everything under it.
+        #[cfg(not(unix))]
         let _ = (pid, sidecars);
         Census::Unknown
     }
