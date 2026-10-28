@@ -136,9 +136,14 @@ fn cmux_next_git_diff_context_lines_give_the_whole_file() {
             json!({"path": path, "scope": "uncommitted", "include_patch": true, "paths": paths}),
         );
         assert_eq!(root["files"].as_array().map(Vec::len), Some(2), "{root}");
-        assert!(root["files"].as_array().unwrap().iter().all(|file| {
-            file["patch"].as_str().is_some_and(|patch| !patch.is_empty())
-        }), "{root}");
+        assert!(
+            root["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|file| { file["patch"].as_str().is_some_and(|patch| !patch.is_empty()) }),
+            "{root}"
+        );
     }
     let directory = client.read(
         "git.diff",
