@@ -484,7 +484,8 @@ pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
 /// `browser_engine`, `favicon_url`, and `browser_profile_id` tab fields.
 pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
 pub use frontend_browser_history::{
-    FRONTEND_BROWSER_HISTORY_CAPABILITY, FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY,
+    FRONTEND_BROWSER_HISTORY_CAPABILITY, FRONTEND_BROWSER_MEDIA_CAPABILITY,
+    FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY,
 };
 /// Tab drag outcomes as single atomic commands: `move-tab-to-split`,
 /// `move-tab-to-column`, `move-tab-to-new-workspace`, layout undo for
@@ -1180,6 +1181,7 @@ enum Command {
     ParkTabs(tab_park::Params),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
+    SetFrontendBrowserMedia(frontend_browser_history::MediaParams),
     GetFrontendBrowserHistory(frontend_browser_history::GetParams),
     /// Remote-terminal tabs (`remote-terminal-tabs-v1`).
     NewRemoteTerminalTab(remote_terminal_tabs_wire::NewParams),

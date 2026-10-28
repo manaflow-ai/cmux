@@ -56,6 +56,8 @@ public final class MockBrowserTab: BrowserTab {
         case goForward
         case reload
         case stop
+        /// Stop Camera and Microphone (`BrowserCaptureControlling`).
+        case stopCapture
         case setZoom(Double)
         case find(String, BrowserFindDirection)
         case clearFind
@@ -348,4 +350,15 @@ extension MockBrowserTab: BrowserBackForwardListing {
 /// Mute as the real engines report it: the state follows at once.
 extension MockBrowserTab: BrowserAudioMuting {
     public func setAudioMuted(_ muted: Bool) { simulate(.audioMutedChanged(muted)) }
+}
+
+/// Stop and Block as the real engines report them: the capture ends at once; Block also
+/// stores Page Info's Block for the site (`blockSiteCapture`).
+extension MockBrowserTab: BrowserCaptureControlling {
+    public func stopCapture() {
+        commands.append(.stopCapture)
+        simulate(.captureChanged([]))
+    }
+
+    public func blockCapture() { blockSiteCapture() }
 }

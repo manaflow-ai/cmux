@@ -125,6 +125,24 @@ impl Mux {
             .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a frontend-rendered browser"))
     }
 
+    /// Record what a frontend-rendered browser's page captures (camera,
+    /// microphone), as its hosting app reports it; true when it changed.
+    /// Runtime state only: never journaled.
+    pub fn set_frontend_browser_media(
+        &self,
+        surface: SurfaceId,
+        media: browser::BrowserMediaCapture,
+    ) -> anyhow::Result<bool> {
+        let runtime =
+            self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
+        self.require_frontend_browser_id(surface)?;
+        let changed = runtime.as_browser().is_some_and(|browser| browser.set_media(media));
+        if changed {
+            self.emit_tab_changed(surface);
+        }
+        Ok(changed)
+    }
+
     /// Store (`Some`) or clear (`None`) the opaque session history (back and
     /// forward entries, scroll) a frontend keeps for a frontend-rendered
     /// browser.

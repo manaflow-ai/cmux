@@ -68,6 +68,7 @@ pub(super) fn targeted_browser_effect_projection(
         "status":status_name,
         "error":status.error(),
         "frames_stalled":surface.browser_frames_stalled().unwrap_or(false),
+        "media":surface.browser_media().unwrap_or_default().to_json(),
         "size":{
             "cols":cols.max(1),
             "rows":rows.max(1),

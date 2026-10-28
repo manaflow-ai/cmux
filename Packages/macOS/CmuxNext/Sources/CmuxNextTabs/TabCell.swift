@@ -213,7 +213,7 @@ final class TabCell {
         if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
         if previous?.presence != item.presence { updatePresenceDot() }
-        if previous?.audio != item.audio { updateAudioBadge() }
+        if previous?.audio != item.audio || previous?.capture != item.capture { updateAudioBadge() }
         // Animated only for a tab that hibernates or wakes while it is in the strip.
         if (previous?.isDormant ?? false) != item.isDormant { updateHibernationRing(animated: previous != nil) }
         updateColors(animated: false)

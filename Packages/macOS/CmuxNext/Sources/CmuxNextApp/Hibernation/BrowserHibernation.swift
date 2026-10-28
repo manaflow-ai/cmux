@@ -787,7 +787,7 @@ final class BrowserHibernation {
             let floating = tab.state.media?.isPictureInPicture == true
             // The recorder knows the person's edits (`BrowserPageBusy`); a page loaded before it compares every field.
             return PageProbe(playingMedia: muted || floating || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
-                             capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload,
+                             capturing: busy.capturing || tab.state.capture.isCapturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload,
                              unloadHandler: busy.unloadHandler, webRTC: busy.webRTC,
                              connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame)
         } catch {
@@ -799,11 +799,11 @@ final class BrowserHibernation {
     /// never froze and was asked again every `freezeSeconds` (the hottest renderer in the
     /// 2026-10-21 audit: 25 % CPU, 586 MB). The media the tab last reported still keeps it: the
     /// page's media script pushes that state (`BrowserMediaState+Scripts`), with no round trip.
-    /// WebKit's own camera and microphone state is the planner's `isCapturing`; Chromium reports none to the app.
+    /// The engine's own camera and microphone report (``BrowserTabState/capture``) keeps it too.
     static func unanswered(_ tab: any BrowserTab) -> PageProbe {
         let media = tab.state.media
         let playing = media.map { $0.isAudible || ($0.isPlaying && tab.state.isAudioMuted) || $0.isPictureInPicture } ?? false
-        return PageProbe(playingMedia: playing, answered: false)
+        return PageProbe(playingMedia: playing, capturing: tab.state.capture.isCapturing, answered: false)
     }
 }
 

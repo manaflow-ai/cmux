@@ -19,7 +19,7 @@ public nonisolated enum SidebarEdits {
         switch intent {
         case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .activateItem, .installUpdate, .downloadUpdate, .setAutomaticUpdates,
              .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated, .nowPlaying, .hideNowPlayingCard, .layout, .toggleLayoutSection,
-             .dropOnLayoutSection, .groupEditorEnded, .toggleWorkspaceAudio, .addItems:
+             .dropOnLayoutSection, .groupEditorEnded, .toggleWorkspaceAudio, .showCapturingTab, .addItems:
             return false
         case let .setGroupPinned(id, pinned):
             return mutateGroup(id, in: &sections) { $0.isPinned = pinned }

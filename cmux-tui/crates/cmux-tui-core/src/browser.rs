@@ -47,6 +47,21 @@ use worker::{
 };
 use worker::{is_cdp_timeout_error, start_browser_worker, start_surface_thread};
 
+/// What a frontend-rendered page captures, as its hosting app reports it
+/// (`frontend-browser-media-v1`): `browser.list`'s `media` field.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BrowserMediaCapture {
+    pub camera: bool,
+    pub microphone: bool,
+}
+
+impl BrowserMediaCapture {
+    /// The `media` field of a browser resource.
+    pub fn to_json(self) -> serde_json::Value {
+        serde_json::json!({"camera": self.camera, "microphone": self.microphone})
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserSource {
     External,
@@ -332,6 +347,9 @@ struct BrowserState {
     taps: Vec<BrowserFrameTap>,
     title: String,
     url: String,
+    /// Camera and microphone the hosting app reports its page captures
+    /// (`set-frontend-browser-media`); runtime only, never journaled.
+    media: BrowserMediaCapture,
     size: (u16, u16),
     pane_pixels: (u32, u32),
     capture_pixels: (u32, u32),

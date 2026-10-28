@@ -31,6 +31,8 @@ public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
     case mediaChanged(BrowserMediaState?, frame: String = "")
     /// The tab was muted (true) or unmuted (`BrowserAudioMuting`).
     case audioMutedChanged(Bool)
+    /// The engine reported what the page captures (``BrowserCapture``).
+    case captureChanged(BrowserCapture)
 }
 
 /// Pure reducer from engine events to `BrowserTabState`.
@@ -187,6 +189,7 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
             state.isUnresponsive = false
             state.media = nil
             mediaFrames = BrowserMediaFrames()
+            state.capture = []
             state.progress = 0
             state.activeNavigation = nil
             if state.phase != .finished { state.phase = state.url == nil ? .idle : .finished }
@@ -200,6 +203,9 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
 
         case .audioMutedChanged(let muted):
             state.isAudioMuted = muted
+
+        case .captureChanged(let capture):
+            state.capture = capture
         }
     }
 

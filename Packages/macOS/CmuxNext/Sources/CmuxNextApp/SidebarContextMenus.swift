@@ -18,7 +18,8 @@ enum SidebarContextMenus {
             // The tab's own menu, as on its strip; the row is not selected by the right-click.
             let model = services.locateTab(tab.rawValue)?.0
             let menu = PaneController.tabMenu(tab.rawValue, tab: model, keepsTab: TabPromotion.staysPut(tab: tab.rawValue, in: services.workspace(id: workspace.rawValue)),
-                                              sameKind: NewTabKind.of(tab.rawValue, tab: model, services: services), registry: registry)
+                                              sameKind: NewTabKind.of(tab.rawValue, tab: model, services: services), registry: registry,
+                                              capturing: BrowserTabAudio.captureBadge(services.cache.existingBrowser(tab.rawValue)?.tab.state) != nil)
             menu.themeRows(in: scope)
             return menu
         case .workspaces(let ids):

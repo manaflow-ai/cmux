@@ -90,6 +90,7 @@ extension TabCell {
         if let machine = item.machineBadge { parts.append(Strings.axOnMachine(machine)) }
         if let profile = item.profileBadge { parts.append(Strings.browserProfile(profile.name)) }
         if let presence = item.presence { parts.append(presence.summary) }
+        if let capture = item.capture { parts.append(Strings.axCapture(capture)) }
         if let audio = item.audio { parts.append(audio == .muted ? Strings.axMuted : Strings.axPlayingAudio) }
         if let theme = item.themeBadge { parts.append(Strings.axTheme(theme.name)) }
         switch item.status {

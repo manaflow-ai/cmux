@@ -572,6 +572,12 @@ class Client : public CefClient,
     Emit(CMUX_SHIM_PROGRESS, browser->GetIdentifier(), 0, static_cast<int64_t>(progress * 1000));
   }
 
+  // The tab's camera and microphone capture (Chrome's recording indicator):
+  // the host shows it on the tab and its workspace row, and offers Stop.
+  void OnMediaAccessChange(CefRefPtr<CefBrowser> browser, bool has_video_access, bool has_audio_access) override {
+    Emit(CMUX_SHIM_MEDIA_ACCESS, browser->GetIdentifier(), 0, (has_video_access ? 1 : 0) | (has_audio_access ? 2 : 0));
+  }
+
   // MARK: Load
 
   void OnLoadingStateChange(CefRefPtr<CefBrowser> browser, bool loading, bool back, bool forward) override {

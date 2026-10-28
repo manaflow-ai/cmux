@@ -350,8 +350,11 @@ extension PaneController {
     /// the sidebar): a browser tab drops what does not apply to a page.
     /// New <Kind> Tab reads as the kind `sameKind` names ("New Browser Tab").
     /// `selectionPins`: the menu is on one of several selected tabs, its rows act on all of them, and Pin pins them (true) or unpins.
-    static func tabMenu(_ id: String, tab: TabModel?, keepsTab: Bool, sameKind: NewTabKind, registry: ActionRegistry, selectionPins: Bool? = nil) -> NSMenu {
-        let menu = tabMenuEntries(id, tab: tab, keepsTab: keepsTab, registry: registry, arguments: selectionPins == nil ? [:] : ActionInvocation.tabSelectionArguments)
+    /// `capturing`: the tab's page uses the camera or microphone (Stop and Block show).
+    static func tabMenu(_ id: String, tab: TabModel?, keepsTab: Bool, sameKind: NewTabKind, registry: ActionRegistry, selectionPins: Bool? = nil,
+                        capturing: Bool = false) -> NSMenu {
+        let menu = tabMenuEntries(id, tab: tab, keepsTab: keepsTab, capturing: capturing, registry: registry,
+                                  arguments: selectionPins == nil ? [:] : ActionInvocation.tabSelectionArguments)
         // It sits in a submenu (More > New).
         func all(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(all) }
         if let item = all(menu).first(where: { ActionRegistry.menuRun(of: $0)?.id == "newTab.ofKind" }),
@@ -361,21 +364,25 @@ extension PaneController {
         return selectionPins.map { menu.namingTabSelection(pins: $0) } ?? menu
     }
 
-    private static func tabMenuEntries(_ id: String, tab: TabModel?, keepsTab: Bool, registry: ActionRegistry, arguments: [String: ActionValue]) -> NSMenu {
+    private static func tabMenuEntries(_ id: String, tab: TabModel?, keepsTab: Bool, capturing: Bool, registry: ActionRegistry,
+                                       arguments: [String: ActionValue]) -> NSMenu {
         let target = ActionTargetRef(kind: .tab, id: id)
         // Home keeps its own tab: no promote entries (TabPromotion).
         let kept = Set(TabPromotion.menuRemovals(keepsTab: keepsTab))
         guard let tab, tab.kind == .browser else {
             // Hibernation discards a page; a terminal has none (Restart only once its shell ended).
             // Reload, Mute and Picture in Picture are a page's rows (Chrome's Reload, Mute Site).
-            let pageRows: Set<ActionID> = ["hibernateTab", "wakeTab", "neverHibernateSite", "toggleTabAudioMute", "reloadTab", PictureInPictureHandlers.actionID]
+            let pageRows: Set<ActionID> = ["hibernateTab", "wakeTab", "neverHibernateSite", "toggleTabAudioMute", "reloadTab", PictureInPictureHandlers.actionID,
+                                           BrowserTabAudio.stopCaptureActionID, BrowserTabAudio.blockCaptureActionID]
             let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(pageRows).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab)))
             return registry.makeContextMenu(for: .tab, target: target, entries: entries, arguments: arguments)
         }
         // A browser tab offers the engine it is not on.
         let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
         // Terminal themes and keep-running do not apply to a page.
-        let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union([other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep", TabRestart.action, CloudMove.action, CloudBringBack.action]))
+        // Stop and Block show while the page uses the camera or microphone (its red mark).
+        let capture: Set<ActionID> = capturing ? [] : [BrowserTabAudio.stopCaptureActionID, BrowserTabAudio.blockCaptureActionID]
+        let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(capture).union([other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep", TabRestart.action, CloudMove.action, CloudBringBack.action]))
         return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused, arguments: arguments)
     }
 
@@ -388,7 +395,8 @@ extension PaneController {
             // right-clicked tab, or on the selection it is one of (`AppActionContext.actionTabs`).
             return Self.tabMenu(id.rawValue, tab: tab(id), keepsTab: TabPromotion.staysPut(tab: id.rawValue, in: workspace?.workspace),
                                 sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services),
-                                registry: registry, selectionPins: selection.count > 1 ? stripModel.pinsAll(selection) : nil).themeRows(in: view.themeScope.fullStrength)
+                                registry: registry, selectionPins: selection.count > 1 ? stripModel.pinsAll(selection) : nil,
+                                capturing: BrowserTabAudio.captureBadge(services.cache.existingBrowser(id.rawValue)?.tab.state) != nil).themeRows(in: view.themeScope.fullStrength)
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),

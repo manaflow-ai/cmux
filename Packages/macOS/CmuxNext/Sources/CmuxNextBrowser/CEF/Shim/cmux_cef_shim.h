@@ -188,6 +188,10 @@ typedef enum {
   // line (MIME types and ".ext"); s2 = the default path or file name. Chromium
   // shows no panel; a closed or crashed browser cancels it.
   CMUX_SHIM_FILE_DIALOG = 48,
+  // What the page captures changed (CefDisplayHandler::OnMediaAccessChange):
+  // a bit 1 = camera, bit 2 = microphone; 0 once it captures nothing. Kinds
+  // 49 and 50 are the fork's PAGE_MESSAGE and EVALUATE_RESULT.
+  CMUX_SHIM_MEDIA_ACCESS = 51,
 } cmux_shim_event_kind_t;
 
 typedef enum {

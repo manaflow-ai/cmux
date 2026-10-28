@@ -81,6 +81,11 @@ impl Surface {
         }
     }
 
+    /// What a browser surface's page captures (`browser.list`'s `media`).
+    pub fn browser_media(&self) -> Option<crate::browser::BrowserMediaCapture> {
+        self.as_browser().map(BrowserSurface::media)
+    }
+
     pub fn browser_frames_stalled(&self) -> Option<bool> {
         self.as_browser().map(BrowserSurface::frames_stalled)
     }

@@ -111,6 +111,7 @@ extension TabHandlers {
             pane.toggleFullWidthTab(showing: id)
         })
         bindAudio(registry, ctx)
+        BrowserTabAudio.bindCapture(registry, ctx)
     }
 
     /// The mute actions (`BrowserTabAudio`): the strip's and the sidebar row's speakers run the toggles.

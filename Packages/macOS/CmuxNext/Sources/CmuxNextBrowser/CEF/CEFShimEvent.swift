@@ -105,6 +105,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// A `cmux_shim_tab_evaluate` answer (EVALUATE_RESULT, fork API 29): `status` 1 value, 0
     /// exception, -1 no result (renderer ended, navigated away), -2 refused world name.
     case evaluateResult(token: Int32, status: Int, value: String)
+    /// What the page captures changed (MEDIA_ACCESS, `OnMediaAccessChange`).
+    case mediaAccess(browser: Int32, capture: BrowserCapture)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -169,6 +171,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
                                acceptTypes: s1.split(separator: "\n").map(String.init), defaultPath: s2)
         case 49: self = .pageMessage(browser: browser, mainFrame: a == 1, channel: s1, payload: s2)
         case 50: self = .evaluateResult(token: request, status: Int(a), value: s1)
+        case 51: self = .mediaAccess(browser: browser, capture: BrowserCapture(video: a & 1 != 0, audio: a & 2 != 0))
         default: self = .unknown(kind: kind)
         }
     }
