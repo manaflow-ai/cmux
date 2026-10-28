@@ -80,28 +80,19 @@ afterAll(() => {
   }
 });
 
-test("the current model's inline effort pick returns focus to the prompt through ModelPicker", async () => {
+async function openPicker(efforts: string[] | undefined, inline: boolean, effortPicks: string[] = []) {
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
   const { PromptFocus } = await import("../src/agent-session/acpmux/promptFocus");
-  prompt = document.createElement("textarea");
-  document.body.append(prompt);
-  const effortPicks: string[] = [];
-  const catalog = [
-    {
-      id: "claude",
-      name: "Claude Code",
-      models: [{ id: "claude-opus-5-5", name: "Opus 5.5", efforts: ["low", "high"] }],
-    },
-  ];
+  const model = { id: "claude-opus-5-5", name: "Opus 5.5", ...(efforts === undefined ? {} : { efforts }) };
   root = (await import("react-dom/client")).createRoot(host);
   await act(async () =>
     root!.render(
-      <PromptFocus.Provider value={() => prompt!.focus()}>
+      <PromptFocus.Provider value={() => prompt?.focus()}>
         <ModelPicker
-          catalog={catalog}
+          catalog={[{ id: "claude", name: "Claude Code", models: [model] }]}
           harness="claude"
-          model="claude-opus-5-5"
-          label="Opus 5.5"
+          model={model.id}
+          label={model.name}
           efforts={[]}
           recents={[]}
           quick={{
@@ -109,13 +100,14 @@ test("the current model's inline effort pick returns focus to the prompt through
               levels: [
                 { id: "low", name: "Low" },
                 { id: "high", name: "High" },
+                { id: "ultracode", name: "Ultracode" },
               ],
               current: "high",
               onPick: (value) => effortPicks.push(value),
             },
           }}
           harnessFixed
-          onCombo={() => undefined}
+          onCombo={inline ? () => undefined : undefined}
           onLand={() => undefined}
           onEffort={() => undefined}
         />
@@ -124,6 +116,13 @@ test("the current model's inline effort pick returns focus to the prompt through
   );
   await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
   await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+}
+
+test("the current model's inline effort pick returns focus to the prompt through ModelPicker", async () => {
+  prompt = document.createElement("textarea");
+  document.body.append(prompt);
+  const effortPicks: string[] = [];
+  await openPicker(["low", "high"], true, effortPicks);
   const segment = host.ownerDocument.querySelector<HTMLElement>('[aria-label="Opus 5.5 · Low"]');
   expect(segment).toBeDefined();
   await act(async () => segment!.click());
@@ -138,42 +137,7 @@ test.each([
   { capability: "absent", inline: false },
   { capability: "empty", inline: false },
 ])("ModelPicker preserves $capability efforts with inline=$inline", async ({ capability, inline }) => {
-  const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
-  const model = {
-    id: "claude-haiku-5-5",
-    name: "Haiku 5.5",
-    ...(capability === "empty" ? { efforts: [] as string[] } : {}),
-  };
-  root = (await import("react-dom/client")).createRoot(host);
-  await act(async () =>
-    root!.render(
-      <ModelPicker
-        catalog={[{ id: "claude", name: "Claude Code", models: [model] }]}
-        harness="claude"
-        model={model.id}
-        label={model.name}
-        efforts={[]}
-        recents={[]}
-        quick={{
-          effort: {
-            levels: [
-              { id: "low", name: "Low" },
-              { id: "high", name: "High" },
-              { id: "ultracode", name: "Ultracode" },
-            ],
-            current: "high",
-            onPick: () => undefined,
-          },
-        }}
-        harnessFixed
-        onCombo={inline ? () => undefined : undefined}
-        onLand={() => undefined}
-        onEffort={() => undefined}
-      />,
-    ),
-  );
-  await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  await openPicker(capability === "empty" ? [] : undefined, inline);
   expect(document.querySelector(".acpmux-quick-menu")).not.toBeNull();
   expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(
     capability === "absent" && inline ? 3 : 0,
