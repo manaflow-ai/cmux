@@ -19,7 +19,8 @@
 # unserved, or is a daemon capability missing from the lists.
 #
 # It starts the binary as an isolated daemon (temporary HOME, TMPDIR and
-# CMUX_TUI_STATE_DIR, `server ensure` with the app's reap grace), sends a raw `identify` over its
+# CMUX_TUI_STATE_DIR, `server ensure` with the app's reap grace, bound to this
+# script's pid), sends a raw `identify` over its
 # socket, and stops it (`server stop --end-terminals`). Distribution workflows
 # use `--static-only` so runtime checks stay in the daemon integration lane.
 #
@@ -124,8 +125,16 @@ cleanup() {
 trap cleanup EXIT
 
 # With a reap grace, as DaemonLauncher starts the app's owner, so the
-# conditional terminal-reaper-active-v1 is served.
-if ! ensured="$(run_binary server ensure --terminal-reap-grace-seconds 30 2>"$root/ensure.err")"; then
+# conditional terminal-reaper-active-v1 is served. Bound to this script
+# (`--exit-with-pid $$`): when the script is killed before its EXIT trap runs
+# (a cancelled job or build phase), the probe owner ends its terminals and
+# exits instead of running for hours (HQ REPAIR.md "Orphaned cmux-tui holds
+# runner dirs"). A binary older than the option is probed unbound; the trap
+# still stops it.
+ensure=(server ensure --terminal-reap-grace-seconds 30)
+if ! ensured="$(run_binary "${ensure[@]}" --exit-with-pid "$$" 2>"$root/ensure.err")" \
+  && ! { grep -q -- 'exit-with-pid' "$root/ensure.err" \
+    && ensured="$(run_binary "${ensure[@]}" 2>"$root/ensure.err")"; }; then
   echo "check-daemon-capabilities: $binary server ensure failed:" >&2
   cat "$root/ensure.err" >&2
   exit 1
