@@ -168,7 +168,7 @@ public final class StartupPhase {
                 onHeldAwait: @escaping @MainActor (HeldAwait) -> Void = StartupPhase.assertNotHeld) {
         self.timing = timing
         self.onHeldAwait = onHeldAwait
-        elapsed = StartupPhase.stopwatch(clock)
+        elapsed = clock.stopwatch()
         // timer-class-allow: the reveal deadline, an unposted scheduler timer (p06 section A)
         timer = DemandTimer(owner: "StartupPhase", clock: clock, ledger: ledger)
         phase = .launching
@@ -281,12 +281,6 @@ public final class StartupPhase {
         let held = settleWaiters
         settleWaiters = []
         for action in held { action() }
-    }
-
-    /// Time since now on `clock` (opens the existential so its instants can be compared).
-    private nonisolated static func stopwatch<C: Clock<Duration>>(_ clock: C) -> () -> Duration {
-        let start = clock.now
-        return { start.duration(to: clock.now) }
     }
 }
 
