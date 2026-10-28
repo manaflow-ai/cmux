@@ -591,6 +591,10 @@ test("a PR mutation target with a comment fragment is marked changed", () => {
 });
 
 const shellRegressionCases: [string, string, number[]][] = [
+  ["unknown and fallback", "test -f missing && true || gh pr merge 41 -R acme/app --squash", [41]],
+  ["unknown or continuation", "test -f exists || false && gh pr merge 41 -R acme/app", [41]],
+  ["unknown and false is false", "test -f exists && false && gh pr merge 41 -R acme/app; true", []],
+  ["unknown or true is true", "test -f missing || true || gh pr merge 41 -R acme/app", []],
   ["unknown conditional success", "if test -f exists; then true; else false; fi && gh pr merge 41 -R acme/app", [41]],
   ["unknown conditional failure", "if test -f exists; then false; else true; fi || gh pr merge 41 -R acme/app", [41]],
   ["negated pipeline skips", "! true | true && gh pr merge 41 -R acme/app; true", []],
@@ -694,5 +698,18 @@ for (const command of [
 ]) {
   test(`Sources exclude skipped shell expansions: ${command}`, () => {
     expect(sessionSummary(toolsRows(shell(command)), "acme/app").sources).toEqual([]);
+  });
+}
+
+for (const [command, state] of [
+  ["gh pr close 41 -R acme/app && glaeda-gh post pr-reopen acme/app#41", "open"],
+  ["glaeda-gh post pr-reopen acme/app#41 && gh pr close 41 -R acme/app", "closed"],
+  [
+    "glaeda-gh post pr-close acme/app#41 && gh pr reopen 41 -R acme/app && glaeda-gh post pr-merge acme/app#41",
+    "merged",
+  ],
+] as const) {
+  test(`mixed lifecycle commands preserve execution order: ${command}`, () => {
+    expect(transcriptPullRequests(toolsRows(shell(command)))).toMatchObject([{ number: 41, state, changed: true }]);
   });
 }
