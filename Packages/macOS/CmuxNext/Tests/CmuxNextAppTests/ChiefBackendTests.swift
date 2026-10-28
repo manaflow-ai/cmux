@@ -166,8 +166,34 @@ import Testing
         #expect(await calls.opens.count == 1)
     }
 
+    /// The button counts the names the list shows, not only the rows' conversation titles: a Chief
+    /// renamed to "Chief" whose conversation is still titled otherwise takes that name.
+    @MainActor @Test(.timeLimit(.minutes(1))) func theNewChiefButtonSkipsANameTheListShows() async throws {
+        let calls = Calls()
+        let (opened, open) = AsyncStream<Void>.makeStream()
+        let me = ConversationParticipant(id: "user_local", kind: .human, displayName: "Me")
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.home.localChiefCreator = {
+            HomeLocalChiefCreator(me: me, send: { operation, params, key in
+                await calls.sent(operation, params, key)
+                return .object(["value": .object(["id": .string("agent_named02"), "display_name": params["display_name"] ?? .null])])
+            }, open: { request in
+                await calls.opened(request)
+                open.yield()
+                return "conv_named02"
+            })
+        }
+        services.home.chiefRenames.rename(ConversationID("conv_renamed"), to: HomeStrings.chiefName, record: "Scout")
+        let page = TopHomePageView(services: services, windowKey: { "new-chief-shown-names" })
+        page.list.newChief.performClick(nil)
+        var iterator = opened.makeAsyncIterator()
+        _ = await iterator.next()
+        let sent = try #require(await calls.sends.first)
+        #expect(sent.params == ["display_name": .string("\(HomeStrings.chiefName) 2")])
+    }
+
     /// Each click's Chief gets the next free name ("Chief 2", "Chief 3"), never a second "Chief":
-    /// identical rows could not be told apart, and the owner refuses a Chief named by an ambiguous name.
+    /// identical rows could not be told apart, and `cmux chief` could not pick one of them by name.
     @Test func aNewChiefTakesTheNextFreeName() {
         let base = HomeStrings.chiefName
         #expect(HomeChiefName.next(taken: []) == base)
