@@ -647,6 +647,8 @@ def cmd_diff(args: argparse.Namespace) -> int:
         print(f"fleet: incomplete, nothing compared: {path}")
         return EXIT_INCOMPLETE
     argv = ["diff", "--product", "app", "--out", str(out / "compare")]
+    # A switch's arm runs get oracle.py's switch verdict: readback, hits and the arm pointers (p15-oracle-111).
+    argv += ["--switch", args.switch] if args.switch else []
     for side, flag in ((first, "--base-run"), (second, "--head-run")):
         for s in side.shards:
             argv += [flag, str(s.run_dir)]

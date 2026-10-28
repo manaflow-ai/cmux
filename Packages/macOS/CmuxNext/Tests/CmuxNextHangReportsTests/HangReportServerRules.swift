@@ -13,11 +13,11 @@ struct HangReportServerRules {
         "schema", "reportId", "installId", "day", "app", "os", "hardware", "counts", "hangs", "cpuExceptions",
         "stallHistogram", "metrics", "intervals",
     ]
-    /// Schema 3's top-level additions: the launches, the input latency fields, the field data
+    /// Schema 3's top-level additions: the launches, the input latency fields and interactions, the field data
     /// (p09-observability-063; the decoder of p09-observability-064 lists them) and the launch's features
     /// (p12-perf-process-151) and the main thread's blocking site counts (p12-perf-process-226).
     static let schema3TopLevelKeys: Set<String> = [
-        "launches", "input_latency_bucket_edges_ms", "input_latency", "scroll_jank",
+        "launches", "input_latency_bucket_edges_ms", "input_latency", "scroll_jank", "interaction_latency",
         "histograms", "stability", "blackbox", "launch_sections", "features_hash", "features", "blocking_sites",
     ]
     /// Schema 3's `blocking_sites[]` entry (wireSchema3.ts `BlockingSiteCount`).

@@ -152,6 +152,7 @@ final class PaletteScopeChipView: NSView {
                             width: Metrics.dividerThickness, height: ruleHeight)
     }
 
+    // visibility-walk-allow: only invalidates; layout() paints the chip's ink when AppKit lays it out, which waits for a hidden view to show
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsLayout = true // invalidate: layout() paints the chip's ink for the new appearance
