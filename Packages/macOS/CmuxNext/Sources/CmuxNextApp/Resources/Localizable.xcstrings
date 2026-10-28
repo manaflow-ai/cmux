@@ -5388,137 +5388,6 @@
         }
       }
     },
-    "app.restart.noticeSafe": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux restarted after a problem again. Browser pages were not reopened. Reload a tab to open it."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "問題が再び発生したため cmux を再起動しました。ブラウザのページは開き直していません。タブを再読み込みすると開きます。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "أُعيد تشغيل cmux مرة أخرى بعد حدوث مشكلة. لم تُفتح صفحات المتصفح. أعد تحميل علامة تبويب لفتحها."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux je ponovo pokrenut nakon još jednog problema. Stranice preglednika nisu ponovo otvorene. Ponovo učitajte karticu da biste je otvorili."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux blev genstartet efter endnu et problem. Browsersider blev ikke genåbnet. Genindlæs en fane for at åbne den."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux wurde erneut nach einem Problem neu gestartet. Browserseiten wurden nicht wieder geöffnet. Laden Sie einen Tab neu, um ihn zu öffnen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux se ha vuelto a reiniciar tras un problema. Las páginas del navegador no se han vuelto a abrir. Vuelve a cargar una pestaña para abrirla."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux a de nouveau redémarré après un problème. Les pages du navigateur n’ont pas été rouvertes. Actualisez un onglet pour l’ouvrir."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux è stato riavviato di nuovo dopo un problema. Le pagine del browser non sono state riaperte. Ricarica una scheda per aprirla."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux បានចាប់ផ្ដើមឡើងវិញម្ដងទៀតបន្ទាប់ពីមានបញ្ហា។ ទំព័រកម្មវិធីរុករកមិនត្រូវបានបើកឡើងវិញទេ។ ផ្ទុកផ្ទាំងឡើងវិញដើម្បីបើកវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "문제가 다시 발생하여 cmux가 다시 시작되었습니다. 브라우저 페이지는 다시 열지 않았습니다. 탭을 새로고침하면 열립니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux ble startet på nytt etter enda et problem. Nettlesersider ble ikke åpnet igjen. Last inn en fane på nytt for å åpne den."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux ponownie uruchomił się po problemie. Strony przeglądarki nie zostały otwarte ponownie. Załaduj kartę ponownie, aby ją otworzyć."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux foi reiniciado de novo após um problema. As páginas do navegador não foram reabertas. Recarregue uma aba para abri-la."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux снова перезапущен после сбоя. Страницы браузера не открыты повторно. Перезагрузите вкладку, чтобы открыть её."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux เริ่มใหม่อีกครั้งหลังจากเกิดปัญหา ไม่ได้เปิดหน้าเบราว์เซอร์ใหม่ โหลดแท็บซ้ำเพื่อเปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux bir sorundan sonra yeniden başlatıldı. Tarayıcı sayfaları yeniden açılmadı. Açmak için bir sekmeyi yeniden yükleyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux знову перезапущено після збою. Сторінки браузера не відкрито повторно. Перезавантажте вкладку, щоб відкрити її."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux lại khởi động lại sau khi gặp sự cố. Các trang trình duyệt chưa được mở lại. Tải lại một thẻ để mở trang đó."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 再次在出现问题后重新启动。浏览器页面未重新打开。重新加载标签页即可打开。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 再次在發生問題後重新啟動。瀏覽器頁面未重新開啟。重新載入分頁即可開啟。"
-          }
-        }
-      }
-    },
     "app.restart.showLog": {
       "extractionState": "manual",
       "localizations": {
@@ -5781,133 +5650,134 @@
         }
       }
     },
-    "app.restart.deferredPage": {
+    "app.restart.crashedPage": {
+      "comment": "On a restored browser tab after cmux quit unexpectedly twice in a row while that tab's page was loading: the page waits until the person reloads it.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not reopened after cmux restarted. Reload to open this page."
+            "value": "cmux quit unexpectedly twice while this page was loading, so it was not loaded again. Reload to open it."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux の再起動後は開き直していません。再読み込みするとこのページを開きます。"
+            "state": "translated",
+            "value": "このページの読み込み中に cmux が 2 回続けて予期せず終了したため、再度読み込んでいません。再読み込みすると開きます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم تُفتح بعد إعادة تشغيل cmux. أعد التحميل لفتح هذه الصفحة."
+            "value": "توقف cmux بشكل غير متوقع مرتين أثناء تحميل هذه الصفحة، لذا لم يُعَد تحميلها. أعد التحميل لفتحها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nije ponovo otvoreno nakon ponovnog pokretanja cmux-a. Ponovo učitajte da otvorite ovu stranicu."
+            "value": "cmux se dvaput neočekivano zatvorio dok se ova stranica učitavala, pa nije ponovo učitana. Ponovo učitajte da je otvorite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ikke genåbnet efter genstart af cmux. Genindlæs for at åbne siden."
+            "value": "cmux lukkede uventet to gange, mens siden indlæste, så den blev ikke indlæst igen. Genindlæs for at åbne den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nach dem Neustart von cmux nicht wieder geöffnet. Neu laden, um diese Seite zu öffnen."
+            "value": "cmux wurde zweimal unerwartet beendet, während diese Seite lud, daher wurde sie nicht erneut geladen. Neu laden, um sie zu öffnen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No se ha vuelto a abrir tras reiniciar cmux. Vuelve a cargar para abrir esta página."
+            "value": "cmux se cerró inesperadamente dos veces mientras se cargaba esta página, así que no se volvió a cargar. Vuelve a cargar para abrirla."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non rouverte après le redémarrage de cmux. Actualisez pour ouvrir cette page."
+            "value": "cmux a quitté de manière inattendue deux fois pendant le chargement de cette page ; elle n'a donc pas été rechargée. Actualisez pour l'ouvrir."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non riaperta dopo il riavvio di cmux. Ricarica per aprire questa pagina."
+            "value": "cmux si è chiuso inaspettatamente due volte mentre questa pagina si caricava, quindi non è stata ricaricata. Ricarica per aprirla."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនបានបើកឡើងវិញបន្ទាប់ពី cmux ចាប់ផ្ដើមឡើងវិញ។ ផ្ទុកឡើងវិញដើម្បីបើកទំព័រនេះ។"
+            "value": "cmux បានបិទដោយមិននឹកស្មានដល់ពីរដង ខណៈទំព័រនេះកំពុងផ្ទុក ដូច្នេះវាមិនត្រូវបានផ្ទុកម្ដងទៀតទេ។ ផ្ទុកឡើងវិញដើម្បីបើកវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux를 다시 시작한 후 다시 열지 않았습니다. 새로고침하면 이 페이지가 열립니다."
+            "value": "이 페이지를 불러오는 동안 cmux가 두 번 예기치 않게 종료되어 다시 불러오지 않았습니다. 새로고침하면 열립니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ikke åpnet igjen etter omstart av cmux. Last inn på nytt for å åpne siden."
+            "value": "cmux avsluttet uventet to ganger mens denne siden lastet, så den ble ikke lastet inn igjen. Last inn på nytt for å åpne den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie otwarto ponownie po restarcie cmux. Załaduj ponownie, aby otworzyć tę stronę."
+            "value": "cmux dwukrotnie nieoczekiwanie się zamknął podczas ładowania tej strony, więc nie załadowano jej ponownie. Załaduj ponownie, aby ją otworzyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Não reaberta após o reinício do cmux. Recarregue para abrir esta página."
+            "value": "O cmux fechou inesperadamente duas vezes enquanto esta página carregava, então ela não foi carregada de novo. Recarregue para abri-la."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не открыта повторно после перезапуска cmux. Перезагрузите, чтобы открыть страницу."
+            "value": "cmux дважды неожиданно завершился во время загрузки этой страницы, поэтому она не загружена снова. Перезагрузите, чтобы открыть её."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่ได้เปิดใหม่หลัง cmux เริ่มใหม่ โหลดซ้ำเพื่อเปิดหน้านี้"
+            "value": "cmux ปิดโดยไม่คาดคิดสองครั้งขณะโหลดหน้านี้ จึงไม่ได้โหลดอีก โหลดซ้ำเพื่อเปิดหน้านี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux yeniden başlatıldıktan sonra yeniden açılmadı. Bu sayfayı açmak için yeniden yükleyin."
+            "value": "Bu sayfa yüklenirken cmux iki kez beklenmedik şekilde kapandı, bu yüzden yeniden yüklenmedi. Açmak için yeniden yükleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не відкрито повторно після перезапуску cmux. Перезавантажте, щоб відкрити сторінку."
+            "value": "cmux двічі неочікувано завершився під час завантаження цієї сторінки, тому її не завантажено знову. Перезавантажте, щоб відкрити її."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa mở lại sau khi cmux khởi động lại. Tải lại để mở trang này."
+            "value": "cmux đã thoát bất ngờ hai lần khi trang này đang tải, nên trang không được tải lại. Tải lại để mở trang."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 重新启动后未重新打开。重新加载即可打开此页面。"
+            "value": "此页面加载时 cmux 两次意外退出，因此未再次加载。重新加载即可打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 重新啟動後未重新開啟。重新載入即可開啟此頁面。"
+            "value": "此頁面載入時 cmux 兩次意外結束，因此未再次載入。重新載入即可開啟。"
           }
         }
       }

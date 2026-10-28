@@ -478,6 +478,25 @@ is useless without it. Only the identity id is stored
 `DELETE /v1/vms/{vmId}/client-sessions/{sessionId}`, deletes the identity, which
 revokes the token and grant.
 
+The operator CLI exposes the same Tenant API:
+
+```sh
+cmux-vm client-session create vm_... [--user LINUX_USER] [--token-file PATH]
+cmux-vm client-session list vm_...
+cmux-vm client-session revoke vm_... vcs_... [--yes]
+```
+
+`create` prints the SSH line (`<providerVmId>+<user>@beta-ssh.freestyle.sh`) and
+shows the provider token once. Use `--token-file` to write it to a newly created
+0600 file on Unix; other platforms use stdout. The token is never logged. Existing paths are refused before minting.
+A failed request leaves an empty reservation; inspect the session list and revoke
+any newly created session before retrying with a new path.
+All commands accept `--json`. Create JSON includes `sshLine` and the token only
+without `--token-file`; file mode replaces the token with `tokenFile`. Session
+JSON includes only known metadata fields. `list` never returns tokens. `revoke`
+names the VM and asks for the session id before revoking it (or accepts `--yes`). The same
+commands are available through `cmux vm client-session ...`.
+
 Migrations 0016 (agent columns on `api_keys`, `vm_client_sessions`) and 0017
 (its concurrent index) apply through the release runner; grant the Worker role
 SELECT, INSERT and UPDATE on `cmux_vm.vm_client_sessions`.

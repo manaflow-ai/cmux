@@ -1,265 +1,133 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "action.session.moveFromBuild": {
-      "comment": "Command palette action: move live terminals and agent chats from another cmux build running on this Mac (dev, nightly, classic) into this one.",
+    "action.cloudOpenDesktop": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move Sessions from Another cmux Build…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sitzungen aus einem anderen cmux-Build verschieben…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Déplacer les sessions d’un autre build de cmux…"
+            "value": "Open Desktop"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نقل الجلسات من إصدار cmux آخر…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mover sesiones desde otra compilación de cmux…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "從其他 cmux 版本移入工作階段…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "从其他 cmux 版本移入会话…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다른 cmux 빌드에서 세션 옮기기…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "別の cmux ビルドからセッションを移動…"
+            "value": "فتح سطح المكتب"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Premjesti sesije iz druge cmux verzije…"
+            "state": "translated",
+            "value": "Otvori radnu površinu"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Flyt sessioner fra et andet cmux-build…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sposta le sessioni da un’altra build di cmux…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្លាស់ទីវគ្គពី cmux build ផ្សេងទៀត…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Flytt økter fra et annet cmux-bygg…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przenieś sesje z innej kompilacji cmux…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mover Sessões de Outra Compilação do cmux…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Перенести сеансы из другой сборки cmux…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ย้ายเซสชันจาก cmux บิลด์อื่น…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oturumları Başka Bir cmux Derlemesinden Taşı…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Перенести сеанси з іншої збірки cmux…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chuyển phiên từ bản dựng cmux khác…"
-          }
-        }
-      }
-    },
-    "action.workspace.nameFromActivity": {
-      "extractionState": "manual",
-      "localizations": {
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Imenuj prema aktivnosti"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Navngiv ud fra aktivitet"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nomina dall'attività"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ដាក់ឈ្មោះតាមសកម្មភាព"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gi navn etter aktivitet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nazwij według aktywności"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nomear pela atividade"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Назвать по активности"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ตั้งชื่อจากกิจกรรม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Etkinliğe göre adlandır"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Назвати за активністю"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đặt tên theo hoạt động"
-          }
-        },
-        "en": {
-          "stringUnit": {
             "state": "translated",
-            "value": "Name from Activity"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アクティビティから名前を付ける"
+            "value": "Åbn skrivebord"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nach Aktivität benennen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nommer d’après l’activité"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التسمية من النشاط"
+            "value": "Schreibtisch öffnen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nombrar según la actividad"
+            "value": "Abrir escritorio"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "依活動命名"
+            "value": "Ouvrir le bureau"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "根据活动命名"
+            "value": "Apri scrivania"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកផ្ទៃតុ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "활동으로 이름 짓기"
+            "value": "데스크톱 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne skrivebord"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz pulpit"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir área de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть рабочий стол"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดเดสก์ท็อป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masaüstünü Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити робочий стіл"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở màn hình nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开桌面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開桌面"
           }
         }
       }
@@ -18207,661 +18075,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "開啟 Cloud SSH 終端機"
-          }
-        }
-      }
-    },
-    "action.cloudFirewallList": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "List Cloud Firewall Rules"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عرض قواعد جدار حماية Cloud"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži pravila Cloud zaštitnog zida"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Cloud-firewallregler"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Firewall-Regeln auflisten"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Listar reglas del firewall de Cloud"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lister les règles de pare-feu Cloud"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elenca regole del firewall Cloud"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud ファイアウォールルールを一覧表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បញ្ជីច្បាប់ជញ្ជាំងភ្លើង Cloud"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 방화벽 규칙 목록"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Cloud-brannmurregler"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wyświetl reguły zapory Cloud"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Listar regras de firewall do Cloud"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Список правил брандмауэра Cloud"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงรายการกฎไฟร์วอลล์ Cloud"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud güvenlik duvarı kurallarını listele"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Список правил брандмауера Cloud"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Liệt kê quy tắc tường lửa Cloud"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "列出 Cloud 防火墙规则"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "列出 Cloud 防火牆規則"
-          }
-        }
-      }
-    },
-    "action.cloudFirewallGet": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Get Cloud Firewall Rule"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عرض قاعدة جدار حماية Cloud"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži pravilo Cloud zaštitnog zida"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Cloud-firewallregel"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Firewall-Regel abrufen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obtener regla del firewall de Cloud"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher une règle de pare-feu Cloud"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra regola del firewall Cloud"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud ファイアウォールルールを取得"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "យកច្បាប់ជញ្ជាំងភ្លើង Cloud"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 방화벽 규칙 가져오기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Cloud-brannmurregel"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pobierz regułę zapory Cloud"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obter regra de firewall do Cloud"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Получить правило брандмауэра Cloud"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ดูกฎไฟร์วอลล์ Cloud"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud güvenlik duvarı kuralını getir"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отримати правило брандмауера Cloud"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Xem quy tắc tường lửa Cloud"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "获取 Cloud 防火墙规则"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "取得 Cloud 防火牆規則"
-          }
-        }
-      }
-    },
-    "action.cloudFirewallCreate": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Create Cloud Firewall Rule"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إنشاء قاعدة جدار حماية Cloud"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Napravi pravilo Cloud zaštitnog zida"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opret Cloud-firewallregel"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Firewall-Regel erstellen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Crear regla del firewall de Cloud"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Créer une règle de pare-feu Cloud"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Crea regola del firewall Cloud"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud ファイアウォールルールを作成"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្កើតច្បាប់ជញ្ជាំងភ្លើង Cloud"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 방화벽 규칙 만들기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opprett Cloud-brannmurregel"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utwórz regułę zapory Cloud"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Criar regra de firewall do Cloud"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Создать правило брандмауэра Cloud"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สร้างกฎไฟร์วอลล์ Cloud"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud güvenlik duvarı kuralı oluştur"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Створити правило брандмауера Cloud"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tạo quy tắc tường lửa Cloud"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "创建 Cloud 防火墙规则"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "建立 Cloud 防火牆規則"
-          }
-        }
-      }
-    },
-    "action.cloudFirewallDelete": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete Cloud Firewall Rule"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حذف قاعدة جدار حماية Cloud"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Izbriši pravilo Cloud zaštitnog zida"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slet Cloud-firewallregel"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Firewall-Regel löschen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eliminar regla del firewall de Cloud"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Supprimer une règle de pare-feu Cloud"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elimina regola del firewall Cloud"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud ファイアウォールルールを削除"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "លុបច្បាប់ជញ្ជាំងភ្លើង Cloud"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 방화벽 규칙 삭제"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slett Cloud-brannmurregel"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usuń regułę zapory Cloud"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Excluir regra de firewall do Cloud"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить правило брандмауэра Cloud"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ลบกฎไฟร์วอลล์ Cloud"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud güvenlik duvarı kuralını sil"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Видалити правило брандмауера Cloud"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Xóa quy tắc tường lửa Cloud"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "删除 Cloud 防火墙规则"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "刪除 Cloud 防火牆規則"
-          }
-        }
-      }
-    },
-    "action.cloudPublicationList": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "List Cloud Publications"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عرض منشورات Cloud"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži Cloud objave"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Cloud-publiceringer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Veröffentlichungen auflisten"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Listar publicaciones de Cloud"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lister les publications Cloud"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elenca pubblicazioni Cloud"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 公開を一覧表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បញ្ជីការបោះពុម្ពផ្សាយ Cloud"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 게시 목록"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Cloud-publiseringer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wyświetl publikacje Cloud"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Listar publicações do Cloud"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Список публикаций Cloud"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงรายการการเผยแพร่ Cloud"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud yayınlarını listele"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Список публікацій Cloud"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Liệt kê bản xuất bản Cloud"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "列出 Cloud 发布"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "列出 Cloud 發布"
           }
         }
       }
@@ -83598,137 +82811,6 @@
         }
       }
     },
-    "action.agentChat.subagentLimit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chat Subagent Limit…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Subagenten-Limit des Chats…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limite de sous-agents du chat…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حدّ الوكلاء الفرعيين للمحادثة…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Límite de subagentes del chat…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "聊天子代理上限…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "聊天子代理上限…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "채팅 하위 에이전트 제한…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チャットのサブエージェント上限…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ograničenje podagenata za razgovor…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Grænse for underagenter i chatten…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limite di subagenti della chat…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ដែនកំណត់ភ្នាក់ងាររងរបស់ការជជែក…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Grense for underagenter i chatten…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limit podagentów czatu…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limite de subagentes do chat…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Лимит субагентов чата…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ขีดจำกัดเอเจนต์ย่อยของแชท…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sohbet Alt Ajan Sınırı…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ліміт субагентів чату…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Giới hạn tác tử phụ của cuộc trò chuyện…"
-          }
-        }
-      }
-    },
     "action.jumpToLastPrompt": {
       "extractionState": "manual",
       "localizations": {
@@ -83856,6 +82938,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "跳至最後的提示"
+          }
+        }
+      }
+    },
+    "action.voiceRoom.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح غرفة الصوت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori glasovnu sobu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn stemmerum"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprachraum öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Voice Room"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir sala de voz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir la salle vocale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri stanza vocale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ボイスルームを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកបន្ទប់សំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "음성 룸 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne talerom"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz pokój głosowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir sala de voz"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть голосовую комнату"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดห้องเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ses Odasını Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити голосову кімнату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở phòng thoại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开语音房间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟語音房間"
+          }
+        }
+      }
+    },
+    "action.voiceRoom.stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إيقاف غرفة الصوت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaustavi glasovnu sobu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stop stemmerum"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprachraum beenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Voice Room"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detener sala de voz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrêter la salle vocale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrompi stanza vocale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ボイスルームを停止"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ឈប់បន្ទប់សំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "음성 룸 중지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stopp talerom"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatrzymaj pokój głosowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parar sala de voz"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Остановить голосовую комнату"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หยุดห้องเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ses Odasını Durdur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зупинити голосову кімнату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dừng phòng thoại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停止语音房间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停止語音房間"
           }
         }
       }
@@ -86054,6 +85398,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "調整為桌面（1280）"
+          }
+        }
+      }
+    },
+    "action.links.signInPagesInCmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-In Pages: Open in cmux Browser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صفحات تسجيل الدخول: فتح في متصفح cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stranice za prijavu: Otvori u cmux pregledniku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login-sider: Åbn i cmux-browser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anmeldeseiten: In cmux-Browser öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Páginas de inicio de sesión: Abrir en el navegador de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pages de connexion : ouvrir dans le navigateur cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pagine di accesso: Apri nel browser cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サインインページ: cmuxブラウザで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រចូល៖ បើកក្នុងកម្មវិធីរុករក cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로그인 페이지: cmux 브라우저에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Påloggingssider: Åpne i cmux-nettleseren"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strony logowania: Otwórz w przeglądarce cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Páginas de login: Abrir no navegador do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Страницы входа: открывать в браузере cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าลงชื่อเข้าใช้: เปิดในเบราว์เซอร์ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturum açma sayfaları: cmux tarayıcısında aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сторінки входу: відкривати в браузері cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang đăng nhập: Mở trong trình duyệt cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登录页面：在 cmux 浏览器中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登入頁面：在 cmux 瀏覽器中開啟"
+          }
+        }
+      }
+    },
+    "action.links.signInPagesByLinkSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-In Pages: Follow Link Settings"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صفحات تسجيل الدخول: اتباع إعدادات الروابط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stranice za prijavu: Prati postavke linkova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login-sider: Følg linkindstillinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anmeldeseiten: Link-Einstellungen folgen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Páginas de inicio de sesión: Seguir los ajustes de enlaces"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pages de connexion : suivre les réglages des liens"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pagine di accesso: Segui le impostazioni dei link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サインインページ: リンク設定に従う"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រចូល៖ ធ្វើតាមការកំណត់តំណ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로그인 페이지: 링크 설정 따르기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Påloggingssider: Følg lenkeinnstillingene"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strony logowania: Według ustawień linków"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Páginas de login: Seguir as configurações de links"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Страницы входа: как в настройках ссылок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าลงชื่อเข้าใช้: ตามการตั้งค่าลิงก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturum açma sayfaları: Bağlantı ayarlarını izle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сторінки входу: як у налаштуваннях посилань"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang đăng nhập: Theo cài đặt liên kết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登录页面：遵循链接设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登入頁面：依照連結設定"
           }
         }
       }
@@ -93935,6 +93541,923 @@
         }
       }
     },
+    "action.workspace.toggleArchive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive/Unarchive Workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرشفة مساحة العمل/إلغاء أرشفتها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arhiviraj/Vrati iz arhive radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arkivér/Gendan arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace archivieren/wiederherstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivar/Desarchivar espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archiver/Désarchiver l’espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivia/Ripristina workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースをアーカイブ/アーカイブ解除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទុកក្នុងបណ្ណសារ/ដកចេញពីបណ្ណសារ កន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 보관/보관 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arkiver/Gjenopprett arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archiwizuj/Przywróć obszar roboczy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arquivar/Desarquivar espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Архивировать/разархивировать рабочее пространство"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เก็บถาวร/เลิกเก็บถาวรพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanını arşivle/arşivden çıkar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Архівувати/розархівувати робочий простір"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lưu trữ/Bỏ lưu trữ không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "归档/取消归档工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "封存/取消封存工作區"
+          }
+        }
+      }
+    },
+    "action.workspaceGroup.toggleArchive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive/Unarchive Group"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرشفة المجموعة/إلغاء أرشفتها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arhiviraj/Vrati iz arhive grupu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arkivér/Gendan gruppe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppe archivieren/wiederherstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivar/Desarchivar grupo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archiver/Désarchiver le groupe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivia/Ripristina gruppo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループをアーカイブ/アーカイブ解除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទុកក្នុងបណ្ណសារ/ដកចេញពីបណ្ណសារ ក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹 보관/보관 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arkiver/Gjenopprett gruppe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archiwizuj/Przywróć grupę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arquivar/Desarquivar grupo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Архивировать/разархивировать группу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เก็บถาวร/เลิกเก็บถาวรกลุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grubu arşivle/arşivden çıkar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Архівувати/розархівувати групу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lưu trữ/Bỏ lưu trữ nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "归档/取消归档分组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "封存/取消封存群組"
+          }
+        }
+      }
+    },
+    "action.cloudFirewallList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "List Cloud Firewall Rules"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض قواعد جدار حماية Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži pravila Cloud zaštitnog zida"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Cloud-firewallregler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Firewall-Regeln auflisten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listar reglas del firewall de Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lister les règles de pare-feu Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elenca regole del firewall Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ファイアウォールルールを一覧表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជីច្បាប់ជញ្ជាំងភ្លើង Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 방화벽 규칙 목록"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Cloud-brannmurregler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyświetl reguły zapory Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listar regras de firewall do Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список правил брандмауэра Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงรายการกฎไฟร์วอลล์ Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud güvenlik duvarı kurallarını listele"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список правил брандмауера Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liệt kê quy tắc tường lửa Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列出 Cloud 防火墙规则"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列出 Cloud 防火牆規則"
+          }
+        }
+      }
+    },
+    "action.cloudFirewallGet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get Cloud Firewall Rule"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض قاعدة جدار حماية Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži pravilo Cloud zaštitnog zida"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Cloud-firewallregel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Firewall-Regel abrufen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtener regla del firewall de Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher une règle de pare-feu Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra regola del firewall Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ファイアウォールルールを取得"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "យកច្បាប់ជញ្ជាំងភ្លើង Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 방화벽 규칙 가져오기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Cloud-brannmurregel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pobierz regułę zapory Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obter regra de firewall do Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Получить правило брандмауэра Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดูกฎไฟร์วอลล์ Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud güvenlik duvarı kuralını getir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отримати правило брандмауера Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xem quy tắc tường lửa Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "获取 Cloud 防火墙规则"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取得 Cloud 防火牆規則"
+          }
+        }
+      }
+    },
+    "action.cloudFirewallCreate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create Cloud Firewall Rule"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إنشاء قاعدة جدار حماية Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Napravi pravilo Cloud zaštitnog zida"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opret Cloud-firewallregel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Firewall-Regel erstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crear regla del firewall de Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créer une règle de pare-feu Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea regola del firewall Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ファイアウォールルールを作成"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្កើតច្បាប់ជញ្ជាំងភ្លើង Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 방화벽 규칙 만들기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opprett Cloud-brannmurregel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utwórz regułę zapory Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar regra de firewall do Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создать правило брандмауэра Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สร้างกฎไฟร์วอลล์ Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud güvenlik duvarı kuralı oluştur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Створити правило брандмауера Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tạo quy tắc tường lửa Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建 Cloud 防火墙规则"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立 Cloud 防火牆規則"
+          }
+        }
+      }
+    },
+    "action.cloudFirewallDelete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Cloud Firewall Rule"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حذف قاعدة جدار حماية Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izbriši pravilo Cloud zaštitnog zida"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slet Cloud-firewallregel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Firewall-Regel löschen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar regla del firewall de Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer une règle de pare-feu Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina regola del firewall Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ファイアウォールルールを削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លុបច្បាប់ជញ្ជាំងភ្លើង Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 방화벽 규칙 삭제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slett Cloud-brannmurregel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usuń regułę zapory Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir regra de firewall do Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить правило брандмауэра Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลบกฎไฟร์วอลล์ Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud güvenlik duvarı kuralını sil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Видалити правило брандмауера Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xóa quy tắc tường lửa Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除 Cloud 防火墙规则"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除 Cloud 防火牆規則"
+          }
+        }
+      }
+    },
+    "action.cloudPublicationList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "List Cloud Publications"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض منشورات Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži Cloud objave"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Cloud-publiceringer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Veröffentlichungen auflisten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listar publicaciones de Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lister les publications Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elenca pubblicazioni Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 公開を一覧表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជីការបោះពុម្ពផ្សាយ Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 게시 목록"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Cloud-publiseringer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyświetl publikacje Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listar publicações do Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список публикаций Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงรายการการเผยแพร่ Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud yayınlarını listele"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список публікацій Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liệt kê bản xuất bản Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列出 Cloud 发布"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列出 Cloud 發布"
+          }
+        }
+      }
+    },
     "action.cloudTunnelAttach": {
       "extractionState": "manual",
       "localizations": {
@@ -94590,264 +95113,1182 @@
         }
       }
     },
-    "action.workspace.toggleArchive": {
+    "action.help.troubleshooting": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive/Unarchive Workspace"
+            "value": "Troubleshooting and Support"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أرشفة مساحة العمل/إلغاء أرشفتها"
+            "value": "استكشاف الأخطاء والدعم"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arhiviraj/Vrati iz arhive radni prostor"
+            "value": "Rješavanje problema i podrška"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arkivér/Gendan arbejdsområde"
+            "value": "Fejlfinding og support"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspace archivieren/wiederherstellen"
+            "value": "Fehlerbehebung und Support"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archivar/Desarchivar espacio de trabajo"
+            "value": "Solución de problemas y soporte"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archiver/Désarchiver l’espace de travail"
+            "value": "Dépannage et assistance"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archivia/Ripristina workspace"
+            "value": "Risoluzione dei problemi e supporto"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースをアーカイブ/アーカイブ解除"
+            "value": "トラブルシューティングとサポート"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ទុកក្នុងបណ្ណសារ/ដកចេញពីបណ្ណសារ កន្លែងធ្វើការ"
+            "value": "ការដោះស្រាយបញ្ហា និងជំនួយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "워크스페이스 보관/보관 해제"
+            "value": "문제 해결 및 지원"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arkiver/Gjenopprett arbeidsområde"
+            "value": "Feilsøking og støtte"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archiwizuj/Przywróć obszar roboczy"
+            "value": "Rozwiązywanie problemów i pomoc"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arquivar/Desarquivar espaço de trabalho"
+            "value": "Solução de problemas e suporte"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Архивировать/разархивировать рабочее пространство"
+            "value": "Устранение неполадок и поддержка"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เก็บถาวร/เลิกเก็บถาวรพื้นที่ทำงาน"
+            "value": "การแก้ไขปัญหาและการสนับสนุน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Çalışma alanını arşivle/arşivden çıkar"
+            "value": "Sorun Giderme ve Destek"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Архівувати/розархівувати робочий простір"
+            "value": "Усунення несправностей і підтримка"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lưu trữ/Bỏ lưu trữ không gian làm việc"
+            "value": "Khắc phục sự cố và hỗ trợ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "归档/取消归档工作区"
+            "value": "故障排除与支持"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "封存/取消封存工作區"
+            "value": "疑難排解與支援"
           }
         }
       }
     },
-    "action.workspaceGroup.toggleArchive": {
+    "action.help.discord": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive/Unarchive Group"
+            "value": "Join the cmux Discord"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أرشفة المجموعة/إلغاء أرشفتها"
+            "value": "انضم إلى Discord الخاص بـ cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arhiviraj/Vrati iz arhive grupu"
+            "value": "Pridruži se cmux Discordu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arkivér/Gendan gruppe"
+            "value": "Deltag i cmux' Discord"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gruppe archivieren/wiederherstellen"
+            "value": "Dem cmux-Discord beitreten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archivar/Desarchivar grupo"
+            "value": "Unirse al Discord de cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archiver/Désarchiver le groupe"
+            "value": "Rejoindre le Discord de cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archivia/Ripristina gruppo"
+            "value": "Unisciti al Discord di cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "グループをアーカイブ/アーカイブ解除"
+            "value": "cmux の Discord に参加"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ទុកក្នុងបណ្ណសារ/ដកចេញពីបណ្ណសារ ក្រុម"
+            "value": "ចូលរួម Discord របស់ cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "그룹 보관/보관 해제"
+            "value": "cmux Discord 참여하기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arkiver/Gjenopprett gruppe"
+            "value": "Bli med i cmux' Discord"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archiwizuj/Przywróć grupę"
+            "value": "Dołącz do Discorda cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arquivar/Desarquivar grupo"
+            "value": "Entrar no Discord do cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Архивировать/разархивировать группу"
+            "value": "Присоединиться к Discord cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เก็บถาวร/เลิกเก็บถาวรกลุ่ม"
+            "value": "เข้าร่วม Discord ของ cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grubu arşivle/arşivden çıkar"
+            "value": "cmux Discord'una katıl"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Архівувати/розархівувати групу"
+            "value": "Приєднатися до Discord cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lưu trữ/Bỏ lưu trữ nhóm"
+            "value": "Tham gia Discord của cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "归档/取消归档分组"
+            "value": "加入 cmux Discord"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "封存/取消封存群組"
+            "value": "加入 cmux Discord 社群"
+          }
+        }
+      }
+    },
+    "action.help.followOnX": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow @cmux on X"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تابع ‎@cmux على X"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prati @cmux na X-u"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Følg @cmux på X"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@cmux auf X folgen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguir a @cmux en X"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suivre @cmux sur X"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segui @cmux su X"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "X で @cmux をフォロー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តាមដាន @cmux នៅលើ X"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "X에서 @cmux 팔로우"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Følg @cmux på X"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obserwuj @cmux na X"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguir @cmux no X"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписаться на @cmux в X"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตาม @cmux บน X"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "X'te @cmux'ı takip et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стежити за @cmux в X"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theo dõi @cmux trên X"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 X 上关注 @cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 X 上追蹤 @cmux"
+          }
+        }
+      }
+    },
+    "action.help.github": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux on GitHub"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux على GitHub"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux na GitHubu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux på GitHub"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux auf GitHub"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux en GitHub"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sur GitHub"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux su GitHub"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub の cmux"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux នៅលើ GitHub"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub의 cmux"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux på GitHub"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux na GitHubie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no GitHub"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux на GitHub"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux บน GitHub"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub'da cmux"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux на GitHub"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux trên GitHub"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 上的 cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 上的 cmux"
+          }
+        }
+      }
+    },
+    "action.help.revealLogs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reveal Logs in Finder"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار السجلات في Finder"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži zapisnike u Finderu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis logfiler i Finder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokolle im Finder zeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar registros en Finder"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les journaux dans le Finder"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra i log nel Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログを Finder で表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញកំណត់ហេតុក្នុង Finder"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder에서 로그 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis logger i Finder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż logi w Finderze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar registros no Finder"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать журналы в Finder"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงบันทึกใน Finder"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Günlükleri Finder'da göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати журнали у Finder"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị nhật ký trong Finder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在访达中显示日志"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Finder 中顯示記錄"
+          }
+        }
+      }
+    },
+    "action.help.copyLogs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Logs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ السجلات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiraj zapisnike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér logfiler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokolle kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar registros"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier les journaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia i log"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログをコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចម្លងកំណត់ហេតុ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopier logger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiuj logi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar registros"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать журналы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกบันทึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Günlükleri kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопіювати журнали"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sao chép nhật ký"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷贝日志"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝記錄"
+          }
+        }
+      }
+    },
+    "action.session.moveFromBuild": {
+      "comment": "Command palette action: move live terminals and agent chats from another cmux build running on this Mac (dev, nightly, classic) into this one.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Sessions from Another cmux Build…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungen aus einem anderen cmux-Build verschieben…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer les sessions d’un autre build de cmux…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل الجلسات من إصدار cmux آخر…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover sesiones desde otra compilación de cmux…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從其他 cmux 版本移入工作階段…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从其他 cmux 版本移入会话…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 cmux 빌드에서 세션 옮기기…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の cmux ビルドからセッションを移動…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premjesti sesije iz druge cmux verzije…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt sessioner fra et andet cmux-build…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta le sessioni da un’altra build di cmux…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទីវគ្គពី cmux build ផ្សេងទៀត…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt økter fra et annet cmux-bygg…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieś sesje z innej kompilacji cmux…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover Sessões de Outra Compilação do cmux…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенести сеансы из другой сборки cmux…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายเซสชันจาก cmux บิลด์อื่น…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturumları Başka Bir cmux Derlemesinden Taşı…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенести сеанси з іншої збірки cmux…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển phiên từ bản dựng cmux khác…"
+          }
+        }
+      }
+    },
+    "action.workspace.nameFromActivity": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imenuj prema aktivnosti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navngiv ud fra aktivitet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nomina dall'attività"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ឈ្មោះតាមសកម្មភាព"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gi navn etter aktivitet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nazwij według aktywności"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nomear pela atividade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Назвать по активности"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งชื่อจากกิจกรรม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etkinliğe göre adlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Назвати за активністю"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt tên theo hoạt động"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name from Activity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティビティから名前を付ける"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach Aktivität benennen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nommer d’après l’activité"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التسمية من النشاط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombrar según la actividad"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依活動命名"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根据活动命名"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활동으로 이름 짓기"
+          }
+        }
+      }
+    },
+    "action.agentChat.subagentLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Subagent Limit…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenten-Limit des Chats…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite de sous-agents du chat…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّ الوكلاء الفرعيين للمحادثة…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Límite de subagentes del chat…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天子代理上限…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天子代理上限…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 하위 에이전트 제한…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのサブエージェント上限…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ograničenje podagenata za razgovor…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grænse for underagenter i chatten…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite di subagenti della chat…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដែនកំណត់ភ្នាក់ងាររងរបស់ការជជែក…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grense for underagenter i chatten…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limit podagentów czatu…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite de subagentes do chat…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лимит субагентов чата…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขีดจำกัดเอเจนต์ย่อยของแชท…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet Alt Ajan Sınırı…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ліміт субагентів чату…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giới hạn tác tử phụ của cuộc trò chuyện…"
           }
         }
       }
@@ -94877,6 +96318,60 @@
         "tr": {"stringUnit": {"state": "needs_review", "value": "Makineyi ajan ana bilgisayarı olarak kaydet"}},
         "uk": {"stringUnit": {"state": "needs_review", "value": "Зареєструвати машину як хост агентів"}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Đăng ký máy làm máy chủ tác tử"}}
+      }
+    },
+    "action.cloudApplyMachineConfig": {
+      "comment": "Cloud machine action: apply the machine's .cmux/machine.toml (env, secret names, setup commands).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Apply Machine Config"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン構成を適用"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maschinenkonfiguration anwenden"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Appliquer la configuration de la machine"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Aplicar la configuración de la máquina"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تطبيق إعداد الجهاز"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 구성 적용"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "应用机器配置"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "套用機器設定"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Primijeni konfiguraciju mašine"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Anvend maskinkonfiguration"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Applica configurazione della macchina"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អនុវត្តការកំណត់ម៉ាស៊ីន"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bruk maskinkonfigurasjon"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zastosuj konfigurację maszyny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Aplicar configuração da máquina"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Применить конфигурацию машины"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ใช้การกำหนดค่าเครื่อง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Makine yapılandırmasını uygula"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Застосувати конфігурацію машини"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Áp dụng cấu hình máy"}}
+      }
+    },
+    "action.cloudDeliverSecrets": {
+      "comment": "Cloud machine action: send the values of the machine's declared secrets from this Mac's Keychain.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Deliver Secrets to Machine"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "シークレットをマシンに配信"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Geheimnisse an die Maschine übermitteln"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Transmettre les secrets à la machine"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Entregar secretos a la máquina"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تسليم الأسرار إلى الجهاز"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신에 비밀 전달"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "将机密送达机器"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "將機密送達機器"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Isporuči tajne mašini"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lever hemmeligheder til maskinen"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Consegna i segreti alla macchina"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បញ្ជូនអាថ៌កំបាំងទៅម៉ាស៊ីន"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Lever hemmeligheter til maskinen"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Dostarcz sekrety do maszyny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Entregar segredos à máquina"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Доставить секреты на машину"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ส่งความลับไปยังเครื่อง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Sırları makineye teslim et"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Доставити секрети на машину"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Gửi bí mật tới máy"}}
       }
     },
     "action.palette.computerUse.restart": {
@@ -95008,60 +96503,6 @@
             "value": "重新啟動 Computer Use 輔助程式"
           }
         }
-      }
-    },
-    "action.cloudApplyMachineConfig": {
-      "comment": "Cloud machine action: apply the machine's .cmux/machine.toml (env, secret names, setup commands).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Apply Machine Config"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "マシン構成を適用"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Maschinenkonfiguration anwenden"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Appliquer la configuration de la machine"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Aplicar la configuración de la máquina"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "تطبيق إعداد الجهاز"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 구성 적용"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "应用机器配置"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "套用機器設定"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Primijeni konfiguraciju mašine"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Anvend maskinkonfiguration"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Applica configurazione della macchina"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "អនុវត្តការកំណត់ម៉ាស៊ីន"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Bruk maskinkonfigurasjon"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Zastosuj konfigurację maszyny"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Aplicar configuração da máquina"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Применить конфигурацию машины"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ใช้การกำหนดค่าเครื่อง"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Makine yapılandırmasını uygula"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Застосувати конфігурацію машини"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Áp dụng cấu hình máy"}}
-      }
-    },
-    "action.cloudDeliverSecrets": {
-      "comment": "Cloud machine action: send the values of the machine's declared secrets from this Mac's Keychain.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Deliver Secrets to Machine"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "シークレットをマシンに配信"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Geheimnisse an die Maschine übermitteln"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Transmettre les secrets à la machine"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Entregar secretos a la máquina"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "تسليم الأسرار إلى الجهاز"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "머신에 비밀 전달"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "将机密送达机器"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "將機密送達機器"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Isporuči tajne mašini"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Lever hemmeligheder til maskinen"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Consegna i segreti alla macchina"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "បញ្ជូនអាថ៌កំបាំងទៅម៉ាស៊ីន"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Lever hemmeligheter til maskinen"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Dostarcz sekrety do maszyny"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Entregar segredos à máquina"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Доставить секреты на машину"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ส่งความลับไปยังเครื่อง"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Sırları makineye teslim et"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Доставити секрети на машину"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Gửi bí mật tới máy"}}
       }
     }
   },

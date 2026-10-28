@@ -13,8 +13,10 @@ cx-y0nf2: every other ref that runs the daemon tests (a pin, next-batch/*,
 main, an opted-in lane push, a same-repository pull request) publishes the
 same way, with source.json daemonTests "separate". Before, those refs
 published only after the tests passed, so a pin's tree waited ~1 h for the
-macOS runner. Nightly-next promotion still needs the daemon-tests marker,
+macOS runner. The feat-cmux-next channel still needs the daemon-tests marker,
 which only publish-tree-tested writes, after this run's tests of the key pass.
+Nightly-next promotion does not (2026-10-28): its tree-commit markers
+(mark-tree-commits) follow the publish, not the daemon tests.
 
 No tree publication waits for the Windows build either (2026-10-21): the
 Windows leg (24 min median, 32 p90) ended last in 217 of 219 published trees,
@@ -198,7 +200,7 @@ def main():
     starting = [name for name in tree_publishers if runs(all_jobs, name, lane)]
     _check(len(starting) == 1, f"a lane-branch push publishes without the daemon tests ({starting})")
 
-    # Promotion stays gated on the daemon-tests marker, written only after the tests pass.
+    # The daemon-tests marker (the feat-cmux-next channel's gate) is written only after the tests pass.
     marker = all_jobs["publish-tree-tested"]
     _check(DAEMON in needs(marker) and f"needs.{DAEMON}.result == 'success'" in str(marker["if"]),
            "publish-tree-tested writes the marker only after the daemon tests pass")
@@ -232,7 +234,25 @@ def main():
                f"publish-tree-tested marks a tree {name} published")
     promote = all_jobs["request-nightly-next"]
     _check("needs.publish-tree-tested.result == 'success'" in str(promote["if"]),
-           "nightly-next promotion still follows the marker job")
+           "the request job still follows the daemon-tests marker job")
+
+    # The tree-commit markers, which nightly-next promotion requires, follow the
+    # publish and never the daemon tests (2026-10-28: run 40651931144's tests
+    # failed fetching Zig packages and no commit was marked for hours).
+    mark = all_jobs["mark-tree-commits"]
+    _check(DAEMON not in all_needs(all_jobs, "mark-tree-commits"),
+           f"mark-tree-commits does not wait for the daemon tests ({sorted(all_needs(all_jobs, 'mark-tree-commits'))})")
+    _check(set(tree_publishers) <= set(needs(mark)), f"mark-tree-commits follows every tree publisher ({needs(mark)})")
+    for event in ("push", "workflow_dispatch"):
+        for published in ("success", "skipped"):
+            values = context("refs/heads/feat-cmux-next", event=event, daemon_result=None)
+            values.update({f"needs.{name}.result": published for name in tree_publishers})
+            _check(runs(all_jobs, "mark-tree-commits", values),
+                   f"a feat-cmux-next {event} marks its commits with publish {published}, its daemon tests still queued")
+        failed = context("refs/heads/feat-cmux-next", event=event, daemon_result=None)
+        failed.update({f"needs.{name}.result": "failure" for name in tree_publishers})
+        _check(not runs(all_jobs, "mark-tree-commits", failed),
+               f"a feat-cmux-next {event} whose publish failed marks nothing")
 
     # The run that ends unpublished still reports, whichever job would have published.
     notify = all_jobs["notify-unpublished-tree"]
