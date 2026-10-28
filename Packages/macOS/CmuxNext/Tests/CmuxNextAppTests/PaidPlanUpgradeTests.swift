@@ -27,7 +27,7 @@ import Testing
     }
 
     func upgrade(_ calls: Calls, checkout: (@MainActor (String, String) async throws -> URL)?) -> PaidPlanUpgrade {
-        PaidPlanUpgrade(checkout: checkout, open: { calls.opened.append($0) }, scheme: "cmux-next", onboarding: onboarding())
+        PaidPlanUpgrade(checkout: checkout, open: { calls.opened.append($0) }, scheme: "cmux-next", onboarding: onboarding(), pricing: StaticURL.pricing.url)
     }
 
     @Test func aSignedInPaywallOpensCheckoutThatReturnsToThisApp() async {
