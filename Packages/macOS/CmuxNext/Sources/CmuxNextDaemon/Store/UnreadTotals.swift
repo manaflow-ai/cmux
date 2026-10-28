@@ -32,4 +32,13 @@ public struct UnreadTotals: Sendable, Equatable {
         tabs += other.tabs
         for (id, count) in other.conversations { conversations[id, default: 0] += count }
     }
+
+    /// Takes back what ``add(_:)`` added for `other` (a workspace leaving the sum, or its old share).
+    mutating func subtract(_ other: UnreadTotals) {
+        tabs -= other.tabs
+        for (id, count) in other.conversations {
+            let left = (conversations[id] ?? 0) - count
+            conversations[id] = left > 0 ? left : nil
+        }
+    }
 }

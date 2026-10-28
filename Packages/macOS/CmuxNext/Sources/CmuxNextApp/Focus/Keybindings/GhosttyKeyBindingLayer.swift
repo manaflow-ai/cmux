@@ -107,11 +107,14 @@ extension KeyRouter {
 /// triggers name keys by what they type).
 final class GhosttyKeybindSync {
     private weak var router: KeyRouter?
+    /// The agent panes' launch images: at launch the claim probes wait for them.
+    private let launchImages: LaunchImageHold
     private var layoutObserver: KeyboardLayoutObserver?
     private var claimsTask: Task<Void, Never>?
 
-    init(router: KeyRouter) {
+    init(router: KeyRouter, launchImages: LaunchImageHold) {
         self.router = router
+        self.launchImages = launchImages
     }
 
     func start() {
@@ -137,11 +140,11 @@ final class GhosttyKeybindSync {
         router.loadGhosttyKeybinds(binds, defaults: defaults, claims: router.registry.keyBindingLayers.ghosttyClaims, keyNames: keyNames)
         let files = runtime.loadedConfigFiles
         claimsTask?.cancel()
-        claimsTask = Task { [weak self] in
+        claimsTask = Task { [weak self, launchImages] in
             let texts = await GhosttyRuntime.configTexts(files)
             // At launch the probes wait for the first agent page to paint: about 20 ms of main
             // thread that held up its navigation (cx-z9kz0).
-            await LaunchImageHold.shared.clear()
+            await launchImages.clear()
             guard !Task.isCancelled, let router = self?.router else { return }
             // The keys cmux has defaults on, asked of the user's Ghostty config.
             let probes = GhosttyKeyBindingLayer.defaultKeys(RegistryKeyBindings(router.registry).table).compactMap { key in

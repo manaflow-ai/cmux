@@ -149,6 +149,8 @@ nonisolated extension SubsystemBudget: Codable {
         case liveHiddenInternalPages = "live_hidden_internal_pages"
         case kittyImageBytesPerSurface = "kitty_image_bytes_per_surface"
         case webProcessPagesPerGroup = "web_process_pages_per_group"
+        case sharedRendererMemoryCapBytes = "shared_renderer_memory_cap_bytes"
+        case sharedRendererSubframeMemoryCapBytes = "shared_renderer_subframe_memory_cap_bytes"
     }
 
     /// Reads every field as the report holds it, so a report from a build with other formulas
@@ -168,6 +170,11 @@ nonisolated extension SubsystemBudget: Codable {
         liveHiddenInternalPages = try container.decode(Int.self, forKey: .liveHiddenInternalPages)
         kittyImageBytesPerSurface = try container.decode(Int.self, forKey: .kittyImageBytesPerSurface)
         webProcessPagesPerGroup = try container.decode(Int.self, forKey: .webProcessPagesPerGroup)
+        // A build before the caps passed none: Chromium ran with Chrome's own values.
+        sharedRendererMemoryCapBytes = try container.decodeIfPresent(Int.self, forKey: .sharedRendererMemoryCapBytes)
+            ?? Self.chromeSharedRendererMemoryCapBytes
+        sharedRendererSubframeMemoryCapBytes = try container.decodeIfPresent(Int.self, forKey: .sharedRendererSubframeMemoryCapBytes)
+            ?? Self.chromeSharedRendererSubframeMemoryCapBytes
     }
 
     /// Writes the inputs and every budget a report reader shows.
@@ -186,5 +193,7 @@ nonisolated extension SubsystemBudget: Codable {
         try container.encode(liveHiddenInternalPages, forKey: .liveHiddenInternalPages)
         try container.encode(kittyImageBytesPerSurface, forKey: .kittyImageBytesPerSurface)
         try container.encode(webProcessPagesPerGroup, forKey: .webProcessPagesPerGroup)
+        try container.encode(sharedRendererMemoryCapBytes, forKey: .sharedRendererMemoryCapBytes)
+        try container.encode(sharedRendererSubframeMemoryCapBytes, forKey: .sharedRendererSubframeMemoryCapBytes)
     }
 }

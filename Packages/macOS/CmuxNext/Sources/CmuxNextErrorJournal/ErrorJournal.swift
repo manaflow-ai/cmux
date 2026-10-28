@@ -175,23 +175,30 @@ public actor ErrorJournal {
     /// - Returns: New occurrences per source id.
     @discardableResult
     public func harvest(_ sources: [any ErrorHarvestSource]) async -> [String: Int] {
+        await harvestReport(sources).found
+    }
+
+    /// ``harvest(_:)``, also naming the sources that stopped at their bound.
+    @discardableResult
+    public func harvestReport(_ sources: [any ErrorHarvestSource]) async -> ErrorHarvestReport {
         var cursors = loadCursors()
-        var found: [String: Int] = [:]
+        var report = ErrorHarvestReport()
         for source in sources {
             do {
                 let harvest = try await source.collect(after: cursors[source.id])
                 for event in harvest.events { fold(event) }
                 if let cursor = harvest.cursor { cursors[source.id] = cursor }
-                found[source.id] = harvest.events.count
+                report.found[source.id] = harvest.events.count
+                if harvest.more { report.unfinished.insert(source.id) }
             } catch {
                 fold(ErrorEvent(source: "journal", level: .warning, message: "harvest of \(source.id) failed: \(error)",
                                 date: now()))
-                found[source.id] = 0
+                report.found[source.id] = 0
             }
         }
         saveCursors(cursors)
         flush()
-        return found
+        return report
     }
 
     // MARK: - Folding
@@ -286,4 +293,16 @@ public actor ErrorJournal {
             try? ErrorSegmentStore.protectFile(cursorsURL)
         }
     }
+}
+
+/// What one ``ErrorJournal/harvestReport(_:)`` read.
+public struct ErrorHarvestReport: Sendable, Equatable {
+    /// New occurrences per source id.
+    public var found: [String: Int] = [:]
+    /// The ids of the sources that stopped at the bound of one harvest (``ErrorHarvest/more``):
+    /// the next harvest reads the rest.
+    public var unfinished: Set<String> = []
+
+    /// An empty report.
+    public init() {}
 }

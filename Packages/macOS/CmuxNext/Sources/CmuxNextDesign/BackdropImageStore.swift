@@ -1,5 +1,6 @@
 public import AppKit
 import AVFoundation
+public import CmuxNextCompat
 import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
@@ -14,6 +15,13 @@ public import CmuxNextDesignTokens
 /// ``snapshots``, so the next launch's first window shows the art at once: ``preview(_:texture:)``
 /// decodes a small copy of the snapshot for that frame, and ``prewarm(_:texture:)`` starts the
 /// full load when settings pick the art, before any window asks.
+///
+/// Registered (``registerMemoryConsumer(with:)``), the store is one lossless memory consumer: it holds
+/// at most the limit's share of ``fullCount`` decoded images and lets the least recently used go first,
+/// as Chrome's image decode caches do (cc/tiles/software_image_decode_cache.cc on
+/// base/containers/lru_cache.h). An image let go stays found while a window shows it (Chrome never
+/// purges a decode in use), so a second window does not decode a second copy; one no window shows is
+/// freed. Unregistered, the store holds every image it decoded.
 @MainActor
 public final class BackdropImageStore {
     /// The app's store, with snapshots in the app's caches folder.
@@ -28,13 +36,35 @@ public final class BackdropImageStore {
 
     /// Fetches the full image of art that does not ship in the app.
     private let downloads: BackdropArtDownloads
-    private var images: [Key: NSImage] = [:]
+    /// The decoded images the store holds.
+    private var images: [Key: Decode] = [:]
+    /// The keys of ``images``, least recently used first.
+    private var order: [Key] = []
+    /// Images the store let go of, found again while a window still shows one.
+    private var shown: [Key: ShownDecode] = [:]
+    /// The bitmap bytes of ``images``.
+    private var heldBytes = 0
+    /// How many decoded images the store holds; nil (unregistered) holds every one.
+    private var holdLimit: Int?
+    private var memoryRegistration: MemoryConsumerRegistration?
     private var loads: [Key: Task<Decoded?, Never>] = [:]
     private var warming: [Task<Void, Never>] = []
 
     private struct Key: Hashable {
         let id: String
         let texture: BackdropTexture
+    }
+
+    /// One decoded image the store holds, with its bitmap's bytes.
+    private struct Decode {
+        let image: NSImage
+        let bytes: Int
+    }
+
+    /// A decoded image the store let go of: alive while a window holds it.
+    private struct ShownDecode {
+        weak var image: NSImage?
+        let bytes: Int
     }
 
     /// A decoded bitmap handed from the decoding task to the main actor.
@@ -75,7 +105,7 @@ public final class BackdropImageStore {
     /// The decoded image of `selection` (in light or `dark`, for one that follows the
     /// appearance), or nil until it has loaded.
     func cached(_ selection: BackdropSelection, texture: BackdropTexture = .default, dark: Bool = false) -> NSImage? {
-        images[Key(id: selection.variantID(dark: dark), texture: texture)]
+        held(Key(id: selection.variantID(dark: dark), texture: texture))
     }
 
     /// A small copy of an earlier launch's snapshot of `selection`, decoded now, for the frames
@@ -98,6 +128,8 @@ public final class BackdropImageStore {
         let dark = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         guard let selection, cached(selection, texture: texture, dark: dark) == nil else { return }
         // task-owner: one load per prewarm, kept in `warming` so tests can wait for it
+        // main-hop-allow: image(_:texture:dark:) is the store's main-actor cache, whose decode and texture run detached
+        // off main; this task only starts it, and its one resume holds the image
         warming.append(Task { [weak self] in _ = await self?.image(selection, texture: texture, dark: dark) })
     }
 
@@ -111,11 +143,11 @@ public final class BackdropImageStore {
     /// The decoded, textured image of `selection`, loading it off the main actor once.
     func image(_ selection: BackdropSelection, texture: BackdropTexture = .default, dark: Bool = false) async -> NSImage? {
         let key = Key(id: selection.variantID(dark: dark), texture: texture)
-        if let image = images[key] { return image }
+        if let image = held(key) { return image }
         if case .art(let art) = selection, art.imageURL == nil {
             // Not bundled and not downloaded yet: fetch it once, then decode as usual.
             guard await downloads.file(for: art) != nil else { return nil }
-            if let image = images[key] { return image }
+            if let image = held(key) { return image }
         }
         let load: Task<Decoded?, Never>
         if let running = loads[key] {
@@ -130,12 +162,49 @@ public final class BackdropImageStore {
         }
         let decoded = await load.value
         loads[key] = nil
-        if let image = images[key] { return image }
+        if let image = held(key) { return image }
         guard let decoded else { return nil }
         if decoded.rendered { renderCount += 1 }
         let image = NSImage(cgImage: decoded.image, size: NSSize(width: decoded.image.width, height: decoded.image.height))
-        images[key] = image
+        hold(Decode(image: image, bytes: decoded.image.bytesPerRow * decoded.image.height), for: key)
         return image
+    }
+
+    /// The image of `key` the store holds, or one it let go of that a window still shows (held again,
+    /// as the most recently used, when the limit allows); nil when neither.
+    private func held(_ key: Key) -> NSImage? {
+        if let decode = images[key] {
+            order.removeAll { $0 == key }
+            order.append(key)
+            return decode.image
+        }
+        guard let released = shown.removeValue(forKey: key), let image = released.image else { return nil }
+        hold(Decode(image: image, bytes: released.bytes), for: key)
+        return image
+    }
+
+    /// Holds `decode` as the most recently used image, then lets go of the least recently used ones over
+    /// the limit.
+    private func hold(_ decode: Decode, for key: Key) {
+        if let earlier = images[key] {
+            heldBytes -= earlier.bytes
+            order.removeAll { $0 == key }
+        }
+        order.append(key)
+        images[key] = decode
+        heldBytes += decode.bytes
+        shown = shown.filter { $0.value.image != nil }
+        while let holdLimit, images.count > holdLimit, let oldest = order.first {
+            letGo(oldest)
+        }
+    }
+
+    /// Stops holding the image of `key`; it stays found while a window shows it.
+    private func letGo(_ key: Key) {
+        order.removeAll { $0 == key }
+        guard let decode = images.removeValue(forKey: key) else { return }
+        heldBytes -= decode.bytes
+        shown[key] = ShownDecode(image: decode.image, bytes: decode.bytes)
     }
 
     /// The snapshot file of `selection` at this store's size and `texture`. Its name carries the
@@ -167,15 +236,15 @@ public final class BackdropImageStore {
     /// a video's first frame, and a dynamic HEIC's frame for light or `dark` (``BackdropAppearance``).
     nonisolated static func decode(_ url: URL, maxPixelSize: Int, dark: Bool = false) -> CGImage? {
         if AppleWallpapers.isVideo(url.path) { return poster(url, maxPixelSize: maxPixelSize) }
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        guard let source = CheckedImageSource(blockingContentsOf: url) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
             kCGImageSourceShouldCacheImmediately: true,
         ]
-        let frame = (dark ? BackdropAppearance.dark : .light).frame(in: source)
-        return CGImageSourceCreateThumbnailAtIndex(source, frame, options as CFDictionary)
+        let frame = (dark ? BackdropAppearance.dark : .light).frame(in: source.source)
+        return source.thumbnail(at: frame, options: options)
     }
 
     /// A video's first frame, upright, its longest side at most `maxPixelSize`: the poster a
@@ -212,5 +281,49 @@ public final class BackdropImageStore {
             hash = hash &* 0x0000_0100_0000_01b3
         }
         return String(hash, radix: 16)
+    }
+}
+
+extension BackdropImageStore: MemoryConsumer {
+    /// Up to ``fullCount`` bitmaps of the largest screen's size (59 MB each on a 5K screen); letting one go
+    /// touches only memory, and decoding it again reads its snapshot off the main actor.
+    public nonisolated static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .large, dataAccess: .none, retention: .lossless, recreateCost: .cheap,
+        releaseCPUCost: .low, isStateful: true, supportsMemoryLimit: true)
+
+    /// The store's name in the memory report.
+    public nonisolated static let memoryConsumerName = "backdrop-images"
+
+    /// The decoded images held at the full limit: the current art in light and dark, and the art picked
+    /// before it, so picking it again shows at once.
+    nonisolated static let fullCount = 4
+
+    /// Makes the store a consumer of `registry`; a later call replaces the registration.
+    ///
+    /// - Parameter registry: The memory coordinator, from the composition root.
+    public func registerMemoryConsumer(with registry: any MemoryConsumerRegistry) {
+        memoryRegistration?.cancel()
+        memoryRegistration = MemoryConsumerRegistration(
+            name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: registry)
+    }
+
+    public func updateMemoryLimit(_ limit: MemoryLimit) {
+        holdLimit = limit.scale(Self.fullCount)
+    }
+
+    /// Lets go of one image per turn: each is a screen-sized bitmap, the turn's one costly free.
+    public func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        updateMemoryLimit(slice.limit)
+        shown = shown.filter { $0.value.image != nil }
+        let limit = slice.limit.scale(Self.fullCount)
+        guard images.count > limit, let oldest = order.first else { return .done }
+        if slice.isExpired { return .more }
+        letGo(oldest)
+        return images.count > limit ? .yield : .done
+    }
+
+    /// The bitmap bytes and count of the images the store holds, not of those only a window still holds.
+    public var memoryUsage: MemoryUsage? {
+        MemoryUsage(footprintBytes: heldBytes, entries: images.count)
     }
 }

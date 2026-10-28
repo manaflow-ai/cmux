@@ -1,0 +1,11 @@
+--- a/Sources/MessagesLabSidebar/Vendor/catalyst/ConversationList.swift
++++ b/Sources/MessagesLabSidebar/Vendor/catalyst/ConversationList.swift
+@@ -155,7 +155,7 @@
+ 
+ /// Messages' row time: the time today, "Yesterday", the weekday within the last week, else
+ /// the short date. Localized by the formatters; cached per day and minute.
+-final class ConversationTimeFormatter {
++final class ConversationTimeFormatter: Sendable { // cmux: checked Sendable (Swift 6), only lets of Sendable values (DateFormatter is Sendable)
+     private let calendar: Calendar
+     private let time = DateFormatter()
+     private let weekday = DateFormatter()

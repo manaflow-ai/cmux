@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memorySaverSetting",
+  "owner": "PL-memory",
+  "description": "The memory.saver setting and its four palette and CLI actions take effect: Off, Moderate, Balanced or Maximum set how soon hidden pages, conversations and parked workspaces free their memory and how much the memory coordinator trims caches under pressure. Off, cmux keeps Balanced.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

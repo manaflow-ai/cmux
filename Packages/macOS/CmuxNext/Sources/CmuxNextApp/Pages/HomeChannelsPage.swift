@@ -20,7 +20,7 @@ extension PageDescriptor {
     /// admits this page's origin (`DaemonService.pageOrigins`). A video attachment plays from the
     /// daemon's own listener (`GET /attachments/<token>`, ws-attachments-v1); images come as data URLs.
     static let homeChannels = PageDescriptor(
-        id: "cmux.home-channels", resource: "home-channels", namespaces: ["cmux.host.credential.", ChiefProfilePageRoute.prefix, ChiefBackendPageRoute.prefix, HomeSwitchPageRoute.prefix],
+        id: "cmux.home-channels", resource: "home-channels", processGroup: .solo, namespaces: ["cmux.host.credential.", ChiefProfilePageRoute.prefix, ChiefBackendPageRoute.prefix, HomeSwitchPageRoute.prefix],
         nativeOps: [PageNativeOp.edit], commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
         csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]), acceptsFirstMouse: true) // Archive and message delete confirm in the page
 }
@@ -35,7 +35,8 @@ extension PageFactory {
         let provider = DaemonCredentialPageProvider(daemon: services.daemon, chief: services.home.chief)
         let edits = PageEditProvider()
         var routes = [PageRoute(prefix: "cmux.host.credential.", provider: provider),
-                      PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
+                      PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(
+                          owner: services.home.chief, channels: services.webUI.relayChannels, deadlines: services.mainDeadlines)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
                       PageRoute(prefix: PageNativeOp.edit, provider: edits)]
         if let dock { routes.append(PageRoute(prefix: HomeSwitchPageRoute.prefix, provider: HomeSwitchPageRoute(dock: dock))) }

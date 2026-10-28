@@ -1,0 +1,9 @@
+{
+  "sidebar": {
+    "workspaceRow": {
+      "agent": {
+        "directory": true
+      }
+    }
+  }
+}

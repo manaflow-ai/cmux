@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 
@@ -23,6 +24,15 @@ nonisolated public struct WebUpdateTree: Sendable {
     ]
     static let ignoredNames: Set<String> = [".DS_Store"]
 
+    /// Where the files of `cmux-page://cmux.shared/` sit in the tree (the pages' `_shared`, web-bundle-key.py
+    /// SHARED_ROOT): every web tree imports React from there, so a page and the shared files it names come
+    /// from one tree.
+    public static let sharedRoot = outputs[1] + "/_shared"
+    static let sharedPrefix = Data("cmux-page://cmux.shared/".utf8)
+    /// The files a shared name is read from, and the types a name counts for (web-bundle-key.py).
+    static let sharedScanned: Set<String> = ["html", "js", "mjs", "css"]
+    static let sharedTypes = [".js", ".css"]
+
     /// The native interface the tree's bundles need (`pages/web-abi.json`), nil when missing.
     public var abi: Int? { Self.abi(inPages: root.appending(path: Self.outputs[1], directoryHint: .isDirectory)) }
 
@@ -30,7 +40,7 @@ nonisolated public struct WebUpdateTree: Sendable {
     public static func abi(inPages pages: URL) -> Int? {
         nonisolated struct File: Decodable { var abi: Int }
         guard let data = try? Data(contentsOf: pages.appending(path: "web-abi.json")) else { return nil }
-        return (try? JSONDecoder().decode(File.self, from: data))?.abi
+        return (try? JSONDecoder().blockingDecode(File.self, from: data))?.abi
     }
 
     /// The `--outputs` digest of the tree. Throws for a link or any other non-regular file, which
@@ -57,6 +67,71 @@ nonisolated public struct WebUpdateTree: Sendable {
             }
         }
         return Self.hex(hash.finalize())
+    }
+
+    /// Each `cmux-page://cmux.shared/<file>` a bundle of the tree names that the tree's own ``sharedRoot``
+    /// does not hold (web-bundle-key.py `--shared`), sorted; empty for a whole tree. A page of a tree that
+    /// names a file the tree lacks would not load its React. Throws for a link or an unreadable file, as
+    /// ``outputDigest()``. Blocking reads: call it off the main actor.
+    public func missingSharedFiles() throws(WebUpdateRefusal) -> [String] {
+        let shared = root.appending(path: Self.sharedRoot, directoryHint: .isDirectory)
+        var missing: Set<String> = []
+        for rel in try outputFiles() where Self.sharedScanned.contains((rel as NSString).pathExtension) {
+            guard let data = try? Data(blockingContentsOf: root.appending(path: rel), options: .mappedIfSafe) else {
+                throw .integrity("unreadable \(rel)")
+            }
+            for name in Self.sharedNames(in: data) {
+                if try !Self.holds(shared, name) { missing.insert(name) }
+            }
+        }
+        return missing.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }
+    }
+
+    /// Every file of the tree's outputs, relative to ``root``, in ``outputDigest()``'s order.
+    func outputFiles() throws(WebUpdateRefusal) -> [String] {
+        var files: [String] = []
+        for top in Self.outputs {
+            let base = root.appending(path: top)
+            switch try Self.kind(of: base) {
+            case .file: files.append(top)
+            case .directory: files += try Self.walk(base, relative: top)
+            case .missing: continue
+            }
+        }
+        return files
+    }
+
+    /// The names after each `cmux-page://cmux.shared/` in `data`: the longest run of name bytes
+    /// (`A-Z a-z 0-9 . _ / -`), kept when it ends in `.js` or `.css` (web-bundle-key.py SHARED_URL).
+    static func sharedNames(in data: Data) -> Set<String> {
+        var names: Set<String> = []
+        var start = data.startIndex
+        while let found = data.range(of: sharedPrefix, in: start..<data.endIndex) {
+            var end = found.upperBound
+            while end < data.endIndex, isNameByte(data[end]) { end += 1 }
+            let name = String(decoding: data[found.upperBound..<end], as: UTF8.self)
+            if sharedTypes.contains(where: { name.hasSuffix($0) }) { names.insert(name) }
+            start = end
+        }
+        return names
+    }
+
+    static func isNameByte(_ byte: UInt8) -> Bool {
+        switch byte {
+        case UInt8(ascii: "a")...UInt8(ascii: "z"), UInt8(ascii: "A")...UInt8(ascii: "Z"), UInt8(ascii: "0")...UInt8(ascii: "9"),
+             UInt8(ascii: "."), UInt8(ascii: "_"), UInt8(ascii: "/"), UInt8(ascii: "-"):
+            true
+        default:
+            false
+        }
+    }
+
+    /// Whether `shared` holds the regular file `name`: never for a name with an empty, `.` or `..`
+    /// component. Throws for a link, as ``outputDigest()``.
+    static func holds(_ shared: URL, _ name: String) throws(WebUpdateRefusal) -> Bool {
+        let parts = name.split(separator: "/", omittingEmptySubsequences: false)
+        guard !parts.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else { return false }
+        return try kind(of: shared.appending(path: name)) == .file
     }
 
     enum Kind { case file, directory, missing }

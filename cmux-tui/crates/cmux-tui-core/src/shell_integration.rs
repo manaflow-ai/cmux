@@ -301,7 +301,7 @@ fn content_digest() -> String {
         hasher.update([0]);
     }
     let digest = hasher.finalize();
-    digest[..8].iter().map(|byte| format!("{byte:02x}")).collect()
+    digest.iter().take(8).map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// Write the scripts under `root`, or confirm they are already intact. The
@@ -553,7 +553,7 @@ mod tests {
         drop(writer);
         while spawned.child.try_wait().unwrap().is_none() {
             assert!(std::time::Instant::now() < deadline, "zsh did not exit");
-            std::thread::sleep(std::time::Duration::from_millis(20));
+            crate::request_path::sleep(std::time::Duration::from_millis(20));
         }
         drop(spawned);
 

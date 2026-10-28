@@ -385,6 +385,62 @@ struct InputLatencyLedgerTests {
         #expect(ledger.slotsWithoutFrameUpdate == 3)
     }
 
+    @Test func aScrollThatSpansATakeIsMeasuredAsOneScroll() throws {
+        // p04-input-010: a report takes deltas (UMA's histogram_snapshot_manager.cc); cc's
+        // ScrollJankDroppedFrameTracker keeps its state, so the frame after the take is judged
+        // against the frame before it, not skipped as a scroll's first frame.
+        let start: UInt64 = 1_000 * Self.ms
+        let ms = Self.ms
+        func update(_ kind: InputEventKind = .scrollUpdate, at vsyncs: UInt64, inputBefore: UInt64? = nil) -> InputLatencySlot {
+            let presented = start + vsyncs * Self.vsync
+            return Self.slot(kind, target: .sidebar, generated: presented - (inputBefore ?? ms), [.presented: presented])
+        }
+        let first = InputLatencyBatch(slots: [
+            Self.slot(.scrollBegin, target: .sidebar, updated: false, generated: start - 3 * Self.ms),
+            update(.scrollFirstUpdate, at: 0), update(at: 1), update(at: 2),
+        ], vsyncNanos: Self.vsync)
+        // The frame at vsync 6 shows an input from before the frame at vsync 3: janky, two missed.
+        let second = InputLatencyBatch(slots: [
+            update(at: 3), update(at: 6, inputBefore: 3 * Self.vsync + Self.ms),
+            Self.slot(.scrollBegin, target: .sidebar, updated: false, generated: start + 100 * Self.vsync),
+        ], vsyncNanos: Self.vsync)
+
+        var whole = InputLatencyLedger()
+        whole.fold(first)
+        whole.fold(second)
+
+        var ledger = InputLatencyLedger()
+        ledger.fold(first)
+        var taken = ledger.takeCounts()
+        #expect(taken.scrollJank.presentedFrames == 1, "frame 2 is still gathering")
+        #expect(taken.scrollJank.skippedFrames == 1)
+        #expect(ledger.snapshot.rows.isEmpty, "the take moved the rows out")
+        ledger.fold(second)
+        let rest = ledger.takeCounts()
+        #expect(rest.scrollJank.skippedFrames == 0, "the frame after the take is not a first frame")
+        #expect(rest.scrollJank.presentedFrames == 3)
+        #expect(rest.scrollJank.delayedFrames == 1)
+        #expect(rest.scrollJank.histograms.values[.delayedFramesPercentagePerScroll] == [25: 1],
+                "the scroll's PerScroll histogram counts all four frames")
+        taken.add(rest)
+        #expect(taken.snapshot == whole.snapshot, "two takes add up to no take")
+    }
+
+    @Test func rowsSplitByDisplay() throws {
+        let generated = 5 * Self.ms
+        let key = Self.slot(.keyPress, generated: generated, [.presented: generated + 7 * Self.ms])
+        let proMotion = InputDisplayClass(refreshHz: 120, vrr: true)
+        let external = InputDisplayClass(refreshHz: 60, vrr: false)
+        var ledger = InputLatencyLedger()
+        ledger.fold(InputLatencyBatch(slots: [key], vsyncNanos: 8_333_333, display: proMotion))
+        ledger.fold(InputLatencyBatch(slots: [key, key], vsyncNanos: Self.vsync, display: external))
+        let rows = ledger.snapshot.rows
+        #expect(rows.map(\.display) == [external, proMotion])
+        #expect(rows.map(\.count) == [2, 1])
+        let data = try JSONEncoder().encode(ledger.snapshot)
+        #expect(String(decoding: data, as: UTF8.self).contains("\"refresh_hz\":120"))
+    }
+
     // MARK: report
 
     @Test func theReportEncodesWithItsFieldNames() throws {

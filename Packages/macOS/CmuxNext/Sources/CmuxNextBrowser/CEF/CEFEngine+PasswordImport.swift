@@ -5,7 +5,7 @@ extension CEFEngine {
     /// 15). Starts Chromium when it is not running yet.
     public func canImportPasswords() async -> Bool {
         do {
-            try await CEFRuntime.shared.start(layout: layout, trigger: "passwordImport")
+            try await startRuntime(trigger: "passwordImport")
         } catch {
             return false
         }
@@ -16,7 +16,7 @@ extension CEFEngine {
     /// skipping ones it already has. Every password in `rows` must stay alive
     /// until this returns.
     public func importPasswords(_ rows: ChromiumPasswordRows, into profile: BrowserProfileID) async throws -> ChromiumPasswordWriteResult {
-        try await CEFRuntime.shared.start(layout: layout, trigger: "passwordImport")
+        try await startRuntime(trigger: "passwordImport")
         return try await CEFRuntime.shared.importPasswords(rows, profile: profile)
     }
 
@@ -33,10 +33,10 @@ extension CEFEngine {
     public func replacePasswords(_ rows: ChromiumPasswordRows, in profile: BrowserProfileID) async throws -> ChromiumPasswordReplaceResult {
         guard rows.count > 0 else { return ChromiumPasswordReplaceResult(updated: 0, missing: 0, rejected: 0) }
         let runtime = CEFRuntime.shared
-        try await runtime.start(layout: layout, trigger: "passwordImport")
+        try await startRuntime(trigger: "passwordImport")
         guard let shim = runtime.shim, runtime.canImportPasswords, shim.passwordReplaceAvailable() == 1 else { throw BrowserTabError.closed }
         let reply = try await runtime.profileWrite(profile, label: "password replace", timeout: CEFRuntime.passwordImportTimeout) { path, id in
-            let started = shim.replacePasswords(path, id, UnsafeRawPointer(rows.rows), Int32(rows.count))
+            let started = shim.replacePasswords(path, id, rows)
             rows.copied()
             return started
         }

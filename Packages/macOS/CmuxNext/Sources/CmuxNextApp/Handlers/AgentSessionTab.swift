@@ -50,19 +50,22 @@ enum AgentSessionTab {
         } catch let refusal as AgentTabRefusal {
             throw ActionFailure(message: refusal.message)
         }
-        let logger = daemon.logger
-        context.registry.track(Task { @MainActor in
-            do {
-                let created = try await pending.value()
+        let logger = daemon.logger, opened = session
+        // The store's tab is awaited off the action's turn; its reveal is one task of the run's completion.
+        context.registry.trackWork(owner: "AgentSessionTab.open", on: services.mainWork) {
+            try await pending.value()
+        } then: { result in
+            switch result {
+            case .success(let created):
                 if shows { _ = services.revealTab(created.key) }
-                logger.info("agent.openSessionTab: session \(session, privacy: .public) in tab \(created.key, privacy: .public)")
+                logger.info("agent.openSessionTab: session \(opened, privacy: .public) in tab \(created.key, privacy: .public)")
                 return nil
-            } catch is CancellationError {
+            case .failure(is CancellationError):
                 return nil // the person closed the tab first
-            } catch {
+            case .failure(let error):
                 logger.error("agent.openSessionTab failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("agent.openSessionTab", error)
             }
-        })
+        }
     }
 }

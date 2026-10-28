@@ -7,6 +7,6 @@ struct StandardComputerUse: OnboardingScreenVariant {
     static let surface = OnboardingSurface.fullGlass
     static func makeContent(_ context: OnboardingStepContext) -> NSView {
         OnboardingScaffold.make(title: OnboardingStrings.computerUseTitle, subtitle: OnboardingStrings.computerUseSubtitle,
-                                body: ComputerUseStepView(model: context.model.computerUse), context: context)
+                                body: ComputerUseStepView(model: context.model.computerUse, mainWork: context.mainWork), context: context)
     }
 }

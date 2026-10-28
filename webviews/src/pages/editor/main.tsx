@@ -19,6 +19,7 @@ import {
   APP_ACTION_RUN_OP,
   EDITOR_FLUSH_OP,
   EDITOR_SELECTION_OP,
+  EDITOR_VIEW_STATE_OP,
   EDITOR_KEY_SEQUENCE_OP,
   EDITOR_OPEN_LINK_OP,
 } from "./host";
@@ -176,6 +177,8 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
     });
     // The host asks before it closes the tab or quits: pending edits are written first.
     client.handle(EDITOR_FLUSH_OP, () => store.flush());
+    // Before the host discards the hidden page: the cursor, scroll and folds the next page puts back.
+    client.handle(EDITOR_VIEW_STATE_OP, () => store.viewState());
     // Comment… and Quote in Chat on selected text: the host asks for the selection and its lines.
     client.handle(EDITOR_SELECTION_OP, () => view?.selectionQuote() ?? null);
   }

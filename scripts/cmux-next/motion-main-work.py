@@ -6,7 +6,10 @@ Chrome's model: cc::RenderingStatsInstrumentation (cc/debug/rendering_stats_inst
 per-frame counts only while `record_rendering_stats` is on, and a timing trace is a separate run. The same split
 here: this script arms RenderStats (`debug.frames` with `render: true`, task p03-rendering-001) and reports
 counts only; its hooks cost time, so no millisecond from an armed pass is ever reported. Timing comes from
-motion-hitches.py (task p03-rendering-007), with RenderStats disarmed.
+motion-hitches.py (task p03-rendering-007), with RenderStats disarmed: same --sessions, --tunable and --vdisplay,
+its light session is `build_light` here, and its scenarios (motion_scenarios.py) are the rows below with the same
+inputs, each timed step named for its row's phase, so the count and time reports join by (scenario, phase) (the
+self-test checks every timed step is a row here).
 
 Launches a tagged DEV app through bench_launch.py, once per session (fresh state each time, so STRESS is
 perf-stress-session.py's shape and not STRESS plus the light workspace), and runs each scenario --rounds times:
@@ -34,7 +37,14 @@ perf-stress-session.py's shape and not STRESS plus the light workspace), and run
   hover-card         the pointer over the base pane's last tab: the tab hover card fades in; undo: the pointer
                      moves away (the card fades out)
   sidebar-reorder    moveWorkspaceUp on the measured workspace; undo: moveWorkspaceDown
+  canvas-zoom        with the screen shown as a canvas (toggleCanvasLayout, untimed; off again after the row):
+                     canvasZoomIn; undo: canvasZoomOut (the camera as it was)
+  canvas-reset       the same canvas, one canvasZoomIn untimed first: canvasZoomReset (zoom 1 about the same center)
+  canvas-overview    the same canvas: canvasOverview (center and zoom move); undo: canvasOverview (the camera before)
   scroll-to-row      stress only: goToWorkspace to the first workspace (the sidebar scrolls to its row); undo: back
+
+The canvas rows count the camera's moves (p03-rendering-031: with `motion.renderServer` on, Core Animation runs
+them and frames 2..n do no camera step); like strip-pan they are counting-only rows, not motion_scenarios.py's.
 
 "Away" is `debug.mouse move` to the base pane's content centre, off every hover target, so DebugHover sends the
 band's probe and the tab strip their mouseExited as a real pointer would (`leave` only clears the layout's
@@ -259,6 +269,37 @@ def error_of(reply):
     return str(reply.get("error"))[:200] if isinstance(reply, dict) and reply.get("error") else None
 
 
+def build_light(builder, chromium_problems):
+    """The light session, for this script and motion-hitches.py (their reports join by scenario, so both measure
+    this one): a workspace of 2 panes, the first with a terminal and a Chromium page (selected), and a second
+    workspace to switch to. Returns its shape ({measured, base, panes, ...}); raises ShapeError on another one.
+    `builder` is a perf-stress-session.Stress; `chromium_problems()` lists why Chromium is not real."""
+    workspace, panes = builder.build_light(kinds=("chromium",))
+    tabs = builder.tabs(workspace, panes[0]) if panes else []
+    selected = next((t.get("kind") for t in tabs if t.get("selected")), None)
+    shape = {"measured": workspace, "base": panes[0] if panes else None, "panes": len(panes),
+             "base_tabs": [t.get("kind") for t in tabs], "base_selected": selected,
+             "workspaces": len(builder.workspaces()), "chromium_unavailable": chromium_problems()}
+    problems = []
+    if len(panes) != 2:
+        problems.append(f"{len(panes)} panes, not 2")
+    if selected != "browser":
+        problems.append(f"the base pane shows a {selected} tab, not the Chromium page")
+    if shape["workspaces"] < 2:
+        problems.append("no second workspace to switch to")
+    if shape["chromium_unavailable"]:
+        problems.append(f"Chromium is not real: {shape['chromium_unavailable']}")
+    if problems:
+        raise ShapeError("light session has the wrong shape: " + "; ".join(problems))
+    return shape
+
+
+def neighbor(order, workspace):
+    """The workspace a switch goes to: the one above `workspace` in the sidebar's `order`, else the one below."""
+    index = order.index(workspace)
+    return order[index - 1] if index > 0 else order[index + 1]
+
+
 class Session:
     """One measured workspace in the launched app: its builder (perf-stress-session.Stress), the base pane, the
     pane count and workspace order that every scenario must leave as it found them. `sleep` is the harness's
@@ -320,24 +361,8 @@ class Session:
             self.workspace = self.shape["measured"]
             self.base = self.pane_ids()[0]
         else:
-            self.workspace, panes = self.builder.build_light(kinds=("chromium",))
-            self.base = panes[0]
-            tabs = self.builder.tabs(self.workspace, self.base)
-            selected = next((t.get("kind") for t in tabs if t.get("selected")), None)
-            self.shape = {"measured": self.workspace, "panes": len(panes), "base_tabs": [t.get("kind") for t in tabs],
-                          "base_selected": selected, "workspaces": len(self.workspace_ids()),
-                          "chromium_unavailable": self.chromium_problems()}
-            problems = []
-            if len(panes) != 2:
-                problems.append(f"{len(panes)} panes, not 2")
-            if selected != "browser":
-                problems.append(f"the base pane shows a {selected} tab, not the Chromium page")
-            if self.shape["workspaces"] < 2:
-                problems.append("no second workspace to switch to")
-            if self.shape["chromium_unavailable"]:
-                problems.append(f"Chromium is not real: {self.shape['chromium_unavailable']}")
-            if problems:
-                raise ShapeError("light session has the wrong shape: " + "; ".join(problems))
+            self.shape = build_light(self.builder, self.chromium_problems)
+            self.workspace, self.base = self.shape["measured"], self.shape["base"]
         self.panes = len(self.pane_ids())
         self.order = self.workspace_ids()
         self.builder.focus_pane(self.base)
@@ -361,8 +386,7 @@ class Session:
     # Scenario steps.
 
     def neighbor(self):
-        index = self.order.index(self.workspace)
-        return self.order[index - 1] if index > 0 else self.order[index + 1]
+        return neighbor(self.order, self.workspace)
 
     def target_for(self, verb):
         """Splits aim at the base pane by id (as the STRESS builder does); other verbs act on the focused pane,
@@ -507,6 +531,27 @@ class Session:
             self.away()
         return prepare, perform, cleanup
 
+    def canvas(self, zoomed=False):
+        """The measured screen shown as a canvas for the row (toggleCanvasLayout, untimed; with `zoomed`, one
+        canvasZoomIn after it, untimed), and as its daemon layout again after it. Returns (prepare, cleanup)."""
+        state = {}
+
+        def prepare():
+            state["on"] = False
+            error = self.act("toggleCanvasLayout")
+            if error:
+                return f"toggleCanvasLayout: {error}"
+            state["on"] = True
+            error = self.act("canvasZoomIn") if zoomed else None
+            self.sleep(self.opts.settle)  # test harness: the untimed change lands before the counted step
+            return f"canvasZoomIn: {error}" if error else None
+
+        def cleanup():
+            if state.pop("on", False):
+                self.act("toggleCanvasLayout")
+                self.sleep(self.opts.settle)  # test harness: the daemon layout lands
+        return prepare, cleanup
+
     def band(self):
         """The collapsed toolbar band: sidebar hidden (untimed), the pointer over the top-left corner, then away."""
         x, y = self.opts.band_point
@@ -575,6 +620,9 @@ class Session:
         pan_prepare, pan, pan_cleanup = self.strip_pan()
         band_prepare, band_open, band_opened, band_away, band_closed, band_cleanup = self.band()
         hover_prepare, hover_in, hover_shown, hover_away, hover_hidden = self.hover()
+        zoom_prepare, zoom_cleanup = self.canvas()
+        reset_prepare, reset_cleanup = self.canvas(zoomed=True)
+        overview_prepare, overview_cleanup = self.canvas()
         rows = [
             ("cmd-d", *split_right[:2], None, None, None, split_right[2], s),
             ("cmd-shift-d", *split_down[:2], None, None, None, split_down[2], s),
@@ -591,6 +639,9 @@ class Session:
             ("window-zoom", None, run("zoomWindow"), None, run("zoomWindow"), None, None, s + 0.4),
             ("hover-card", hover_prepare, hover_in, hover_shown, hover_away, hover_hidden, None, None),
             ("sidebar-reorder", None, run("moveWorkspaceUp"), None, run("moveWorkspaceDown"), None, None, s),
+            ("canvas-zoom", zoom_prepare, run("canvasZoomIn"), None, run("canvasZoomOut"), None, zoom_cleanup, s),
+            ("canvas-reset", reset_prepare, run("canvasZoomReset"), None, None, None, reset_cleanup, s),
+            ("canvas-overview", overview_prepare, run("canvasOverview"), None, run("canvasOverview"), None, overview_cleanup, s),
         ]
         if self.name == "stress":
             rows.append(("scroll-to-row", None, go(self.order[0]), None, go(self.workspace), None, None, s))
@@ -822,7 +873,7 @@ class FakeApp:
         self.frames = None
         self.render = False
         self.layout_passes = self.visibility = 0
-        self.sidebar_hidden = self.band_inside = self.card = self.running = False
+        self.sidebar_hidden = self.band_inside = self.card = self.running = self.canvas = False
         self.tunables = {RENDER_SERVER: False}
         self.mouse_actions = []
         first = self.new_workspace()
@@ -935,6 +986,13 @@ class FakeApp:
             other = index - 1 if name == "moveWorkspaceUp" else index + 1
             self.spaces[index], self.spaces[other] = self.spaces[other], self.spaces[index]
             self.work(layouts=1)
+        elif name == "toggleCanvasLayout":
+            self.canvas = not self.canvas
+            self.work(frame_sets=2, layouts=1)
+        elif name in ("canvasZoomIn", "canvasZoomOut", "canvasZoomReset", "canvasOverview"):
+            if not self.canvas:
+                return {"error": f"{name}: the screen is not a canvas"}
+            self.work(layouts=1)  # the camera rests in the action's turn; Core Animation shows the move
         else:
             return {"error": f"unknown action {name}"}
         return {}
@@ -1180,7 +1238,16 @@ def self_test():
     check("one launch per session", (len(launcher.apps), sorted(report["launches"])), (2, ["light", "stress"]))
     check("render server read back", report["launches"]["light"]["tunables"], {RENDER_SERVER: False})
     rows = {(r["session"], r["scenario"], r["phase"]): r for r in report["summary"]}
-    check("every scenario ran", len({k[1] for k in rows}), 15)
+    check("every scenario ran", len({k[1] for k in rows}), 18)
+    timed = load("motion_scenarios", "motion_scenarios.py")
+    check("every timed step (motion-hitches.py) is a row", sorted(set(timed.rows()) - {k[1:] for k in rows}), [])
+    check("the timed scenarios are the DC2 rows", sorted(timed.names()),
+          sorted({k[1] for k in rows} - {"strip-pan", "scroll-to-row", "canvas-zoom", "canvas-reset", "canvas-overview"}))
+    check("canvas rows counted", [rows.get(("light", n, p), {}).get("counted") for n, p in
+                                  (("canvas-zoom", "do"), ("canvas-zoom", "undo"), ("canvas-reset", "do"),
+                                   ("canvas-overview", "do"), ("canvas-overview", "undo"))], [1, 1, 1, 1, 1])
+    check("the canvas rows leave the daemon layout", [app.canvas for app in launcher.apps], [False, False])
+    check("the timed strip has as many columns", timed.STRIP_COLUMNS, STRIP_COLUMNS)
     check("hover-card undo counted", rows.get(("light", "hover-card", "undo"), {}).get("counted"), 1)
     check("band-reveal undo counted", rows.get(("light", "band-reveal", "undo"), {}).get("counted"), 1)
     check("clean build: zero frames 2..n", sorted({r["zero_frames_2_n"] for r in report["summary"]}, key=str), [True])

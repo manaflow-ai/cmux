@@ -31,6 +31,8 @@ final class HandApprovalWire {
     func start(_ sink: @escaping @MainActor (Event) -> Void) {
         stop()
         let generation = generation
+        // task-owner: `runner`; the socket loop of this generation; stop() cancels it
+        // main-hop-allow: the wire's main-actor socket loop (its awaits are the socket and its Backoff); each frame reaches the main-actor sink in arrival order
         runner = Task { [weak self] in await self?.run(generation, sink: sink) }
     }
 
@@ -42,7 +44,7 @@ final class HandApprovalWire {
 
     private func run(_ generation: Int, sink: @escaping @MainActor (Event) -> Void) async {
         var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
-        // wakeup-allow: one pass per connection; each pass awaits the socket and, after a failure, a Backoff delay.
+        // wakeup-allow: backoff: one pass per connection; each pass awaits the socket and, after a failure, a Backoff delay.
         while !Task.isCancelled, generation == self.generation {
             do {
                 try await session(generation, sink: sink, onSubscribed: { backoff.reset() })
@@ -69,7 +71,7 @@ final class HandApprovalWire {
         defer { task.cancel(with: .goingAway, reason: nil) }
         // receive() ignores task cancellation: stop() closes the socket, so a stopped run posts nothing more.
         try await withTaskCancellationHandler {
-            // wakeup-allow: each turn awaits the next frame; a closed socket throws and ends the loop.
+            // wakeup-allow: bounded: each turn awaits the next frame; a closed socket throws and ends the loop.
             while !Task.isCancelled {
                 let message = try await task.receive()
                 let data: Data
@@ -78,7 +80,7 @@ final class HandApprovalWire {
                 case let .data(bytes): data = bytes
                 @unknown default: continue
                 }
-                let frame = await Task.detached(priority: .utility) { Frame.decode(data) }.value
+                let frame = await Task.detached(priority: Task.currentPriority) { Frame.decode(data) }.value
                 guard generation == self.generation else { throw CancellationError() }
                 switch frame {
                 case .welcome:

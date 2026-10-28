@@ -6,6 +6,7 @@ use super::*;
 
 impl Mux {
     /// Close a pane and every tab in it.
+    #[track_caller]
     pub fn close_pane_as(self: &Arc<Self>, actor: &Actor, target: PaneId) -> anyhow::Result<bool> {
         let Some(selectors) = self.ordinary_pane_selectors(target) else { return Ok(false) };
         let commit = self
@@ -21,6 +22,7 @@ impl Mux {
     }
 
     /// Close a screen and every pane/tab in it.
+    #[track_caller]
     pub fn close_screen_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -42,6 +44,7 @@ impl Mux {
     /// Close one tab. When it was the pane's last tab, the pane collapses
     /// out of its split tree; when it was the workspace's last tab, the
     /// workspace closes in the same commit (LAST-TAB-CLOSES-WORKSPACE).
+    #[track_caller]
     pub fn close_surface_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -60,6 +63,7 @@ impl Mux {
         Ok(true)
     }
 
+    #[track_caller]
     pub fn focus_direction_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -100,6 +104,7 @@ impl Mux {
 
     /// Make `pane` the active pane of its screen (and that screen and
     /// workspace active).
+    #[track_caller]
     pub fn focus_pane_as(self: &Arc<Self>, actor: &Actor, pane: PaneId) -> bool {
         let layout_changed = self.with_state(|state| {
             let (workspace, screen) = state.screen_of(pane)?;
@@ -132,6 +137,7 @@ impl Mux {
     /// Move an existing tab to `index` in `pane`. The surface is kept
     /// alive; if moving it empties the source pane, that pane collapses
     /// out of its split tree.
+    #[track_caller]
     pub fn move_tab_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -213,6 +219,7 @@ impl Mux {
 
     /// Set a pane's user-visible name. An empty name clears it (the pane
     /// falls back to its active tab's title).
+    #[track_caller]
     pub fn rename_pane_as(self: &Arc<Self>, actor: &Actor, target: PaneId, name: String) -> bool {
         let Some(selectors) = self.ordinary_pane_selectors(target) else { return false };
         if self
@@ -232,6 +239,7 @@ impl Mux {
 
     /// Set a screen's user-visible name. An empty name clears it (the
     /// screen falls back to its number).
+    #[track_caller]
     pub fn rename_screen_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -293,6 +301,7 @@ impl Mux {
 
     /// Set a tab's user-visible name. An empty name clears it (the tab
     /// falls back to its process title/number label).
+    #[track_caller]
     pub fn rename_surface_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -346,6 +355,7 @@ impl Mux {
     }
 
     /// Select a screen in the active workspace by index or relative delta.
+    #[track_caller]
     pub fn select_screen_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -385,6 +395,7 @@ impl Mux {
     }
 
     /// Select a workspace by index or relative delta.
+    #[track_caller]
     pub fn select_workspace_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -421,6 +432,7 @@ impl Mux {
         self.emit(MuxEvent::TreeChanged);
     }
 
+    #[track_caller]
     pub fn swap_panes_as(self: &Arc<Self>, actor: &Actor, pane: PaneId, target: PaneId) -> bool {
         if pane == target {
             return false;
@@ -457,6 +469,7 @@ impl Mux {
         true
     }
 
+    #[track_caller]
     pub fn zoom_pane_as(
         self: &Arc<Self>,
         actor: &Actor,

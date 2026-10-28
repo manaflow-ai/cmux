@@ -39,7 +39,7 @@ struct ScriptPaneFocusTests {
                                        executor: bridge, configuration: .init(requestDeadline: .seconds(30)), frameSource: SoonFrames())
             // The app's wiring: the bridge publishes the action catalog and the registry's context mask.
             bridge.attach(to: router)
-            let publisher = ControlSnapshotPublisher(router: router, services: services, frames: SoonFrames())
+            let publisher = ControlSnapshotPublisher(router: router, services: services)
             publisher.start()
             defer { publisher.stop() }
             @MainActor func call(_ method: String, _ params: [String: CmuxNextSettings.JSONValue] = [:]) async throws -> CmuxNextSettings.JSONValue {

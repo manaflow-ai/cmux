@@ -251,20 +251,13 @@ fn passthrough_removes_every_cmux_variable_and_keeps_the_rest() {
         (OsString::from("CMUX_TAG"), OsString::from("t")),
         (OsString::from("HOME"), OsString::from("/home/u")),
     ];
-    let command = passthrough_command(
-        Path::new("/A.app/Contents/Resources/bin/coderouter"),
-        &args(&["login"]),
-        environment,
-    );
-    let envs: Vec<_> = command.get_envs().collect();
     assert_eq!(
-        envs,
-        vec![
-            (std::ffi::OsStr::new("CMUX_SOCKET_PATH"), None),
-            (std::ffi::OsStr::new("CMUX_TAG"), None),
-        ]
+        passthrough_removed(environment.clone()),
+        vec![OsString::from("CMUX_SOCKET_PATH"), OsString::from("CMUX_TAG")]
     );
-    assert_eq!(command.get_args().collect::<Vec<_>>(), vec![std::ffi::OsStr::new("login")]);
+    let output =
+        passthrough_command(Path::new("/bin/echo"), &args(&["login"]), environment).output();
+    assert_eq!(output.unwrap().stdout, b"login\n");
 }
 
 #[test]

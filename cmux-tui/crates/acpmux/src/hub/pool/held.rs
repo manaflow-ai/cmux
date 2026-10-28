@@ -31,7 +31,7 @@ pub(super) fn holding_tap() -> (Tap, Arc<StdMutex<TapSlot>>) {
                 if held.len() < HELD_CAP || !is_stderr_note(msg) {
                     held.push((dir, msg.clone(), host_seq));
                 }
-                true
+                Some(crate::agent::WriteTicket::done())
             }
             TapSlot::Live(live) => {
                 let live = live.clone();

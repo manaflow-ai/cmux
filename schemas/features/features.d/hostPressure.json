@@ -1,0 +1,15 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "hostPressure",
+  "owner": "PL-memory",
+  "description": "A still gauge after the toolbar band shows when this Mac is busy or overloaded, with a popover of the load and its reasons; it reads the host every 15 seconds only while a window can be seen.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["idle-tabs"],
+  "sticky": false,
+  "runtimeMutable": false,
+  "replaces": ["hostPressure.enabled"]
+}

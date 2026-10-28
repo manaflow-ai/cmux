@@ -13,7 +13,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let nothing: @convention(c) () -> Int = { 0 }
         let shim = try CEFShimLibrary.resolving { _ in unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self) }
-        let runtime = CEFRuntime(shim: shim, storage: CEFProfileStorage(root: root))
+        let runtime = CEFRuntime.spy(shim: shim, storage: CEFProfileStorage(root: root))
         let backend = MockExtensionBackend()
         let stores = CEFExtensionStores(runtime: runtime, makeBackend: { _ in backend })
         for _ in 0..<50 { _ = stores.readyStore(for: .default) }

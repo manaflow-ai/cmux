@@ -1,5 +1,4 @@
 public import Foundation
-@preconcurrency import Sparkle
 
 /// Coordinates cmux's custom Sparkle update flow: owns the `SPUUpdater` and its
 /// ``UpdateDriver``, exposes the observable ``UpdateStateModel``, and sequences the
@@ -106,12 +105,7 @@ public final class UpdateController {
                   isDevLikeBundle: isDevLikeBundle,
                   isDisabledByPolicy: isDisabledByPolicy,
                   updaterFactory: { driver, hostBundle in
-                      SPUUpdater(
-                          hostBundle: hostBundle,
-                          applicationBundle: hostBundle,
-                          userDriver: driver,
-                          delegate: driver
-                      )
+                      driver.makeSparkleUpdater(hostBundle: hostBundle)
                   })
     }
 
@@ -250,8 +244,9 @@ public final class UpdateController {
         recordUITestTimestamp(key: "noUpdateShownAt")
         noUpdateDismissTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            // Bounded, cancellable auto-dismiss delay via the injected clock.
-            try? await self.clock.sleep(for: .seconds(UpdateTiming.noUpdateDisplayDuration))
+            let display = Duration.seconds(UpdateTiming.noUpdateDisplayDuration)
+            // wakeup-allow: deadline one cancellable auto-dismiss of the "No Updates Available" note
+            try? await self.clock.sleep(for: display, tolerance: display.updateWakeLeeway)
             guard !Task.isCancelled else { return }
             guard self.model.overrideState == nil, case .notFound = self.model.state else { return }
             self.recordUITestTimestamp(key: "noUpdateHiddenAt")

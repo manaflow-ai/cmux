@@ -1,13 +1,16 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Foundation
 
 /// Owns Settings (Settings…, Cmd-, the app menu, the palette, `settings.open`). R82: Settings is
@@ -19,21 +22,54 @@ import Foundation
 /// `WorkspaceContentController`).
 @MainActor
 final class SettingsWindowService: InternalPageProvider {
-    unowned let services: AppServices
+    private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    var services: AppServices? { servicesReference.resolve() }
+
+    /// The app's main-thread scheduler and background work (``AppServices/mainWork``, ``AppServices/work``).
+    private let mainWork: MainWorkScheduler
+    private let work: BackgroundWork
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
+        mainWork = services.mainWork
+        work = services.work
     }
+
+    /// The applied Ghostty config's diagnostics the Settings page lists (R92), made at the first page read and
+    /// kept current from then on.
+    private(set) lazy var ghosttyDiagnostics = GhosttyDiagnosticsModel(mainWork: mainWork, work: work)
 
     /// The window whose tab shows Settings, if any.
     var window: NSWindow? {
-        services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
+        guard let services else { return nil }
+        return services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
     }
 
-    /// The kept React page (a reopen shows it again with no reload); nil before the first show.
-    private var webPage: PageWebView?
-    /// The route the next page view opens on.
-    private var pendingRoute: String?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The Settings page a window shows now, if any: the `settings-energy` capture waits on it.
+    var shownPage: PageWebView? {
+        // visibility-walk-allow: the capture waits for what AppKit shows before it snapshots the window; a node would mirror it a turn late
+        tabPages.values.lazy.map(\.view).first { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor }
+    }
+    #endif
+
+    /// One Settings page and the forms it reports unsaved.
+    private struct Page {
+        let view: PageWebView
+        let edits: SettingsPageProvider.Edits
+    }
+
+    /// The kept React page (a reopen shows it again with no reload); nil before the first show and
+    /// after its tab's view was discarded.
+    private var webPage: Page?
+    /// Whether the next Settings open shows the kept page again (``makeView(for:in:)``), so a
+    /// preloaded Settings page would wait unclaimed (`PagePreloads`' `keepsView`).
+    var keepsPage: Bool { webPage != nil }
+    /// The page each tab shows (the kept page or a second window's own), by tab key.
+    private var tabPages: [String: Page] = [:]
+    /// The route each show asked for, for the page view of the tab it opened or selected.
+    private let opens = PageOpenRequests<String>()
     /// A show that waits for a main window with a workspace.
     private var waiting: (section: SettingsSection?, setting: String?, focus: Bool, route: String?)?
     var isWaiting: Bool { waiting != nil }
@@ -44,12 +80,14 @@ final class SettingsWindowService: InternalPageProvider {
     /// `route` opens a page-only place instead (`#/settings/agents?focus=agents.add`, Settings >
     /// Agents' Add panel), with no section or setting.
     func show(section: SettingsSection?, setting: String? = nil, focus: Bool = true, route pageRoute: String? = nil) throws {
+        guard let services else { return }
         guard services.settings != nil else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
-        // task-owner: one read of the device list per opening (Settings > Devices)
-        Task { [devices = services.devices] in await devices.refresh() }
+        // task-owner: one read of the device list per opening (Settings > Devices); the directory's runs go off main.
+        services.work.task(.userVisible) { [devices = services.devices] in await devices.refresh() }
         var anchor: SettingsAnchor?
         if let setting {
-            guard let found = SettingsAnchor(key: setting) else {
+            // A row the page leaves out now (its feature off) is refused like an unknown one.
+            guard let found = SettingsAnchor(key: setting, availability: services.settingsAvailability) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.noSuchSettingsEntry(setting))
             }
             anchor = found
@@ -80,14 +118,15 @@ final class SettingsWindowService: InternalPageProvider {
             return
         }
         waiting = nil
-        pendingRoute = route
-        let view = services.pages.show(.settings, in: window, focus: focus)
-        if let route, let page = view?.content as? PageWebView, page.route != route { page.open(route: route) }
+        let view = opens.open(route) { services.pages.show(.settings, in: window, focus: focus) }
+        // A shown page moves to the route; a tab with no page yet opens on it at its first show.
+        if let route, let view, view.isBuilt, let page = view.content as? PageWebView, page.route != route { page.open(route: route) }
     }
 
     /// A window installed its workspace content or mounted a pane: a show that waited for a window
     /// with a pane runs now.
     func windowDidShowContent() {
+        guard let services else { return }
         guard let request = waiting, let window = services.windows.active, Self.hasPane(window) else { return }
         waiting = nil
         try? show(section: request.section, setting: request.setting, focus: request.focus, route: request.route)
@@ -100,6 +139,7 @@ final class SettingsWindowService: InternalPageProvider {
     /// Shows the workspace of `window` that holds a Settings tab (a daemon page tab, or an app-only
     /// tab in a mounted workspace) when the shown workspace has none and Home does not stand for it.
     private func revealSettingsTab(of window: WindowController) {
+        guard let services else { return }
         let page = InternalPageID.settings
         func holds(_ content: WorkspaceContentController) -> Bool {
             services.pages.tab(of: page, inPanes: content.modelPanes.map(\.id)) != nil
@@ -123,9 +163,10 @@ final class SettingsWindowService: InternalPageProvider {
 
     /// Settings as `window`'s top page (one view per window, shown again on a repeat), on `route`.
     private func showTopPage(in window: WindowController, route: String?) {
+        guard let services else { return }
         let pageRoute = TopPageRoute.page(.settings)
-        if window.topPages.views[pageRoute] == nil { pendingRoute = route }
-        TopPages.show(pageRoute, services: services, in: window.state)
+        // A top page is made at its show: a page made now opens on `route`.
+        opens.during(route) { _ = TopPages.show(pageRoute, services: services, in: window.state) }
         if let route, let page = (window.topPages.views[pageRoute] as? InternalPageView)?.content as? PageWebView,
            page.route != route { page.open(route: route) }
     }
@@ -157,27 +198,69 @@ final class SettingsWindowService: InternalPageProvider {
     var symbol: String { "gearshape" }
     var icon: IconName? { .settings }
 
-    /// The kept page when no other tab shows it, else a new one (a second window's tab).
+    /// The kept page when no other tab shows it, else a new one (a second window's tab), on the
+    /// route the tab's show asked for.
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let route = pendingRoute
-        pendingRoute = nil
-        if let webPage, webPage.superview == nil {
-            if let route, webPage.route != route { webPage.open(route: route) }
-            return webPage
+        guard let services else { return NSView() }
+        let route = opens.take(for: key) ?? opens.running
+        if let webPage, webPage.view.superview == nil {
+            // Not compared with `route`, the last place asked for: the page may have moved on.
+            if let route { webPage.view.open(route: route) }
+            tabPages[key] = webPage
+            return webPage.view
         }
-        guard let page = PageFactory(services: services).settingsPage(route: route) else { return NSView() }
+        let edits = SettingsPageProvider.Edits()
+        guard let view = PageFactory(services: services).settingsPage(route: route, edits: edits) else { return NSView() }
+        let page = Page(view: view, edits: edits)
         if webPage == nil { webPage = page }
-        return page
+        tabPages[key] = page
+        return view
     }
 
     func tabClosed(_ key: String) {
+        guard let services else { return }
+        tabPages.removeValue(forKey: key)
+        opens.forget(key)
         // A live preview left by a closed page (mid-drag) must not stay applied.
         services.settings?.endPreview()
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`)
+
+    /// Ten minutes hidden: each change is written as it is made, so what a rebuilt page loses is
+    /// only what ``keepReasons(for:)`` keeps it for.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// Kept while its page has a form with typed values not saved yet (a custom density, a relay's
+    /// fields) or a live preview runs (a value shown and not written: a slider mid-drag, a palette
+    /// row): Chrome's kUserEdits.
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        guard let services else { return [] }
+        let unsavedForm = tabPages[key]?.edits.hasUnsaved == true
+        return unsavedForm || services.settings?.previewingKey != nil ? [.unsavedEdits] : []
+    }
+
+    /// The section the page shows now (the person may have picked another in the page).
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        await (content as? PageWebView)?.discardViewState() ?? ContentViewState()
+    }
+
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async {
+        (content as? PageWebView)?.restoreDiscardViewState(state)
+    }
+
+    /// The tab's page went (the tab store closed it): a later show builds a new one.
+    func viewDiscarded(_ key: String) {
+        guard let services else { return }
+        guard let page = tabPages.removeValue(forKey: key) else { return }
+        if page.view === webPage?.view { webPage = nil }
+        services.webUI.close(page.view)
     }
 
     // MARK: Host facts (the page's host lists)
 
     var rooms: [SettingsListRow]? {
+        guard let services else { return nil }
         let local = services.machines.local
         guard local.supports(DaemonCapability.profiles.rawValue) else { return nil }
         let current = services.windows.active?.state.profileID ?? .defaultProfile
@@ -187,6 +270,7 @@ final class SettingsWindowService: InternalPageProvider {
     }
 
     var machines: [SettingsListRow] {
+        guard let services else { return [] }
         let machines = services.machines
         let ssh = machines.ssh.map { session in
             SettingsListRow.machine(id: session.machineID, title: session.host.label, subtitle: session.host.destination.description,
@@ -220,11 +304,11 @@ final class SettingsWindowService: InternalPageProvider {
     /// sits where the window is: read through the active window's theme scope (the app scope when
     /// no window is open), which inherits the app theme unless a room overrides it.
     func derivedNumber(at path: [String]) -> Double? {
-        path == WindowBackgroundSetting.opacityPath ? (services.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacity : nil
+        path == WindowBackgroundSetting.opacityPath ? (services?.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacity : nil
     }
 
     var browserProfiles: [SettingsBrowserProfileRow] {
-        services.browserProfiles.ordered.map { record in
+        (services?.browserProfiles.ordered ?? []).map { record in
             SettingsBrowserProfileRow(id: record.id, name: record.name, color: record.color, icon: record.icon,
                                       isDefault: record.isDefault, source: record.source?["display_name"])
         }

@@ -20,7 +20,7 @@
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -463,13 +463,14 @@ fn apply(client: Client, command: &str, old: Option<&Entry>) -> Result<String, S
 
 /// Runs `client`'s CLI with `args`, within [`CLI_TIMEOUT`].
 fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
+    use cmux_process::{Command, Stdio};
     use std::io::Read;
     let line = client.line(args);
-    let mut child = std::process::Command::new(client.id())
+    let mut child = Command::new(client.id())
         .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| format!("`{line}`: {error}"))?;
     // Read on its own thread, so a CLI that writes more than the pipe holds
@@ -481,26 +482,19 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
             text
         })
     });
-    let deadline = Instant::now() + CLI_TIMEOUT;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < deadline => {
-                // A bounded wait for one child, polled in 20 ms steps: std
-                // has no wait with a timeout.
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!("`{line}` did not finish in {}s", CLI_TIMEOUT.as_secs()));
-            }
-            // The child may still run: stop it before reporting, as on a timeout.
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!("`{line}`: {error}"));
-            }
+    // wakeup-allow: cli-only `cmux setup mcp`'s one bound on the agent CLI; its exit ends the wait first
+    let status = match child.wait_timeout(CLI_TIMEOUT) {
+        Ok(Some(status)) => status,
+        Ok(None) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("`{line}` did not finish in {}s", CLI_TIMEOUT.as_secs()));
+        }
+        // The child may still run: stop it before reporting, as on a timeout.
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("`{line}`: {error}"));
         }
     };
     if status.success() {

@@ -1,5 +1,6 @@
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
+import Dispatch
 import Testing
 
 /// The startup phases (StartupPhase.swift; p06-scheduler.md section A): launching holds background
@@ -34,7 +35,7 @@ import Testing
     @Test func visibleAndAutomationAreNeverGated() {
         let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())
         #expect(startup.phase == .launching)
-        for workClass in [MainWorkClass.input, .frame, .visible, .automation] {
+        for workClass in [MainWorkClass.input, .frame, .userBlocking, .visible, .automation] {
             #expect(startup.admits(workClass), "\(workClass) runs while launching")
             var ran = false
             startup.whenReached(workClass.startupOpening) { ran = true }
@@ -72,7 +73,7 @@ import Testing
         startup.noteLaunch(.window)
         try await clock.waitForSleeper()
         clock.advance(by: .milliseconds(1_500))
-        _ = await claims.first { _ in true }
+        _ = await claims.first { @Sendable _ in true }
         // Main resumes here before the claimed deadline's hop: the frame comes first.
         startup.noteFirstFrame()
         #expect(startup.revealCause == .firstFrame)
@@ -227,7 +228,7 @@ import Testing
         let keeper = StartupLinkKeeper(on: work)
         let value = Task { @MainActor in await work.apply(.background, owner: "favicons.load") { 42 } }
         // Event-driven: the report itself resumes the test.
-        let first = await reports.first { _ in true }
+        let first = await reports.first { @Sendable _ in true }
         #expect(first?.work == .background)
         #expect(first?.owner == "favicons.load")
         #expect(first?.phase == .launching)
@@ -298,6 +299,28 @@ import Testing
         #expect(startup.settleCause == .references)
     }
 
+    /// p06-scheduler-204: raising the launch fence only counts: a best-effort item that already runs is not
+    /// waited on and finishes while the fence is up. A raise that waited for it would never return: the item
+    /// waits for the test's release, sent after the raise. The reveal lowering the fence, user-visible work
+    /// running at once and the held items' post order are LaunchOrderTests (CmuxNextAppTests), where the
+    /// order wires the fence to the phase.
+    @Test func theLaunchFenceDoesNotWaitForARunningItem() async {
+        let started = LaneSignal<Bool>(), finished = LaneSignal<Bool>()
+        let release = DispatchSemaphore(value: 0)
+        let work = BackgroundWork(label: "test.startup.fence.running")
+        work.post(.bestEffort, mayBlock: .files) {
+            started.send(true)
+            release.wait()
+            finished.send(true)
+        }
+        #expect(await started.next() == true)
+        let fence = work.raiseLaunchFence(cap: nil)
+        release.signal()
+        #expect(await finished.next() == true)
+        #expect(fence.isUp, "the running item finished under the raised fence")
+        fence.lower()
+    }
+
     /// Returns once `startup` reaches `phase` (event-driven: the phase change runs the resume).
     private func reached(_ phase: StartupPhase.Phase, _ startup: StartupPhase) async {
         await withCheckedContinuation { continuation in
@@ -331,4 +354,19 @@ private final class StartupUptime {
     private var now: UInt64 = 1_000_000_000
     var read: () -> UInt64 { { [self] in self.now } }
     func advance(ms: Double) { now += UInt64(ms * 1_000_000) }
+}
+
+/// Values sent from lane bodies (synchronous), awaited by the test in send order.
+private struct LaneSignal<Value: Sendable>: Sendable {
+    private let stream: AsyncStream<Value>
+    private let continuation: AsyncStream<Value>.Continuation
+
+    init() { (stream, continuation) = AsyncStream.makeStream(of: Value.self) }
+
+    func send(_ value: Value) { continuation.yield(value) }
+
+    func next() async -> Value? {
+        for await value in stream { return value }
+        return nil
+    }
 }

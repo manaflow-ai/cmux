@@ -2,6 +2,11 @@ public import AppKit
 public import CmuxNextSettings
 public import Foundation
 import CmuxNextCompat
+public import CmuxNextRemoteFetch
+public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// What cmux already knows about a web page a reply links to: its site's favicon (PNG) and the
 /// page's title, from the user's own browsing. Never fetched for a chip (D4).
@@ -30,7 +35,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// Selects a file in Finder (the image viewer's Show in Finder).
     public var revealFile: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
     /// The context menu's Copy Image: replaces the general pasteboard's contents with the item
-    /// (``AgentPaneImageCopies/pasteboardItem(_:data:)``); tests record it instead.
+    /// (``AgentPaneImageCopies/pasteboardItem(_:image:)``); tests record it instead.
     public var copyItem: @MainActor (NSPasteboardItem) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
     /// Save Image As…: asks where to save the file under the name (the system save panel).
     public var saveFile: @MainActor (_ file: URL, _ name: String) -> Void = { AgentPaneImageCopies.askToSave($0, name: $1) }
@@ -46,16 +51,28 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     private let quickLook = AgentPaneQuickLook()
     /// Where the image viewer keeps the copies it shows or opens (``AgentPaneImageCopies``).
     public var imageFolder = AgentPaneImageCopies.defaultFolder()
-    public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
+    public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers(queries: nil)
+    /// The app's Launch Services answers (the App sets them): the link menus' app lists and icons, a dragged file's
+    /// icon. Nil lists no app and drags with a placeholder.
+    public var workspaceQueries: WorkspaceQueries?
     /// What the host already has about a pull request (`pr.inspect`), with the age of it; it never
     /// waits on GitHub, and a stale link's refresh runs in the background at most once a minute
     /// however often it is hovered (``AgentReplyPullRequests``).
     public var pullRequest: @MainActor (URL) -> AgentPanePullRequestAnswer = { _ in .init() }
     /// The pull requests a reply links, so the host has them before a card opens.
     public var registerPullRequests: @MainActor ([URL]) -> Void = { _ in }
+    /// The fetch for web images; it fetches nothing until ``useResolver(_:)``.
     var fetcher: any AgentPaneImageFetching = AgentPaneSafeFetch()
-    /// The fetch for web video and audio (``AgentPaneSafeFetch/media``).
+    /// The fetch for web video and audio (``AgentPaneSafeFetch/media``); nothing until ``useResolver(_:)``.
     var mediaFetcher: any AgentPaneImageFetching = AgentPaneSafeFetch.media
+
+    /// Gives the image and media fetches the App's resolver (`SystemRemoteResolver` on its lanes).
+    public func useResolver(_ resolver: any RemoteAddressResolving) {
+        var images = AgentPaneSafeFetch(), media = AgentPaneSafeFetch.media
+        images.guarded.resolver = resolver
+        media.guarded.resolver = resolver
+        (fetcher, mediaFetcher) = (images, media)
+    }
     let choices = AgentPaneBrowserChoices()
     /// The home folder for `~/` and the deny list (tests replace it).
     var home = NSHomeDirectory()
@@ -207,9 +224,9 @@ extension AgentPaneModel {
 
     private func confirmOutside(_ path: String) async -> Bool {
         guard let ask = replyLinks.confirmOutside else { return false }
-        return await withCheckedContinuation { continuation in
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             ask(path) { continuation.resume(returning: $0) }
-        }
+        }) ?? false // dropped unanswered (the pane closed): not a yes
     }
 
     /// A reply image (D5): a file inside the roots, read by the host; or an https image fetched

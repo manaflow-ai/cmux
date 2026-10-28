@@ -9,7 +9,9 @@ import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextMacScreen
 import CmuxNextOnboarding
+import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 
 /// Agent actions. Fork Conversation (``AgentForkDestination``): an agent chat tab forks through
@@ -100,7 +102,7 @@ enum AgentHandlers {
         ActionTargetVisibility.hide("agentPane.togglePointerInspector", in: registry) { _ in
             !AgentPaneTunables.pointerInspector.value
         }
-        registry.bind(.fileOpen, run: { try openFile($0, context: context) })
+        registry.bindEffect(.fileOpen, requires: nil, effect: { try openFile($0, context: context) })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
         // is push-to-talk. Outside an agent chat it stops a session still
         // running in one.
@@ -110,10 +112,10 @@ enum AgentHandlers {
                 if AgentPaneView.stopDictation() { return }
                 return context.refuse(MiscHandlerStrings.noAgentChat)
             }
-            view.toggleDictation()
+            view.toggleDictation(from: context.services.inputTap.actionEvent)
         })
         // Search Agent Chats (decision K1): the command palette's chats page, from anywhere.
-        context.services.palette.sources.actionPages["agentPane.searchChats"] = { [weak services = context.services] in
+        context.services.palettes.sources.actionPages["agentPane.searchChats"] = { [weak services = context.services] in
             services.map { AgentChatsPalettePage(services: $0).page() }
         }
         registry.bind("agentPane.searchChats", run: { _ in
@@ -298,15 +300,16 @@ enum AgentHandlers {
         let handle = pane.pane.handle
         let options = SpawnOptions(cwd: tab.cwd, workspace: context.services.workspaceKey(of: pane.pane))
         let line = command + "\n"
-        let logger = context.daemon.logger
-        let repair = context.services.emptyWorkspaces
+        let logger = context.daemon.logger, repair = context.services.emptyWorkspaces
         // A fork into a new workspace is placed like Cmd-N: in the current group (cx-caoh).
         let key = WorkspaceKey.generate()
         if destination == .workspace || destination == .window {
             let windows = context.services.windows
             NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
         }
-        Task {
+        // The daemon commands run off main; showing the fork's new workspace is one task of the run's completion.
+        let end = context.registry.completion(on: context.services.mainWork)
+        end.start {
             do {
                 let surface: SurfaceID?
                 var workspace: WorkspaceKey?
@@ -328,10 +331,12 @@ enum AgentHandlers {
                 }
                 if let surface { try await connection.send(surface, text: line) }
                 if let workspace {
-                    context.window(showing: workspace.rawValue)
-                    // A new window: the fork's new workspace moves there, as Move Workspace to New Window moves one.
-                    if destination == .window {
-                        _ = context.registry.perform("moveWorkspaceToNewWindow", invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: workspace.rawValue), origin: .user))
+                    end.post(owner: "AgentHandlers.fork", answering: true) {
+                        context.window(showing: workspace.rawValue)
+                        // A new window: the fork's new workspace moves there, as Move Workspace to New Window moves one.
+                        if destination == .window {
+                            _ = context.registry.perform("moveWorkspaceToNewWindow", invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: workspace.rawValue), origin: .user))
+                        }
                     }
                 }
             } catch {
@@ -343,10 +348,13 @@ enum AgentHandlers {
     /// Open File: the agent pane's changed files, the palette and `cmux file open`.
     /// The file is checked first (`AgentPaneFileOpening`); a tab opens in the
     /// invocation's pane, else the focused one.
-    private static func openFile(_ invocation: ActionInvocation, context: AppActionContext) throws {
+    private static func openFile(_ invocation: ActionInvocation, context: AppActionContext) throws -> ActionEffect {
         let path = invocation["path"]?.stringValue ?? ""
         // No path (the File menu, a shortcut, `cmux file open`): the cmux picker (R89).
-        guard !path.isEmpty else { return try ViewerHandlers.openFilePicker(invocation, context: context) }
+        guard !path.isEmpty else {
+            try ViewerHandlers.openFilePicker(invocation, context: context)
+            return .done
+        }
         // The palette and the control socket accept only the catalog's choices;
         // an in-app caller that passes another place is refused, not ignored.
         let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
@@ -356,13 +364,13 @@ enum AgentHandlers {
         if target == .tab {
             guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
-            guard let pane = context.paneController(invocation) else { return }
+            guard let pane = context.paneController(invocation) else { return .done }
             // `cmux open` run from an agent chat: a quote from the file's viewer goes back to that chat.
             if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
                 context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
             }
             if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user) { throw ActionFailure(message: reason) }
-            return
+            return .done
         }
         let opening: AgentPaneFileOpening
         do {
@@ -371,13 +379,21 @@ enum AgentHandlers {
             throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path))
         } catch AgentPaneFileRefusal.notInTab {
             throw ActionFailure(message: MiscHandlerStrings.fileNotInTab(path))
-        } catch AgentPaneFileRefusal.noEditor {
-            throw ActionFailure(message: MiscHandlerStrings.noEditor)
         } catch {
             throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
         }
-        if let editor = opening.editor {
-            NSWorkspace.shared.open([opening.url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+        // action-wait-allow: the editor (the app for source code, then plain text) is known only when Launch Services answers on the system lane; then it opens.
+        return .waiting(.externalProcess, editorWork(opening.url, queries: context.services.workspaceQueries))
+    }
+
+    /// The open of `file` in the editor: asks Launch Services for the app for source code (then plain text) on the
+    /// system lane, then opens off the main thread. The work answers nil when it opened, else the failure.
+    static func editorWork(_ file: URL, queries: WorkspaceQueries) -> @MainActor () async -> ActionWorkFailure? {
+        return {
+            let editor = (try? await queries.value(LinkMenu.textEditor(setting: ""), priority: .userBlocking)) ?? nil
+            guard let editor else { return ActionWorkFailure(MiscHandlerStrings.noEditor) }
+            let opened = await NSWorkspace.shared.openedInBackground([file], withApplicationAt: editor)
+            return opened ? nil : ActionWorkFailure(RefusalStrings.couldNotOpen(file.path))
         }
     }
 }

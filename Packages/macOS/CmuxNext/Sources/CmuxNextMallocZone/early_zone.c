@@ -2,6 +2,7 @@
 
 #include <mach/mach.h>
 #include <malloc/malloc.h>
+#include <stdlib.h>
 #include <string.h>
 
 // Must match partition_alloc's kDelegatingZoneName: PartitionAlloc's zone
@@ -9,6 +10,7 @@
 // the process with no zone that owns system allocations.
 static const char kDelegatingZoneName[] = "DelegatingDefaultZoneForPartitionAlloc";
 static const char kPartitionAllocZoneName[] = "PartitionAlloc";
+static const char kSkipVariable[] = "CMUX_NEXT_SKIP_EARLY_MALLOC_ZONE";
 
 static malloc_zone_t g_delegating_zone;
 static malloc_introspection_t g_delegating_introspect;
@@ -56,6 +58,9 @@ static void d_free_definite_size(malloc_zone_t* z, void* p, size_t size) {
 }
 static void d_batch_free(malloc_zone_t* z, void** p, unsigned n) { g_default_zone->batch_free(g_default_zone, p, n); }
 static void d_try_free_default(malloc_zone_t* z, void* p) { g_default_zone->try_free_default(g_default_zone, p); }
+// The release sink's malloc_zone_pressure_relief(NULL, 0) visits every registered zone, the system
+// zone this one forwards to included: forwarding here would relieve it twice. PartitionAlloc's zone
+// sets no pressure_relief, so that call does not reach its heap.
 static size_t d_pressure_relief(malloc_zone_t* z, size_t goal) { return 0; }
 
 static kern_return_t i_enumerator(task_t task, void* context, unsigned type_mask, vm_address_t zone_address,
@@ -94,6 +99,8 @@ static malloc_zone_t* default_zone(void) {
 }
 
 int cmux_early_malloc_zone_registration(void) {
+  // A Chromium-off diagnostic run (vm.sh --diag): the check's own zone stays zones[0].
+  if (getenv(kSkipVariable)) return 0;
   if (zone_registered(kDelegatingZoneName) || zone_registered(kPartitionAllocZoneName)) return 0;
   malloc_zone_t* purgeable = malloc_default_purgeable_zone();
   g_default_zone = default_zone();

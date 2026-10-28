@@ -114,12 +114,17 @@ public actor AndroidPhoneBackend: PhoneBackend {
         let serial = try await serial(id)
         switch input {
         case .tap(let point):
+            try input.validate()
             let scale = try await density(serial)
             try await run(serial, ["shell", "input", "tap", px(point.x, scale), px(point.y, scale)], "adb input tap")
         case .swipe(let from, let to, let seconds):
+            try input.validate()
             let scale = try await density(serial)
+            guard let milliseconds = Int(exactly: (seconds * 1000).rounded()) else {
+                throw PhoneError.outOfRange(what: "the swipe's seconds")
+            }
             try await run(serial, ["shell", "input", "swipe", px(from.x, scale), px(from.y, scale), px(to.x, scale), px(to.y, scale),
-                                   String(Int((seconds * 1000).rounded()))], "adb input swipe")
+                                   String(milliseconds)], "adb input swipe")
         case .text(let text):
             // `input text` reads %s as a space; the device shell parses the one quoted argument.
             try await run(serial, ["shell", "input text " + Self.quoted(text.replacingOccurrences(of: " ", with: "%s"))], "adb input text")
@@ -245,8 +250,10 @@ public actor AndroidPhoneBackend: PhoneBackend {
         return result
     }
 
-    private nonisolated func px(_ points: Double, _ scale: Double) -> String {
-        String(Int((points * scale).rounded()))
+    /// Whole pixels for `points`; ``PhoneError/outsideScreen``, not a trap, when no `Int` holds them.
+    private nonisolated func px(_ points: Double, _ scale: Double) throws -> String {
+        guard let pixels = Int(exactly: (points * scale).rounded()) else { throw PhoneError.outsideScreen }
+        return String(pixels)
     }
 
     /// `Pixel_8_API_35` -> "Pixel 8 API 35".

@@ -28,10 +28,13 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
         public var rendering: [Key: Bool] = [:]
         /// Keys whose surfaces must be destroyed now.
         public var evicted: [Key] = []
+        /// Keys that went away (true: hidden, outside the keep-alive band; a surface may let its GPU
+        /// memory go) or came near the viewport again (false: on screen or in the band).
+        public var away: [Key: Bool] = [:]
 
         public init() {}
 
-        public var isEmpty: Bool { displaced.isEmpty && rendering.isEmpty && evicted.isEmpty }
+        public var isEmpty: Bool { displaced.isEmpty && rendering.isEmpty && evicted.isEmpty && away.isEmpty }
     }
 
     public struct Displacement: Equatable, Sendable {
@@ -50,9 +53,14 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
     private var unretained: Set<Key> = []
     /// Rendering state last reported to the caller.
     private var rendering: Set<Key> = []
+    /// Away state (``Effects/away``) last reported to the caller.
+    private var awayKeys: Set<Key> = []
+    /// The clock of hide times (``leastRecentlyHiddenAge``); tests set it.
+    private let now: @Sendable () -> ContinuousClock.Instant
 
-    public init(capacity: Int = 8) {
+    public init(capacity: Int = 8, now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }) {
         retention = SurfaceRetention(capacity: capacity)
+        self.now = now
     }
 
     // MARK: Queries
@@ -60,6 +68,9 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
     public func owner(of key: Key) -> Owner? { owners[key] }
 
     public func isRendering(_ key: Key) -> Bool { rendering.contains(key) }
+
+    /// Whether `key` is away: presented hidden (outside the keep-alive band) or by nobody.
+    public func isAway(_ key: Key) -> Bool { awayKeys.contains(key) }
 
     public func isRetained(_ key: Key) -> Bool { retention.isRetained(key) || owners[key] != nil }
 
@@ -69,6 +80,15 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
     }
 
     public var capacity: Int { retention.capacity }
+
+    /// Hidden keys the LRU holds now (at most ``capacity``).
+    public var hiddenCount: Int { retention.recent.count }
+
+    /// How long the least recently hidden key, the next one a smaller capacity evicts, has been hidden;
+    /// nil when the LRU holds none.
+    public var leastRecentlyHiddenAge: Duration? {
+        retention.leastRecentlyHiddenAt.map { $0.duration(to: now()) }
+    }
 
     // MARK: Changes
 
@@ -148,6 +168,7 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
         retention.remove(key)
         unretained.remove(key)
         rendering.remove(key)
+        awayKeys.remove(key)
         guard let owner = owners[key] else { return nil }
         setOwner(nil, of: key)
         forgetOwnerIfIdle(owner, except: nil)
@@ -167,13 +188,20 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
             if render { rendering.insert(key) } else { rendering.remove(key) }
             effects.rendering[key] = render
         }
+        let away = presence == .hidden
+        if away != awayKeys.contains(key) {
+            if away { awayKeys.insert(key) } else { awayKeys.remove(key) }
+            effects.away[key] = away
+        }
         guard !unretained.contains(key) else { return }
-        for evicted in retention.setVisible(key, presence != .hidden) { evict(evicted, into: &effects) }
+        for evicted in retention.setVisible(key, presence != .hidden, at: now()) { evict(evicted, into: &effects) }
     }
 
     private mutating func evict(_ key: Key, into effects: inout Effects) {
         rendering.remove(key)
+        awayKeys.remove(key)
         effects.rendering[key] = nil
+        effects.away[key] = nil
         effects.evicted.append(key)
         if let owner = owners[key] {
             setOwner(nil, of: key)
