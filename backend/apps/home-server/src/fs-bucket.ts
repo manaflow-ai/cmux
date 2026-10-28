@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto"
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { open } from "node:fs/promises"
+import { open, opendir } from "node:fs/promises"
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
 
 /** What the attachment code reads back from a stored object (the R2 subset it uses). */
@@ -300,6 +300,36 @@ export class FsBucket {
     // Parts first, then the record, so a crash midway leaves an upload that can still be aborted.
     rmSync(this.multipartPath(uploadId), { recursive: true, force: true })
     rmSync(this.multipartMetaPath(uploadId), { force: true })
+  }
+
+  /**
+   * Aborts every open upload whose key starts with `prefix`; answers how many. R2 ends abandoned
+   * uploads by a bucket lifecycle rule and its binding cannot list them; this bucket has no
+   * lifecycle, so the owner calls this when it deletes a conversation's storage, and an upload no
+   * slot names (a lost slot, a failed expiry abort) does not stay on disk. Streams the directory:
+   * memory stays bounded whatever the number of open uploads.
+   */
+  async abortMultipartUploads(prefix: string): Promise<number> {
+    const dir = join(this.root, MULTIPART_DIR)
+    if (!existsSync(dir)) return 0
+    let aborted = 0
+    for await (const entry of await opendir(dir)) {
+      const id = /^([0-9a-f]{32})\.json$/.exec(entry.name)?.[1]
+      if (!entry.isFile() || !id) continue
+      const record = this.multipartMetaPath(id)
+      let meta: MultipartMeta
+      try {
+        meta = JSON.parse(readFileSync(record, "utf8")) as MultipartMeta
+      } catch (error) {
+        // Closed by another request since the directory was read.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue
+        throw error
+      }
+      if (typeof meta.key !== "string" || !meta.key.startsWith(prefix)) continue
+      await this.abortMultipart(meta.key, id)
+      aborted++
+    }
+    return aborted
   }
 
   async head(key: string): Promise<FsObject | null> {
