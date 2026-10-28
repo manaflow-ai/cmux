@@ -514,9 +514,10 @@ impl Mux {
                     // The new shell already ended (a holder shell starts
                     // before the respawn commits, and its exit was held):
                     // end the terminal as any end of its shell does, now
-                    // that it is no longer marked respawning (an `on_exit`
-                    // shell tab drops into a shell, a host loss respawns).
-                    // It was not respawned: no log line, no prefill.
+                    // that it is no longer marked respawning. (The respawn
+                    // spent an `on_exit` shell policy: this shell's end
+                    // closes the tab.) It was not respawned: no log line,
+                    // no prefill.
                     self.commit_held_respawn_exit(&surface);
                     return;
                 }
