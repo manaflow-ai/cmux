@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDesign
+import CmuxNextHomeEngine
 @testable import CmuxNextDaemon
 import CmuxNextSidebar
 import Foundation
@@ -358,6 +359,7 @@ import Testing
         let w3 = try #require(services.windows.openWindow(workspaces: ["mwh-3"]))
         for controller in [w1, w3, w2] { services.windows.didActivate(controller) }
         try #require(services.home.homeWorkspace?.id == HomeWorld.home, "the store reported no Home workspace")
+        try #require(!HomeDock.classic, "these cases are the docked Home's (labs.classicHome is on)")
         try #require(w1.state.workspaceID == "mwh-1" && w2.state.workspaceID == "mwh-2" && w3.state.workspaceID == "mwh-3")
         return HomeWorld(services: services, w1: w1, w2: w2, w3: w3)
     }
@@ -397,16 +399,27 @@ import Testing
         try #require(listed == [HomeWorld.home] && world.w1.state.workspaceID == HomeWorld.home, "window 1 lists \(listed)")
         let shell2 = try #require(world.w2.window), shell3 = world.w3.window
         world.services.keyWindowSource = { shell3 }  // a stale key record: window 3
-        var ordered: [NSWindow] = []
-        let previous = WindowActivation.didOrder
-        WindowActivation.didOrder = { window, inFront in ordered.append(window); previous?(window, inFront) }
-        defer { WindowActivation.didOrder = previous }
+        let recency = windows.registry.value.recency
         windows.dispatching(eventFrom: shell2) { world.w2.sidebar.activate(.builtIn(.home)) }
+        #expect(windows.registry.value.recency == recency, "Home clicked in window 2 changed the window order")
+        #expect(world.w2.shownTopPage == .home, "window 2 does not draw its Home")
         #expect(windows.controllers.contains { $0 === world.w1 }, "Home clicked in window 2 closed window 1")
         #expect(world.showing() == ["Home", "Home", "mwh-3"], "Home clicked in window 2: windows 1, 2, 3 show \(world.showing())")
         #expect(windows.registry.value.owner(of: HomeWorld.home) == world.w1.state.id, "Home moved out of window 1")
-        #expect(ordered.isEmpty, "Home clicked in window 2 ordered \(ordered.count) window(s) in front")
         #expect(world.services.keyWindowSource() === shell3, "the key window changed")
+    }
+
+    /// Home actions from window 2 (send, leave, rename, pin with no conversation named) act on the Home window 2
+    /// shows, its own, never on the Home window 1 shows.
+    @Test func homeActionsInWindowTwoActOnWindowTwosHome() throws {
+        let world = try Self.homeWorld()
+        defer { world.close() }
+        let windows = world.services.windows
+        let shell2 = try #require(world.w2.window)
+        windows.dispatching(eventFrom: shell2) { world.w2.sidebar.activate(.builtIn(.home)) }
+        let own = try #require(HomeDockTab.windowView(world.services, windowID: world.w2.state.id), "window 2 has no Home of its own")
+        let acted = windows.dispatching(eventFrom: shell2) { HomeDockTab.view(world.services) }
+        #expect(acted === own, "a Home action from window 2 acts on another window's Home")
     }
 
     /// A workspace row clicked in window 2's sidebar (the row of a workspace window 1 lists): window 2 shows
