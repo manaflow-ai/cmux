@@ -10,7 +10,7 @@ describe("remoteLocationState", () => {
   test("keeps handshake states visibly connecting", () => {
     expect(remoteLocationState({ state: "connecting" })).toBe("connecting");
     expect(remoteLocationState({ state: "degraded" })).toBe("connecting");
-    expect(remoteLocationState({ state: "reconnecting" })).toBe("connecting");
+    expect(remoteLocationState({ state: "reconnecting" })).toBe("offline");
   });
 
   test("does not guess an unknown state", () => {
