@@ -312,7 +312,7 @@
       "additionalProperties": false,
       "properties": {
         "attachments": {
-          "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file, up to 50 MB each) or http(s) URLs (a link card).",
+          "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file, of any size) or http(s) URLs (a link card).",
           "items": {
             "minLength": 1,
             "type": "string"
