@@ -102,7 +102,7 @@ import Testing
         let list = try #require(line.sent.first { $0.method == "_acpmux/sessions" })
         #expect(list.params["status"] as? String == "waiting")
         #expect(list.params["limit"] as? Int == 64)
-        #expect(line.sent.filter { $0.method == "_acpmux/info" }.compactMap { $0.params["sessionId"] as? String } == ["s-tool", "s-ask"])
+        #expect(line.sent.filter { $0.method == "_acpmux/info" }.compactMap { $0.params["sessionId"] as? String } == ["s-tool", "offline", "s-ask"])
     }
 
     @Test func listWithNoAcpmuxIsEmpty() async throws {

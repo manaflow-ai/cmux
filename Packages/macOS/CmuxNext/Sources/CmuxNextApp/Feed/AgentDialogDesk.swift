@@ -78,9 +78,10 @@ final class AgentDialogDesk {
             guard let page = await line.call("_acpmux/sessions", params) else { return [] }
             guard let pageRows = page["sessions"] as? [[String: Any]] else { return [] }
             for row in pageRows {
-                guard (row["peer"] as? String)?.isEmpty != false,
-                      let id = row["sessionId"] as? String, !id.isEmpty else { continue }
-                if seenSessions.insert(id).inserted { sessions.append(row) }
+                guard let id = row["sessionId"] as? String, !id.isEmpty else { continue }
+                let peer = row["peer"] as? String ?? ""
+                let key = "\(peer)/\(id)"
+                if seenSessions.insert(key).inserted { sessions.append(row) }
             }
             guard let next = (page["nextCursor"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { break }
             guard seen.insert(next).inserted else { return [] }
