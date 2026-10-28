@@ -10,7 +10,8 @@
 //     Choose folder… asks the host's workspace folder sheet (`workspace.chooseFolder`), as the
 //     sentence's link did;
 //   - the folder and computer are the location strip's chips, as the New Tab's composer draws them:
-//     the same controls, the same size and the same few px over the card;
+//     the same controls and the same size (Claude's New Tab draws them in its quiet row under the
+//     box, #24519);
 //   - the first send still carries the prompt and a pasted attachment.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -156,6 +157,9 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
         return `${style.fontSize} ${style.fontWeight} ${style.color}`;
       }),
       gap: box.top - strip.getBoundingClientRect().bottom,
+      /// How far under the card the chips start (the quiet row's strip draws no box of its own).
+      below: Math.min(...buttons.map((button) => button.getBoundingClientRect().top)) - box.bottom,
+      footer: strip.closest(".nt-foot") !== null,
       filled: getComputedStyle(strip).backgroundColor !== "rgba(0, 0, 0, 0)",
     };
   }
@@ -182,7 +186,12 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     expect(chat.fonts).toEqual(newTab.fonts);
     expect(chat.filled).toBe(false);
     expect(newTab.filled).toBe(false);
-    expect(Math.abs(chat.gap - newTab.gap)).toBeLessThanOrEqual(1);
+    // The chat's chips stand a few px over its card. Claude's New Tab puts them in its one quiet
+    // row under the box, before the mode and model (#24519, Leo 2026-10-27: "one single row").
+    expect(chat.gap).toBeGreaterThanOrEqual(2);
+    expect(chat.gap).toBeLessThanOrEqual(10);
+    expect(newTab.footer).toBe(true);
+    expect(newTab.below).toBeGreaterThanOrEqual(0);
   });
 
   test("no private-folder sentence over the composer; the folder chip's menu says it", async () => {

@@ -90,4 +90,24 @@ import Testing
         let floor = h.sidebar.bounds.maxY - SidebarStyle.bottomInset
         #expect(abs(lineBottom - floor) <= 0.25, "the footer line ends at \(lineBottom), the margin at \(floor)")
     }
+
+    /// Compact footer is one slim row: the pinned line is the sidebar row's height with no extra
+    /// padding under it (the Search button is the row's height too), so the whole bottom stack
+    /// from the list's edge to the window's bottom is the row plus the margin.
+    @Test(arguments: cases) func theFooterIsOneRowWithNoPaddingUnderIt(_ c: Case) async throws {
+        let saved = DesignSettings.shared.sidebarSections.density
+        DesignSettings.shared.sidebarSections.density = c.density
+        defer { DesignSettings.shared.sidebarSections.density = saved }
+        let h = await make(width: c.width)
+        defer { h.window.close() }
+        _ = try #require(h.sidebar.footerBand.profileControl?.view)
+        let line = h.sidebar.footerRegion.frame
+        let rowHeight = Metrics.sidebarRowHeight
+        // Half a point of slack for the lens drop (one device pixel).
+        #expect(line.height <= rowHeight + 0.5, "footer line \(line.height) pt is taller than the row \(rowHeight) pt")
+        let reserve = h.sidebar.bounds.maxY - line.minY
+        // The margin is the 4 pt grid step (Metrics.space2 at compact), was 8 pt (space4).
+        #expect(SidebarStyle.bottomInset == Metrics.space2, "margin \(SidebarStyle.bottomInset) pt is not the 4 pt step \(Metrics.space2)")
+        #expect(reserve <= rowHeight + Metrics.space2 + 0.5, "bottom reserve \(reserve) pt exceeds row + 4 pt margin")
+    }
 }

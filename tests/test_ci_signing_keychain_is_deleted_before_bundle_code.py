@@ -150,6 +150,9 @@ ANY_VARS = re.compile(r"\bvars\b", re.IGNORECASE)
 RUNS_ON_END = re.compile(r"\s*\}\}\s*$")
 LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "signing-runner-variables")
 LIVE_VALUE_RUNNER = "blacksmith-2vcpu-ubuntu-2404"
+# `vars.CI_CLOUD_OVERFLOW_SAVED && '<blacksmith label>' ||`: the overflow failover,
+# a boolean record choosing between two literal Blacksmith Linux labels.
+OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED\s*&&\s*'blacksmith-\d+vcpu-ubuntu-2404'\s*\|\|\s*")
 
 
 def commands(run: str) -> list[str]:
@@ -396,8 +399,12 @@ def check_live_runner_variables(failures: list[str]) -> None:
     document = yaml.safe_load((ROOT / path).read_text(encoding="utf-8")) or {}
     job = (document.get("jobs") or {}).get(job_name) or {}
     # The check's own runner must not come from the variables it checks: a variable
-    # pointed at a missing label would leave it queued instead of red.
-    if ANY_VARS.search(str(job.get("runs-on", ""))) or LIVE_VALUE_RUNNER not in str(job.get("runs-on", "")):
+    # pointed at a missing label would leave it queued instead of red. The one
+    # variable it may read is the overflow record as a switch between two literal
+    # Blacksmith labels (tests/test_ci_blacksmith_linux_failover.py requires it):
+    # the record holds no label, so both outcomes stay literal ephemeral runners.
+    runs_on = OVERFLOW_FAILOVER.sub("", str(job.get("runs-on", "")))
+    if ANY_VARS.search(runs_on) or LIVE_VALUE_RUNNER not in runs_on:
         failures.append(f"{path} {job_name}: runs on the literal {LIVE_VALUE_RUNNER}, never a repository variable")
     steps = job.get("steps") or []
     for step in steps:

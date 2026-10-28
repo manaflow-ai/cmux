@@ -1,7 +1,8 @@
 import { env } from "cloudflare:workers"
 import type { Principal } from "@cmux/ownership"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { FakeDriver, FreestyleDriver } from "../src/team-vm-driver.ts"
+import { FakeDriver } from "../src/team-vm-driver.ts"
+import { FreestyleDriver } from "../src/providers/freestyle/team-vm.ts"
 import { api, inDO, mutate, setup, sshLine, worker } from "./team-ssh-support.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 

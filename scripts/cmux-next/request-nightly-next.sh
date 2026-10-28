@@ -41,7 +41,12 @@
 # Exit 0 when a commit was requested or
 # none is ready yet, 2 on bad usage, 1 on an API failure.
 # Env: CMUX_NIGHTLY_NEXT_RUN_WINDOW (default 99) recent first-parent commits searched;
-# CMUX_NIGHTLY_NEXT_MAX_REFUSED (default 5) unpromotable candidates passed over.
+# CMUX_NIGHTLY_NEXT_MAX_REFUSED (default 5) unpromotable candidates passed over;
+# NIGHTLY_NEXT_PROMOTE=1 dispatches the promotion. Only main's 30-minute
+# nightly-next-tick.yml sets it: every promotion starts a full nightly build, and
+# when each landing promoted, six ran at once (2026-10-28). Without it the script
+# runs every check and reports the commit it would promote, and the tick
+# promotes it within 30 minutes.
 set -euo pipefail
 
 sha="" repo="" mode=""
@@ -167,11 +172,15 @@ request() { # <sha>
     echo "not promoting ${1:0:12}: read failure on its tree-commit marker (above); no backfill on a read failure"
     return 1
   fi
+  if [[ "${NIGHTLY_NEXT_PROMOTE:-}" != 1 ]]; then
+    echo "promotable ${1:0:12}: not requested here; the 30-minute nightly-next tick (nightly-next-tick.yml) promotes it"
+    return 0
+  fi
   if ! gh workflow run nightly.yml --repo "$repo" --ref main -f promote_nightly_next_sha="$1"; then
     echo "error: could not request the nightly-next promotion of $1" >&2
     return 2
   fi
-  echo "requested nightly-next promotion of $1 (published, daemon-tested cmux-tui tree; its nightly compiles it)"
+  echo "requested nightly-next promotion of $1 (published, verified cmux-tui tree; its nightly compiles it)"
 }
 
 # backfill <reason>: one cmux-tui-artifacts dispatch on feat-cmux-next, which
@@ -240,17 +249,10 @@ fi
 key="$(sed -n 's/^key=//p' <<<"$resolved" | head -1)"
 [[ "$key" =~ ^[0-9a-f]{40}$ ]] || { printf '%s\n' "$resolved" >&2; echo "error: the resolver printed no tree key" >&2; exit 1; }
 
-# 1b. The daemon tests passed for this tree (tree-commit-marker.sh daemon-tested,
-# the check the marker writer uses). A read of source.json or daemon-tests.json
-# that is neither 200 nor 404 is a read failure: nothing is promoted (it used to
-# skip the daemon-tests check when source.json did not read).
-tested_rc=0
-bash "$script_dir/tree-commit-marker.sh" daemon-tested "$key" || tested_rc=$?
-case "$tested_rc" in
-  0) ;;
-  1) echo "not promoting ${sha:0:12}: tree $key is not daemon-tested yet; the artifacts run requests it when the tests pass"; exit 0 ;;
-  *) echo "not promoting ${sha:0:12}: read failure on tree $key's metadata (above); the next tick asks again"; exit 0 ;;
-esac
+# The tree's daemon tests are not awaited (2026-10-28, tree-commit-marker.sh's
+# header): they run after the publish and report on their own, and a failed
+# download in them held the feed for hours. Leo, 2026-10-23: "we want no smoke
+# tests".
 
 # 2. Both modes: the newest feat-cmux-next commit, by first-parent history,
 # that descends from nightly-next and has this tree key, whatever its Release
