@@ -1,11 +1,48 @@
-//! The session a relayed message (`server/mesh_relay.rs`) names: one of this daemon's own, never
-//! a peer's. The hub reaches each daemon for its own sessions, and a message from the hub is
-//! never forwarded to a peer.
+//! What the mesh relay (`server/mesh_relay.rs`) reads of this daemon's sessions: the rows it
+//! heartbeats to the hub, and the session a relayed message names. Both are this daemon's own
+//! sessions only, never a peer's: the hub reaches each daemon for its own sessions, and a message
+//! from the hub is never forwarded to a peer.
 
 use super::*;
-use crate::mesh::Target;
+use crate::mesh::{MAX_HEARTBEAT_SESSIONS, SessionRow, Target};
 
 impl Hub {
+    /// The sessions here a heartbeat lists: every one but a closed one, at most
+    /// [`MAX_HEARTBEAT_SESSIONS`], working ones first, then the most recently changed. Read under
+    /// each one's meta lock (no clone of a meta).
+    pub fn mesh_rows(&self) -> Vec<SessionRow> {
+        let sessions: Vec<Arc<Session>> = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .cloned()
+            .collect();
+        let rank = |status: SessionStatus| match status {
+            SessionStatus::Running | SessionStatus::Waiting => 0,
+            SessionStatus::Ready => 1,
+            _ => 2,
+        };
+        let mut rows: Vec<(u8, u64, SessionRow)> = sessions
+            .iter()
+            .filter_map(|s| {
+                let m = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                (m.status != SessionStatus::Closed).then(|| {
+                    let row = SessionRow {
+                        name: m.name.clone(),
+                        session_id: s.id.clone(),
+                        harness: m.harness.clone(),
+                        state: m.status.to_string(),
+                        stuck_reason: None,
+                    };
+                    (rank(m.status), m.updated_at, row)
+                })
+            })
+            .collect();
+        rows.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
+        rows.into_iter().take(MAX_HEARTBEAT_SESSIONS).map(|(_, _, row)| row).collect()
+    }
+
     /// The session here a relayed message is for: its exact id, else its whole name (bare, or as
     /// `HOST/NAME` with this machine's name). Never a prefix, never a peer's session. A message
     /// that names another host, or any daemon (this one cannot prove an id is its own), is refused
