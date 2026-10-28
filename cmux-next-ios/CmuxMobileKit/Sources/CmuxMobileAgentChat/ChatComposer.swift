@@ -122,17 +122,26 @@ struct ChatComposer: View {
         }
     }
 
-    /// Picked files with their bytes (read through the picker's
-    /// security-scoped URLs), and the reason when one can't be attached.
+    /// Bytes held in memory for a picked file up to this size (the prompt
+    /// inlines small text files); larger files stream from their URL at send.
+    static let inlineFileBytes = 256 << 10
+
+    /// Picked files, and the reason when one can't be attached. Any size: a
+    /// small file's bytes are read now (through the picker's security-scoped
+    /// URL), a larger one keeps its URL and streams to the Mac at send, which
+    /// reopens its security scope (`LinkUpload.upload(fileAt:)`).
     static func readFiles(_ urls: [URL]) -> ([AgentAttachment], String?) {
         var files: [AgentAttachment] = []
         var refused: String?
         for url in urls {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            guard size <= LinkUpload.maxBytes else {
-                refused = "\(url.lastPathComponent) is larger than \(LinkUpload.maxBytes >> 20) MB."
+            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
+                refused = "Couldn't read \(url.lastPathComponent)."
+                continue
+            }
+            if size > inlineFileBytes {
+                files.append(AgentAttachment(kind: .file, name: url.lastPathComponent, fileURL: url, byteCount: size))
                 continue
             }
             guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {

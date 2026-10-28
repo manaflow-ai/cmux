@@ -277,7 +277,9 @@ struct TerminalComposer: View {
         }
     }
 
-    /// Files are read now, while the picker's security scope is open.
+    /// Files of any size keep their URL and stream to the Mac at send, which
+    /// reopens the picker's security scope (`LinkUpload.upload(fileAt:)`);
+    /// the thumbnail and size are read now, while the scope is open.
     private func loadFiles(_ urls: [URL]) async {
         for url in urls {
             let scoped = url.startAccessingSecurityScopedResource()
@@ -286,16 +288,12 @@ struct TerminalComposer: View {
             let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: 56, height: 56), scale: 3, representationTypes: .thumbnail)
             let thumbnail = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).uiImage
             let kind: ComposerAttachment.Kind = type.conforms(to: .image) ? .image : type.conforms(to: .movie) ? .video : .file
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-            guard size <= LinkUpload.maxBytes else {
-                model.attachmentError = "\(url.lastPathComponent) is larger than \(LinkUpload.maxBytes >> 20) MB."
-                continue
-            }
-            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
                 model.attachmentError = "Couldn't read \(url.lastPathComponent)."
                 continue
             }
-            model.addAttachment(ComposerAttachment(kind: kind, name: url.lastPathComponent, thumbnail: thumbnail, data: data))
+            model.addAttachment(ComposerAttachment(kind: kind, name: url.lastPathComponent, thumbnail: thumbnail,
+                                                   byteCount: size, fileURL: url))
         }
     }
 
