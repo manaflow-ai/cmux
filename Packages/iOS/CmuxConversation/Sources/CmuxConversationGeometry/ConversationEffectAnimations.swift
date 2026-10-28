@@ -216,6 +216,8 @@ public enum ConversationScreenEffect {
         let duration = duration(kind)
         guard duration > 0 else { completion(); return }
         CATransaction.begin()
+        // main-proof: play is @MainActor, so this transaction begins and commits on the main thread, and
+        // CATransaction.h calls the completion block on the main thread (at once when nothing was added).
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } }
         // A carrier animation fixes the playback length.
         let carrier = CABasicAnimation(keyPath: "zPosition")

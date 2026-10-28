@@ -119,8 +119,12 @@ public enum ConversationPopEffect {
 
         CATransaction.begin()
         CATransaction.setCompletionBlock {
-            clip.removeFromSuperlayer()
-            MainActor.assumeIsolated { completion?() }
+            // main-proof: play is @MainActor, so this transaction begins and commits on the main thread, and
+            // CATransaction.h calls the completion block on the main thread (at once when nothing was added).
+            MainActor.assumeIsolated {
+                clip.removeFromSuperlayer()
+                completion?()
+            }
         }
         if reduceMotion {
             let fade = CABasicAnimation(keyPath: "opacity")

@@ -32,10 +32,14 @@ import Testing
                 if !Self.isProved(lines, index) { offenders.append("\(file.lastPathComponent):\(index + 1)") }
             }
         }
-        #expect(offenders.isEmpty, "MainActor.assumeIsolated without a main-proof in CmuxConversationGeometry: \(offenders.sorted())")
+        #expect(
+            offenders.isEmpty,
+            "MainActor.assumeIsolated without a main-proof in CmuxConversationGeometry: \(offenders.sorted())"
+        )
     }
 
-    /// The same placement rule as `arch_counts.py`'s `_is_proved`.
+    /// The same placement rule as `arch_counts.py`'s `_is_proved`, and one
+    /// stricter point: the proof must say something after `main-proof:`.
     private static func isProved(_ lines: [String], _ index: Int) -> Bool {
         func hasProof(_ text: String) -> Bool {
             guard let range = text.range(of: "main-proof:") else { return false }
