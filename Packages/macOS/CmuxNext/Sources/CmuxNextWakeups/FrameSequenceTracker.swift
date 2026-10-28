@@ -11,6 +11,7 @@ public struct FrameSequenceReport: Sendable, Equatable {
     /// Frames the main thread committed in it, at most one per refresh.
     public var produced: UInt32
 
+    /// A report of `expected` refreshes and `produced` frames (an empty one by default).
     public init(expected: UInt32 = 0, produced: UInt32 = 0) {
         self.expected = expected
         self.produced = produced

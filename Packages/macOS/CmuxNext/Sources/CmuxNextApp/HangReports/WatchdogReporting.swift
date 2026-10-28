@@ -61,7 +61,8 @@ enum WatchdogReporting {
         // Replaces the crash-reporting-only sink set before Sentry started (WatchdogHangSinks), adding hang reports.
         watchdog.onHang = { hang in
             WatchdogHangSinks.send(hang, to: reporter)
-            collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses, task: HangSample.MainTask(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass))
+            collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses, task: HangSample.MainTask(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass),
+                                startup: HangSample.Startup(stallPhase: hang.startupPhase, task: hang.startupTask))
         }
         // A watched thread still in its hang-watch scope 2 s past its budget (p09-observability-068): a crash report
         // tagged hang.thread and a hang-report entry, at most once per registration name per report interval.
@@ -101,7 +102,8 @@ enum WatchdogReporting {
         }
         watchdog.onStall = { record in
             lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses, phase: record.details["phase"]?.stringValue, cef: record.details["cef"]?.boolValue == true)
-            collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses)
+            collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses,
+                                 startup: HangSample.Startup(stallPhase: record.details["startup_phase"]?.stringValue, task: record.details["startup_task"]?.stringValue))
         }
         // A slow key frame takes the black box (one compare, then one atomic load while reports are off).
         if let collector { services.inputFrameSignposts.committedKey = { collector.noteKeyFrame(durationMicros: $0) } }

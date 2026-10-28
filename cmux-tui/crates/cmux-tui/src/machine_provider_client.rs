@@ -18,9 +18,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[cfg(unix)]
 use std::sync::mpsc::{self, RecvTimeoutError, SyncSender, TrySendError};
 #[cfg(unix)]
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak};
 #[cfg(unix)]
 use std::time::{Duration, Instant};
+
+use cmux_threads::sync::Condvar;
 
 #[cfg(unix)]
 use cmux_tui_machine_protocol::{
@@ -634,6 +636,7 @@ impl ProviderClient {
             negotiated_client_capabilities: Mutex::new(Vec::new()),
         });
         let weak = Arc::downgrade(&inner);
+        // supervise-allow: the provider connection's reader; a panic drops its guard, which closes the connection, so requests fail.
         std::thread::Builder::new()
             .name("machine-provider-reader".to_string())
             .spawn(move || control_reader_loop(reader, guard, weak))?;
@@ -1153,7 +1156,7 @@ impl ProviderClient {
             return Err(error);
         }
 
-        let mut frame = match receiver.recv_timeout(timeout) {
+        let mut frame = match crate::blocking::sync::recv_timeout(&receiver, timeout) {
             Ok(Ok(frame)) => frame,
             Ok(Err(failure)) => return Err(failure.into()),
             Err(RecvTimeoutError::Timeout) => {

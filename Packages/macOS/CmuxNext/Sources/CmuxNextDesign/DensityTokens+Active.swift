@@ -1,3 +1,4 @@
+public import CmuxNextAppearance
 public import CmuxNextDesignTokens
 
 /// The density chrome draws in now.

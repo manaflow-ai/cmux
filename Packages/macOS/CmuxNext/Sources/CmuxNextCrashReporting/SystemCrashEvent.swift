@@ -3,13 +3,22 @@ public import Sentry
 
 /// A Sentry event for a helper process crash that macOS recorded (the
 /// cmux-tui daemon and its terminal, app and browser hosts, the holder,
-/// acpmux, the Chromium helpers). Frames carry instruction addresses and
-/// the debug images their UUIDs, so Sentry symbolicates them from the debug
+/// acpmux, the Chromium helpers), or that Crashpad dumped (a helper of the
+/// Chromium Host, ``ChromiumMinidumpReport/systemReport``). Frames carry
+/// instruction addresses and the debug images their UUIDs, so Sentry symbolicates them from the debug
 /// files the nightly uploads, as for the app's own crashes. A Rust process's
 /// crash also carries what it left on disk (``Extras``): its crash keys as
 /// tags and its black box as `blackbox.txt`, as Crashpad attaches a dead
 /// process's crash keys and annotations to its minidump.
 public nonisolated struct SystemCrashEvent: Sendable {
+    /// Where the report came from: the event's `crash_source` tag.
+    public enum Source: String, Sendable {
+        /// macOS's crash reporter (an `.ips` file, ``SystemCrashForwarder``).
+        case macOSCrashReport = "macos_crash_report"
+        /// A Crashpad dump of a Chromium helper (``ChromiumMinidumpCollector``).
+        case crashpad
+    }
+
     /// What the crashed process left beside the report (``RustCrashArtifacts``) and where it ran from.
     public struct Extras: Sendable, Equatable {
         /// Where the binary ran from (tag `process_origin`).
@@ -50,10 +59,12 @@ public nonisolated struct SystemCrashEvent: Sendable {
     public static let blackboxFileName = "blackbox.txt"
 
     public let report: SystemCrashReport
+    public let source: Source
     public let extras: Extras
 
-    public init(report: SystemCrashReport, extras: Extras = Extras()) {
+    public init(report: SystemCrashReport, source: Source = .macOSCrashReport, extras: Extras = Extras()) {
         self.report = report
+        self.source = source
         self.extras = extras
     }
 
@@ -94,7 +105,7 @@ public nonisolated struct SystemCrashEvent: Sendable {
         }
         var tags = extras.crashKeys
         tags["process"] = report.processName
-        tags["crash_source"] = "macos_crash_report"
+        tags["crash_source"] = source.rawValue
         // The same tag as a Chromium helper's exit event (``HelperExitEvent``): one search finds both.
         if let pid = report.pid { tags["pid"] = String(pid) }
         if let origin = extras.origin { tags["process_origin"] = origin.rawValue }

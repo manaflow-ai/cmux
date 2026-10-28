@@ -16,6 +16,10 @@ extension CEFLayerHosting {
         /// holds it up to 500 ms on every resize, and from API 32, where the
         /// fork never holds it (``hasResizeSync(apiVersion:)``).
         let setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)?
+        /// `cmux_shim_browser_set_resize_fence` (``resizeFenceForkAPI``) and the runtime's
+        /// transactions (``CEFLayerHosting/viewDidResize()``); nil on older forks, in host mode and
+        /// while the feature `cefResizeFence` is off. With it ``trackA`` has ``TrackA/resizeFence``.
+        let resizeFence: ResizeFence?
         /// The Track A calls the app makes for this fork's pages while the
         /// feature `cefLayerHosting` is on; nil while it is off.
         let trackA: TrackA?
@@ -50,6 +54,7 @@ extension CEFLayerHosting {
 
         init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
              setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil,
+             resizeFence: ResizeFence? = nil,
              trackA: TrackA? = nil, attachView: CEFAttachedPages.Attach? = nil,
              setVisibility: ((_ browser: Int32, _ visibility: PageVisibility) -> Bool)? = nil,
              evictFrame: ((_ browser: Int32) -> Bool)? = nil,
@@ -59,6 +64,7 @@ extension CEFLayerHosting {
              hostedWidgets: Set<Widget> = [.page], attachedWidgets: Set<Widget> = [.page]) {
             self.setLayerHosting = setLayerHosting
             self.setResizeSync = setResizeSync
+            self.resizeFence = resizeFence
             self.trackA = trackA
             self.hostsEveryPage = hostsEveryPage
             self.attachView = attachView
@@ -73,19 +79,30 @@ extension CEFLayerHosting {
         /// The shim's call; nil without a shim or below fork API 26, where
         /// nothing changes and showing a tab costs nothing here. From fork API 34
         /// the app gives a hosted page its visibility, so the feature's Track A
-        /// calls include ``TrackA/embedderVisibility``.
-        init?(shim: CEFShimLibrary?, apiVersion: Int32, policy: Policy = Policy()) {
+        /// calls include ``TrackA/embedderVisibility``. `fences` is the runtime's one set of resize
+        /// transactions, shared by every page (nil while the feature `cefResizeFence` is off): from
+        /// ``CEFLayerHosting/resizeFenceForkAPI``, with the shim's in-process fence call, each resize
+        /// joins one (``resizeFence``) and the Track A calls include ``TrackA/resizeFence``.
+        init?(shim: CEFShimLibrary?, apiVersion: Int32, policy: Policy = Policy(), fences: CEFResizeFences? = nil) {
             guard let shim, apiVersion >= CEFLayerHosting.forkAPI else { return nil }
             setLayerHosting = { browser, enabled in shim.browserSetLayerHosting(browser, enabled ? 1 : 0) }
             setResizeSync = CEFLayerHosting.hasResizeSync(apiVersion: apiVersion)
                 ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil
+            let setFence = apiVersion >= CEFLayerHosting.resizeFenceForkAPI ? shim.browserSetResizeFence : nil
+            resizeFence = fences.flatMap { fences in
+                setFence.map { call in
+                    ResizeFence(fences: fences, set: { browser, fence, frames in call(browser, fence, frames) == 1 })
+                }
+            }
+            var calls = policy.trackA
+            if resizeFence != nil { calls = calls?.union(.resizeFence) }
             if apiVersion >= CEFLayerHosting.embedderVisibilityForkAPI, let call = shim.browserSetEmbedderVisibility {
                 setVisibility = { browser, visibility in call(browser, visibility.rawValue) == 1 }
-                trackA = policy.trackA?.union(.embedderVisibility)
+                calls = calls?.union(.embedderVisibility)
             } else {
                 setVisibility = nil
-                trackA = policy.trackA
             }
+            trackA = calls
             hostsEveryPage = policy.hostsEveryPage
             attachView = CEFAttachedPages.shimAttach(shim, apiVersion: apiVersion, enabled: policy.attachesViews)
             // The fork's keep-frame-while-hidden call has no shim export yet: Chromium's own eviction decides.
@@ -101,7 +118,14 @@ extension CEFLayerHosting {
 
         /// A page window `runtime` made in process, with its features' calls.
         init?(runtime: CEFRuntime) {
-            self.init(shim: runtime.shim, apiVersion: runtime.forkAPIVersion, policy: runtime.pageHosting)
+            self.init(shim: runtime.shim, apiVersion: runtime.forkAPIVersion, policy: runtime.pageHosting,
+                      fences: runtime.resizeFences)
         }
+    }
+
+    /// A page's way into a geometry transaction's fence (``CEFResizeFences``).
+    struct ResizeFence {
+        let fences: CEFResizeFences
+        let set: CEFResizeFences.SetFence
     }
 }

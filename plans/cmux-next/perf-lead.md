@@ -118,7 +118,7 @@ palette linear grouping (Aziz 59564e6e), WebKit title coalesce (Aziz ff167aa9).
 | F5 | Work follows what exists, not what changed | idle main wakes 27-107/s, 358 KB/s idle disk writes, 368 indicators per Cmd-Tab (fixed), sidebar 17 % CPU ticking at 400 ws | one observer per visible thing; no timers; writes only on new information | batch 2 |
 | F6 | One process per terminal | 392 processes heavy (172 terminal hosts), 8.2 MB per workspace | keep crash isolation another way: a holder keeps PTY fds + byte rings, VT parsing in a small worker pool that restarts from the ring (PL-daemon, terminal-host-model-DESIGN.md) | now: holder items 1-3 and the item 5 prerequisites landed (flag still off); item 4 GUI dogfood queued as exclusive measure steps (scripts/measure/holder-dogfood.sh, allowlisted in hq ebe0d8c61fc; aws-m4pro-9, cmuxs-Mac-mini-3, cmux12s); default on (item 5, branch pl-daemon-holder-6, 454518e270a, its suite green on the fleet) lands after the dogfood |
 | F7 | Creates wait for the daemon's echo; stand-ins added per command | terminals instant, browser tabs not | one intent + stand-in path for every create | PL-cef-tab now |
-| F8 | Hidden things keep full cost | hidden Chromium tab 55 MB, Home 793 MB vs ~70 MB floor | discard engines past a grace, keep a record and picture | batch 2 |
+| F8 | Hidden things keep full cost | hidden Chromium tab 55 MB, Home 793 MB vs ~70 MB floor | discard engines past a grace, keep a record and picture; budgets from RAM, one memory coordinator per process, renderer limit from RAM (PL-memory, [memory-DESIGN.md](memory-DESIGN.md); done checks DC1-DC18 there, results recorded here) | batch 2 |
 | F10 | Daemon requests are slow | split 107-112 ms p50, new terminal 114/660 ms p50/p95 loaded | profile each op, fix causes; local request < 2 ms (PL-daemon) | now |
 | F11 | Ghostty integration (audit) | 20 idle terminals 7.3 % CPU, 7.8 MB per terminal; possible double VT parsing (daemon + app) | ghostty-integration-DESIGN.md (PL-ghostty) | now |
 | F12 | Two web engines for browser tabs (every feature built twice) | WebKitEngine + CEFEngine, per-tab engine | Lawrence 2026-10-23: KEEP BOTH ENGINES. Every perf target applies to both; no removal | closed |
@@ -373,7 +373,36 @@ feature of a milestone from one branch with one version number (chrome/VERSION).
 | 2026-10-26 | p08-startup-070 (done check 14) | perf/chrome-parity at `5ac4dd1680c` | 18: idle after launch, 3 restored Chromium tabs | - | **not measured**; `bench-idle.sh`, then `startup-queue.py arms` |
 | 2026-10-26 | p08-startup-070 (done check 15) | perf/chrome-parity at `5ac4dd1680c` | 18: edge launches (no-activate, quit at 100 ms) | - | **not measured** |
 | 2026-10-26 | p07-memory-067 (F8 done checks DC1-DC18) | perf/chrome-parity fb08b6548fe (docs only) | F8: DC1-DC18 of chrome-parity/p07-memory.md section 5 | no hour-0 baseline: task 075 is not on perf/chrome-parity, so every "today" value is the spec's quoted number, not a same-base A/B | static and Linux parts measured at fb08b6548fe (table "Memory done checks" below): DC2 kernel sources pass, DC2 observe and DC3 fail with named hits, DC1 static 86 -> 44 files; every fleet run NOT run (no build of this sha, no 075 base) |
+| 2026-10-27 | p02-threads 306 (inventory zero, test phase) | a7373a1d0e5..27253d4cc9f (perf/chrome-parity; source counts, no build) | p02-threads done checks INV-1..INV-5, RUN-11, RUN-13, RUN-2 Chromium open number; full table in [threading-model.md](threading-model.md#inventory-results-p02-threads-306) | INV-1 raw-blocking 1097, raw-blocking-ext 652, main-blocking 135, pool-blocking 241, maybe-main 26, task-priority 243, thread-doc 6, cpu-intensive 91, sync-inversion 5, once-blocking 17, awaited-low-priority 20; INV-2 132 lines; INV-3 36; INV-4 1 Swift reason, 0 escapes, 2 Rust variants; INV-5 41 | INV-1 raw-blocking 890, raw-blocking-ext 612, main-blocking 65, pool-blocking 211, maybe-main 12, task-priority 172, cpu-intensive 1; thread-doc, sync-inversion, once-blocking and awaited-low-priority 0; INV-2 48 (Security family only); INV-3 0; INV-4 Swift 9 escapes (limit 3), Rust 2 variants within limit; INV-5 7 lines, 3 over the audio-tap exception. Met: INV-3, INV-4 Rust, four INV-1 rules. Not met: INV-1 (other rules), INV-2, INV-4 Swift, INV-5. RUN-11 and RUN-13 not measured (fleet Mac needed); the RUN-2 app_chromium number stays OPEN |
+| 2026-10-27 | p13-webui-086 (p13 exports in the fork train) | perf/chrome-parity, this push; manaflow-ai/cef `cp/p13-webui-086` at `845d0aab` (not built, not pinned) | D1, D3, D12 "train" rows: the p13 fork exports need one numbered dist | each p13 export kept `CMUX_CEF_API_VERSION` 27 on its own branch (no number), and the app claimed 32 for page sharing, which is p03-rendering-042's resize fence | one train ref on the API 31 line with 017, 018, 077, 020, 055 and 011 merged, one number per export (38-42, 43 reserved; table below); the app's gates follow it: page sharing 42, surface copy and native mouse move 40 (p13-webui-078 had claimed 38), page push 43 (p13-webui-079 had claimed 39). Not done: the dist (`cmux-ci build cef` of `845d0aab`, both arches), the release tag, the R2 upload and the pin bump of cef-manifest.json and remote-browser-host.pin.json |
 | | | | | | |
+
+### Fork API numbers of the p13 exports (p13-webui-086)
+
+One number per export, max + 1 of every number a fork branch or the app claimed on 2026-10-27 (24-37: 28 and 29
+cmux.34/35, 30 helper app, 31 the p01-process-178 train, 32 p03-rendering-042, 33 p14-energy-136, 34
+p03-rendering-058, 35 p03-rendering-056, 36 p03-rendering-044, 37 p06-scheduler-212). The train ref is
+manaflow-ai/cef `cp/p13-webui-086` at `845d0aab`: `cp/p01-process-178` (`2b65db9f`, API 31) with each p13 branch
+merged and numbered in `include/cef_cmux.h`. It lacks 28, 29 and 32-37 (other lines), so its pin records
+`missing_api: [28, 29, 32, 33, 34, 35, 36, 37]`. The next number for any other fork change is 44.
+
+| API | Export | Task | Fork commit merged | App gate |
+|---|---|---|---|---|
+| 38 | `CMUX_EXTRA_INFO_NO_RENDERER`, `cmux_tab_renderer_state` (renderer-less placeholder) | p13-webui-017 | `dfdbea5a` | dlsym of `cmux_tab_renderer_state` (019) |
+| 39 | `cmux_tab_discard`, `cmux_tab_was_discarded` (in-place discard) | p13-webui-018 | `f844f729` | `cmux_shim_tab_discard`, ops `fork_api` 39 (031) |
+| 40 | `cmux_browser_capture`, `cmux_tab_devtools_state` (page pictures without DevTools) | p13-webui-077 | `d110ee57` | `CEFForkFeatures.surfaceCopyForkAPI` 40 (with it `mouseMoveForkAPI`), ops `fork_api` 40 of `cmux_shim_tab_copy_surface` and `cmux_shim_tab_send_mouse_move` (078) |
+| 41 | `cmux_ext_load_command_line_async` (built-in extensions at a profile's first tab) | p13-webui-055 | `cbe3c745` | dlsym (055) |
+| 42 | `cmux_page_scheme_set_group`, reader of `--cmux-page-scheme-process-per-site` (page process groups) | p13-webui-011 | `17a7f8ff` | `CEFForkFeatures.pageSiteSharingForkAPI` 42, ops `fork_api` 42 (012) |
+| 43 | `cmux_tab_page_push`, `cmuxPageListen` (page push channel; reserved: not merged into the train ref yet) | p13-webui-079 | `37353c1b` on `cp/p06-scheduler-212` (its header says 38; the train renumbers it 43 when it merges it) | `CEFForkFeatures.pagePushForkAPI` 43 |
+| - | `--cmux-spare-renderer-after-first-tab` (a switch: no number) | p13-webui-020 | `5d16aa91` | `chromiumSpareAfterFirstTab` feature |
+
+Status: merged and numbered, header checked with `-std=c99` and `-std=c++17 -Wall -Wextra -Werror`; nothing built or
+run. Remaining for "one dist, one pin bump": `cmux-ci build cef` of `845d0aab` (arm64 and x86_64), `ceftests
+--gtest_filter=CmuxPlaceholderTest.*:CmuxDiscardTest.*:CmuxTabSurfaceTest.*:CmuxPageProcessTest.*`,
+`scripts/test-cmux-embedder.sh <cef> placeholder placeholder-shared`, the release tag, the R2 upload (the fork
+owner's write key), then `cef_release_pin.py pin <tag> --accept-missing-api 28,29,32,33,34,35,36,37` (p01-process-178's
+tool, not on perf/chrome-parity yet), the matching
+remote-browser-host pin, `ensure-cef.sh fetch` and `compile-check --app` at the new pin.
 
 ### Memory done checks (F8, p07-memory-067)
 

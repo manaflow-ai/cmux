@@ -113,7 +113,7 @@ final class FilesPaneService: InternalPageProvider {
     }
 
     private func makeTab(_ folder: URL) -> Tab {
-        let model = FileBrowserModel(folder: folder, files: FileOperator(namer: FileNamer(copyWord: FilesPaneView.copyWord,
+        let model = FileBrowserModel(folder: folder, work: mainWork, files: FileOperator(namer: FileNamer(copyWord: FilesPaneView.copyWord,
                                                                                    aliasWord: FilesPaneView.aliasWord)),
                                      memory: FolderViewMemory(defaults: .standard))
         return Tab(model: model, view: nil, history: FilesPaneHistory(model: model))

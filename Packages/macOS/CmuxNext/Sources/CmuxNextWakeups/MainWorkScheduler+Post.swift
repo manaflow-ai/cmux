@@ -12,6 +12,7 @@ public struct MainPostSite: Sendable {
     /// The posting line.
     public let line: UInt
 
+    /// The site `file` (a `#fileID`) and `line`; the posting functions pass their defaults.
     public init(file: StaticString, line: UInt) {
         self.file = file
         self.line = line
@@ -101,6 +102,33 @@ extension MainWorkScheduler {
     public func post(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, file: StaticString = #fileID, line: UInt = #line,
                      _ body: @escaping @MainActor () -> Void) {
         post(workClass, owner: owner, site: MainPostSite(file: file, line: line), body)
+    }
+
+    /// Queues `body`, the rest of a task that stopped between two chunks because
+    /// ``MainFrameBudget/shouldYield()`` said so, at the front of `workClass`'s queue: Blink's
+    /// `scheduler.yield()` continuation (third_party/blink/renderer/modules/scheduler/dom_scheduler.cc), which runs
+    /// ahead of every task of its priority, posted before it or after. It runs in a later frame, first of its class,
+    /// so the frame it stopped in renders and the person's pending input goes first: no drain runs it in the frame it
+    /// was posted in, a turn drain of ``MainWorkClass/userBlocking`` or ``MainWorkClass/automation`` work included, so
+    /// the task keeps to its class's share. Continuations run in the order they were posted. Never inline: the caller
+    /// returns first. Post only the rest of a task that yielded; a new task is a ``post(_:owner:file:line:_:)``.
+    ///
+    /// - Parameters:
+    ///   - workClass: The class of the task that yielded (its continuation keeps it).
+    ///   - owner: The task's owner, interned on this scheduler's board (``MainTaskBoard/owner(_:)``).
+    ///   - file: The posting file (leave the default).
+    ///   - line: The posting line (leave the default).
+    ///   - body: The rest of the task.
+    public func postContinuation(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, file: StaticString = #fileID, line: UInt = #line,
+                                 _ body: @escaping @MainActor () -> Void) {
+        let post = MainTaskPost(site: MainPostSite(file: file, line: line), enqueueNanos: budget.nowNanos)
+        classQueue(workClass).appendContinuation(owner: owner, post: post, body)
+    }
+
+    /// ``postContinuation(_:owner:file:line:_:)`` with an owner name, interned on the board once per scheduler.
+    public func postContinuation(_ workClass: BudgetedWorkClass, owner: String, file: StaticString = #fileID, line: UInt = #line,
+                                 _ body: @escaping @MainActor () -> Void) {
+        postContinuation(workClass, owner: taskOwner(owner), file: file, line: line, body)
     }
 
     /// ``post(_:owner:file:line:_:)`` from any thread: the task reaches main on the next main run
@@ -253,9 +281,11 @@ extension MainWorkScheduler {
         }
     }
 
-    /// Runs `queue`'s work now while its class may run, and leaves the rest ticking on frames.
+    /// Runs `queue`'s work now while its class may run, and leaves the rest ticking on frames. After a
+    /// tick whose batch waits for its own turn (after-commit placement), that turn runs it: right after
+    /// the tick's commit, so the tick's turn holds no budgeted task.
     private func runNow(_ queue: FrameBatchQueue) {
-        if startup.admits(queue.workClass), budget.mayRun(queue.workClass) { _ = queue.drainNow(limit: queue.count) }
+        if !isBudgetTurnPending, startup.admits(queue.workClass), budget.mayRun(queue.workClass) { _ = queue.drainNow(limit: queue.count) }
         queue.activate()
     }
 

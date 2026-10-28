@@ -3,12 +3,15 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextChromiumRuntime
 import CmuxNextCloud
 import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHomeEngine
+import CmuxNextIcons
 import CmuxNextInput
 import CmuxNextIPC
 import CmuxNextLaunch
@@ -26,6 +29,16 @@ import CmuxNextWebUpdates
 public struct CmuxNextApp {
     public static let shared = Self()
     public func main() {
+        // First: the launch's one watchdog and the startup tag it reads (p08-startup-088), so every launch stall is
+        // listed with its phase and step (Chrome makes its HangWatcher at process start: base/threading/hang_watcher.h).
+        // Its thread starts below, once the process may have a second one; it measures from here.
+        let startupTag = StartupTaskTag()
+        // The one-thread steps up to the watchdog's start: one step, since a stall in them is listed only at the start.
+        startupTag.step("main.one_thread")
+        // The main thread's one deadline queue (its run-loop timer stays parked until the first deadline; no thread):
+        // the watchdog's busy windows end on it, and the scheduler LaunchOrder makes below shares it (p14-energy-065).
+        let mainWakeUps = MainWakeUpQueue(energy: EnergyPolicySource())
+        let watchdog = MainThreadWatchdog(startupTasks: startupTag, wakeUps: mainWakeUps)
         // CMUX_TRACE_STARTUP: the startup trace's ring, before the first mark (unset: one getenv, no ring).
         let startupTrace = DebugTimings.makeStartupTrace()
         DebugTimings.markLaunch("main_start")
@@ -37,7 +50,10 @@ public struct CmuxNextApp {
         // swaps zones without a moment where no zone owns system memory.
         // Without this, a free() on another thread in that moment crashed
         // with "No zone found" (browser-isolation.md, allocator zone race).
-        _ = cmux_early_malloc_zone_registration()
+        // A sanitizer build keeps Chromium unloaded, so it needs no such zone (SanitizerRuntime).
+        if SanitizerRuntime.detect(environment: ProcessInfo.processInfo.environment).loadsChromium {
+            _ = cmux_early_malloc_zone_registration()
+        }
         #if DEBUG || CMUX_BENCH_HOOKS
         // CMUX_NEXT_MAIN_JOB_CENSUS=1 (startup-queue.py mainjobs): every main job and turn until startup completes
         // (p08-startup-080). Its hook goes in while the process still has one thread, before any main-actor job.
@@ -65,10 +81,15 @@ public struct CmuxNextApp {
         // ghostty_init while the process still has one thread: its locale setup may setenv LANG and setlocale
         // (Ghostty's internal_os.ensureLocale, src/os/locale.zig), which must not race another thread's environ read.
         GhosttyRuntime.initializeLibrary()
+        // The launch's second thread: the one-thread steps above count from the watchdog's creation.
+        watchdog.start(measuringSinceCreation: true)
         // Pure launch work (action catalog, symbols, displays, icons) overlaps AppKit's start; the registry takes the catalog.
+        watchdog.startupStep("main.warmup")
         let actionCatalog = ActionCatalogLaunch()
-        LaunchWarmup().start(catalog: actionCatalog)
+        LaunchWarmup(work: { if actionCatalog.build() { DebugTimings.markLaunch("action_catalog_built") } },
+                     decodeIcons: { IconPack.decodeBundledInBackground(then: $0) }, markLaunch: { DebugTimings.markLaunch($0) }).start()
         DebugTimings.markLaunch("main.warmup_started")
+        watchdog.startupStep("main.lanes")
         // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
         let hangWatch = TraceRuntime.shared.hangWatch
         // The main task board, shared by the lanes (an awaited low item in an input turn is a Debug site) and the budget.
@@ -80,9 +101,18 @@ public struct CmuxNextApp {
         startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
         startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
         // Shells get the launch limit back. Path lookups only: the stores at these paths read and create on first use.
+        watchdog.startupStep("main.environment")
         var environment = AppEnvironment.current(openFiles: openFiles)
         environment.marksRun = true
         environment.actionCatalog = actionCatalog
+        // The launch caches' crash-streak decision (p08-startup-089), made on the files lane by the first cache read or
+        // the run marker's launch read, which writes this launch's record before any cache is read: after a streak of
+        // launches that ended before their startup completed, every launch cache below reads as missing.
+        let markerFolder = AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID), launched = Date()
+        let launchCaches = LaunchSafeMode.Gate(decide: { AppRunMarker.launchSafeMode(directory: markerFolder, now: launched) },
+                                               mark: { DebugTimings.markLaunch($0) })
+        environment.launchCaches = launchCaches
+        let cacheReader = environment.launchCacheReader
         #if DEBUG || CMUX_BENCH_HOOKS
         environment.mainJobCensus = mainJobs
         environment.globalJobCensus = globalJobs
@@ -94,7 +124,8 @@ public struct CmuxNextApp {
         let homeCaches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
         environment.homeCachesDirectory = homeCaches
         // The Home list's caches of this build's Chief owner, read on the files lane while AppKit starts (p08-startup-076).
-        environment.homeListRead = HomeListLaunchRead.start(owner: ChiefHome.resolve(tag: environment.tag).session, caches: homeCaches, on: work)
+        environment.homeListRead = HomeListLaunchRead.start(owner: ChiefHome.resolve(tag: environment.tag).session, caches: homeCaches, on: work,
+                                                            reads: { launchCaches.safeMode.readsLaunchCaches })
         // The app's acpmux, resolved once on the system lane: its signature check reads this app's signing team
         // (SigningTeamInstall) and hashes the binary. Main-thread users take the landed answer (QuitAgents.environment).
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
@@ -109,6 +140,7 @@ public struct CmuxNextApp {
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         // Ghostty's resources folder, CLI helper and terminfo (a few stats), before the other launch reads on the
         // files lane: every shell's env and the daemon's start await it.
+        watchdog.startupStep("main.launch_reads")
         environment.ghosttyProbe = GhosttyLaunchProbe.start(on: work)
         // The incognito workspaces a crashed run left, then the settings read, in one sequence: the launch window
         // (made after the settings read lands) knows whether it may list every workspace (p08-startup 038).
@@ -132,10 +164,9 @@ public struct CmuxNextApp {
         // The run marker reads the last run's files and opens this run's (p08-startup-075), after the Labs and tunables
         // reads (the launch's features take those without waiting) and before the settings read: the services, made
         // after the settings read lands, take its result with no file call on main.
-        environment.runMarker = AppRunMarker.startLaunchRead(directory: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID),
-                                                             in: ledgerThenSettings)
+        environment.runMarker = AppRunMarker.startLaunchRead(directory: markerFolder, in: ledgerThenSettings, now: launched, gate: launchCaches)
         // The saved sidebars, before the settings read: the launch window's first frame draws them (p08-startup-075).
-        environment.sidebarSnapshot = environment.sidebarSnapshotFile?.startLaunchRead(in: ledgerThenSettings)
+        environment.sidebarSnapshot = environment.sidebarSnapshotFile?.startLaunchRead(in: ledgerThenSettings, reader: cacheReader)
         // This Mac's install id, after the feature choices (the launch's features do not wait for it) and after the run marker
         // and saved sidebars, before the settings read: the windows built when that lands find it read (p08-startup-076).
         let cloudPaths = CloudPaths.standard(bundleID: Bundle.main.bundleIdentifier)
@@ -144,13 +175,13 @@ public struct CmuxNextApp {
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
         let settingsRead = SettingsController.startLaunchRead(on: work, in: ledgerThenSettings)
-        let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
+        let launchImages = AgentPaneLaunchImages(state: state, reader: cacheReader), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
-        let terminalFrames = TerminalLaunchFrames(state: state)
+        let terminalFrames = TerminalLaunchFrames(state: state, reader: cacheReader)
         terminalFrames.prefetch(on: work) { DebugTimings.markLaunch($0) }
-        environment.browserLaunchPictures = BrowserLaunchPictures(state: state, work: work)  // browser pages' (p08-startup-043)
+        environment.browserLaunchPictures = BrowserLaunchPictures(state: state, work: work, reader: cacheReader)  // browser pages' (p08-startup-043)
         environment.browserLaunchPictures?.prefetch { DebugTimings.markLaunch($0) }
-        environment.windowPictures = WindowPictureStore(state: state, work: work)  // the windows' (p08-startup-057)
+        environment.windowPictures = WindowPictureStore(state: state, work: work, reader: cacheReader)  // the windows' (p08-startup-057)
         relaunchWake.begin(on: work)
         // The kept web update's state and digest (NIGHTLY): pages wait for it, never main (p08-startup-077).
         environment.webUpdates = WebUpdates.startLaunchRead(on: work)
@@ -166,7 +197,9 @@ public struct CmuxNextApp {
         BrowserFaviconLoader.shared.useResolver(SystemRemoteResolver(runner: work))
         BackdropVideoPlayers.shared.lanes = work
         // The launch's feature values, once, before the first feature read (the daemon connect's).
+        watchdog.startupStep("main.daemon_prestart")
         let features = AppServices.launchFeatures(environment)
+        if features.isEnabled(.terminalLaunchPrefetch) { TerminalLaunchPrefetch().start() }
         // What every hello tells the local daemon, which outlives this app (p12-perf-process-150).
         environment.daemonFeatureHello = DaemonFeatureHello(hash: features.daemonValuesHash, values: Dictionary(
             features.daemonValues.map { ($0.name, $0.isEnabled) }, uniquingKeysWith: { _, last in last }))
@@ -193,7 +226,7 @@ public struct CmuxNextApp {
                                                   featureHello: featureHello, terminalStreams: terminalStreams)
             guard let names = start.snapshotNames else { return start }
             let read = LaunchRead(on: work, dropped: LaunchSnapshot.Found.missing) {
-                LaunchSnapshot.find(session: names.session, stateDirectory: names.stateDirectory)
+                launchCaches.safeMode.readsLaunchCaches ? LaunchSnapshot.find(session: names.session, stateDirectory: names.stateDirectory) : .missing
             }
             return start.reading(LaunchSnapshotPrefetch(session: names.session, ended: { read.value }, finished: { await read.finished() }))
         }
@@ -203,6 +236,7 @@ public struct CmuxNextApp {
         if features.isEnabled(.savedWindowPicture) {
             let build = environment.launch.build
             environment.windowPictures?.prefetchFront({
+                guard launchCaches.safeMode.readsLaunchCaches else { return nil }  // the launch snapshot is a launch cache
                 // The daemon's launch step when it has landed, else this build's daemon names read here by the
                 // launcher's rule (DaemonLauncher.appNames): the picture's read never waits for the system lane.
                 let landed = daemonStart.value
@@ -218,6 +252,12 @@ public struct CmuxNextApp {
                 }
             }, mark: { DebugTimings.markLaunch($0) })
         }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // CMUX_NEXT_BENCH_LAUNCH_STALL_MS: a main-thread stall before NSApp, which bench-launch-stall.py finds in debug.hangs.
+        watchdog.startupStep("bench.launch_stall")
+        BenchLaunchStall(environment: ProcessInfo.processInfo.environment).run()
+        #endif
+        watchdog.startupStep("main.nsapp")
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()
         // Instantiate the CEF-ready subclass before anything touches NSApp.
@@ -230,7 +270,9 @@ public struct CmuxNextApp {
         // and services make any: their owners in many packages make them with no tap (p04-input-013).
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
-        let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap) { DebugTimings.markLaunch($0) }
+        watchdog.startupStep("main.launch_order")
+        let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap, startupTag: startupTag, wakeUps: mainWakeUps,
+                                budgetPlacement: features.isEnabled(.mainBudgetTurn) ? .afterCommit : .inTick) { DebugTimings.markLaunch($0) }
         // Main-actor jobs wait behind pending input (p04-input-076); installed as `debug.mainJobGate` says (AppServices.settings).
         // Classed main work (post(class:), MainNotificationObserver) waits behind the same input (p04-input-080).
         if features.isEnabled(.mainJobGate), let pending = order.mainWork.budget.pendingInput as? SessionInputPending {
@@ -245,7 +287,7 @@ public struct CmuxNextApp {
         LaunchThreadCensus.post(on: order.startup) { LaunchMarkSink.shared.writeValue(name: $0, value: $1) } // Debug/bench: threads at the first frame (p08-startup-068)
         if let pictures = environment.windowPictures { order.startup.whenComplete { _ in pictures.dropFront() } } // decoded pictures are large
         let delegate = AppDelegate(environment: environment, daemonStart: daemonStart, wireStats: wireStats, features: features,
-                                   startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
+                                   startupTrace: startupTrace, order: order, watchdog: watchdog, inputTap: inputTap, settingsRead: settingsRead,
                                    launchReads: (work, launchImages, terminalFrames, relaunchWake))
         DebugTimings.markLaunch("main.delegate")
         // Every main run-loop turn is timed and split on the main-thread scheduler's meter (MainTurnMeter).
@@ -257,6 +299,7 @@ public struct CmuxNextApp {
         DebugTimings.markLaunch("main.nsapp")
         DebugTimings.markLaunch("main.run")
         DebugTimings.armRunLoopStartMark()
+        watchdog.startupStep("main.run") // AppKit's own start, up to applicationDidFinishLaunching
         // NSApplication.delegate is weak; keep the delegate alive for the run.
         withExtendedLifetime(delegate) {
             app.run()

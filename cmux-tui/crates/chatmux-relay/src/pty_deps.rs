@@ -424,6 +424,7 @@ impl ProcessOutputCompletion {
         };
         if let Some(grace) = watch_grace {
             let completion = Arc::clone(self);
+            // supervise-allow: one process's post-exit grace, bounded by post_exit_grace; a panic ends that process's output only.
             std::thread::spawn(move || completion.wait_for_readers(grace));
         } else {
             self.emit_if_ready();
@@ -667,12 +668,14 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     // Blocking reader thread -> output sink.
     let data_output = Arc::clone(&output);
     let data_completion = Arc::clone(&completion);
+    // supervise-allow: one terminal's reader; it ends at EOF or cancellation, and a panic ends that terminal's output only.
     std::thread::spawn(move || {
         pump_pty(reader, cancel_reader, data_output, data_completion);
     });
     // Blocking wait thread -> exit.
     let mut child = child_cleanup.into_child();
     let exit_completion = Arc::clone(&completion);
+    // supervise-allow: one terminal's waiter; it ends when its child exits, and a panic loses that terminal's exit code only.
     std::thread::spawn(move || {
         let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
         exit_completion.child_exited(code);
@@ -779,22 +782,26 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
             if let Some(stdout) = child.stdout.take() {
                 let out = Arc::clone(&output);
                 let done = Arc::clone(&completion);
+                // supervise-allow: one process's stdout reader; it ends at EOF or cancellation, and a panic ends that process's output only.
                 std::thread::spawn(move || pump_pipe(stdout, out, done));
             }
             if let Some(stderr) = child.stderr.take() {
                 let out = Arc::clone(&output);
                 let done = Arc::clone(&completion);
+                // supervise-allow: one process's stderr reader; it ends at EOF or cancellation, and a panic ends that process's output only.
                 std::thread::spawn(move || pump_pipe(stderr, out, done));
             }
             // Observe exit without reaping. The owner thread handles both
             // overflow kill requests and the final wait, so all process
             // signals use the still-owned Child handle.
             let observer_tx = command_tx;
+            // supervise-allow: one process's exit observer; it ends when the child exits, and a panic loses that process's exit notice only (a kill through its control still ends it).
             std::thread::spawn(move || {
                 let _ = wait_for_child_exit_without_reaping(pid);
                 let _ = observer_tx.send(PipeChildCommand::ExitReady);
             });
             let wait_completion = Arc::clone(&completion);
+            // supervise-allow: one process's owner thread; it ends after the child's wait, and a panic loses that process's exit code only.
             std::thread::spawn(move || {
                 let mut exit_ready = false;
                 while !exit_ready {

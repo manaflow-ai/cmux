@@ -18,7 +18,7 @@ extension ControlSocketServer {
         var created = false
         // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local.
-        if unsafe lstat(parent, &info) != 0 {
+        if unsafe blockingLstat(parent, &info) != 0 {
             guard errno == ENOENT else {
                 if protectExisting { throw StartError.system(call: "lstat", errno: errno) }
                 return
@@ -29,7 +29,7 @@ extension ControlSocketServer {
             )
             created = true
             // SAFETY: as above.
-            guard unsafe lstat(parent, &info) == 0 else {
+            guard unsafe blockingLstat(parent, &info) == 0 else {
                 if protectExisting { throw StartError.system(call: "mkdir", errno: errno) }
                 return
             }
@@ -44,7 +44,7 @@ extension ControlSocketServer {
         }
         // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local.
-        guard unsafe lstat(parent, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+        guard unsafe blockingLstat(parent, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
               info.st_uid == getuid(), info.st_mode & 0o777 == 0o700 else {
             throw StartError.system(call: "chmod", errno: EPERM)
         }
@@ -59,7 +59,7 @@ extension ControlSocketServer {
         var info = stat()
         // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local.
-        if unsafe lstat(link, &info) == 0 {
+        if unsafe blockingLstat(link, &info) == 0 {
             let isStaleSocket = info.st_mode & S_IFMT == S_IFSOCK && info.st_uid == getuid() && probe(link) == .refused
             guard isStaleSocket else {
                 if (try? FileManager.default.destinationOfSymbolicLink(atPath: link)) != target {
@@ -68,7 +68,7 @@ extension ControlSocketServer {
                 return true
             }
             // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
-            unsafe unlink(link)
+            unsafe _ = blockingUnlink(link)
         } else if errno != ENOENT {
             return true
         }
@@ -80,7 +80,7 @@ extension ControlSocketServer {
     static func unlinkLink(_ link: String, to target: String) {
         guard (try? FileManager.default.destinationOfSymbolicLink(atPath: link)) == target else { return }
         // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
-        unsafe unlink(link)
+        unsafe _ = blockingUnlink(link)
     }
 
     /// Removes the socket file at `path` only while it is the one `identity` names: a socket another
@@ -89,9 +89,9 @@ extension ControlSocketServer {
         var info = stat()
         // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local.
-        if let identity, unsafe lstat(path, &info) == 0, info.st_dev == identity.dev, info.st_ino == identity.ino {
+        if let identity, unsafe blockingLstat(path, &info) == 0, info.st_dev == identity.dev, info.st_ino == identity.ino {
             // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
-            unsafe unlink(path)
+            unsafe _ = blockingUnlink(path)
         }
     }
 
@@ -210,7 +210,7 @@ extension ControlSocketServer {
         guard listen(descriptor, backlog) == 0 else {
             let code = errno
             // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
-            unsafe unlink(path)
+            unsafe _ = blockingUnlink(path)
             throw StartError.system(call: "listen", errno: code)
         }
         _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
@@ -218,7 +218,7 @@ extension ControlSocketServer {
         var info = stat()
         // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local.
-        let identity = unsafe lstat(path, &info) == 0 ? (dev: info.st_dev, ino: info.st_ino) : nil
+        let identity = unsafe blockingLstat(path, &info) == 0 ? (dev: info.st_dev, ino: info.st_ino) : nil
         shouldClose = false
         return (descriptor, identity)
     }
@@ -241,7 +241,7 @@ extension ControlSocketServer {
         }
         if let staging {
             // SAFETY: rmdir reads the NUL-terminated copy of the path made for the call.
-            defer { unsafe rmdir(staging) }
+            defer { unsafe _ = blockingRmdir(staging) }
             let staged = staging + "/s"
             if staged.utf8.count < capacity {
                 try bindAddress(descriptor, staged, bind: bind)
@@ -249,14 +249,14 @@ extension ControlSocketServer {
                 guard unsafe chmod(staged, mode) == 0 else {
                     let code = errno
                     // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
-                    unsafe unlink(staged)
+                    unsafe _ = blockingUnlink(staged)
                     throw StartError.system(call: "chmod", errno: code)
                 }
                 // SAFETY: renamex_np reads the NUL-terminated copies of both paths made for the call.
                 guard unsafe renamex_np(staged, path, UInt32(clamping: RENAME_EXCL)) == 0 else {
                     let code = errno
                     // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
-                    unsafe unlink(staged)
+                    unsafe _ = blockingUnlink(staged)
                     throw code == EEXIST ? StartError.addressInUse(path) : StartError.system(call: "rename", errno: code)
                 }
                 return try verifyMode(path, mode)
@@ -282,10 +282,10 @@ extension ControlSocketServer {
         var info = stat()
         // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local.
-        guard unsafe lstat(path, &info) == 0 else { throw StartError.system(call: "lstat", errno: errno) }
+        guard unsafe blockingLstat(path, &info) == 0 else { throw StartError.system(call: "lstat", errno: errno) }
         guard info.st_mode & 0o777 == mode else {
             // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
-            unsafe unlink(path)
+            unsafe _ = blockingUnlink(path)
             throw StartError.system(call: "chmod", errno: EPERM)
         }
     }
@@ -298,11 +298,11 @@ extension ControlSocketServer {
         var info = stat()
         // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local.
-        guard unsafe lstat(path, &info) == 0 else { return }
+        guard unsafe blockingLstat(path, &info) == 0 else { return }
         guard info.st_mode & S_IFMT == S_IFSOCK, info.st_uid == getuid() else { throw StartError.pathOccupied(path) }
         guard probe(path) == .refused else { throw StartError.addressInUse(path) }
         // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
-        unsafe unlink(path)
+        unsafe _ = blockingUnlink(path)
     }
 
     enum ProbeResult: Equatable {

@@ -38,7 +38,7 @@ import Testing
     }
 
     @Test func automaticRemoteImagesDefaultOff() {
-        let look = FilePageLook(kind: .markdown, settings: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        let look = FilePageLook(kind: .markdown, settings: { nil }, mainWork: linklessMainWork(), work: BackgroundWork(label: "test.file-look"))
         #expect(!look.remoteImages)
     }
 

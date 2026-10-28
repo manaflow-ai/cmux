@@ -101,6 +101,16 @@ impl Surface {
             } else {
                 render.build_attach_initial(&term)?
             };
+            // `render-state` carries no viewport position, and a client
+            // starts at the live bottom. A viewport scrolled back when the
+            // snapshot was taken is announced as the stream's first event,
+            // under the same terminal lock, so no later move can land between
+            // them (spec/render.md "Stream Ordering"). An exited terminal's
+            // stream gets it too: the dropped tap still delivers it before the
+            // stream ends.
+            if let (offset, false) = terminal_scroll_position(&term) {
+                tap.send(RenderAttachFrame::ScrollChanged { offset, at_bottom: false });
+            }
             let registered = if exited || pty.dead.load(Ordering::Acquire) {
                 drop(tap);
                 false

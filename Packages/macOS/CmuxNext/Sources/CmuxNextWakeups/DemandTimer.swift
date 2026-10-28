@@ -34,6 +34,7 @@ import CmuxNextCompat
 /// In Debug and bench builds each timer also tells its ledger's ``ArmCensus`` (startup-queue.py arms, p08-startup-085)
 /// when it is armed during the launch and when it first fires, under the owner and the line that made it.
 public final class DemandTimer: Sendable {
+    /// Who the deadline is for: each fire is one ledger record under it.
     public let owner: String
     /// How strictly each deadline is honored; `.flexibleNoSooner` by default.
     public let policy: DelayPolicy
@@ -174,6 +175,7 @@ public final class DemandTimer: Sendable {
         scheduleOnMain(after: delay, tolerance: tolerance, action)
     }
 
+    /// Drops the pending deadline, if any; its action never runs.
     public func cancel() {
         drop(state.withLock { $0.supersede() })
     }

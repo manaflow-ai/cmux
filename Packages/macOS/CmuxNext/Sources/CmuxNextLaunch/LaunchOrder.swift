@@ -90,9 +90,16 @@ public struct LaunchOrder {
     ///   - board: The main task board the budget publishes running work on; `main()` gives the same one to its
     ///     `BackgroundWork`, whose debug check reads the open input work there (p02-threads 112).
     ///   - input: The app's one input tap (p04-input.md 3 (A)): the budget's pending-input check observes it.
+    ///   - startupTag: The launch's tag `main()` made first and gave the main-thread watchdog: the startup
+    ///     scheduler keeps its running task and phase there, so a launch stall names them (p08-startup-088).
+    ///   - wakeUps: The main thread's one deadline queue `main()` made first and gave the main-thread watchdog,
+    ///     whose busy windows end on it (p14-energy-065); the scheduler's deadlines share it. Nil: the scheduler
+    ///     makes its own.
+    ///   - budgetPlacement: Where each frame's budgeted batch runs (feature `mainBudgetTurn`: after the commit).
     ///   - mark: Records a launch mark (`launch.revealed`, `launch.settled`, `startup_complete`).
     public init(fence: BestEffortFence, board: MainTaskBoard = MainTaskBoard(), input: any InputObserving,
-                mark: @escaping @MainActor (String) -> Void) {
+                startupTag: StartupTaskTag = StartupTaskTag(), wakeUps: MainWakeUpQueue? = nil,
+                budgetPlacement: BudgetedBatchPlacement = .inTick, mark: @escaping @MainActor (String) -> Void) {
         // One display link per display, shared by the app, window and budgeted frame schedulers.
         let displays = DisplayClock()
         // One frame.commit per commit, and each key echo's present at its display's vsync (p09-observability 037).
@@ -106,14 +113,16 @@ public struct LaunchOrder {
         phase.whenReached(.settled) { mark("launch.settled") }
         let starvation = RenderStarvationGuard(holdsWork: false, signposts: true) // holds work once FeatureList is in the app (p12-perf-process-091)
         let pending = SessionInputPending(events: WindowServerInputEvents(input: input))
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: pending, board: board, signposts: true, starvation: starvation),
-                                         displays: displays, startup: phase)
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: pending, board: board, signposts: true, starvation: starvation,
+                                                                 placement: budgetPlacement),
+                                         displays: displays, startup: phase, wakeUps: wakeUps)
         // The quiet before a long idle period starts again at each key, click, scroll or drag.
         pending.onInputDispatched = { [weak idle = mainWork.idle] in idle?.noteInput() }
         // The app and window schedulers run on that clock and follow the app's one Energy Saver policy.
         FrameScheduler.install(displays: displays, energy: mainWork.energy)
         starvation.watch(mainWork.frames, FrameScheduler.app)
         self.init(fence: fence, mainWork: mainWork,
-                  startup: StartupScheduler(mainWork: mainWork, background: fence.background, clock: ContinuousClock()), mark: mark)
+                  startup: StartupScheduler(mainWork: mainWork, background: fence.background, clock: ContinuousClock(),
+                                            log: .signposted(tag: startupTag)), mark: mark)
     }
 }

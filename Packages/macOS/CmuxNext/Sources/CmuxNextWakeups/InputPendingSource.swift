@@ -19,6 +19,7 @@ public protocol InputPendingSource: AnyObject {
 }
 
 extension InputPendingSource {
+    /// The default: any pending input counts (``hasPendingInput(uptime:)``).
     public func hasPendingPointerInput(uptime: TimeInterval) -> Bool {
         hasPendingInput(uptime: uptime)
     }

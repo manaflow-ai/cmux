@@ -51,6 +51,22 @@ class FakeApp:
         self.fail_launch = False
         self.stops = 0
         self.hang: set = set()
+        # The I11-I14 side channels: counters since launch that each action moves.
+        self.blocking_compiled = True
+        self.main_blocks = 0
+        self.blocks_per_turn = 0
+        self.hang_records: List[Dict[str, Any]] = [{"sequence": 2, "kind": "stall", "duration_ms": 90.0}]
+        self.runs: List[Dict[str, Any]] = []
+        self.commit_ms = 3.0
+        self.stall_ms = 0.0
+        self.uptime = 500.0
+        self.idle_wakes = 0
+        self.left_clients: List[str] = []
+        # The switches facet's `arms` (None: no provider in this build) and the per-key hit counts (None: no
+        # debug.oracle.switch_hits in this build); each turn counts one hit on the arm the key runs.
+        self.switch_arms: Optional[Dict[str, str]] = None
+        self.hits: Optional[Dict[str, Dict[str, int]]] = None
+        self.daemon_sock: Optional[str] = None
         self.tabs: Optional[Dict[str, Any]] = None
         self.palette_open = False
         self.daemon_pid: Optional[int] = 4242
@@ -81,7 +97,10 @@ class FakeApp:
         return {"HOME": self.env["HOME"], "CMUX_NEXT_CONFIG_FILE": "/tmp/scratch/cmux.json"}
 
     def daemon_socket(self) -> Optional[str]:
-        return None
+        return self.daemon_sock
+
+    def daemon_owner_pid(self) -> Optional[int]:
+        return self.daemon_pid
 
     def signal_daemon(self, signum: int) -> Optional[int]:
         if self.daemon_pid is None:
@@ -111,6 +130,8 @@ class FakeApp:
         for name in names:
             if name == "topology":
                 out[name] = {"workspaces": self.workspaces}
+            elif name == "switches" and self.switch_arms is not None:
+                out[name] = {"arms": dict(self.switch_arms), "hits": []}
             elif name == "tabs" and self.tabs is not None:
                 out[name] = json.loads(json.dumps(self.tabs))
             elif name in PROVIDED:
@@ -129,6 +150,14 @@ class FakeApp:
     def turn(self, action: str) -> None:
         self.workspaces += 1
         self.sequence += 1
+        self.main_blocks += self.blocks_per_turn
+        self.runs.append({"sequence": len(self.runs) + 1, "id": action, "entrypoint": "socket",
+                          "commit_ms": self.commit_ms, "outcome": "committed"})
+        if self.stall_ms:
+            self.hang_records.append({"sequence": self.hang_records[-1]["sequence"] + 1, "kind": "stall",
+                                      "duration_ms": self.stall_ms})
+        for key, counts in (self.hits or {}).items():
+            counts[(self.switch_arms or {}).get(key, "old")] += 1
         if self.armed is not None:
             self.checkpoint("turn", action, origin="cli", ran=True, facets=self.facets(self.armed))
 
@@ -194,6 +223,36 @@ class FakeApp:
             reply["result"] = {"name": params["args"]["name"]}
         return {"ok": True, "result": reply}
 
+    def m_debug_blocking(self, params):
+        sites = [{"context": "main", "kind": "blocking-call", "seam_kind": "none", "location": "Store.swift:9",
+                  "count": self.main_blocks, "total_ms": 1.0, "max_ms": 1.0}] if self.main_blocks else []
+        return {"ok": True, "result": {"compiled_in": self.blocking_compiled, "overflow": 0, "sites": sites,
+                                       "contexts": {"main": {"sites": len(sites), "count": self.main_blocks,
+                                                             "overflow": 0}}}}
+
+    def m_debug_hangs(self, params):
+        records = [r for r in self.hang_records if r["sequence"] > params.get("after", 0)]
+        records = records[-params["limit"]:] if "limit" in params else records
+        gaps = sum(1 for r in self.hang_records if r["duration_ms"] >= 250)
+        return {"ok": True, "result": {"installed": True, "count": len(self.hang_records), "count250": gaps,
+                                       "records": records}}
+
+    def m_debug_action_budget(self, params):
+        return {"ok": True, "result": {"action_budget_ms": 10, "recent": self.runs[-params.get("limit", 64):]}}
+
+    def m_debug_wakeups(self, params):
+        self.uptime += 1.5
+        reply = {"uptime_s": self.uptime, "active_frame_clients": list(self.left_clients),
+                 "ledger": [{"owner": "IdleScheduler", "reason": "period", "count": self.idle_wakes}]}
+        return {"ok": True, "result": reply}
+    def m_debug_oracle_switch_hits(self, params):
+        if self.hits is None:
+            return {"ok": False, "error": {"code": "method_not_found", "message": "debug.oracle.switch_hits"}}
+        report = {"switches": {key: {**counts, "sites": {"Site.run": dict(counts)}} for key, counts in self.hits.items()}}
+        if params.get("reset"):
+            self.hits = {key: {"old": 0, "new": 0} for key in self.hits}
+        return {"ok": True, "result": report}
+
     def m_debug_key(self, params):
         if params.get("target") == "palette":  # DebugKey.send: the palette's visible panel, else an error
             if not self.palette_open:
@@ -244,26 +303,39 @@ NEW_WORKSPACE = step("new", "action.run", target={"workspace": "current"}, args=
                      expect={"outcome": "ok", "receipt": "action.done"}, checkpoint=["before", "turn", "settled"])
 
 
-class AppSessionTest(unittest.TestCase):
+class SessionTestBase(unittest.TestCase):
+    """A session on a FakeApp, with an empty switch registry unless a test gives one."""
+
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.apps: List[FakeApp] = []
         self.run_proc = Recorder()
 
-    def session(self, run=None, canonicalizer=None, **ctx) -> driver_app.AppSession:
+    def session(self, run=None, canonicalizer=None, *, switch_roots=None, read_daemon_arms=None, read_daemon=None,
+                read_resources=None,                 **ctx) -> driver_app.AppSession:
         def make(app, out, env):
             fake = FakeApp(app, out, env)
             self.apps.append(fake)
             return fake
 
         base = {"run_id": "r", "product": "app", "build": "bench", "binary": APP, "out_dir": self.tmp.name}
+        extra = {"read_daemon_arms": read_daemon_arms} if read_daemon_arms else {}
+        if read_daemon:
+            extra["read_daemon"] = read_daemon
         return driver_app.AppSession({**base, **ctx}, make_app=make, identity=identity,
                                      canonicalizer=canonicalizer or identity_canonicalizer(),
                                      run=run or self.run_proc,
                                      host=lambda: {"os": "macOS 26.1", "arch": "arm64", "model": "Mac16,10"},
-                                     root_base=Path(self.tmp.name) / "o")
+                                     root_base=Path(self.tmp.name) / "o",
+                                     switch_roots=switch_roots or self.empty_registry(), 
+                                     read_resources=read_resources or (lambda pid: None), **extra)
 
+    def empty_registry(self) -> "driver_app.switches.Roots":
+        return driver_app.switches.selftest_tree(Path(self.tmp.name) / "registry-empty", {}, None)
+
+
+class AppSessionTest(SessionTestBase):
     def test_action_run_records_before_turn_and_settled(self) -> None:
         session = self.session()
         result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
@@ -336,8 +408,9 @@ class AppSessionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "--config bench"):
             driver_app.run_build("debug", "bench")
         self.assertEqual(driver_app.run_build("debug", "debug"), "debug")
-        with self.assertRaisesRegex(ValueError, "p15-oracle-049"):
-            self.session(switches={"terminal-holder": "new"})
+        with self.assertRaisesRegex(ValueError, "unknown switch: ghost"):
+            self.session(switches={"ghost": "new"})
+        self.assertEqual(self.apps, [], "nothing launches on a switch the run cannot apply")
         with self.assertRaisesRegex(ValueError, "tag"):
             self.session(tag="other")
 
@@ -846,11 +919,321 @@ class AppSessionTest(unittest.TestCase):
         self.assertFalse(session.paths.root.exists())
         self.assertEqual((out / "app.log").read_text(), "launch failed\n")
 
+    # -- the trace of invariants I11-I15 (p15-oracle-217)
+
+    TRACED = step("new", "action.run", target={"workspace": "current"}, args={"action": "workspace.new"},
+                  expect={"outcome": "ok"}, checkpoint=["before", "settled"])
+    RESOURCES = {"pid": 4242, "fds": 20, "threads": 8, "children": 1, "source": "/proc/<pid>/fd",
+                 "liveObjects": {"workspaces": 1, "terminals": 1}}
+
+    def traced_run(self, the_case: Dict[str, Any], teardown_threads: int = 8):
+        readings = [self.RESOURCES, {**self.RESOURCES, "threads": teardown_threads}]
+        read = []
+
+        def read_resources(pid):
+            read.append(pid)
+            return dict(readings[len(read) - 1])
+
+        session = self.session(trace=True, read_resources=read_resources)
+        return session, session.run_case(the_case, {"case_id": "actions/c"}), read
+
+    def check(self, trace: Dict[str, Any]):
+        import invariants
+
+        return invariants.check_trace(json.loads(json.dumps(trace)), schema=invariants.load_schema())
+
+    def test_a_traced_case_reads_each_side_channel_around_the_step(self) -> None:
+        session, result, read = self.traced_run(case(self.TRACED), teardown_threads=9)
+        app = self.apps[0]
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertEqual(read, [4242, 4242], "the tag daemon after the fixture setup and after its teardown")
+        trace = result["trace"]
+        self.assertEqual(trace["setup"]["daemonResources"]["threads"], 8)
+        self.assertEqual(trace["teardown"]["daemonResources"]["threads"], 9)
+        self.assertNotIn("recorderArmed", trace)
+        (record,) = trace["steps"]
+        self.assertEqual(sorted(record["checkpoints"]), ["before", "settled"])
+        self.assertEqual({k: sorted(v) for k, v in record["sideChannels"].items()},
+                         {"blocking": ["after", "before"], "hangs": ["after", "before"],
+                          "actionBudget": ["after", "before"], "wakeups": ["idle", "settled"]})
+        methods = [m for m, _ in app.calls]
+        blocking = [i for i, m in enumerate(methods) if m == "debug.blocking"]
+        wakeups = [i for i, m in enumerate(methods) if m == "debug.wakeups"]
+        settle = max(i for i, m in enumerate(methods) if m == driver_app.SETTLE)
+        captures = [i for i, (m, p) in enumerate(app.calls) if m == driver_app.SNAPSHOT and "facets" in p]
+        self.assertLess(captures[0], blocking[0], "the before capture is not part of the step")
+        self.assertLess(blocking[0], methods.index("action.run"))
+        self.assertLess(settle, blocking[1], "the after readings follow the settle")
+        self.assertLess(blocking[1], captures[1], "and come before the settled capture")
+        self.assertLess(wakeups[0], captures[1])
+        self.assertLess(captures[1], wakeups[1], "the idle window spans the settled capture")
+        hangs = [p for m, p in app.calls if m == "debug.hangs"]
+        self.assertEqual(hangs, [{"limit": 1}, {"after": 2, "limit": driver_app.HANGS_AFTER_LIMIT}])
+        report = self.check(trace)
+        self.assertEqual([report.checked[i] for i in ("I11", "I12", "I13", "I14", "I15")], [1, 1, 1, 1, 1])
+        self.assertEqual(report.perf_queue, [])
+        self.assertEqual([(v.invariant, v.pointer) for v in report.violations if v.invariant == "I15"],
+                         [("I15", "/daemonResources/threads")])
+
+    def test_a_slow_step_gives_one_perf_queue_line_per_side_channel(self) -> None:
+        def slow(app):
+            app.blocks_per_turn, app.commit_ms, app.stall_ms = 1, 14.0, 400.0
+            app.left_clients = ["Motion.clock"]
+
+        session = self.session(trace=True)
+        slow(self.apps[0])
+        result = session.run_case(case(self.TRACED), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        report = self.check(result["trace"])
+        self.assertEqual([(v.invariant, v.step, v.source, v.pointer) for v in report.perf_queue],
+                         [("I11", "new", "debug.blocking", "/sideChannels/blocking/after/sites/0"),
+                          ("I12", "new", "debug.hangs", "/sideChannels/hangs/after/records/0"),
+                          ("I13", "new", "debug.action_budget", "/sideChannels/actionBudget/after/recent/0"),
+                          ("I14", "new", "debug.wakeups", "/sideChannels/wakeups/idle/active_frame_clients/0")])
+        self.assertEqual([v.invariant for v in report.violations if v.invariant in ("I11", "I12", "I13", "I14")], [])
+        self.assertIn("I15", [n.invariant for n in report.not_checked], "no daemon counts were read")
+
+    def test_a_recorder_case_reads_no_side_channel(self) -> None:
+        session, result, _ = self.traced_run(case(NEW_WORKSPACE))
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertNotIn("debug.blocking", [m for m, _ in self.apps[0].calls])
+        self.assertTrue(result["trace"]["recorderArmed"])
+        self.assertNotIn("sideChannels", result["trace"]["steps"][0])
+        report = self.check(result["trace"])
+        self.assertIn("debug.oracle.recorder", next(n.reason for n in report.not_checked if n.invariant == "I11"))
+
+    def test_a_refused_side_channel_is_recorded_and_not_checked(self) -> None:
+        session = self.session(trace=True)
+        self.apps[0].m_debug_blocking = lambda p: {"ok": False, "error": {"code": "method_not_found"}}
+        result = session.run_case(case(self.TRACED), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        reading = result["trace"]["steps"][0]["sideChannels"]["blocking"]["before"]
+        self.assertEqual(reading, {"error": {"code": "method_not_found"}})
+        report = self.check(result["trace"])
+        self.assertEqual(report.checked["I11"], 0)
+        self.assertEqual(report.checked["I13"], 1)
+
+    def test_an_untraced_run_reads_no_side_channel_and_writes_no_trace(self) -> None:
+        session = self.session()
+        result = session.run_case(case(self.TRACED), {"case_id": "actions/c"})
+        self.assertNotIn("trace", result)
+        self.assertFalse({"debug.blocking", "debug.hangs", "debug.action_budget", "debug.wakeups"}
+                         & {m for m, _ in self.apps[0].calls})
+
+    def test_run_case_trace_writes_each_attempts_trace(self) -> None:
+        ctx = {"run_id": "r", "product": "app", "build": "bench", "binary": APP, "out_dir": self.tmp.name}
+        lines: List[str] = []
+        opened: List[Dict[str, Any]] = []
+
+        def open_session(c):
+            opened.append(c)
+            return self.session(**{k: v for k, v in c.items() if k not in ctx})
+
+        out = Path(self.tmp.name) / "traces"
+        driver_app.run_repeats(ctx, case(self.TRACED), 2, open_session=open_session, emit=lines.append, trace_dir=out)
+        self.assertEqual([c["trace"] for c in opened], [True, True])
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ["0.trace.json", "1.trace.json"])
+        self.assertEqual(json.loads((out / "0.trace.json").read_text())["schema"], "cmux.oracle.trace/v1")
+
     def test_results_pass_oracle_protocol_checks(self) -> None:
         session = self.session()
         result = oracle.coerce_result(session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"}))
         self.assertEqual(result["status"], "Pass")
         self.assertEqual(len(result["checkpoints"]), 3)
+
+
+class SwitchArmsTest(SessionTestBase):
+    """p15-oracle-049: the app driver applies the run's arms and reads them back before any step."""
+
+    def registry(self) -> "driver_app.switches.Roots":
+        sw = driver_app.switches
+        return sw.selftest_tree(Path(self.tmp.name) / "registry", {"layer-hosting": sw.selftest_entry(),
+                                                                   "holder": sw.daemon_entry()}, None)
+
+    def arms_session(self, arms: Dict[str, str], *, app_arms: Optional[Dict[str, str]],
+                     daemon: Optional[Any] = None, hits: bool = True) -> driver_app.AppSession:
+        """A session on the test registry; `daemon` is the tag daemon's arm sources (an Exception: the read
+        fails; None: no daemon of the tag runs)."""
+
+        def read_daemon_arms(path: str) -> Mapping[str, Any]:
+            if isinstance(daemon, Exception):
+                raise daemon
+            return daemon
+
+        session = self.session(switch_roots=self.registry(), switches=arms, read_daemon_arms=read_daemon_arms,
+                               read_daemon=lambda path, doc: {"session": {}, "settings": {}})
+        fake = self.apps[-1]
+        fake.switch_arms = app_arms
+        fake.hits = {"browser.layer-hosting": {"old": 0, "new": 0}} if hits else None
+        fake.daemon_sock = "/tmp/oracle-t/daemon.sock" if daemon is not None else None
+        return session
+
+    def refused(self, session: driver_app.AppSession, want: str) -> "driver_app.switches.ArmNotApplied":
+        with self.assertRaises(driver_app.switches.ArmNotApplied) as caught:
+            session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        self.assertIn(want, str(caught.exception))
+        self.assertTrue(str(caught.exception).startswith("arm-not-applied: "), caught.exception)
+        self.assertFalse([m for m, _ in self.apps[-1].calls if m == "action.run"], "no step ran")
+        return caught.exception
+
+    def test_both_app_arms_are_applied_and_read_back(self) -> None:
+        for arm in ("old", "new"):
+            session = self.arms_session({"layer-hosting": arm}, app_arms={"browser.layer-hosting": arm, "holder": "old"})
+            fake = self.apps[-1]
+            self.assertEqual(fake.env["CMUX_NEXT_SWITCHES"], f"browser.layer-hosting={arm}")
+            self.assertNotIn("CMUX_NEXT_TUI_SWITCHES", fake.env, "no daemon switch was requested")
+            fake.hits["browser.layer-hosting"][arm] = 7  # startup and the first window, before the first case
+            result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+            self.assertEqual(result["status"], "Pass", result["message"])
+            self.assertEqual(result["switch_readback"], {"layer-hosting": arm, "holder": "old"})
+            other = "new" if arm == "old" else "old"
+            self.assertEqual(result["switch_hits"], {"layer-hosting": {arm: 1, other: 0}})
+            self.assertEqual(result["launch_switch_hits"], {"layer-hosting": {arm: 7, other: 0}})
+            coerced = oracle.coerce_result(result)
+            self.assertEqual(coerced["switch_hits"], {"layer-hosting": {arm: 1, other: 0}})
+            self.assertEqual(coerced["switch_readback"], {"layer-hosting": arm, "holder": "old"})
+            again = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+            self.assertNotIn("launch_switch_hits", again, "a launch's hits are carried once")
+
+    def test_hits_between_two_cases_count_for_the_next_case(self) -> None:
+        session = self.arms_session({"layer-hosting": "new"}, app_arms={"browser.layer-hosting": "new"})
+        fake = self.apps[-1]
+        self.assertEqual(session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})["switch_hits"],
+                         {"layer-hosting": {"old": 0, "new": 1}})
+        fake.hits["browser.layer-hosting"]["new"] += 2  # work that lands after the first case's read
+        self.assertEqual(session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})["switch_hits"],
+                         {"layer-hosting": {"old": 0, "new": 3}})
+
+    def test_a_site_hit_only_at_launch_exercises_the_arm(self) -> None:
+        session = self.arms_session({"layer-hosting": "new"}, app_arms={"browser.layer-hosting": "new"})
+        self.apps[-1].hits["browser.layer-hosting"]["new"] = 5  # CEFEngine.start-like: once, at startup
+        tmp = Path(self.tmp.name)
+        cases = [oracle.Case(f"actions/c{i}", "actions", tmp / f"c{i}.json", case(id=f"c{i}")) for i in range(3)]
+        options = oracle.RunOptions(
+            product="app", suites=("all",), filters=(), shard=(0, 1), jobs=1, batch_limit=10, repeat=1, retry_limit=0,
+            seed=None, platform="mac", build="bench", switch="layer-hosting", arm="new", switches={"layer-hosting": "new"},
+            ref=SHA, tag=None, binary=APP, corpus=tmp, out=tmp / "run", state_base=tmp / "state", run_id="r",
+            isolation="none")
+        receipt, code = oracle.perform_run(options, cases, lambda ctx: session, None, {})
+        self.assertEqual(code, 0, receipt)
+        self.assertEqual(receipt["switch_hits"], {"layer-hosting": {"old": 0, "new": 5}})
+        self.assertEqual(receipt["launch_switch_hits"], {"layer-hosting": {"old": 0, "new": 5}})
+        self.assertTrue(receipt["arm_exercised"])
+        self.assertTrue(receipt["arm_applied"])
+        self.assertEqual(receipt["switch_readback"], {"layer-hosting": {"new": 3}})
+        self.assertEqual(receipt["cases"]["actions/c0"]["switch_readback"], {"layer-hosting": "new"})
+        self.assertIsNone(receipt["arm_not_applied"])
+
+    def test_one_arm_mismatch_stops_the_run_after_one_launch(self) -> None:
+        opened: List[driver_app.AppSession] = []
+
+        def open_session(ctx):
+            opened.append(self.arms_session({"layer-hosting": "new"}, app_arms={"browser.layer-hosting": "old"}))
+            return opened[-1]
+
+        tmp = Path(self.tmp.name)
+        cases = [oracle.Case(f"actions/c{i}", "actions", tmp / f"c{i}.json", case(NEW_WORKSPACE, id=f"c{i}"))
+                 for i in range(4)]
+        options = oracle.RunOptions(
+            product="app", suites=("all",), filters=(), shard=(0, 1), jobs=1, batch_limit=2, repeat=1, retry_limit=3,
+            seed=None, platform="mac", build="bench", switch="layer-hosting", arm="new", switches={"layer-hosting": "new"},
+            ref=SHA, tag=None, binary=APP, corpus=tmp, out=tmp / "run", state_base=tmp / "state", run_id="r",
+            isolation="none")
+        receipt, code = oracle.perform_run(options, cases, open_session, None, {})
+        self.assertEqual(code, 1)
+        self.assertEqual(len(opened), 1, "no relaunch per case")
+        self.assertEqual(len(self.apps[-1].launches), 1)
+        self.assertEqual(self.apps[-1].stops, 1, "the refused session is closed")
+        refusal = receipt["arm_not_applied"]
+        self.assertEqual((refusal["verdict"], refusal["case"], refusal["phase"]), ("arm-not-applied", "actions/c0", "run"))
+        self.assertEqual(refusal["readback"], {"layer-hosting": "old"})
+        self.assertIn("layer-hosting=new: snapshot.switches read back browser.layer-hosting=old", refusal["problems"][0])
+        self.assertEqual(receipt["counts"], {"not-run": 4}, "no retry ran")
+        self.assertFalse(receipt["arm_applied"])
+        self.assertEqual(receipt["switch_readback"], {"layer-hosting": {"old": 1}})
+        self.assertFalse(receipt["ok"])
+
+    def test_the_other_arm_read_back_is_arm_not_applied_before_any_step(self) -> None:
+        session = self.arms_session({"layer-hosting": "new"}, app_arms={"browser.layer-hosting": "old"})
+        error = self.refused(session, "layer-hosting=new: snapshot.switches read back browser.layer-hosting=old")
+        self.assertEqual(error.readback, {"layer-hosting": "old"})
+
+    def test_a_build_without_the_switches_facet_is_arm_not_applied(self) -> None:
+        self.refused(self.arms_session({"layer-hosting": "new"}, app_arms=None),
+                     "no app reader in this build reports its arms")
+
+    def test_a_default_arm_that_leaked_in_is_arm_not_applied(self) -> None:
+        session = self.arms_session({"holder": "old"}, app_arms={"browser.layer-hosting": "new"},
+                                    daemon={"identify": {"holder": "old"}, "oracle-state": None})
+        self.refused(session, "layer-hosting=old (default): snapshot.switches read back browser.layer-hosting=new")
+
+    def test_a_default_run_whose_build_reports_another_arm_is_arm_not_applied(self) -> None:
+        session = self.arms_session({}, app_arms={"browser.layer-hosting": "new"})
+        self.refused(session, "layer-hosting=old (default): snapshot.switches read back browser.layer-hosting=new")
+        session = self.arms_session({}, app_arms={"browser.layer-hosting": "old"},
+                                    daemon={"identify": None, "oracle-state": {"holder": "new"}})
+        self.refused(session, "holder=old (default): oracle-state read back holder=new")
+
+    def test_a_default_run_reads_both_products_and_no_hits(self) -> None:
+        session = self.arms_session({}, app_arms={"browser.layer-hosting": "old"},
+                                    daemon={"identify": {"holder": "old"}, "oracle-state": {"holder": "old"}})
+        result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertEqual(result["switch_readback"], {"holder": "old", "layer-hosting": "old"})
+        self.assertFalse([m for m, _ in self.apps[-1].calls if m == driver_app.SWITCH_HITS])
+        session = self.arms_session({}, app_arms=None)  # a build with no readers: nothing to compare
+        result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertNotIn("switch_readback", result)
+
+    def test_an_empty_registry_reads_no_arms(self) -> None:
+        session = self.session()
+        result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertFalse([p for m, p in self.apps[-1].calls if m == driver_app.SNAPSHOT and p.get("facets") == ["switches"]])
+
+    def test_daemon_arms_reach_the_app_daemon_and_read_back(self) -> None:
+        for arm in ("old", "new"):
+            session = self.arms_session({"holder": arm}, app_arms={},
+                                        daemon={"identify": {"holder": arm}, "oracle-state": {"holder": arm}})
+            fake = self.apps[-1]
+            self.assertEqual(fake.env["CMUX_NEXT_TUI_SWITCHES"], f"holder={arm}")
+            self.assertNotIn("CMUX_TUI_SWITCHES", fake.env, "the app's launch strip would unset it")
+            self.assertNotIn("CMUX_NEXT_SWITCHES", fake.env)
+            result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+            self.assertEqual(result["status"], "Pass", result["message"])
+            self.assertEqual(result["switch_readback"], {"holder": arm})
+
+    def test_a_daemon_on_the_other_arm_missing_or_unreadable_is_arm_not_applied(self) -> None:
+        error = self.refused(self.arms_session({"holder": "new"}, app_arms={},
+                                               daemon={"identify": None, "oracle-state": {"holder": "old"}}),
+                             "holder=new: oracle-state read back holder=old")
+        self.assertEqual(error.readback, {"holder": "old"})
+        self.refused(self.arms_session({"holder": "new"}, app_arms={}), "holder: no cmux-tui of this tag is running")
+        self.refused(self.arms_session({}, app_arms={}, daemon=RuntimeError("oracle-state gave no switches")),
+                     "daemon switch readback from /tmp/oracle-t/daemon.sock: RuntimeError('oracle-state gave no switches')")
+
+    def test_a_build_without_hit_counters_reports_no_hits(self) -> None:
+        session = self.arms_session({"layer-hosting": "new"}, app_arms={"browser.layer-hosting": "new"}, hits=False)
+        result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertNotIn("switch_hits", result, "oracle.py then reports arm-not-exercised")
+        self.assertNotIn("launch_switch_hits", result)
+
+    def test_run_case_with_an_unknown_switch_exits_2_before_any_launch(self) -> None:
+        import io
+        from contextlib import redirect_stderr
+
+        path = Path(self.tmp.name) / "case.json"
+        path.write_text(json.dumps(case(NEW_WORKSPACE)), encoding="utf-8")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = driver_app.main(["run-case", str(path), "--app", APP, "--switch", "ghost=new"])
+        self.assertEqual(code, 2)
+        self.assertIn("unknown switch: ghost", err.getvalue())
+        with redirect_stderr(err):
+            self.assertEqual(driver_app.main(["run-case", str(path), "--app", APP, "--switch", "ghost"]), 2)
+        self.assertIn("is not NAME=ARM", err.getvalue())
 
 
 if __name__ == "__main__":

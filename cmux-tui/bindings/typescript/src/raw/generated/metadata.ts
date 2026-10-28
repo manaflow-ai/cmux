@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d. */
+/* cmux-tui mux protocol 12, IR 7eb0d8fcc1fcd2e08b9ee438f00a912bc444483f3223f60cf30047b093765ee6. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d" as const;
+export const SDK_IR_SHA256 = "7eb0d8fcc1fcd2e08b9ee438f00a912bc444483f3223f60cf30047b093765ee6" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -818,6 +818,18 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. An optional harness is written with the session; the same session with another harness changes the harness alone and is no replay; without harness the recorded one stays. See spec/commands.md."
+    ]
+  },
+  "bridge-hello": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "bridge-hello-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "A byte bridge's first line only (bridge_hello.window_closed otherwise); the far client's client-hello window stays open behind it.",
+      "Local (Unix) connections only (bridge_hello.local_only).",
+      "With bridge-frames-v1, a connection whose kernel peer is of the daemon's user and has no role may be granted ipc-frames-v2 and attach-frames-v1, never terminal-output-ring-v1."
     ]
   },
   "browser-activate": {
@@ -2539,6 +2551,17 @@ export const COMMAND_METADATA = {
       "Authority must match the value provisioned before this mux generation accepted control clients."
     ]
   },
+  "memory-report": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner-only (trusted local connection); a WebSocket or remote relay client is refused before anything is read.",
+      "Read only, never journaled; names no title, path, URL or command."
+    ]
+  },
   "mint-terminal-renderer": {
     "authority": "frontend",
     "since": 9,
@@ -3911,6 +3934,17 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": []
+  },
+  "set-stream-priority": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": "attach-streams-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Sets the priority of one attach stream of this connection (stream visibility, p05-ipc-142); a stream never set keeps the bulk lane and input priority it opened with.",
+      "Idempotent: an id with no open stream answers outcome:ended and changes nothing."
+    ]
   },
   "set-tab-pinned": {
     "authority": "control",
@@ -7292,6 +7326,26 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BridgeHelloResult": {
+    "additional_properties": false,
+    "fields": {
+      "features": {
+        "constraints": [
+          "The features the daemon took: bridge-frames-v1 when the connection may get frames."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
         }
       }
     },
@@ -15575,6 +15629,31 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "SetStreamPriorityResult": {
+    "additional_properties": false,
+    "fields": {
+      "outcome": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "applied",
+            "ended"
+          ]
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "SetTerminalIdlePolicyResult": {
     "additional_properties": false,
     "fields": {
@@ -21312,6 +21391,32 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         }
       },
       "kind": "object"
+    }
+  },
+  "bridge-hello": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "features": {
+          "constraints": [
+            "At most 16 names of at most 128 characters (bridge_hello.bad_request {field: features} otherwise). bridge-frames-v1: the bridge reads each 0xFF message by its frame header; unknown names are ignored."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BridgeHelloResult"
     }
   },
   "browser-activate": {
@@ -28271,6 +28376,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "memory-report": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "opaque_json",
+      "reason": "A diagnostic report whose per-terminal rows follow libghostty-vt's memory usage struct and whose consumer rows follow the daemon's memory registry; see spec/commands.md memory-report."
+    }
+  },
   "mint-terminal-renderer": {
     "request": {
       "additional_properties": false,
@@ -33840,6 +33956,43 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "set-stream-priority": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "priority": {
+          "constraints": [
+            "focused: the stream's items ride the input lane and its view drains at input priority.",
+            "visible: the bulk lane, and its view drains at utility priority.",
+            "hidden: a snapshot view gets no output; the terminal still parses it, and the view gets one READY snapshot when it shows again if anything changed meanwhile. Any other view rides the background lane at background priority."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "enum",
+            "values": [
+              "focused",
+              "visible",
+              "hidden"
+            ]
+          }
+        },
+        "stream": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "SetStreamPriorityResult"
     }
   },
   "set-tab-pinned": {

@@ -23,10 +23,12 @@ cost nothing. At this time the only host that holds all three images is `aws-m4p
 (`/Volumes/ephemeral0/cmux-agent-work/mfloor/tart-home`, about 30 GB each). All fleet workers run macOS 26 or 27
 (aws-m4pro-1..4: 27, aws-m4pro-5..9: 26). None of them runs 14 or 15 natively.
 
-macOS 27 is pinned in images.json but no Tart host has it yet: a 27 guest needs a 27 host (aws-m4pro-1..4),
-and those hosts have no Tart home for this matrix. vm.sh refuses a major whose `host_os_min` is above the host's
-macOS. The fleet controller accepts majors 14, 15 and 26 only until the image is cached on a 27 worker and the
-controller's `matrixMajors` gets 27.
+macOS 27 runs only on a macOS 27 host: cache its image on one of aws-m4pro-1..4 (never 5..9, which run 26).
+vm.sh refuses a major whose `host_os_min` is above the host's macOS. The fleet controller's `matrixMajors`
+has 27 (cmuxterm-hq `build-fleet/cmd/{controller,worker}/vm_step.go`), and it sends a 27 step only to a worker
+labeled with the 27 image (`tart-5302a9ea6cd68c059d00fa253fe75c8e`); until one has it, the step is refused.
+No host holds a 14/15/26 image and the 27 image at once, so run 27 in its own step: `os-matrix.sh --build JOB
+--os 27`. Cache it on the host as hq `build-fleet/AGENT-BUILDS.md` says (the macOS 27 bullet).
 
 ## Run it on the fleet (agents)
 
@@ -57,8 +59,9 @@ steps, every `.ips`, `.hang` and `.diag` report of the cmux processes, and the u
 - The smoke needs a DEV build (it drives the app through `cmux app call`, which a release build refuses). The
   fuzz and repro suites take any build; run a shipped DMG by hand (hq `build-fleet/AGENT-BUILDS.md`, "Run vm.sh
   by hand").
-- One VM at a time on the Tart host (the worker has one VM token, see the keychain note below). The step never
-  pulls an image: vm.sh pulls only with `FUZZ_ALLOW_PULL=1`. Do not delete or re-pull the cached images.
+- Two VMs at once per Tart host, Apple's limit for macOS guests: the worker has up to 2 VM tokens and one step
+  boots one VM at a time (see the keychain note below). The step never pulls an image: vm.sh pulls only with
+  `FUZZ_ALLOW_PULL=1`. Do not delete or re-pull the cached images.
 - **A VM is not a perf host.** It has a paravirtual GPU and no ProMotion. Use it for correctness, crashes, hangs,
   launch, functional checks and OS-behavior differences (Foundation, AppKit, SwiftUI and WebKit change between
   majors, issue #4529). Never report a VM timing as perf evidence; label any timing from a VM "VM, not
@@ -176,9 +179,11 @@ fleet owner (disk and pull time).
 Virtualization.framework keeps a host key in the login keychain. Tart fails with "Failed to get current host
 key" in a session without a keychain search list (Tailscale SSH) or with a locked keychain (OpenSSH without a
 GUI login, as a fleet step). On the fleet the worker unlocks the login keychain from `CMUX_CI_TART_KEYCHAIN_PASSWORD_FILE` when it is locked
-and locks it again in its cleanup (also after a cancel or a timeout). By hand, vm.sh does the same for each VM
-from `FUZZ_KEYCHAIN_PASSWORD_FILE` (a 0600 file, read on stdin: run without a tty). So the worker has one VM
-token: a second VM could lose the keychain while it boots.
+and locks it again in its cleanup (also after a cancel or a timeout). The two vm steps of a worker share one
+unlock: the first step unlocks, the last one to end locks, so the keychain stays unlocked for each VM's whole
+lifetime and one VM's end never locks it under the other's boot. By hand, vm.sh unlocks for each VM from
+`FUZZ_KEYCHAIN_PASSWORD_FILE` (a 0600 file, read on stdin: run without a tty) and locks after it: run one vm.sh
+at a time by hand.
 
 ### Guest prompts that are not cmux
 

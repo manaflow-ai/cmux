@@ -31,12 +31,14 @@
 //!
 //! std and libc only: the holder links it.
 
+pub mod cleanup;
 pub mod clock;
 mod control;
 mod copy;
 pub mod crash_keys;
 mod decode;
 mod export;
+mod folder;
 mod identity;
 mod json;
 mod layout;
@@ -60,6 +62,7 @@ pub use decode::{DecodeError, Decoded, DecodedRecord, Header, NameEntry, ThreadE
 pub use export::{
     ChromiumInput, ExportError, ExportInput, ExportStats, Machine, RemoteMachine, RingInput, export,
 };
+pub use folder::{process_dir, process_dir_with};
 pub use identity::{ProcessIdentity, ThreadIdentity, build_uuid, build_version};
 pub use json::JsonError;
 pub use layout::{
@@ -88,6 +91,12 @@ pub enum Role {
     Acpmux = 5,
     ChromiumHost = 6,
     Cli = 7,
+    /// acpmux's `__agent-host`: one harness per process.
+    AgentHost = 8,
+    /// `cmux-app-host`: one sandboxed QuickJS VM per app.
+    AppHost = 9,
+    /// `cmux-browser-host serve`: the agent browser runtime.
+    BrowserHost = 10,
 }
 
 impl Role {
@@ -100,6 +109,9 @@ impl Role {
             5 => Role::Acpmux,
             6 => Role::ChromiumHost,
             7 => Role::Cli,
+            8 => Role::AgentHost,
+            9 => Role::AppHost,
+            10 => Role::BrowserHost,
             _ => return None,
         })
     }
@@ -114,6 +126,9 @@ impl Role {
             Role::Acpmux => "acpmux",
             Role::ChromiumHost => "chromium-host",
             Role::Cli => "cli",
+            Role::AgentHost => "agent-host",
+            Role::AppHost => "app-host",
+            Role::BrowserHost => "browser-host",
         }
     }
 
@@ -123,8 +138,10 @@ impl Role {
         match self {
             Role::App | Role::Daemon => (4096, 2048, 512, 32768),
             Role::ChromiumHost => (4096, 2048, 512, 8192),
-            Role::Holder | Role::Acpmux | Role::Cli => (2048, 512, 256, 8192),
-            Role::TerminalHost => (1024, 256, 64, 512),
+            Role::Holder | Role::Acpmux | Role::Cli | Role::AgentHost | Role::BrowserHost => {
+                (2048, 512, 256, 8192)
+            }
+            Role::TerminalHost | Role::AppHost => (1024, 256, 64, 512),
         }
     }
 
@@ -301,6 +318,7 @@ pub fn init_process(config: TracerConfig) -> Option<BlackboxOpen> {
     if !fresh {
         return None;
     }
+    // supervise-allow: a one-shot ring-file open whose handle is BlackboxOpen; a panic keeps the black box on the heap, and BlackboxOpen::wait reports it.
     let handle = std::thread::Builder::new().name("cmux-trace-open".into()).spawn(|| {
         let ring = tracer.adopt_file();
         let config = tracer.config();

@@ -17,6 +17,8 @@
 //! child process records its crash and the browser process uploads it
 //! (components/crash/core/app/crashpad.cc).
 
+#[cfg(debug_assertions)]
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::fs as files;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -175,7 +177,7 @@ fn abort_once_for_test() {
     }
     let mut trigger = marker;
     trigger.push(".trigger");
-    let _ = std::thread::Builder::new().name(TEST_CRASH_THREAD.into()).spawn(move || {
+    let _ = supervised::spawn(TEST_CRASH_THREAD, Fatal, ShutdownBehavior::Continue, move || {
         // Opening a FIFO for reading blocks until the test opens it for
         // writing: the crash happens at the moment the test chose.
         let _ = files::open(&trigger);

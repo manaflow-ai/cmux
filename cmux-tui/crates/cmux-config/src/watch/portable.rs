@@ -83,6 +83,7 @@ pub(super) fn start(
     let thread_ancestors = Arc::clone(&ancestors);
     #[cfg(not(target_os = "macos"))]
     let thread_ancestors: Ancestors = ();
+    // supervise-allow: owned by Handle, which keeps it and joins it at drop; a panic ends config change hints only, and the loaded config stays in effect.
     let thread = cmux_threads::spawn("cmux-config-watch", super::WATCH_THREAD_QOS, move || {
         on_hint();
         run(&receiver, &shared, &thread_ancestors, &plan, &files, &mut watched, &mut on_hint);

@@ -18,6 +18,7 @@ extension MainDeadline: PageRelayIdleDeadline {}
 /// Settings > Agents > Chiefs) both close this way.
 @MainActor
 public final class PageRelayIdleClose {
+    /// How long the relay stays open after its last use ends.
     public static let delay: Duration = .seconds(30)
 
     /// Closes the connection; the owner sets it once.
@@ -25,6 +26,7 @@ public final class PageRelayIdleClose {
     private let deadline: any PageRelayIdleDeadline
     private var uses = 0
 
+    /// A closer whose idle deadline is `deadline`.
     public init(deadline: any PageRelayIdleDeadline) {
         self.deadline = deadline
     }

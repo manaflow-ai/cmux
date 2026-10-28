@@ -25,11 +25,13 @@ public final class MainRunLoopPreciseTimer: IdlePeriodTimer {
     private static let parkedInterval: CFTimeInterval = 1.0e10
 
     @MainActor
+    /// A parked timer; ``arm(afterNanos:_:)`` sets its first fire.
     public init() {
         slot = FireSlot()
     }
 
     @MainActor
+    /// Runs `fire` once on the main run loop `delay` nanoseconds from now, replacing a pending fire.
     public func arm(afterNanos delay: UInt64, _ fire: @escaping @MainActor () -> Void) {
         slot.fire = fire
         let date = CFAbsoluteTimeGetCurrent() + Double(delay) / 1_000_000_000
@@ -49,6 +51,7 @@ public final class MainRunLoopPreciseTimer: IdlePeriodTimer {
     }
 
     @MainActor
+    /// Drops the pending fire, if any; the timer stays parked until the next ``arm(afterNanos:_:)``.
     public func cancel() {
         slot.fire = nil
         if let timer { CFRunLoopTimerSetNextFireDate(timer, CFAbsoluteTimeGetCurrent() + Self.parkedInterval) }

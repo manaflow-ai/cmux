@@ -64,6 +64,9 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// Whether a watchdog hang sample carries ``HangSample/mainTask`` (`"task": {"owner", "class"}`,
         /// p06-scheduler-203; the schema-3 decoder must list the key before a build sends schema 3).
         public var carriesTaskAttribution: Bool { self == .v3 }
+        /// Whether a watchdog stall or hang carries ``HangSample/startup`` (`"startup": {"phase", "task"}`,
+        /// p08-startup-088; the schema-3 decoder must list the key before a build sends schema 3).
+        public var carriesStartupTag: Bool { self == .v3 }
         /// Whether a report in this schema carries ``HangReport/histograms``, ``HangReport/stability``,
         /// ``HangReport/blackbox`` and ``HangReport/launchSections`` (p09-observability-063).
         public var carriesFieldData: Bool { self == .v3 }

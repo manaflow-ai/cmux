@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 extension CEFEngine {
     /// Clear Browsing Data (cx-d0d.23) in `profile`'s Chromium store:
@@ -32,12 +33,11 @@ extension CEFEngine {
     /// Moves the caches aside here (before Chromium can open the profile)
     /// and deletes them off the main thread: they can hold many files.
     private static func removeCaches(in directory: URL) {
-        let manager = FileManager.default
         var aside: [URL] = []
         for name in cacheDirectories {
             let from = directory.appending(path: name)
             let to = directory.appending(path: ".cleared-\(UUID().uuidString)")
-            if (try? manager.moveItem(at: from, to: to)) != nil { aside.append(to) }
+            if (try? FileManager.checked.moveItem(at: from, to: to)) != nil { aside.append(to) }
         }
         guard !aside.isEmpty else { return }
         // task-owner: one-shot delete of moved-aside cache directories

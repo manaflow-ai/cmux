@@ -107,13 +107,16 @@ public struct ArmCensusWatch: Sendable {
 /// Release: the arm census is not built, and each call is a no-op (see the Debug and bench declaration).
 public struct ArmCensusWatch: Sendable {
     @inlinable
+    /// Builds nothing in Release.
     public init(ledger: WakeupLedger = .shared, _ kind: ArmCensusKind, owner: @autoclosure () -> String,
                 file: StaticString = #fileID, line: UInt = #line) {}
 
     @inlinable
+    /// Does nothing in Release.
     public func armed() {}
 
     @inlinable
+    /// Does nothing in Release.
     public func fired() {}
 }
 #endif

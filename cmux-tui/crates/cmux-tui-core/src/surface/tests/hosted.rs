@@ -503,6 +503,32 @@ fn exited_terminal_final_replay_serves_render_attach() {
     assert!(surface.as_pty().unwrap().render.lock().unwrap().taps.is_empty());
 }
 
+/// `render-state` carries no position. A render attach to an exited terminal
+/// whose viewport is scrolled back must still learn the position: the stream
+/// gives `scroll-changed` and then ends.
+#[cfg(unix)]
+#[test]
+fn exited_terminal_render_attach_learns_a_scrolled_back_viewport() {
+    let mux = Mux::new_for_test("exited-host-render-scroll", SurfaceOptions::default());
+    let surface = exited_host_surface("render-scroll", 95, &mux);
+    let output: String = (1..=500).map(|line| format!("{line}\r\n")).collect();
+    surface.with_terminal(|term| term.vt_write(output.as_bytes()));
+    surface.scroll_delta(-3).unwrap();
+    let scrolled = surface.with_terminal(|term| term.scrollbar()).flatten().unwrap();
+    assert!(scrolled.scrolled_back(), "fixture scrolls the exited terminal back");
+
+    let attach = surface.attach_render_stream().expect("exited terminal serves a final frame");
+    let first = attach.stream.try_recv();
+    assert!(
+        matches!(first, Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom: false })
+            if offset == scrolled.offset),
+        "an exited render attach must get scroll-changed {{offset:{}, at_bottom:false}} \
+         after render-state; got {first:?}",
+        scrolled.offset
+    );
+    assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Disconnected)));
+}
+
 #[cfg(unix)]
 #[test]
 fn exited_terminal_final_replay_does_not_reclassify_prior_host_loss() {

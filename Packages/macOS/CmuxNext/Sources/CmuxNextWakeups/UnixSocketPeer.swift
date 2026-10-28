@@ -12,7 +12,9 @@ import Security
 /// - the code-signing checks use the peer's audit token (`LOCAL_PEERTOKEN`), not its pid, so a
 ///   reused pid cannot stand in for it.
 public nonisolated struct UnixSocketPeer: Sendable {
+    /// The peer's process id (`LOCAL_PEERPID`).
     public let pid: pid_t
+    /// The peer's user id (`LOCAL_PEERCRED`).
     public let uid: uid_t
     /// The peer executable's path, symlinks resolved.
     public let executablePath: String

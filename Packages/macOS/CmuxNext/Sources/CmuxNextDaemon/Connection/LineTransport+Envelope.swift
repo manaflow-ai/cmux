@@ -5,9 +5,9 @@ extension LineTransport {
     /// parse as its routing fields; nil from a daemon that does not send one.
     typealias CausedEventHandler = @Sendable (_ name: String, _ line: Data, _ index: UInt64, _ cause: String?) -> Void
 
-    /// Starts the reader thread. Call once.
-    func start(onEvent: @escaping EventHandler, onClose: @escaping CloseHandler) {
-        start(onCausedEvent: { name, line, index, _ in onEvent(name, line, index) }, onClose: onClose)
+    /// Starts the reader thread. Call once. `dispatch`: see ``start(dispatch:onCausedEvent:onClose:)``.
+    func start(dispatch: EventDispatch = .control, onEvent: @escaping EventHandler, onClose: @escaping CloseHandler) {
+        start(dispatch: dispatch, onCausedEvent: { name, line, index, _ in onEvent(name, line, index) }, onClose: onClose)
     }
 
     /// Where one `cmux.protocol/2` stream line goes (`route`).

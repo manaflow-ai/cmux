@@ -3,12 +3,14 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHomeEngine
 import CmuxNextLaunch
 import CmuxNextTerminal
+import CmuxNextWakeups
 import CmuxNextWebUpdates
 import Foundation
 
@@ -33,6 +35,14 @@ struct AppEnvironment: Sendable {
     /// Mark this run for crash recovery (`AppRunMarker`): only the real app
     /// process, never tests that build `AppServices`.
     var marksRun = false
+    /// The launch caches' crash-streak decision (p08-startup-089), made on the files lane by the first launch cache
+    /// read or the run marker's launch read (`AppRunMarker.launchSafeMode`); nil reads every cache (tests).
+    var launchCaches: LaunchSafeMode.Gate?
+    /// Reads a launch cache's files on its lane; reads none in a crash streak's safe launch (``launchCaches``).
+    var launchCacheReader: LaunchFileReader {
+        guard let gate = launchCaches else { return LaunchFileReader() }
+        return LaunchFileReader().gated { gate.safeMode.readsLaunchCaches }
+    }
     /// What every local terminal of this app gets on top of its filtered
     /// login environment: the launch identity (`LaunchIdentity`) and the
     /// terminal identity Ghostty gives its shells (`TerminalEnvironment.instance.ghostty`),

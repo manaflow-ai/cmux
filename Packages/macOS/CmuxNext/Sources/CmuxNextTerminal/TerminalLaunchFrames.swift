@@ -80,8 +80,9 @@ public final class TerminalLaunchFrames {
 
     /// The frames kept in `state`, the app's state directory (beside its sidebar snapshot); nil keeps none.
     /// The app makes one per launch, so a frame taken at launch is not handed out again.
-    public convenience init(state: URL?) {
-        self.init(directory: state?.appending(path: Self.directoryName, directoryHint: .isDirectory))
+    /// `reader` reads the saved frames; the app's skips every one in a crash streak's safe launch (`LaunchSafeMode`).
+    public convenience init(state: URL?, reader: LaunchFileReader = LaunchFileReader()) {
+        self.init(directory: state?.appending(path: Self.directoryName, directoryHint: .isDirectory), reader: reader)
     }
 
     /// The folder of the saved frames in the app's state directory.
@@ -253,16 +254,15 @@ public final class TerminalLaunchFrames {
     }
 
     private nonisolated static func write(_ frames: [String: CGImage], to directory: URL) {
-        let manager = FileManager.default
-        try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
-            try? manager.removeItem(at: directory.appending(path: old))
+        try? FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        for old in (try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
+            try? FileManager.checked.removeItem(at: directory.appending(path: old))
         }
         for (name, frame) in frames {
             let url = directory.appending(path: name)
             guard let data = NSBitmapImageRep(cgImage: frame).representation(using: .jpeg, properties: [.compressionFactor: 0.9]),
                   (try? data.write(to: url, options: [.atomic])) != nil else { continue }
-            try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            try? FileManager.checked.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
     }
 

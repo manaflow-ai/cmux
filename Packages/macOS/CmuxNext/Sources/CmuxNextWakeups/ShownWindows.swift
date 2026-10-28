@@ -29,6 +29,7 @@
     /// Held weakly: releasing an observation ends it and releases its closure.
     private var observers: [WeakObservation] = []
 
+    /// No window tracked yet.
     public init() {}
 
     /// Follows `node` (a window's) while it lives. Tracking a node again does nothing.

@@ -249,6 +249,7 @@ extension InternalPageTabStore: ContentDiscardHost {
     }
 
     func isDrawn(_ key: String) -> Bool {
+        // visibility-walk-allow: a paint hold keeps a hidden tab's view drawn; its tab node says hidden, only the view knows
         existingView(key).map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } ?? false
     }
 

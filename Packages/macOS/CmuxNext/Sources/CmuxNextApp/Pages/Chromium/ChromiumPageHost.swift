@@ -37,6 +37,8 @@ final class ChromiumPageHost: PageChromiumHosting {
     private let pushChannel: Bool
     /// The app's lanes: a page's screenshot reply is decoded on their `.cpu` lane.
     let work: BackgroundWork
+    /// The app's main-thread scheduler: each page's crash watch flushes on it.
+    private let mainWork: MainWorkScheduler
     /// The app's dialog center: a page's "Page unresponsive" card shows there.
     let dialogs: CmuxDialogCenter
 
@@ -46,6 +48,7 @@ final class ChromiumPageHost: PageChromiumHosting {
     ///     windows restore already follow the file).
     ///   - keyRouter: Gets the app's shortcuts from a focused Chromium page.
     ///   - work: The app's lanes (``PageChromiumHosting/work``).
+    ///   - mainWork: The app's main-thread scheduler (``CEFPageChromiumPage``'s crash watch).
     ///   - dialogs: The app's dialog center (``PageChromiumHosting/dialogs``).
     ///   - hangWork: The app's main-thread scheduler when pages report their renderer's hang (feature
     ///     `pageHangNotice`, ``PageChromiumEvent/unresponsive``); nil: they never do.
@@ -53,12 +56,13 @@ final class ChromiumPageHost: PageChromiumHosting {
     ///     `pageHostChannel`, ``PageChromiumPage/pageHostEvent``); false: on their DevTools binding.
     ///   - pushChannel: The feature `pagePushChannel` (``PageChromiumPage/pushesToPage``).
     init(chromium: ChromiumEngineSlot, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?,
-         work: BackgroundWork, dialogs: CmuxDialogCenter, hangWork: MainWorkScheduler?, pageChannel: Bool = false,
-         pushChannel: Bool = false) {
+         work: BackgroundWork, mainWork: MainWorkScheduler, dialogs: CmuxDialogCenter, hangWork: MainWorkScheduler?,
+         pageChannel: Bool = false, pushChannel: Bool = false) {
         self.chromium = chromium
         enginePreference = preference
         self.keyRouter = keyRouter
         self.work = work
+        self.mainWork = mainWork
         self.dialogs = dialogs
         self.hangWork = hangWork
         self.pageChannel = pageChannel
@@ -95,8 +99,8 @@ final class ChromiumPageHost: PageChromiumHosting {
         #endif
         let tab = try await cef.makePagesTab(configuration)
         tab.keyRouter = keyRouter
-        let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id, hangWork: hangWork, pageChannel: pageChannel,
-                                               pushChannel: pushChannel)
+        let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id, mainWork: mainWork, hangWork: hangWork,
+                                               pageChannel: pageChannel, pushChannel: pushChannel)
         tab.delegate = chromiumPage
         tab.agentRelay.createBrowser()
         guard await tab.agentRelay.browserCreated() else {

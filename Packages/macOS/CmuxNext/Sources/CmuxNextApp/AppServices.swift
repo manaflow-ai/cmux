@@ -216,7 +216,7 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, deadlines: mainDeadlines, appEvents: appEvents, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches), purgeable: features.isEnabled(.purgeableImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency(deadlines: mainDeadlines) : nil, webKitProcessReuse: AppMemoryConsumers(services: self).webKitProcessReuse, terminalExternalCursor: features.isEnabled(.terminalCursorLayer))  // first read in init (no IUO); its Chromium engine at its first read
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, deadlines: mainDeadlines, appEvents: appEvents, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches), purgeable: features.isEnabled(.purgeableImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency(deadlines: mainDeadlines) : nil, webKitProcessReuse: AppMemoryConsumers(services: self).webKitProcessReuse, terminalExternalCursor: features.isEnabled(.terminalCursorLayer), streamFocus: features.isEnabled(.terminalStreamPriority) ? TerminalStreamFocus() : nil)  // first read in init (no IUO); its Chromium engine at its first read
     /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
     /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out)
     /// while `sidebar.nowPlaying.otherApps` is on (off by default: only what plays in cmux). Its
@@ -264,7 +264,12 @@ final class AppServices {
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
-    lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")  // Find Work's `gh` reads; tests replace it
+    /// Find Work's GitHub reads, with the user's `gh` login (``FindWorkPalettePage``); tests replace it.
+    /// `env` finds gh on the PATH of gh's environment when it starts (the App's PATH, then gh's install folders),
+    /// so opening Find Work checks no file on the main thread.
+    lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(
+        executable: "/usr/bin/env", environment: ProcessInfo.processInfo.environment.merging(
+            ["PATH": AgentChatPullRequestReader.searchPath(ProcessInfo.processInfo.environment)]) { $1 })
     private(set) lazy var pullRequests = AgentPullRequestReads(mainWork: mainWork)  // every pull request read with the user's `gh`: two at once, app-wide (cx-mb1e0)
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
@@ -484,7 +489,7 @@ final class AppServices {
                 preference: { [weak self] in
                     self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
                 },
-                keyRouter: keyRouter, work: work, dialogs: .shared,
+                keyRouter: keyRouter, work: work, mainWork: mainWork, dialogs: .shared,
                 hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil, pageChannel: features.isEnabled(.pageHostChannel),
                 pushChannel: features.isEnabled(.pagePushChannel)),
             openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, deadlines: mainDeadlines,
@@ -523,8 +528,9 @@ final class AppServices {
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
     private(set) lazy var globalHotKeys = GlobalHotKeyService.app(self)
     let terminalDelegate = TerminalHostDelegate()
-    /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md).
-    let notifications = NotificationCenterService()
+    /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md), on
+    /// ``mainWork`` and the app's one deadline scheduler ``mainDeadlines``.
+    private(set) lazy var notifications = NotificationCenterService(work: mainWork, deadlines: mainDeadlines, background: work)
     /// Email verification AutoFill (`browser.verificationAutofill.enabled`, off by default): a code
     /// or link from Mail.app offered in the prompt bar of a page of the sender's own site
     /// (plans/cmux-next/email-verification-autofill/DESIGN.md). Built on the first page that waits,
@@ -681,7 +687,7 @@ final class AppServices {
     /// The sidebar Chief item's pet picture, one for every window: loaded once off the main thread, then a new
     /// window draws it in its first frame.
     private(set) lazy var chiefSidebarPicture = ChiefSidebarPicture(work: work, mainWork: mainWork)
-    let pages = InternalPageTabStore()  // internal page tabs (Settings, Debug Settings, the App Store)
+    private(set) lazy var pages = InternalPageTabStore(mainWork: mainWork)  // internal page tabs (Settings, Debug Settings, the App Store)
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
@@ -762,6 +768,7 @@ final class AppServices {
          crashKeys: CrashKeySlots? = nil, watchdog: MainThreadWatchdog? = nil,
          appearance: AppearanceSignals = DesignSettings.shared.signals, features: FeatureList? = nil) {
         self.appearance = appearance
+        ThemeScope.app.store.repaint(following: appearance)
         let work = work ?? BackgroundWork(hangs: hangWatch, inputTurns: mainWork.budget.board)
         self.work = work
         linkHints = LinkHintController(work: work)
@@ -776,7 +783,8 @@ final class AppServices {
         hoverCards = HoverCardCoordinator(input: inputTap, changes: overlayChanges, appEvents: appEvents, workspaceEvents: workspaceEvents)
         _ = CmuxDialogCenter.shared.observe { [overlayChanges] _ in overlayChanges.signal() } // an app dialog's host has no window
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
-        self.terminalLaunchFrames = terminalLaunchFrames ?? TerminalLaunchFrames(state: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+        self.terminalLaunchFrames = terminalLaunchFrames ?? TerminalLaunchFrames(state: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(),
+                                                                                 reader: environment.launchCacheReader)
         (self.launchStartup, self.crashKeys) = (launchStartup, crashKeys)
         // Estimated presents read the key display's last tick; no link starts for them.
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board, displays: FrameScheduler.appDisplays)
@@ -808,12 +816,16 @@ final class AppServices {
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats,
                                hangWatch: hangWatch, crashKeys: crashKeys, deadlines: mainDeadlines, appEvents: appEvents)
         self.launchReveal = launchReveal
-        sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile, saved: environment.sidebarSnapshot ?? environment.sidebarSnapshotFile?.startLaunchRead(on: work))
+        // Not in a crash streak's safe launch (p08-startup-089): the daemon's launch snapshot and the saved sidebars.
+        daemon.launchSnapshot.reads = { [gate = environment.launchCaches] in gate?.safeMode.readsLaunchCaches ?? true }
+        sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile, saved: environment.sidebarSnapshot
+            ?? environment.sidebarSnapshotFile?.startLaunchRead(on: work, reader: environment.launchCacheReader))
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
         popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork, inputTap: inputTap)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, runMarker: environment.runMarker, crashKeys: crashKeys, work: work, mainWork: mainWork)
+        if let launchStartup { crashRecovery.marker?.observe(launchStartup) }  // its last task and completion in run.json (p08-startup-089)
         self.features = launchFeatures
         launchPanes = LaunchPaneGate(startup: self.features.isEnabled(.launchVisiblePanesOnly) ? launchStartup : nil)
         // The fatal-hang record needs the run marker, whose folder the next launch reads (p09-observability-110).
@@ -973,6 +985,7 @@ final class AppServices {
             linkHints.cancel()
             windowHints.cancel()
             keyRouter.cancelChord()
+            keyRouter.creationInputCoordinator.personActed(in: event.window, event: event) // a click: the person's next intent
         }
         scrollerStyleWatch = SystemScrollers.follow(settingChangesOn: appEvents)
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
@@ -1050,13 +1063,9 @@ final class AppServices {
         return daemon.store.tab(surface: surface)
     }
 
-    func workspace(id: String) -> WorkspaceModel? {
-        machines.workspace(id: id)?.0
-    }
+    func workspace(id: String) -> WorkspaceModel? { machines.workspace(id: id)?.0 }
     /// The daemon that owns `pane`.
-    func daemon(for pane: PaneModel) -> DaemonService {
-        machines.daemon(forPane: pane)
-    }
+    func daemon(for pane: PaneModel) -> DaemonService { machines.daemon(forPane: pane) }
 
     /// The workspace key of `pane`, for `SpawnOptions.workspace`: a new
     /// terminal there gets `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID`.
