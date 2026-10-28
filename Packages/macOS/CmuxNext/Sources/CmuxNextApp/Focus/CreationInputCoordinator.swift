@@ -264,18 +264,24 @@ final class CreationInputCoordinator {
             flush(in: shell)
             guard let next = buffers[shell.windowNumber] else {
                 // As any key after a hold: a person's keyboard claim still keeps it from the window (the Chief's box).
-                droppedLastKey = kind == .content && keepsFromWindow(event, in: shell)
+                // A replayed key may have moved focus out of the content (the address bar): read it again.
+                droppedLastKey = router.focus(for: window).1 == .content && keepsFromWindow(event, in: shell)
                 return droppedLastKey
             }
             guard next === buffer else {
-                next.capture(event) // a held key run again started another creation: this one waits for it, in order
+                // A held key run again started another hold: this one waits in it, in order, if that hold keeps it (a
+                // chord passes an empty surface hold, as on the forced path above).
+                guard next.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
+                next.capture(event)
                 return true
             }
         }
         // A pending creation's early view has the keyboard: held keys first, then this one.
         if let controller, takesKeysEarly(buffer, controller: controller, window: shell) {
             guard deliverEarly(buffer) else {
-                buffer.capture(event) // a key run again started another creation: this one waits for it, in order
+                // A key run again started another creation: this one waits for it, in order, if the hold keeps it.
+                guard buffer.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
+                buffer.capture(event)
                 return true
             }
             return false

@@ -186,4 +186,44 @@ struct EarlyTerminalKeysTests {
             #expect(!coordinator.isHolding(in: window), "the hold outlived the moment its terminal took the keyboard")
         }
     }
+
+    /// Keys held before the reply run first, in order, then the key after it goes on, when the new terminal has the
+    /// keyboard (independent review of 995d00522ac, finding 1: the replay path was not exercised).
+    @Test func heldKeysRunBeforeTheKeyThatEndsTheHold() async throws {
+        try await Self.withTerminal { h in
+            let (controller, window) = (h.controller, h.window)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            let ticket = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation))
+            for (letter, code) in [("a", UInt16(0)), ("b", UInt16(11))] {
+                #expect(router.interceptKeyDown(try Self.key(letter, keyCode: code, in: window), in: window),
+                        "a key before the reply was not held: \(Self.held(h))")
+            }
+            let before = coordinator.replayedCount
+            coordinator.resolve(ticket, landed: true, in: window)
+            let held = router.interceptKeyDown(try Self.key("c", keyCode: 8, in: window), in: window)
+            #expect(!held, "the key after the reply waited: \(Self.held(h))")
+            #expect(coordinator.replayedCount == before + 2, "the two held keys did not run first")
+            #expect(!coordinator.isHolding(in: window))
+        }
+    }
+
+    /// A resolved hold whose new terminal does not have the keyboard yet (its view is still being mounted) keeps the key:
+    /// ending at the key is only for a terminal that can take it (review of 995d00522ac, finding 1, negative case).
+    @Test func aResolvedHoldKeepsTheKeyWhileTheTerminalCannotTakeIt() async throws {
+        try await Self.withTerminal { h in
+            let (controller, window) = (h.controller, h.window)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            let mount = try Self.unmount(h)
+            defer { mount() }
+            let ticket = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation))
+            coordinator.resolve(ticket, landed: true, in: window)
+            let before = coordinator.replayedCount
+            let held = router.interceptKeyDown(try Self.key("a", keyCode: 0, in: window), in: window)
+            #expect(held, "a key went on while the new terminal could not take it: \(Self.held(h))")
+            #expect(coordinator.replayedCount == before)
+            #expect(coordinator.isHolding(in: window))
+        }
+    }
 }
