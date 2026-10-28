@@ -50,7 +50,9 @@ public final class DictationSession {
     private var recording: DictationAudioRecording?
     /// ``finish(_:)`` closing the ended session's recording file; its update waits for it, so the
     /// recording reaches the page with the words (a few milliseconds). A cancel drops it.
-    private var closing: Task<Void, Never>?
+    private(set) var closing: Task<Void, Never>?
+    /// Makes each session's recording in its folder (tests give the recording a writer they hold).
+    var makeRecording: (URL?) -> DictationAudioRecording = { DictationAudioRecording(folder: $0) }
 
     /// - Parameters:
     ///   - makeTranscriber: A fresh single-session engine fed by the meter.
@@ -87,7 +89,7 @@ public final class DictationSession {
         transcript = DictationTranscript()
         committed = ""
         level = 0
-        recording = recordsAudio ? DictationAudioRecording(folder: recordingFolder?()) : nil
+        recording = recordsAudio ? makeRecording(recordingFolder?()) : nil
         set(.starting)
         // task-owner: stored in listening; cancel() and the next start supersede it by generation
         listening = Task { [weak self] in await self?.listen(session) }

@@ -233,6 +233,42 @@ struct AgentPaneDictationAudioTests {
         #expect(field(big, dataAt + 4, 4) == 0xFFFF_FFFF)
     }
 
+    /// Review of #26559 at 90725635 (P2): a cancel while a long recording was closing dropped only
+    /// its WAV file, so its upload folder stayed (empty) until the 30-day sweep.
+    @Test func aCancelWhileALongRecordingClosesLeavesNoFolder() async throws {
+        let parent = FileManager.default.temporaryDirectory.appending(path: "dictation-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let folder = parent.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
+        let writer = DispatchQueue(label: "dictation-test-writer")
+        let engine = LongRecordingTranscriber(seconds: 140)
+        let session = DictationSession(authorizer: GrantedDictationAuthorizer(), makeTranscriber: { meter in
+            engine.meter = meter
+            return engine
+        })
+        session.recordsAudio = true
+        session.recordingFolder = { folder }
+        session.makeRecording = { DictationAudioRecording(folder: $0, writer: writer) }
+        session.start()
+        try await waitFor { engine.fed && session.phase == .listening }
+        await withCheckedContinuation { done in writer.async { done.resume() } }
+        #expect(FileManager.default.fileExists(atPath: folder.path))
+        // The close waits on the held writer: the session sits in its closing step.
+        writer.suspend()
+        session.stop()
+        try await waitFor { session.closing != nil }
+        session.cancel()
+        writer.resume()
+        try await waitFor { !FileManager.default.fileExists(atPath: folder.path) }
+        #expect(!FileManager.default.fileExists(atPath: folder.path), "the cancelled recording's folder goes")
+    }
+
+    /// Polls `ready` on the main actor for up to 3 s.
+    private func waitFor(_ ready: () -> Bool) async throws {
+        for _ in 0..<300 where !ready() {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
     @Test func aDiscardedRecordingLeavesNoFile() async throws {
         let (recording, folder) = recording()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -287,4 +323,41 @@ private actor FinishFlag {
 private actor FolderSeen {
     private(set) var value: (nothing: Bool, folderThere: Bool)?
     func set(_ nothing: Bool, _ folderThere: Bool) { value = (nothing, folderThere) }
+}
+
+private nonisolated struct GrantedDictationAuthorizer: DictationAuthorizing {
+    func microphoneAuthorization() async -> DictationAuthorizationStatus { .authorized }
+    func requestMicrophoneAuthorization() async -> Bool { true }
+    func speechRecognitionAuthorization() async -> DictationAuthorizationStatus { .authorized }
+    func requestSpeechRecognitionAuthorization() async -> Bool { true }
+}
+
+/// An engine that hears `seconds` of level audio at its start (into the meter's recording) and
+/// ends its stream when told to finish.
+private nonisolated final class LongRecordingTranscriber: SpeechTranscribing, @unchecked Sendable {
+    let seconds: Int
+    var meter: DictationAudioLevelMeter?
+    private let lock = NSLock()
+    private var continuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
+    private var heard = false
+    var fed: Bool { lock.withLock { heard } }
+
+    init(seconds: Int) { self.seconds = seconds }
+
+    func transcribe(locale: Locale) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
+        let second = [Float](repeating: 0.1, count: 16_000)
+        for _ in 0..<seconds {
+            second.withUnsafeBufferPointer { meter?.recording?.append($0, sampleRate: 16_000) }
+        }
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: DictationTranscriptionEvent.self, throwing: (any Error).self)
+        lock.withLock {
+            self.continuation = continuation
+            heard = true
+        }
+        return stream
+    }
+
+    func finishTranscribing() async {
+        lock.withLock { continuation }?.finish()
+    }
 }
