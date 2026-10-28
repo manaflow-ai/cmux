@@ -18,10 +18,10 @@ import Darwin
 public struct WindowLeakCheck: SuiteTrait, TestScoping {
     public var isRecursive: Bool { false }
 
-    public nonisolated func provideScope(
+    @concurrent public nonisolated func provideScope(
         for test: Test,
         testCase: Test.Case?,
-        performing function: @Sendable () async throws -> Void
+        performing function: @concurrent @Sendable () async throws -> Void
     ) async throws {
         var thrown: (any Error)?
         do {
