@@ -21,8 +21,8 @@ The Swift rules are check-concurrency.sh's WAKEUP_RULES (read from that file, on
 TimelineView(.periodic / .animation), NSWindow.didUpdateNotification and `.activeAlways`. The Rust rules are timed
 receives, sleeps (`sleep_until`, an injected `clock.sleep`), timed condvar and child waits (`wait_timeout_while`),
 `park_timeout`, read timeouts, `try_wait`, intervals (`interval_at`), libc `poll` / `epoll_wait` with a timeout
-other than -1 or 0 and `kevent` with a timespec, and a `timeout(d, f)` whose future is a receive or wait inside a
-loop; a libc fd wait with no timeout and `park()` are untimed waits. The cxx rules are
+other than -1 or 0 and `kevent` with a non-zero timespec, and a `timeout(d, f)` whose future is a receive or wait
+inside a loop; a libc fd wait with no timeout and `park()` are untimed waits. The cxx rules are
 dispatch_after, NSTimer, CFRunLoopTimer, dispatch timer sources, performSelector afterDelay:, PostDelayedTask /
 CefPostDelayedTask, sleeps, timed condition waits and `for (;;)` / `while (true)`; such a loop whose own braced
 body (or `do { }` body) blocks on its looping path has status `blocking`: reported, never open. Blocking is an
@@ -45,7 +45,8 @@ wait, so it wakes the process on a period: make it an event, a deadline or Maint
 path: a wait in a branch or a `select!` arm that leaves the loop (`return`, `break`, `throw`), a wait in a
 spawned body or a nested function, a read of a stream the same function makes non-blocking or gives a read
 timeout, and the other arms of a `select!` whose arm future is the timed wait (they race it: while idle the
-timer still fires on its period). A timed wait whose own branch or arm leaves the loop is `oneshot`.
+timer still fires on its period). A timed wait whose own branch or arm leaves the loop is `oneshot`, and so is
+one in a Rust loop that goes round again only to retry a call that failed with EINTR (`ErrorKind::Interrupted`).
 `oneshot`: a single deadline (an escape is allowed when its code shape matches).
 
 Modes:
@@ -158,20 +159,54 @@ _FD_WAIT = re.compile(_NOT_DEF + r"(?:\blibc::|(?<![\w:.]))(poll|kevent|epoll_wa
 _NULL_PTR = re.compile(r"(?:(?:std|core)::)?(?:ptr::)?null(?:_mut)?\(\)")
 _FOREVER = re.compile(r"-1(?:_?i32)?(?:\s+as\s+[\w:]+)?")
 _NO_WAIT = re.compile(r"0(?:_?(?:i32|usize))?(?:\s+as\s+[\w:]+)?")
+# kevent's timeout argument: a timespec literal, or a reference to a named one (`&ts`, `&raw const ts`, `addr_of!(ts)`).
+_TIMESPEC_REF = re.compile(r"&\s*(?:raw\s+const\s+)?(\w+)|(?:(?:std|core)::ptr::)?addr_of!\(\s*(\w+)\s*\)")
+_TIMESPEC = r"(?:libc::)?timespec\s*\{([^{}]*)\}"
+_TIMESPEC_FIELD = re.compile(r"(\w+)\s*:\s*([^,]+)")
+_ZEROED = re.compile(r"(?:unsafe\s*\{\s*)?(?:(?:std|core)::)?(?:mem::)?zeroed(?:::<[\w:]+>)?\(\)\s*\}?")
 # The future a `timeout(d, f)` gives up on: a receive, a wait, a stream's next item, a read or an accept.
 _WAIT_FUTURE = re.compile(r"\.(?:recv\w*|wait\w*|changed|notified|next\w*|read\w*|accept|readable|cancelled)\(")
 
 
-def fd_wait(code: str, paren: int, name: str) -> str:
+def _zero_fields(body: str) -> bool:
+    """A timespec literal's BODY sets tv_sec and tv_nsec to 0 and nothing else."""
+    fields = {k: v.strip() for k, v in _TIMESPEC_FIELD.findall(body)}
+    return fields.keys() == {"tv_sec", "tv_nsec"} and all(_NO_WAIT.fullmatch(v) for v in fields.values())
+
+
+def _zero_timespec(arg: str, code: str, paren: int, tree: list[Block]) -> bool:
+    """kevent's timeout ARG is a zero timespec: a `timespec { tv_sec: 0, tv_nsec: 0 }` (or zeroed) literal, or a
+    reference to one bound by the last `let` of that name before the call in the same function."""
+    literal = re.fullmatch(r"&\s*(?:raw\s+const\s+)?" + _TIMESPEC, arg)
+    if literal:
+        return _zero_fields(literal.group(1))
+    ref = _TIMESPEC_REF.fullmatch(arg)
+    if not ref:
+        return False
+    name = ref.group(1) or ref.group(2)
+    scope = function_at(paren, code, tree)
+    binds = list(re.finditer(r"\blet\s+(?:mut\s+)?" + name + r"\b\s*(?::[^=;]*)?=(?!=)\s*([^;]*);",
+                             code[scope.open:paren]))
+    if not binds:
+        return False
+    value = binds[-1].group(1).strip()
+    zero = re.fullmatch(_TIMESPEC, value)
+    return bool(zero and _zero_fields(zero.group(1))) or bool(_ZEROED.fullmatch(value))
+
+
+def fd_wait(code: str, paren: int, name: str, tree: list[Block]) -> str:
     """How the libc `poll`, `kevent` or `epoll_wait` call whose `(` is at PAREN waits: `forever` (timeout -1, or
-    kevent's NULL timespec with events to wait for), `timed` (any other timeout) or `` (no wait: timeout 0, a
-    kevent that only registers changes, or another function's arity). Chromium's pumps wait the same way: the
-    timeout is the next delayed task's, else none (base/message_loop/message_pump_kqueue.cc, message_pump_epoll.cc)."""
+    kevent's NULL timespec with events to wait for), `timed` (any other timeout) or `` (no wait: timeout 0, a zero
+    timespec, a kevent that only registers changes, or another function's arity). Chromium's pumps wait the same
+    way: the timeout is the next delayed task's, else none (base/message_loop/message_pump_kqueue.cc,
+    message_pump_epoll.cc)."""
     args = call_args(code, paren)
     if name == "kevent":
         if len(args) != 6 or _NO_WAIT.fullmatch(args[4]):
             return ""
-        return "forever" if _NULL_PTR.fullmatch(args[5]) else "timed"
+        if _NULL_PTR.fullmatch(args[5]):
+            return "forever"
+        return "" if _zero_timespec(args[5], code, paren, tree) else "timed"
     if len(args) != (3 if name == "poll" else 4):
         return ""
     return "forever" if _FOREVER.fullmatch(args[-1]) else "" if _NO_WAIT.fullmatch(args[-1]) else "timed"
@@ -179,7 +214,7 @@ def fd_wait(code: str, paren: int, name: str) -> str:
 
 def _timed_fd_wait(code: str, at: int, tree: list[Block]) -> bool:
     m = _FD_WAIT.match(code, at)
-    return bool(m) and fd_wait(code, m.end() - 1, m.group(1)) == "timed"
+    return bool(m) and fd_wait(code, m.end() - 1, m.group(1), tree) == "timed"
 
 
 def _timeout_of_a_wait_in_a_loop(code: str, at: int, tree: list[Block]) -> bool:
@@ -795,15 +830,80 @@ def blocks_untimed(m: re.Match[str], code: str, all_blocks: list[Block], lang: s
     if lang in READS and READS[lang].search(m.group()) and _timed_read(m.start(), code, all_blocks, lang):
         return False
     if lang == "rust" and (fd := _FD_WAIT.search(m.group())):
-        return fd_wait(code, m.end() - 1, fd.group(1)) == "forever"
+        return fd_wait(code, m.end() - 1, fd.group(1), all_blocks) == "forever"
     return lang != "cxx" or _cxx_untimed_call(m, code)
+
+
+_INTERRUPTED = re.compile(r"\b(?:Interrupted|EINTR)\b")
+# `!=`, `!matches!(..)`, `!is_eintr(e)`: the branch runs when the call was not interrupted.
+_NEGATED = re.compile(r"!=|(?<![\w!])!\s*[\w(]")
+_MATCH = re.compile(r"\bmatch\b[^{}]*$")
+_IF = re.compile(r"\s*if\b")
+
+
+def _on_interrupt(condition: str) -> bool:
+    return bool(_INTERRUPTED.search(condition)) and not _NEGATED.search(condition)
+
+
+def _statement_header(code: str, block: Block, by_close: dict[int, Block]) -> str:
+    """BLOCK's header back to its statement's start when it is empty (its `{` follows a `}`), earlier blocks of the
+    statement blanked: `match unsafe {   }` for the arm list of `match unsafe { libc::poll(..) } { .. }`."""
+    start = block.header_start
+    while not code[start:block.open].strip() and start - 1 in by_close:
+        start = by_close[start - 1].header_start
+    header = list(code[start:block.open])
+    for close in range(start, block.header_start):
+        if close in by_close:
+            inner = by_close[close]
+            header[inner.open - start:close - start + 1] = " " * (close - inner.open + 1)
+    return "".join(header)
+
+
+def _repeats_only_on_interrupt(code: str, loop: Block, inside: list[Block], all_blocks: list[Block]) -> bool:
+    """No path goes round the Rust `loop` again but the retry of a call that failed with EINTR (`ErrorKind::
+    Interrupted`): every `continue` is in a branch or arm taken on EINTR, and the body ends by leaving, with a
+    `match` whose other arms all leave, or with an `if <not interrupted> { leave }`. Such a loop is one wait
+    with a deadline (Chromium retries the same way: HANDLE_EINTR, base/posix/eintr_wrapper.h)."""
+    by_open = {b.open: b for b in all_blocks}
+    by_close = {b.close: b for b in inside}
+    retries: list[tuple[int, int]] = []
+    arm_lists: dict[int, list[Arm]] = {}
+    for b in inside:
+        header = code[b.header_start:b.open]
+        if _MATCH.search(_statement_header(code, b, by_close)):
+            arm_lists[b.open] = select_arms(code, b, loop, by_open, inside)
+            retries += [(a.start, a.end) for a in arm_lists[b.open] if _on_interrupt(code[a.start:a.arrow])]
+        elif b.kind == "plain" and _IF.match(header) and _on_interrupt(header):
+            retries.append((b.open, b.close))
+    nested = [b for b in inside if b.kind != "plain"]
+    for m in _CONTINUE.finditer(code, loop.open, loop.close):
+        if not any(b.open < m.start() < b.close for b in nested) and \
+                not any(s <= m.start() < e for s, e in retries):
+            return False
+    end = len(code[:loop.close].rstrip()) - 1
+    if code[end] == "}":
+        last = next((b for b in inside if b.close == end), None)
+        if last is None or last.kind != "plain":
+            return False
+        header = code[last.header_start:last.open]
+        if last.open in arm_lists:
+            return all(a.leaves or _on_interrupt(code[a.start:a.arrow]) for a in arm_lists[last.open])
+        return bool(_IF.match(header)) and _INTERRUPTED.search(header) is not None and \
+            not _on_interrupt(header) and \
+            _breaks_out(_branch_end(code, last, inside, RUST_EXIT, "rust"), last, loop, inside)
+    body = list(code[loop.open + 1:loop.close])
+    for b in inside:
+        body[b.open - loop.open - 1:b.close - loop.open] = " " * (b.close - b.open + 1)
+    statements = [part for part in "".join(body).split(";") if part.strip()]
+    return bool(statements) and _end_kind(statements[-1], RUST_EXIT) in ("leave", "break")
 
 
 def loop_shape(at: int, code: str, loop: Block, all_blocks: list[Block], lang: str, event: re.Pattern[str]) -> str:
     """`loop` when the path that goes round `loop` again has no untimed wait for the hit at `at`, else `oneshot`."""
     inside = [c for c in all_blocks if loop.open < c.open < loop.close]
     hit = race(at, code, loop, inside, all_blocks) if lang == "rust" else NO_RACE
-    if hit.leaves or _leaves_from(at, code, loop, inside, lang):
+    if hit.leaves or _leaves_from(at, code, loop, inside, lang) or \
+            lang == "rust" and _repeats_only_on_interrupt(code, loop, inside, all_blocks):
         return "oneshot"
     # A Rust hit is a call: the wait in its own arguments (`timeout(d, rx.recv())`) is the one it times.
     paren = code.find("(", at) if lang == "rust" else -1

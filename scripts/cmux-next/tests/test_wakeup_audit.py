@@ -830,6 +830,156 @@ class FocusedFixtureTests(unittest.TestCase):
             (16, "recv-timeout"): "loop", (22, "timeout-in-loop"): "oneshot",
         })
 
+    def test_a_kevent_with_a_zero_timespec_does_not_wait(self) -> None:
+        hits = self.rust("""\
+            fn change(queue: i32, change: libc::kevent) -> io::Result<()> {
+                let none = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+                loop {
+                    let n = unsafe { libc::kevent(queue, &change, 1, &mut receipt, 1, &none) };
+                    if n < 0 {
+                        let error = io::Error::last_os_error();
+                        if error.kind() == io::ErrorKind::Interrupted {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                    return Ok(());
+                }
+            }
+            fn exited(queue: i32) -> bool {
+                let timeout = libc::timespec { tv_nsec: 0, tv_sec: 0 };
+                let zeroed: libc::timespec = unsafe { std::mem::zeroed() };
+                unsafe { libc::kevent(queue, std::ptr::null(), 0, &raw mut event, 1, &raw const timeout) };
+                unsafe { libc::kevent(queue, std::ptr::null(), 0, &mut event, 1, std::ptr::addr_of!(zeroed)) };
+                unsafe { libc::kevent(queue, null(), 0, &mut event, 1, &timespec { tv_sec: 0, tv_nsec: 0 }) }
+            }
+            fn waits(queue: i32, left: Duration) {
+                let timeout = libc::timespec { tv_sec: left.as_secs() as libc::time_t, tv_nsec: 0 };
+                loop {
+                    unsafe { libc::kevent(queue, std::ptr::null(), 0, &mut event, 1, &timeout) };
+                }
+            }
+            fn rebound(queue: i32) {
+                let timeout = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+                let timeout = libc::timespec { tv_sec: 1, tv_nsec: 0 };
+                loop {
+                    unsafe { libc::kevent(queue, std::ptr::null(), 0, &mut event, 1, &timeout) };
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {(25, "kevent-timeout"): "loop", (32, "kevent-timeout"): "loop"})
+
+    def test_a_deadline_wait_retried_only_on_eintr_is_oneshot(self) -> None:
+        hits = self.rust("""\
+            fn continued(fd: i32, millis: i32) -> io::Result<()> {
+                loop {
+                    let n = unsafe { libc::poll(&mut poll, 1, millis) };
+                    if n < 0 {
+                        let error = io::Error::last_os_error();
+                        if error.kind() == io::ErrorKind::Interrupted {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                    return Ok(());
+                }
+            }
+            fn fell_through(queue: i32, timeout: libc::timespec) -> io::Result<()> {
+                loop {
+                    let n = unsafe { libc::kevent(queue, &change, 1, &mut event, 1, &timeout) };
+                    if n >= 0 {
+                        return Ok(());
+                    }
+                    let error = io::Error::last_os_error();
+                    if error.kind() != io::ErrorKind::Interrupted {
+                        return Err(error);
+                    }
+                }
+            }
+            fn matched(queue: i32, timeout: libc::timespec) -> io::Result<()> {
+                loop {
+                    let n = unsafe { libc::kevent(queue, &change, 1, &mut event, 1, &timeout) };
+                    if n >= 0 {
+                        return Ok(());
+                    }
+                    let error = io::Error::last_os_error();
+                    match error.raw_os_error() {
+                        Some(libc::ESRCH) => return Ok(()),
+                        Some(libc::EINTR) => {}
+                        _ => return Err(error),
+                    }
+                }
+            }
+            fn arms(fd: i32, timeout: i32) -> bool {
+                loop {
+                    match unsafe { libc::poll(&raw mut poll, 1, timeout) } {
+                        0 => return false,
+                        result if result > 0 => return true,
+                        _ if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted => {}
+                        _ => return false,
+                    }
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {
+            (3, "poll-timeout"): "oneshot", (16, "kevent-timeout"): "oneshot", (28, "kevent-timeout"): "oneshot",
+            (42, "poll-timeout"): "oneshot",
+        })
+
+    def test_a_wait_that_also_repeats_on_another_path_is_a_loop(self) -> None:
+        hits = self.rust("""\
+            fn timed_out(fd: i32) -> io::Result<()> {
+                loop {
+                    let n = unsafe { libc::poll(&mut poll, 1, 100) };
+                    if n < 0 {
+                        let error = io::Error::last_os_error();
+                        if error.kind() == io::ErrorKind::Interrupted {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                    if n == 0 {
+                        continue;
+                    }
+                    return Ok(());
+                }
+            }
+            fn not_interrupted_retries(fd: i32) -> io::Result<()> {
+                loop {
+                    let n = unsafe { libc::poll(&mut poll, 1, 100) };
+                    if n < 0 {
+                        let error = io::Error::last_os_error();
+                        if error.kind() != io::ErrorKind::Interrupted {
+                            continue;
+                        }
+                    }
+                    return Ok(());
+                }
+            }
+            fn falls_through(fd: i32) {
+                loop {
+                    let n = unsafe { libc::poll(&mut poll, 1, 100) };
+                    if n < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    handle(n);
+                }
+            }
+            fn arm_falls_through(fd: i32) {
+                loop {
+                    match unsafe { libc::poll(&raw mut poll, 1, 100) } {
+                        0 => {}
+                        _ if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted => {}
+                        _ => return,
+                    }
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {
+            (3, "poll-timeout"): "loop", (19, "poll-timeout"): "loop", (31, "poll-timeout"): "loop",
+            (40, "poll-timeout"): "loop",
+        })
+
     def test_swift_loop_after_a_statement_is_a_loop(self) -> None:
         hits = self.swift("""\
             func poll() async {
