@@ -244,3 +244,23 @@ test("cutting an inline atom and pasting it moves the same attachment", async ()
   await settle();
   expect(handle.current!.inlineIds()).toEqual(["one"]);
 });
+
+test("an attachment known after the draft loads becomes its inline atom", async () => {
+  const draft = `before ${inlineToken("one")} after`;
+  // The composer's view callback stays the same; only the attachments it knows change.
+  const onInlineViews = () => {};
+  const editor = await render(draft, {
+    inlineAttachments: true,
+    isInlineAttachment: () => false,
+    onInlineViews,
+  });
+  expect(handle.current!.inlineIds()).toEqual([]);
+  await render(draft, {
+    inlineAttachments: true,
+    isInlineAttachment: (id) => id === "one",
+    onInlineViews,
+  });
+  expect(handle.current!.inlineIds()).toEqual(["one"]);
+  expect(editor.querySelector("[data-inline-attachment=one]")).toBeTruthy();
+  expect(handle.current!.value()).toBe(draft);
+});
