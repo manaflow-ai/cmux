@@ -30,7 +30,7 @@ import Testing
                                   endpoint: { throw CancellationError() })
         services.cache.terminals[tab.id] = TerminalEntry(validity: "test", session: session, io: io,
                                                          themeKey: TerminalThemeKey(machine: services.daemon.machineID, tab: tab),
-                                                         store: services.daemon.store, surface: tab.surface)
+                                                         store: services.daemon.store, surface: tab.surface, mainWork: services.mainWork)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 480, height: 240), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
