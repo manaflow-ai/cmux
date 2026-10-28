@@ -10361,7 +10361,13 @@ function AcpmuxPane() {
           />
         )}
         {workflowSideTab && (
-          <WorkflowSideTab workflow={workflowSideTab} onClose={() => setWorkflowSideTabId(undefined)} onStop={stopSubagent} />
+          <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+            <WorkflowSideTab
+              workflow={workflowSideTab}
+              onClose={() => setWorkflowSideTabId(undefined)}
+              onStop={stopSubagent}
+            />
+          </SubagentClockContext.Provider>
         )}
       </section>
     </ShortcutsContext.Provider>
