@@ -88,9 +88,10 @@ extension ActionRegistry {
 
     /// The shortcuts a key-down may mean (``shortcuts(for:)-(KeyInput)``), with this registry's
     /// keyboard layout reader for the ASCII fallback.
-    public func shortcuts(for event: NSEvent) -> ShortcutReadings {
+    /// `armed`: a chord is armed and the key is its next key.
+    public func shortcuts(for event: NSEvent, armed: Bool = false) -> ShortcutReadings {
         guard event.type == .keyDown else { return ShortcutReadings() }
-        return Self.shortcuts(for: KeyInput(event, layout: keyboardLayout))
+        return Self.shortcuts(for: KeyInput(event, layout: keyboardLayout), armed: armed)
     }
 
     /// The shortcuts a key may mean, in Ghostty's match order (ghostty-next src/input/Binding.zig
@@ -110,7 +111,7 @@ extension ActionRegistry {
     /// Letters are never read by position (Cmd-Z on German is the key that types z), and a plain,
     /// Shift or Option key reads only what it types: cmux decides those only after the input
     /// methods, never as a shortcut found by position or by another layout.
-    public static func shortcuts(for input: KeyInput) -> ShortcutReadings {
+    public static func shortcuts(for input: KeyInput, armed: Bool = false) -> ShortcutReadings {
         let flags = input.modifiers
         var readings = ShortcutReadings()
         if input.isChord, let digit = Self.digitRow[input.keyCode] { readings.append(Shortcut(digit, modifiers: flags)) }

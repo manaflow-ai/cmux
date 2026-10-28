@@ -150,8 +150,7 @@ import Testing
         guard let base = layout.keys[keyCode] else { return nil }
         let shift = modifiers.contains(.shift)
         let typed = modifiers.contains(.command) ? layout.command[keyCode] ?? base : base
-        let fallback = !modifiers.isDisjoint(with: [.command, .control]) && !layout.asciiCapable && !layout.typesASCII(keyCode)
-            ? us.keys[keyCode]?.base : nil
+        let fallback = !layout.asciiCapable && !layout.typesASCII(keyCode) ? us.keys[keyCode]?.base : nil
         return KeyInput(keyCode: keyCode, modifiers: modifiers, text: shift ? typed.shifted : typed.base,
                         ignoringModifiers: shift ? base.shifted : base.base, unshifted: base.base,
                         commandUnshifted: modifiers.contains(.command) ? typed.base : nil, asciiFallback: fallback)
@@ -218,6 +217,60 @@ import Testing
         }
         #expect(checked > 10, "only \(checked) default chords checked on \(layout.name)")
         #expect(wrong.isEmpty, "\(layout.name) in \(context): \(wrong.count) of \(checked) default chords run another action:\n\(wrong.joined(separator: "\n"))")
+    }
+
+    // MARK: The chord path (the key router's sequence step), not only the single-key lookup
+
+    /// What the router's chord step does with a first key or a next key, as a comparable string.
+    static func step(_ key: KeyInput, after keys: [Shortcut], in registry: ActionRegistry) -> String {
+        let bindings = RegistryKeyBindings(registry)
+        let context = KeyContext(bits: registry.context)
+        let readings = ActionRegistry.shortcuts(for: key, armed: !keys.isEmpty)
+        switch bindings.table.step(after: keys, readings: readings, in: context, isRunnable: { bindings.canPerform($0, in: context.bits) }) {
+        case .run(let winner): return "run \(winner.command)"
+        case .extend(let shortcut): return "extend \(shortcut.displayString)"
+        case .none: return "none"
+        }
+    }
+
+    /// A first key takes the same chord step on every layout as on US: the key router runs
+    /// `KeyBindingTable.step` before the single-key lookup, so a reading that arms the leader must
+    /// not win over an earlier reading that runs (Cmd-C on Dvorak - QWERTY ⌘ also reads j: Cmd-J).
+    @Test(arguments: layouts, [ActionContext(), .terminalFocused, .browserFocused])
+    func everyDefaultChordTakesTheSameChordStepOnEveryLayout(layout: Layout, context: ActionContext) throws {
+        let registry = Self.registry(context)
+        var checked = 0
+        var wrong: [String] = []
+        for shortcut in Self.defaultChords(in: registry) {
+            guard let usCode = Self.keyCode(for: shortcut, on: Self.us), let usKey = Self.key(usCode, shortcut.modifiers, on: Self.us),
+                  let code = Self.keyCode(for: shortcut, on: layout), let key = Self.key(code, shortcut.modifiers, on: layout) else { continue }
+            checked += 1
+            let expected = Self.step(usKey, after: [], in: registry), got = Self.step(key, after: [], in: registry)
+            if got != expected { wrong.append("\(shortcut.displayString) (key \(code)): \(got), not \(expected)") }
+        }
+        #expect(checked > 10, "only \(checked) default chords checked on \(layout.name)")
+        #expect(wrong.isEmpty, "\(layout.name) in \(context): \(wrong.count) of \(checked) chord steps differ:\n\(wrong.joined(separator: "\n"))")
+    }
+
+    /// The key after Cmd-J runs the same leader chord on every layout: an armed chord's next key is
+    /// not typing, so it reads the ASCII-capable layout's key too (Cmd-J then the S key on Russian,
+    /// which types ы, is New Agent Chat).
+    @Test(arguments: layouts)
+    func leaderChordsRunOnEveryLayout(layout: Layout) throws {
+        let registry = Self.registry()
+        var checked = 0
+        var wrong: [String] = []
+        for (id, second) in LeaderLayer.defaultChords {
+            guard let usCode = Self.keyCode(for: second, on: Self.us), let usKey = Self.key(usCode, second.modifiers, on: Self.us),
+                  let code = Self.keyCode(for: second, on: layout), let key = Self.key(code, second.modifiers, on: layout) else { continue }
+            checked += 1
+            let expected = Self.step(usKey, after: [LeaderLayer.prefix], in: registry)
+            let got = Self.step(key, after: [LeaderLayer.prefix], in: registry)
+            #expect(expected.hasPrefix("run"), "\(id) does not run after Cmd-J on US: \(expected)")
+            if got != expected { wrong.append("\(id) (key \(code), types \(key.text ?? "nil")): \(got), not \(expected)") }
+        }
+        #expect(checked >= 3, "only \(checked) leader chords checked on \(layout.name)")
+        #expect(wrong.isEmpty, "\(layout.name): \(wrong.joined(separator: "\n"))")
     }
 
     // MARK: Ghostty's getEvent order, one key at a time
@@ -289,7 +342,7 @@ import Testing
                 guard let base = Self.key(code, modifiers.subtracting(.option), on: layout) else { continue }
                 // Option's own characters are the layout's Option map; any one of them reads the same way.
                 let key = KeyInput(keyCode: code, modifiers: modifiers, text: base.text, ignoringModifiers: base.ignoringModifiers,
-                                   unshifted: base.unshifted, asciiFallback: nil)
+                                   unshifted: base.unshifted, asciiFallback: base.asciiFallback)
                 let typed = Set([key.text, key.ignoringModifiers, key.unshifted].compactMap { $0 }.map { Shortcut($0, modifiers: modifiers) })
                 let extra = ActionRegistry.shortcuts(for: key).filter { !typed.contains($0) }
                 #expect(extra.isEmpty, "\(layout.name) key \(code) with \(modifiers.rawValue): \(extra.map(\.key)) is not what it types")
