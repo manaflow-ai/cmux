@@ -103,12 +103,20 @@ public nonisolated struct LaunchSignposts: Sendable {
         /// `ghostty_app_new` (`GhosttyRuntime.start(with:)`): libghostty's app, its render device and its two
         /// detached warm-up threads (font discovery, Metal), before the first window.
         case ghosttyAppNew = 33
+        /// The first `ghostty_surface_new` (`TerminalFirstSurfaceSplit`, p08-startup-091): the font grid, the
+        /// renderer and its thread of the first terminal, on main.
+        case firstSurfaceNew = 34
+        /// The terminal's launch prefetch (`TerminalLaunchPrefetch`, p08-startup-091): the Metal device and the
+        /// terminal's fonts, on their own launch thread.
+        case terminalPrefetch = 35
 
         /// The step's signpost name.
         public var name: StaticString {
             switch self {
             case .ghosttyInit: "launch.ghostty_init"
             case .ghosttyAppNew: "launch.ghostty_app_new"
+            case .firstSurfaceNew: "launch.first_surface_new"
+            case .terminalPrefetch: "launch.terminal_prefetch"
             }
         }
 

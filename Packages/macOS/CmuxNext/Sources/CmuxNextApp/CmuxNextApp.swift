@@ -193,6 +193,7 @@ public struct CmuxNextApp {
         // The launch's feature values, once, before the first feature read (the daemon connect's).
         watchdog.startupStep("main.daemon_prestart")
         let features = AppServices.launchFeatures(environment)
+        if features.isEnabled(.terminalLaunchPrefetch) { TerminalLaunchPrefetch().start() }
         // What every hello tells the local daemon, which outlives this app (p12-perf-process-150).
         environment.daemonFeatureHello = DaemonFeatureHello(hash: features.daemonValuesHash, values: Dictionary(
             features.daemonValues.map { ($0.name, $0.isEnabled) }, uniquingKeysWith: { _, last in last }))
