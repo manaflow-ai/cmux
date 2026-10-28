@@ -91,6 +91,23 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     await page.close();
   });
 
+  test("floating header tools keep plain icons without background plates", async () => {
+    const shellCss = [read("agent-session/acpmux/styles.css"), read("agent-session/acpmux/header/header.css")].join("\n");
+    const page = await browser.newPage({ viewport: { width: 320, height: 120 } });
+    await page.setContent(`<!doctype html><html><head><style>
+      html, body { width: 100%; height: 100%; margin: 0; background: rgb(10, 20, 30); color: white; }
+      ${shellCss}
+    </style></head><body>
+      <header class="acpmux-floating-header"><button class="acpmux-header-tool" aria-pressed="true">list</button></header>
+    </body></html>`);
+    const colors = await page.locator(".acpmux-header-tool").evaluate((button) => {
+      const style = getComputedStyle(button);
+      return { background: style.backgroundColor, shadow: style.boxShadow, border: style.borderTopWidth };
+    });
+    expect(colors).toEqual({ background: "rgba(0, 0, 0, 0)", shadow: "none", border: "0px" });
+    await page.close();
+  });
+
   test("the loading shell carries the offered row state before the handshake", () => {
     const app = read("agent-session/acpmux/App.tsx");
     const loading = app.match(/const pane = !knowsWhatItIs \? \(([\s\S]*?)\) : \(/)?.[1] ?? "";
