@@ -220,6 +220,17 @@ impl Controller {
         self.publish_locked(&inner.snapshot);
     }
 
+    fn note_listener_error_if_current(&self, generation: u64) {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.stopping.load(Ordering::Acquire) || inner.generation != generation {
+            return;
+        }
+        inner.snapshot.state = "error";
+        inner.snapshot.error =
+            Some("The tailnet listener stopped. Start it again to retry.".into());
+        self.publish_locked(&inner.snapshot);
+    }
+
     pub(crate) fn begin_shutdown(&self) {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         self.stopping.store(true, Ordering::Release);
@@ -233,13 +244,15 @@ impl Controller {
         // logout) that may hold the lifecycle lock for a long LocalAPI call.
         // The supervisor timeout may cancel the close, but it must never
         // cancel this state transition and allow an automatic restart.
-        let Some(node) = self.retire_node(Some(failed), "stopped") else { return };
+        let Some((Some(node), generation)) = self.retire_node(Some(failed), "stopped") else {
+            return;
+        };
         let controller = Arc::clone(self);
         let cleanup = spawn_after_lifecycle(Arc::clone(&self.lifecycle), move || async move {
             let _ = tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
                 .await
                 .map_err(|error| error.to_string());
-            controller.note_listener_error();
+            controller.note_listener_error_if_current(generation);
         });
         // Dropping this join handle (for example when the supervisor's close
         // timeout expires) does not cancel the detached cleanup task. It owns
@@ -435,7 +448,11 @@ impl Controller {
         Ok(())
     }
 
-    fn retire_node(&self, expected: Option<&Arc<Node>>, state: &'static str) -> Option<Arc<Node>> {
+    fn retire_node(
+        &self,
+        expected: Option<&Arc<Node>>,
+        state: &'static str,
+    ) -> Option<(Option<Arc<Node>>, u64)> {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(expected) = expected
             && !inner.node.as_ref().is_some_and(|node| Arc::ptr_eq(node, expected))
@@ -447,7 +464,7 @@ impl Controller {
         let node = inner.node.take();
         inner.snapshot.node_gone(state);
         self.publish_locked(&inner.snapshot);
-        node
+        Some((node, inner.generation))
     }
 
     fn watch(self: Arc<Self>, node: Arc<Node>, generation: u64) {
@@ -783,14 +800,23 @@ mod tests {
         // supervisor's three-second close bound. Retirement must happen before
         // the cleanup task waits for that lock, so cancellation cannot restart
         // this node automatically.
-        controller.retire_node(None, "stopped");
+        let Some((None, retired_generation)) = controller.retire_node(None, "stopped") else {
+            panic!("retiring an empty controller still records its generation");
+        };
+        {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.generation = retired_generation.wrapping_add(1);
+            inner.snapshot.state = "running";
+        }
+        let newer_state = controller.clone();
         let (closed, closed_rx) = tokio::sync::oneshot::channel();
         let cleanup =
             spawn_after_lifecycle(Arc::clone(&controller.lifecycle), move || async move {
+                newer_state.note_listener_error_if_current(retired_generation);
                 let _ = closed.send(());
             });
         assert!(tokio::time::timeout(std::time::Duration::from_millis(10), cleanup).await.is_err());
-        assert_eq!(controller.snapshot().state, "stopped");
+        assert_eq!(controller.snapshot().state, "running");
         assert!(controller.node().is_none());
         drop(lifecycle);
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
@@ -798,6 +824,7 @@ mod tests {
         })
         .await
         .expect("detached close completed after lifecycle lock was released");
+        assert_eq!(controller.snapshot().state, "running");
     }
 
     #[test]
