@@ -167,8 +167,9 @@ extension AgentPaneView {
     func receiveContextMenuReport(_ body: Any?) {
         if let anchor = AgentPaneContextMenu.popUpAnchor(report: body) {
             let target = AgentPaneMessageTarget(report: body)
+            let popupID = (body as? [String: Any])?["popupId"] as? String
             // task-owner: one menu per More press, after the page's message returns; it ends when the menu closes
-            Task { @MainActor [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor) }
+            Task { @MainActor [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor, popupID: popupID) }
             return
         }
         messageMenuTarget = AgentPaneMessageTarget(report: body)
@@ -185,7 +186,14 @@ extension AgentPaneView {
 
     /// More (…) on a message's action row: the menu a right-click on that message opens, with the
     /// same items, under the button (`anchor`, CSS px in the page's viewport).
-    private func popUpMessageMenu(target: AgentPaneMessageTarget?, anchor: CGRect) {
+    private func popUpMessageMenu(target: AgentPaneMessageTarget?, anchor: CGRect, popupID: String?) {
+        // NSMenu.popUp returns on selection or cancellation. Early refusals also release the opener.
+        defer {
+            if let popupID, let data = try? JSONEncoder().encode(popupID) {
+                let id = String(decoding: data, as: UTF8.self)
+                evaluateScript("window.dispatchEvent(new CustomEvent('cmux-message-menu-closed', {detail: \(id)}))")
+            }
+        }
         let view: NSView = page?.focusView ?? webView
         guard let target, view.window != nil else { return }
         let menu = NSMenu()

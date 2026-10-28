@@ -2694,7 +2694,8 @@ a.cv-sha:focus-visible {
   padding: 0;
   margin-left: -3px;
 }
-.cv-iconbtn:hover {
+.cv-iconbtn:hover,
+.cv-iconbtn[data-popup-open] {
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
 }

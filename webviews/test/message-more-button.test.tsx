@@ -49,7 +49,9 @@ const footer: AcpmuxRow = { ...summary, text: answer.text, answerId: answer.id }
 
 const doc = dom.window.document;
 const reports: Record<string, unknown>[] = [];
-installMessageMenuReporter(doc, () => ({ postMessage: (body) => reports.push(body as Record<string, unknown>) }));
+const handler = () => ({ postMessage: (body: unknown) => reports.push(body as Record<string, unknown>) });
+let removeReporter = installMessageMenuReporter(doc, handler);
+afterAll(() => removeReporter());
 setMessageMenuSource((rowId) => messageMenuTarget(snapshot, rowId));
 
 const root = createRoot(doc.getElementById("root")!);
@@ -105,7 +107,18 @@ test("a stale native dismissal cannot clear a newer More menu", async () => {
   expect(button.hasAttribute("data-popup-open")).toBe(false);
 });
 
+test("a host refusal clears the opener immediately", () => {
+  removeReporter();
+  const remove = installMessageMenuReporter(doc, () => ({ postMessage: () => { throw new Error("unavailable"); } }));
+  const button = more(footer.id, ".cv-turn-actions")!;
+  expect(openMessageMenu(answer.id, button)).toBe(false);
+  expect(button.hasAttribute("data-popup-open")).toBe(false);
+  remove();
+  removeReporter = installMessageMenuReporter(doc, handler);
+});
+
 test("reporter teardown clears the open marker", async () => {
+  removeReporter();
   const remove = installMessageMenuReporter(doc, () => ({ postMessage: () => {} }));
   const button = more(footer.id, ".cv-turn-actions")!;
   expect(openMessageMenu(answer.id, button)).toBe(true);
@@ -113,6 +126,7 @@ test("reporter teardown clears the open marker", async () => {
   remove();
   expect(button.hasAttribute("data-popup-open")).toBe(false);
   expect(openMessageMenu(answer.id, button)).toBe(false);
+  removeReporter = installMessageMenuReporter(doc, handler);
 });
 
 test("a footer with no answer has no More", async () => {
