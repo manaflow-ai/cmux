@@ -347,6 +347,10 @@ const ATTACH_STREAM_MAX_BYTES: usize = 16 * 1024 * 1024;
 // Preserve every valid upload prefix plus enough recent text while fitting
 // both the raw attach queue and its 32 MiB base64-encoded transport.
 const VT_REPLAY_TEXT_HEADROOM_BYTES: usize = 2 * 1024 * 1024;
+/// How long a live resize may wait for its end before byte mirrors get
+/// their replay anyway (an app that crashed mid-drag sends no end).
+pub(crate) const LIVE_RESIZE_SETTLE: Duration = Duration::from_secs(2);
+
 pub(crate) const VT_REPLAY_MAX_BYTES: usize =
     ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES + VT_REPLAY_TEXT_HEADROOM_BYTES;
 const VT_REPLAY_FRAME_METADATA_HEADROOM_BYTES: usize = 64 * 1024;

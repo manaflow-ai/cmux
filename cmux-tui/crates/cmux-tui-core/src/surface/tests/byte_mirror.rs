@@ -260,6 +260,66 @@ fn resize_burst_builds_one_byte_mirror_replay_at_the_final_grid() {
     );
 }
 
+/// A live resize (a divider drag or a window resize the app marks live)
+/// builds no byte-mirror replay while it runs, even for a mirror that keeps
+/// up and takes every frame between the steps; its end builds one, at the
+/// final grid (Chrome coalesces resize to the frame and settles at the end;
+/// lead decision 2026-10-28 on H10's drag case: 13 replays per drag, ~23 ms
+/// per step).
+#[test]
+fn a_live_resize_builds_no_mirror_replay_until_it_ends() {
+    let mux = Mux::new_for_test("mirror-live-resize", SurfaceOptions::default());
+    let surface = mirror_test_surface(&mux);
+    let pty = surface.as_pty().unwrap();
+    let mut mirror = PinnedByteMirror::attach(&surface);
+    surface.apply_local_pty_output_for_test(MIRROR_TRANSCRIPT).unwrap();
+    mirror.drain();
+    pty.vt_replay_builds.store(0, Ordering::Release);
+
+    surface.set_live_resize(true);
+    for step in 0..RESIZE_BURST_STEPS {
+        assert!(surface.resize(81 + step, 11 + step / 2).unwrap());
+        surface.apply_local_pty_output_for_test(format!("step {step}\r\n").as_bytes()).unwrap();
+        // The mirror keeps up: it takes every frame between the steps.
+        mirror.drain();
+    }
+    assert_eq!(
+        (pty.vt_replay_builds.load(Ordering::Acquire), mirror.replays),
+        (0, 0),
+        "a live resize built mirror replays while it ran (builds, replays received)"
+    );
+
+    surface.set_live_resize(false);
+    assert_eq!(mirror.divergence(&surface), None);
+    assert_eq!(
+        (pty.vt_replay_builds.load(Ordering::Acquire), mirror.replays),
+        (1, 1),
+        "the end of a live resize must build one replay, at the final grid"
+    );
+}
+
+/// A live resize whose end never comes (the app crashed mid-drag, its
+/// connection closed) settles on its own: the mirror is not left on the old
+/// grid forever.
+#[test]
+fn a_live_resize_without_its_end_settles_after_its_deadline() {
+    let mux = Mux::new_for_test("mirror-live-resize-deadline", SurfaceOptions::default());
+    let surface = mirror_test_surface(&mux);
+    let mut mirror = PinnedByteMirror::attach(&surface);
+    surface.set_live_resize(true);
+    assert!(surface.resize(90, 15).unwrap());
+    let deadline = Instant::now() + LIVE_RESIZE_SETTLE + Duration::from_secs(5);
+    loop {
+        mirror.drain();
+        if mirror.replays == 1 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "a live resize with no end never settled");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(mirror.divergence(&surface), None);
+}
+
 /// A terminal of 120x40 with 10k colored lines of scrollback, for the bench.
 fn deep_history_surface(mux: &Arc<Mux>, id: SurfaceId) -> Arc<Surface> {
     let options = SurfaceOptions {

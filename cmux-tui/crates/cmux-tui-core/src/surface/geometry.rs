@@ -8,6 +8,11 @@ impl Surface {
     /// use the last configured cell pixel size for CDP device metrics.
     /// Returns whether a clamped size change was applied or accepted. Browser
     /// reconfiguration completes on its worker and emits the final size there.
+    /// A live resize (a drag) starts or ends: while it runs, byte mirrors
+    /// get no replay; its end gives them one, at the final grid. Red-commit
+    /// stub: it does nothing yet.
+    pub(crate) fn set_live_resize(&self, _live: bool) {}
+
     pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
         match self {
             Surface::Pty(pty) => pty.resize(cols, rows),
