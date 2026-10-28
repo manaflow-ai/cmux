@@ -2158,3 +2158,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_fresh_home_launch_smoke.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_zig_fetch_all.py"
+lane = "linux-guard"
