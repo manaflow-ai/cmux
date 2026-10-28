@@ -251,10 +251,10 @@ public actor TerminalAttachment: TerminalByteChannel {
         }
         // The key press's flow rides the first line: its echo answers that one.
         var flow = TypingLatencyProbe.shared.openFlow
-        var start = data.startIndex
-        while start < data.endIndex {
-            let end = data.index(start, offsetBy: Self.maxInputBytesPerSend, limitedBy: data.endIndex) ?? data.endIndex
-            let piece = data[start..<end]
+        var rest = data.dropFirst(0)
+        while !rest.isEmpty {
+            let piece = rest.prefix(Self.maxInputBytesPerSend)
+            rest = rest.dropFirst(Self.maxInputBytesPerSend)
             let pieceFlow = flow
             do {
                 try transport.sendNoReply(cmd: SendInputRequest.command, onError: { error in
@@ -269,7 +269,6 @@ public actor TerminalAttachment: TerminalByteChannel {
                 return
             }
             flow = nil
-            start = end
         }
     }
 
