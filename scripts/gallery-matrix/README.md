@@ -120,14 +120,22 @@ its reason and maximum. Other surfaces and true text-baseline/native AX checks a
 coverage gaps, not passing checks. Add measured selectors/rules as each audit surface is captured.
 Baseline debt changes require review; lint never regenerates or raises it automatically.
 
-The `Gallery geometry lint` job in gallery health runs on relevant changes and on
-`workflow_dispatch` with the boolean `geometry-audit` input. It uploads `gallery-geometry`, including
-screenshots, `.geometry.json`, the selected cases and `geometry-report/geometry-report.json`.
-The same bounded command works on a fleet test worker after building the gallery:
+Geometry is a lane-run audit, rather than a CI gate. Run it on a fleet worker after building the
+gallery; the output directory is disposable so a failed rerun cannot reuse old evidence. This
+one-liner captures the gallery and runs the lint at the checked-out source SHA:
 
 ```sh
-CMUX_GALLERY_IN_VM=1 bun geometry-audit.ts --gallery-dir /path/to/gallery \
-  --output-dir /path/to/evidence --expected-sha FULL_SOURCE_SHA
+cmux-ci test --setup webviews --timeout 1800 -- bash -lc '
+  set -euo pipefail
+  cd webviews
+  bun install --frozen-lockfile
+  CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
+  cd ../scripts/gallery-matrix
+  bun install --frozen-lockfile
+  ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+  CMUX_GALLERY_IN_VM=1 bun geometry-audit.ts --gallery-dir "$RUNNER_TEMP/gallery" \
+    --output-dir "$RUNNER_TEMP/geometry" --expected-sha "$(git rev-parse HEAD)"
+'
 ```
 
 ## How geometry is measured
