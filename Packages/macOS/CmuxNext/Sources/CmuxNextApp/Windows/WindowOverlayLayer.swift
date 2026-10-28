@@ -84,7 +84,7 @@ final class WindowOverlayLayer {
     /// first move into an area makes its panel (``DividerMouseCatchers/pointerMoved(toScreen:)``).
     private var catcherPointer: InputSubscription?
     /// The window's presses, drags and releases, heard only while a catcher area is wanted or a press sent on holds
-    /// the mouse: a press with no move before it still reaches the divider (``DividerMouseCatchers/intercept(_:atScreen:)``).
+    /// the mouse: a press with no move before it still reaches the divider (``DividerMouseCatchers/intercept(_:)``).
     private var catcherPresses: InputSubscription?
     /// The app's input tap, read when the catchers are made (nil: every catcher area gets its panel at once).
     private let inputTap: @MainActor () -> InputEventTap?
@@ -514,8 +514,7 @@ final class WindowOverlayLayer {
         // A press with no move before it (the app or the window was not active, or a flick) still reaches the divider.
         catcherPresses = tap.subscribe(class: [.button, .drag], phase: .intercept(order: .layout), window: .window(window),
                                        while: { [weak made] in made?.wantsPresses == true }) { [weak made] event in
-            guard let made, let source = event.window else { return .pass }
-            return made.intercept(event, atScreen: source.convertPoint(toScreen: event.locationInWindow)) ? .consume : .pass
+            made?.intercept(event) == true ? .consume : .pass
         }
         return made
     }
