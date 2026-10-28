@@ -140,8 +140,14 @@ impl Facts {
 /// many lines.
 pub(crate) fn one_sentence(text: &str) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    // A sentence ends at `.`, `!` or `?` before a space, but not after an abbreviation
+    // ("e.g.", "etc.") or a lone letter ("a.").
     let end = flat.match_indices(['.', '!', '?']).map(|(i, _)| i + 1).find(|&i| {
-        flat[i..].starts_with(' ') && flat[i..].trim_start().starts_with(char::is_uppercase)
+        let word = flat[..i].rsplit(' ').next().unwrap_or_default().to_lowercase();
+        let short = word.trim_start_matches(|c: char| !c.is_alphanumeric()).chars().count() <= 2;
+        flat[i..].starts_with(' ')
+            && !short
+            && !["e.g.", "i.e.", "etc.", "vs.", "cf.", "approx."].contains(&word.as_str())
     });
     let sentence = end.map_or(flat.as_str(), |i| &flat[..i]);
     if sentence.chars().count() <= DETAIL_CHARS {
@@ -168,10 +174,12 @@ impl Hub {
     /// `_acpmux/session/auth` for this daemon's chat `session`. `refresh`: run the harness's own
     /// check when its turns say nothing.
     pub(crate) async fn session_auth(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         refresh: bool,
     ) -> Result<SessionAuthResult, RpcError> {
+        // A chat whose log is not read yet (a deferred start) has only its summary.
+        self.session_log(session).await;
         let meta = session.meta();
         let harness = meta.harness.clone();
         let cfg = self.config.read().await;
@@ -313,6 +321,9 @@ mod tests {
             "not logged in run claude auth login"
         );
         assert_eq!(one_sentence("see e.g. the docs"), "see e.g. the docs");
+        assert_eq!(one_sentence("not logged in. run /login"), "not logged in.");
+        assert_eq!(one_sentence("Error! try again"), "Error!");
+        assert_eq!(one_sentence("use v2.1 i.e. the new one"), "use v2.1 i.e. the new one");
         let long = one_sentence(&"word ".repeat(100));
         assert!(long.chars().count() <= DETAIL_CHARS && long.ends_with('…'), "{long}");
     }
