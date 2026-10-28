@@ -2192,13 +2192,22 @@ export function VirtualTranscript({
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
   scrollPacer.current ??= createScrollPacer((frame: ScrollFrame) => {
     if (!transcriptMounted.current) return;
-    // A rail jump or a layout correction may move the live scroller after an event queued this
-    // frame. That event is stale; its state must not restore the old offset on the next commit.
-    if (ref.current && Math.abs(ref.current.scrollTop - frame.top) > 0.5) return;
-    acpmuxPerf.timed("flush.scroll", () => {
-      setScroll(scrollRef.current);
-      setFollowing(frame.atLatest);
-    });
+    // A rail jump, a wheel glide, a layout correction or any other frame callback may move the live
+    // scroller after an event queued this frame. That event is stale: its state must not restore the
+    // old offset, so the commit renders the live offset instead. Dropping the commit (as it once did)
+    // left the rows mounted where the scroll began for as long as a frame-driven scroll kept moving,
+    // so a jump or a fling painted blank frames all the way (transcript-fling, cached rows).
+    const live = ref.current?.scrollTop;
+    if (live !== undefined && Math.abs(live - frame.top) > 0.5)
+      scrollRef.current = { top: live, delta: live - scrollRef.current.top || scrollRef.current.delta };
+    // One commit a frame, flushed in the pacer's own frame callback: React would otherwise render an
+    // update made here in a later task, after the frame paints with the rows of the last offset.
+    acpmuxPerf.timed("flush.scroll", () =>
+      flushSync(() => {
+        setScroll(scrollRef.current);
+        setFollowing(followingRef.current);
+      }),
+    );
   });
   const queueScroll = (top: number, atLatest: boolean) => {
     // Keep the intent ref synchronous so a second scroll event before the next frame sees the
@@ -2537,14 +2546,26 @@ export function VirtualTranscript({
             // A late size change (a font loading) must not paint a frame of overlap first. Sizes
             // that did not change render nothing: a synchronous render here for nothing was the
             // "ResizeObserver loop completed with undelivered notifications" while streaming.
-            // A disclosure's height animation already changed this frame's layout. Place the
-            // rows below that one before paint too, or their old tops overlap its growing body.
-            // Only a row whose disclosure is moving gets this synchronous path; token
-            // resizes keep React's normal batch instead of forcing a commit for every chunk.
-            if (changesDrawn(drawnRef.current, pendingDrawn.current)) {
-              if (targets.some(heightFoldInFlight)) flushSync(flushDrawn);
-              else flushDrawn();
-            } else pendingDrawn.current = new Map();
+            // While the view follows the latest row the rows are placed before paint, and measured
+            // again after each render until they hold: that render also commits a streaming reply's
+            // next reveal step, which the observer (a target at the same depth once a frame) would
+            // report a frame late. The observer fires only when a row's size changes (a streaming
+            // reply: once a new line, not once a chunk). Batched (#24602), the render landed after
+            // the paint whenever the main thread was busy: the frame drew the reply a line taller
+            // over the live line under it, and the view a line short (agent-pane-stream-jitter's
+            // settle, 23px on the CI runner). A reader scrolled up keeps the batch; a disclosure's
+            // height animation is placed before paint too, or the rows below overlap its body.
+            if (!changesDrawn(drawnRef.current, pendingDrawn.current)) pendingDrawn.current = new Map();
+            else if (followingRef.current || targets.some(heightFoldInFlight)) {
+              for (let pass = 0; pass < 3; pass += 1) {
+                if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
+                  pendingDrawn.current = new Map();
+                  break;
+                }
+                acpmuxPerf.timed("flush.drawn", () => flushSync(flushDrawn));
+                measure();
+              }
+            } else flushDrawn();
           }),
     [reportDrawn, flushDrawn],
   );

@@ -34,6 +34,12 @@
 # missed the pool or a run failed.
 #   cmux-ci run --class exclusive --script scripts/measure/acpmux-overhead.sh --ref SHA \
 #     --arg=bench=prewarm [--arg=n=20] [--arg=before=SHA] --timeout 5400
+#
+# bench=hibernate: an idle chat's hibernation (acpmux hub/idle.rs): n chats per harness on screen,
+# one turn each, 135 s idle, then whether their agent processes (host, harness, MCP servers) still
+# run and the next prompt's time to its first answer text. With before=SHA both builds run.
+#   cmux-ci run --class exclusive --script scripts/measure/acpmux-overhead.sh --ref SHA \
+#     --arg=bench=hibernate --arg=harness=claude,codex [--arg=n=4] [--arg=before=SHA] --timeout 5400
 set -euo pipefail
 n=20
 harness="claude,codex,opencode"
@@ -63,7 +69,7 @@ for v in "$claude_version" "$codex_version" "$opencode_version"; do
   [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "acpmux-overhead.sh: versions are X.Y.Z" >&2; exit 2; }
 done
 [[ "$guard_ms" =~ ^[0-9]{1,4}$ ]] || { echo "acpmux-overhead.sh: guard_ms is a number" >&2; exit 2; }
-[[ "$bench" =~ ^(harness|daemon|prewarm)$ ]] || { echo "acpmux-overhead.sh: bench=harness, daemon or prewarm" >&2; exit 2; }
+[[ "$bench" =~ ^(harness|daemon|prewarm|hibernate)$ ]] || { echo "acpmux-overhead.sh: bench=harness, daemon, prewarm or hibernate" >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 work="$root/.build/acpmux-overhead"
@@ -155,11 +161,18 @@ echo "ACPMUX-OVERHEAD-BIN claude $(claude --version) codex $(codex --version) op
 status=0
 mode=overhead
 [[ "$bench" == prewarm ]] && mode=prewarm
+[[ "$bench" == hibernate ]] && mode=hibernate
 run() {
   local label="$1" bin="$2"
   python3 -I scripts/cmux-next/acpmux-overhead-bench.py --acpmux "$bin" --harness "$harness" -n "$n" --mode "$mode" \
     --label "$label" --json "$work/$label.json" --md "$work/table.md" 2> "$work/$label.log" | sed "s/^/ACPMUX-OVERHEAD /"
 }
+if [[ "$bench" == hibernate ]]; then
+  [[ -n "$before" ]] && run before "$work/before/acpmux"
+  run after "$work/after/acpmux"
+  tail -n 20 "$work/after.log" | sed "s/^/ACPMUX-OVERHEAD-LOG /"
+  exit 0
+fi
 if [[ "$bench" == prewarm ]]; then
   [[ -n "$before" ]] && run before "$work/before/acpmux"
   run after "$work/after/acpmux"

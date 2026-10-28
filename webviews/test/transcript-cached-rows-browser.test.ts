@@ -107,6 +107,7 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
           let frames = 0;
           let targetFrames = 0;
           let started = 0;
+          let revisit = false;
           let targetLatency: number | null = null;
           let targetPaintLatency: number | null = null;
           await new Promise<void>((resolve) => {
@@ -139,6 +140,14 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
                 }
                 for (const row of visible) seen.add(row.dataset.rowId!);
                 frames += 1;
+                // A revisit's scroll comes between frames, as input does: the page hears it in the
+                // next frame's scroll steps, before that frame paints. Written in a frame's own
+                // callbacks, after its scroll steps, it painted that frame at the new offset before
+                // any page could know of it.
+                if (revisit) {
+                  revisit = false;
+                  scroller.scrollTop = end();
+                }
                 if (targetFrames >= 12 || frames >= 180) {
                   resolve();
                   return false;
@@ -154,7 +163,7 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
                   phase = "return";
                   started = paint;
                   if (way === "jump") document.querySelector<HTMLButtonElement>(".acpmux-jump-latest")!.click();
-                  else scroller.scrollTop = end();
+                  else revisit = true;
                 }
               },
             );
