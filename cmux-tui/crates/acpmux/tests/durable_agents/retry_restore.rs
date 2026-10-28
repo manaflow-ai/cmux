@@ -41,6 +41,13 @@ async fn pending_retry_survives_restart_at_its_original_deadline_once() {
     daemon.sigkill();
     drop(rpc);
 
+    // A crash may persist the schedule before the async session metadata writer catches up.
+    // The retry and its failed cut turn must be recovered from the journal in that case too.
+    let meta_path = daemon.home.join("sessions").join(&session).join("session.json");
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&meta_path).unwrap()).unwrap();
+    meta.as_object_mut().unwrap().remove("lastTurn");
+    std::fs::write(&meta_path, serde_json::to_vec(&meta).unwrap()).unwrap();
+
     daemon.start();
     let mut rpc = daemon.rpc().await;
     let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;

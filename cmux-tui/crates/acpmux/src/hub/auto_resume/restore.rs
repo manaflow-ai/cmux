@@ -15,14 +15,38 @@ impl Hub {
             return;
         }
         let mut pending = self.auto_resumes.lock();
-        if pending.contains_key(&session.id) || session.status() == SessionStatus::Closed {
+        if pending.contains_key(&session.id)
+            || session.status() == SessionStatus::Closed
+            || session.turn().is_some()
+            || session.queue().iter().any(|q| !q.held)
+        {
             return;
         }
-        let Some(last) = session.meta().last_turn else { return };
-        let Some(turn_id) = last["turnId"].as_str().map(str::to_owned) else { return };
-        let error = last["errorText"].as_str().unwrap_or_default().to_owned();
-        if last["status"] != "failed"
-            || !still_cut(session, &turn_id)
+        // The journal can be ahead of asynchronously saved session.json after a crash. Read
+        // only to the newest turn boundary; a newer open turn supersedes any earlier retry.
+        let mut last = None;
+        if self
+            .store
+            .scan_back(
+                &session.id,
+                0,
+                u64::MAX,
+                &|_, kind| kind != b"turn_started" && kind != b"turn_result",
+                &mut |e| {
+                    if e.kind == "turn_result" {
+                        last = Some(e);
+                    }
+                    false
+                },
+            )
+            .is_err()
+        {
+            return;
+        }
+        let Some(last) = last else { return };
+        let Some(turn_id) = last.msg["turnId"].as_str().map(str::to_owned) else { return };
+        let error = last.msg["errorText"].as_str().unwrap_or_default().to_owned();
+        if last.msg["status"] != "failed"
             || super::super::turn_errors::resume_cause(&error, &error).is_none()
         {
             return;
@@ -89,6 +113,17 @@ impl Hub {
         if self.logged_prompt(session, &id).is_some() {
             return;
         }
+        // Restore this cached summary from the durable cut turn, without re-emitting its
+        // turn-ended side effects. still_cut and the retry row read this same summary.
+        let mut summary = serde_json::Map::new();
+        for key in super::super::views::LAST_TURN_KEYS {
+            if let Some(value) = last.msg.get(key) {
+                summary.insert(key.to_owned(), value.clone());
+            }
+        }
+        summary.insert("endedAt".into(), json!(last.at));
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn =
+            Some(Value::Object(summary));
         // Stop need not wait for lazy log loading. If it arrived before this mark could be
         // restored, persist its decision now; later restarts must respect that Stop too.
         if session.cancels.load(std::sync::atomic::Ordering::SeqCst) != 0 {
