@@ -26,6 +26,16 @@ import CmuxNextWebUpdates
 public struct CmuxNextApp {
     public static let shared = Self()
     public func main() {
+        // First: the launch's one watchdog and the startup tag it reads (p08-startup-088), so every launch stall is
+        // listed with its phase and step (Chrome makes its HangWatcher at process start: base/threading/hang_watcher.h).
+        // Its thread starts below, once the process may have a second one; it measures from here.
+        let startupTag = StartupTaskTag()
+        // The one-thread steps up to the watchdog's start: one step, since a stall in them is listed only at the start.
+        startupTag.step("main.one_thread")
+        // The main thread's one deadline queue (its run-loop timer stays parked until the first deadline; no thread):
+        // the watchdog's busy windows end on it, and the scheduler LaunchOrder makes below shares it (p14-energy-065).
+        let mainWakeUps = MainWakeUpQueue(energy: EnergyPolicySource())
+        let watchdog = MainThreadWatchdog(startupTasks: startupTag, wakeUps: mainWakeUps)
         // CMUX_TRACE_STARTUP: the startup trace's ring, before the first mark (unset: one getenv, no ring).
         let startupTrace = DebugTimings.makeStartupTrace()
         DebugTimings.markLaunch("main_start")
@@ -65,10 +75,14 @@ public struct CmuxNextApp {
         // ghostty_init while the process still has one thread: its locale setup may setenv LANG and setlocale
         // (Ghostty's internal_os.ensureLocale, src/os/locale.zig), which must not race another thread's environ read.
         GhosttyRuntime.initializeLibrary()
+        // The launch's second thread: the one-thread steps above count from the watchdog's creation.
+        watchdog.start(measuringSinceCreation: true)
         // Pure launch work (action catalog, symbols, displays, icons) overlaps AppKit's start; the registry takes the catalog.
+        watchdog.startupStep("main.warmup")
         let actionCatalog = ActionCatalogLaunch()
         LaunchWarmup().start(catalog: actionCatalog)
         DebugTimings.markLaunch("main.warmup_started")
+        watchdog.startupStep("main.lanes")
         // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
         let hangWatch = TraceRuntime.shared.hangWatch
         // The main task board, shared by the lanes (an awaited low item in an input turn is a Debug site) and the budget.
@@ -80,6 +94,7 @@ public struct CmuxNextApp {
         startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
         startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
         // Shells get the launch limit back. Path lookups only: the stores at these paths read and create on first use.
+        watchdog.startupStep("main.environment")
         var environment = AppEnvironment.current(openFiles: openFiles)
         environment.marksRun = true
         environment.actionCatalog = actionCatalog
@@ -109,6 +124,7 @@ public struct CmuxNextApp {
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         // Ghostty's resources folder, CLI helper and terminfo (a few stats), before the other launch reads on the
         // files lane: every shell's env and the daemon's start await it.
+        watchdog.startupStep("main.launch_reads")
         environment.ghosttyProbe = GhosttyLaunchProbe.start(on: work)
         // The incognito workspaces a crashed run left, then the settings read, in one sequence: the launch window
         // (made after the settings read lands) knows whether it may list every workspace (p08-startup 038).
@@ -166,6 +182,7 @@ public struct CmuxNextApp {
         BrowserFaviconLoader.shared.useResolver(SystemRemoteResolver(runner: work))
         BackdropVideoPlayers.shared.lanes = work
         // The launch's feature values, once, before the first feature read (the daemon connect's).
+        watchdog.startupStep("main.daemon_prestart")
         let features = AppServices.launchFeatures(environment)
         // What every hello tells the local daemon, which outlives this app (p12-perf-process-150).
         environment.daemonFeatureHello = DaemonFeatureHello(hash: features.daemonValuesHash, values: Dictionary(
@@ -218,6 +235,12 @@ public struct CmuxNextApp {
                 }
             }, mark: { DebugTimings.markLaunch($0) })
         }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // CMUX_NEXT_BENCH_LAUNCH_STALL_MS: a main-thread stall before NSApp, which bench-launch-stall.py finds in debug.hangs.
+        watchdog.startupStep("bench.launch_stall")
+        BenchLaunchStall(environment: ProcessInfo.processInfo.environment).run()
+        #endif
+        watchdog.startupStep("main.nsapp")
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()
         // Instantiate the CEF-ready subclass before anything touches NSApp.
@@ -230,7 +253,8 @@ public struct CmuxNextApp {
         // and services make any: their owners in many packages make them with no tap (p04-input-013).
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
-        let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap) { DebugTimings.markLaunch($0) }
+        watchdog.startupStep("main.launch_order")
+        let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap, startupTag: startupTag, wakeUps: mainWakeUps) { DebugTimings.markLaunch($0) }
         // Main-actor jobs wait behind pending input (p04-input-076); installed as `debug.mainJobGate` says (AppServices.settings).
         // Classed main work (post(class:), MainNotificationObserver) waits behind the same input (p04-input-080).
         if features.isEnabled(.mainJobGate), let pending = order.mainWork.budget.pendingInput as? SessionInputPending {
@@ -245,7 +269,7 @@ public struct CmuxNextApp {
         LaunchThreadCensus.post(on: order.startup) { LaunchMarkSink.shared.writeValue(name: $0, value: $1) } // Debug/bench: threads at the first frame (p08-startup-068)
         if let pictures = environment.windowPictures { order.startup.whenComplete { _ in pictures.dropFront() } } // decoded pictures are large
         let delegate = AppDelegate(environment: environment, daemonStart: daemonStart, wireStats: wireStats, features: features,
-                                   startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
+                                   startupTrace: startupTrace, order: order, watchdog: watchdog, inputTap: inputTap, settingsRead: settingsRead,
                                    launchReads: (work, launchImages, terminalFrames, relaunchWake))
         DebugTimings.markLaunch("main.delegate")
         // Every main run-loop turn is timed and split on the main-thread scheduler's meter (MainTurnMeter).
@@ -257,6 +281,7 @@ public struct CmuxNextApp {
         DebugTimings.markLaunch("main.nsapp")
         DebugTimings.markLaunch("main.run")
         DebugTimings.armRunLoopStartMark()
+        watchdog.startupStep("main.run") // AppKit's own start, up to applicationDidFinishLaunching
         // NSApplication.delegate is weak; keep the delegate alive for the run.
         withExtendedLifetime(delegate) {
             app.run()
