@@ -38,9 +38,14 @@ final class StatusHeaderRowView: SidebarRowView {
         let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
         let h = ceil(name.intrinsicContentSize.height)
         let side = Metrics.smallIconSize
-        let nameWidth = min(ceil(name.intrinsicContentSize.width), max(0, b.width - x - side - Metrics.space6))
+        // A label's frame holds its text and its padding on both sides (`naturalSize`); the
+        // text alone (`intrinsicContentSize`) truncated "Running" to "Runn…" and clipped the
+        // count. The count's text still starts `space1` after the name's text.
+        let nameWidth = min(ceil(name.naturalSize.width), max(0, b.width - x - side - Metrics.space6))
         name.frame = NSRect(x: x, y: (b.height - h) / 2, width: nameWidth, height: h)
-        count.frame = NSRect(x: name.frame.maxX + Metrics.space1, y: name.frame.minY, width: ceil(count.intrinsicContentSize.width), height: h)
+        let namePadding = name.naturalSize.width - name.intrinsicContentSize.width
+        count.frame = NSRect(x: name.frame.maxX - namePadding + Metrics.space1, y: name.frame.minY,
+                             width: ceil(count.naturalSize.width), height: h)
         chevron.frame = NSRect(x: b.maxX - Metrics.space2 - side, y: (b.height - side) / 2, width: side, height: side)
         needsDisplay = true
     }

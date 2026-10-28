@@ -24,6 +24,8 @@ import {
   type ChannelsState,
   type AccountsState,
   type DevicesRelay,
+  type CloudEnvironmentsRun,
+  type CloudEnvironmentsState,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -430,6 +432,8 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
       "cmux.settings.devices.state": () => this.devices,
       "cmux.settings.devices.run": (params) => this.runDevices(params as unknown as DevicesRun),
+      "cmux.settings.environments.state": () => this.environments,
+      "cmux.settings.environments.run": (params) => this.runEnvironments(params as unknown as CloudEnvironmentsRun),
       "cmux.settings.harnesses.state": () => this.harnesses,
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
@@ -516,6 +520,8 @@ export class MockSettingsProvider {
       "cmux.settings.harnesses.run",
       "cmux.settings.devices.state",
       "cmux.settings.devices.run",
+      "cmux.settings.environments.state",
+      "cmux.settings.environments.run",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",
       "cmux.settings.theme.set",
@@ -584,6 +590,73 @@ export class MockSettingsProvider {
   setDevices(devices: DevicesState): void {
     this.devices = devices;
     for (const ctx of this.devicesChanged) ctx.emit(devices);
+  }
+
+  /** Settings > Accounts > Cloud Environments as the app's model serves it. */
+  environments: CloudEnvironmentsState = {
+    available: true,
+    loading: false,
+    error: null,
+    environments: [
+      {
+        id: "env_00000000000000000001",
+        name: "web",
+        repo: "manaflow-ai/cmux@feat-cmux-next",
+        setup_script: "cd web && bun install",
+        status: "ready",
+        error: null,
+        log_tail: null,
+      },
+      {
+        id: "env_00000000000000000002",
+        name: "api",
+        repo: "octo/api",
+        setup_script: "make deps",
+        status: "failed",
+        error: "setup exited 3",
+        log_tail: "lockfile mismatch",
+      },
+    ],
+  };
+  /** Every Cloud Environments gesture the page sent, in order (tests). */
+  environmentRuns: CloudEnvironmentsRun[] = [];
+
+  private runEnvironments(run: CloudEnvironmentsRun): { error?: string | null } {
+    this.environmentRuns.push(run);
+    const rows = this.environments.environments;
+    switch (run.action) {
+      case "refresh":
+        return {};
+      case "save":
+        if (!run.name.trim()) return { error: "Name must be 1-80 characters." };
+        this.environments = {
+          ...this.environments,
+          environments: [
+            ...rows,
+            {
+              id: `env_${String(rows.length + 1).padStart(20, "0")}`,
+              name: run.name,
+              repo: run.repo || null,
+              setup_script: run.setup_script ?? "",
+              status: "unbuilt",
+              error: null,
+              log_tail: null,
+            },
+          ],
+        };
+        return {};
+      case "build":
+        this.environments = {
+          ...this.environments,
+          environments: rows.map((row) =>
+            row.id === run.id ? { ...row, status: "building", error: null, log_tail: null } : row,
+          ),
+        };
+        return {};
+      case "delete":
+        this.environments = { ...this.environments, environments: rows.filter((row) => row.id !== run.id) };
+        return {};
+    }
   }
 
   /** What the app's devices model does to the state (enough for the page and the gallery). A

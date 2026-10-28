@@ -22,6 +22,7 @@ import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPalette
+import CmuxNextAccounts
 import CmuxNextPages
 import CmuxNextPopups
 import CmuxNextBrowserImport
@@ -358,13 +359,13 @@ final class AppServices {
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// Background mode (cx-ghagp): no window open means no Dock icon or Cmd-Tab entry, and a menu bar item instead.
     /// Only the process's own services drive it, and not while quitting (window teardown runs inside a quit).
-    private(set) lazy var background = BackgroundActivation(registry: registry, icon: .icon(.appCmux, size: 16), mayEnter: { [weak self] in
+    private(set) lazy var background = BackgroundActivation(registry: registry, icon: MenuBarIcon().image(), mayEnter: { [weak self] in
         guard let self else { return false }
         return AppProcessRoot.shared.services === self && self.windows.controllers.isEmpty && !self.quit.isQuitting
             && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback
     }, menuBarItemShown: { [weak self] in self?.menuBarExtra.isShown ?? false })
     /// The cmux menu bar item (`app.showMenuBarIcon`): account, agents, help, community, updates, logs, Quit.
-    private(set) lazy var menuBarExtra = MenuBarExtra(registry: registry, icon: .icon(.appCmux, size: 16), host: self)
+    private(set) lazy var menuBarExtra = MenuBarExtra(registry: registry, icon: MenuBarIcon().image(), host: self)
     /// First-run onboarding, browser import and default-app claims.
     private(set) lazy var onboarding = OnboardingService(services: self)
     /// Agent permission requests (`permissions.request`): the card, the store and the TCC reads.
@@ -519,7 +520,8 @@ final class AppServices {
             self?.cache.pageRequests.closedHistories.save(self?.cache.existingBrowser(key)?.tab)
         }
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
-        cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
+        cache.crashedPages = crashRecovery.recovery.crashedPages
+        cache.onRestoredPageStart = { [weak crashRecovery] key in crashRecovery?.marker?.notePageStarted(key) }
         crashRecovery.observe(cache.cef.crashLog)
         AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: cache.cef, reporter: crashReporting.reporter)
         cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in
@@ -727,5 +729,27 @@ final class AppServices {
             if let found = controller.content?.pane(for: pane.handle), found.pane === pane { return found }
         }
         return nil
+    }
+}
+
+// Composition of the paid-plan path (plans/cmux-next/paid-plans-DESIGN.md §2); the logic is in CmuxNextAccounts/Billing.
+extension AppServices {
+    /// The upgrade path every paywall takes: cmux.com Checkout as the signed-in account, returning to this build.
+    func paidPlanUpgrade() -> PaidPlanUpgrade {
+        let client = cloud.isSignedIn ? accounts.client : nil
+        return PaidPlanUpgrade(checkout: client.map(PaidPlanUpgrade.cmuxComCheckout), open: { LinkRouter.shared.open($0) },
+                               scheme: cloud.configuration.callbackScheme, onboarding: PaidPlanOnboarding(defaults: .standard), pricing: StaticURL.pricing.url)
+    }
+
+    /// The welcome card for a plan the Cloud list read (shown once, after an upgrade).
+    func paidPlanObserved(_ planID: String?) {
+        PaidPlanWelcome(onboarding: PaidPlanOnboarding(defaults: .standard), account: { [weak self] in self?.cloud.auth.user?.id },
+                        ask: { [weak self] in await self?.machineAsks.ask($0, detail: $1, symbol: "sparkles", yes: $2, no: $3) ?? false },
+                        startCloudWorkspace: { [weak self] in _ = self?.registry.perform("newCloudWorkspace") }).planObserved(planID)
+    }
+
+    /// Back in the app while an upgrade waits for its payment: read the plan again (AppDelegate's activation loop).
+    func paidPlanReturned() async {
+        if PaidPlanOnboarding(defaults: .standard).hasPending { await cloud.refresh() }
     }
 }

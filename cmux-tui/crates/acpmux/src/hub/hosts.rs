@@ -1232,6 +1232,8 @@ impl Hub {
             let turn_id = turn_id.clone();
             let request_id = id.clone();
             let incarnation = incarnation.to_owned();
+            // Counted until it is answered, as a live one is (`idle.rs`).
+            let busy = super::idle::AgentRequest::new(session);
             tokio::spawn(async move {
                 let finish_hub = hub.clone();
                 hub.on_agent_request(
@@ -1247,6 +1249,7 @@ impl Hub {
                 )
                 .await;
                 finish_hub.finish_agent_request(&s, &request_id, Some(&incarnation));
+                drop(busy);
             });
         }
     }
