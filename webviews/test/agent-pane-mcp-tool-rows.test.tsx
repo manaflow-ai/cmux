@@ -141,6 +141,23 @@ for (const [harness, call] of [
     expect(host.textContent).not.toContain("ambient UI state");
   });
 
+  test(`${harness}: a Markdown MCP result shares full-read expansion, Raw, and Find formatting`, async () => {
+    const { activityText } = await import("../src/agent-session/acpmux/conversation/chatFind");
+    const text = `${"## Sample section\n\nRead every line.\n\n".repeat(15)}The **service** is healthy.`;
+    const item = call(
+      "markdown",
+      "web_read",
+      { url: "https://example.test/guide" },
+      JSON.stringify({ content: [{ type: "text", text }] }),
+    );
+    await render([item]);
+    await click(toggles()[0]!);
+    expect(host.querySelector(".cv-tool-output__markdown h2")?.textContent).toBe("Sample section");
+    expect([...host.querySelectorAll("button")].some((node) => node.textContent === "Show all 61 lines")).toBe(true);
+    expect([...host.querySelectorAll("button")].some((node) => node.textContent?.trim() === "Raw")).toBe(true);
+    expect(activityText(item)).toContain("The service is healthy.");
+  });
+
   test(`${harness}: a send group opens to one row per call, each opening to its own request`, async () => {
     await render([
       call("s1", "send_message", { threadId: THREAD, message: "one" }, "{}"),
