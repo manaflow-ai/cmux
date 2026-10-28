@@ -49,7 +49,9 @@ Per switch (even switches are "clean": no request until the switch window ends; 
                    terminal shows neither a held last frame nor replayed content (the restore bench's rule);
                    blank_frames = blank ms / refresh period
   keys_live        sampled: a marker typed with debug.key right after the input; ms until the focused terminal's
-                   viewport text shows it (only when the focused pane is a terminal)
+                   viewport text shows it (only when the focused pane is a terminal); lost = no echo 2.5 s after the
+                   last key (the sample stops at 4 s); in a busy terminal (output every 20 ms) the echo scrolls out of
+                   the viewport between samples, so such a switch is counted in keys_not_measured_busy, not lost
   missed           clean: frame intervals over 1.5 refresh periods in the switch window (debug.frames)
 
 Writes OUT/results.json (p50/p99 per kind x size, every raw row) and result-v1 rows (story switch-scale, metrics
@@ -926,7 +928,8 @@ class Bench:
                 "frames": stats.get("frames")}
 
     # ---------------------------------------------------------------- one switch
-    def one_switch(self, send, expect, sampled, baseline, window_number=None, marker=None, quiet_s=0.3, settle_s=0.6):
+    def one_switch(self, send, expect, sampled, baseline, window_number=None, marker=None, quiet_s=0.3, settle_s=0.6,
+                   keys_wait_s=2.5):
         """Sends one switch (`send()`, the input itself), then either waits quietly (clean: frames only) or samples
         the window's panes while the send runs and after (sampled). The marker is typed right after the input, as a
         person types after a switch. `expect(report)` says whether a debug.surfaces report shows the new target."""
@@ -975,10 +978,13 @@ class Bench:
         blank_ms, blank_samples, samples, last = 0.0, 0, 0, None
         seen_at = echo_at = None
         focused_kind = None
+        last_focused = None
         blank_kinds = {}
         while True:
             now = time.monotonic()
-            if now - t0 > 4.0 or ("at" in sent and now - sent["at"] > settle_s and not thread.is_alive()):
+            if now - t0 > 4.0 or ("at" in sent and now - sent["at"] > settle_s and not thread.is_alive()
+                                  and (not marker or echo_at or focused_kind != "terminal"
+                                       or now - sent.get("typed", now) > keys_wait_s)):
                 break
             report = self.surfaces(text=bool(marker) and "typed" in sent)
             t = time.monotonic()
@@ -1000,6 +1006,8 @@ class Bench:
             focused = next((p for p in panes if p.get("focused")), None)
             if focused:
                 focused_kind = focused.get("kind")
+                if marker and "typed" in sent:
+                    last_focused = focused
             if marker and echo_at is None and focused and marker in self.typed_text(focused.get("text")):
                 echo_at = t
             if (seen_at and not new_blank and not thread.is_alive()
@@ -1018,6 +1026,13 @@ class Bench:
             row["send_error"] = sent["error"]
         if marker:
             row["keys_live_ms"] = round((echo_at - t0) * 1000, 1) if echo_at else None
+            if not echo_at and last_focused:
+                # What the focused terminal showed when the wait ended: where the marker went.
+                row["keys_lost_view"] = {"pane": last_focused.get("pane"), "terminal": last_focused.get("terminal_id"),
+                                         "tail": (last_focused.get("text") or "")[-240:]}
+                # A busy terminal prints 50 lines a second: the echo leaves the viewport before the next sample (300-450
+                # ms apart during a workspace switch), so its keys are not measured here, not lost.
+                row["keys_busy_terminal"] = "switch-scale busy line" in (last_focused.get("text") or "")
             self.key("u", ["control"])
         return row
     # ---------------------------------------------------------------- kinds
@@ -1100,7 +1115,9 @@ class Bench:
             "keys_live_ms": block([r.get("keys_live_ms") for r in sampled if r.get("focused_kind") == "terminal"]),
             "sample_period_ms": block([r.get("sample_period_ms") for r in sampled]),
             "rest_blank_panes": len(self.rest_blank),
-            "keys_lost": sum(1 for r in sampled if r.get("focused_kind") == "terminal" and r.get("keys_live_ms") is None),
+            "keys_lost": sum(1 for r in sampled if r.get("focused_kind") == "terminal" and r.get("keys_live_ms") is None
+                             and not r.get("keys_busy_terminal")),
+            "keys_not_measured_busy": sum(1 for r in sampled if r.get("keys_busy_terminal")),
             "not_seen": sum(1 for r in rows if r.get("sampled") and r.get("content_seen_ms") is None)
             + sum(1 for r in clean if r.get("seen") is False),
             "send_errors": sum(1 for r in rows if r.get("send_error")),
