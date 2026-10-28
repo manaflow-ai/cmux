@@ -6253,6 +6253,7 @@ function AcpmuxPane() {
     // and opening it closes them.
     covered: environmentCovered,
     onUncover: uncoverChat,
+    onBeforeOpen: () => setWorkflowSideTabId(undefined),
     beside: artifact?.opened,
     // A handoff review's form is wider than the transcript's column: the chat's shift is measured against it.
     wide: reviewing,

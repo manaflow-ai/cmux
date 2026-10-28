@@ -85,6 +85,7 @@ export function WorkflowCard({ node, presentation = "selected" }: { node: Subage
         {presentation === "compact" ? <span className="acpmux-workflow-card__progress" role="progressbar" aria-label={t("summary.subagents.done", { n: done })} aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}><span style={{ transform: `scaleX(${progress})` }} /></span> : presentation === "phases" ? <span className="acpmux-workflow-card__phases" aria-label={currentPhase?.name}>{workflow.phases.map((phase) => <span key={phase.id} data-state={phase.state} title={phase.name} />)}</span> : <><span className="acpmux-workflow-card__latest" title={latest}>{latest ?? ""}</span><span className="acpmux-workflow-card__progress" role="progressbar" aria-label={t("summary.subagents.done", { n: done })} aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}><span style={{ transform: `scaleX(${progress})` }} /></span><span className="acpmux-workflow-card__focus">{focusAgent?.model && <span>{focusAgent.model}</span>}{focusElapsed !== undefined && <span>{formatDuration(focusElapsed)}</span>}</span></>}
       </button>
       {openSideTab && <button type="button" className="acpmux-workflow-card__side-tab" aria-label={t("workflow.openInSideTab")} title={t("workflow.openInSideTab")} onClick={() => openSideTab(node.id)}><Icon name="tunable.sidebar" size={12} /></button>}
+
     </div>
   );
 }
