@@ -15,9 +15,11 @@ struct WindowDocksTests {
 
     @Test func oneDockPerEdgeAndDockingAnOccupiedEdgeReturnsTheWorkspaceItDisplaced() {
         var docks = WindowDocks()
-        #expect(docks.dock("ws-a", at: .left) == nil)
+        let result1 = docks.dock("ws-a", at: .left)
+        #expect(result1 == nil)
         #expect(docks.dock(at: .left)?.workspace == "ws-a")
-        #expect(docks.dock("ws-b", at: .left) == "ws-a", "W1: the old one goes back to the sidebar")
+        let result2 = docks.dock("ws-b", at: .left)
+        #expect(result2 == "ws-a", "W1: the old one goes back to the sidebar")
         #expect(docks.dock(at: .left)?.workspace == "ws-b")
         #expect(docks.all.count == 1)
     }
@@ -33,19 +35,24 @@ struct WindowDocksTests {
     @Test func undockRemovesTheDock() {
         var docks = WindowDocks()
         _ = docks.dock("ws-a", at: .right)
-        #expect(docks.undock("ws-a"))
+        let result3 = docks.undock("ws-a")
+        #expect(result3)
         #expect(docks.all.isEmpty)
-        #expect(!docks.undock("ws-a"))
+        let result4 = docks.undock("ws-a")
+        #expect(!result4)
     }
 
     @Test func toggleHidesAndShowsAndReportsAnEmptyEdge() {
         var docks = WindowDocks()
-        #expect(docks.toggle(.top) == .empty)
+        let result5 = docks.toggle(.top)
+        #expect(result5 == .empty)
         _ = docks.dock("ws-a", at: .top)
-        #expect(docks.toggle(.top) == .hidden)
+        let result6 = docks.toggle(.top)
+        #expect(result6 == .hidden)
         #expect(docks.visible.isEmpty, "a hidden dock is not placed")
         #expect(docks.dock(at: .top)?.workspace == "ws-a", "a hidden dock keeps its workspace")
-        #expect(docks.toggle(.top) == .shown)
+        let result7 = docks.toggle(.top)
+        #expect(result7 == .shown)
         #expect(docks.visible.map(\.workspace) == ["ws-a"])
     }
 
@@ -53,17 +60,22 @@ struct WindowDocksTests {
         var docks = WindowDocks()
         _ = docks.dock("ws-a", at: .bottom)
         _ = docks.toggle(.bottom)
-        #expect(docks.reveal("ws-a"), "W4: selecting a hidden docked workspace shows its dock")
+        let result8 = docks.reveal("ws-a")
+        #expect(result8, "W4: selecting a hidden docked workspace shows its dock")
         #expect(docks.dock(at: .bottom)?.hidden == false)
-        #expect(!docks.reveal("ws-a"), "already shown: no change")
+        let result9 = docks.reveal("ws-a")
+        #expect(!result9, "already shown: no change")
     }
 
     @Test func floatingTogglesTheMode() {
         var docks = WindowDocks()
         _ = docks.dock("ws-a", at: .left)
-        #expect(docks.toggleFloating("ws-a") == .overlay)
-        #expect(docks.toggleFloating("ws-a") == .docked)
-        #expect(docks.toggleFloating("ws-missing") == nil)
+        let result10 = docks.toggleFloating("ws-a")
+        #expect(result10 == .overlay)
+        let result11 = docks.toggleFloating("ws-a")
+        #expect(result11 == .docked)
+        let result12 = docks.toggleFloating("ws-missing")
+        #expect(result12 == nil)
     }
 
     @Test func prunedDropsDocksOfWorkspacesThatLeft() {
