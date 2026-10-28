@@ -105,11 +105,19 @@ async function mount({
   worktree = "ok",
   tabCwd = "/Users/you",
   peerStart = "ok",
+  machines = false,
+  runMode,
+  reconnects = [],
 }: {
   previews?: boolean;
   worktree?: "ok" | "refused";
   tabCwd?: string;
   peerStart?: "ok" | "refused" | "none";
+  /// The Machines widget is on (`tabs.newTabWidgets.machines`).
+  machines?: boolean;
+  runMode?: { mode: "persistent" | "sandboxed"; onMode(mode: "persistent" | "sandboxed"): void };
+  /// The machines the widget asked to reconnect.
+  reconnects?: string[];
 } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -156,7 +164,11 @@ async function mount({
         snapshot={noChat([], {
           peers: ["devbox", "cloud-1"],
           peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
+          peerStates: { devbox: "offline", "cloud-1": "connected" },
         })}
+        {...(machines ? { pageWidgets: new Set(["machines"] as const) } : {})}
+        {...(runMode ? { runMode, onSandbox: () => true } : {})}
+        onReconnectMachine={(id) => reconnects.push(id)}
         lastAgent="claude"
         cwd={tabCwd}
         projects={[
@@ -463,4 +475,45 @@ test("a chat started on another machine starts on the model the page showed", as
     model: "claude-opus-5-5",
     peer: "devbox",
   });
+});
+
+// Leo, 2026-10-26: "in the new tab page ... we should have buttons for connected cloud machines? and
+// adding new stuff". The Machines widget's buttons pick where the next chat starts.
+const machineButton = (id: string) => host.querySelector<HTMLButtonElement>(`.nt-machine[data-machine="${id}"]`);
+
+test("a down machine's button reconnects it and the chat starts there", async () => {
+  const reconnects: string[] = [];
+  const calls = await mount({ machines: true, reconnects });
+  expect(machineButton("devbox")?.getAttribute("data-link")).toBe("offline");
+  expect(machineButton("local")?.getAttribute("aria-pressed")).toBe("true");
+  await click(machineButton("devbox"));
+  expect(reconnects).toEqual(["devbox"]);
+  expect(machineButton("devbox")?.getAttribute("aria-pressed")).toBe("true");
+  await ask("tail the logs");
+  expect(calls.find((call) => call.method === "chat.new")?.params).toMatchObject({ peer: "devbox" });
+});
+
+test("a machine's button under Sandboxed goes back to Persistent", async () => {
+  const modes: string[] = [];
+  await mount({ machines: true, runMode: { mode: "sandboxed", onMode: (mode) => modes.push(mode) } });
+  // Sandboxed runs on a VM of its own: no machine reads pressed.
+  expect(host.querySelector('.nt-machine[aria-pressed="true"]')).toBeNull();
+  await click(machineButton("cloud-1"));
+  expect(modes).toEqual(["persistent"]);
+});
+
+test("a saved environment presses its machine's button", async () => {
+  await mount({ machines: true });
+  await click(machineButton("cloud-1"));
+  await click(environmentButton());
+  await click(row("Web"));
+  // A saved environment on this Mac: the widget presses This Mac.
+  expect(machineButton("local")?.getAttribute("aria-pressed")).toBe("true");
+  expect(machineButton("cloud-1")?.getAttribute("aria-pressed")).toBe("false");
+});
+
+test("Add Machine… is the widget's last button", async () => {
+  await mount({ machines: true });
+  const buttons = $$(".nt-machines button");
+  expect(buttons.at(-1)?.hasAttribute("data-machine-add")).toBe(true);
 });

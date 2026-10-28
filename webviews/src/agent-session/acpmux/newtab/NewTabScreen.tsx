@@ -1458,8 +1458,23 @@ export function NewTabScreen(props: Props) {
       // The machines are buttons: a press starts the next chat there (a down one reconnects as it
       // is picked), resumes or opens an account Cloud machine, and Add Machine… opens Add Device.
       buttons={{
-        current: machine?.peer ?? "local",
-        onPick: (id) => pickMachine(id === "local" ? undefined : { peer: id }),
+        // Where the next chat goes: a saved environment's machine, else the picked machine; none
+        // reads pressed while Sandboxed is the run (a VM of its own).
+        current:
+          props.runMode?.mode === "sandboxed"
+            ? ""
+            : environment
+              ? environment.kind === "ssh" && environment.host
+                ? environment.host
+                : "local"
+              : (machine?.peer ?? "local"),
+        onPick: (id) => {
+          // A machine is a pick of its own: Sandboxed would send elsewhere, so the run goes back to
+          // Persistent. Pressing the machine already picked keeps its folder.
+          if (props.runMode?.mode === "sandboxed") props.runMode.onMode("persistent");
+          if (!environment && id === (machine?.peer ?? "local")) return field.current?.focus();
+          pickMachine(id === "local" ? undefined : { peer: id });
+        },
         onReconnect: (id) => props.onReconnectMachine?.(id),
         onCloudMachine: (cloudMachine) => void runCloudMachine(cloudMachine),
         ...(props.onConnect ? { onAddMachine: () => props.onConnect!("addMachine") } : {}),
