@@ -41,4 +41,8 @@ public nonisolated struct SandboxRunEnd: Sendable {
     public var snapshot: Data
     /// Told again at a launch: the last launch saved the end but may have died around its banner.
     public var replayed = false
+
+    public init(record: SandboxRunRecord, outcome: Outcome, snapshot: Data, replayed: Bool = false) {
+        (self.record, self.outcome, self.snapshot, self.replayed) = (record, outcome, snapshot, replayed)
+    }
 }
