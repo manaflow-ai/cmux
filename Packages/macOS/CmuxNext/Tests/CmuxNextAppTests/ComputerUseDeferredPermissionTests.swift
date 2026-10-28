@@ -19,7 +19,8 @@ import Testing
         }
         let child = ComputerUseHelperV2Child(pid: getpid(), input: descriptor, lines: lines)
         let helper = ComputerUseHelperV2(directory: directory.path, helperApp: { URL(fileURLWithPath: "/test/Helper.app") },
-                                        acpmux: { nil }, spawner: PermissionTestSpawner(child: child))
+                                        acpmux: { nil }, staging: .passing(root: directory),
+                                        spawner: PermissionTestSpawner(child: child))
 
         // A click can arrive while enabling is still being applied. Merely
         // starting the helper after cancellation must never replay that click.
@@ -43,4 +44,5 @@ private struct PermissionTestSpawner: ComputerUseHelperV2Spawning {
     let child: ComputerUseHelperV2Child
     func spawn(executable: URL, environment: [String: String], logPath: String) throws -> ComputerUseHelperV2Child { child }
     func terminate(_ pid: pid_t) {}
+    @MainActor func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void { {} }
 }

@@ -141,6 +141,21 @@ class DedicatedRoute(unittest.TestCase):
                 self.assertEqual(picked, "")
                 self.assertEqual(clock.sleeps, [])
 
+    def test_a_pool_runner_carrying_the_label_is_not_the_builder(self) -> None:
+        # Run 40593692340 (2026-10-27): cmux15's trusted pool runners still carried the label beside
+        # the dedicated builder, read as "online and idle", and refused the build at "Set up runner"
+        # on attempts 1 and 2 (capacity units, then the attempt-1-only rule).
+        pool_runner = runner("self-hosted", "macOS", "glaeda-mini", "glaeda-trusted", DEDICATED)
+        (label, why), clock = self.route([[pool_runner]])
+        self.assertEqual((label, why), ("", f"`{DEDICATED}` is offline"))
+        self.assertEqual(clock.sleeps, [])
+        # The builder beside it still counts, busy or idle, whatever the pool runner is doing.
+        (label, _), _ = self.route([[pool_runner, runner(*BUILDER)]])
+        self.assertEqual(label, DEDICATED)
+        (label, why), _ = self.route([[pool_runner, runner(*BUILDER, busy=True)]] * 100)
+        self.assertEqual(label, "")
+        self.assertIn("stayed busy", why)
+
     def test_the_rescue_moves_a_build_queued_on_the_builder(self) -> None:
         # Two runs can both see it idle; the second waits on it until the rescue moves it.
         import owned_pool_rescue as rescue
@@ -168,6 +183,7 @@ class Main(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "out"
             base = {"GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "1",
+                    "GITHUB_EVENT_NAME": "push",
                     "ROUTE_TOKEN": "r", "SNAPSHOT_TOKEN": "s", "OWNED_LABELS": f"{DEV} {SIDE}", "CANDIDATE": LARGE}
             clock = Clock()
             self.assertEqual(picker.main({**base, **env}, now=NOW, argv=argv, sleep=clock.sleep, clock=clock,
@@ -208,6 +224,20 @@ class Main(unittest.TestCase):
         out = self.run_main({"DEDICATED_LABEL": DEDICATED}, read_runners=lambda t, r: fleet,
                             read_snapshot=lambda t, r: snapshot({}))
         self.assertEqual(out, {"dedicated": DEDICATED, "owned": DEDICATED, "blacksmith": LARGE, "runner": DEDICATED, "attempt": "1"})
+
+    def test_only_a_push_is_offered_the_builder(self) -> None:
+        # The builder admits only a push to nightly-next: run 40594111618, a dispatch, was refused at
+        # "Set up runner" ("event workflow_dispatch is not push"). Other events go to the owned pool.
+        fleet = [runner(*BUILDER), runner(SIDE)]
+        for event in ("workflow_dispatch", "schedule", ""):
+            with self.subTest(event=event):
+                out = self.run_main({"DEDICATED_LABEL": DEDICATED, "GITHUB_EVENT_NAME": event},
+                                    read_runners=lambda t, r: fleet, read_snapshot=lambda t, r: snapshot({}))
+                self.assertEqual(out, {"dedicated": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE,
+                                       "attempt": "1"})
+                out = self.run_main({"DEDICATED_LABEL": DEDICATED, "GITHUB_EVENT_NAME": event}, argv=("dedicated",),
+                                    read_runners=lambda t, r: fleet)
+                self.assertEqual(out, {"dedicated": ""})
 
     def test_a_builder_busy_past_the_wait_falls_back_to_the_owned_pool(self) -> None:
         fleet = [runner(*BUILDER, busy=True), runner(SIDE)]

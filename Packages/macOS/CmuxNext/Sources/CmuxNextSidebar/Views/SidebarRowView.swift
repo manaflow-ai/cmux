@@ -22,6 +22,9 @@ class SidebarRowView: NSView {
         }
     }
 
+    /// The move whose tuck fade this tab line runs (`RowMotion.tuck`), so an older move's end leaves a newer one's.
+    var tuckMove: Int?
+
     /// The row shows as selected, the one source of its AXSelected. A row with more
     /// selection state overrides it and calls `updateAccessibilitySelection()` when that changes.
     var showsSelection: Bool { isSelected }
@@ -80,6 +83,8 @@ class SidebarRowView: NSView {
         fadesNextHover = false
         // A row parked mid-move does not finish that move when it comes back (cx-bqm6).
         layer?.removeAllAnimations()
+        layer?.zPosition = 0 // a tab line parked mid-tuck (`RowMotion.tuck`) draws in order again
+        tuckMove = nil
         clipsToBounds = false
         targetSize = nil
         alphaValue = 1

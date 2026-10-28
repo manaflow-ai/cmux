@@ -1084,9 +1084,13 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
 RESET_STALE_SUBMODULES = "scripts/ci/reset-stale-submodules.sh"
 
 
+# The Blacksmith outage failover reads a variable but only ever picks another Blacksmith size.
+OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-\d+vcpu-ubuntu-2404' \|\| ")
+
+
 def can_run_on_owned_runner(job: dict) -> bool:
     """A runs-on that reads a repository variable can resolve to a mini (glaeda-*)."""
-    return "vars." in str(job.get("runs-on", ""))
+    return "vars." in OVERFLOW_FAILOVER.sub("", str(job.get("runs-on", "")))
 
 
 class ReusedWorkspaceSubmodules(unittest.TestCase):
@@ -1124,10 +1128,10 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     following = job_steps[after] if after < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
-        # request-nightly-next runs on GitHub-hosted ubuntu-latest (70d5128f784b), never a mini.
+        # The nightly-next requests read LINUX_RUNNER (Blacksmith Linux, never GitHub-hosted).
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
-                                           "release-compile", "swift-canary", "swift-test",
-                                           "web-bundles"])
+                                           "release-compile", "request-nightly-next", "request-nightly-next-fast",
+                                           "swift-canary", "swift-test", "web-bundles"])
 
 
 
@@ -1198,6 +1202,30 @@ class SameTreeIsAnEvent(unittest.TestCase):
         # mutate Actions or repository contents.
         self.assertEqual(route["permissions"].get("actions"), "read")
         self.assertEqual(route["permissions"].get("contents"), "read")
+
+    def test_path_route_probes_fail_open_inside_the_job_limit(self):
+        # A slow probe (2026-10-27: one fetch per active artifacts run during a
+        # lane-branch push burst) once held path routing past its job limit; the
+        # cancelled job skipped every Release compile and swift test. Each probe
+        # stops at its own limit and fails open, so routing still succeeds.
+        route = self.jobs()["path_route"]
+        probes = [step for step in route["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
+        self.assertEqual(len(probes), 2)
+        for step in probes:
+            with self.subTest(step=step["name"]):
+                self.assertIs(step.get("continue-on-error"), True)
+                self.assertLessEqual(int(step["timeout-minutes"]), 2)
+                budget = int(step["env"]["CMUX_TUI_TREE_RUN_FETCH_SECONDS"])
+                self.assertLess(budget, 60 * int(step["timeout-minutes"]))
+        self.assertGreater(int(route["timeout-minutes"]), sum(int(step["timeout-minutes"]) for step in probes) + 2)
+        report = next(step for step in route["steps"] if step.get("name") == "Report a probe that failed open")
+        self.assertIn("steps.tree.outcome == 'failure'", report["if"])
+        self.assertIn("steps.tree-final.outcome == 'failure'", report["if"])
+        # The routed tiers come from the step before the probes, never from a probe.
+        for name, value in route["outputs"].items():
+            if not name.startswith("tree_"):
+                with self.subTest(output=name):
+                    self.assertTrue(value.strip().startswith("${{ steps.route.outputs."), value)
 
     def test_untrusted_routing_jobs_have_no_write_token_or_dispatch_switch(self):
         jobs = self.jobs()
@@ -1318,7 +1346,8 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), runs_on)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
         self.assertTrue(runs_on.endswith("'blacksmith-32vcpu-ubuntu-2404' }}"), runs_on)
-        self.assertNotIn("vars.", runs_on, "an ephemeral Linux VM, never a reused mini")
+        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+        self.assertNotIn("vars.", OVERFLOW_FAILOVER.sub("", runs_on), "an ephemeral Linux VM, never a reused mini")
         # The same gate, except that the Mac half also follows the route (MacFastTierFollowsTheRoute).
         self.assertEqual(cargo["if"], mac["if"].replace(" && needs.path_route.outputs.macos != 'false'", ""))
         self.assertNotEqual(cargo["if"], mac["if"])

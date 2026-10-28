@@ -61,10 +61,11 @@ enum WorkspaceHandlers {
     /// address bar) instead of the active one, `window` in that open
     /// window; `room` pins it to that space first (Open Link in New Space).
     /// `key` names the new workspace (a History reopen picks it first); a fresh one by default.
+    /// `daemon` holds it (default: the active window's machine).
     static func createAndShow(services: AppServices, name: String? = nil, cwd: String? = nil, key workspaceKey: WorkspaceKey? = nil,
-                              newWindow: Bool = false, window: String? = nil, room: ProfileID? = nil,
+                              newWindow: Bool = false, window: String? = nil, room: ProfileID? = nil, daemon chosen: DaemonService? = nil,
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
-        let daemon = services.activeDaemon
+        let daemon = chosen ?? services.activeDaemon
         let windows = services.windows
         // Claimed before the create command, so the workspace lands in (or
         // opens) its window in the step that first mirrors it.

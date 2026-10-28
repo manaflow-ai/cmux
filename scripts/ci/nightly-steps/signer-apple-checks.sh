@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# nightly.yml signer-dmg-image and signer-verify: Apple's checks of a cmux NEXT
+# nightly.yml signer-dmg-image and verify-final-dmg-nightly (signer-final-dmg-checks.sh): Apple's checks of a cmux NEXT
 # app the release runner pool signed, on a Mac with no secrets.
 #
 #   signer-apple-checks.sh <app>

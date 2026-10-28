@@ -35,7 +35,9 @@ pub use agent_session_start::{
     AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
     AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
-pub use agent_session_trust::AGENT_SESSION_TRUST_CAPABILITY;
+pub use agent_session_trust::{
+    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY,
+};
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
 /// `agent-session-typing` and `agent-session-view`, and the `agent-session-presence` event: who
