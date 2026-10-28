@@ -436,6 +436,14 @@ class NextApp:
     def hangs_clear(self):
         self.control.rpc("debug.hangs", {"clear": True}, timeout=20)
 
+    def spare_state(self):
+        """The Chromium spare windows (debug.cef): the default profile's, the pages profile's, and the windows built
+        on a key's turn because no spare was ready."""
+        reply = self.control.rpc("debug.cef", {}, timeout=30) or {}
+        if not isinstance(reply, dict):
+            return None
+        return {k: reply.get(k) for k in ("spare_window", "pages_spare_window", "window_built_on_key_turn")}
+
     def pump_stats(self):
         """The in-process Chromium pump's counters (debug.cef engine.pump): passes, re-entrant fires (a pass that ran
         a nested run loop), long passes, total work ms and the p99 pass."""
@@ -668,6 +676,9 @@ class ClassicApp:
     def pump_stats(self):
         return None
 
+    def spare_state(self):
+        return None
+
     def journal_mark(self, marker):
         pass
 
@@ -740,8 +751,9 @@ def run_round(app, scenario, index, sampled):
     app.hangs_clear()
     try:
         pump_before = app.pump_stats()
+        spare_before = app.spare_state()
     except Exception:
-        pump_before = None
+        pump_before = spare_before = None
     marker = f"first5s-{scenario}-{index}-{time.time_ns()}"
     try:
         app.journal_mark(marker)
@@ -776,8 +788,9 @@ def run_round(app, scenario, index, sampled):
     hangs = app.hangs(open_ns, end_ns)
     try:
         pump_after = app.pump_stats()
+        spare_after = app.spare_state()
     except Exception:
-        pump_after = None
+        pump_after = spare_after = None
     pump_delta = None
     if isinstance(pump_before, dict) and isinstance(pump_after, dict):
         pump_delta = {k: round(pump_after[k] - pump_before.get(k, 0), 2) for k in ("work_runs", "reentrant_fires", "long_work_runs", "work_ms")
@@ -854,7 +867,7 @@ def run_round(app, scenario, index, sampled):
            "shells_loaded": shells_loaded(app.zdot), "probe_rows": len(rows), "keys": keys, "hangs": hangs,
            "first_frame_ms": round(first_any, 1) if first_any is not None else None,
            "first_big_frame_ms": round(first_big, 1) if first_big is not None else None,
-           "frames": frames, "journal": journal, "pump": pump_delta, "late_keys": late_rows, "holds": round_holds, "new_tab_log": new_tab_log[-40:],
+           "frames": frames, "journal": journal, "pump": pump_delta, "spare": {"before": spare_before, "after": spare_after}, "late_keys": late_rows, "holds": round_holds, "new_tab_log": new_tab_log[-40:],
            "slot_errors": [r for r in slot_rows if "error" in r][:3]}
     if sampled:
         rec["sample"] = main_thread_tree(os.path.join(app.out, f"sample-{scenario}-{index}.txt"), min_share=0.01, limit=400)
@@ -865,6 +878,7 @@ def run_round(app, scenario, index, sampled):
     probe = [k["probe_ms"] for k in keys if k["probe_ms"] is not None]
     photon = [k["photon_ms"] for k in keys if k["photon_ms"] is not None]
     note(f"      PUMP {scenario} {index}: {json.dumps(pump_delta)}")
+    note(f"      SPARE {scenario} {index}: before {json.dumps(spare_before)} after {json.dumps(spare_after)}")
     for h in ((hangs or {}).get("window") or []) if isinstance(hangs, dict) else []:
         if h.get("all_frames"):
             note(f"      LONG {scenario} {index}: +{h['at_ms']} ms {h['ms']} ms cpu {h['cpu_ms']} [{h['list']}]")
