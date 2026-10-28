@@ -330,7 +330,8 @@ struct InstantCreateIntentTests {
         let transaction = ClientTransactionID.generate()
         store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: first), transaction: transaction)
         let target = store.paneTarget(first.handle)
-        #expect(store.intentLog.markCloseWhenCreated(transaction))
+        let marked = store.intentLog.markCloseWhenCreated(transaction)
+        #expect(marked)
         _ = store.apply(batch: [Self.paneAdded(PaneID(rawValue: 9), for: first, sequence: 1)])
         #expect(await store.daemonPane(confirming: target) == nil)
     }
