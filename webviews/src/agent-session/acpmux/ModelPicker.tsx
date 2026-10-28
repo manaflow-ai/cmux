@@ -721,7 +721,7 @@ export function ModelPicker(props: ModelPickerProps) {
       if (event.metaKey && event.ctrlKey && !event.altKey && event.key.toLowerCase() === "m") {
         event.preventDefault();
         if (quick !== undefined) {
-          if (open) close();
+          if (open) showRef.current();
           else setQuickOpen(true);
         } else showRef.current();
       }
