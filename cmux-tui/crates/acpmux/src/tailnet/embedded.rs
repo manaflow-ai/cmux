@@ -159,6 +159,10 @@ pub struct Controller {
     hostname: String,
     inner: Mutex<Inner>,
     changes: broadcast::Sender<Snapshot>,
+    /// Serializes starts, sign-outs and shutdown with failed-node retirement.
+    /// A cleanup task holds this gate until its node is closed, so a queued
+    /// start cannot create a second node for the same state directory.
+    retirement_gate: Arc<tokio::sync::Mutex<()>>,
     lifecycle: Arc<tokio::sync::Mutex<()>>,
     stopping: Arc<AtomicBool>,
 }
@@ -177,6 +181,7 @@ impl Controller {
                 closed: false,
             }),
             changes,
+            retirement_gate: Arc::new(tokio::sync::Mutex::new(())),
             lifecycle: Arc::new(tokio::sync::Mutex::new(())),
             stopping: Arc::new(AtomicBool::new(false)),
         })
@@ -198,6 +203,7 @@ impl Controller {
 
     /// Resume only a saved explicit opt-in; an untouched installation creates nothing.
     pub async fn resume(self: &Arc<Self>) -> Result<(), String> {
+        let _retirement = self.retirement_gate.lock().await;
         let _lifecycle = self.lifecycle.lock().await;
         let path = self.state_dir.join("enabled");
         let enabled = tokio::task::spawn_blocking(move || saved_opt_in(&path))
@@ -240,31 +246,29 @@ impl Controller {
     }
 
     pub(crate) async fn listener_failed(self: &Arc<Self>, failed: &Arc<Node>) {
-        // Retire the failed identity before waiting for a request (login or
-        // logout) that may hold the lifecycle lock for a long LocalAPI call.
-        // The supervisor timeout may cancel the close, but it must never
-        // cancel this state transition and allow an automatic restart.
-        let Some((Some(node), generation)) = self.retire_node(Some(failed), "stopped") else {
-            return;
-        };
+        // The cleanup task owns the failed node and the retirement gate. The
+        // supervisor timeout may cancel only this join, never the cleanup.
+        let failed = Arc::clone(failed);
         let controller = Arc::clone(self);
-        let cleanup = spawn_after_lifecycle(Arc::clone(&self.lifecycle), move || async move {
-            let _ = tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
-                .await
-                .map_err(|error| error.to_string());
-            controller.note_listener_error_if_current(generation);
-        });
+        let cleanup = spawn_after_retirement(
+            Arc::clone(&self.retirement_gate),
+            Arc::clone(&self.lifecycle),
+            move || async move {
+                let Some((Some(node), generation)) =
+                    controller.retire_node(Some(&failed), "stopped")
+                else {
+                    return;
+                };
+                let _ = tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
+                    .await
+                    .map_err(|error| error.to_string());
+                controller.note_listener_error_if_current(generation);
+            },
+        );
         // Dropping this join handle (for example when the supervisor's close
         // timeout expires) does not cancel the detached cleanup task. It owns
         // the retired node until close completes.
         let _ = cleanup.await;
-    }
-
-    /// Start the node without waiting for login. A saved login resumes; an
-    /// unsigned node reports `needs_login` and its URL through `state`.
-    pub async fn start(self: &Arc<Self>) -> Result<Snapshot, String> {
-        let this = Arc::clone(self);
-        detached(async move { this.start_detached().await }).await
     }
 
     /// Request an explicit browser sign-in URL for a running unsigned node.
@@ -285,7 +289,15 @@ impl Controller {
         detached(async move { this.shutdown_detached().await }).await
     }
 
+    /// Start the node without waiting for login. A saved login resumes; an
+    /// unsigned node reports `needs_login` and its URL through `state`.
+    pub async fn start(self: &Arc<Self>) -> Result<Snapshot, String> {
+        let this = Arc::clone(self);
+        detached(async move { this.start_detached().await }).await
+    }
+
     async fn start_detached(self: Arc<Self>) -> Result<Snapshot, String> {
+        let _retirement = self.retirement_gate.lock().await;
         let _lifecycle = self.lifecycle.lock().await;
         self.start_locked().await
     }
@@ -379,6 +391,7 @@ impl Controller {
     }
 
     async fn login_detached(self: Arc<Self>) -> Result<Snapshot, String> {
+        let _retirement = self.retirement_gate.lock().await;
         let _lifecycle = self.lifecycle.lock().await;
         let node = self.node().ok_or_else(|| "tailnet is not started".to_owned())?;
         let result = tokio::task::spawn_blocking(move || node.login_interactive().map_err(|e| e.0))
@@ -389,6 +402,7 @@ impl Controller {
     }
 
     async fn logout_detached(self: Arc<Self>) -> Result<Snapshot, String> {
+        let _retirement = self.retirement_gate.lock().await;
         let _lifecycle = self.lifecycle.lock().await;
         let path = self.state_dir.join("enabled");
         tokio::task::spawn_blocking(move || clear_opt_in(&path))
@@ -425,6 +439,7 @@ impl Controller {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             inner.closed = true;
         }
+        let _retirement = self.retirement_gate.lock().await;
         let _lifecycle = self.lifecycle.lock().await;
         self.shutdown_locked().await
     }
@@ -567,7 +582,8 @@ fn release_on_background<T: Send + 'static>(value: T) {
         .spawn(move || drop(value));
 }
 
-fn spawn_after_lifecycle<F, Fut>(
+fn spawn_after_retirement<F, Fut>(
+    retirement_gate: Arc<tokio::sync::Mutex<()>>,
     lifecycle: Arc<tokio::sync::Mutex<()>>,
     action: F,
 ) -> tokio::task::JoinHandle<()>
@@ -576,6 +592,7 @@ where
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
     tokio::spawn(async move {
+        let _retirement = retirement_gate.lock().await;
         let _lifecycle = lifecycle.lock().await;
         action().await;
     })
@@ -810,11 +827,14 @@ mod tests {
         }
         let newer_state = controller.clone();
         let (closed, closed_rx) = tokio::sync::oneshot::channel();
-        let cleanup =
-            spawn_after_lifecycle(Arc::clone(&controller.lifecycle), move || async move {
+        let cleanup = spawn_after_retirement(
+            Arc::clone(&controller.retirement_gate),
+            Arc::clone(&controller.lifecycle),
+            move || async move {
                 newer_state.note_listener_error_if_current(retired_generation);
                 let _ = closed.send(());
-            });
+            },
+        );
         assert!(tokio::time::timeout(std::time::Duration::from_millis(10), cleanup).await.is_err());
         assert_eq!(controller.snapshot().state, "running");
         assert!(controller.node().is_none());
@@ -825,6 +845,41 @@ mod tests {
         .await
         .expect("detached close completed after lifecycle lock was released");
         assert_eq!(controller.snapshot().state, "running");
+    }
+
+    #[tokio::test]
+    async fn queued_start_waits_for_retirement_cleanup() {
+        let controller = Controller::new("/nonexistent/cmux-tailnet-test", "test");
+        let retirement = controller.retirement_gate.lock().await;
+        let lifecycle = controller.lifecycle.lock().await;
+        let (cleanup_done, cleanup_rx) = tokio::sync::oneshot::channel();
+        let cleanup = spawn_after_retirement(
+            Arc::clone(&controller.retirement_gate),
+            Arc::clone(&controller.lifecycle),
+            move || async move {
+                let _ = cleanup_done.send(());
+            },
+        );
+        let (start_done, start_rx) = tokio::sync::oneshot::channel();
+        let start = spawn_after_retirement(
+            Arc::clone(&controller.retirement_gate),
+            Arc::clone(&controller.lifecycle),
+            move || async move {
+                let _ = start_done.send(());
+            },
+        );
+        drop(retirement);
+        assert!(tokio::time::timeout(std::time::Duration::from_millis(10), cleanup).await.is_err());
+        assert!(tokio::time::timeout(std::time::Duration::from_millis(10), start).await.is_err());
+        drop(lifecycle);
+        tokio::time::timeout(std::time::Duration::from_secs(1), cleanup_rx)
+            .await
+            .expect("retirement cleanup completed")
+            .expect("retirement cleanup sent completion");
+        tokio::time::timeout(std::time::Duration::from_secs(1), start_rx)
+            .await
+            .expect("queued start ran after retirement cleanup")
+            .expect("queued start sent completion");
     }
 
     #[test]
