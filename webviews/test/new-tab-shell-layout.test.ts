@@ -67,8 +67,28 @@ await requireBrowserLane("new-tab-shell-layout.test.ts", async () => {
     const before = await field.boundingBox();
     expect(before).not.toBeNull();
 
-    await field.fill("!pwd");
+    await field.focus();
+    await page.evaluate(async () => {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      const target = window as Window & { shellLayoutShifts?: { value: number; sources: string[] }[] };
+      target.shellLayoutShifts = [];
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          const shift = entry as PerformanceEntry & { value: number; sources: { node?: Node }[] };
+          target.shellLayoutShifts!.push({
+            value: shift.value,
+            sources: shift.sources.map(({ node }) => node?.nodeName ?? "unknown"),
+          });
+        }
+      }).observe({ type: "layout-shift" });
+    });
+    await page.keyboard.type("!pwd");
     await page.locator(".nt-shell-glyph").waitFor();
+    const shifts = await page.evaluate(async () => {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      return (window as Window & { shellLayoutShifts?: { value: number; sources: string[] }[] }).shellLayoutShifts!;
+    });
+    expect(shifts).toEqual([]);
     const after = await field.boundingBox();
     expect(after).not.toBeNull();
 
@@ -80,6 +100,11 @@ await requireBrowserLane("new-tab-shell-layout.test.ts", async () => {
     // slot is reserved before the first key, so neither edge moves when the shell glyph is shown.
     expect(delta.x).toBeLessThanOrEqual(0.5);
     expect(delta.width).toBeLessThanOrEqual(0.5);
+    const glyph = await page.locator(".nt-shell-glyph").boundingBox();
+    const plus = await page.locator(".nt-input .acpmux-newtab-plus button").boundingBox();
+    expect(glyph).not.toBeNull();
+    expect(plus).not.toBeNull();
+    expect(glyph!.x).toBeGreaterThanOrEqual(plus!.x + plus!.width);
     await page.close();
   });
 });
