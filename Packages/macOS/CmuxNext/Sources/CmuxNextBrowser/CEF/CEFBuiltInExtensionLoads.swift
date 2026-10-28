@@ -97,6 +97,8 @@ final class CEFBuiltInExtensionLoader {
         case atFirstTab = "at_first_tab"
         /// On `--load-extension`: into every profile Chromium starts.
         case atStart = "at_start"
+        /// No built-in folder to load (the setting off, or the person's own copy of it).
+        case nothing = "none"
         /// Nowhere: the feature is on, the fork has no first-tab load and the person did not turn the ad blocker
         /// on. `--load-extension` would put it into Chromium's root profile, which no cmux tab uses.
         case off
@@ -124,21 +126,28 @@ final class CEFBuiltInExtensionLoader {
     /// without it, at start only when the person turned `browser.builtInAdBlocker` on (`personChose`), else
     /// nowhere: the start-time load reaches Chromium's root profile too, the double copy the feature is meant to
     /// end. A tab that waited for the previous Chromium's load asks again, against this one.
-    func start(_ folders: [String], forkSupports: Bool, personChose: Bool = false) -> Placement {
-        let placement: Placement = if folders.isEmpty || !featureOn { .atStart }
+    func start(_ folders: [String], forkSupports: Bool, personChose: Bool) -> Placement {
+        begin(folders, forkSupports: forkSupports, personChose: personChose).placement
+    }
+
+    /// ``start(_:forkSupports:personChose:)``, returning the whole decision (the start's switch inputs read it).
+    func begin(_ folders: [String], forkSupports: Bool, personChose: Bool) -> Start {
+        let placement: Placement = if folders.isEmpty { .nothing }
+            else if !featureOn { .atStart }
             else if forkSupports { .atFirstTab }
             else if personChose { .atStart }
             else { .off }
         let atFirstTab = placement == .atFirstTab
         if placement == .off { logger.notice("built-in extensions: off (this fork has no first-tab load and browser.builtInAdBlocker is not set)") }
-        lastStart = Start(placement: placement, feature: featureOn, forkSupports: forkSupports, personChose: personChose, folders: folders.count)
+        let start = Start(placement: placement, feature: featureOn, forkSupports: forkSupports, personChose: personChose, folders: folders.count)
+        lastStart = start
         loads.started(folders: atFirstTab ? folders : [])
         for load in pending.values { _ = load.deadlines.cancel(load.deadline) }
         pending.removeAll()
         let waiting = waiters.values.flatMap { $0 }
         waiters.removeAll()
         for resume in waiting { resume() }
-        return placement
+        return start
     }
 
     /// Whether `tab`'s browser may be asked for now. The first tab of a persistent profile starts the

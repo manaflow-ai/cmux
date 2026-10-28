@@ -547,10 +547,9 @@ final class CEFRuntime {
         }
 
         let builtInPlan = inputs.builtInPlan
-        let builtInStart = builtInLoader.start(builtInPlan.folders, forkSupports: shim.extLoadLaterSupported() == 1,
-                                               personChose: builtInAdBlockerChosen())
-        let builtIn = builtInLoader.lastStart?.switchInputs(folders: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled)
-            ?? (builtInPlan.folders, builtInStart == .atFirstTab, builtInPlan.keepsUnpackedEnabled)
+        let builtIn = builtInLoader.begin(builtInPlan.folders, forkSupports: shim.extLoadLaterSupported() == 1,
+                                          personChose: inputs.adBlockerChosen)
+            .switchInputs(folders: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled)
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             chromiumFeatures: chromiumFeatures, disabledChromiumFeatures: disabledChromiumFeatures,

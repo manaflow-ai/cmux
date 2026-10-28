@@ -60,9 +60,9 @@ def main():
     from ext_e2e import cdp
     port = free_port()
     env = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": f"remote-debugging-port={port}:remote-allow-origins=*"}
-    if opts.features:
-        env["CMUX_ENABLE_FEATURES"] = opts.features
-    app = BenchApp(opts.app, out=opts.out, env=env)
+    # The tag's Labs local choices: CMUX_ENABLE_FEATURES is dropped when another cmux launched this one.
+    features = {name: True for name in opts.features.split(",") if name}
+    app = BenchApp(opts.app, out=opts.out, env=env, local_features=features)
     report = {"app": opts.app, "features": opts.features, "ok": False}
     try:
         shutil.rmtree(os.path.join(os.path.expanduser("~"), "Library/Application Support/cmux/tags", app.tag, "tui"),
@@ -90,12 +90,19 @@ def main():
                                                         "profiles": len(contexts)}))
         for t in running:
             note("ROOT-PROFILE-EXT running " + json.dumps({k: t.get(k) for k in ("type", "url", "browserContextId")}))
-        report["ok"] = bool(targets) and not running
+        built_in = cef.get("built_in_extensions") or {}
+        # A run proves the claim only with the feature on and a built-in folder to load (a bundle without uBlock
+        # Origin, or a feature the app did not read, would pass with nothing tested).
+        tested = built_in.get("feature") is True and (built_in.get("folders") or 0) >= 1
+        report["tested"] = tested
+        if not tested:
+            note("ROOT-PROFILE-EXT NOT TESTED: debug.cef built_in_extensions has no feature on with a folder: " + json.dumps(built_in))
+        report["ok"] = tested and bool(targets) and not running
         note("ROOT-PROFILE-EXT " + ("PASS: no extension runs before the first browser tab, the root profile included"
                                     if report["ok"] else
                                     "FAIL: " + (f"{len(running)} extension background pages run in {len(contexts)} profiles "
                                                 "with no browser tab (the root profile among them)" if running
-                                                else "no DevTools targets read")))
+                                                else "no DevTools targets read" if not targets else "nothing tested")))
     except Exception as error:  # noqa: BLE001 - the report keeps what was read
         report["error"] = f"{type(error).__name__}: {error}"[:400]
         note("ROOT-PROFILE-EXT ERROR " + report["error"])

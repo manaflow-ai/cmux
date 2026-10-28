@@ -15,7 +15,7 @@ import Testing
     @Test func theFeatureOnAnOldForkLoadsNoBuiltInExtension() {
         let loader = CEFBuiltInExtensionLoader()
         loader.featureOn = true
-        #expect(loader.start([Self.folder], forkSupports: false) == .off)
+        #expect(loader.start([Self.folder], forkSupports: false, personChose: false) == .off)
         #expect(loader.loads.folders.isEmpty, "no profile loads it at its first tab either")
         let arguments = Self.arguments(loader.lastStart)
         #expect(!arguments.contains { $0.hasPrefix("load-extension=") }, "the root profile would get it: \(arguments)")
@@ -31,18 +31,18 @@ import Testing
 
     @Test func theOtherWaysAreUnchanged() {
         let loader = CEFBuiltInExtensionLoader()
-        #expect(loader.start([Self.folder], forkSupports: false) == .atStart, "feature off: loads at start, as shipped")
-        #expect(loader.start([Self.folder], forkSupports: true) == .atStart, "feature off on a new fork")
+        #expect(loader.start([Self.folder], forkSupports: false, personChose: false) == .atStart, "feature off: loads at start, as shipped")
+        #expect(loader.start([Self.folder], forkSupports: true, personChose: false) == .atStart, "feature off on a new fork")
         loader.featureOn = true
-        #expect(loader.start([Self.folder], forkSupports: true) == .atFirstTab)
-        #expect(loader.start([], forkSupports: false) == .atStart, "nothing to load: nothing to hold back")
+        #expect(loader.start([Self.folder], forkSupports: true, personChose: false) == .atFirstTab)
+        #expect(loader.start([], forkSupports: false, personChose: false) == .nothing, "nothing to load")
     }
 
     /// `debug.cef` `built_in_extensions`: the feature, the fork's call, the person's choice and the way taken.
     @Test func theStartSaysWhichWayItWent() {
         let loader = CEFBuiltInExtensionLoader()
         loader.featureOn = true
-        _ = loader.start([Self.folder], forkSupports: false)
+        _ = loader.start([Self.folder], forkSupports: false, personChose: false)
         #expect(loader.lastStart == CEFBuiltInExtensionLoader.Start(placement: .off, feature: true, forkSupports: false,
                                                                      personChose: false, folders: 1))
     }
