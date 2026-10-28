@@ -23,8 +23,9 @@ name: nightly-next launch smoke
 # cannot-run is cached per build); a tick with no new build stops in the Linux
 # pick job. A crash is not cached, so it is retried until its rollback lands. A schedule and a dispatch register only
 # from the default branch, so this file is on main too; every run takes its
-# tooling from feat-cmux-next (a pull request's run, from its own head). A pull
-# request's run smokes the newest feed build and never rolls back or files.
+# tooling from feat-cmux-next (a pull request into feat-cmux-next, from its own
+# head). A pull request's run smokes the newest feed build and never rolls back
+# or files.
 on:
   schedule:
     - cron: "1,11,21,31,41,51 * * * *"
@@ -53,7 +54,9 @@ env:
   NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml
   # Bumping it smokes every feed build again.
   SMOKE_CACHE_PREFIX: nightly-next-launch-smoke-v1-
-  TOOLING_REF: ${{ github.event_name == 'pull_request' && github.sha || 'feat-cmux-next' }}
+  # A pull request into feat-cmux-next tests its own head; every other run (and a
+  # pull request into main, whose tree has none of this tooling) takes feat-cmux-next's.
+  TOOLING_REF: ${{ github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && github.sha || 'feat-cmux-next' }}
 
 jobs:
   pick:
