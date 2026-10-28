@@ -122,7 +122,13 @@ pub(super) async fn handle_notification(
     match m {
         method::SESSION_CANCEL => {
             // Notifications have no response channel, but they still cross
-            // the same origin/ownership boundary as request-form cancels.
+            // the same origin/ownership boundary as request-form cancels,
+            // the VM boundary's owner rule included (`hub/vm_boundary.rs`).
+            let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
+            if let Err(e) = hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params) {
+                tracing::debug!(conn = %conn.id, "cancel refused: {e}");
+                return;
+            }
             let device = super::remote_guard::full_access_device(hub, conn, &params);
             if conn.origin != Origin::Local
                 && let Err(e) = super::remote_guard::check(
@@ -135,6 +141,11 @@ pub(super) async fn handle_notification(
                 )
                 .await
             {
+                tracing::debug!(conn = %conn.id, "cancel refused: {e}");
+                return;
+            }
+            // Again after the guard's awaits (`hub/vm_boundary.rs`).
+            if let Err(e) = hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params) {
                 tracing::debug!(conn = %conn.id, "cancel refused: {e}");
                 return;
             }
@@ -553,6 +564,10 @@ pub(super) async fn handle_request(
     // The pane's fork through a turn is a session/fork, checked as one from
     // here on (`fork_through.rs`).
     let m = super::fork_through::as_session_fork(hub, m, &mut params).await?;
+    // A request that is not the person's own, naming a session here at the VM
+    // boundary, runs under the Web's rules from here on (`hub/vm_boundary.rs`).
+    let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
+    hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
         let device = super::remote_guard::full_access_device(hub, conn, &params);
@@ -577,6 +592,8 @@ pub(super) async fn handle_request(
             &params,
         )
         .await?;
+    // Again after the guard's awaits: a session that took the name meanwhile (`hub/vm_boundary.rs`).
+    hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
     let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     let key = super::session_key(&params).ok().map(str::to_owned);
@@ -626,7 +643,8 @@ async fn dispatch_request(
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
                 *conn.name.lock_or_recover() = name.to_owned();
             }
-            Ok(json!({
+            #[allow(unused_mut)]
+            let mut reply = json!({
                 "protocolVersion": 1,
                 "agentInfo": {"name": "acpmux", "title": "acpmux", "version": VERSION},
                 "agentCapabilities": {
@@ -663,7 +681,23 @@ async fn dispatch_request(
                     method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
                 "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE], "trustGate": true}}
-            }))
+            });
+            // Advertised only where they work; other builds answer `not_built`.
+            #[cfg(all(unix, feature = "tailnet"))]
+            if let Some(extensions) =
+                reply.pointer_mut("/_meta/acpmux/extensions").and_then(Value::as_array_mut)
+            {
+                extensions.extend(
+                    [
+                        method::MUX_TAILNET_START,
+                        method::MUX_TAILNET_LOGIN,
+                        method::MUX_TAILNET_STATE,
+                        method::MUX_TAILNET_LOGOUT,
+                    ]
+                    .map(Value::from),
+                );
+            }
+            Ok(reply)
         }
         method::AUTHENTICATE => Ok(json!({})),
         // Decided in order in `Conn::bind_person`; this only reports it.
@@ -831,8 +865,24 @@ async fn dispatch_request(
                     // CLI argv or a second copy of the prompt file to create the session.
                     m.remove("argv");
                     m.remove("promptFileText");
+                    // Only this daemon decides the VM boundary, never its caller.
+                    m.remove(crate::hub::vm_boundary::FIELD);
                 }
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
+                // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
+                // for the person's own clients here only (`vm_boundary::owner`).
+                if peer.vm_boundary()
+                    && crate::hub::vm_boundary::owner(
+                        conn.auth,
+                        super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                        &params,
+                    )
+                {
+                    crate::hub::merge_mux_meta(
+                        &mut p,
+                        json!({crate::hub::vm_boundary::FIELD: true}),
+                    );
+                }
                 let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     view::subscribe_remote(hub, conn, id, None);
@@ -916,6 +966,11 @@ async fn dispatch_request(
                 env,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
+                vm_boundary: crate::hub::vm_boundary::asked(
+                    conn.auth,
+                    super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                    &params,
+                ),
                 keep_harness_mode: hub.keeps_harness_mode(agent, &params).await,
                 starter: hub.starter_of(conn.origin.web_class(), agent),
                 route,
@@ -936,20 +991,20 @@ async fn dispatch_request(
             if conn.origin.web_class() {
                 let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
                 super::remote_guard::settle_web_session_mode(hub, &s, peer).await?;
-                // A dedicated agent VM (vmHost): a session its owner's peer
-                // daemon starts with no policy runs approve-all; the VM is the
-                // sandbox (hub/remote_sandbox.rs). Web clients still ask.
-                let vm_host = hub.vm_host().await;
+                // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a
+                // session the owner's peer daemon starts with no policy runs
+                // approve-all, as vmHost's did. Web clients still ask.
+                let vm_boundary = s.meta().vm_boundary && hub.takes_vm_boundary().await;
                 if !asked_policy
-                    && crate::hub::vm_host_peer_approves(
-                        vm_host,
+                    && crate::hub::vm_boundary_peer_approves(
+                        vm_boundary,
                         cfg!(target_os = "macos"),
                         super::remote_guard::control_of(conn.origin, conn.auth, &params)
                             == crate::hub::Control::Peer,
                         hub.approve_all_allowed(),
                     )
                 {
-                    hub.set_policy(&s, crate::config::PermissionPolicy::ApproveAll).await;
+                    hub.grant_vm_host_approve_all(&s).await;
                 }
             } else {
                 hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting).await?;
@@ -1014,22 +1069,7 @@ async fn dispatch_request(
                 json!({"modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": hub.session_summary(&s)}}),
             )
         }
-        method::SESSION_LIST => {
-            let sessions: Vec<Value> = hub
-                .all_session_summaries()
-                .into_iter()
-                .map(|s| {
-                    json!({
-                        "sessionId": s.get("sessionId").cloned().unwrap_or(Value::Null),
-                        "cwd": s.get("cwd").cloned().unwrap_or(Value::Null),
-                        "title": s.get("title").and_then(Value::as_str).map(str::to_owned).or_else(|| s.get("name").and_then(Value::as_str).map(str::to_owned)),
-                        "updatedAt": iso(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)),
-                        "_meta": {"acpmux": s},
-                    })
-                })
-                .collect();
-            Ok(json!({"sessions": sessions}))
-        }
+        method::SESSION_LIST => super::list_reply::acp_list(hub, conn).await,
         method::SESSION_PROMPT => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
@@ -1275,10 +1315,36 @@ async fn dispatch_request(
             Ok(json!({}))
         }
         // ------------------------------------------------ acpmux extensions
-        method::MUX_STATUS => Ok(hub.status().await),
-        method::MUX_SESSIONS => {
-            crate::hub::session_pages::session_list_reply(hub.all_session_summaries(), &params)
+        method::MUX_TAILNET_START
+        | method::MUX_TAILNET_LOGIN
+        | method::MUX_TAILNET_STATE
+        | method::MUX_TAILNET_LOGOUT => {
+            if conn.origin.web_class() || !conn.is_person() {
+                return Err(crate::hub::person::person_required(
+                    "controlling this daemon's embedded tailnet",
+                ));
+            }
+            #[cfg(all(unix, feature = "tailnet"))]
+            {
+                let controller = hub.tailnet_controller();
+                let snapshot = match m {
+                    method::MUX_TAILNET_START => controller.start().await,
+                    method::MUX_TAILNET_LOGIN => controller.login().await,
+                    method::MUX_TAILNET_LOGOUT => controller.logout().await,
+                    // MUX_TAILNET_STATE, the one method left from the arm above.
+                    _ => Ok(controller.snapshot()),
+                }
+                .map_err(RpcError::internal)?;
+                Ok(snapshot.to_json(true))
+            }
+            #[cfg(not(all(unix, feature = "tailnet")))]
+            {
+                Err(RpcError::new(-32000, "tailnet support is not built")
+                    .with_data(json!({"reason": "not_built"})))
+            }
         }
+        method::MUX_STATUS => Ok(hub.status().await),
+        method::MUX_SESSIONS => super::list_reply::sessions(hub, conn, &params).await,
         method::MUX_WEB_MODES => hub.web_modes_view(&params),
         method::MUX_WEB_TOKEN_ROTATE => hub.rotate_web_token().await,
         method::MUX_WARM => {
@@ -1293,7 +1359,13 @@ async fn dispatch_request(
             let limit =
                 params.get("limit").and_then(Value::as_u64).unwrap_or(3).clamp(1, 8) as usize;
             let web = super::trust_gate::for_web(conn.origin, &params);
-            let warmed = hub.warm_sessions(&requested, limit, web).await;
+            // Only the person's own clients start a session at the VM boundary (`hub/vm_boundary.rs`).
+            let owner = crate::hub::vm_boundary::owner(
+                conn.auth,
+                super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                &params,
+            );
+            let warmed = hub.warm_sessions(&requested, limit, web, owner).await;
             Ok(json!({"warmed": warmed}))
         }
         method::MUX_PREWARM => {
@@ -1409,9 +1481,12 @@ async fn dispatch_request(
             };
             let (name, url, token) = (required("name")?, required("url")?, required("token")?);
             let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
+            // Only `true` opts this caller's remote chains there out of the sandbox
+            // (`hub/vm_boundary.rs`); anything else leaves them in it.
+            let vm_boundary = params.get("vmBoundary") == Some(&Value::Bool(true));
             let (lease, mut settled) = {
                 let cfg = hub.config.read().await;
-                hub.lease_peer(&name, &url, token, text("peerToken"), &cfg)?
+                hub.lease_peer(&name, &url, token, text("peerToken"), vm_boundary, &cfg)?
             };
             conn.hold_peer_lease(hub, lease);
             if wait {
@@ -1705,12 +1780,7 @@ async fn dispatch_request(
         method::MUX_MARK_UNREAD => view::mark_unread(hub, &params),
         method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
-        method::MUX_WATCH => {
-            crate::hub::session_pages::refuse_watch_filters(&params)?;
-            let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
-            conn.watch_all.store(on, Ordering::SeqCst);
-            crate::hub::session_pages::session_list_reply(hub.all_session_summaries(), &params)
-        }
+        method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
         method::MUX_EVENTS | method::MUX_ATTACHMENT => events::handle(hub, m, &params),
         method::MUX_MAIL_SEND
         | method::MUX_MAIL_READ
@@ -1868,6 +1938,18 @@ async fn dispatch_request(
             crate::hub::subagent_transcript::handle(hub, &params).await
         }
         method::MUX_SHUTDOWN => {
+            // Stopping the daemon ends what runs at the VM boundary too: the owner's call only
+            // (`hub/vm_boundary.rs`).
+            let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
+            if !crate::hub::vm_boundary::owner(conn.auth, control, &params)
+                && hub.any_at_vm_boundary()
+            {
+                return Err(RpcError::new(
+                    -32000,
+                    "a chat here runs without the sandbox on its owner's own VM; only the owner's own devices stop this daemon",
+                )
+                .with_data(json!({"reason": "remote.unsandboxed_agent"})));
+            }
             // The person's own daemon is never stopped by a test runner or a client from a
             // runner's `_work` or a temp folder (`exe_path::shutdown_refusal`). Only the daemon's
             // own environment can allow those; nothing a client sends does.

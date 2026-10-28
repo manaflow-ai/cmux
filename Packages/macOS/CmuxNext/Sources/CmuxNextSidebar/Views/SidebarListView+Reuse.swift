@@ -16,6 +16,11 @@ extension SidebarListViewComponents {
     /// (16% of the main thread while scrolling 1,000 rows, perf round 2). A view in another superview
     /// (a lift) leaves it, and a view the pool evicts leaves the list.
     func recycle(_ view: SidebarRowView) {
+        // A parked view must not retain a render-server move from the list it just left. In
+        // particular, a non-animated reload removes a row by recycling it directly, without
+        // passing it through RowMotion.run's stop set; leaving its additive spring active would
+        // keep the hidden row in the next layout's motion probe and on a later dequeue.
+        SidebarDragSpring.stop([view])
         if view.key == hoveredKey {
             hoveredKey = nil
             view.clearHoverImmediately()
