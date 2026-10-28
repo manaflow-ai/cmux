@@ -110,6 +110,26 @@ async fn a_proven_peer_starts_an_approve_all_session_and_the_web_still_cannot() 
     .await;
     assert!(err(&r).contains(WEB_ONLY), "{r}");
 
+    // A peer token alone cannot forge the owner marker; the forwarding daemon
+    // must carry the owner's HMAC-bound proof for this session and policy.
+    let r = call_auth(
+        &hub,
+        Origin::Peer,
+        ConnAuth::PeerToken,
+        "_acpmux/set_policy",
+        json!({
+            "sessionId": id,
+            "policy": "approve-all",
+            "_meta": {"acpmux": {
+                "ownerPolicyGrant": true,
+                "ownerPolicyHost": "forged-host",
+                "ownerPolicyProof": "00"
+            }}
+        }),
+    )
+    .await;
+    assert!(err(&r).contains(WEB_ONLY), "{r}");
+
     // Paired clients are also remote Web origins for policy raises.
     let r = call_auth(
         &hub,

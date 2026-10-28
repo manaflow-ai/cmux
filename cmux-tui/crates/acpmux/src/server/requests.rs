@@ -624,7 +624,7 @@ pub(super) async fn handle_request(
         && super::remote_guard::control_of(conn.origin, conn.auth, &params)
             == crate::hub::Control::Web;
     let owner_policy_grant =
-        super::remote_guard::owner_policy_grant(conn.origin, conn.auth, &params);
+        super::remote_guard::owner_policy_grant(hub, conn.origin, conn.auth, &params);
     let verdict = hub
         .person_check(
             conn.is_person(),
@@ -1971,7 +1971,7 @@ async fn dispatch_request(
                 .map_err(RpcError::invalid_params)?;
             refuse_full_access_policy(hub, Some(policy))?;
             if let Some(host) =
-                super::remote_guard::owner_policy_host(conn.origin, conn.auth, &params)
+                super::remote_guard::owner_policy_host(hub, conn.origin, conn.auth, &params)
             {
                 hub.set_policy_unless_moving_from_owner(&s, policy, &host).await?;
             } else {

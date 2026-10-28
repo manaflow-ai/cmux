@@ -91,9 +91,11 @@ use peer_folder::{
 
 /// Metadata carried only on a policy change forwarded by a local connection
 /// that already proved the person. The peer token authenticates the daemon
-/// hop; this marker preserves the stronger local-person decision across it.
+/// hop; the HMAC binds the marker to the exact target session, policy, and
+/// source host so a peer cannot mint the stronger local-person decision.
 const OWNER_POLICY_GRANT: &str = "ownerPolicyGrant";
 const OWNER_POLICY_HOST: &str = "ownerPolicyHost";
+const OWNER_POLICY_PROOF: &str = "ownerPolicyProof";
 
 fn owner_policy_meta(params: &Value) -> Option<&serde_json::Map<String, Value>> {
     params.pointer("/_meta/acpmux").and_then(Value::as_object)
@@ -107,7 +109,9 @@ fn valid_owner_host(host: &str) -> bool {
 /// Whether this request carries the owner grant for a remote policy raise.
 /// This reuses the VM-boundary owner proof: only a peer-token connection
 /// serving itself, never a Web or paired-device forwarding, may consume it.
+/// The HMAC is checked with the receiving daemon's enrolled owner key.
 pub(super) fn owner_policy_grant(
+    hub: &crate::hub::Hub,
     origin: super::Origin,
     auth: super::ConnAuth,
     params: &Value,
@@ -118,17 +122,26 @@ pub(super) fn owner_policy_grant(
         return false;
     }
     let Some(meta) = owner_policy_meta(params) else { return false };
-    meta.get(OWNER_POLICY_GRANT) == Some(&Value::Bool(true))
-        && meta.get(OWNER_POLICY_HOST).and_then(Value::as_str).is_some_and(valid_owner_host)
+    if meta.get(OWNER_POLICY_GRANT) != Some(&Value::Bool(true)) {
+        return false;
+    }
+    let Some(host) = meta.get(OWNER_POLICY_HOST).and_then(Value::as_str) else { return false };
+    let Some(proof) = meta.get(OWNER_POLICY_PROOF).and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(session) = params.get("sessionId").and_then(Value::as_str) else { return false };
+    let Some(policy) = params.get("policy").and_then(Value::as_str) else { return false };
+    valid_owner_host(host) && hub.person.owner_policy_proves(session, policy, host, proof)
 }
 
 /// The source host recorded with an owner grant.
 pub(super) fn owner_policy_host(
+    hub: &crate::hub::Hub,
     origin: super::Origin,
     auth: super::ConnAuth,
     params: &Value,
 ) -> Option<String> {
-    owner_policy_grant(origin, auth, params).then(|| {
+    owner_policy_grant(hub, origin, auth, params).then(|| {
         owner_policy_meta(params)
             .and_then(|meta| meta.get(OWNER_POLICY_HOST))
             .and_then(Value::as_str)
@@ -139,8 +152,10 @@ pub(super) fn owner_policy_host(
 
 /// Mark a policy request forwarded from a local person connection. Any
 /// caller-supplied grant is removed first, so a remote client cannot smuggle
-/// the marker through the forwarding daemon.
+/// the marker through the forwarding daemon. The local person key signs the
+/// exact session, policy, and source host that the peer will receive.
 pub(super) fn mark_policy_forwarded(
+    hub: &crate::hub::Hub,
     origin: super::Origin,
     auth: super::ConnAuth,
     person: bool,
@@ -151,15 +166,24 @@ pub(super) fn mark_policy_forwarded(
     if let Some(meta) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         meta.remove(OWNER_POLICY_GRANT);
         meta.remove(OWNER_POLICY_HOST);
+        meta.remove(OWNER_POLICY_PROOF);
     }
     if person && matches!(origin, super::Origin::Local | super::Origin::LocalApp) {
-        crate::hub::merge_mux_meta(
-            forwarded,
-            serde_json::json!({
-                OWNER_POLICY_GRANT: true,
-                OWNER_POLICY_HOST: crate::hub::host_label(),
-            }),
-        );
+        let session = forwarded.get("sessionId").and_then(Value::as_str);
+        let policy = params.get("policy").and_then(Value::as_str);
+        let host = crate::hub::host_label();
+        if let (Some(session), Some(policy), Some(proof)) =
+            (session, policy, hub.person.owner_policy_proof(session, policy, host))
+        {
+            crate::hub::merge_mux_meta(
+                forwarded,
+                serde_json::json!({
+                    OWNER_POLICY_GRANT: true,
+                    OWNER_POLICY_HOST: host,
+                    OWNER_POLICY_PROOF: proof,
+                }),
+            );
+        }
     }
 }
 
@@ -382,7 +406,7 @@ async fn check_inner(
     let mut deferred = None;
     if web {
         let peer = control_of(origin, auth, params) == crate::hub::Control::Peer;
-        match web_only(m, params, peer, owner_policy_grant(origin, auth, params)) {
+        match web_only(m, params, peer, owner_policy_grant(hub, origin, auth, params)) {
             Err(e) if m == method::SESSION_NEW => deferred = Some(e),
             other => other?,
         }
@@ -1171,33 +1195,4 @@ async fn canonical_dir(path: &str) -> Option<String> {
         .ok()?
         .is_dir()
         .then(|| canonical.to_string_lossy().into_owned())
-}
-
-#[cfg(test)]
-mod owner_policy_tests {
-    use super::{owner_policy_grant, owner_policy_host};
-    use crate::server::{ConnAuth, Origin};
-    use serde_json::json;
-
-    #[test]
-    fn owner_grant_requires_the_peer_owner_proof_and_host() {
-        let params = json!({
-            "_meta": {"acpmux": {
-                "ownerPolicyGrant": true,
-                "ownerPolicyHost": "owner-host"
-            }}
-        });
-        assert!(owner_policy_grant(Origin::Peer, ConnAuth::PeerToken, &params));
-        assert_eq!(
-            owner_policy_host(Origin::Peer, ConnAuth::PeerToken, &params).as_deref(),
-            Some("owner-host")
-        );
-        assert!(!owner_policy_grant(Origin::Peer, ConnAuth::Device, &params));
-        assert!(!owner_policy_grant(Origin::Web, ConnAuth::ListenerToken, &params));
-        assert!(!owner_policy_grant(
-            Origin::Peer,
-            ConnAuth::PeerToken,
-            &json!({"_meta": {"acpmux": {"ownerPolicyGrant": true, "ownerPolicyHost": ""}}})
-        ));
-    }
 }

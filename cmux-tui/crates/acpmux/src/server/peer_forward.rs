@@ -134,6 +134,7 @@ async fn forward_inner(
         }
         if m == method::MUX_SET_POLICY {
             super::remote_guard::mark_policy_forwarded(
+                hub,
                 conn.origin,
                 conn.auth,
                 conn.is_person(),
@@ -231,6 +232,7 @@ async fn forward_inner(
         }
         if m == method::MUX_SET_POLICY {
             super::remote_guard::mark_policy_forwarded(
+                hub,
                 conn.origin,
                 conn.auth,
                 conn.is_person(),
