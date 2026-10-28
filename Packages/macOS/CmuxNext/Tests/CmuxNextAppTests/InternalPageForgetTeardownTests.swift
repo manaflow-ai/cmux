@@ -82,4 +82,20 @@ struct InternalPageForgetTeardownTests {
         #expect(content.superview == nil, "the closed tab's content stayed in its view")
         #expect(!probe.sawDeallocatingAncestor, "the page left its hierarchy inside a dealloc (the CmuxParentViewTracker abort)")
     }
+
+    /// The detector: a tab view freed with its content still in it names its page; one that gave its content up does not.
+    @Test func aTabViewFreedWithItsContentReportsItsPage() async throws {
+        _ = NSApplication.shared
+        var reported: [String] = []
+        let page = InternalPageID(rawValue: "test.freed-attached")
+        do {
+            let attached = InternalPageView(key: "a", page: page, content: NSView())
+            attached.onFreedAttached = { reported.append("attached:" + $0.rawValue) }
+            let detached = InternalPageView(key: "b", page: page, content: NSView())
+            detached.onFreedAttached = { reported.append("detached:" + $0.rawValue) }
+            detached.detachContent()
+        }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(reported == ["attached:test.freed-attached"], "reported \(reported)")
+    }
 }
