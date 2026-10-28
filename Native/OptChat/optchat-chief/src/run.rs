@@ -1022,3 +1022,36 @@ pub fn chunks(steps: Vec<Value>) -> Vec<Vec<Value>> {
     }
     out
 }
+
+/// A report as bounded note steps. The generation keeps follow-up replies distinct;
+/// re-reading the same report upserts the same ids, including after a host restart.
+pub fn report_notes(
+    agent: &str,
+    session: &str,
+    started: u64,
+    floor: u64,
+    text: &str,
+) -> Vec<Value> {
+    let prefix = format!("[{agent}] ");
+    let limit = MAX_TEXT.saturating_sub(prefix.len());
+    let mut remaining = text;
+    let mut notes = Vec::new();
+    loop {
+        let mut end = remaining.len().min(limit);
+        while !remaining.is_char_boundary(end) {
+            end -= 1;
+        }
+        let id = step_id(
+            "report",
+            &format!("{agent}:{session}:{started}:{floor}:{}", notes.len()),
+        );
+        notes.push(
+            json!({"id": id, "kind": "note", "text": format!("{prefix}{}", &remaining[..end])}),
+        );
+        remaining = &remaining[end..];
+        if remaining.is_empty() {
+            break;
+        }
+    }
+    notes
+}

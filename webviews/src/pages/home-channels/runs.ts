@@ -4,6 +4,7 @@
 // work under the message it answers. Rows read one run each through `useRun` (an external store with
 // per-run versions), so a streaming run re-renders only its own card.
 import { useCallback, useSyncExternalStore } from "react";
+import { stepMessage } from "./runMessages";
 import type { HomeMessage, HomeRun, HomeRunChange, HomeRunStep } from "./types";
 
 export interface RunEntry {
@@ -86,7 +87,9 @@ export class RunBook {
       if (!entry) continue;
       const reply = turnKey(entry.run);
       const replied = reply !== undefined && this.replied.has(reply);
-      if (entry.run.status === "running" || (entry.run.status !== "done" && !replied)) out.push(entry);
+      // A silent Chief turn can still contain messages: keep them beside its question.
+      const messages = entry.steps.some((step) => stepMessage(step) !== undefined);
+      if (entry.run.status === "running" || ((entry.run.status !== "done" || messages) && !replied)) out.push(entry);
     }
     return out.sort((a, b) => a.run.startedAt - b.run.startedAt);
   }

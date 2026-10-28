@@ -433,9 +433,16 @@ impl ConversationPort for FakeDaemon {
         Ok(())
     }
 
-    fn run_append(&mut self, conversation: &str, run: Value, steps: Vec<Value>) -> Result<(), OpError> {
+    fn run_append(
+        &mut self,
+        conversation: &str,
+        run: Value,
+        steps: Vec<Value>,
+    ) -> Result<(), OpError> {
         let mut owner = self.0.lock().unwrap();
-        owner.run_steps.push((conversation.to_owned(), run.clone(), steps));
+        owner
+            .run_steps
+            .push((conversation.to_owned(), run.clone(), steps));
         owner.runs.push(run);
         Ok(())
     }

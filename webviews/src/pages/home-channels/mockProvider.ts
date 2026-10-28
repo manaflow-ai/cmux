@@ -264,13 +264,13 @@ const DRAFT_TEXT = ["Checking the release: ", "Builder's fix is merged, ", "Revi
 
 /** Sample agent runs (`MockRuns`): none, the Chief's finished run on its last DM reply, or that
  * plus a run that works now and streams its steps. */
-export type MockRuns = "none" | "done" | "live";
+export type MockRuns = "none" | "done" | "live" | "messages";
 
 const RUN_TURN = "turn:mock:c-chief-m4";
 const LIVE_TURN = "turn:mock:c-chief-m6";
 const SESSION = { kind: "acpmux", id: "01a139a8-f91e-7be2-86aa-516bf4c7e5e5" };
 
-function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
+function sampleRun(messages = false): { run: HomeRun; steps: HomeRunStep[] } {
   const at = BASE + 2 * MINUTE + 4_000;
   const tool = (
     seq: number,
@@ -343,6 +343,17 @@ function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
       links: [{ label: "Agent session", url: `cmux://chief/5176e030/session/${SESSION.id}` }],
     },
   ];
+  if (messages) {
+    steps.unshift(
+      tool(0, "tell", "mcp__optchat__tell", "other", "Tell a1", {
+        id: "a1", message: "Please verify the release checklist and report the result. Keep the existing settings and check the fresh Home launch before finishing.",
+      }, "delivered"),
+      { id: "report:a1:1:0", seq: 1, at, rev: 1, kind: "note",
+        text: "[a1] Verified the release checklist. The fresh Home launch passed and the existing settings are unchanged.",
+        attachments: [], links: [] },
+    );
+    steps.forEach((step, index) => { step.seq = index + 1; step.rev = index + 1; });
+  }
   return {
     run: {
       id: RUN_TURN,
@@ -523,7 +534,7 @@ export class MockHomeProvider implements PageClient {
     if (media) addMedia(this.data);
     if (teammates) addTeammates(this.data);
     if (runMode !== "none") {
-      const done = sampleRun();
+      const done = sampleRun(runMode === "messages");
       this.runs.set(done.run.id, done);
       const list = this.data.messages.get("c-chief") ?? [];
       const reply = list.find((m) => m.id === "c-chief-m4");

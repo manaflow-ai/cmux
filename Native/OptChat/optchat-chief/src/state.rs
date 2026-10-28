@@ -70,6 +70,9 @@ pub struct HostState {
     /// that turn's end still belongs to it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub last_answers: Vec<String>,
+    /// The (conversation, run) of those answers, for reports of a late spawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run: Option<(String, String)>,
     /// E22: what a turn stopped for a newer message answered: the next turn
     /// answers it too.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -259,6 +262,9 @@ pub struct SpawnRecord {
     /// The turn that spawned it (its reply key), for the trace.
     #[serde(default)]
     pub turn: Option<String>,
+    /// The originating conversation; reports must not follow the Chief into another chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
     /// E22: the messages that turn answered; each turn its reports cause
     /// answers them too, and says while a subagent of it still works.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -179,24 +179,36 @@ fn show_after_report_off_delivers_the_bare_report() {
     assert!(!text.contains("<show>"), "{text}");
 }
 
-
 #[test]
 fn an_inbound_report_is_a_note_on_its_originating_run_after_that_turn_ends() {
     let mut h = Harness::new(report_script());
     h.connect();
-    h.say("person", "Please coordinate the work.");
+    h.say("user_local", "Please coordinate the work.");
     h.settle();
     let origin = h.owner.lock().unwrap().runs.last().unwrap()["id"].clone();
     delivered_report(&mut h);
     let owner = h.owner.lock().unwrap();
-    let notes: Vec<_> = owner.run_steps.iter().flat_map(|(conversation, run, steps)| {
-        steps.iter().filter(|step| step["kind"] == "note").map(move |step| (conversation, run, step))
-    }).collect();
-    assert!(!notes.is_empty(), "the report must be visible without a Chief paraphrase");
+    let notes: Vec<_> = owner
+        .run_steps
+        .iter()
+        .flat_map(|(conversation, run, steps)| {
+            steps
+                .iter()
+                .filter(|step| step["kind"] == "note")
+                .map(move |step| (conversation, run, step))
+        })
+        .collect();
+    assert!(
+        !notes.is_empty(),
+        "the report must be visible without a Chief paraphrase"
+    );
     for (conversation, run, step) in notes {
         assert_eq!(conversation, CONV);
         assert_eq!(run["id"], origin);
         assert_eq!(step["text"], format!("[a1] {REPORT}"));
-        assert!(run.get("status").is_none(), "appending must not restart a finished run");
+        assert!(
+            run.get("status").is_none(),
+            "appending must not restart a finished run"
+        );
     }
 }

@@ -1061,8 +1061,8 @@ export class HomeChannelsStore {
       const lists = await Promise.all(reads);
       const runs = lists.flatMap((list) => list.runs);
       this.runs.setRuns(runs);
-      // A run that works now reads its earlier steps (events bring the rest).
-      for (const run of runs) if (run.status === "running") void this.loadRunSteps(run);
+      // Message rows also survive completed and silent turns, including after a reload.
+      for (const run of runs) void this.loadRunSteps(run);
     } catch {
       // Runs are display only; a host or owner without them shows plain messages.
     }

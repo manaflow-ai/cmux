@@ -25,6 +25,15 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 export function agentMessage(tool: Tool): AgentMessage | undefined {
   if (tool.command) return commandMessage(tool.command);
   const input = parseInput(tool.inputSummary);
+  const chief = mcpCall(tool);
+  const tell = chief
+    ? chief.server === "optchat" && chief.tool === "tell" ? chief.args : undefined
+    : /^(?:optchat\.)?tell$/.test(tool.title.trim()) ? input : undefined;
+  if (tell && typeof tell === "object" && !Array.isArray(tell)) {
+    const args = tell as Record<string, unknown>;
+    if (typeof args.id === "string" && args.id.trim() && typeof args.message === "string")
+      return { channel: "agent", to: args.id, text: args.message };
+  }
   // Claude Code's own tool, by its exact name: an MCP tool such as `mcp__gmail__send_message`
   // is not a message to an agent.
   if (input && /^send ?message$/i.test(tool.title.trim()) && typeof input.to === "string") {
