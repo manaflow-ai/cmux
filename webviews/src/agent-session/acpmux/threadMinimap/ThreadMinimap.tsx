@@ -18,6 +18,7 @@ import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll
 import { PreviewCard } from "./PreviewCard";
 import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
+import { threadMinimapHeight, railHeightConfig } from "./height.experiment";
 import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
 import { MARK_OPACITY, threadMinimapMark } from "./mark.experiment";
 import { experimentArm } from "../../../experiments/experiment";
@@ -138,6 +139,7 @@ export function ThreadMinimap({
   /// steps below still run), read once per pane. The Chat Minimap setting
   /// (`agentPane.display.minimap`) wins when set, live.
   const [experiment] = useState(() => experimentArm(threadMinimapLayout));
+  const [heightArm] = useState(() => experimentArm(threadMinimapHeight));
   const arm = useThreadMinimapArm() ?? experiment;
   /// How bright the prompts on screen draw (lit.experiment.ts), read once per pane.
   const [lit] = useState(() => LIT_OPACITY[experimentArm(threadMinimapLit)]);
@@ -216,7 +218,14 @@ export function ThreadMinimap({
   const top = (seen ?? scrollTop) + shift;
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
   /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
-  const height = railHeight(turns.length, windowHeight, viewportHeight, foot, onScreen.last - onScreen.first + 1);
+  const height = railHeight(
+    turns.length,
+    windowHeight,
+    viewportHeight,
+    foot,
+    onScreen.last - onScreen.first + 1,
+    railHeightConfig(heightArm),
+  );
   const placement = railPlacement(gutter(width));
   // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail. The
   // one full-width rail hides only below its usable horizontal gutter.
