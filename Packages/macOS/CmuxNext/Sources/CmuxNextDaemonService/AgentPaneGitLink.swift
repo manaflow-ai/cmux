@@ -155,6 +155,7 @@ extension AgentPaneGitDiffOptions {
         if let contextLines { params["context_lines"] = .number(Double(contextLines)) }
         if let patchOffset { params["patch_offset"] = .string(String(patchOffset)) }
         if let patchRevision { params["patch_revision"] = .string(patchRevision) }
+        if let patchKey { params["patch_key"] = .string(patchKey) }
         return params
     }
 }
