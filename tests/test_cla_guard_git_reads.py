@@ -196,6 +196,32 @@ class CLAGuardGitReadsTests(unittest.TestCase):
             else:
                 self.assertTrue(call.startswith(f"repos/{HEAD_REPOSITORY}/") and call.endswith(f"?ref={head}"), call)
 
+    def commit_large_document(self, size: int) -> str:
+        git(self.repo, "checkout", "-q", "-b", f"large-{size}", self.base)
+        (self.repo / "CLA.md").write_bytes(os.urandom(size))
+        git(self.repo, "commit", "-q", "-am", "large document")
+        return git(self.repo, "rev-parse", "HEAD")
+
+    def test_a_policy_blob_over_the_limit_fails_before_its_bytes_are_read(self):
+        # Fetched within the per-object cap, then refused on its size alone.
+        head = self.commit_large_document(310_000)
+        result, calls = self.run_driver(
+            "read", head, {}, revisions={self.base: REPOSITORY, head: HEAD_REPOSITORY})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("FAIL: a policy file is too large", result.stderr)
+        self.assertEqual(calls, [])
+
+    def test_a_blob_past_the_fetch_cap_is_never_downloaded_by_git(self):
+        # The blob fetch stops at its pack cap (a policy file's limit per
+        # wanted blob), so git reads
+        # nothing and the guard falls back to the contents API, which reads
+        # each revision at its own sha (and rejects a file that large).
+        head = self.commit_large_document(3_000_000)
+        result, calls = self.run_driver(
+            "read", head, {}, revisions={self.base: REPOSITORY, head: HEAD_REPOSITORY})
+        self.assertIn(f"repos/{HEAD_REPOSITORY}/contents/CLA.md?ref={head}", calls)
+        self.assertIn(f"repos/{REPOSITORY}/contents/CLA.md?ref={self.base}", calls)
+
     def test_a_symlink_policy_file_fails_the_guard(self):
         git(self.repo, "checkout", "-q", "-b", "symlink", self.base)
         (self.repo / "CLA.md").unlink()

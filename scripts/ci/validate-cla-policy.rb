@@ -165,7 +165,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "707e7a7e06579b5bf8129f64cdcbdd6293b81201bffc6f36b8174d25e0881beb"
+EXPECTED_GUARD_SCRIPT_DIGEST = "b5c1a15feb5ba11b3fb54a29baca2d2a863733e7550ecc9b2429984025baf060"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -992,6 +992,14 @@ GIT_FETCH_OPTIONS = %w[
   fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no --filter=blob:none
 ].freeze
 GIT_REGULAR_FILE_MODES = %w[100644 100755].freeze
+# File-size caps (ulimit -f, in 1 KiB blocks) on what each fetch may write.
+# A promisor fetch writes one pack, so the blob fetch's pack may hold at most
+# a policy file's size (plus headroom) per wanted blob. A larger pack stops
+# the fetch, and the guard falls back to the contents API, which rejects an
+# oversized file. A fork cannot make the guard download or hold an unbounded
+# blob; sizes are checked again before any content is read.
+GIT_TREE_FETCH_BLOCKS = 65_536
+GIT_BLOB_FETCH_BLOCKS_EACH = (MAX_FILE_BYTES + 65_536) / 1024
 GIT_SERVER_URL = %r{\Ahttps://[A-Za-z0-9.-]+(?::[0-9]+)?\z}
 
 def git_remote_url(repository)
@@ -1001,11 +1009,10 @@ def git_remote_url(repository)
   "#{server}/#{repository}.git"
 end
 
-def git_output(git_dir, *args, stdin_data: "")
-  stdout, _stderr, status = Open3.capture3(
-    GIT_ENVIRONMENT, "timeout", GIT_TIMEOUT_SECONDS, "git", "--git-dir=#{git_dir}", *args,
-    stdin_data: stdin_data, binmode: true
-  )
+def git_output(git_dir, *args, stdin_data: "", file_blocks: nil)
+  command = ["timeout", GIT_TIMEOUT_SECONDS, "git", "--git-dir=#{git_dir}", *args]
+  command = ["sh", "-c", "ulimit -f #{Integer(file_blocks)} && exec \"$@\"", "sh", *command] if file_blocks
+  stdout, _stderr, status = Open3.capture3(GIT_ENVIRONMENT, *command, stdin_data: stdin_data, binmode: true)
   status.success? ? stdout : nil
 end
 
@@ -1030,11 +1037,25 @@ def git_tree_blobs(git_dir, sha, paths)
 end
 
 # { blob id => bytes } for the given ids, read from the local object store
-# only (no lazy fetch); nil when one is missing.
+# only (no lazy fetch); nil when one is missing. Every size is checked before
+# any content is read.
 def git_blob_bytes(git_dir, ids)
   return {} if ids.empty?
 
-  output = git_output(git_dir, "cat-file", "--batch", stdin_data: ids.map { |id| "#{id}\n" }.join)
+  request = ids.map { |id| "#{id}\n" }.join
+  sizes = git_output(git_dir, "cat-file", "--batch-check", stdin_data: request)
+  return nil if sizes.nil?
+
+  sizes = sizes.split("\n")
+  return nil unless sizes.length == ids.length
+
+  sizes.zip(ids).each do |line, id|
+    header = line.split(" ")
+    return nil unless header.length == 3 && header[0] == id && header[1] == "blob" && header[2].match?(/\A[0-9]+\z/)
+
+    fail!("a policy file is too large") if header[2].to_i > MAX_FILE_BYTES
+  end
+  output = git_output(git_dir, "cat-file", "--batch", stdin_data: request)
   return nil if output.nil?
 
   bytes = {}
@@ -1063,7 +1084,8 @@ def git_snapshots(repository, shas, paths)
 
   Dir.mktmpdir("cla-policy-objects") do |git_dir|
     return nil if git_output(git_dir, "init", "--quiet", "--bare").nil?
-    return nil if git_output(git_dir, *GIT_FETCH_OPTIONS, "--depth=1", url, *shas).nil?
+    return nil if git_output(git_dir, *GIT_FETCH_OPTIONS, "--depth=1", url, *shas,
+                             file_blocks: GIT_TREE_FETCH_BLOCKS).nil?
 
     trees = {}
     shas.each do |sha|
@@ -1073,7 +1095,8 @@ def git_snapshots(repository, shas, paths)
       trees[sha] = blobs
     end
     ids = trees.values.flat_map(&:values).uniq
-    return nil if !ids.empty? && git_output(git_dir, *GIT_FETCH_OPTIONS, url, *ids).nil?
+    return nil if !ids.empty? &&
+      git_output(git_dir, *GIT_FETCH_OPTIONS, url, *ids, file_blocks: GIT_BLOB_FETCH_BLOCKS_EACH * ids.length).nil?
 
     contents = git_blob_bytes(git_dir, ids)
     return nil if contents.nil?
