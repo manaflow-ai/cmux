@@ -10,9 +10,11 @@ struct CEFFullPageCapture {
     let tab: CEFTab
 
     func run() async throws -> CGImage {
-        guard let browserID = tab.browserID, !tab.isClosed else { throw BrowserTabError.snapshotUnavailable }
+        guard CEFThumbnail.mayPicture(tab, evenHidden: true), let browserID = tab.browserID else { throw BrowserTabError.snapshotUnavailable }
         let runtime = tab.runtime
         let metrics = try await runtime.devTools(browserID, method: "Page.getLayoutMetrics")
+        // The page may have hidden, closed or the quit begun while the metrics came (``CEFThumbnail/mayPicture(_:evenHidden:)``).
+        guard CEFThumbnail.mayPicture(tab, evenHidden: true) else { throw BrowserTabError.snapshotUnavailable }
         guard let content = await Self.contentSize(metrics),
               BrowserFullPagePlan.isCapturable(contentSize: content) else {
             throw BrowserTabError.unsupported("The page is empty or too large for a full-page screenshot")

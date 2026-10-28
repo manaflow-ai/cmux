@@ -253,10 +253,12 @@ public final class MockBrowserTab: BrowserTab {
         commands.append(.occlude(!visible))
     }
 
-    public func thumbnail() async throws -> CGImage {
+    public func thumbnail() async throws -> CGImage { try await beginThumbnail().image() }
+
+    public func beginThumbnail() -> BrowserPictureRequest {
         thumbnailCount += 1
         if isContentHidden { hiddenThumbnailCount += 1 }
-        return try await snapshot()
+        return BrowserPictureRequest { [self] in try await snapshot() }
     }
 
     public func snapshot() async throws -> CGImage {
