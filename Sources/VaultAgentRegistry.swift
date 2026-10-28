@@ -224,7 +224,10 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             iconAssetName: contract.iconAssetName,
             detect: CmuxVaultAgentDetectRule(
                 processNames: contract.directBasenames,
-                alternateArgvContainsAny: contract.vaultAlternateArgvContainsAny
+                // Match the Python entrypoint by basename, as Hermes does, so a
+                // process that merely mentions a code_puppy path is not restored.
+                alternateProcessNames: contract.vaultInterpreterProcessNames,
+                alternateArgvBasenamesAny: contract.vaultEntrypointBasenames
             ),
             sessionIdSource: .argvOption(contract.resumeOption),
             resumeCommand: contract.resumeCommand,

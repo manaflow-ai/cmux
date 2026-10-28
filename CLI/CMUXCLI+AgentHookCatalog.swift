@@ -238,8 +238,9 @@ extension CMUXCLI {
             ],
             feedHookEvents: ["PreToolUse"]
         ),
+        // Literal name/aliases keep scripts/check-agent-hook-docs.py's parser happy.
         AgentHookDef(
-            name: CodePuppyAgentRegistration.standard.id,
+            name: "code-puppy",
             displayName: String(localized: "agent.codePuppy.displayName", defaultValue: "Code Puppy"),
             statusKey: CodePuppyAgentRegistration.standard.id,
             configDir: CodePuppyAgentRegistration.standard.hookConfigDirectory,
@@ -254,8 +255,7 @@ extension CMUXCLI {
             events: CodePuppyAgentRegistration.standard.lifecycleEvents.map {
                 .init(agentEvent: $0.agentEvent, cmuxSubcommand: $0.cmuxSubcommand)
             },
-            aliases: Set(CodePuppyAgentRegistration.standard.hookAliases),
-            nestedGroupMatcher: CodePuppyAgentRegistration.standard.nestedGroupMatcher,
+            aliases: ["pup"],
             feedHookEvents: CodePuppyAgentRegistration.standard.feedEvents
         ),
         AgentHookDef(

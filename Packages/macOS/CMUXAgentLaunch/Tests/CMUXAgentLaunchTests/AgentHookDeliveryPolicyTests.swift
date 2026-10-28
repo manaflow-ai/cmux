@@ -32,6 +32,17 @@ struct AgentHookDeliveryPolicyTests {
         ))
     }
 
+    @Test("Code Puppy lifecycle is queue-safe without borrowing Codex's tool lane")
+    func codePuppyLifecycleSupportsQueuedDelivery() {
+        let registration = CodePuppyAgentRegistration.standard
+        // Tool status rides the generic tool-start/tool-end lane; no per-agent row.
+        for event in registration.lifecycleEvents {
+            #expect(policy.supportsQueuedDelivery(agent: registration.id, subcommand: event.cmuxSubcommand))
+        }
+        #expect(!policy.supportsQueuedDelivery(agent: registration.id, subcommand: "pre-tool-use"))
+        #expect(!policy.supportsQueuedDelivery(agent: registration.id, subcommand: "post-tool-use"))
+    }
+
     @Test("OMP and Pi headless subagent lifecycle is queue-safe")
     func ompPiSubagentEventsSupportQueuedDelivery() {
         for agent in ["omp", "pi"] {

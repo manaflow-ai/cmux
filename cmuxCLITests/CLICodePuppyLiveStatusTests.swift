@@ -82,9 +82,7 @@ struct CLICodePuppyLiveStatusTests {
             // Tool activity is NOT another prompt: it must never increase prompt depth.
             #expect(current["activePromptDepth"] as? Int == 1)
             #expect(feedEvents.contains { $0["tool_name"] as? String == "read_file" })
-            if subcommand == "tool-end" {
-                #expect(feedEvents.contains(where: Self.carriesSanitizedToolResult))
-            }
+            #expect(feedEvents.contains(where: Self.carriesOwnToolInputOnly))
         }
     }
 
@@ -115,14 +113,14 @@ struct CLICodePuppyLiveStatusTests {
                   let params = request["params"] as? [String: Any] else { return nil }
             return params["event"] as? [String: Any]
         }
-        // Feed keeps the agent's own tool input instead of the tool result.
-        #expect(!feedEvents.contains(where: Self.carriesSanitizedToolResult))
+        // Feed never forwards a tool result in place of the tool input.
+        #expect(!feedEvents.contains { String(describing: $0).contains("file contents") })
     }
 
-    private static func carriesSanitizedToolResult(_ event: [String: Any]) -> Bool {
-        let summary = event["tool_input"] as? [String: Any]
-        return summary?["_cmux_sanitized"] as? Bool == true
-            && summary?["_cmux_value"] as? String == "file contents"
+    /// Feed keeps the agent's own tool input and never the raw tool result.
+    private static func carriesOwnToolInputOnly(_ event: [String: Any]) -> Bool {
+        (event["tool_input"] as? [String: Any])?["file_path"] as? String == "README.md"
+            && !String(describing: event).contains("file contents")
     }
 
     /// Runs one hook subcommand against a fake cmux socket and returns the commands it sent.
@@ -158,7 +156,7 @@ struct CLICodePuppyLiveStatusTests {
         environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Data("/usr/local/bin/\(agent)\u{0}".utf8).base64EncodedString()
         var payloadObject: [String: Any] = [
             "session_id": sessionID, "hook_event_name": event, "tool_name": "read_file",
-            "tool_input": ["path": "README.md"], "tool_result": "file contents", "cwd": context.root.path
+            "tool_input": ["file_path": "README.md"], "tool_result": "file contents", "cwd": context.root.path
         ]
         payloadObject.merge(extraPayload) { _, new in new }
         let payload = try JSONSerialization.data(withJSONObject: payloadObject)

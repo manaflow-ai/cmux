@@ -63,7 +63,6 @@ struct CodePuppyAgentRegistrationTests {
         #expect(registration.id == "code-puppy")
         #expect(registration.commandName == "code-puppy")
         #expect(registration.configAliases == ["code-puppy", "codePuppy", "code_puppy", "codepuppy", "pup"])
-        #expect(registration.hookAliases == ["pup"])
         #expect(registration.directBasenames == ["code-puppy", "code_puppy"])
         #expect(registration.argumentNeedles == ["code-puppy", "code_puppy"])
         #expect(registration.lifecycleEvents.map(\.agentEvent) == [

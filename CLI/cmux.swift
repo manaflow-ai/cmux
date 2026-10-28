@@ -19393,7 +19393,7 @@ struct CMUXCLI {
             agent. Claude Code and Pi hooks are injected automatically by their cmux wrappers.
 
             Agents:
-              \(String(localized: "command.cmuxCLI.hooks.agents", defaultValue: "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"))
+              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -33675,13 +33675,9 @@ struct CMUXCLI {
             case .nested(let timeoutMs):
                 var groups = result[event.agentEvent] as? [[String: Any]] ?? []
                 let timeout = nestedHookTimeout(timeoutMs, for: def)
-                var group: [String: Any] = [
+                groups.append([
                     "hooks": [["type": "command", "command": cmd, "timeout": timeout] as [String: Any]]
-                ]
-                if let matcher = def.nestedGroupMatcher {
-                    group["matcher"] = matcher
-                }
-                groups.append(group)
+                ] as [String: Any])
                 result[event.agentEvent] = groups
             case .antigravityJSON(let timeoutSeconds):
                 var entries = result[event.agentEvent] as? [[String: Any]] ?? []
@@ -33717,13 +33713,9 @@ struct CMUXCLI {
             case .nested:
                 var groups = result[agentEvent] as? [[String: Any]] ?? []
                 let timeout = nestedFeedHookTimeout(feedTimeoutMs, for: def)
-                var group: [String: Any] = [
+                groups.append([
                     "hooks": [["type": "command", "command": feedCmd, "timeout": timeout] as [String: Any]]
-                ]
-                if let matcher = def.nestedGroupMatcher {
-                    group["matcher"] = matcher
-                }
-                groups.append(group)
+                ] as [String: Any])
                 result[agentEvent] = groups
             case .antigravityJSON:
                 var entries = result[agentEvent] as? [[String: Any]] ?? []
@@ -36767,7 +36759,7 @@ export default {
             let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
             let rawToolName = firstString(in: input.object ?? [:], keys: ["tool_name", "toolName"])
             let toolName = rawToolName.map { String(normalizedSingleLine($0).prefix(120)) }
-            let statusValue = ["tool-start", "pre-tool-use"].contains(subcommand) ? (normalizedHookValue(toolName) ?? runningStatus) : runningStatus
+            let statusValue = subcommand == "tool-start" ? (normalizedHookValue(toolName) ?? runningStatus) : runningStatus
             _ = try? sendV1Command(
                 "set_status \(def.statusKey) \(socketQuote(statusValue)) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                 client: client
@@ -37697,10 +37689,11 @@ export default {
                 )
                 return summary.status == .error ? summary : nil
             }()
-            // Callback integrations retain explicit outcomes; native engines
-            // may discard them. Consume the same canonical fields for any agent.
+            // Code Puppy's callback plugin retains explicit outcomes. Other
+            // agents keep their established Stop semantics for `success`.
             let explicitStopFailure: AgentHookNotificationSummary? = {
-                guard let payload = input.rawObject,
+                guard def.name == CodePuppyAgentRegistration.standard.id,
+                      let payload = input.rawObject,
                       payload["success"] as? Bool == false else { return nil }
                 // Explicit failure wins over words like "permission" in an
                 // exception message; prose classification is not an outcome.
@@ -39028,10 +39021,7 @@ export default {
                 failureDetailsForFeed = failureDetails
             }
         }
-        let toolResult = parsedInput.object?["tool_response"] ?? parsedInput.object?["tool_result"]
-        if ["tool-end", "post-tool-use"].contains(subcommand), let toolResult {
-            event["tool_input"] = Self.sanitizedPostToolUseFeedValue(toolResult)
-        } else if let toolInput = parsedInput.object?["tool_input"] {
+        if let toolInput = parsedInput.object?["tool_input"] {
             event["tool_input"] = source == "cursor"
                 ? sanitizedCursorFeedToolInput(toolInput)
                 : toolInput

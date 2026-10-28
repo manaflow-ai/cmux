@@ -20,12 +20,8 @@ public struct CodePuppyAgentRegistration: Equatable, Sendable {
     public let argumentNeedles: [String]
     /// Config values accepted as the agent kind in cmux settings.
     public let configAliases: [String]
-    /// Aliases accepted by the generic hook CLI.
-    public let hookAliases: [String]
-    /// The directory under the user's home directory containing hook config.
+    /// The directory under the user's home directory containing Code Puppy config.
     public let hookConfigDirectory: String
-    /// The hook configuration file name.
-    public let hookConfigFile: String
     /// The executable used to check whether hooks can be installed.
     public let binaryName: String
     /// The suffix used for cmux's hook-session store.
@@ -36,10 +32,6 @@ public struct CodePuppyAgentRegistration: Equatable, Sendable {
     public let pidEnvironmentVariable: String
     /// The marker embedded in generated hook commands.
     public let hookMarker: String
-    /// The Code Puppy hook timeout, in milliseconds.
-    public let hookTimeoutMilliseconds: Int
-    /// The matcher required on every nested Code Puppy hook group.
-    public let nestedGroupMatcher: String
     /// A lifecycle hook event and its cmux subcommand.
     public struct HookEvent: Equatable, Sendable {
         /// The event name emitted by Code Puppy.
@@ -67,8 +59,10 @@ public struct CodePuppyAgentRegistration: Equatable, Sendable {
     public let resumeCommand: String
     /// The directory containing Code Puppy's persisted sessions.
     public let sessionDirectory: String
-    /// Argument tokens used by the Vault detector for wrapped launches.
-    public let vaultAlternateArgvContainsAny: [String]
+    /// Interpreter process names that may host a Code Puppy launch for Vault.
+    public let vaultInterpreterProcessNames: [String]
+    /// Entrypoint basenames Vault accepts as a Python-hosted Code Puppy launch.
+    public let vaultEntrypointBasenames: [String]
 
     /// Creates the canonical Code Puppy integration contract.
     public init() {
@@ -80,21 +74,18 @@ public struct CodePuppyAgentRegistration: Equatable, Sendable {
         directBasenames = ["code-puppy", "code_puppy"]
         argumentNeedles = ["code-puppy", "code_puppy"]
         configAliases = ["code-puppy", "codePuppy", "code_puppy", "codepuppy", "pup"]
-        hookAliases = ["pup"]
         hookConfigDirectory = ".code_puppy"
-        hookConfigFile = "hooks.json"
         binaryName = "code-puppy"
         sessionStoreSuffix = "code-puppy"
         disableHooksEnvironmentVariable = "CMUX_CODE_PUPPY_HOOKS_DISABLED"
         pidEnvironmentVariable = "CMUX_CODE_PUPPY_PID"
         hookMarker = "cmux hooks code-puppy"
-        hookTimeoutMilliseconds = 5_000
-        nestedGroupMatcher = "*"
         lifecycleEvents = [
             HookEvent(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
             HookEvent(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
-            HookEvent(agentEvent: "PreToolUse", cmuxSubcommand: "pre-tool-use"),
-            HookEvent(agentEvent: "PostToolUse", cmuxSubcommand: "post-tool-use"),
+            // Not pre-tool-use/post-tool-use: Codex already owns those subcommands.
+            HookEvent(agentEvent: "PreToolUse", cmuxSubcommand: "tool-start"),
+            HookEvent(agentEvent: "PostToolUse", cmuxSubcommand: "tool-end"),
             HookEvent(agentEvent: "Stop", cmuxSubcommand: "stop"),
             HookEvent(agentEvent: "Notification", cmuxSubcommand: "notification"),
             HookEvent(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
@@ -104,7 +95,8 @@ public struct CodePuppyAgentRegistration: Equatable, Sendable {
         resumeOption = "--resume"
         resumeCommand = "{{executable}} --resume {{sessionId}}"
         sessionDirectory = "~/.code_puppy/autosaves"
-        vaultAlternateArgvContainsAny = argumentNeedles
+        vaultInterpreterProcessNames = ["python", "python3"]
+        vaultEntrypointBasenames = directBasenames
     }
 
     /// The canonical contract for the built-in Code Puppy integration.

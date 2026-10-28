@@ -164,14 +164,14 @@ public enum CodePuppyPlugin {
         if len(_runs) != 1:
             return
         fields = dict(tool_name=tool_name, tool_input=tool_args)
-        await _send("pre-tool-use", "PreToolUse", **fields)
+        await _send("tool-start", "PreToolUse", **fields)
 
 
     async def _on_post(tool_name, tool_args, result, duration_ms, context=None):
         if len(_runs) != 1:
             return
         fields = dict(tool_name=tool_name, tool_input=tool_args, tool_duration_ms=duration_ms)
-        await _send("post-tool-use", "PostToolUse", **fields)
+        await _send("tool-end", "PostToolUse", **fields)
 
 
     async def _on_saved(metadata):
