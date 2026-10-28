@@ -13,6 +13,12 @@ import Foundation
 /// instead of stalling the app. The app drops the variable before any thread
 /// starts (`LaunchMarkSink.dropInheritedDescriptor`, CmuxNextApp).
 public nonisolated struct LaunchMarkSink: LaunchValueSink {
+    /// The process's sink. A process-wide value, not an injected one, for three reasons: launch marks start in
+    /// `main()` before any owner exists (`DebugTimings.markLaunch`, from any thread); the bench's descriptor is
+    /// inherited once per process and its variable is dropped before any thread starts, so a sink made later finds
+    /// no pipe; and the value holds no mutable state (the descriptor and the signposts are fixed at init). Code
+    /// that can take a sink does (``LaunchCounterLog`` takes a ``LaunchValueSink``, `LaunchValueMarks` a
+    /// closure), and tests pass their own.
     public static let shared = LaunchMarkSink(environment: ProcessInfo.processInfo.environment)
 
     public static let environmentKey = "CMUX_NEXT_LAUNCH_MARKS_FD"
