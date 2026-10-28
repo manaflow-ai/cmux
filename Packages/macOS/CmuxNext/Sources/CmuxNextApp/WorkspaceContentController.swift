@@ -371,8 +371,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         isApplying = wasApplying
         sendTopology()
         isApplying = true
+        // The close's stand-in focus lives for this apply only (an outer apply ends it): ended before the last sync,
+        // which still reads it from the first one and lands the successor's camera with the close, and saves none.
+        if !wasApplying { layoutModel.endCloseFallback() }
         layoutView.syncWithModel() // focus the topology landed (a split's pane) rings in this frame
-        layoutModel.endCloseFallback() // the close's stand-in focus lived for this apply only
     }
 
     /// Runs `body` as part of an apply: pane changes inside it send no topology of their own (the caller sends one).

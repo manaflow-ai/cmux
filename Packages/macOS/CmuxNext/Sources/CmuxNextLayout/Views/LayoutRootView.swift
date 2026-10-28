@@ -407,10 +407,10 @@ public final class LayoutRootView: NSView {
             // its panes, scroll and camera land in this frame, springs in flight included; chrome still fades.
             var landsAtOnce = false
             // A close laid out at once (``SplitArrival/fade``): its camera rests with it, in this turn. So does the
-            // camera move that only replaces the close's stand-in focus with the successor the app's focus coordinator
+            // camera move that only replaces that close's stand-in focus with the successor the app's focus coordinator
             // picked (the second sync of the same apply): both land before one commit, as one frame.
-            var cameraLandsWithClose = previous?.focusIsCloseFallback == true && previous?.focused != snapshot.focused
-                && context.splitArrival() == .fade
+            var cameraLandsWithClose = view.lastClosedAtOnce && previous?.focusIsCloseFallback == true
+                && previous?.focused != snapshot.focused
             if layoutChanged {
                 let structureChanged = old.map { !$0.layout.hasSameStructure(as: screen.layout) } ?? true
                 landsAtOnce = structureChanged && self.landsAtOnce(screen.id, steps: automationSteps[screen.id])

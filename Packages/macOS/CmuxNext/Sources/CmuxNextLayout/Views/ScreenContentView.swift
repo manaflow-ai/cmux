@@ -264,6 +264,10 @@ final class ScreenContentView: NSView {
         var closedAtOnce: Bool
     }
 
+    /// The last structural update of this screen was a close laid out at once (``UpdateOutcome/closedAtOnce``): the
+    /// root lands the camera move that replaces that close's stand-in focus with it. A later structural update resets it.
+    private(set) var lastClosedAtOnce = false
+
     /// ``update(layout:zoomed:canvas:animated:)`` with its outcome.
     func updateLayout(_ layout: ScreenLayout, zoomed: Bool = false, canvas: CanvasScreen? = nil, animated: Bool) -> UpdateOutcome {
         // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
@@ -278,6 +282,7 @@ final class ScreenContentView: NSView {
         var closedAtOnce = false
         let moving = reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming,
                                closedAtOnce: &closedAtOnce)
+        if structural { lastClosedAtOnce = closedAtOnce }
         return UpdateOutcome(needsFrames: moving || canvasState.camera.isMoving, closedAtOnce: closedAtOnce)
     }
 

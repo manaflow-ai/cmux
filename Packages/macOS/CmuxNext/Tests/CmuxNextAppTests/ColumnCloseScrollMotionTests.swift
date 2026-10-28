@@ -48,8 +48,8 @@ struct ColumnCloseScrollMotionTests {
             model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: layout)])
             root.syncWithModel()
             model.focus(focus, notify: false)
-            root.syncWithModel()
             model.endCloseFallback()
+            root.syncWithModel()
         }
 
         @discardableResult
