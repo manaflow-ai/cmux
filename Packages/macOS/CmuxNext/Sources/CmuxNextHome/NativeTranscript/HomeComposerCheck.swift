@@ -35,9 +35,6 @@ nonisolated enum HomeComposerCheck {
             typeName = identifier
         }
         guard accepted else { return (.typeRefused(mimeType: typeName, name: name ?? ""), name) }
-        if size > HomeAttachmentPolicy.maxBytes {
-            return (.tooLarge(byteCount: size, limit: HomeAttachmentPolicy.maxBytes), name)
-        }
         if size == 0 { return (.empty(name: name ?? ""), name) }
         return nil
     }

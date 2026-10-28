@@ -285,15 +285,12 @@ export function withoutInlineTokens(text: string, known: InlineKnownIds = () => 
 export type OrderedDraftPart = { type: "text"; text: string } | { type: "attachment"; attachment: ComposerAttachment };
 
 /** Anthropic's per-image limit; a preview past it is scaled down further (composer/imageWork.ts). */
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const IMAGE_PREVIEW_BYTES_LIMIT = 5 * 1024 * 1024;
 export { IMAGE_BUDGET_BYTES, MAX_IMAGE_SIDE, base64 } from "./composer/imageWork";
-/** The bytes a PDF may have to go as a document block: its base64 (13.4 MiB) stays under acpmux's
- * 15 MiB bound on one message (#23247), below the WebSocket's 16 MiB frame, with room for the rest
- * of the prompt; the same cap as a file sent to an ssh peer (`_acpmux/file_put`). A larger PDF goes
- * as a link to its copy (intakeFiles.ts). */
-export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
+/** Inline document budget for the legacy prompt frame. Larger files go through the staged/link path. */
+export const INLINE_DOCUMENT_BYTES_LIMIT = 10 * 1024 * 1024;
 /** A text file this large is already a lot of prompt. */
-export const MAX_TEXT_BYTES = 256 * 1024;
+export const INLINE_TEXT_BYTES_LIMIT = 256 * 1024;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 /// Pictures the models do not take as they are (an iPhone's HEIC, TIFF, BMP, AVIF) but the engine
 /// can decode: they go as PNG or JPEG. One it cannot decode goes as a file instead.
@@ -340,7 +337,7 @@ export async function readAttachment(
 ): Promise<ComposerAttachment | AttachmentError> {
   const name = file.name || "file";
   if (isPdf(file)) {
-    if (file.size > MAX_DOCUMENT_BYTES) return { name, reason: "tooLarge" };
+    if (file.size > INLINE_DOCUMENT_BYTES_LIMIT) return { name, reason: "tooLarge" };
     const bytes = new Uint8Array(await file.arrayBuffer());
     return {
       id,
@@ -361,7 +358,7 @@ export async function readAttachment(
     if (!allowImages) return { name, reason: "imagesUnsupported" };
     return (await imageChip(file, id, name)) ?? { name, reason: "unsupported" };
   }
-  if (file.size > MAX_TEXT_BYTES) return { name, reason: "tooLarge" };
+  if (file.size > INLINE_TEXT_BYTES_LIMIT) return { name, reason: "tooLarge" };
   const text = decodeText(new Uint8Array(await file.arrayBuffer()));
   if (text === undefined) return { name, reason: "unsupported" };
   return { id, kind: "text", name, mimeType: file.type || "text/plain", size: file.size, text };
@@ -589,21 +586,20 @@ export function takesAudio(promptCapabilities: unknown, configOptions: unknown):
   return Array.isArray(modalities) && modalities.includes("audio");
 }
 
-/// The largest recording a prompt carries: the host stops keeping audio at two minutes (3.84 MB
-/// of 16 kHz PCM), so this only backs that cap up. A bigger clip would go out as one huge JSON
-/// line that the model's API refuses; the transcript goes alone instead.
-export const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
+/// Inline audio budget for the legacy prompt frame. The host's staged upload path can carry larger
+/// recordings; a recording past this budget goes with the transcript only.
+export const INLINE_AUDIO_BYTES_LIMIT = 4 * 1024 * 1024;
 
 /// A dictation session's recording as a chip, for a harness that takes voice input
 /// (`promptCapabilities.audio`): it goes with the prompt beside the transcript. Undefined past
-/// `MAX_AUDIO_BYTES`.
+/// the inline transport budget.
 export function audioAttachment(
   audio: { mimeType: string; data: string },
   name: string,
 ): ComposerAttachment | undefined {
   const padding = audio.data.endsWith("==") ? 2 : audio.data.endsWith("=") ? 1 : 0;
   const size = Math.floor((audio.data.length * 3) / 4) - padding;
-  if (size > MAX_AUDIO_BYTES) return undefined;
+  if (size > INLINE_AUDIO_BYTES_LIMIT) return undefined;
   return {
     id: crypto.randomUUID(),
     kind: "audio",
@@ -615,8 +611,7 @@ export function audioAttachment(
 }
 
 /// The notice for a recording that goes no further than its transcript: the host left it out
-/// (`DictationUpdate.audioOmitted`), or `audioAttachment` refused it past `MAX_AUDIO_BYTES`
-/// (`tooLarge`). The byte cap only backs up the host's two-minute stop, so both read the same.
+/// (`DictationUpdate.audioOmitted`).
 export function recordingLeftOutNotice(reason: "tooLong" | "tooLarge" | "narrowband"): StringKey {
   return reason === "narrowband" ? "dictation.recordingNarrowband" : "dictation.recordingTooLong";
 }

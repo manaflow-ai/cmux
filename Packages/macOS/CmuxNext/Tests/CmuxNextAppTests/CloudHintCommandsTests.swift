@@ -80,10 +80,8 @@ struct CloudHintCommandsTests {
         #expect(CloudStrings.progressFailed("REASON.").hasSuffix("REASON."))
     }
 
-    /// An upload refusal names the limits the app enforces, from the same constants.
-    @Test func anUploadRefusalNamesTheLimits() {
-        let size = { (bytes: Int) in ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .binary) }
-        #expect(CloudUploadStrings.refused.contains(size(CloudUploads.maximumFileBytes)), "\(CloudUploadStrings.refused)")
-        #expect(CloudUploadStrings.refused.contains(size(CloudUploads.maximumTotalBytes)), "\(CloudUploadStrings.refused)")
+    /// A transport refusal remains actionable without advertising an arbitrary policy cap.
+    @Test func anUploadRefusalDoesNotNameAnArbitraryLimit() {
+        #expect(CloudUploadStrings.refused == "This file could not be sent to the Cloud machine.")
     }
 }

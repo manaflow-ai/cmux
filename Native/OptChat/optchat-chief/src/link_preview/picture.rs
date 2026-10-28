@@ -1,13 +1,13 @@
 //! A preview picture: the page's image decoded (JPEG, PNG, GIF or WebP
 //! only, with decoder limits), scaled down and encoded as a JPEG of at most
-//! [`MAX_PREVIEW_IMAGE_BYTES`] (the owner's cap on a link preview image).
+//! [`DERIVED_PREVIEW_IMAGE_BYTES_LIMIT`] (the owner's cap on a link preview image).
 //! Transparent pixels go on white, as a card shows them.
 
 use std::io::Cursor;
 use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::Instant;
 
-use cmux_conversation::MAX_PREVIEW_IMAGE_BYTES;
+use cmux_conversation::DERIVED_PREVIEW_IMAGE_BYTES_LIMIT;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageFormat, ImageReader, Limits, RgbImage};
 
@@ -76,7 +76,7 @@ pub fn to_jpeg(bytes: &[u8], deadline: Instant) -> Option<Picture> {
                 image::ExtendedColorType::Rgb8,
             )
             .ok()?;
-        if !jpeg.is_empty() && jpeg.len() as u64 <= MAX_PREVIEW_IMAGE_BYTES {
+        if !jpeg.is_empty() && jpeg.len() as u64 <= DERIVED_PREVIEW_IMAGE_BYTES_LIMIT {
             return Some(Picture {
                 jpeg,
                 width: shown.width(),

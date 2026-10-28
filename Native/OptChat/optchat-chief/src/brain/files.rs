@@ -12,9 +12,6 @@ use cmux_conversation::{Message, Part};
 
 use crate::daemon::ConversationPort;
 
-/// Largest file read for a turn: the owner's per-file cap (any type).
-pub const MAX_FILE_BYTES: u64 = cmux_conversation::MAX_ATTACHMENT_BYTES;
-
 /// One non-image file of a turn.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TurnFile {
@@ -98,10 +95,6 @@ pub fn read_file(
         path: None,
         note: None,
     };
-    if *byte_count > MAX_FILE_BYTES {
-        file.note = Some(format!("over {MAX_FILE_BYTES} bytes"));
-        return Some(file);
-    }
     match save(port, conversation, hash, name, *byte_count, root) {
         Ok(path) => file.path = Some(path),
         Err(e) => file.note = Some(e),

@@ -6,7 +6,12 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import React, { act, useRef } from "react";
 import type { Root } from "react-dom/client";
-import { MAX_AUDIO_BYTES, audioAttachment, promptBlocks, takesAudio } from "../src/agent-session/acpmux/attachments";
+import {
+  INLINE_AUDIO_BYTES_LIMIT,
+  audioAttachment,
+  promptBlocks,
+  takesAudio,
+} from "../src/agent-session/acpmux/attachments";
 import type { DictationAudio, DictationField } from "../src/agent-session/acpmux/dictation";
 
 const scope = globalThis as Record<string, unknown>;
@@ -174,23 +179,18 @@ test("a recording left out says why, and only to a harness that takes audio", as
   root = undefined;
 });
 
-test("a recording past the byte cap is no attachment", () => {
-  // Two minutes of 16 kHz 16-bit mono plus its header fits under the cap.
+test("recordings past the inline transport budget stay on the transcript path", () => {
   const twoMinutes = "A".repeat(Math.ceil(((44 + 16_000 * 2 * 120) * 4) / 3));
   expect(audioAttachment({ mimeType: "audio/wav", data: twoMinutes }, "Voice recording")).toBeDefined();
-  const over = "A".repeat(Math.ceil(((MAX_AUDIO_BYTES + 1) * 4) / 3) + 4);
+  const over = "A".repeat(Math.ceil(((INLINE_AUDIO_BYTES_LIMIT + 1) * 4) / 3) + 4);
   expect(audioAttachment({ mimeType: "audio/wav", data: over }, "Voice recording")).toBeUndefined();
 });
 
-test("a recording kept out by the byte cap gets a notice that does not claim two minutes", async () => {
+test("inline transport omission notices keep their reason", async () => {
   const { translate } = await import("../src/agent-session/acpmux/i18n");
   const { recordingLeftOutNotice } = await import("../src/agent-session/acpmux/attachments");
-  // The byte cap's path, as App.tsx's `attach` takes it: no attachment, then the notice.
-  const over = "A".repeat(Math.ceil(((MAX_AUDIO_BYTES + 1) * 4) / 3) + 4);
-  expect(audioAttachment({ mimeType: "audio/wav", data: over }, "Voice recording")).toBeUndefined();
   const capped = translate(recordingLeftOutNotice("tooLarge"), {}, "en");
-  expect(capped).toBe("The voice recording is too long to attach, so the prompt gets the transcript only.");
-  // The host's two-minute stop reads the same; a narrowband mic keeps its own reason.
-  expect(translate(recordingLeftOutNotice("tooLong"), {}, "en")).toBe(capped);
+  const tooLong = translate(recordingLeftOutNotice("tooLong"), {}, "en");
+  expect(capped).toBe(tooLong);
   expect(translate(recordingLeftOutNotice("narrowband"), {}, "en")).not.toBe(capped);
 });

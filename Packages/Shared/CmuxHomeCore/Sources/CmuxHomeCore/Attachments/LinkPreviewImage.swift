@@ -4,7 +4,7 @@ import ImageIO
 
 extension AttachmentMedia {
     /// A link preview's picture as the owner takes it (`link_preview.image`:
-    /// JPEG or WebP, at most `previewMaxBytes`): a JPEG at most
+    /// JPEG or WebP, at most `previewBytesLimit`): a JPEG at most
     /// `previewMaxPixel` on its long edge, smaller and at lower quality until
     /// it fits. Transparent pixels are drawn over white (a JPEG has no alpha
     /// and would show them black). Nil when the file is not an image or no
@@ -21,7 +21,7 @@ extension AttachmentMedia {
             guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
                   let opaque = flattened(image),
                   let data = try? jpeg(opaque, quality: quality) else { return nil }
-            if data.count <= HomeAttachmentPolicy.previewMaxBytes { return (data, opaque.width, opaque.height) }
+            if data.count <= HomeAttachmentPolicy.previewBytesLimit { return (data, opaque.width, opaque.height) }
         }
         return nil
     }

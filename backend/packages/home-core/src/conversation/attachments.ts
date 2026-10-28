@@ -18,12 +18,10 @@ const KB = 1_000
 const MB = 1_000_000
 /** Every attachment limit in one place (decimal megabytes; backend lead decisions 2026-10-03). */
 export const ATTACHMENT_LIMITS = {
-  /** Per file, every type. */
-  maxBytes: 100 * MB,
   /** Up to this size the bytes stream through the Worker (Free plan body cap is 100 MB); larger files use a presigned R2 PUT. */
   streamMaxBytes: 32 * MB,
-  /** Per user, rolling 24 h: declared bytes and intents; stored bytes per uploader across conversations. */
-  quota: { dayBytes: 2_000 * MB, dayIntents: 300, storedBytes: 10_000 * MB, dayMs: 24 * 3_600_000 },
+  /** Per user, rolling 24 h: intent rate. Original file size never rejects an upload. */
+  quota: { dayIntents: 300, dayMs: 24 * 3_600_000 },
   maxNameChars: 255,
   maxDimension: 100_000,
   maxDurationMs: 24 * 3_600_000,
@@ -136,8 +134,6 @@ export const validateAttachmentMeta = (input: unknown): MetaResult => {
   const mime = v.mime_type.toLowerCase()
   const cls = ATTACHMENT_TYPES[mime]
   if (!cls) return { ok: false, code: "attachment.type_refused", message: "this file type cannot be sent" }
-  const cap = ATTACHMENT_LIMITS.maxBytes
-  if ((v.byte_count as number) > cap) return { ok: false, code: "attachment.too_large", message: `attachments are limited to ${cap} bytes` }
   return {
     ok: true,
     class: cls,
@@ -351,27 +347,16 @@ export interface QuotaUsage {
 }
 
 /**
- * Per user: 300 intents and 2 GB declared bytes per rolling 24 h, 10 GB stored. Every upload
+ * Per user: 300 intents per rolling 24 h. Every upload
  * slot is charged its declared bytes (the owner refunds a slot whose commit finds the bytes
  * already stored, or that expires unused), so bytes in flight are always counted.
  */
-export const attachmentQuota = (usage: QuotaUsage, bytes: number, now: number): QuotaResult => {
+export const attachmentQuota = (usage: QuotaUsage, _bytes: number, now: number): QuotaResult => {
   const q = ATTACHMENT_LIMITS.quota
   const since = now - q.dayMs
   const intents = usage.intents.filter((t) => t > since).sort((a, b) => a - b)
   if (intents.length >= q.dayIntents) return { ok: false, code: "attachment.quota", window: "day_intents", retry_after_ms: Math.max(1, intents[intents.length - q.dayIntents]! + q.dayMs - now) }
-  if (usage.stored + bytes > q.storedBytes) return { ok: false, code: "attachment.storage_quota", window: "stored", retry_after_ms: 0 }
-  const inside = usage.bytes.filter((u) => u.at > since).sort((a, b) => a.at - b.at)
-  let total = inside.reduce((sum, u) => sum + u.bytes, 0)
-  if (total + bytes <= q.dayBytes) return { ok: true }
-  // Retry when enough of the oldest takes have left the window.
-  let at = now
-  for (const u of inside) {
-    total -= u.bytes
-    at = u.at + q.dayMs
-    if (total + bytes <= q.dayBytes) break
-  }
-  return { ok: false, code: "attachment.quota", window: "day_bytes", retry_after_ms: Math.max(1, at - now) }
+  return { ok: true }
 }
 
 /** Raster images render inline; everything else downloads (stored XSS defense with nosniff and a sandbox CSP). */

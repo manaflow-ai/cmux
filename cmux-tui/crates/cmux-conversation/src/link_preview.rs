@@ -5,14 +5,14 @@
 //!
 //! The image is an ordinary attachment record the sender uploaded to this
 //! conversation (`conversation-attachment-upload`): JPEG or WebP, at most
-//! [`MAX_PREVIEW_IMAGE_BYTES`]. The host checks that record like an
+//! [`DERIVED_PREVIEW_IMAGE_BYTES_LIMIT`]. The host checks that record like an
 //! `attachment` part's hash; this module checks only the shape.
 
-use crate::attachments::{MAX_PREVIEW_IMAGE_BYTES, is_derived_image_type, is_sha256};
+use crate::attachments::{DERIVED_PREVIEW_IMAGE_BYTES_LIMIT, is_derived_image_type, is_sha256};
 use crate::types::Part;
 
 /// Longest URL, in UTF-8 bytes.
-pub const MAX_LINK_URL_BYTES: usize = 2048;
+pub const LINK_URL_BYTES_LIMIT: usize = 2048;
 /// Longest title, in characters (Unicode scalars).
 pub const MAX_LINK_TITLE_CHARS: usize = 300;
 /// Longest site name, in characters (a DNS name's length).
@@ -24,7 +24,7 @@ pub const MAX_LINK_SITE_CHARS: usize = 253;
 /// plain rule, not a full URL parser, so the cloud owner applies exactly
 /// the same one.
 pub fn valid_link_url(url: &str) -> bool {
-    if url.is_empty() || url.len() > MAX_LINK_URL_BYTES {
+    if url.is_empty() || url.len() > LINK_URL_BYTES_LIMIT {
         return false;
     }
     if url
@@ -61,7 +61,7 @@ pub fn valid_link_preview_part(part: &Part) -> bool {
     let image_ok = image.as_ref().is_none_or(|image| {
         is_sha256(&image.hash)
             && is_derived_image_type(&image.mime_type)
-            && (1..=MAX_PREVIEW_IMAGE_BYTES).contains(&image.byte_count)
+            && (1..=DERIVED_PREVIEW_IMAGE_BYTES_LIMIT).contains(&image.byte_count)
     });
     valid_link_url(url)
         && valid_label(title.as_deref(), MAX_LINK_TITLE_CHARS)

@@ -9,7 +9,7 @@ extension LinkPreview {
     /// The part a sender attaches for `url`, as the owner accepts it: the
     /// title and site with control characters as spaces, trimmed and cut at
     /// the owner's limits (empty: left out); a picture the owner would
-    /// refuse (not JPEG or WebP, empty or over `previewMaxBytes`, not a
+    /// refuse (not JPEG or WebP, empty or over `previewBytesLimit`, not a
     /// SHA-256) is left out. Nil when the owner refuses the URL itself (not
     /// http or https, over 2048 bytes, user info, whitespace, control
     /// characters or a backslash): the sender sends that line as text.
@@ -18,7 +18,7 @@ extension LinkPreview {
         let image = image.flatMap { image -> AttachmentDerivedImage? in
             let hex = image.hash.utf8.count == 64 && image.hash.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
             guard hex, HomeAttachmentPolicy.posterTypes.contains(image.mimeType),
-                  (1...HomeAttachmentPolicy.previewMaxBytes).contains(image.byteCount) else { return nil }
+                  (1...HomeAttachmentPolicy.previewBytesLimit).contains(image.byteCount) else { return nil }
             return image
         }
         return LinkPreview(url: url, title: label(title, max: maxTitleScalars), site: label(site, max: maxSiteScalars), image: image)

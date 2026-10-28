@@ -7,12 +7,10 @@
 
 use crate::types::{DerivedImage, Part};
 
-/// Per file, every type (decimal megabytes, like the cloud owner).
-pub const MAX_ATTACHMENT_BYTES: u64 = 100_000_000;
 /// A video's poster: at most this size, JPEG or WebP.
-pub const MAX_POSTER_BYTES: u64 = 2_000_000;
+pub const DERIVED_POSTER_BYTES_LIMIT: u64 = 2_000_000;
 /// An image's preview: at most this size, JPEG or WebP.
-pub const MAX_PREVIEW_IMAGE_BYTES: u64 = 512_000;
+pub const DERIVED_PREVIEW_IMAGE_BYTES_LIMIT: u64 = 512_000;
 /// Longest attachment name, in characters (Unicode scalars).
 pub const MAX_ATTACHMENT_NAME_CHARS: usize = 255;
 /// Largest width or height of a part.
@@ -47,8 +45,8 @@ impl DerivedVariant {
 
     pub fn max_bytes(self) -> u64 {
         match self {
-            Self::Poster => MAX_POSTER_BYTES,
-            Self::Preview => MAX_PREVIEW_IMAGE_BYTES,
+            Self::Poster => DERIVED_POSTER_BYTES_LIMIT,
+            Self::Preview => DERIVED_PREVIEW_IMAGE_BYTES_LIMIT,
         }
     }
 
@@ -163,9 +161,6 @@ pub fn validate_attachment_meta(
         return Err(AttachmentReject::Invalid);
     }
     let class = attachment_class(mime_type).ok_or(AttachmentReject::TypeRefused)?;
-    if byte_count > MAX_ATTACHMENT_BYTES {
-        return Err(AttachmentReject::TooLarge);
-    }
     Ok(class)
 }
 

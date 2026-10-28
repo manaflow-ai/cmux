@@ -379,11 +379,11 @@ sends an upsert with the new body. No raw address, token or token hash is ever p
   "any file attaches": clients send bytes that read as UTF-8 as text/plain whatever the name, such
   as index.html, and every other file as application/octet-stream; downloads stay attachment +
   nosniff + sandbox CSP, and a client shows a received script or HTML file in Finder instead of
-  opening it); 100 MB per file; per user 300 intents and 2 GB declared per rolling day, 10 GB
-  stored; 60 intents per minute). It answers `exists` only for a hash the caller can already use
+  opening it); no original-file size cap; per user 300 intents per rolling day and 60 intents per
+  minute. Declared/stored bytes are accounting only). It answers `exists` only for a hash the caller can already use
   here, otherwise a single-use slot recorded in the ConversationDO.
 - Up to 32 MB the bytes stream through the Worker (`PUT /v1/home/attachments/upload/<conv>/<slot>.<kid>.<mac>`),
-  which hashes them. From 32 to 100 MB the client PUTs to a presigned R2 URL (15 min, signs
+  which hashes them. Above 32 MB the client PUTs to a presigned R2 URL (15 min, signs
   `content-length` and `x-amz-checksum-sha256`), then `POST /v1/home/attachments/commit`, which HEADs
   size and checksum. Either way the object is usable only after verification; the recorded etag
   pins downloads to that version.
