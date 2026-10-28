@@ -6,6 +6,7 @@ export function keepHandoff(current: AcpmuxSnapshot | undefined, next: AcpmuxSna
   if (
     next.canHandoff &&
     !next.handoff?.ready &&
+    !next.handoff?.record &&
     current &&
     next.sessionId === current.sessionId &&
     current.handoff?.record
@@ -20,7 +21,9 @@ export function snapshotFrames(schedule: (run: () => void) => void, publish: (va
   let pending: AcpmuxSnapshot | undefined;
   return {
     guard<Args extends unknown[]>(receive: (...args: Args) => void) {
-      return receive;
+      return (...args: Args) => {
+        if (active) receive(...args);
+      };
     },
     push(value: AcpmuxSnapshot) {
       if (!active) return;

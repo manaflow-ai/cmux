@@ -7233,7 +7233,7 @@ function AcpmuxPane() {
           : mockHost;
         const client = await AcpmuxDirectClient.connect(
           mock ? mockConfig : (host as AcpmuxHostConfig),
-          (next) => {
+          presentation.guard((next: AcpmuxSnapshot) => {
             harnessSwitch.reconcile(next);
             rowsRef.current = next.rows;
             snapshotRef.current = next;
@@ -7255,8 +7255,8 @@ function AcpmuxPane() {
               );
             }
             presentation.push(next);
-          },
-          () => {
+          }),
+          presentation.guard(() => {
             // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
             presentation.stop();
             if (cancelled) return;
@@ -7269,7 +7269,7 @@ function AcpmuxPane() {
             setHostRetrying(true);
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
             retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
-          },
+          }),
           mock
             ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket
             : bridge
