@@ -4098,42 +4098,27 @@ import Testing
         _ arguments: [String]
     ) throws -> (result: ProcessRunResult, requests: [[String: Any]]) {
         let cliPath = try bundledCLIPath()
-        let socketPath = "/tmp/cmux-ssh-short-port-\(UUID().uuidString.prefix(8)).sock"
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let socketPath = home.appendingPathComponent("ssh.sock").path
         let responder = try UnixSocketResponder(
             path: socketPath,
             response: #"{"ok":true,"result":{"workspace_id":"workspace:test","surface_id":"surface:test","window_id":"window:test","remote":{"state":"connected"}}}"#
         )
         defer { responder.stop() }
 
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-
         let result = runProcess(
             executablePath: cliPath,
-            arguments: [
-                "--socket", socketPath,
-                "ssh", "--no-focus", "dev@example.com", "-p", "45221",
-            ],
-            environment: environment,
+            arguments: ["--socket", socketPath, "ssh", "--no-focus"] + arguments,
+            environment: BundledCLITestSupport.hermeticCLIEnvironment(home: home),
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
-
-        let configureRequest = try XCTUnwrap(
-            responder.receivedRequests
-                .compactMap { request -> [String: Any]? in
-                    guard let data = request.data(using: .utf8) else { return nil }
-                    return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-                }
-                .first { ($0["method"] as? String) == "workspace.remote.configure" }
-        )
-        let params = try XCTUnwrap(configureRequest["params"] as? [String: Any])
-        XCTAssertEqual(params["port"] as? Int, 45221)
+        let requests = responder.receivedRequests.compactMap { request -> [String: Any]? in
+            guard let data = request.data(using: .utf8) else { return nil }
+            return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        }
+        return (result, requests)
     }
 
     func bundledCLIPath() throws -> String {
