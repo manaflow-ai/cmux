@@ -147,8 +147,8 @@ const numericSearch: Play = async (ctx) => {
 const accounts: ChatAccounts = {
   list: async () => ({
     accounts: [
-      { id: "max", name: "Claude Max", kind: "subscription" },
-      { id: "api", name: "Anthropic API key", kind: "api-key" },
+      { id: "max", name: "Claude Max", kind: "direct-subscription" },
+      { id: "api", name: "Anthropic API key", kind: "direct-api-key" },
       { id: "subrouter", name: "subrouter", kind: "subrouter" },
     ],
     active: "max",
@@ -193,6 +193,30 @@ const startedFork: ModelPickerProps = {
   ],
   harnessFixed: true,
   fork: { to: () => undefined, ready: true },
+};
+
+/// A short New Tab/chat pane with 48 installed accounts: the menu must cap to its window and
+/// let the Account list scroll to its last row without an empty spacer.
+const manyProfiles: ModelPickerProps = {
+  ...quick,
+  catalog: startedFork.catalog,
+  quick: {
+    ...quick.quick,
+    account: {
+      sessionId: "gallery-many-accounts",
+      accounts: {
+        list: async () => ({
+          accounts: Array.from({ length: 48 }, (_, index) => ({
+            id: "claude-account-" + (index + 1),
+            name: "Claude account " + (index + 1),
+            kind: "direct-subscription" as const,
+          })),
+          active: "claude-account-1",
+        }),
+        set: async () => undefined,
+      },
+    },
+  },
 };
 
 const openQuick: Play = async (ctx) => {
@@ -432,9 +456,12 @@ export default componentEntry<GalleryProps>({
       props: startedFork,
       play: async (ctx) => {
         await openQuick(ctx);
-        await ctx.click({ role: "menuitem", name: /^Account/ });
+        // Keyboard activation is stable on a started chat even when the pointer-hover timer races
+        // the async account list. Keep checking the real signed-in routes, not just a popup count.
+        await ctx.focus({ role: "menuitem", name: /^Account/ });
+        await ctx.press("Enter");
         await ctx.waitFor(() =>
-          Array.from(ctx.document.querySelectorAll('[role="menuitemradio"]')).some(
+          Array.from(ctx.document.querySelectorAll("[role=menuitemradio]")).some(
             (row) => row.textContent === "Anthropic API key",
           ),
         );
@@ -447,6 +474,17 @@ export default componentEntry<GalleryProps>({
     "relevant-many": { props: relevantMany, play: openQuick },
     "reported-claude-menu": { props: reportedClaude, play: openQuick },
     "reported-codex-menu": { props: reportedCodex, play: openQuick },
+    // A short window with many accounts (Lawrence: "model picker too tall"): the Account submenu
+    // remains inside the window and scrolls to the final row.
+    "quick-menu-many-profiles": {
+      props: { ...manyProfiles, update },
+      height: 360,
+      play: async (ctx) => {
+        await openQuick(ctx);
+        await ctx.hover({ role: "menuitem", name: /^Account/ });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-quick-menu").length > 1);
+      },
+    },
     // An agent CLI update on offer: a quiet footer below the model choices, out of the numbered list.
     "quick-update-offer": { props: { ...quick, update }, play: openQuick },
     // The same footer on a started chat's menu, which has no rail.
@@ -467,12 +505,8 @@ export default componentEntry<GalleryProps>({
       props: { ...quick, catalog: startedFork.catalog, onHarness: () => undefined },
       play: async (ctx) => {
         await openQuick(ctx);
-        await ctx.click({ role: "menuitem", name: /^Account/ });
-        await ctx.waitFor(() =>
-          Array.from(ctx.document.querySelectorAll('[role="menuitemradio"]')).some(
-            (row) => row.textContent === "Anthropic API key",
-          ),
-        );
+        await ctx.hover({ role: "menuitem", name: /^Account/ });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-quick-menu").length > 1);
       },
     },
     // The rail's Codex tab: Codex's models in place; Effort and Account stay with the chat's harness.

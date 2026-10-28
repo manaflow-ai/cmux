@@ -748,31 +748,29 @@ test("a started chat's compact menu has no harness rail and no Add harness…", 
   expect(added).toEqual([]);
 });
 
-// Tabs share a width probe, never hidden rows that reserve another tab's height.
-test("rail tabs keep width probes while their visible content changes", async () => {
+// Tabs show only their own model rows. The browser geometry test covers the fixed rail width
+// and visible-height changes, which JSDOM cannot measure.
+test("rail tabs replace their visible rows and reset a scrolled list", async () => {
   await mount({ routes: [] }, { fast: true });
   await open();
   const body = () => menu()!.querySelector<HTMLElement>(".acpmux-quick-body")!;
-  const probeLabels = () =>
-    [...body().querySelectorAll(".acpmux-quick-probe .acpmux-menu-label")].map((node) => node.textContent ?? "");
-  const heldWidths = probeLabels();
   const counts: number[] = [];
+  const modelLists: string[][] = [];
   for (const name of railTabs().map((tab) => tab.getAttribute("aria-label")!)) {
     const tab = railTabs().find((each) => each.getAttribute("aria-label") === name)!;
     await act(async () => tab.click());
     await settle();
-    const spacer = body().querySelector(".acpmux-quick-spacer")!;
-    expect(spacer.getAttribute("aria-hidden")).toBe("true");
-    expect(spacer.querySelectorAll(":scope > .acpmux-quick-item")).toHaveLength(0);
-    expect(probeLabels(), name).toEqual(heldWidths);
-    for (const label of modelNames(menu()!)) expect(heldWidths).toContain(label);
+    expect(tab.getAttribute("aria-pressed"), name).toBe("true");
+    const visibleModels = modelNames(menu()!);
+    modelLists.push(visibleModels);
     counts.push(body().querySelectorAll('[role^="menuitem"]').length);
   }
+  expect(modelLists.some((models) => models.length > 0)).toBe(true);
   expect(new Set(counts).size).toBeGreaterThan(1);
+  expect(new Set(modelLists.map((models) => models.join("|"))).size).toBeGreaterThan(1);
   body().scrollTop = 40;
   await key("o");
   expect(body().scrollTop).toBe(0);
-  expect(body().querySelector(".acpmux-quick-spacer > .acpmux-quick-item")).toBeNull();
 });
 
 // The static "Model · this session" caption is gone from both pickers, in a new chat, a started
