@@ -19,7 +19,13 @@ import { CommandRow } from "./CommandRow";
 const output = Array.from({ length: 14 }, (_, index) => `step ${index + 1}: completed`).join("\n");
 const file = toolFiles([
   tool("Update retry", "edit", "completed", {
-    diffs: [{ path: "src/long-retry-policy-name.ts", oldText: "retry(1);\n", newText: "retry(3);\n" }],
+    diffs: [
+      {
+        path: "src/long-retry-policy-name.ts",
+        oldText: Array.from({ length: 14 }, (_, index) => `retry(${index + 1});`).join("\n"),
+        newText: Array.from({ length: 14 }, (_, index) => `retry(${index + 3});`).join("\n"),
+      },
+    ],
   }).tool!,
 ])[0]!;
 const image = {

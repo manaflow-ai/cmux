@@ -1132,7 +1132,7 @@
   --cv-lane: 0px;
 }
 .cv-edit-diff__body[data-preview="cut"] {
-  --cv-block-cut: calc(8 * var(--cmux-diff-line-height, 18px) + var(--cv-lane));
+  --cv-block-cut: calc(8 * var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px)) + var(--cv-lane));
   max-height: var(--cv-block-cut);
 }
 .cv-edit-diff > .cv-output-more {
@@ -1935,7 +1935,11 @@ pre.cv-math-source {
 }
 .cv-shell__label,
 .cv-shell__exit {
-  font: calc(var(--cv-font-size) * 13 / 14) / calc(var(--cv-font-size) * 20 / 14) var(--cv-font);
+  font-style: normal;
+  font-weight: 400;
+  font-size: calc(var(--cv-font-size) * 13 / 14);
+  line-height: calc(var(--cv-font-size) * 20 / 14);
+  font-family: var(--cv-font);
 }
 /* "Shell" with the output's copy button at the other end; the button overhangs the label's line. */
 .cv-shell__label {
@@ -1973,7 +1977,11 @@ pre.cv-math-source {
   gap: 8px;
   margin: 6px 0 0;
   overflow: auto hidden;
-  font: calc(var(--cv-font-size) * 12 / 14) / calc(var(--cv-font-size) * 18 / 14) var(--cv-mono);
+  font-style: normal;
+  font-weight: 400;
+  font-size: calc(var(--cv-font-size) * 12 / 14);
+  line-height: calc(var(--cv-font-size) * 18 / 14);
+  font-family: var(--cv-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -2015,7 +2023,11 @@ pre.cv-math-source {
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   color: var(--cv-text-muted);
-  font: calc(var(--cv-font-size) * 12 / 14) / calc(var(--cv-font-size) * 18 / 14) var(--cv-mono);
+  font-style: normal;
+  font-weight: 400;
+  font-size: calc(var(--cv-font-size) * 12 / 14);
+  line-height: calc(var(--cv-font-size) * 18 / 14);
+  font-family: var(--cv-mono);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -2135,7 +2147,11 @@ pre.cv-math-source {
   white-space: nowrap;
 }
 .cv-command__line {
-  font: calc(var(--cv-font-size) * 12.5 / 14) / calc(var(--cv-font-size) * 20 / 14) var(--cv-mono);
+  font-style: normal;
+  font-weight: 400;
+  font-size: calc(var(--cv-font-size) * 12.5 / 14);
+  line-height: calc(var(--cv-font-size) * 20 / 14);
+  font-family: var(--cv-mono);
 }
 .cv-command__meta {
   display: flex;
@@ -3148,7 +3164,11 @@ a.cv-sha:focus-visible {
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   color: var(--cv-text-muted);
-  font: calc(var(--cv-font-size) * 13 / 14) / calc(var(--cv-font-size) * 20 / 14) var(--cv-font);
+  font-style: normal;
+  font-weight: 400;
+  font-size: calc(var(--cv-font-size) * 13 / 14);
+  line-height: calc(var(--cv-font-size) * 20 / 14);
+  font-family: var(--cv-font);
 }
 .acpmux-shell-block-head {
   display: flex;
@@ -3160,8 +3180,11 @@ a.cv-sha:focus-visible {
 }
 .acpmux-shell-block-glyph {
   flex: none;
-  font: 600 calc(var(--cv-font-size) * 12.5 / 14) / calc(var(--cv-font-size) * 20 / 14)
-    var(--cv-mono);
+  font-style: normal;
+  font-weight: 600;
+  font-size: calc(var(--cv-font-size) * 12.5 / 14);
+  line-height: calc(var(--cv-font-size) * 20 / 14);
+  font-family: var(--cv-mono);
   color: var(--agent-ansi-5, #d670d6);
 }
 .acpmux-shell-block-command {
@@ -3170,7 +3193,11 @@ a.cv-sha:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: calc(var(--cv-font-size) * 12.5 / 14) / calc(var(--cv-font-size) * 20 / 14) var(--cv-mono);
+  font-style: normal;
+  font-weight: 400;
+  font-size: calc(var(--cv-font-size) * 12.5 / 14);
+  line-height: calc(var(--cv-font-size) * 20 / 14);
+  font-family: var(--cv-mono);
   color: var(--agent-text);
 }
 .acpmux-shell-block-status {
@@ -3211,7 +3238,11 @@ a.cv-sha:focus-visible {
   outline-offset: -2px;
 }
 .acpmux-shell-block kbd {
-  font: calc(var(--cv-font-size) * 11 / 14) / calc(var(--cv-font-size) * 16 / 14) var(--cv-font);
+  font-style: normal;
+  font-weight: 400;
+  font-size: calc(var(--cv-font-size) * 11 / 14);
+  line-height: calc(var(--cv-font-size) * 16 / 14);
+  font-family: var(--cv-font);
   color: var(--cv-text-muted);
 }
 .acpmux-shell-block-output {
@@ -3223,13 +3254,20 @@ a.cv-sha:focus-visible {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  font: calc(var(--cv-font-size) * 12 / 14) / calc(var(--cv-font-size) * 18 / 14) var(--cv-mono);
+  font-style: normal;
+  font-weight: 400;
+  font-size: calc(var(--cv-font-size) * 12 / 14);
+  line-height: calc(var(--cv-font-size) * 18 / 14);
+  font-family: var(--cv-mono);
   color: var(--agent-soft, var(--agent-text));
 }
 .acpmux-shell-block-cut {
   color: var(--cv-text-muted);
-  font: italic calc(var(--cv-font-size) * 11.5 / 14) / calc(var(--cv-font-size) * 18 / 14)
-    var(--cv-font);
+  font-style: italic;
+  font-weight: 400;
+  font-size: calc(var(--cv-font-size) * 11.5 / 14);
+  line-height: calc(var(--cv-font-size) * 18 / 14);
+  font-family: var(--cv-font);
 }
 .acpmux-shell-block-error {
   color: var(--agent-status-failure);
