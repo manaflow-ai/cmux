@@ -107,10 +107,12 @@ actor LockedStorageAuthClient: AuthClient {
 actor TokenStorageAvailabilityProbe {
     private var available: Bool
     private var unavailableReadsRemaining: Int
+    private var scriptedResults: [Bool]
 
-    init(available: Bool, unavailableFirstReads: Int = 0) {
+    init(available: Bool, unavailableFirstReads: Int = 0, scriptedResults: [Bool] = []) {
         self.available = available
         self.unavailableReadsRemaining = unavailableFirstReads
+        self.scriptedResults = scriptedResults
     }
 
     func setAvailable(_ available: Bool) {
@@ -118,6 +120,9 @@ actor TokenStorageAvailabilityProbe {
     }
 
     func isAvailable() -> Bool {
+        if !scriptedResults.isEmpty {
+            return scriptedResults.removeFirst()
+        }
         if unavailableReadsRemaining > 0 {
             unavailableReadsRemaining -= 1
             return false
@@ -218,7 +223,7 @@ actor TokenStorageAvailabilityProbe {
             locked: false,
             locksFirstReads: 2
         )
-        let availability = TokenStorageAvailabilityProbe(available: true)
+        let availability = TokenStorageAvailabilityProbe(available: true, scriptedResults: [true, false])
         let (coordinator, store) = try makeCoordinator(
             client: client,
             cachedUser: cachedUser,
