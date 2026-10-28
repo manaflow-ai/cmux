@@ -608,7 +608,7 @@ export class SubagentFold {
       !!messageId &&
       this.replyMessageIds.has(id) &&
       this.replyMessageIds.get(id) !== messageId;
-    if (messageChanged) {
+    if (messageChanged && textFromContent(update?.content)) {
       this.pendingReplySummaries.delete(id);
       this.bumpViewRevision(id);
     }
@@ -638,6 +638,7 @@ export class SubagentFold {
         exitCode: update.exitCode,
         startedAt: update.startedAt,
         background: update.background ?? update.rawInput?.run_in_background,
+        rawInput: update.rawInput,
       });
       const metadataChanged = summaries.has(call) && summaries.get(call) !== summaryKey;
       summaries.set(call, summaryKey);

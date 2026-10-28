@@ -4,6 +4,7 @@ type Status = boolean | undefined;
 const invert = (value: Status): Status => (value === undefined ? undefined : !value);
 
 export function shellCommands(text: string): string[] {
+  text = text.replace(/\\\n/g, " ");
   const tokens = text.match(/&&|\|\||\$\(|[;\n&|()]|(?:(?:\\[^\s]|(?!\$\()[^\s;&|()]))+/g) ?? [];
   const commands: string[] = [];
   let at = 0;
@@ -134,6 +135,7 @@ export function isPullRequestCommand(command: string): boolean {
       } else if (name === "nohup" && words[at] === "--") at++;
       continue;
     }
+    if (word === "$(") continue;
     if (name !== "timeout") return ["gh", "glaeda-gh", "gh-merge-green"].includes(name);
     at++;
     while (words[at]?.startsWith("-")) {

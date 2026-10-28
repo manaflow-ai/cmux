@@ -273,7 +273,7 @@ function toolFindings(tool: Tool): Finding[] {
       const action = match[1] ?? match[2];
       const target = callTarget(match[3] ?? "");
       if (!target) continue;
-      const titleMatch = action === "edit" ? TITLE.exec(tool.command ?? "") : undefined;
+      const titleMatch = action === "edit" ? TITLE.exec(match[0]) : undefined;
       const title =
         outputTitle(tool) ??
         (titleMatch ? (titleMatch[1] ?? titleMatch[2] ?? titleMatch[3])?.replace(/\\(.)/g, "$1") : undefined);
