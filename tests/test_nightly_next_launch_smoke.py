@@ -264,6 +264,10 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         self.assertNotRegex(self.text, r"cancel-in-progress:\s*true")
         # Only a pull request's run is replaced by a newer push; a schedule or dispatch never is.
         self.assertEqual(self.workflow["concurrency"]["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}")
+        # A schedule or dispatch run is alone in its group, so a waiting one is never replaced.
+        self.assertEqual(self.workflow["concurrency"]["group"],
+                         "nightly-next-launch-smoke-${{ github.event_name == 'pull_request' && "
+                         "format('pr-{0}', github.event.pull_request.number) || github.run_id }}")
         runs_on = self.jobs["smoke"]["runs-on"]
         self.assertTrue(runs_on.rstrip(" }").endswith("'blacksmith-6vcpu-macos-26'"))
         self.assertLess(runs_on.index("CI_SIDE_LANE_RUNNER"), runs_on.rindex("blacksmith-6vcpu-macos-26"))

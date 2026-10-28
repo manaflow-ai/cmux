@@ -47,9 +47,10 @@ on:
 permissions: {}
 
 # A new push to a pull request replaces its smoke (it never rolls back or files);
-# a scheduled or dispatched smoke is never cancelled.
+# a scheduled or dispatched smoke has a group of its own run, so it is never
+# cancelled or replaced while it waits.
 concurrency:
-  group: nightly-next-launch-smoke-${{ github.event.pull_request.number || inputs.build != '' && format('build-{0}', inputs.build) || 'feed' }}
+  group: nightly-next-launch-smoke-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
