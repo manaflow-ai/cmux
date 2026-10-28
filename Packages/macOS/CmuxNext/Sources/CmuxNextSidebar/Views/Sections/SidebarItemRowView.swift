@@ -370,6 +370,19 @@ class SidebarItemRowView: NSView {
         return ink.offsetBy(dx: pin.frame.minX, dy: pin.frame.minY)
     }
 
+    /// The drawn ink of the item's glyph in the row's coordinates; nil when no glyph draws (tests).
+    var glyphInkFrame: CGRect? {
+        guard !icon.isHidden, let image = icon.image, icon.frame.width > 0,
+              let ink = SidebarGlyphInk.shared.box(of: image, glyph: glyphKey) else { return nil }
+        return ink.offsetBy(dx: icon.frame.minX, dy: icon.frame.minY)
+    }
+
+    /// The cache key of the item's glyph ink (`SidebarGlyphInk`): what draws it, not its size.
+    var glyphKey: String {
+        let iconKey = info.icon == .notification ? "\(info.icon?.rawValue ?? "")#\(NotificationIconLook.tunable.value.rawValue)" : info.icon?.rawValue ?? ""
+        return "\(info.emoji ?? "")|\(info.brand.map { "\($0)" } ?? "")|\(iconKey)|\(info.symbol)|\(info.favicon == nil ? "" : info.title)"
+    }
+
     /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.
     private func glyphImage(side: CGFloat) -> NSImage? {
         if let favicon = info.favicon { return NSImage(cgImage: favicon.image, size: NSSize(width: side, height: side)) }
