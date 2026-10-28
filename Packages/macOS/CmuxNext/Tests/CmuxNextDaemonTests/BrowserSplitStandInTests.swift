@@ -128,4 +128,55 @@ struct BrowserSplitStandInTests {
         #expect(panes.first?.tabs.map(\.surface) == [SurfaceID(rawValue: 4), Self.daemonTab])
         #expect(store.mirrorViolations.isEmpty)
     }
+    // MARK: Review of 784e13f2bf6
+
+    /// A split the person closed while its tab was in the target pane: the tab stays out of sight
+    /// there (it is the cancelled creation's), only the tab the open's reply named is closed (never
+    /// a guessed one), and the intent leaves once the daemon's close committed.
+    @Test func aCancelledSplitHidesItsTabClosesOnlyTheNamedOneAndLeaves() async throws {
+        let store = Self.store()
+        var closes: [SurfaceID] = []
+        store.creations.onClose { _, surface in closes.append(surface) }
+        let (_, provisional, transaction) = Self.split(store)
+        _ = store.apply(batch: [Self.openedInSource(sequence: 1)])
+        #expect(store.creations.cancel(pane: provisional.handle))
+        var panes = try Self.panes(store)
+        #expect(panes.map(\.handle) == [Self.source], "the cancelled split's pane still shows")
+        #expect(panes.first?.tabs.map(\.surface) == [SurfaceID(rawValue: 4)], "the cancelled split's tab showed in its target pane")
+        #expect(closes.isEmpty, "a guessed tab was closed: \(closes)")
+        // The open's reply names the tab: now it may be closed.
+        ProvisionalTab.held(transaction, surface: Self.daemonTab, in: store)
+        #expect(closes == [Self.daemonTab])
+        panes = try Self.panes(store)
+        #expect(panes.first?.tabs.map(\.surface) == [SurfaceID(rawValue: 4)])
+        // The send settles it (as NewBrowserTabCommand does), and the daemon's close commits.
+        store.noteSettled(transaction, at: 1)
+        store.apply(snapshot: Self.tree([PaneSnapshot(id: Self.source, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 4))])],
+                                        layout: .leaf(Self.source), revision: 3))
+        #expect(store.pendingIntents.isEmpty, "the cancelled split stayed in the intent log")
+        #expect(await store.waitIntentsIdle())
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
+    /// A Cmd-T in the same pane, older than the split, took the split's tab as its guess (both are
+    /// browser creates on one engine). The open's reply gives the tab to the split: once the move
+    /// placed it, the daemon's pane alone replaces the provisional one (no empty pane beside it).
+    @Test func aCmdTGuessGivesWayToTheSplitsNamedTab() throws {
+        let store = Self.store()
+        let cmdT = ProvisionalTab()
+        store.intend(.createTab(pane: Self.source, provisional: Self.standIn(cmdT)), transaction: .generate())
+        let (_, provisional, transaction) = Self.split(store)
+        _ = store.apply(batch: [Self.openedInSource(sequence: 1)])
+        ProvisionalTab.held(transaction, surface: Self.daemonTab, in: store)
+        store.apply(snapshot: Self.tree([PaneSnapshot(id: Self.source, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 4))]),
+                                         PaneSnapshot(id: Self.moved, tabs: [Self.browser(Self.daemonTab)])],
+                                        layout: .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(Self.source), b: .leaf(Self.moved)),
+                                        revision: 2))
+        let panes = try Self.panes(store)
+        #expect(panes.map(\.handle) == [Self.source, Self.moved], "not one new pane: \(panes.map(\.handle))")
+        #expect(panes.last?.tabs.map(\.surface) == [Self.daemonTab], "the split's tab is hidden in its own pane")
+        #expect(!panes.contains { $0.handle == provisional.handle })
+        #expect(panes.first?.tabs.map(\.surface) == [SurfaceID(rawValue: 4), cmdT.surface], "the Cmd-T stand-in left its pane")
+        #expect(store.mirrorViolations.isEmpty)
+    }
 }

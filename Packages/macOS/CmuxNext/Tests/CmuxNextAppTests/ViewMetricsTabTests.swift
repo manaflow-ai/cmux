@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextFeatures
+import CmuxNextPages
 import Foundation
 import Testing
 
@@ -75,6 +76,39 @@ struct ViewMetricsTabTests {
             let ready = try #require(pages.pendingWrites[file] ?? pages.tabs[key]?.provider?.ready, "the tab's read does not wait for the write")
             let reason = await ready()
             #expect(reason?.contains("the test refused the metrics write") == true, "the tab's page would not fail with the write's reason: \(reason ?? "nil")")
+        }
+    }
+    /// The tab's page (its `cmux.editor.config`, what the page loads), once the pane made it.
+    static func readPage(_ services: AppServices, _ key: String) async throws -> Result<JSONValue, PageError> {
+        let pages = services.viewers.editorPages
+        try await PinnedPageTests.until({ pages.tabs[key]?.provider != nil }, report: { "the metrics tab's page was never made" })
+        let provider = try #require(pages.tabs[key]?.provider)
+        do {
+            return .success(try await provider.call(FilePageKind.editor.op("config"), params: .object([:]),
+                                                    context: PageCallContext(page: FilePageKind.editor.namespace)))
+        } catch let error as PageError {
+            return .failure(error)
+        }
+    }
+
+    /// After a failed write, a second View Metrics writes the file again and the same tab's page shows it.
+    @Test func aSecondViewMetricsAfterAFailedWriteShowsTheFile() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            Self.bindFailingMetrics(services)
+            let pane = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first)
+            let (_, failed) = Self.run(services, on: pane)
+            for task in failed { _ = await task.value }
+            let key = try #require(Self.metricsTab(services))
+            if case .success = try await Self.readPage(services, key) { Issue.record("the failed write's page read the file") }
+            Self.bindMetrics(services)
+            let (_, written) = Self.run(services, on: pane)
+            for task in written { _ = await task.value }
+            #expect(Self.metricsTab(services) == key, "a second tab opened for the metrics file")
+            guard case .success(let config) = try await Self.readPage(services, key) else {
+                Issue.record("the second View Metrics' page still fails")
+                return
+            }
+            #expect(config["text"]?.stringValue?.contains("histograms") == true)
         }
     }
 }

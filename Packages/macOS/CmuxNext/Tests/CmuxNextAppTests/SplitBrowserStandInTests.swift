@@ -51,4 +51,25 @@ struct SplitBrowserStandInTests {
             }, report: { Self.describe(services) })
         }
     }
+    /// The person closes the new pane before the daemon made it (the review of 784e13f2bf6): the
+    /// creation's intent leaves the log once the daemon's close of the tab committed, so
+    /// `waitIntentsIdle` (every socket action's settle) returns instead of waiting for ever.
+    @Test func aSplitClosedBeforeTheDaemonMadeItLeavesTheIntentLog() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let store = services.daemon.store
+            let model = try #require(Self.panes(services).first)
+            let old = Set(Self.panes(services).map(\.handle))
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: model.id), origin: .cli)
+            let work = services.registry.capturingWork {
+                _ = services.registry.perform("splitBrowserRight", invocation: invocation)
+            }
+            let standIn = try #require(Self.panes(services).first { !old.contains($0.handle) }, "no new pane: \(Self.describe(services))")
+            #expect(store.creations.cancel(pane: standIn.handle), "the new pane is not a pending split")
+            for task in work { _ = await task.value }
+            try await PinnedPageTests.until({ store.pendingIntents.isEmpty }, report: { "\(store.pendingIntents.map(\.intent.caseName))" })
+            #expect(await store.waitIntentsIdle())
+            #expect(Set(Self.panes(services).map(\.handle)) == old, "the closed split left a pane: \(Self.describe(services))")
+            #expect(Self.panes(services).allSatisfy { $0.tabs.allSatisfy { $0.kind != .browser } }, "the closed split's tab is still open: \(Self.describe(services))")
+        }
+    }
 }
