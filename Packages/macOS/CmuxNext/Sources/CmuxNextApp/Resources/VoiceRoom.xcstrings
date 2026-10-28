@@ -1,0 +1,399 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "voiceRoom.refusal.address": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عنوان غرفة الصوت في الإعدادات ليس عنوان ويب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresa glasovne sobe u Postavkama nije web adresa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stemmerummets adresse i Indstillinger er ikke en webadresse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Sprachraum-Adresse in den Einstellungen ist keine Webadresse."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Voice Room address in Settings is not a web address."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La dirección de la sala de voz en Ajustes no es una dirección web."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’adresse de la salle vocale dans les Réglages n’est pas une adresse web."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’indirizzo della stanza vocale nelle Impostazioni non è un indirizzo web."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定のボイスルームのアドレスが Web アドレスではありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាសយដ្ឋានបន្ទប់សំឡេងក្នុងការកំណត់ មិនមែនជាអាសយដ្ឋានវេបទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설정의 음성 룸 주소가 웹 주소가 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taleromadressen i Innstillinger er ikke en nettadresse."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adres pokoju głosowego w Ustawieniach nie jest adresem internetowym."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O endereço da sala de voz nos Ajustes não é um endereço da web."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адрес голосовой комнаты в настройках не является веб-адресом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่อยู่ห้องเสียงในการตั้งค่าไม่ใช่ที่อยู่เว็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayarlardaki Ses Odası adresi bir web adresi değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адреса голосової кімнати в параметрах не є веб-адресою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Địa chỉ phòng thoại trong Cài đặt không phải là địa chỉ web."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "设置中的语音房间地址不是网址。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定中的語音房間位址不是網址。"
+          }
+        }
+      }
+    },
+    "voiceRoom.refusal.notOpen": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد غرفة صوت مفتوحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedna glasovna soba nije otvorena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet stemmerum er åbent."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein Sprachraum ist geöffnet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Voice Room is open."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay ninguna sala de voz abierta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune salle vocale n’est ouverte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna stanza vocale è aperta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開いているボイスルームはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានបន្ទប់សំឡេងណាបើកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "열려 있는 음성 룸이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen talerom er åpne."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żaden pokój głosowy nie jest otwarty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma sala de voz está aberta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет открытой голосовой комнаты."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีห้องเสียงที่เปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Açık Ses Odası yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає відкритої голосової кімнати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có phòng thoại nào đang mở."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有打开的语音房间。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有開啟的語音房間。"
+          }
+        }
+      }
+    },
+    "voiceRoom.refusal.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غرفة الصوت ميزة تجريبية: فعّلها من الإعدادات > متقدم > المختبرات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glasovna soba je eksperimentalna funkcija: uključite je u Postavke > Napredno > Labs."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stemmerum er en Labs-funktion: slå det til under Indstillinger > Avanceret > Labs."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Sprachraum ist eine Labs-Funktion: Aktiviere ihn unter Einstellungen > Erweitert > Labs."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice Room is a Labs feature: turn it on in Settings > Advanced > Labs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sala de voz es una función de Labs: actívala en Ajustes > Avanzado > Labs."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La salle vocale est une fonctionnalité Labs : activez-la dans Réglages > Avancé > Labs."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La stanza vocale è una funzione Labs: attivala in Impostazioni > Avanzate > Labs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ボイスルームは Labs の機能です。設定 > 詳細 > Labs でオンにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទប់សំឡេងជាមុខងារ Labs៖ បើកវានៅក្នុង ការកំណត់ > កម្រិតខ្ពស់ > Labs។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "음성 룸은 Labs 기능입니다. 설정 > 고급 > Labs에서 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Talerom er en Labs-funksjon: slå det på under Innstillinger > Avansert > Labs."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokój głosowy to funkcja Labs: włącz go w Ustawienia > Zaawansowane > Labs."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A sala de voz é um recurso do Labs: ative-a em Ajustes > Avançado > Labs."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Голосовая комната — функция Labs: включите её в Настройки > Дополнительно > Labs."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ห้องเสียงเป็นฟีเจอร์ Labs: เปิดได้ที่ การตั้งค่า > ขั้นสูง > Labs"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ses Odası bir Labs özelliğidir: Ayarlar > Gelişmiş > Labs bölümünden açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Голосова кімната — функція Labs: увімкніть її в Параметри > Додатково > Labs."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phòng thoại là tính năng Labs: hãy bật trong Cài đặt > Nâng cao > Labs."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "语音房间是 Labs 功能：请在“设置 > 高级 > Labs”中开启。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "語音房間是 Labs 功能：請在「設定 > 進階 > Labs」中開啟。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}
