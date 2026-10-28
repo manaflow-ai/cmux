@@ -268,7 +268,8 @@ export function shellCommands(line: string): ShellCommand[] {
       // is handled below and must not be mistaken for a file redirect (`<<<` starts with `<`).
       const takesStdin = (fd === undefined || fd === "0") && (op === "<" || op === "<>" || op === "<<" || op === "<<-");
       if (takesStdin) {
-        if ((stdin !== undefined && stdin !== "file") || stdinQuoted) stdinUnsafe = true;
+        if ((stdin !== undefined && stdin !== "file") || stdinQuoted || docs.some((doc) => doc.stdin))
+          stdinUnsafe = true;
         for (const doc of docs) doc.stdin = false;
         stdinFile = op === "<" || op === "<>" ? target : undefined;
       }
@@ -846,7 +847,9 @@ function stdinOf(
   recordedFiles: ReadonlyMap<string, ShellWord>,
 ): ShellWord | "file" | undefined {
   const command = commands[index]!;
-  if (command.stdinUnsafe && command.stdin !== "file") return undefined;
+  // Any competing stdin source (including a later fd-0 output or here-string) makes the final
+  // source ambiguous; do not fall back to a recorded file when stdinUnsafe is set.
+  if (command.stdinUnsafe) return undefined;
   const own = command.stdin;
   if (own) {
     if (own === "file" && command.stdinFile?.literal) return recordedFiles.get(command.stdinFile.text) ?? own;

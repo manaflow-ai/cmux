@@ -115,6 +115,14 @@ describe("acpmuxSend", () => {
     expect(read("acpmux send lane - < /tmp/message.md")).toEqual({ target: "lane", noWait: false });
     // The last stdin redirect wins; a writer whose stdout goes elsewhere feeds nothing.
     expect(read("acpmux send lane - <<EOF < /tmp/message\nbody\nEOF")).toEqual({ target: "lane", noWait: false });
+    expect(
+      acpmuxSend(
+        "acpmux send lane - <<EOF < /tmp/message\nbody\nEOF",
+        undefined,
+        0,
+        new Map([["/tmp/message", "stale\n"]]),
+      )?.text,
+    ).toBeUndefined();
     expect(read("acpmux send lane - < /tmp/message <<EOF\nbody\nEOF")?.text).toBe("body\n");
     expect(read("echo secret >/dev/null | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
     expect(read("echo shown 2>/dev/null | acpmux send lane -")?.text).toBe("shown");
