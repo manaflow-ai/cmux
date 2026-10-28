@@ -382,12 +382,10 @@ export default agentPaneEntry({
         await check(ctx);
       },
     },
-    // The split puts the chips under the box, so the rows above no longer squeeze chips beside the
-    // mic. These two keep that single-row case measured: New Tab's Default template (the second dot,
-    // the existing composer with its chips in the box, with Linux's wider type as above), and the
-    // chat composer with the plain footer turned off.
+    // Both templates keep the model and mode in the shared footer; this variant checks the
+    // Default template with Linux's wider type, and the next checks a chat with plain styling off.
     "new-tab-default": {
-      note: "New Tab's Default template: the chips, the mic and Send in the box's one row, letters spaced as Linux's fonts set them.",
+      note: "New Tab's Default template: model and mode in the shared footer, mic and Send in the box, with Linux's wider letter spacing.",
       ready: {
         newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", template: "default" },
         newSession: true,
@@ -396,8 +394,11 @@ export default agentPaneEntry({
         summary: { sessionId: "", cwd: CWD, harness: "claude", ...controls },
       }),
       play: async (ctx) => {
-        if (!ctx.document.querySelector(".nt-box .nt-pickers .acpmux-model"))
-          throw new Error("the Default template's chips are not in its box");
+        if (
+          !ctx.document.querySelector(".nt-foot .acpmux-model") ||
+          ctx.document.querySelector(".nt-box .nt-pickers .acpmux-model")
+        )
+          throw new Error("the Default template's model is not in the shared footer");
         const style = ctx.document.createElement("style");
         style.textContent = ".nt-screen, .nt-screen * { letter-spacing: 0.5px; }";
         ctx.document.head.append(style);
