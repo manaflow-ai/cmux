@@ -367,9 +367,12 @@ class NextApp:
                         replies.append(json.loads(line))
                     except ValueError:
                         replies.append({"raw": line[:200].decode(errors="replace")})
+                    arrived[len(replies) - 1] = NOW_NS()
+        arrived = {}
         thread = threading.Thread(target=reader, daemon=True)
         thread.start()
         sent = [{} for _ in typed]
+        sent_at = {}
 
         def send(rid, key, mods, when):
             params = {"key": key, "timestamp": when / 1e9}
@@ -386,12 +389,19 @@ class NextApp:
                 pass
             at = NOW_NS()
             sent[k]["send_late_ms"] = round((at - when) / 1e6, 3)
+            sent_at[k + 1] = at
             send(k + 1, letter, (), at)
         thread.join(30)
         try:
             conn.close()
         except OSError:
             pass
+        # Each reply comes from the main thread (debug.key runs there as input): send -> reply is how long the main
+        # thread took to take the request, a direct responsiveness probe independent of the watchdog and of any key hold.
+        for i, r in enumerate(replies):
+            rid = r.get("id")
+            if isinstance(rid, int) and rid >= 1 and rid in sent_at and i in arrived and rid - 1 < len(sent):
+                sent[rid - 1]["reply_ms"] = round((arrived[i] - sent_at[rid]) / 1e6, 2)
         first = next((r for r in replies if r.get("id") == 0), {})
         reply = first.get("result") if first.get("ok") else first
         return sent, reply, open_ns
@@ -834,7 +844,8 @@ def run_round(app, scenario, index, sampled):
                      "output_received_ms": col("output_received_ms"), "contents_ms": col("contents_ms"), "commit_ms": col("commit_ms"),
                      "dispatch_start_ms": col("dispatch_start_ms"),
                      "delay_ms": sent[k].get("delay_ms") if k < len(sent) else None,
-                     "send_late_ms": sent[k].get("send_late_ms") if k < len(sent) else None})
+                     "send_late_ms": sent[k].get("send_late_ms") if k < len(sent) else None,
+                     "reply_ms": sent[k].get("reply_ms") if k < len(sent) else None})
     # The tracker's split per key (first-keys-held instrumentation): the dispatch that ran the key is its latest slot.
     def near(rows, when):
         return [r for r in rows if isinstance(r, dict) and abs((r.get("generated_ns") or 0) - when) < 1e6]
@@ -877,6 +888,10 @@ def run_round(app, scenario, index, sampled):
             note(f"      S {line}")
     probe = [k["probe_ms"] for k in keys if k["probe_ms"] is not None]
     photon = [k["photon_ms"] for k in keys if k["photon_ms"] is not None]
+    rep = [(k["t_ms"], k.get("reply_ms")) for k in keys if k.get("reply_ms") is not None]
+    if rep:
+        worst = sorted(rep, key=lambda x: -x[1])[:5]
+        note(f"      MAINREPLY {scenario} {index}: {len(rep)} keys, send->reply p50 {sorted(r for _, r in rep)[len(rep)//2]} ms, worst (t_ms, ms) {worst}")
     note(f"      PUMP {scenario} {index}: {json.dumps(pump_delta)}")
     note(f"      SPARE {scenario} {index}: before {json.dumps(spare_before)} after {json.dumps(spare_after)}")
     for h in ((hangs or {}).get("window") or []) if isinstance(hangs, dict) else []:
