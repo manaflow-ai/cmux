@@ -1,0 +1,338 @@
+{
+ "id": "quit-with-browser-pages",
+ "priority": "P1",
+ "title": "Quit twice with Chromium pages on screen and hidden: every quit is clean, never a crash",
+ "why": "P0 #1 (2026-10-28): optimized builds crashed in Chromium at quit (SIGSEGV in RenderWidgetHostImpl::OnSnapshotFromSurfaceReceived) when a page picture was still in flight while the quit closed the renderers; 19 of 21 reports were in the quit. A person quits every day; a crash at quit loses the clean restore.",
+ "source": "handoff/cef-snapshot-crash-result.md",
+ "budget_seconds": 250,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-cefsnap-${nonce}",
+   "as": "left"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo cefsnap-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "term"
+  },
+  {
+   "do": "expect",
+   "title": "the terminal works",
+   "since": "term",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "cefsnap-${nonce}-42"
+    },
+    {
+     "frame_text": "cefsnap-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "b1-open"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd+Shift+L opens a browser tab whose address bar takes the keys",
+   "since": "b1-open",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.com",
+   "enter": true,
+   "mark": "b1"
+  },
+  {
+   "do": "expect",
+   "title": "the page example.com shows",
+   "since": "b1",
+   "timeout": 40,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "browserPage"
+     }
+    },
+    {
+     "frame_text": "Example Domain"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "b2-open"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd+Shift+L opens a browser tab whose address bar takes the keys",
+   "since": "b2-open",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.org",
+   "enter": true,
+   "mark": "b2"
+  },
+  {
+   "do": "expect",
+   "title": "the page example.org shows",
+   "since": "b2",
+   "timeout": 40,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "browserPage"
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "focused_terminal",
+   "as": "right"
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "b3-open"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd+Shift+L opens a browser tab whose address bar takes the keys",
+   "since": "b3-open",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.net",
+   "enter": true,
+   "mark": "b3"
+  },
+  {
+   "do": "expect",
+   "title": "the page example.net shows",
+   "since": "b3",
+   "timeout": 40,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "browserPage"
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "b4-open"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd+Shift+L opens a browser tab whose address bar takes the keys",
+   "since": "b4-open",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.com/?second",
+   "enter": true,
+   "mark": "b4"
+  },
+  {
+   "do": "expect",
+   "title": "the page example.com/?second shows",
+   "since": "b4",
+   "timeout": 40,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "browserPage"
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "key",
+   "key": "tab",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "relaunch",
+   "how": "quit",
+   "mark": "reopened-1"
+  },
+  {
+   "do": "expect",
+   "title": "quit 1 with browser pages on screen and hidden: the reopen finds a clean quit (no crash)",
+   "since": "reopened-1",
+   "timeout": 45,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.crashes",
+      "path": "launch.recovery",
+      "equals": "clean"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.windows",
+      "path": "windows",
+      "len": 1
+     }
+    }
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 6
+  },
+  {
+   "do": "relaunch",
+   "how": "quit",
+   "mark": "reopened-2"
+  },
+  {
+   "do": "expect",
+   "title": "quit 2 with browser pages on screen and hidden: the reopen finds a clean quit (no crash)",
+   "since": "reopened-2",
+   "timeout": 45,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.crashes",
+      "path": "launch.recovery",
+      "equals": "clean"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.windows",
+      "path": "windows",
+      "len": 1
+     }
+    }
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 6
+  }
+ ]
+}
