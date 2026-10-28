@@ -42,6 +42,16 @@ struct FeatureDogfoodSetTests {
         #expect(list.daemonEnvironment == [FeatureOverrides.enableVariable: "leftoverDaemonIdleExit"])
     }
 
+    /// The set's list that every build compiles names no benchOnly feature: check-no-bench-hooks.sh refuses a
+    /// shipped app that contains a benchOnly name (review of cp/host-input-ring-release, 175f89c4c89). Bench-only
+    /// names go in ``FeatureDogfoodSet/benchNames``, compiled only where those features are declared.
+    @Test func theShippedListNamesNoBenchOnlyFeature() {
+        let named = FeatureDogfoodSet.shippedNames.intersection(Feature.benchOnlyNames).sorted()
+        #expect(named.isEmpty, "bench-only names in the list a shipped app compiles: \(named)")
+        #expect(FeatureDogfoodSet.benchNames.isSubset(of: Feature.benchOnlyNames))
+        #expect(FeatureDogfoodSet.chromeParity.names == FeatureDogfoodSet.shippedNames.union(FeatureDogfoodSet.benchNames))
+    }
+
     @Test func theChromeParitySetHasNoBenchOnlySwitch() {
         let names = FeatureDogfoodSet.chromeParity.names
         #expect(!names.isEmpty)
