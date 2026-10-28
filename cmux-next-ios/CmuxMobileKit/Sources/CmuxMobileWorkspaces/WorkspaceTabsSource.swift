@@ -735,8 +735,26 @@ public final class WorkspaceTabsSource: TabsDataSource {
         return store
     }
 
+    /// Tabs whose title waits for the grid to rest: a title change
+    /// republishes the list, which re-runs the grid's body, so cards built
+    /// while it scrolls (their chats made then) do not re-run it per card.
+    @ObservationIgnored private var heldTabRefreshes: Set<String> = []
+    @ObservationIgnored private var gridIdle = false
+
     private func scheduleTabRefresh(_ id: String) {
+        if gridShown, !gridIdle {
+            heldTabRefreshes.insert(id)
+            return
+        }
         Task { @MainActor [weak self] in self?.refreshTab(id) }
+    }
+
+    /// The grid rests or was covered: held title changes apply, in one turn.
+    private func flushHeldTabRefreshes() {
+        guard !heldTabRefreshes.isEmpty else { return }
+        let ids = heldTabRefreshes
+        heldTabRefreshes = []
+        for id in ids { refreshTab(id) }
     }
 
     /// The tab's page: streamed from the Mac while linked, else a local web view.
@@ -832,6 +850,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func overviewVisibilityChanged(_ visible: Bool) {
         setCardsFollow(shown: visible)
+        if !visible {
+            gridIdle = false
+            flushHeldTabRefreshes()
+        }
         prefetchPrograms(visible)
         terminal.overviewVisibilityChanged(visible) { [weak self] in
             (self?.workspace?.tabs ?? []).filter { $0.kind == .terminal }
@@ -841,6 +863,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The grid rests: agent cards are drawn into pictures, one per frame,
     /// built cards first (`AgentCardRasterizer`).
     public func overviewIdleChanged(_ idle: Bool) {
+        gridIdle = idle
+        if idle { flushHeldTabRefreshes() }
         if rasterizer.ahead == nil {
             rasterizer.ahead = { [weak self] template in self?.nextAgentCardAhead(template) }
         }

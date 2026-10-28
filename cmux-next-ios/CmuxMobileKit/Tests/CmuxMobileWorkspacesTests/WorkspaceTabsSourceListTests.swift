@@ -107,6 +107,17 @@ import SwiftUI
         var light = key
         light.colorScheme = .light
         #expect(light != key)
+        // An image whose bytes are in the turn draws; one still to load (a `.task`) stays live.
+        var withBytes = done
+        withBytes.attachments = [AgentAttachment(kind: .image, name: "a.png", data: Data([1]))]
+        var inline = key
+        inline.turns = [withBytes]
+        #expect(inline.isDrawable)
+        var pending = done
+        pending.attachments = [AgentAttachment(kind: .image, name: "b.png")]
+        var loading = key
+        loading.turns = [pending]
+        #expect(!loading.isDrawable)
     }
 
     /// The grid card resolution follows TabsKit's column card (177 of 402
@@ -161,6 +172,24 @@ import SwiftUI
         }
         source.refreshTabs()
         #expect(notified.count == 1)
+    }
+
+    /// A chat made while the grid scrolls holds its tab's title change until
+    /// the grid rests (one list publish then, not one grid body per card).
+    @Test func titleChangesWaitForTheGridToRest() async throws {
+        let store = AppStore.mock(tabMemory: .inMemory())
+        let source = Self.source(store)
+        let workspace = try #require(source.listedWorkspace)
+        let agent = try #require(workspace.tabs.first { $0.kind == .agent })
+        source.overviewVisibilityChanged(true)
+        source.overviewIdleChanged(false)
+        let before = source.kitTabBuilds
+        _ = source.chatStore(agent, workspace)
+        for _ in 0..<5 { await Task.yield() }
+        #expect(source.kitTabBuilds == before)
+        source.overviewIdleChanged(true)
+        #expect(source.kitTabBuilds == before + 1)
+        source.overviewVisibilityChanged(false)
     }
 }
 #endif

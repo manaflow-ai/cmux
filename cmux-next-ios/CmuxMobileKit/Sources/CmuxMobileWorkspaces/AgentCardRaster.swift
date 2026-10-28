@@ -21,10 +21,12 @@ struct AgentCardRasterKey: Equatable {
     var scale: CGFloat
 
     /// A running turn animates (its working label): drawn live, not as a
-    /// still. Attachment thumbnails load in a `.task`, which never runs in a
-    /// picture: a turn with attachments is drawn live too.
+    /// still. An image attachment without its bytes loads them in a `.task`,
+    /// which never runs in a picture: that turn is drawn live too (bytes
+    /// already in the turn draw in the picture).
     var isDrawable: Bool {
-        turns.last?.status != .running && !turns.contains { !$0.attachments.isEmpty } && page.width > 0 && visibleHeight > 0
+        let pendingImage = turns.contains { $0.attachments.contains { $0.kind == .image && $0.data == nil } }
+        return turns.last?.status != .running && !pendingImage && page.width > 0 && visibleHeight > 0
     }
 }
 
