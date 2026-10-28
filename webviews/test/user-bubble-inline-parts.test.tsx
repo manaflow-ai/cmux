@@ -286,6 +286,74 @@ try {
     expect(host.querySelector(".cv-user__bubble")?.textContent).toBe("what is this");
   });
 
+  // A placed prompt that is a text file alone, with nothing typed: its body went as a text block,
+  // so the bubble shows its chip, which opens to the file's text, in both views.
+  for (const attachmentView of ["inline", "strip"] as const)
+    test(`${attachmentView}: a placed text file with no typed text shows its chip, which opens to its text`, async () => {
+      clearImageEntries();
+      resetTranscriptDisclosure();
+      await act(async () => setComposerSettings({ attachmentView }));
+      try {
+        const body = "notes.txt\n```\nfirst line\nsecond line\n```";
+        await render(
+          prompt(`text-file-${attachmentView}`, body, [
+            { kind: "file", name: "notes.txt", mimeType: "text/plain", size: 22, text: body, placed: true },
+          ]),
+        );
+        const chip = host.querySelector<HTMLButtonElement>(".cv-user__bubble .cv-user__paste");
+        expect(chip).not.toBeNull();
+        await act(async () => chip!.click());
+        expect(host.querySelector(".cv-user__bubble .cv-user__paste-text")?.textContent).toBe(body);
+      } finally {
+        await act(async () => setComposerSettings({ attachmentView: "inline" }));
+      }
+    });
+
+  // Two files of one name from two folders: each is the shared file chip (FileAttachment.tsx), with
+  // its size and its whole path as its tooltip, so the two read apart, in both views.
+  for (const attachmentView of ["inline", "strip"] as const)
+    test(`${attachmentView}: same-named placed files show their sizes and full paths`, async () => {
+      clearImageEntries();
+      resetTranscriptDisclosure();
+      await act(async () => setComposerSettings({ attachmentView }));
+      try {
+        await render(
+          prompt(`same-name-${attachmentView}`, "compare these", [
+            { kind: "text", text: "compare these" },
+            {
+              kind: "file",
+              name: "config.json",
+              mimeType: "application/json",
+              size: 2048,
+              uri: "file:///Users/sample/app/config.json",
+              placed: true,
+            },
+            {
+              kind: "file",
+              name: "config.json",
+              mimeType: "application/json",
+              size: 5 * 1024 * 1024,
+              uri: "file:///Users/sample/server/config.json",
+              placed: true,
+            },
+          ]),
+        );
+        const scope = attachmentView === "inline" ? "[data-inline-content]" : "[data-inline-attachment-strip]";
+        const chips = [...host.querySelectorAll<HTMLElement>(`${scope} .acpmux-file-chip`)];
+        expect(chips.map((chip) => chip.getAttribute("title"))).toEqual([
+          "/Users/sample/app/config.json",
+          "/Users/sample/server/config.json",
+        ]);
+        expect(chips.map((chip) => chip.querySelector(".acpmux-file-chip__size")?.textContent)).toEqual([
+          "2 kB",
+          "5 MB",
+        ]);
+        expect(chips.every((chip) => chip.getAttribute("data-file-type") === "json")).toBe(true);
+      } finally {
+        await act(async () => setComposerSettings({ attachmentView: "inline" }));
+      }
+    });
+
   // acpmux records a prompt's text blocks joined by a newline (hub/session.rs prompt_text): the
   // strip view's bubble, with the image moved to the band, reads that text, not "beforeafter".
   test("strip: the bubble keeps the separator between text blocks an image stood between", async () => {
