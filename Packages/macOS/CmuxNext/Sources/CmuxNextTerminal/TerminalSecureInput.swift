@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 public import CmuxNextTrace
+import CmuxNextWakeups
 import GhosttyNextKit
 
 /// Secure keyboard entry requested by Ghostty (`GHOSTTY_ACTION_SECURE_INPUT`: the toggle keybind, or a password
@@ -29,6 +30,13 @@ public final class TerminalSecureInput {
 
         /// HIToolbox's `EnableSecureEventInput` and `DisableSecureEventInput`.
         public static let carbon = System(enable: { _ = EnableSecureEventInput() }, disable: { _ = DisableSecureEventInput() })
+    }
+
+    /// The identity a surface view holds secure input under: an object the view owns for its life. A release
+    /// that a deinit off the main thread posts (``releaseOnMain(_:)``) keeps it alive until it runs, so no new
+    /// view can take its identity before the old request is let go (a view's own address can be reused at once).
+    nonisolated final class Key: Sendable {
+        var id: ObjectIdentifier { ObjectIdentifier(self) }
     }
 
     /// The surface views that asked for secure input and still hold it.
@@ -92,6 +100,14 @@ public final class TerminalSecureInput {
         if held, enabledViews.isEmpty { trace.setKeyTimingSuppressed(false, by: .terminalSecureInput) }
     }
 
+    /// ``release(_:)`` from any thread: at once on the main thread, else posted there. A surface view's deinit
+    /// that runs off the main thread (its last reference dropped on another thread) calls it, so system secure
+    /// input, which is process-wide, never stays on for a view that is gone.
+    nonisolated func releaseOnMain(_ key: Key) {
+        // main-hop-allow: only a deinit off the main thread hops; on main it runs inline in the release's turn
+        MainDelivery().run { self.release(key.id) }
+    }
+
     /// Turns the system's secure event input on or off to match: on while the app is active and a focused
     /// terminal holds a request.
     private func syncSystem() {
@@ -105,5 +121,5 @@ public final class TerminalSecureInput {
 extension TerminalSession {
     /// Whether this terminal holds secure keyboard entry now (a password prompt, the toggle keybind): what it
     /// shows must not reach a saved picture (`WindowPictureStore`).
-    public var holdsSecureInput: Bool { surfaceView.secureInput.holds(ObjectIdentifier(surfaceView)) }
+    public var holdsSecureInput: Bool { surfaceView.secureInput.holds(surfaceView.secureInputKey.id) }
 }

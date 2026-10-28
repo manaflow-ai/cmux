@@ -43,6 +43,8 @@ public final class TerminalSurfaceView: NSView {
     private let lowersHiddenOutput: Bool
     /// Where Ghostty's secure keyboard entry requests for this view go (``TerminalSecureInput``).
     let secureInput: TerminalSecureInput
+    /// This view's identity in ``secureInput`` (``TerminalSecureInput/Key``).
+    let secureInputKey = TerminalSecureInput.Key()
     weak var session: TerminalSession?
 
     /// Which grid the surface renders and reports (``TerminalGridPolicy``):
@@ -242,10 +244,13 @@ public final class TerminalSurfaceView: NSView {
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
+        // Off the main thread the frees below are skipped, but the secure-input request must still go: system
+        // Secure Keyboard Entry is process-wide, and the whole Mac would keep it on for a view that is gone.
+        if !Thread.isMainThread { secureInput.releaseOnMain(secureInputKey) }
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             windowWatch.stop()
-            secureInput.release(ObjectIdentifier(self))
+            secureInput.release(secureInputKey.id)
             if let surface {
                 lane?.close()
                 vsync.close() // no vsync tick reaches the surface after this
@@ -627,7 +632,7 @@ public final class TerminalSurfaceView: NSView {
         let focused = (firstResponder ?? isFirstResponder) && (window?.isKeyWindow ?? false)
         guard focused != lastFocus else { return }
         lastFocus = focused
-        secureInput.setFocused(focused, for: ObjectIdentifier(self))
+        secureInput.setFocused(focused, for: secureInputKey.id)
         // SAFETY: the view's live surface (`surface`).
         unsafe ghostty_surface_set_focus(surface, focused)
         session?.model.isFocused = focused
