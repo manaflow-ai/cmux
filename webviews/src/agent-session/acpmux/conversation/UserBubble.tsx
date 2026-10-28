@@ -19,10 +19,13 @@ import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
 import { DeliveryMark } from "./PromptDelivery";
-import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
+import { ChevronLeft, ChevronRight, FileDoc, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
+import { InlinePromptContent, orderedMedia } from "./InlinePromptContent";
+import { recordedPromptParts } from "../inlinePrompt";
+import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import { ForkButton, forkWithFeedback, MessageCopy, MessageTime, PromptRetry, ROW_ICON } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
@@ -71,6 +74,12 @@ export function UserBubble({
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
   const imageName = t("image.viewer");
   const show = useCallback((part: string) => withoutDataUris(part, imageName), [imageName]);
+  const orderedParts = useMemo(() => recordedPromptParts(row), [row]);
+  const firstMedia = orderedParts?.findIndex((part) => part.kind !== "text") ?? -1;
+  const hasInterleaved = firstMedia >= 0 && orderedParts!.slice(firstMedia + 1).some((part) => part.kind === "text");
+  const strip = useComposerSettings().attachmentView === "strip" && hasInterleaved;
+  const shownParts = strip ? orderedParts!.filter((part) => part.kind === "text") : orderedParts;
+  const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
@@ -90,19 +99,27 @@ export function UserBubble({
   }
   return (
     <>
-      {row.images && row.images.length > 0 && <SentImages images={row.images} />}
-      {Boolean(files?.length) && (
+      {!hasInterleaved && row.images && row.images.length > 0 && <SentImages images={row.images} />}
+      {!hasInterleaved && Boolean(files?.length) && (
         <div className="cv-user__files">
           {files!.map((file, index) => (
             <FileAttachment key={index} file={file} />
           ))}
         </div>
       )}
+      {strip && (
+        <div className="cv-user__files cv-user__inline-strip" data-inline-attachment-strip="true">
+          {orderedMedia(orderedParts!).map((part, index) =>
+            part.kind === "image" ? <span key={`${part.id}-${index}`}>{renderImage(part)}</span> :
+            <span key={`${part.kind}-${part.id ?? part.name}-${index}`} className="cv-user__inline-file" title={part.name}><FileDoc size={14} /><span className="cv-user__inline-file-name">{part.name}</span></span>,
+          )}
+        </div>
+      )}
       {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
           bubble under them read as a lost message; Leo 2026-10-21). */}
-      {text.trim() && (
+      {(strip ? shownParts!.some((part) => part.kind === "text" && part.text.trim()) : hasInterleaved || text.trim()) && (
         <div className="ui-glass cv-user__bubble selectable">
-          <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+          {hasInterleaved ? <InlinePromptContent parts={shownParts!} show={show} renderImage={renderImage} /> : <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />}
           {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
           {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
         </div>
@@ -216,7 +233,7 @@ export function sentImageWidth(size: { width?: number; height?: number }): numbe
 /// from its first frame when its size is known (the pane sent it, it drew before, its header says
 /// it), and says "Couldn't load image" when the image cannot be drawn. An image acpmux no longer
 /// has shows nothing. It fades in on its first draw only.
-const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
+export const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
   const t = useT();
   const { promptImage } = useContext(TurnActionsContext);
   const openImage = useContext(ImageViewerContext);

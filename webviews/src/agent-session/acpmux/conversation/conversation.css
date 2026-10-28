@@ -4023,3 +4023,23 @@ article.acpmux-row:empty {
 .cv-waiting {
   color: var(--cv-text);
 }
+
+/* Interleaved sent attachments stay in the prompt's reading order, as macOS Messages does. */
+.cv-user__inline-content { white-space: pre-wrap; overflow-wrap: anywhere; }
+.cv-user__inline-image { display: inline-block; margin: 2px 4px; vertical-align: middle; }
+.cv-user__inline-image img { vertical-align: middle; }
+.cv-user__inline-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(260px, 70vw);
+  height: 30px;
+  margin: 2px 4px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--agent-text) 18%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  vertical-align: middle;
+}
+.cv-user__inline-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-user__inline-file-note { color: var(--agent-muted); font-size: var(--text-caption); }
