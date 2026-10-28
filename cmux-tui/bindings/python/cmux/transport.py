@@ -18,6 +18,7 @@ from .errors import (
 
 
 DEFAULT_MAX_LINE_BYTES = 16 * 1024 * 1024
+_SELECT_TIMEOUT_MAX = 1_000_000.0
 
 
 class JsonLineConnection:
@@ -98,7 +99,9 @@ class JsonLineConnection:
             self._send_lock.acquire()
         else:
             remaining = deadline - time.monotonic()
-            if remaining <= 0 or not self._send_lock.acquire(timeout=remaining):
+            if remaining <= 0 or not self._send_lock.acquire(
+                timeout=min(remaining, threading.TIMEOUT_MAX)
+            ):
                 raise _DispatchTimeoutError(
                     "session socket write lock timed out",
                     write_started=False,
@@ -143,7 +146,9 @@ class JsonLineConnection:
             raise ValueError("send timeout must be finite and greater than zero")
         encoded = self._encode(value)
         deadline = time.monotonic() + timeout
-        if not self._send_lock.acquire(timeout=timeout):
+        if not self._send_lock.acquire(
+            timeout=min(timeout, threading.TIMEOUT_MAX)
+        ):
             raise _DispatchTimeoutError(
                 "session socket write lock timed out",
                 write_started=False,
@@ -230,7 +235,7 @@ class JsonLineConnection:
                         [],
                         [self._socket],
                         [],
-                        remaining_time,
+                        min(remaining_time, _SELECT_TIMEOUT_MAX),
                     )
                 except (OSError, ValueError) as error:
                     raise CmuxConnectionError(

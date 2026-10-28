@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import cmux
 import cmux._protocol as resource_protocol
+from cmux.transport import JsonLineConnection
 import cmux.aio
 import cmux.raw
 from cmux.resources import _journal_record
@@ -246,6 +247,35 @@ class ResourceApiTests(unittest.TestCase):
         self.assertEqual(
             [request["operation"] for request in observed],
             ["session.ping"],
+        )
+
+    def test_oversized_dispatch_timeout_does_not_overflow_send_lock(self) -> None:
+        observed = []
+        handler_done = threading.Event()
+
+        def handler(connection, _index):
+            observed.extend(frames(connection))
+            handler_done.set()
+
+        with UnixJsonServer(handler) as server:
+            connection = JsonLineConnection(server.path, timeout=0.2)
+            try:
+                timeout = threading.TIMEOUT_MAX * 2
+                connection.send({"operation": "ordinary"}, timeout=timeout)
+                self.assertTrue(
+                    connection.send_bounded_if(
+                        {"operation": "bounded"},
+                        timeout,
+                        lambda: True,
+                    )
+                )
+            finally:
+                connection.close()
+            self.assertTrue(handler_done.wait(1))
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["ordinary", "bounded"],
         )
 
     def test_public_models_export_journal_append_result(self) -> None:
