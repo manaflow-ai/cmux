@@ -849,3 +849,16 @@ test.each([
   expect(updated).toBe(1);
   expect(menu()).toBeNull();
 });
+
+test("Cmd-Ctrl-M closes the expanded picker through the same button path", async () => {
+  await mount({ routes: [] });
+  await open();
+  await openSub("More models");
+  expect(doc().querySelector(".acpmux-mp")).not.toBeNull();
+  await act(async () => {
+    dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }));
+  });
+  await settle();
+  expect(doc().querySelector(".acpmux-mp")).toBeNull();
+  expect(menu()).toBeNull();
+});
