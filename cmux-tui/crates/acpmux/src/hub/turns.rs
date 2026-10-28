@@ -439,6 +439,7 @@ impl Hub {
         }
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
+        self.wake_cause(session, "prompt");
         let started = match self.child_for_since(session, stops).await {
             Ok(child) => session
                 .meta()
@@ -1380,6 +1381,8 @@ impl Hub {
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
+        // Stopped, not hibernated: its next start is no wake (`idle.rs`).
+        self.clear_hibernation(session);
         self.stop_auto_resume(session);
         self.stop_subagent_retries(session, true);
         self.revoke_permission_chat(session);
@@ -1422,6 +1425,8 @@ impl Hub {
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
         if purge {
             super::watches::before_purge(self, &session.id).await?;
+            // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
+            self.bg_purge(session).await?;
             session.purged.store(true, Ordering::SeqCst);
             let replaced = session.replaced.load(Ordering::SeqCst);
             self.sessions.lock().unwrap().remove(&session.id);

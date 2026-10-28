@@ -69,8 +69,12 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
         else runs.push({ top: row.rect.top, bottom: row.rect.bottom });
       });
       const bottom = Math.min(view.bottom, view.top + scroller.scrollHeight - scroller.scrollTop);
+      // The thread's own top padding is above its first row: a view at the top shows it, empty by
+      // design (every up fling and drag ended on a "blank" frame at scrollTop 0 for its 16 px).
+      const thread = scroller.querySelector<HTMLElement>(".acpmux-thread")!;
+      const top = view.top + Math.max(0, parseFloat(getComputedStyle(thread).paddingTop) - scroller.scrollTop);
       frames += 1;
-      if (!runs.some((run) => run.top <= view.top + 0.5 && run.bottom >= bottom - 0.5)) blank += 1;
+      if (!runs.some((run) => run.top <= top + 0.5 && run.bottom >= bottom - 0.5)) blank += 1;
       if (scroller.scrollTop === (down ? end() : 0)) break;
     }
     return { frames, blank };
