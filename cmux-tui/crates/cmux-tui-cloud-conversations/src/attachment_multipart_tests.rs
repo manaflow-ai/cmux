@@ -14,6 +14,10 @@ struct Backend {
     parts: Mutex<Vec<PartReceipt>>,
     posts: Mutex<Vec<(String, String, Value)>>,
     fail_part: Option<usize>,
+    progress: Mutex<std::collections::VecDeque<Value>>,
+    signed_lengths: Vec<u64>,
+    missing_etag: bool,
+    destination: Option<String>,
 }
 impl CloudBackend for Backend {
     fn post(
@@ -30,7 +34,7 @@ impl CloudBackend for Backend {
         ));
         Ok(HttpReply {
             status: 200,
-            body: json!({"ok": true, "value": {"attachment": {"hash": "stored"}}}),
+            body: json!({"ok": true, "value": self.progress.lock().unwrap().pop_front().unwrap_or_else(|| json!({"attachment": {"hash": "stored"}}))}),
         })
     }
     fn put(
@@ -55,6 +59,27 @@ impl CloudBackend for Backend {
             status: 200,
             body: json!({"ok": true, "value": {"part_number": parts.len()}}),
         })
+    }
+    fn attachment_part_url(&self, url: &str, number: u64) -> Result<HttpReply, TransportError> {
+        assert!(url.starts_with("https://api.cmux.test/"));
+        Ok(HttpReply {
+            status: 200,
+            body: json!({"ok": true, "value": {
+                "url": self.destination.as_deref().unwrap_or("https://storage.example/part?signature=opaque"),
+                "part_number": number, "method": "PUT", "headers": {"content-length": self.signed_lengths[number as usize - 1].to_string(), "authorization": "never-forward"}
+            }}),
+        })
+    }
+    fn put_with_etag(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: PutBody,
+    ) -> Result<(HttpReply, Option<String>), TransportError> {
+        assert!(url.starts_with("https://storage.example/"));
+        assert_eq!(headers, &[("content-length".into(), body.len().to_string())]);
+        let reply = self.put(url, headers, body)?;
+        Ok((reply, (!self.missing_etag).then(|| "\"part-tag\"".into())))
     }
     fn connect(
         &self,
@@ -159,4 +184,67 @@ fn intent_opts_into_multipart_even_if_declaration_disables_it() {
     let service = service(backend.clone());
     service.attachment_intent(CONV, &json!({"multipart": false})).unwrap();
     assert_eq!(backend.posts.lock().unwrap()[0].2["multipart"], true);
+}
+
+#[test]
+fn direct_multipart_streams_terabyte_ranges_and_verifies_before_returning() {
+    let size = 1024 * 1024 * 1024;
+    let len = 1024 * size + 7;
+    let mut lengths = vec![size; 1024];
+    lengths.push(7);
+    let backend = Arc::new(Backend {
+        signed_lengths: lengths,
+        progress: Mutex::new(
+            [json!({"state":"verifying", "verified_bytes":256*1024*1024, "byte_count":len})].into(),
+        ),
+        ..Backend::default()
+    });
+    let mut declaration = plan(len, size);
+    declaration["transport"] = json!("direct");
+    service(backend.clone()).attachment_multipart(CONV, &declaration, file_body(len)).unwrap();
+    assert_eq!(backend.parts.lock().unwrap().len(), 1025);
+    let posts = backend.posts.lock().unwrap();
+    assert_eq!(posts.len(), 2);
+    assert_eq!(posts[0].2, posts[1].2);
+    assert_eq!(posts[0].1, "stack.jwt.token");
+    let receipts = posts[0].2["parts"].as_array().unwrap();
+    assert_eq!(receipts.len(), 1025);
+    assert_eq!(receipts[1024], json!({"part_number":1025, "etag":"\"part-tag\""}));
+}
+
+#[test]
+fn direct_multipart_rejects_missing_etag_bad_destination_and_stalled_verification() {
+    let mut declaration = plan(25, 10);
+    declaration["transport"] = json!("direct");
+    for backend in [
+        Backend { signed_lengths: vec![10, 10, 5], missing_etag: true, ..Backend::default() },
+        Backend {
+            signed_lengths: vec![10, 10, 5],
+            destination: Some("http://localhost/steal".into()),
+            ..Backend::default()
+        },
+        Backend {
+            signed_lengths: vec![10, 10, 5],
+            progress: Mutex::new(
+                [
+                    json!({"state":"verifying", "verified_bytes":10, "byte_count":25}),
+                    json!({"state":"verifying", "verified_bytes":10, "byte_count":25}),
+                ]
+                .into(),
+            ),
+            ..Backend::default()
+        },
+    ] {
+        assert!(
+            service(Arc::new(backend))
+                .attachment_multipart(CONV, &declaration, file_body(25))
+                .is_err()
+        );
+    }
+    declaration["transport"] = json!(true);
+    assert!(
+        service(Arc::new(Backend::default()))
+            .attachment_multipart(CONV, &declaration, file_body(25))
+            .is_err()
+    );
 }

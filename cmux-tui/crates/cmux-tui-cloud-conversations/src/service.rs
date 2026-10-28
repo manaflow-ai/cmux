@@ -125,6 +125,21 @@ pub trait CloudBackend: Send + Sync {
         let _ = (url, headers, body);
         Err(TransportError("this cloud backend sends no PUT requests".into()))
     }
+    /// Mint one direct part URL using the slot credential, never the lease bearer.
+    fn attachment_part_url(&self, url: &str, number: u64) -> Result<HttpReply, TransportError> {
+        let _ = (url, number);
+        Err(TransportError("direct attachment slots are unsupported".into()))
+    }
+    /// Upload to a presigned part URL and retain its response ETag.
+    fn put_with_etag(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: PutBody,
+    ) -> Result<(HttpReply, Option<String>), TransportError> {
+        let _ = (url, headers, body);
+        Err(TransportError("direct attachment uploads are unsupported".into()))
+    }
     /// `GET url` for bytes `offset..offset+length` (one `Range`), no bearer:
     /// a signed attachment URL is its own credential.
     fn get_range(&self, url: &str, offset: u64, length: u64) -> Result<RangeReply, TransportError> {

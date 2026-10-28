@@ -31,7 +31,11 @@ fn is_loopback(url: &url::Url) -> bool {
 /// A URL the owner returned: on the lease's origin when `same_origin`;
 /// otherwise `https` and not loopback (a presigned object URL), unless the
 /// lease itself is a loopback development Worker.
-fn transport_url(raw: &str, api_origin: &str, same_origin: bool) -> Result<url::Url, CloudError> {
+pub(super) fn transport_url(
+    raw: &str,
+    api_origin: &str,
+    same_origin: bool,
+) -> Result<url::Url, CloudError> {
     let bad = |why: &str| CloudError::Unavailable(format!("the owner returned {why}"));
     let url = url::Url::parse(raw).map_err(|_| bad("a malformed URL"))?;
     if url.origin().ascii_serialization() == api_origin {
