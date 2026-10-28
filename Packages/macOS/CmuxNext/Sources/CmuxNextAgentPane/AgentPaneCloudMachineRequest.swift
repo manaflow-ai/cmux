@@ -9,9 +9,12 @@ import Foundation
 ///   `stage` is the machine's `CloudMachineStage` name (`ready`, `paused`, `connecting`, …);
 ///   `loaded` is false until the App holds a list the server answered for the account signed in.
 /// - `cloudMachine.recoveryList {}` -> the same inventory, refreshed for a disconnected chat.
+///   `complete` is true only when the App's list is an authoritative answer (for the recovery
+///   list: this read's own refresh landed), so a machine absent from it was deleted.
 /// - `cloudMachine.open {id}` -> `{}`: Open Machine (its first workspace; a paused one resumes).
 /// - `cloudMachine.resume {id}` -> `{}`: Resume Machine, for a paused machine only.
-/// - `cloudMachine.attach {id}` -> `{}`: resume a paused chat machine without opening a workspace.
+/// - `cloudMachine.attach {id}` -> `{}`: resume a paused chat machine without opening a workspace;
+///   the App reads the machine again first, and one that turned live is attached, not resumed.
 ///
 /// Open, Resume and Attach start a machine: each takes the person's own click (one gesture).
 public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
@@ -85,8 +88,11 @@ public final class AgentPaneCloudMachines {
         public var loaded: Bool
         public var machines: [Machine]
         public var account: [String?]?
-        public init(signedIn: Bool, loaded: Bool, machines: [Machine], account: [String?]? = nil) {
-            self.account = account
+        /// Whether the list is the server's answer for this read: a machine absent from a complete
+        /// list is gone. A failed, superseded or merely cached read is not complete.
+        public var complete: Bool
+        public init(signedIn: Bool, loaded: Bool, machines: [Machine], account: [String?]? = nil, complete: Bool = false) {
+            (self.account, self.complete) = (account, complete)
             (self.signedIn, self.loaded, self.machines) = (signedIn, loaded, machines)
         }
     }
@@ -99,7 +105,7 @@ public final class AgentPaneCloudMachines {
     /// Runs Resume Machine on a paused machine of the loaded list; false otherwise.
     public var resume: (@MainActor (String) -> Bool)?
     /// Attaches without opening another workspace, including the app-server resume route.
-    public var attach: (@MainActor (String) -> Bool)?
+    public var attach: (@MainActor (String) async -> Bool)?
 
     init() {}
 }
@@ -113,20 +119,28 @@ extension AgentPaneCloudMachineRequest {
             guard let list = (self == .recoveryList ? machines.recoveryList : machines.list) else { return AgentPaneModel.unsupported(method) }
             let inventory = await list()
             let rows: [[String: Any]] = inventory.machines.prefix(Self.maximumListed).map { ["id": $0.id, "name": $0.name, "stage": $0.stage] }
-            var value: [String: Any] = ["signedIn": inventory.signedIn, "loaded": inventory.loaded, "machines": rows, "complete": inventory.machines.count <= Self.maximumListed]
+            var value: [String: Any] = ["signedIn": inventory.signedIn, "loaded": inventory.loaded, "machines": rows, "complete": inventory.complete && inventory.machines.count <= Self.maximumListed]
             if let account = inventory.account { value["account"] = account.map { $0 as Any? ?? NSNull() } }
             return AgentPaneReply.success(value)
         case .open(let id): return run(machines.open, on: id, gestures: gestures)
         case .resume(let id): return run(machines.resume, on: id, gestures: gestures)
-        case .attach(let id): return run(machines.attach, on: id, gestures: gestures)
+        case .attach(let id):
+            guard let attach = machines.attach else { return AgentPaneModel.unsupported(method) }
+            guard gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+            guard await attach(id) else { return Self.notRun(method) }
+            return AgentPaneReply.success()
         }
+    }
+
+    private static func notRun(_ method: String) -> [String: Any] {
+        AgentPaneReply.failure(code: "unavailable", message: "The app did not run \(method) on that Cloud machine.")
     }
 
     @MainActor
     private func run(_ action: (@MainActor (String) -> Bool)?, on id: String, gestures: AgentPaneUserGestures) -> [String: Any] {
         guard let action else { return AgentPaneModel.unsupported(method) }
         guard gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
-        guard action(id) else { return AgentPaneReply.failure(code: "unavailable", message: "The app did not run \(method) on that Cloud machine.") }
+        guard action(id) else { return Self.notRun(method) }
         return AgentPaneReply.success()
     }
 }

@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCloud
 
 extension AgentPaneCloudMachines {
     /// How old the App's machine list may be when a picker reads it: an open picker reads every
@@ -13,7 +14,10 @@ extension AgentPaneCloudMachines {
     func wire(_ services: AppServices) {
         let inventory: @MainActor (Duration) async -> Inventory = { [weak services] age in
             guard let services, services.cloud.isSignedIn else { return Inventory(signedIn: false, loaded: false, machines: []) }
-            await services.cloud.refresh(ifOlderThan: age)
+            // Complete only when this read's own refresh landed (the recovery list), or the store
+            // holds a server answer within `age` (the picker): a superseded or failed refresh leaves
+            // the earlier registry in place, and a machine absent from it may still exist.
+            let complete = age == .zero ? await services.cloud.refresh() : await services.cloud.refresh(ifOlderThan: age)
             guard services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
                   age != .zero || (services.cloud.lastError == nil && services.cloud.unavailableReason == nil) else {
                 return Inventory(signedIn: services.cloud.isSignedIn, loaded: false, machines: [])
@@ -21,21 +25,67 @@ extension AgentPaneCloudMachines {
             let machines = services.machines.cloud.compactMap { session in
                 session.effectiveStatus == .destroyed ? nil : Machine(id: session.machineID, name: session.machine.title, stage: session.stage.name)
             }
-            return Inventory(signedIn: true, loaded: true, machines: machines, account: services.cloud.account)
+            return Inventory(signedIn: true, loaded: true, machines: machines, account: services.cloud.account, complete: complete)
         }
         list = { await inventory(Self.listAge) }
         recoveryList = { await inventory(.zero) }
         attach = { [weak services] id in
-            guard let services, services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
-                  let session = services.machines.session(id), session.effectiveStatus == .paused else { return false }
-            session.attach(origin: .user)
-            return true
+            guard let services else { return false }
+            return await Self.recoveryAttach(
+                refresh: { services.cloud.isSignedIn ? await services.cloud.refresh() : false },
+                machine: {
+                    guard services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
+                          let session = services.machines.session(id) else { return nil }
+                    return (session.effectiveStatus, session.stageInput.daemonConnected)
+                },
+                attach: { services.machines.session(id)?.attach(origin: .user) }
+            )
         }
         open = { [weak services] id in
             services.map { Self.perform("cloudOpenMachine", on: id, services: $0) { _ in true } } ?? false
         }
         resume = { [weak services] id in
             services.map { Self.perform("cloudResumeMachine", on: id, services: $0) { $0.effectiveStatus == .paused } } ?? false
+        }
+    }
+
+    /// What Resume machine on an unavailable chat does, decided on a fresh read of the machine:
+    /// the recovery list that offered it may be a minute old, and a machine that turned live since
+    /// must not be resumed again.
+    enum RecoveryAttach: Equatable {
+        /// Paused: attach, which resumes it through Resume Machine's path.
+        case resume
+        /// Live without a connection: attach (an app link connects; a legacy one reconnects).
+        case connect
+        /// Live and connected: nothing to do; the chat reopens when it lists.
+        case connected
+        /// The read failed, or the machine is gone or failed.
+        case refuse
+    }
+
+    static func recoveryAttach(fresh: Bool, status: CloudMachine.Status?, connected: Bool) -> RecoveryAttach {
+        guard fresh, let status else { return .refuse }
+        if status == .paused { return .resume }
+        guard status.isLive else { return .refuse }
+        return connected ? .connected : .connect
+    }
+
+    /// Refreshes, then reads the machine, then attaches only on what that fresh read says.
+    static func recoveryAttach(
+        refresh: @MainActor () async -> Bool,
+        machine: @MainActor () -> (status: CloudMachine.Status, connected: Bool)?,
+        attach: @MainActor () -> Void
+    ) async -> Bool {
+        let fresh = await refresh()
+        let read = machine()
+        switch recoveryAttach(fresh: fresh, status: read?.status, connected: read?.connected ?? false) {
+        case .resume, .connect:
+            attach()
+            return true
+        case .connected:
+            return true
+        case .refuse:
+            return false
         }
     }
 

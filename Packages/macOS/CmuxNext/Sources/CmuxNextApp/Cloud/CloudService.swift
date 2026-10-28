@@ -402,8 +402,11 @@ final class CloudService {
     /// one signed in when it lands, changes nothing: it can neither bring back
     /// a signed-out account's machines, nor undo a create or delete it did not
     /// see, nor mark the store loaded with an older answer than the latest.
-    func refresh() async {
-        guard auth.isSignedIn, unavailableReason == nil else { return }
+    /// True only when this call's own list landed: a failed, skipped or superseded call is false,
+    /// whatever the store held before it.
+    @discardableResult
+    func refresh() async -> Bool {
+        guard auth.isSignedIn, unavailableReason == nil else { return false }
         lastRefresh = .now
         listGeneration += 1
         let generation = listGeneration
@@ -419,7 +422,7 @@ final class CloudService {
                 list = listed.machines
                 limits = listed.limits
             }
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return false }
             machines.cloudLimits = limits
             if let limits { planObserved(limits.planId) }
             lastError = nil
@@ -428,17 +431,21 @@ final class CloudService {
             loadedAccount = account
             listLoadedAt = .now
             await startHubForSSHRoutes()
+            return true
         } catch {
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return false }
             lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 
-    /// ``refresh()`` unless the list was read within `age`.
-    func refresh(ifOlderThan age: Duration) async {
-        if let last = lastRefresh, last.duration(to: .now) < age { return }
-        await refresh()
+    /// ``refresh()`` unless the list was read within `age`; true when the store then holds a list
+    /// the server answered within `age` for the account signed in now.
+    @discardableResult
+    func refresh(ifOlderThan age: Duration) async -> Bool {
+        if let last = lastRefresh, last.duration(to: .now) < age { return hasCurrentList(within: age) }
+        return await refresh()
     }
 
     /// Whom a machine list is for: the signed-in user and the team the API
@@ -512,7 +519,7 @@ final class CloudService {
         session.resumer = { [weak self] id in try await self?.resumeMachine(id) }
         // An attach reads a record that may be stale (paused behind the app) again first.
         session.refresher = { [weak self] force in
-            if force { await self?.refresh() } else { await self?.refresh(ifOlderThan: .seconds(30)) }
+            if force { _ = await self?.refresh() } else { _ = await self?.refresh(ifOlderThan: .seconds(30)) }
         }
         machines.add(session)
         session.connect()

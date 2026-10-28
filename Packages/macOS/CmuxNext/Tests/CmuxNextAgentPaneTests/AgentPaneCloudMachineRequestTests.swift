@@ -120,6 +120,33 @@ struct AgentPaneCloudMachineRequestTests {
         #expect(attached == ["vm-1"])
     }
 
+    /// Review of cmux#27031: a refresh that was superseded or failed leaves the earlier registry in
+    /// place, so the reply is complete only when the App says the list is this read's own answer.
+    @Test func theRecoveryListIsCompleteOnlyWhenTheAppSaysSo() async throws {
+        let machines = AgentPaneCloudMachines()
+        machines.recoveryList = { .init(signedIn: true, loaded: true, machines: [], account: ["user", nil]) }
+        var value = try #require(await AgentPaneCloudMachineRequest.recoveryList.reply(machines, gestures: AgentPaneUserGestures())["value"] as? [String: Any])
+        #expect(value["complete"] as? Bool == false)
+        machines.recoveryList = { .init(signedIn: true, loaded: true, machines: [], account: ["user", nil], complete: true) }
+        value = try #require(await AgentPaneCloudMachineRequest.recoveryList.reply(machines, gestures: AgentPaneUserGestures())["value"] as? [String: Any])
+        #expect(value["complete"] as? Bool == true)
+        // Cut at the row limit: never complete.
+        let many = (0...AgentPaneCloudMachineRequest.maximumListed).map { AgentPaneCloudMachines.Machine(id: "vm-\($0)", name: "m", stage: "ready") }
+        machines.recoveryList = { .init(signedIn: true, loaded: true, machines: many, account: ["user", nil], complete: true) }
+        value = try #require(await AgentPaneCloudMachineRequest.recoveryList.reply(machines, gestures: AgentPaneUserGestures())["value"] as? [String: Any])
+        #expect(value["complete"] as? Bool == false)
+    }
+
+    @Test func anAttachTheAppRefusesAfterItsFreshReadIsAVisibleFailure() async {
+        let machines = AgentPaneCloudMachines()
+        let gestures = AgentPaneUserGestures()
+        machines.attach = { _ in await Task.yield(); return false }
+        gestures.record(click: true)
+        let reply = await AgentPaneCloudMachineRequest.attach(id: "vm-1").reply(machines, gestures: gestures)
+        #expect(reply["ok"] as? Bool != true)
+        #expect((reply["error"] as? [String: Any])?["code"] as? String == "unavailable")
+    }
+
     @Test func inventoryKeepsPersonalAccountScopeAsJSONNull() async throws {
         let machines = AgentPaneCloudMachines()
         machines.list = { .init(signedIn: true, loaded: true, machines: [], account: ["user", nil]) }
