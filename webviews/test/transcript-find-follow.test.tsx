@@ -120,3 +120,39 @@ test("a Find jump stays on its match when the transcript measures again before t
     await act(async () => root.unmount());
   }
 });
+
+test("Find keeps an already visible match parked when a reply streams below it", async () => {
+  const rows = turnView(turns, new Set());
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+  const target = rows.findIndex((shown) => shown.id === "t29-user");
+  const find: ChatFind = {
+    open: true,
+    query: "Question 29",
+    matches: [{ rowIndex: target, rowId: "t29-user", occurrence: 0 }],
+    active: 0,
+    show: noop,
+    hide: noop,
+    setQuery: noop,
+    next: noop,
+    previous: noop,
+    focusRequest: 1,
+  };
+  const render = (shown: AcpmuxRow[], withFind?: ChatFind) =>
+    root.render(<VirtualTranscript rows={shown} onToggleActivity={noop} expanded={new Set()} find={withFind} />);
+  try {
+    await act(async () => render(rows));
+    const atMatch = scroller().scrollTop;
+    await act(async () => render(rows, find));
+    expect(scroller().scrollTop).toBe(atMatch);
+
+    // A native Find command can select a match already visible at the latest message. That is
+    // still the reader choosing this place: a later stream must not acquire bottom follow again.
+    await act(async () => render(turnView([...turns, ...turn(30)], new Set()), find));
+    expect(scroller().scrollTop).toBe(atMatch);
+    await act(async () => render(turnView([...turns, ...turn(30)], new Set())));
+    expect(scroller().scrollTop).toBe(atMatch);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
