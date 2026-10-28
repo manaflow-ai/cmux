@@ -198,10 +198,7 @@ async function mount(start: {
 
 /// The full picker, as More models' shortcut opens it (Cmd-Ctrl-M): the composer's model button opens
 /// the compact menu first (Leo 2026-10-20: one model button), and the full picker is reached from it.
-const openFullPicker = () =>
-  dom.window.dispatchEvent(
-    new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
-  );
+const openFullPicker = () => { dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true })); const more = [...host.querySelectorAll<HTMLElement>(".acpmux-quick-menu [role=menuitem]")].find((item) => item.textContent?.startsWith("More models")); more?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })); };
 
 // The model the chip names, in full: its title (the visible name drops the vendor its mark draws).
 const chip = () => host.querySelector('[data-menu="Model"]')?.getAttribute("title") ?? "";

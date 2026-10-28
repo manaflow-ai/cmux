@@ -187,6 +187,9 @@ test("Refresh models re-probes the agents and the open picker lists the new mode
       new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
     );
   });
+  const compactMore = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu [role=menuitem]")].find((item) => item.textContent?.startsWith("More models"));
+  expect(compactMore).toBeDefined();
+  await act(async () => compactMore!.click());
   const refresh = byLabel("Refresh models")!;
   expect(refresh).toBeDefined();
   await act(async () => refresh.click());
