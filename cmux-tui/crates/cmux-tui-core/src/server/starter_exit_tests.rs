@@ -71,7 +71,7 @@ fn exit_with_process_never_races_a_running_handoff() {
     let surface = mux.new_workspace(Some("job".into()), Some((80, 24))).unwrap();
     let terminal = mux.resource_terminal_host_identity(&surface).unwrap().terminal_id;
     assert!(mux.control_clients.begin_owner_shutdown(true));
-    assert!(!super::starter_exit::stop_for_exited_starter(&mux));
+    assert!(!starter_exit::stop_for_exited_starter(&mux));
     assert!(!mux.daemon_shutdown_requested());
     assert_ne!(lifecycle(&mux, &terminal), TerminalLifecycle::Tombstoned);
 }
