@@ -81,17 +81,26 @@ cloud placement. Until then, step 1 below stops the prompt drift.
 ## 4. One inference key for everyone (Vercel AI Gateway)
 
 Decision (Lawrence, Oct 28): one team key for everything, end users included. This goes with the
-"Free DeepSeek fallback endpoint" lane (a725, `plans/cmux-next/paid-plan.md`):
+"Free DeepSeek fallback endpoint" lane (a725, `plans/cmux-next/paid-plan.md`). Decisions (Lawrence,
+Oct 28, defaults picked):
 
-- **Free:** a Mac that passes App Attest gets the free model through our gateway route
-  (`freeProviders: ["vercel"]`), with a device quota of 300,000 tokens a day and 20 requests a minute
-  (`INFERENCE_FREE_DAILY_TOKENS`, `INFERENCE_FREE_PER_MINUTE`).
+- **Key:** `INFERENCE_VERCEL_GATEWAY_KEY` is the one team key and stays a Worker secret. Clients never
+  hold it. All three provider keys stay configured; paid traffic routes cheapest first (paid-plan.md §2).
+- **Free:** every free model (`qwen/qwen3.7-flash`, `openai/gpt-oss-120b`, `deepseek/deepseek-v4-flash`)
+  reaches a signed-out device only through our Vercel AI Gateway route (`freeProviders: ["vercel"]`).
+  A Mac that passes App Attest gets a short-lived `aud inference` token and a device quota of 300,000
+  tokens a day and 20 requests a minute (`INFERENCE_FREE_DAILY_TOKENS`, `INFERENCE_FREE_PER_MINUTE`).
 - **Paid:** a plan or prepaid credits, metered by the existing usage ledger.
-- **The key itself:** `INFERENCE_VERCEL_GATEWAY_KEY` stays a Worker secret. Clients never hold it;
-  they call `<cloud api>/v1/inference`, which checks the device or plan and then forwards to the
-  gateway.
-- **Every Chief engine** that is not on a person's own login (Claude Code, Codex) uses that one
-  endpoint, so a Chief can name any `provider/model` the gateway serves.
+- **Chief engines** (Claude Code, Codex, any engine not on a person's own login) call
+  `<cloud api>/v1/inference` (`/chat/completions` or `/v1/messages`). Auth, in order:
+  1. the install bearer token (`Authorization: Bearer`). An install token carries its team claim, so
+     the install's team is the one billed; there is no separate team token. `x-cmux-team` may name
+     another team only where that team is allowed for the install (team-select.ts);
+  2. a signed-out Mac with no plan uses the short-lived `aud inference` token from App Attest
+     (free models only).
+- **Models:** the router serves only the ids in `backend/apps/api/src/inference/catalog.ts` (the
+  allowlist, list at `GET /v1/inference/models`). Any other id gets a 404 `model.not_found` whose
+  message names the allowlist. A Chief cannot name an arbitrary gateway model.
 
 ## 5. Ideas taken from prime-agent and Connectome, beyond OptChat
 
