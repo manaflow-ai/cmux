@@ -133,8 +133,7 @@ fn stall_left(idle: Duration, sent: bool) -> Duration {
 /// How long the slot's reply body may take to arrive once its head came:
 /// `streamed` for a file body (the slot answers after committing it).
 fn reply_body_window(streamed: bool) -> Duration {
-    let _ = streamed;
-    UPLOAD_STALL
+    if streamed { UPLOAD_REPLY } else { UPLOAD_STALL }
 }
 
 /// Resolves once [`stall_left`] says the upload stalled. It ends with its
