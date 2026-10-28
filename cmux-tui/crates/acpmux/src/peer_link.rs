@@ -407,7 +407,10 @@ mod tests {
         let probe = now + WAKE_PROBE;
         assert_eq!(write_deadline(now, budget, Some(probe)), probe);
         // A probe further off than the budget leaves the budget.
-        assert_eq!(write_deadline(now, Duration::from_secs(5), Some(probe)), now + Duration::from_secs(5));
+        assert_eq!(
+            write_deadline(now, Duration::from_secs(5), Some(probe)),
+            now + Duration::from_secs(5)
+        );
     }
 
     const STABLE: Duration = Duration::from_secs(60);
