@@ -31,6 +31,7 @@ use serde_json::{Value, json};
 use super::mirror::Tier;
 use super::servers::line;
 use super::supervisor::{Inner, Supervisor};
+use crate::panic_free::RecoverPoison;
 
 /// Why the link details could not be given.
 pub(super) enum HostLinkError {
@@ -127,7 +128,7 @@ impl Supervisor {
     /// Stops `app`'s server after its socket folder failed a check (cx-wmd8x).
     pub(super) fn stop_for_unsafe_folder(&self, app: &str, reason: &str) {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             let mut outs = self.log_locked(&mut inner, app, "error", reason.to_string());
             outs.extend(self.stop_server_locked(
                 &mut inner,
@@ -183,7 +184,7 @@ impl Supervisor {
 
     fn host_link_changed_round(&self) -> usize {
         let servers: Vec<(String, std::sync::Arc<super::servers::ServerProcess>)> = {
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().recover_poison();
             inner
                 .servers
                 .iter()
@@ -245,7 +246,7 @@ fn device_name() -> String {
     let mut buf = [0u8; 256];
     // SAFETY: gethostname writes at most buf.len() bytes into our buffer.
     let ok = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
-    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
-    let name = if ok { String::from_utf8_lossy(&buf[..end]).into_owned() } else { String::new() };
+    let used = buf.split(|b| *b == 0).next().unwrap_or_default();
+    let name = if ok { String::from_utf8_lossy(used).into_owned() } else { String::new() };
     if name.is_empty() || name.chars().any(char::is_control) { "cmux".into() } else { name }
 }

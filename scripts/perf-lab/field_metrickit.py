@@ -19,10 +19,12 @@ arm into field series for the launch, hang, hitch and action targets (targets.js
 
 Chrome's field data is UMA histograms per channel, version and hardware class, read as percentiles of the merged
 buckets (docs/speed/how_does_chrome_measure_performance.md, base/metrics/histogram.h). Histograms here merge and
-read their p50 and p95 with field.py's `percentile` (one bucket model for every field series); an open top bucket
+read their p50, p95 and p99 (field.py's PERCENTILES: the field targets are stated at the tail, as Chrome's speed
+metrics are) with field.py's `percentile` (one bucket model for every field series); an open top bucket
 (`highMs` = 86 400 000, the watchdog's last stall bucket) counts at its low edge, as catapult's overflow bin
 (tracing/tracing/value/histogram.py, Histogram.GetApproximatePercentile). A ratio is one real sample per report,
-so its p50 and p95 use perf_stats.pct, the lab's percentile.
+so its percentiles use perf_stats.pct, the lab's percentile. A p99 of few samples is the top sample; each row
+carries its sample count, so a reader (or an alert) can require enough of them.
 
 A report whose metric fields break the wire limits is skipped whole and counted by reason, never partly used.
 The read is field.py's: one read-only SELECT on `hang_reports` after the role's write-privilege check, the
@@ -62,7 +64,7 @@ def _sibling(stem: str):
 field = _sibling("field")
 perf_stats = _sibling("perf_stats")
 
-LAB_COMMANDS = {"field-metrickit": "Nightly field MetricKit series: launch p50/p95, hitch ms/s, hang time and "
+LAB_COMMANDS = {"field-metrickit": "Nightly field MetricKit series: launch p50/p95/p99, hitch ms/s, hang time and "
                                    "signpost intervals per build and hardware class (read-only hang_reports)."}
 
 SCHEMAS = frozenset({2, 3})
@@ -91,7 +93,8 @@ RATIO_METRICS = (
 )
 STALL_SERIES = "hang.stall"
 INTERVAL_PREFIX = "interval"
-QUANTILES = (("p50", 0.50), ("p95", 0.95))
+# The field percentiles, field.py's (its action and turn histograms read the same three).
+QUANTILES = field.PERCENTILES
 # Series prefix -> the targets.json target it is the field view of (the action budget has no target there).
 SERIES_TARGETS = {"launch.": "launch", "hang.": "hangs", "hitch.": "motion-dropped"}
 

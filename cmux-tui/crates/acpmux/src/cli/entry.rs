@@ -200,6 +200,7 @@ async fn async_main(
         Some(Command::DaemonRun {
             listen,
             token,
+            insecure_network_listen,
             memory,
             log,
             ready_fd,
@@ -219,6 +220,7 @@ async fn async_main(
             crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
+                insecure_network_listen,
                 memory,
                 ready_fd,
                 person_key_fd,

@@ -56,6 +56,7 @@ use super::mirror::{Origin, Tier};
 use super::supervisor::{ApiError, Inner, MAX_CRASHES, Out, Responder, Supervisor};
 use super::timer::TimerId;
 use crate::backoff::Backoff;
+use crate::panic_free::{JsonFields, RecoverPoison};
 use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// Longest line a server may write (a 16 MiB file read, base64 encoded).
@@ -258,7 +259,7 @@ impl ServerProcess {
                     }
                 }
                 // Stdout closed (or a bad line): end the process, then reap it.
-                if let Some(pid) = reaper.lock().unwrap().take() {
+                if let Some(pid) = reaper.lock().recover_poison().take() {
                     // SAFETY: signalling our own child by pid; it is not reaped yet.
                     unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
                 }
@@ -293,7 +294,7 @@ impl ServerProcess {
     }
 
     pub fn kill(&self) {
-        if let Some(pid) = *self.pid.lock().unwrap() {
+        if let Some(pid) = *self.pid.lock().recover_poison() {
             // SAFETY: the pid is ours and not reaped (the reader takes it first).
             unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
         }
@@ -364,14 +365,14 @@ impl Supervisor {
                 let family = op.split('.').next().unwrap_or(op).to_string();
                 let mut entry = policy.entry;
                 if policy.person_only {
-                    entry["gesture"] = Value::from("required");
+                    entry.insert("gesture", Value::from("required"));
                 }
                 (family, entry)
             })
         }) else {
             return Err(ApiError::new("apps.op.unknown", format!("{app} has no op {op}")));
         };
-        if entry["gesture"] == "required" && !user {
+        if entry.field("gesture") == "required" && !user {
             return Err(ApiError::new(
                 "apps.gesture_required",
                 format!("{op} runs only from a user action (a tap, palette pick or shortcut)"),
@@ -424,7 +425,7 @@ impl Supervisor {
             fields.remove("open_token");
         }
         let open_op = inner.catalog.packages.get(app).is_some_and(|p| p.open_ops().contains(op));
-        let open_token = (origin == Origin::User && open_op).then(|| {
+        let minted = (origin == Origin::User && open_op).then(|| {
             super::open_tokens::mint_open_token(
                 inner,
                 app,
@@ -433,6 +434,18 @@ impl Supervisor {
                 Instant::now(),
             )
         });
+        let open_token = match minted.transpose() {
+            Ok(token) => token,
+            Err(error) => {
+                let mut outs = outs;
+                outs.push(Out::Respond(respond, Err(error)));
+                return outs;
+            }
+        };
+        #[allow(
+            clippy::expect_used,
+            reason = "INVARIANT: start_server_locked returned Ok, so the server is in inner.servers (it was there or it inserted it) under this lock"
+        )]
         let server = inner.servers.get_mut(app).expect("started");
         if let Some(timer) = server.idle.take() {
             self.timers.cancel(timer);
@@ -444,7 +457,7 @@ impl Supervisor {
             "idempotency_key": idempotency_key,
         });
         if let Some(token) = open_token {
-            message["open_token"] = json!(token);
+            message.insert("open_token", json!(token));
         }
         let message = line(&message);
         server.pending.insert(id.clone(), respond);
@@ -497,7 +510,7 @@ impl Supervisor {
             move |message| {
                 if let Some(me) = me_log.upgrade() {
                     let outs = {
-                        let mut inner = me.inner.lock().unwrap();
+                        let mut inner = me.inner.lock().recover_poison();
                         me.log_locked(&mut inner, &app_log, "info", message)
                     };
                     me.emit(outs);
@@ -599,7 +612,7 @@ impl Supervisor {
     /// At supervisor start: the `always` servers of enabled apps.
     pub(super) fn start_always_servers(&self) {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             let apps: Vec<String> = inner.catalog.packages.keys().cloned().collect();
             let mut outs = Vec::new();
             for app in apps {
@@ -612,22 +625,21 @@ impl Supervisor {
 
     fn server_line(&self, app: &str, generation: u64, value: Value) {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
-            if inner.servers.get(app).is_none_or(|s| s.generation != generation) {
+            let mut inner = self.inner.lock().recover_poison();
+            let Some(server) = inner.servers.get(app).filter(|s| s.generation == generation) else {
                 return;
-            }
+            };
+            let (process, stopping) = (server.process.clone(), server.stopping);
             if Self::is_terminal_line(&value) {
-                let process = inner.servers[app].process.clone();
                 drop(inner);
                 self.terminal_line(app, &value).iter().for_each(|r| process.send(line(r)));
                 return;
             }
             if super::relay::is_relay_line(&value) {
-                let generation = inner.servers[app].generation;
-                if inner.servers[app].stopping {
+                if stopping {
                     // An app being disabled or removed starts no Cloud call.
                     let reply = super::relay::stopping_reply(&value);
-                    inner.servers[app].process.send(line(&reply));
+                    process.send(line(&reply));
                     return;
                 }
                 match self.relay_line_locked(&mut inner, app, generation, &value) {
@@ -635,14 +647,13 @@ impl Supervisor {
                         drop(inner);
                         self.emit(outs);
                     }
-                    Err(reply) => inner.servers[app].process.send(line(&reply)),
+                    Err(reply) => process.send(line(&reply)),
                 }
                 return;
             }
-            if value["t"] == "host.request" {
+            if value.field("t") == "host.request" {
                 // The scope is read under the lock; the folder checks run after it is released.
                 let allowed = Self::host_op_allowed(&inner, app, "cmux.host.link.get");
-                let process = inner.servers[app].process.clone();
                 drop(inner);
                 let (reply, refused) = self.host_request(app, allowed, &value);
                 process.send(line(&reply));
@@ -651,16 +662,16 @@ impl Supervisor {
                 }
                 return;
             }
-            let server = inner.servers.get_mut(app).expect("current server");
-            match value["type"].as_str() {
+            let Some(server) = inner.servers.get_mut(app) else { return };
+            match value.field("type").as_str() {
                 Some("result") => {
-                    let id = value["id"].as_str().unwrap_or_default();
+                    let id = value.field("id").as_str().unwrap_or_default();
                     server.user_ops.remove(id);
                     let Some(respond) = server.pending.remove(id) else { return };
-                    let result = if value["ok"] == true {
+                    let result = if value.field("ok") == true {
                         Ok(json!({ "value": value.get("result").cloned().unwrap_or(Value::Null) }))
                     } else {
-                        Err(ApiError::from_body(&value["error"], "command.failed"))
+                        Err(ApiError::from_body(value.field("error"), "command.failed"))
                     };
                     if let Some(crashes) = inner.server_crashes.get_mut(app) {
                         crashes.count = 0;
@@ -672,14 +683,14 @@ impl Supervisor {
                 }
                 Some("event") => {
                     // Events go out under their full name (`cmux.cloud.…`).
-                    let name = value["event"].as_str().unwrap_or_default();
+                    let name = value.field("event").as_str().unwrap_or_default();
                     let name = match inner.catalog.packages.get(app) {
                         Some(package) => package.full_name(name),
                         None => name.to_string(),
                     };
                     vec![Out::Broadcast(json!({
                         "event": "apps-server-event", "app": app,
-                        "name": name, "data": value["data"],
+                        "name": name, "data": value.field("data"),
                     }))]
                 }
                 _ => self.log_locked(
@@ -704,7 +715,7 @@ impl Supervisor {
         server.idle = Some(self.timers.schedule(after, move || {
             let Some(me) = me.upgrade() else { return };
             let outs = {
-                let mut inner = me.inner.lock().unwrap();
+                let mut inner = me.inner.lock().recover_poison();
                 match inner.servers.get_mut(&app_id) {
                     Some(server)
                         if server.generation == generation && server.pending.is_empty() =>
@@ -723,11 +734,11 @@ impl Supervisor {
     fn server_exit(&self, app: &str, generation: u64, exit: Exit) {
         // The path is read under the lock; the folder goes after it is released.
         let (outs, gone) = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             if inner.servers.get(app).is_none_or(|s| s.generation != generation) {
                 return;
             }
-            let mut server = inner.servers.remove(app).expect("server");
+            let Some(mut server) = inner.servers.remove(app) else { return };
             for timer in [server.idle.take(), server.kill.take()].into_iter().flatten() {
                 self.timers.cancel(timer);
             }
@@ -796,6 +807,10 @@ impl Supervisor {
         };
         match started {
             Ok(mut outs) => {
+                #[allow(
+                    clippy::expect_used,
+                    reason = "INVARIANT: start_server_locked returned Ok, so the server is in inner.servers (it was there or it inserted it) under this lock"
+                )]
                 let server = inner.servers.get_mut(app).expect("started");
                 // Queued calls keep their wire ids; new ones never reuse them.
                 server.next_id = next_id;
@@ -844,7 +859,7 @@ impl Supervisor {
         crashes.restart = Some(self.timers.schedule(delay, move || {
             let Some(me) = me.upgrade() else { return };
             let outs = {
-                let mut inner = me.inner.lock().unwrap();
+                let mut inner = me.inner.lock().recover_poison();
                 if let Some(crashes) = inner.server_crashes.get_mut(&app_id) {
                     crashes.restart = None;
                 }
@@ -903,9 +918,9 @@ impl Supervisor {
             .unwrap_or_default();
         for entry in entries {
             // The schema limits names to a local id, so a name stays inside.
-            let Some(name) = entry["name"].as_str() else { continue };
+            let Some(name) = entry.field("name").as_str() else { continue };
             let dir = data.join(name);
-            if entry["class"] == "ephemeral" {
+            if entry.field("class") == "ephemeral" {
                 fresh(&dir).map_err(failed)?;
             } else {
                 files::create_dir_with(files::DirBuilder::new().recursive(true).mode(0o700), &dir)
