@@ -106,7 +106,8 @@ final class HangReportsController {
     /// samples at the report triggers too, and runs where nothing is sent. `wireSchema` is schema 3 only while the
     /// `hangReportsSchema3` feature says cmux.com accepts it. `features` reads the features hash and overrides the
     /// app runs with, at each report. `blockingSites` reads the blocking detector's main-thread sites (and reset count), whose counts a
-    /// schema-3 report carries by hashed site id. `blackboxConsent` is told each decision of whether reports are on.
+    /// schema-3 report carries by hashed site id. `sendsLaunchTrace` lets a schema-3 report carry a slow launch's trace
+    /// (feature `hangReportsLaunchTrace`). `blackboxConsent` is told each decision of whether reports are on.
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
                               watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents, memory: HiddenWorkspaceMemory,
                               work: BackgroundWork, mainWork: MainWorkScheduler,

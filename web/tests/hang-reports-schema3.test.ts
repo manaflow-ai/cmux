@@ -130,6 +130,7 @@ describe("POST /api/hang-reports schema 3", () => {
     ["hang-report-schema3-field-data.json", GOLDEN_REPORT_ID],
     ["hang-report-schema3-main-thread.json", GOLDEN_REPORT_ID],
     ["hang-report-schema3-blocking.json", GOLDEN_REPORT_ID],
+    ["hang-report-schema3-launch-trace.json", GOLDEN_REPORT_ID],
   ] as const) {
     test(`answers 204 for the client's golden ${name}`, async () => {
       const response = await POST(request(fixtureText(name)));
@@ -165,6 +166,61 @@ describe("POST /api/hang-reports schema 3", () => {
       .replace("\"hangs\":[", `"hangs":[${literal("blockingSample") ?? ""},`)
       .replace("\"schema\":2", "\"schema\":3");
     expect(golden3).toBe(fixtureText("hang-report-schema3-blocking.json"));
+  });
+
+  const swiftLaunchTraceGolden = new URL(
+    "../../Packages/macOS/CmuxNext/Tests/CmuxNextHangReportsTests/LaunchTraceWireFormatTests.swift",
+    import.meta.url,
+  );
+  (existsSync(swiftLaunchTraceGolden) ? test : test.skip)("the launch trace fixture is the Swift client's golden, byte for byte", () => {
+    const swift = readFileSync(swiftLaunchTraceGolden, "utf8");
+    const golden = /static let golden3LaunchTrace = #"(.*?)"#\n/.exec(swift)?.[1];
+    expect(golden).toBe(fixtureText("hang-report-schema3-launch-trace.json"));
+  });
+
+  test("keeps a slow launch's trace as the client sends it", async () => {
+    await POST(request(fixtureText("hang-report-schema3-launch-trace.json")));
+    const trace = storedPayload(GOLDEN_REPORT_ID)?.launch_trace as Record<string, unknown> | undefined;
+    expect(trace).toMatchObject({ temperature: "warm", reason: "visiblePaneLoadedIdle", first_frame_ms: 420, budget_ms: 180, dropped: 3 });
+    expect((trace?.events as unknown[])[2]).toEqual([4000, 310000, "main_task", "AppServices.restore"]);
+  });
+
+  test("answers 400 for a launch trace the client never writes", async () => {
+    type Trace = Record<string, unknown> & { events: unknown[][] };
+    const golden = JSON.parse(fixtureText("hang-report-schema3-launch-trace.json")) as Record<string, unknown> & { launch_trace: Trace };
+    const cases: Array<(trace: Trace) => void> = [
+      (trace) => { trace.temperature = "hot"; },
+      (trace) => { trace.reason = "registrationFinished"; },
+      (trace) => { trace.first_frame_ms = 180; },
+      (trace) => { trace.first_frame_ms = 86_400_001; },
+      (trace) => { trace.dropped = -1; },
+      (trace) => { trace.extra = 1; },
+      (trace) => { trace.events[0] = [0, 5, "mark", "process_start"]; },
+      (trace) => { trace.events[0] = [0, 0, "instant", "process_start"]; },
+      (trace) => { trace.events[0] = [0, 0, "mark", "/Users/alice"]; },
+      (trace) => { trace.events[0] = [0, 0, "mark", "has space"]; },
+      (trace) => { trace.events[0] = [0, 0, "mark"]; },
+      (trace) => { trace.events[0] = [-1, 0, "mark", "process_start"]; },
+      (trace) => { trace.events[0] = [86_400_000_001, 0, "mark", "process_start"]; },
+      (trace) => { trace.events = Array.from({ length: 129 }, (_, index) => [index, 0, "mark", "m"]); },
+    ];
+    for (const [index, mutate] of cases.entries()) {
+      const report = structuredClone(golden);
+      mutate(report.launch_trace);
+      const response = await POST(request(report));
+      expect({ index, status: response.status }).toEqual({ index, status: 400 });
+    }
+    expect(repository.rows.size).toBe(0);
+  });
+
+  test("refuses a launch trace name that is a token by the leak scan", async () => {
+    const report = JSON.parse(fixtureText("hang-report-schema3-launch-trace.json")) as Record<string, unknown> & {
+      launch_trace: { events: unknown[][] };
+    };
+    report.launch_trace.events[1] = [1200, 0, "mark", "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7"];
+    const response = await POST(request(report));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_report", reason: "leak_token" });
   });
 
   test("answers 204 and drops and counts unknown histogram names, Chromium ones too, and stability names", async () => {

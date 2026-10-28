@@ -20,6 +20,11 @@ export const APP_VERSION_PATTERN = new RegExp(`^(?:${CLIENT_VERSION}|\\d{1,6}(?:
 export const APP_BUILD_PATTERN = new RegExp(`^(?:${CLIENT_VERSION}|\\d{1,20}(?:\\.\\d{1,6}){0,2})$`);
 export const OS_VERSION_PATTERN = new RegExp(`^${CLIENT_VERSION}$`);
 export const CHANNELS = ["nightly", "dev", "rc", "release"] as const;
+// The client's `LaunchTemperature` and `LaunchCompletionReason` (CmuxNextHangReports).
+export const LAUNCH_TEMPERATURES = ["cold", "lukewarm", "warm", "undetermined"] as const;
+export const LAUNCH_COMPLETION_REASONS = [
+  "visiblePaneLoadedIdle", "visiblePaneTimedOut", "noVisiblePane", "noWindow", "daemonUnavailable", "failsafe",
+] as const;
 
 export const boundedInt = (max: number) => Schema.Number.pipe(Schema.int(), Schema.between(0, max));
 

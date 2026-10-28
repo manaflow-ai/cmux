@@ -6,6 +6,8 @@ import {
   APP_VERSION_PATTERN,
   CHANNELS,
   Day,
+  LAUNCH_COMPLETION_REASONS,
+  LAUNCH_TEMPERATURES,
   MAX_COUNT,
   MAX_DURATION_MS,
   OS_VERSION_PATTERN,
@@ -27,6 +29,7 @@ import {
   InputLatencyRow,
   InteractionLatency,
   LaunchSections,
+  LaunchTrace,
   MAX_BLACKBOX_EVENTS,
   MAX_BLOCKING_SITES,
   MAX_FEATURES,
@@ -85,11 +88,6 @@ const WAIT_BUCKETS = ["0-1", "1-2", "2-4", "4-8", "8-16", "16-32", "32-64", "64+
 const INTERVAL_CATEGORIES = ["action", "motion", "key", "switch", "create", "cef", "launch"] as const;
 // Schema 3 adds the main-thread turn and input-queueing histograms (`main.turn`, `main.input_queueing`).
 const INTERVAL_CATEGORIES_V3 = [...INTERVAL_CATEGORIES, "main"] as const;
-// The client's `LaunchTemperature` and `LaunchCompletionReason` (CmuxNextHangReports).
-const LAUNCH_TEMPERATURES = ["cold", "lukewarm", "warm", "undetermined"] as const;
-const LAUNCH_COMPLETION_REASONS = [
-  "visiblePaneLoadedIdle", "visiblePaneTimedOut", "noVisiblePane", "noWindow", "daemonUnavailable", "failsafe",
-] as const;
 
 const msPerS = Schema.Number.pipe(Schema.finite(), Schema.between(0, MAX_MS_PER_S));
 const CountBucket = Schema.Literal(...COUNT_BUCKETS);
@@ -269,7 +267,9 @@ export const HangReportSchema2 = Schema.Struct({
  * - `features_hash` and `features[]`, optional: the launch's features arm and
  *   the features an override decided (p12-perf-process-151);
  * - `blocking_sites[]`, optional: the main thread's blocking call counts by
- *   hashed site id (p12-perf-process-226).
+ *   hashed site id (p12-perf-process-226);
+ * - `launch_trace`, optional: the names and times of one launch whose first
+ *   frame missed its p95 budget (p08-startup-111).
  *
  * The client writes at most 48 KiB; the server keeps its 64 KiB cap. A
  * well-formed name or label this server does not know is dropped and counted
@@ -295,6 +295,7 @@ export const HangReportSchema3 = Schema.Struct({
   features_hash: optionalNullable(FeaturesHash),
   features: optionalArray(FeatureEntry, MAX_FEATURES),
   blocking_sites: optionalArray(BlockingSiteCount, MAX_BLOCKING_SITES),
+  launch_trace: optionalNullable(LaunchTrace),
 }).pipe(Schema.filter(hasConsistentInputLatency, {
   message: () => "input latency rows need the bucket edges, one bucket per edge and one over",
 }));

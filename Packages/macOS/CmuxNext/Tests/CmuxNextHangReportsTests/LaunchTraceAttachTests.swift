@@ -123,6 +123,80 @@ struct LaunchTraceAttachTests {
         #expect(first[2] as? String == "main_task")
         #expect(first[3] as? String == "AppServices.restore")
         #expect(try JSONDecoder().decode(HangReport.self, from: body) == report)
+        // What the server's schema-3 decoder accepts (wireSchema3.ts `LaunchTrace`).
+        #expect(HangReportServerRules.violations(in: body).isEmpty)
+    }
+
+    /// A forced slow launch, end to end from its launch marks (as the app reads them at startup_complete): the record
+    /// misses its budget, its trace reaches the collector, and the next report carries it as the server accepts it.
+    @Test func aForcedSlowLaunchFromItsMarksGivesAReportWithTheTrace() throws {
+        let marks: [(name: String, ms: Double)] = [
+            ("main_start", 1.2), ("launch.temperature.warm", 90), ("first_window_frame_committed", 640.4),
+            ("first_live_content_frame", 900), ("startup_complete.visiblePaneLoadedIdle", 2_400), ("startup_complete", 2_400),
+        ]
+        let record = try #require(LaunchAggregate.Record(marks: marks))
+        #expect(record.temperature == .warm)
+        #expect(!record.interrupted)
+        #expect(record.reason == .visiblePaneLoadedIdle)
+        #expect(HangReport.LaunchTrace.exceedsBudget(record))
+        let trace = try #require(HangReport.LaunchTrace(launch: record, events: Self.events, dropped: 2))
+        let collector = Self.collector()
+        collector.setEnabled(true)
+        collector.noteLaunchTrace(trace)
+        let report = Self.sending().build(context: HangReportFixtures.context(), watchdog: collector.drain(), metricKit: [])
+        let sent = try #require(report.launchTrace)
+        #expect(sent.firstFrameMs == 640)
+        #expect(sent.startupCompleteMs == 2_400)
+        #expect(sent.dropped == 2)
+        let body = try HangReport.encoder.encode(report)
+        let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(json["launch_trace"] != nil)
+        #expect(HangReportServerRules.violations(in: body).isEmpty)
+        #expect(PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms).findings(in: body).isEmpty)
+    }
+
+    @Test func aLaunchIsReadFromItsMarksOnlyAtACompletionAReportKnows() throws {
+        let complete: [(name: String, ms: Double)] = [("startup_complete.failsafe", 10_000), ("startup_complete", 10_000)]
+        let failsafe = try #require(LaunchAggregate.Record(marks: complete))
+        #expect(failsafe.reason == .failsafe)
+        #expect(failsafe.temperature == .undetermined)
+        #expect(failsafe.firstFrame == nil)
+        #expect(!HangReport.LaunchTrace.exceedsBudget(failsafe))
+        #expect(LaunchAggregate.Record(marks: [("first_window_frame_committed", 900)]) == nil)
+        #expect(LaunchAggregate.Record(marks: [("startup_complete.firstFrameCommitted", 900), ("startup_complete", 900)]) == nil)
+        let interrupted = try #require(LaunchAggregate.Record(marks: [
+            ("launch.interrupted", 5), ("first_window_frame_committed", 4_000), ("startup_complete.noVisiblePane", 4_100),
+            ("startup_complete", 4_100),
+        ]))
+        #expect(interrupted.interrupted)
+        #expect(!HangReport.LaunchTrace.exceedsBudget(interrupted))
+    }
+
+    /// A damaged pending file: a saved trace whose first frame is `Int.min` (or `Int.max` with a negative budget)
+    /// decodes in range, so keeping a later launch's trace, merging and the next launch's note compare without trapping.
+    @Test func aSavedTraceWithExtremeNumbersNeverTrapsAComparison() throws {
+        let saved = #"{"counts":[],"hangs":[],"stalls":[],"launchTrace":{"temperature":"warm","reason":"failsafe","first_frame_ms":-9223372036854775808,"budget_ms":9223372036854775807,"startup_complete_ms":-1,"dropped":-9223372036854775808,"events":[[18446744073709551615,7,"mark","main_start"]]}}"#
+        let decoded = try JSONDecoder().decode(StallAggregate.self, from: Data(saved.utf8))
+        let kept = try #require(decoded.launchTrace)
+        #expect(kept.firstFrameMs == 0)
+        #expect(kept.budgetMs == 180)
+        #expect(kept.dropped == 0)
+        #expect(kept.events == [.init(startMicros: HangReport.LaunchTrace.maxMicros, durationMicros: 0, kind: .mark, name: "main_start")])
+        let other = #"{"counts":[],"hangs":[],"stalls":[],"launchTrace":{"temperature":"cold","reason":"failsafe","first_frame_ms":9223372036854775807,"budget_ms":-9223372036854775808,"startup_complete_ms":0,"dropped":0,"events":[]}}"#
+        let huge = try JSONDecoder().decode(StallAggregate.self, from: Data(other.utf8))
+        let collector = Self.collector()
+        collector.setEnabled(true)
+        collector.merge(decoded)
+        collector.merge(huge)
+        #expect(collector.snapshot().launchTrace?.firstFrameMs == HistogramBucket.maxMs)
+        collector.noteLaunchTrace(try Self.trace(firstFrameMs: 420))
+        #expect(collector.snapshot().launchTrace?.firstFrameMs == HistogramBucket.maxMs)
+        // A trace made in memory with the same numbers is kept in range too.
+        var aggregate = StallAggregate()
+        aggregate.keep(launchTrace: HangReport.LaunchTrace(temperature: .warm, reason: .failsafe, firstFrameMs: .min, budgetMs: .max,
+                                                           startupCompleteMs: 0, dropped: 0, events: []))
+        aggregate.keep(launchTrace: try Self.trace(firstFrameMs: 420))
+        #expect(aggregate.launchTrace?.firstFrameMs == 420)
     }
 
     @Test func aBuilderThatDoesNotSendItOrSchemaTwoCarriesNoTrace() throws {

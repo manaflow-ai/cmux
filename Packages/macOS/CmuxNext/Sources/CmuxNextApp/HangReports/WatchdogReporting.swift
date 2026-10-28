@@ -40,6 +40,8 @@ enum WatchdogReporting {
                 HangReport.FeatureState(features.fieldState)
             },
             blockingSites: { [blocking = services.blocking] in blocking.mainThreadRead },
+            // A slow launch's trace rides schema 3 only, once cmux.com's decoder lists launch_trace (p08-startup-111).
+            sendsLaunchTrace: services.features.isEnabled(.hangReportsLaunchTrace),
             blackboxConsent: { [crashReporting = services.crashReporting] in crashReporting.hangReportsDecided($0) })
         let collector = hangReports.collector
         if let collector { services.crashReporting.attachHangReports(collector) }

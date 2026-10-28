@@ -81,8 +81,9 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// counts by site id (p12-perf-process-226; the schema-3 decoder lists them: web/services/hangReports/wireSchema.ts).
         public var carriesBlockingSites: Bool { self == .v3 }
         /// Whether a report in this schema may carry ``HangReport/launchTrace`` (p08-startup-111). The builder writes it
-        /// only when it is also told to (``HangReportBuilder/sendsLaunchTrace``): the schema-3 decoder
-        /// (web/services/hangReports/wireSchema3.ts) must list `launch_trace` before a build sends one.
+        /// only when it is also told to (``HangReportBuilder/sendsLaunchTrace``, the app's feature `hangReportsLaunchTrace`):
+        /// a deployed schema-3 decoder older than the one that lists `launch_trace` (web/services/hangReports/wireSchema3.ts)
+        /// answers 400 to it.
         public var carriesLaunchTrace: Bool { self == .v3 }
     }
 

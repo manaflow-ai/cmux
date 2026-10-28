@@ -6,6 +6,9 @@ import {
   APP_VERSION_PATTERN,
   CHANNELS,
   Day,
+  LAUNCH_COMPLETION_REASONS,
+  LAUNCH_TEMPERATURES,
+  MAX_COUNT,
   MAX_DURATION_MS,
   OS_VERSION_PATTERN,
   Uuid,
@@ -284,6 +287,49 @@ export const BlockingSiteCount = Schema.Struct({
   total_ms: boundedInt(MAX_BLOCKING_SITE_VALUE),
 });
 
+// MARK: slow-launch trace (p08-startup-111)
+
+/** The client's `HangReport.maxLaunchTraceEvents`. */
+export const MAX_LAUNCH_TRACE_EVENTS = 128;
+/** The client's `HangReport.LaunchTrace.maxMicros`: one day in microseconds. */
+const MAX_LAUNCH_TRACE_MICROS = MAX_DURATION_MS * 1000;
+/** `HangReport.LaunchTrace.Kind` raw values. */
+export const LAUNCH_TRACE_KINDS = ["mark", "main_task", "lane_task", "main_turn", "lane_job"] as const;
+// `HangReportBuilder.launchTraceName`: a code identifier, or `other`.
+const LAUNCH_TRACE_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9._-]{0,63}$/;
+
+/**
+ * One `launch_trace.events[]` entry, `[t_us, dur_us, kind, name]` (the
+ * client's `HangReport.LaunchTrace.Event`): microseconds after process start,
+ * how long it ran (0 for a mark), a closed kind and a code-defined name.
+ */
+export const LaunchTraceEvent = Schema.Tuple(
+  boundedInt(MAX_LAUNCH_TRACE_MICROS),
+  boundedInt(MAX_LAUNCH_TRACE_MICROS),
+  Schema.Literal(...LAUNCH_TRACE_KINDS),
+  Schema.String.pipe(Schema.pattern(LAUNCH_TRACE_NAME_PATTERN)),
+).pipe(Schema.filter(([, duration, kind]) => kind !== "mark" || duration === 0, {
+  message: () => "a mark lasts 0",
+}));
+
+/**
+ * `launch_trace` (the client's `HangReport.LaunchTrace`): one launch whose
+ * first frame came after its p95 budget, with its ring's names and times
+ * (Chrome's background tracing uploads a scenario's ring only when its trigger
+ * fires: content/browser/tracing/background_tracing_manager_impl.cc).
+ */
+export const LaunchTrace = Schema.Struct({
+  temperature: Schema.Literal(...LAUNCH_TEMPERATURES),
+  reason: Schema.Literal(...LAUNCH_COMPLETION_REASONS),
+  first_frame_ms: boundedInt(MAX_DURATION_MS),
+  budget_ms: boundedInt(MAX_DURATION_MS),
+  startup_complete_ms: boundedInt(MAX_DURATION_MS),
+  dropped: boundedInt(MAX_COUNT),
+  events: Schema.Array(LaunchTraceEvent).pipe(Schema.maxItems(MAX_LAUNCH_TRACE_EVENTS)),
+}).pipe(Schema.filter((trace) => trace.first_frame_ms > trace.budget_ms, {
+  message: () => "a launch trace is of a first frame past its budget",
+}));
+
 // MARK: the client's closed sets
 
 /** `TraceRuntime.Role` through `HangReport.blackBoxProcess`. */
@@ -342,3 +388,4 @@ export type HangReportBlackboxEvent = Schema.Schema.Type<typeof BlackboxEvent>;
 export type HangReportLaunchSection = Schema.Schema.Type<typeof LaunchSection>;
 export type HangReportInputLatencyRow = Schema.Schema.Type<typeof InputLatencyRow>;
 export type HangReportScrollJank = Schema.Schema.Type<typeof ScrollJank>;
+export type HangReportLaunchTrace = Schema.Schema.Type<typeof LaunchTrace>;

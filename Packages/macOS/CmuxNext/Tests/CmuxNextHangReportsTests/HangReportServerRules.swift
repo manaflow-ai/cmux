@@ -18,10 +18,21 @@ struct HangReportServerRules {
     /// (p12-perf-process-151) and the main thread's blocking site counts (p12-perf-process-226).
     static let schema3TopLevelKeys: Set<String> = [
         "launches", "input_latency_bucket_edges_ms", "input_latency", "scroll_jank", "interaction_latency",
-        "histograms", "stability", "blackbox", "launch_sections", "features_hash", "features", "blocking_sites",
+        "histograms", "stability", "blackbox", "launch_sections", "features_hash", "features", "blocking_sites", "launch_trace",
     ]
     /// Schema 3's `blocking_sites[]` entry (wireSchema3.ts `BlockingSiteCount`).
     static let blockingSiteKeys: Set<String> = ["site", "kind", "count", "total_ms"]
+    /// Schema 3's `launch_trace` (wireSchema3.ts `LaunchTrace`, p08-startup-111): its keys, its closed sets and its events,
+    /// each `[t_us, dur_us, kind, name]`.
+    static let launchTraceKeys: Set<String> = [
+        "temperature", "reason", "first_frame_ms", "budget_ms", "startup_complete_ms", "dropped", "events",
+    ]
+    static let launchTraceKinds: Set<String> = ["mark", "main_task", "lane_task", "main_turn", "lane_job"]
+    static let launchTemperatures: Set<String> = ["cold", "lukewarm", "warm", "undetermined"]
+    static let launchReasons: Set<String> = [
+        "visiblePaneLoadedIdle", "visiblePaneTimedOut", "noVisiblePane", "noWindow", "daemonUnavailable", "failsafe",
+    ]
+    static let maxLaunchTraceEvents = 128
     static let hangKeys: Set<String> = ["source", "kind", "durationMs", "cpuMs", "frames"]
     static let frameKeys: Set<String> = ["image", "uuid", "offset"]
 
@@ -75,6 +86,29 @@ struct HangReportServerRules {
             found += extraKeys(site, allowed: blockingSiteKeys, at: "blocking_sites[\(index)]")
             if (site["site"] as? String)?.range(of: #"^[0-9a-f]{16}$"#, options: .regularExpression) == nil {
                 found.append("blocking_sites[\(index)].site")
+            }
+        }
+        if let trace = report["launch_trace"] { found += launchTraceViolations(trace) }
+        return found
+    }
+
+    private static func launchTraceViolations(_ value: Any) -> [String] {
+        guard let trace = value as? [String: Any] else { return ["launch_trace is not an object"] }
+        var found = extraKeys(trace, allowed: launchTraceKeys, at: "launch_trace")
+        if !launchTemperatures.contains(trace["temperature"] as? String ?? "") { found.append("launch_trace.temperature") }
+        if !launchReasons.contains(trace["reason"] as? String ?? "") { found.append("launch_trace.reason") }
+        let firstFrame = trace["first_frame_ms"] as? Int ?? 0, budget = trace["budget_ms"] as? Int ?? 0
+        if firstFrame <= budget { found.append("launch_trace.first_frame_ms within budget_ms") }
+        let events = trace["events"] as? [[Any]] ?? []
+        if events.count > maxLaunchTraceEvents { found.append("launch_trace.events over \(maxLaunchTraceEvents)") }
+        for (index, event) in events.enumerated() {
+            let kind = event.count == 4 ? event[2] as? String ?? "" : ""
+            let name = event.count == 4 ? event[3] as? String ?? "" : ""
+            guard event.count == 4, event[0] is Int, let duration = event[1] as? Int, launchTraceKinds.contains(kind),
+                  name.range(of: #"^[A-Za-z][A-Za-z0-9._-]{0,63}$"#, options: .regularExpression) != nil,
+                  kind != "mark" || duration == 0 else {
+                found.append("launch_trace.events[\(index)]")
+                continue
             }
         }
         return found

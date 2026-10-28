@@ -27,7 +27,7 @@ extension HangReportService {
     ///     (`BlockingDetector.mainThreadRead`; empty where the detector is compiled out), counted into a
     ///     ``BlockingSiteLedger`` where the wire schema carries them.
     ///   - sendsLaunchTrace: Whether a schema-3 report carries a slow launch's trace (``HangReport/launchTrace``,
-    ///     p08-startup-111); on only once the server's schema-3 decoder lists `launch_trace`.
+    ///     p08-startup-111); the app's feature `hangReportsLaunchTrace`, on once the deployed decoder lists `launch_trace`.
     public static func forThisApp(folder: URL, endpoint: String, channel: String,
                                   personalTerms: @autoclosure @escaping @Sendable () -> [String],
                                   counts: @escaping @Sendable () async -> CoarseCounts, stillAllowed: @escaping @Sendable () -> Bool,

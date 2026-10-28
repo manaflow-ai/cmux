@@ -60,8 +60,8 @@ public nonisolated struct HangReportBuilder: Sendable {
     /// - Parameter wireSchema: ``HangReport/WireSchema/deployed`` (schema 2, the default) until the
     ///   server accepts schema 3; a schema-2 server answers 400 to a report with `launches` or a
     ///   blocking sample, and that drops it.
-    /// - Parameter sendsLaunchTrace: False (the default) until the server's schema-3 decoder lists `launch_trace`: it
-    ///   answers 400 to an unknown key, and that drops the report.
+    /// - Parameter sendsLaunchTrace: False (the default) unless the deployed schema-3 decoder lists `launch_trace` (the
+    ///   app's feature `hangReportsLaunchTrace`): an older one answers 400 to an unknown key, and that drops the report.
     public init(classifier: ImageClassifier, resolver: any ImageResolving, wireSchema: HangReport.WireSchema = .deployed,
                 sendsLaunchTrace: Bool = false) {
         self.classifier = classifier

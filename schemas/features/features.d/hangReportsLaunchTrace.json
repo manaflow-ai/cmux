@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "hangReportsLaunchTrace",
+  "owner": "PL-telemetry",
+  "description": "Opt-in schema-3 hang reports carry the trace of a launch whose first frame missed its p95 budget (names and times only); turn it on only once cmux.com's schema-3 decoder accepts launch_trace (p08-startup-111 deployed).",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "killSwitch",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

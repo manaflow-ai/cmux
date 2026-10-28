@@ -1,5 +1,7 @@
 @testable import CmuxNextLaunch
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
+import Foundation
 import os
 import Testing
 
@@ -86,6 +88,58 @@ import Testing
         #expect(ring.finish(keeping: true) == nil)
         ring.whenFreed { calls.withLock { $0.append("after") } }
         #expect(calls.withLock { $0 } == ["before", "after"])
+    }
+
+    // MARK: the recorders' fan-out
+
+    /// Freeing the ring at completion leaves the developer trace's lane jobs and main turns recording, and the
+    /// producers' hooks stay on until the trace stops too.
+    @Test func freeingTheRingNeverStopsTheTracesRecords() {
+        let trace = StartupTrace(configuration: StartupTraceConfiguration(
+                                     file: FileManager.default.temporaryDirectory.appending(path: "ring-\(UUID().uuidString)/trace.json")),
+                                 processStartNanos: 0, clock: ManualClock(), now: { 10 })
+        let ring = Self.ring()
+        let recorders = StartupTrace.LaunchRecorders(trace: trace, ring: ring)
+        let stopped = OSAllocatedUnfairLock(initialState: 0)
+        recorders.whenAllStopped { stopped.withLock { $0 += 1 } }
+        let lanes = recorders.laneJobSink
+        let turns = recorders.mainTurnSink
+        lanes?(.files, .userVisible, 1_000_000, 5_000_000)
+        turns?(1_000_000, 4_000_000)
+        #expect(trace.status.pending == 2)
+        #expect(ring.finish(keeping: false) == nil)
+        #expect(ring.heldBytes == 0)
+        #expect(stopped.withLock { $0 } == 0)
+        lanes?(.files, .userVisible, 6_000_000, 9_000_000)
+        turns?(6_000_000, 9_000_000)
+        #expect(trace.status.pending == 4)
+        #expect(ring.overwritten == 0)
+    }
+
+    @Test func theHooksComeOffWhenTheOnlyRecorderStops() throws {
+        let ring = Self.ring()
+        let recorders = StartupTrace.LaunchRecorders(trace: nil, ring: ring)
+        let stopped = OSAllocatedUnfairLock(initialState: 0)
+        recorders.whenAllStopped { stopped.withLock { $0 += 1 } }
+        let lanes = try #require(recorders.laneJobSink)
+        lanes(.files, .userVisible, 1_000_000, 5_000_000)
+        #expect(stopped.withLock { $0 } == 0)
+        let events = try #require(ring.finish(keeping: true)).events
+        #expect(events.map(\.kind) == [.laneJob])
+        #expect(stopped.withLock { $0 } == 1)
+        ring.finish(keeping: false)
+        #expect(stopped.withLock { $0 } == 1)
+    }
+
+    @Test func noRecorderMeansNoHookAndNothingToStop() {
+        let recorders = StartupTrace.LaunchRecorders(trace: nil, ring: nil)
+        #expect(recorders.isEmpty)
+        #expect(recorders.laneJobSink == nil)
+        #expect(recorders.mainTurnSink == nil)
+        #expect(recorders.uptimeNanos == nil)
+        let stopped = OSAllocatedUnfairLock(initialState: 0)
+        recorders.whenAllStopped { stopped.withLock { $0 += 1 } }
+        #expect(stopped.withLock { $0 } == 1)
     }
 
     @Test func aKeptLaunchStillFreesTheRing() throws {

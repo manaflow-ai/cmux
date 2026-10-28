@@ -41,8 +41,8 @@ public struct CmuxNextApp {
         let watchdog = MainThreadWatchdog(startupTasks: startupTag, wakeUps: mainWakeUps)
         // CMUX_TRACE_STARTUP: the startup trace's ring, before the first mark (unset: one getenv, no ring).
         let startupTrace = DebugTimings.makeStartupTrace()
-        // Nightly hang reports on (this Mac's consent recorded): the 32 KiB slow-launch ring until startup_complete
-        // (p08-startup-111); otherwise nothing is allocated.
+        // A build that may send hang reports on a Mac with the consent record (one defaults read, as CrashOnExceptions'
+        // below): the 32 KiB slow-launch ring until startup_complete (p08-startup-111); otherwise nothing is allocated.
         let slowLaunchRing = DebugTimings.makeSlowLaunchRing(optedIn: HangReportsController.recordsSlowLaunch())
         let recorders = StartupTrace.LaunchRecorders(trace: startupTrace, ring: slowLaunchRing)
         DebugTimings.markLaunch("main_start")
