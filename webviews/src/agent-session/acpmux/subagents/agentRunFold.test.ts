@@ -127,7 +127,12 @@ test("only the child record supplies harness, model, effort and host identity", 
   expect(fold.all()[0]!.host).toBeUndefined();
 });
 
-const sessionStart = (id: string, style: "claude" | "cmux" | "codex" = "claude") => ({
+const sessionStart = (
+  id: string,
+  style: "claude" | "cmux" | "codex" = "claude",
+  name = "fix",
+  prompt = "Fix the flaky test",
+) => ({
   sessionUpdate: "tool_call",
   toolCallId: id,
   title:
@@ -139,8 +144,8 @@ const sessionStart = (id: string, style: "claude" | "cmux" | "codex" = "claude")
   status: "in_progress",
   rawInput:
     style === "codex"
-      ? { server: "cmux-subsessions", tool: "start_session", arguments: { name: "fix", prompt: "Fix the flaky test" } }
-      : { name: "fix", prompt: "Fix the flaky test" },
+      ? { server: "cmux-subsessions", tool: "start_session", arguments: { name, prompt } }
+      : { name, prompt },
 });
 
 for (const style of ["claude", "cmux", "codex"] as const) {
@@ -229,6 +234,44 @@ test("distinct explicit parent names remain deterministic with the same prompt",
   ).toBe("beta");
   expect(fold.all().map((agent) => agent.session)).toEqual(["alpha", "beta"]);
 });
+
+for (const [label, records] of [
+  [
+    "MCP child first",
+    [
+      { shortName: "alpha-2", prompt: "MCP task" },
+      { shortName: "alpha-2-2", prompt: "Shell task" },
+    ],
+  ],
+  [
+    "shell child first",
+    [
+      { shortName: "alpha-2-2", prompt: "Shell task" },
+      { shortName: "alpha-2", prompt: "MCP task" },
+    ],
+  ],
+  [
+    "different prompt without child prompt",
+    [{ shortName: "alpha-2" }, { shortName: "alpha-2-2", prompt: "Shell task" }],
+  ],
+] as const) {
+  test(`a daemon rename family cannot pair MCP alpha-2 with shell alpha-2-2 (${label})`, () => {
+    const { fold, send } = folder();
+    send(call("shell", `acpmux run --parent chat-1 -n alpha-2 "Shell task"`));
+    send(sessionStart("mcp", "claude", "alpha", "MCP task"));
+    for (const [index, record] of records.entries())
+      expect(
+        child(fold, 10 + index, {
+          childSessionId: `rename-child-${index}`,
+          event: "started",
+          harness: "codex",
+          ...record,
+        }),
+      ).toBeUndefined();
+    expect(fold.isRun("shell")).toBe(false);
+    expect(fold.all()).toEqual([]);
+  });
+}
 
 test("an overlapping start stays ambiguous after the other shell call fails", () => {
   const { fold, send } = folder();
