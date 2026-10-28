@@ -26,7 +26,7 @@ enum CmuxFoundationLocalization {
     static func string(
         _ key: StaticString,
         defaultValue: String,
-        bundle: Bundle? = bundle
+        bundle: Bundle? = CmuxFoundationLocalization.bundle
     ) -> String {
         guard let bundle else { return defaultValue }
         return String(
