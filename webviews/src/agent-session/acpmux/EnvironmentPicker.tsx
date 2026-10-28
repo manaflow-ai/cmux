@@ -364,7 +364,10 @@ export function EnvironmentPicker({
       if (!openRef.current && !(scope && active && scope.contains(active))) return;
       const environment = environmentForDigit(latest.current.ordered, digit);
       // A digit that changes nothing in a closed picker stays the app's (a keymap may bind ⌥⌘1–9);
-      // one on the chat's own machine while it is down reconnects it, as its click does.
+      // one on the chat's own machine while it is down reconnects it, as its click does. Digits
+      // number only ready rows, so that machine is the `local` row of a chat the App runs on
+      // another machine (always numbered, its link the App's `machineLink`); a down acpmux peer has
+      // no digit and reconnects on its click.
       const again = environment?.id === latest.current.current;
       const reconnects = again && reconnectsOnUse(environment?.link);
       if (!environment || (!openRef.current && again && !reconnects)) return;
