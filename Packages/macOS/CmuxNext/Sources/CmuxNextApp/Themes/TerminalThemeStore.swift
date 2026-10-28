@@ -133,8 +133,9 @@ final class TerminalThemeStore {
         let data = try? JSONEncoder().encode(themes)
         let empty = themes.isEmpty
         let previous = lastWrite, logger = logger, runner = runner
-        // task-owner: lastWrite; each write waits for the one before it, so they land in order.
-        lastWrite = Task {
+        // task-owner: lastWrite; each write waits for the one before it, so they land in order. Nonisolated: it only
+        // awaits the files lane, so no main-thread job runs for it.
+        lastWrite = Task { @concurrent in
             await previous?.value
             do {
                 // One small atomic replace: quit waits for it.

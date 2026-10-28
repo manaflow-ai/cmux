@@ -143,8 +143,9 @@ public final class MacScreenStore {
         let contents = File(hubDeviceName: hubDeviceName, deviceNames: deviceNames, linkPairingsRemoved: linkPairingsRemoved)
         guard let data = try? JSONEncoder().encode(contents) else { return }
         let file = file, previous = saveTask, runner = runner
-        // task-owner: saveTask; each write waits for the one before it, so they land in order.
-        saveTask = Task {
+        // task-owner: saveTask; each write waits for the one before it, so they land in order. Nonisolated: it only
+        // awaits the files lane, so no main-thread job runs for it.
+        saveTask = Task { @concurrent in
             await previous?.value
             // One small atomic replace: quit waits for it.
             _ = try? await runner.runFiles(.bestEffort, shutdown: .blockShutdown) {

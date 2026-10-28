@@ -119,8 +119,9 @@ final class IncognitoWorkspaceLedger {
         case .unknown, nil: true
         }
         let previous = lastWrite
-        // task-owner: lastWrite; each write waits for the one before it, so they land in order.
-        lastWrite = Task {
+        // task-owner: lastWrite; each write waits for the one before it, so they land in order. Nonisolated: it only
+        // awaits the files lane, so no main-thread job runs for it.
+        lastWrite = Task { @concurrent in
             await previous?.value
             do {
                 // The ledger is what closes a crashed run's incognito pages: quit waits for this small write.
