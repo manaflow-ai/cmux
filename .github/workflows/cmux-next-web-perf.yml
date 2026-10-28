@@ -86,6 +86,12 @@ jobs:
           set -euo pipefail
           # Fetch the commit only; the harness never installs/builds a second tree.
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          trusted="$RUNNER_TEMP/web-perf-validator"
+          mkdir -p "$trusted"
+          # Gate policy runs from the trusted base tree, never from validator
+          # code supplied by the untrusted PR head.
+          git show "$BASE_SHA:webviews/scripts/latency/validate.ts" > "$trusted/validate.ts"
+          git show "$BASE_SHA:webviews/scripts/latency/report.ts" > "$trusted/report.ts"
           if git cat-file -e "$BASE_SHA:webviews/test/latency/baseline.json"; then
             git show "$BASE_SHA:webviews/test/latency/baseline.json" > "$RUNNER_TEMP/web-perf-baseline.json"
           else
@@ -94,9 +100,8 @@ jobs:
           if git cat-file -e "$BASE_SHA:webviews/test/latency/budget.json"; then
             git show "$BASE_SHA:webviews/test/latency/budget.json" > "$RUNNER_TEMP/web-perf-budget.json"
           else
-            # The budget is policy (50 ms p95), not a measured baseline. Keep
-            # the first PR report actionable while the policy file lands.
-            cp webviews/test/latency/budget.json "$RUNNER_TEMP/web-perf-budget.json"
+            echo "trusted base does not contain web performance budget policy" >&2
+            exit 1
           fi
 
       - name: Measure exact head
@@ -115,6 +120,8 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
+          test -s "$RUNNER_TEMP/web-perf-validator/validate.ts"
+          test -s "$RUNNER_TEMP/web-perf-validator/report.ts"
           test -s "$RUNNER_TEMP/web-perf-baseline.json"
           test -s "$RUNNER_TEMP/web-perf-budget.json"
 
@@ -122,7 +129,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          bun webviews/scripts/latency/validate.ts \
+          bun "$RUNNER_TEMP/web-perf-validator/validate.ts" \
             --results "$RUNNER_TEMP/web-perf-results.json" \
             --baseline "$RUNNER_TEMP/web-perf-baseline.json" \
             --budget "$RUNNER_TEMP/web-perf-budget.json" \
@@ -138,6 +145,7 @@ jobs:
             ${{ runner.temp }}/web-perf-results.json
             ${{ runner.temp }}/web-perf-baseline.json
             ${{ runner.temp }}/web-perf-budget.json
+            ${{ runner.temp }}/web-perf-validator
             ${{ runner.temp }}/web-perf-report.md
           if-no-files-found: warn
           retention-days: 30
