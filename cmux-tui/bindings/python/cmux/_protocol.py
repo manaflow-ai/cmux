@@ -484,8 +484,9 @@ class ProtocolConnection:
             if cancel_event is not None and cancel_event.is_set():
                 raise CancelledError(operation, dispatched=False)
             if deadline - time.monotonic() <= 0:
-                raise TimeoutError(
-                    f"{operation} did not dispatch before the deadline"
+                raise _DispatchTimeoutError(
+                    f"{operation} did not dispatch before the deadline",
+                    write_started=False,
                 )
             if not _skip_request_cleanup_gate:
                 self._active_request_dispatches += 1
