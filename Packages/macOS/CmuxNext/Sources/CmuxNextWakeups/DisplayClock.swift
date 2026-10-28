@@ -526,11 +526,12 @@ public final class DisplayClock {
             arm(display)
             return
         }
-        if isAsleep(display.id) {
+        if display.id != Self.noDisplay, isAsleep(display.id) {
             // The display sleeps: its link cannot fire, and a new one could not either. Its subscribers tick on the
             // deadline (the daemon drains keep moving) with no stall counted and no link made; once it wakes, a link
             // that still stalls is rebuilt as before.
             display.stalls = 0
+            for scheduler in display.subscribers { ledger.record("FrameScheduler.\(scheduler.name)", reason: "display asleep") }
             deliver(display, timestamp: nil, refreshInterval: nil, hiddenUntil: nil)
             guard !display.subscribers.isEmpty else { return idle(display) }
             arm(display)

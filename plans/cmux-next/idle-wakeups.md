@@ -18,7 +18,7 @@ These are the only allowed ways to wake up. `scripts/cmux-next/check-concurrency
 
 | Primitive | Contract |
 | --- | --- |
-| `FrameScheduler` | One per window (`forWindow`, `forView`) plus `FrameScheduler.app` for window-less work. Owns the only display link, runs only while a `FrameClient` is active, drops the link when the last client goes idle. `activeClients` lists owners (debug.wakeups). Stall deadline and link rebuild when frames stop (state-audit D4). |
+| `FrameScheduler` | One per window (`forWindow`, `forView`) plus `FrameScheduler.app` for window-less work. Owns the only display link, runs only while a `FrameClient` is active, drops the link when the last client goes idle. `activeClients` lists owners (debug.wakeups). Stall deadline and link rebuild when frames stop (state-audit D4; no rebuild while the display sleeps). |
 | `FrameClient` | A reason to receive frames (animation, autoscroll, settle, batch). The tick returns false to go idle. `isAnimation: false` marks batch work (store drain) so the busy watchdog does not excuse it. |
 | `DemandTimer` | One-shot deadline on an injected clock: `schedule` (resets), `scheduleIfIdle`, `cancel`. Never repeats. Each fire is one ledger entry. |
 | `Backoff` | Exponential, capped, jittered retry spacing; `wait(owner:)` records the wait. A retry first waits for an event that can make it succeed; Backoff only spaces attempts after a real failure. |
