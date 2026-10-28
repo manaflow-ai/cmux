@@ -62,7 +62,7 @@ IMPORT_BASELINE = frozenset((
     "CmuxNextBrowser", "CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextControl", "CmuxNextDesignTokens",
     "CmuxNextDevices", "CmuxNextErrorJournal", "CmuxNextHostPressure", "CmuxNextIcons",
     "CmuxNextPages", "CmuxNextPopups", "CmuxNextRemoteBrowser", "CmuxNextRemoteLocalhost", "CmuxNextRemoteView",
-    "CmuxNextResources", "CmuxNextServer", "CmuxNextSettingsWindow",
+    "CmuxNextResources", "CmuxNextSettingsWindow",
     "CmuxNextTerminal")))
 TARGET = re.compile(r'^\s*\.(target|testTarget|executableTarget)\(\s*$')
 IMPORT = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|package|internal|private|fileprivate)\s+)?import\s+(\w+)")

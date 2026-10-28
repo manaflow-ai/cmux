@@ -5,7 +5,7 @@ import Testing
 
 @Suite struct RemoteConnectRecoveryTests {
     @Test func aConnectingObservationStaysAliveWithoutAnExistingWindow() {
-        #expect(!RemoteHandlers.shouldEndConnectionObservation(status: .connecting, hasWindow: false))
+        #expect(!RemoteHandlers.shouldEndConnectionObservation(status: .connecting))
     }
 
     @Test func aDaemonFailureClearsRetrySuppression() {

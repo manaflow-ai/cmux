@@ -13,14 +13,14 @@ import CmuxNextServer
 /// refusal on the control socket.
 enum RemoteHandlers {
     /// Whether the observation task should end before handling this update.
-    static func shouldEndConnectionObservation(status: SSHConnectionMachine.Status, hasWindow: Bool) -> Bool {
-        !hasWindow
+    static func shouldEndConnectionObservation(status: SSHConnectionMachine.Status) -> Bool {
+        status == .offline
     }
 
     /// A daemon failure can arrive while the SSH link remains connected, so it
     /// must clear the retry suppression independently of link status changes.
     static func shouldClearRetrySuppression(for failure: String?) -> Bool {
-        false
+        failure != nil
     }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
@@ -207,8 +207,7 @@ enum RemoteHandlers {
                     if let id, !Task.isCancelled { CloudHandlers.show(id, context) }
                     return
                 }
-                if Self.shouldEndConnectionObservation(status: status, hasWindow: window != nil) { return }
-                if status == .offline { return }
+                if Self.shouldEndConnectionObservation(status: status) { return }
                 if Self.shouldClearRetrySuppression(for: failure) { session.connectRecoveryRetrying = false }
                 if let window, !session.connectRecoveryRetrying && (status.needsRecovery || failure != nil) {
                     let detail = RemoteStrings.detail(session) ?? ""
