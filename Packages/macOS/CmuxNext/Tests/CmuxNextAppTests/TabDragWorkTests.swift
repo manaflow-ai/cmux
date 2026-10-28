@@ -66,6 +66,12 @@ import Testing
         try #require(session.window(at: window.convertPoint(toScreen: start)) === f.controller,
                      "no window under the drag: \(f.geometry)")
 
+        /// A drag event at a screen point: no window, so the session reads its location as the screen's (a window
+        /// a display-less host placed elsewhere converts nothing).
+        func dragged(toScreen point: NSPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: .leftMouseDragged, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
         func counts() -> Counts {
             Counts(hitTests: drag.work.hitTests, windowOrderReads: drag.work.windowOrderReads, contextBuilds: drag.work.contextBuilds,
                    ghostRenders: drag.ghost.renders, panelMoves: drag.ghost.panelMoves, dropLookups: layout.lookups.targets,
@@ -88,7 +94,7 @@ import Testing
             for frame in 0..<frames {
                 for step in 0..<eventsPerFrame {
                     let t = CGFloat(frame * eventsPerFrame + step + 1) / CGFloat(frames * eventsPerFrame)
-                    _ = session.handle(try f.event(.leftMouseDragged, at: path(t)))
+                    _ = session.handle(try dragged(toScreen: window.convertPoint(toScreen: path(t))))
                     events += 1
                 }
                 _ = session.tick(drag, elapsed: Self.dt)
