@@ -330,7 +330,9 @@ export function ComposerContext({
   const pickComputer = (id: string) => {
     if (pickCloudMachine(id)) return;
     // A down machine, picked: it reconnects on its own (the current one too), and the pick goes on.
-    if (!readOnly && reconnectsOnUse(computers.find((computer) => computer.id === id)?.link)) onReconnectMachine?.(id);
+    // A started chat's own machine reconnects too: that changes no machine, so read-only allows it.
+    const down = reconnectsOnUse(computers.find((computer) => computer.id === id)?.link);
+    if (down && (!readOnly || id === selectedComputer)) onReconnectMachine?.(id);
     if (!readOnly && id !== selectedComputer) {
       setSelectedComputer(id);
       const folder = availableFolders(summary, sessions, id)[0]?.id;
