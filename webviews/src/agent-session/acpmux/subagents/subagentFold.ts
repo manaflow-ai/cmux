@@ -577,6 +577,7 @@ export class SubagentFold {
       if (update?.sessionUpdate === "agent_thought_chunk" && this.pendingReplySummaries.delete(id)) streaming = false;
     }
     if (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") {
+      if (this.pendingReplySummaries.delete(id)) streaming = false;
       const tools = this.viewTools.get(id) ?? new Map<string, boolean>();
       const call = String(update.toolCallId ?? `tool-${entry.event.seq}`);
       const settled =

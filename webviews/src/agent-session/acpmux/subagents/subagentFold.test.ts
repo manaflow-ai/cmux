@@ -102,6 +102,22 @@ test("the first nonempty child thought settles reply Sources without rescanning 
   }
 });
 
+test("the first child tool after a reply settles its Sources", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
+  feed(fold, say("Read https://example.com/guide"), { subagent: "a" });
+  const live = sessionSummary(fold.views().a!, "acme/app");
+  expect(live.sources).toEqual([]);
+  feed(
+    fold,
+    { sessionUpdate: "tool_call", toolCallId: "t1", title: "Read guide", status: "in_progress" },
+    { subagent: "a" },
+  );
+  expect(sessionSummary(fold.views().a!, "acme/app").sources.map((source) => source.url)).toEqual([
+    "https://example.com/guide",
+  ]);
+});
+
 test("nested renaming and completion invalidate the parent summary revision", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Parent" }] });
