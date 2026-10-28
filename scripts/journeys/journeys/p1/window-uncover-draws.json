@@ -2,7 +2,7 @@
   "id": "window-uncover-draws",
   "priority": "P1",
   "title": "A window covered by another cmux window, then uncovered by closing it, shows the output that came while it was covered",
-  "why": "An optimized build pauses the terminals of a covered window (energy saving). When the cover goes, the person must see the current text at once, not an empty or stale pane. Passed on v2.2.4-opt, cmux17 (frame read 929 ms after the uncover, at the harness's first frame read; one-frame timing is not measured here).",
+  "why": "An optimized build pauses the terminals of a covered window (energy saving). When the cover goes, the person must see the current text at once, not an empty or stale pane. The frame check reads snapshots about once a second; shown_draws_within measures, from the app's own frame counter sampled every 4 ms, the time from the unpause to the first new frame (bounds, not a single number).",
   "source": "v2.2.4-opt gate triage (handoff/v224-gate-triage.md); lead 2026-10-28: a window that was occluded and is shown again must draw its current content at once",
   "budget_seconds": 120,
   "steps": [
@@ -109,6 +109,13 @@
       "params": {}
     },
     {
+      "do": "frame_watch",
+      "as": "w1-frames",
+      "interval_ms": 4,
+      "seconds": 6,
+      "title": "sample w1's terminal (pause, Ghostty frame counter) every 4 ms around the uncover"
+    },
+    {
       "do": "key",
       "title": "Ctrl-Cmd-W closes w2, the covering window",
       "key": "w",
@@ -151,6 +158,13 @@
         },
         {
           "frame_text": "late-${nonce}-42"
+        },
+        {
+          "shown_draws_within": {
+            "watch": "w1-frames",
+            "since": "uncover",
+            "frame_ms": 16.7
+          }
         }
       ]
     }

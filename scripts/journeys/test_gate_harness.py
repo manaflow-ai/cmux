@@ -26,6 +26,7 @@ import driver as D  # noqa: E402
 if "pane_frame_text" not in D.EXT_CONDITIONS:
     D.load_extensions(D)
 import ext_multiwindow as MW  # noqa: E402  (the module load_extensions installed)
+import ext_frametime as FT  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("journeys_run", HERE / "run.py")
 RUN = importlib.util.module_from_spec(_spec)
@@ -139,6 +140,40 @@ class FixturePage(unittest.TestCase):
             text = path.read_text()
             self.assertNotIn('"text": "example.com"', text, path.name)
             self.assertNotIn('"Example Domain"', text, path.name)
+
+
+class ShownDrawsWithin(unittest.TestCase):
+    """window-uncover-draws times the first frame after the unpause from 4 ms samples, as bounds."""
+
+    def journey(self, samples, mark=10.0):
+        j = D.Journey.__new__(D.Journey)
+        j.marks = {"uncover": mark}
+        j.frame_watches = {"w": {"pane": "pane_1", "samples": samples, "interval_ms": 4}}
+        return j
+
+    @staticmethod
+    def s(t, paused, frames):
+        return {"t0": t, "t1": t + 0.001, "paused": paused, "occluded": False, "frames": frames}
+
+    def test_a_draw_one_sample_after_the_unpause_holds_and_reports_bounds(self):
+        samples = [self.s(10.000, "window_occluded", 54), self.s(10.004, "window_occluded", 54),
+                   self.s(10.008, None, 54), self.s(10.012, None, 55)]
+        ok, detail = FT.cond_shown_draws_within(self.journey(samples), {"watch": "w", "since": "uncover"}, {})
+        self.assertTrue(ok, detail)
+        self.assertEqual(detail["frames"], [54, 55])
+        self.assertEqual(detail["unpause_to_frame_ms"], [0.0, 9.0])
+
+    def test_a_draw_two_frames_late_fails(self):
+        samples = [self.s(10.000, "window_occluded", 54), self.s(10.004, None, 54), self.s(10.040, None, 55)]
+        ok, detail = FT.cond_shown_draws_within(self.journey(samples), {"watch": "w", "since": "uncover"}, {})
+        self.assertFalse(ok)
+        self.assertGreater(detail["unpause_to_frame_ms"][1], 16.7)
+
+    def test_a_pane_never_paused_after_the_mark_measures_nothing(self):
+        ok, detail = FT.cond_shown_draws_within(self.journey([self.s(10.0, None, 54), self.s(10.004, None, 55)]),
+                                                {"watch": "w", "since": "uncover"}, {})
+        self.assertFalse(ok)
+        self.assertIn("error", detail)
 
 
 if __name__ == "__main__":
