@@ -184,6 +184,18 @@ final class LinkOpener {
         }
     }
 
+    /// Selects a matching browser tab anywhere in the chat's right column. Beside actions use this
+    /// before creating a new tab so a PR opened from Session Info and the same transcript link share
+    /// one tab (and one close/focus relation) in the workspace.
+    @discardableResult
+    func selectExistingWeb(_ url: URL, from source: PaneController) -> Bool {
+        guard case .pane(let id) = target(from: source, mainPane: false), id != source.layoutPaneID,
+              let pane = source.workspace?.panes[id], let shown = browserTab(showing: url, in: pane) else { return false }
+        pane.select(StripTabID(shown.id))
+        pane.focusContent()
+        return true
+    }
+
     /// Records that closing `surface`'s tab gives the focus back to pane `pane` of `content`.
     func returnFocus(of surface: SurfaceID, to pane: LayoutPaneID, in content: WorkspaceContentController) {
         returns = returns.filter { $0.value.content != nil }

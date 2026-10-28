@@ -54,6 +54,31 @@ enum AgentBesidePlacement {
                 if let services, let clicked { focus(surface, returningTo: from, in: clicked, generation: intent, services: services) }
             }
         }
+        // A right column already exists: keep document opens in that column and insert immediately
+        // after its active tab. This is the AgentBesidePlacement half of RightPanePlacement and is
+        // shared by header Changes/Files/Preview/Browser, inspector PR rows and Environment Files.
+        if let source = controller ?? services.paneController(for: anchor), let content = source.workspace,
+           case .pane(let id) = services.linkOpener.target(from: source, mainPane: false), id != source.layoutPaneID,
+           let right = content.panes[id] {
+            return { [weak right, weak services] surface in
+                guard let right, let services, let tab = services.locateTab(surface)?.0 else { then?(surface); return }
+                let index = insertionIndex(active: right.stripModel.selectedID?.rawValue, tabs: right.pane.tabs.map(\.id))
+                TabMoves.move(tab, to: right.pane, index: index, services: services) { moved in
+                    then?(surface)
+                    if moved, invocation.besideTakesFocus { right.selectWhenReported(surface: surface) }
+                }
+            }
+        }
+        // A resized window may not have room for a second area. Keep the new document as a tab in
+        // the chat's pane below the 480pt chat floor; a zero bounds value is an unlaid-out test view
+        // and keeps the normal daemon placement path.
+        if let source = controller ?? services.paneController(for: anchor), source.view.bounds.width > 0,
+           source.view.bounds.width < RightPanePlacement.minimumChatWidth {
+            return { [weak source] surface in
+                then?(surface)
+                source?.selectWhenReported(surface: surface)
+            }
+        }
         // A lone chat docks left with the agent chat role and the new tab stays in its
         // pane (ChatColumnPlacement.dockChat, the rule a person's new tab follows), so
         // the column right of the chat is always in view; else the tab moves out.
@@ -160,6 +185,14 @@ enum AgentBesidePlacement {
             sink.yield(surface)
             sink.finish()
         }
+    }
+}
+
+extension AgentBesidePlacement {
+    /// Final display index used when a beside document is inserted after the active tab in the
+    /// existing right area. Kept pure so tab ordering remains testable without a daemon.
+    static func insertionIndex(active: String?, tabs: [String]) -> Int {
+        active.flatMap { id in tabs.firstIndex(of: id) }.map { $0 + 1 } ?? tabs.count
     }
 }
 

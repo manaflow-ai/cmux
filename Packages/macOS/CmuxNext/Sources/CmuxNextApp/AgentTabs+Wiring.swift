@@ -166,6 +166,11 @@ extension AgentTabStore {
             guard let id = try? services.cloud.localDeviceID() else { services.daemon.logger.error("agent tabs: no install id, new agent tabs are refused"); return nil }
             return AgentSessionRef.host(installID: id)
         }
+        tabs.rightPane = { [weak services] key in
+            guard let services, let (_, source) = services.locateTab(key), let controller = services.paneController(for: source),
+                  case .pane(let id) = services.linkOpener.target(from: controller, mainPane: false), id != controller.layoutPaneID else { return nil }
+            return id
+        }
         tabs.openProcess = { [weak services] chat, viewer in
             guard let services else { return false }
             return AgentProcessTerminal(services: services).open(viewer, beside: chat)

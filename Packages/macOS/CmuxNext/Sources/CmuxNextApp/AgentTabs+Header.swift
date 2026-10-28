@@ -74,20 +74,34 @@ extension AgentTabStore {
 
     private func openSubagent(_ agent: String, of session: String, focus: Bool, beside provisional: String) -> Bool { // the tracker (AgentSubagentPanes) decides; the app opens and moves the tab
         AgentSubagentPanes.session(session).open(agent, focus: focus, chat: provisional, hooks: .init(isOpen: { [weak self] in self?.locate($0) != nil }, focus: { [weak self] key, script in _ = self?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: self?.resolve(key) ?? key), arguments: script ? ["focus": .bool(true)] : [:], origin: script ? .script : .user)) },
-            place: { [weak self] anchor, down, created, finished in self?.openBeside(anchor, direction: down ? "down" : "right", origin: focus ? .user : .script, main: provisional, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: session) },
+            place: { [weak self] anchor, down, created, finished in self?.openBeside(anchor, direction: down ? "down" : "right", origin: focus ? .user : .script, main: provisional, sessionPlacement: true, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: session) },
                 created: { [weak self] in created($0); self?.revealTurn(AgentSubagentPanes.reveal(agent), in: $0) }, finished: finished) ?? false }, again: { [weak self] request in _ = self?.openSubagent(request.agent, of: session, focus: request.focus, beside: request.chat) })) }
     /// A tab in chat tab `provisional`'s pane, then moved to a new split on its right when `split`; else a tab there, focused when `created` is set.
     /// A split asked for chat `main` when that chat is its screen's main pane (``openInMainPane``) is a tab in the column on its right instead.
     @discardableResult
-    func openBeside(_ provisional: String, split: Bool = true, direction: String = "right", origin: ActionOrigin = .user, main: String? = nil, open: (PaneID, DaemonService) throws -> AgentTabPending, created: (@MainActor (String) -> Void)? = nil, finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
-        if split, let main, let placed = openInMainPane(resolve(main), origin == .user, open, created, finished) { return placed }
-        guard let (pane, daemon) = locate(resolve(provisional)), let pending = try? open(pane, daemon) else { return false }
+    func openBeside(_ provisional: String, split: Bool = true, direction: String = "right", origin: ActionOrigin = .user, main: String? = nil, sessionPlacement: Bool = false, open: (PaneID, DaemonService) throws -> AgentTabPending, created: (@MainActor (String) -> Void)? = nil, finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
+        if split, !sessionPlacement, let main, let placed = openInMainPane(resolve(main), origin == .user, open, created, finished) { return placed }
+        guard let (source, daemon) = locate(resolve(provisional)) else { return false }
+        // Documents opened beside a chat reuse the existing top-right pane. The pane snapshot's
+        // selected tab remains the insertion anchor, so Session Info and header actions follow the
+        // same rule as a transcript link. A missing right pane keeps the existing split path.
+        let reuseSessionArea = sessionPlacement && main.map { resolve(provisional) != resolve($0) } ?? false
+        let existingRight = split && !reuseSessionArea ? rightPane(resolve(provisional)) : nil
+        let pane = reuseSessionArea ? source : existingRight ?? source
+        guard let pending = try? open(pane, daemon) else { return false }
         guard split || created != nil else { return true }
         // task-owner: one tab creation, then one move (or, not `split`, one focus) of that tab
         Task { [weak self] in
             guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: locate) else { finished?(false); return }; created?(tab.key)
-            guard split else { _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), origin: origin)); finished?(false); return }
-            _ = actionRegistry?.perform("tab.moveToNewSplit", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), arguments: ["direction": .string(direction), "keep_focus": .bool(origin == .script)], origin: origin)) // script: an unfocused subagent open
+            guard split, !reuseSessionArea && (existingRight == nil || sessionPlacement) else {
+                _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), origin: origin))
+                finished?(false)
+                return
+            }
+            // A first session is opened in the top-right pane, then split below it. Later sessions
+            // use their newest bottom-right pane as the anchor, so this is the one session split.
+            let splitDirection = sessionPlacement && existingRight != nil ? "down" : direction
+            _ = actionRegistry?.perform("tab.moveToNewSplit", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), arguments: ["direction": .string(splitDirection), "keep_focus": .bool(origin == .script)], origin: origin)) // script: an unfocused subagent open
             if let finished { finished(await TabMirror.reaches(tab.key, in: { [weak self] in self?.locate($0).flatMap { $0.pane != pane ? $0 : nil } })) } // stacking waits for the move
         }
         return true
