@@ -488,6 +488,6 @@ export interface Env {
   readonly PROJECTION_PRIMARY?: string
   /** Projection shadow during dual write: "mysql" or "postgres"; unset = none. */
   readonly PROJECTION_SHADOW?: string
-  /** Where projection reads (home.search, feed sweep) go: "postgres" (default) or "mysql". */
+  /** Where projection reads (home.search, feed sweep) go: "postgres" (default), "shadow" (Postgres answers, MySQL compared per read) or "mysql". */
   readonly PROJECTION_READS?: string
 }
