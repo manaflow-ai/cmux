@@ -57,8 +57,13 @@ final class AgentPaneDictation {
     private var recordsAudio = false
     /// A fresh folder for a long recording (``AgentPaneModel/onDictationFolder``); nil: temporary.
     var recordingFolder: () -> URL? = { nil }
-    /// The chat the pane shows (``AgentPaneModel/sessionId``), kept with each long recording.
+    /// The chat the pane shows (``AgentPaneModel/sessionId``), kept with each long recording: read
+    /// when its session starts (``recordingChat``), never when it ends.
     var chatSession: () -> String? = { nil }
+    /// The chat the current (or closing) session was started in. A session's recording closes
+    /// asynchronously, and the pane may show another chat by then: its file is still that chat's.
+    /// One session runs at a time (a closing one is not startable), so one value is enough.
+    private var recordingChat: String?
     /// The long recordings this pane's sessions wrote and handed the page, newest last, each with
     /// the chat it was made in: the only files ``takeRecording(_:session:)`` gives out, so the page
     /// can never have the host send any other file.
@@ -212,6 +217,8 @@ final class AgentPaneDictation {
         microphone.claims?.claim(self) { [weak self] in self?.session?.stop() }
         let session = activeSession()
         session.recordsAudio = recordsAudio
+        // Only a startable session starts: a session still closing keeps the chat it began in.
+        if session.phase.isStartable { recordingChat = chatSession() }
         session.start()
         if !phase.isStartable, sleepObserver == nil {
             sleepObserver = MainActorObservation(NSWorkspace.willSleepNotification, center: sleepNotifications) { [weak self] in
@@ -227,7 +234,10 @@ final class AgentPaneDictation {
     private func activeSession() -> DictationSession {
         if let session { return session }
         let made = makeSession()
-        made.onUpdate = { [weak self] update in self?.deliver(update) }
+        made.onUpdate = { [weak self] update in
+            guard let self else { return }
+            self.deliver(update, recordedIn: self.recordingChat)
+        }
         made.recordingFolder = { [weak self] in self?.recordingFolder() }
         session = made
         return made
@@ -240,9 +250,11 @@ final class AgentPaneDictation {
         return issued.remove(at: index).file
     }
 
-    func deliver(_ update: DictationUpdate) {
+    /// One of the session's updates, for the page. A long recording on it is issued to `chat`, the
+    /// chat its session was started in (``recordingChat``), whatever the pane shows now.
+    func deliver(_ update: DictationUpdate, recordedIn chat: String?) {
         if let file = update.audio?.file {
-            issued.append((file, chatSession()))
+            issued.append((file, chat))
             if issued.count > Self.issuedRecordingLimit { issued.removeFirst(issued.count - Self.issuedRecordingLimit) }
         }
         if update.phase.isStartable {

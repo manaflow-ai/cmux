@@ -83,8 +83,8 @@ struct AgentPaneDictationUploadTests {
         var chat: String? = "chat-a"
         dictation.chatSession = { chat }
         let file = URL(filePath: "/tmp/cmux-dictation/one/Recording.wav")
-        dictation.deliver(DictationUpdate(phase: .idle, text: "a long one", audio: DictationAudio(file: file, byteCount: 9_600_044)))
-        dictation.deliver(DictationUpdate(phase: .idle, text: "short", audio: DictationAudio(byteCount: 4, data: Data("RIFF".utf8))))
+        dictation.deliver(DictationUpdate(phase: .idle, text: "a long one", audio: DictationAudio(file: file, byteCount: 9_600_044)), recordedIn: "chat-a")
+        dictation.deliver(DictationUpdate(phase: .idle, text: "short", audio: DictationAudio(byteCount: 4, data: Data("RIFF".utf8))), recordedIn: "chat-a")
         chat = "chat-b"
         #expect(dictation.takeRecording("/etc/passwd", session: "chat-a") == nil)
         #expect(dictation.takeRecording(file.path, session: "chat-b") == nil, "another chat's recording")
@@ -98,7 +98,7 @@ struct AgentPaneDictationUploadTests {
         dictation.chatSession = { "chat-a" }
         let files = (0..<(AgentPaneDictation.issuedRecordingLimit + 1)).map { URL(filePath: "/tmp/cmux-dictation/\($0)/Recording.wav") }
         for file in files {
-            dictation.deliver(DictationUpdate(phase: .idle, text: "", audio: DictationAudio(file: file, byteCount: 5_000_000)))
+            dictation.deliver(DictationUpdate(phase: .idle, text: "", audio: DictationAudio(file: file, byteCount: 5_000_000)), recordedIn: "chat-a")
         }
         #expect(dictation.takeRecording(files[0].path, session: "chat-a") == nil, "the oldest is forgotten")
         #expect(dictation.takeRecording(files[files.count - 1].path, session: "chat-a") == files[files.count - 1])
