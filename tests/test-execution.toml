@@ -1926,6 +1926,10 @@ path = "tests/test_pr_capture_check.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pr_perf_section_check.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_pr_capture_check_paths.py"
 lane = "linux-guard"
 
@@ -2148,4 +2152,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_workflow_file_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_fresh_home_launch_smoke.py"
 lane = "linux-guard"
