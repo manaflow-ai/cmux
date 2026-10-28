@@ -15,6 +15,8 @@ bun scripts/latency/run.ts --ci --engine chromium --runs 10 --json results.json 
 suppresses only the legacy frame budget verdict, for an external budget validator or a report.
 Missing browsers/cases, timeouts, page errors, empty/nonfinite samples and unsupported required
 instrumentation still fail. Filters deliberately narrow the selected cases; the gate owns its required list.
+The existing dispatch scoreboard fetches the integration branch tip and passes that verified SHA
+as `--base`, so its shallow topic checkout does not need a merge-base history.
 
 JSON `schemaVersion: 1` records `source` repository/head/base, browser versions, runner, viewport and
 production/development mode; `expectedCases`, requested `runs`, throttle, `results` and `errors`.
