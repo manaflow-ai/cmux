@@ -22,7 +22,7 @@ import Testing
         func add() { value.withLock { $0 += 1 } }
     }
 
-    /// A ``WebUpdates`` on its own overlay and served views, whose transport answers every pointer
+    /// A ``WebUpdates`` on its own overlay, whose transport answers every pointer
     /// read 304 (unchanged) and counts the reads, following `updates.web: every-merge`. Its checks
     /// are deadlines on a rig's scheduler whose wakes the test fires (p06-scheduler-338).
     @MainActor private final class Rig {
@@ -48,7 +48,7 @@ import Testing
                     return (Data(), response)
                 },
                 download: { _ in throw URLError(.cancelled) })
-            web = WebUpdates(overlay: overlay, servedViews: WebBundleServedViews(), transport: transport)
+            web = WebUpdates(overlay: overlay, transport: transport)
             let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
             let app = WebUpdater.App(abi: 2, webBuiltAt: 1_700_000_000)
             launch = LaunchRead<WebUpdates.Launch?>(on:WebUpdatesStartupTests.work, dropped: .some(nil)) {
