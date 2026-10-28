@@ -83,8 +83,11 @@ final class ListStressRig: NSObject {
             store.noteOpened(tabID: "t-g0", in: ws.id)
             shell.tab = .workspaces
             try? await Task.sleep(for: .seconds(1))
+            // Opening the workspace from the list (the push and its first page).
+            FrameIntervalLog.shared.begin("tabs-push")
             shell.workspacesPath = [ws]
             try? await Task.sleep(for: .seconds(2))
+            FrameIntervalLog.shared.end()
             if settings.streams { DemoDirector.shared.post(.chatSend("stream")) }
             try? await Task.sleep(for: .seconds(1))
             if settings.streams {

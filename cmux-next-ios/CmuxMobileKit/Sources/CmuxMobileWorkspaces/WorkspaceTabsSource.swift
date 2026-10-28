@@ -5,6 +5,7 @@ import CmuxMobileBrowserStream
 import CmuxMobileDesign
 import CmuxMobileModel
 import Observation
+import QuartzCore
 import OSLog
 import SwiftUI
 import UIKit
@@ -70,12 +71,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
             selectedTabID = tab.id
         }
         focusOnOpen = store.wantsFocusOnOpen(workspaceID)
-        // Linked to a Mac, browser tabs stream from it; otherwise each has a web view.
-        if !streamed.isLive {
-            for tab in store.workspace(id: workspaceID)?.tabs ?? [] where tab.kind == .browser {
-                browsers[tab.id] = BrowserTabModel(url: tab.url)
-            }
-        }
+        // Browser tabs get their web view when their page is first shown
+        // (`localBrowser`): making one per browser tab here was most of
+        // opening a workspace (a WKWebView each).
         // The first list is built here (the screen reads it on its first
         // body); later ones only when an input changes (`refreshTabs`).
         refreshTabs(preparingCards: false)
@@ -396,6 +394,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         ConnectTimeline.shared.event("tab_activate", detail: id)
         selectedTabID = id
         store.noteOpened(tabID: id, in: workspaceID)
+        if heldTranscriptTab != nil { holdActiveTranscript(true) }
         CmuxMobileTheme.standard.haptics.selection()
     }
 
@@ -449,6 +448,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             selectedTabID = next?.id
             if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
         }
+        if heldTranscriptTab != nil { holdActiveTranscript(true) }
         return true
     }
 
@@ -758,6 +758,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     /// The tab's page: streamed from the Mac while linked, else a local web view.
+    /// The tab's streamed page while linked (nil: a local web view, if shown).
+    func streamedBrowser(_ tab: WorkspaceTab) -> StreamedBrowserModel? {
+        streamed.model(tab: tab.id, url: tab.url, macID: listedWorkspace?.macID)
+    }
+
     func browser(_ tab: WorkspaceTab) -> any BrowserTabState {
         if let model = streamed.model(tab: tab.id, url: tab.url, macID: store.workspace(id: workspaceID)?.macID) { return model }
         return localBrowser(tab)
@@ -767,6 +772,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     func simulator(_ tab: WorkspaceTab) -> StreamedBrowserModel? {
         streamed.simulatorModel(tab: tab.id, macID: store.workspace(id: workspaceID)?.macID)
     }
+
+    func existingBrowser(_ id: String) -> BrowserTabModel? { browsers[id] }
 
     func localBrowser(_ tab: WorkspaceTab) -> BrowserTabModel {
         if let model = browsers[tab.id] { return model }
@@ -815,13 +822,53 @@ public final class WorkspaceTabsSource: TabsDataSource {
     private(set) var isSingleTab = false
     @ObservationIgnored private var gridShown = false
     @ObservationIgnored private var gridScrolling = false
-    var cardsFollowChats: Bool { gridShown && !gridScrolling }
+    /// Cards follow their chats only while the grid rests (settled and still,
+    /// `overviewIdleChanged`), never in a scroll or zoom frame.
+    var cardsFollowChats: Bool { gridShown && gridIdle && !gridScrolling }
+    /// While the grid rests, stale agent cards catch up once per interval.
+    static let cardFollowInterval: Duration = .seconds(1)
+    @ObservationIgnored private var followTask: Task<Void, Never>?
+
+    /// Stale cards catch up one per frame (each re-renders its card), so a
+    /// grid that comes to rest with many stale cards never stalls a frame.
+    @ObservationIgnored private lazy var catchUpStepper = FrameStepper { [weak self] in self?.catchUpOneCard() ?? false }
+
+    private func followCards(_ on: Bool) {
+        followTask?.cancel()
+        followTask = nil
+        guard on else {
+            catchUpStepper.stop()
+            return
+        }
+        catchUpStepper.start()
+        followTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                // A UI refresh cadence for still cards, not synchronization.
+                try? await ContinuousClock().sleep(for: WorkspaceTabsSource.cardFollowInterval)
+                guard let self, !Task.isCancelled, self.cardsFollowChats else { return }
+                self.catchUpStepper.start()
+                if let id = self.heldTranscriptTab { self.surfaces[id]?.refreshHeldTranscript() }
+            }
+        }
+    }
+
+    /// One stale card (nearest the active tab first) catches up; false when none is left.
+    private func catchUpOneCard() -> Bool {
+        guard cardsFollowChats, let workspace = workspaceSnapshot else { return false }
+        let active = workspace.tabs.firstIndex { $0.id == activeTabID } ?? 0
+        let next = workspace.tabs.enumerated()
+            .filter { cardFeeds[$0.element.id]?.stale == true }
+            .min { abs($0.offset - active) < abs($1.offset - active) }
+        guard let next, let feed = cardFeeds[next.element.id] else { return false }
+        feed.catchUp()
+        return true
+    }
 
     /// The card's feed (made with the card: a lookup after that).
     func cardFeed(_ tab: WorkspaceTab, _ workspace: Workspace) -> AgentCardFeed {
         let store = chatStore(tab, workspace)
         if let feed = cardFeeds[tab.id], feed.store === store { return feed }
-        let feed = AgentCardFeed(store: store) { [weak self] in self?.cardsFollowChats ?? false }
+        let feed = AgentCardFeed(store: store)
         cardFeeds[tab.id] = feed
         return feed
     }
@@ -833,13 +880,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
         for id in cardFeeds.keys where !open.contains(id) {
             if let feed = cardFeeds.removeValue(forKey: id) { rasterizer.drop(feed) }
         }
-        guard cardsFollowChats else { return }
-        for feed in cardFeeds.values { feed.catchUp() }
+        // Following resumes one card per frame (`followCards`).
     }
 
     public func overviewWillAppear() {
         // The cards show their chats as they are now from the first frame.
         setCardsFollow(shown: true)
+        holdActiveTranscript(true)
         let inactive = (workspace?.tabs ?? []).filter { $0.kind == .terminal && $0.id != activeTabID }
         if !inactive.isEmpty { terminal.overviewWillAppear(inactive: inactive) }
         guard let id = activeTabID else { return }
@@ -852,6 +899,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
         setCardsFollow(shown: visible)
         if !visible {
             gridIdle = false
+            holdActiveTranscript(false)
+            followCards(false)
             flushHeldTabRefreshes()
         }
         prefetchPrograms(visible)
@@ -864,7 +913,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// built cards first (`AgentCardRasterizer`).
     public func overviewIdleChanged(_ idle: Bool) {
         gridIdle = idle
-        if idle { flushHeldTabRefreshes() }
+        if idle {
+            flushHeldTabRefreshes()
+            setCardsFollow()
+        }
+        followCards(idle)
+        #if DEBUG
+        if ListStressSettings.shared.noCardPictures { return }
+        #endif
         if rasterizer.ahead == nil {
             rasterizer.ahead = { [weak self] template in self?.nextAgentCardAhead(template) }
         }
@@ -899,8 +955,31 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     public func showStaticCard(for id: TabsKitTab.ID) -> Bool {
-        guard let tab = workspaceTab(id), tab.kind == .terminal else { return false }
-        return terminal.showsStaticCard(for: tab)
+        guard let tab = workspaceTab(id) else { return false }
+        switch tab.kind {
+        case .terminal:
+            return terminal.showsStaticCard(for: tab)
+        case .agent, .browser, .simulator:
+            // An agent tab's card on the grid is its live page, which holds
+            // its transcript while the grid shows (`holdActiveTranscript`).
+            return false
+        }
+    }
+
+    /// The tab whose live transcript is held while the grid shows.
+    @ObservationIgnored private var heldTranscriptTab: String?
+
+    /// While the grid shows, the active chat's live page (drawn as its card)
+    /// holds its rows: no layout per streamed token. It refreshes once a
+    /// second while the grid rests (`followCards`) and on leaving the grid.
+    private func holdActiveTranscript(_ hold: Bool) {
+        if let id = heldTranscriptTab, !hold || id != activeTabID {
+            surfaces[id]?.holdsTranscript = false
+            heldTranscriptTab = nil
+        }
+        guard hold, let id = activeTabID, workspaceTab(id)?.kind == .agent else { return }
+        surface(id).holdsTranscript = true
+        heldTranscriptTab = id
     }
 
     // MARK: Toolbar actions
@@ -1614,10 +1693,11 @@ struct WorkspaceTabCard: View {
             case .terminal:
                 source.terminal.card(for: tab, in: workspace)
             case .browser:
-                if let model = source.browser(tab) as? StreamedBrowserModel {
+                if let model = source.streamedBrowser(tab) {
                     StreamedBrowserCard(model: model)
                 } else {
-                    BrowserCard(model: source.localBrowser(tab), insets: insets)
+                    // The tab's model only if its page was shown: a card never makes a web view.
+                    BrowserCard(model: source.existingBrowser(tab.id), insets: insets)
                 }
             case .simulator:
                 if let model = source.simulator(tab) {
@@ -1627,6 +1707,33 @@ struct WorkspaceTabCard: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+    }
+}
+
+/// Calls `step` once per display frame until it returns false.
+@MainActor
+final class FrameStepper: NSObject {
+    private var link: CADisplayLink?
+    private let step: @MainActor () -> Bool
+
+    init(step: @escaping @MainActor () -> Bool) {
+        self.step = step
+    }
+
+    func start() {
+        guard link == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(frame))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    func stop() {
+        link?.invalidate()
+        link = nil
+    }
+
+    @objc private func frame() {
+        if !step() { stop() }
     }
 }
 
@@ -1640,18 +1747,21 @@ final class AgentCardFeed {
     /// The card's picture and what it was drawn from (`AgentCardRasterizer`).
     var raster: (key: AgentCardRasterKey, image: UIImage)?
     @ObservationIgnored let store: AgentChatStore
-    @ObservationIgnored private let follows: @MainActor () -> Bool
-    @ObservationIgnored private var stale = false
+    /// The chat changed since the last copy.
+    @ObservationIgnored private(set) var stale = false
     @ObservationIgnored private var generation = 0
     /// Copies made (tests).
     @ObservationIgnored private(set) var pulls = 0
 
-    init(store: AgentChatStore, follows: @escaping @MainActor () -> Bool) {
+    init(store: AgentChatStore) {
         self.store = store
-        self.follows = follows
         pull()
     }
 
+    /// Copies the chat's turns if they changed since the last copy. The
+    /// source calls this at most once a second while the grid rests
+    /// (`WorkspaceTabsSource.followCards`): a card is a still of its page,
+    /// like a terminal's, not a live view of a streaming chat.
     func catchUp() {
         if stale { pull() }
     }
@@ -1664,9 +1774,10 @@ final class AgentCardFeed {
         let latest = withObservationTracking {
             Array(store.turns.suffix(2))
         } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
+            // Only a flag: no work per streamed token.
+            MainActor.assumeIsolated {
                 guard let self, self.generation == generation else { return }
-                if self.follows() { self.pull() } else { self.stale = true }
+                self.stale = true
             }
         }
         if latest != turns { turns = latest }
