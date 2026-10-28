@@ -460,7 +460,8 @@ final class AppServices {
     /// Samples the footprints into `memoryHistograms` once an hour (startHibernationMeasurements starts it).
     private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
-        sample: { await AppMemoryModel.processes(webContentPIDs: $0) }, deadlines: mainDeadlines)
+        sample: { [parent = cache.chromium.source.helperParent] in await AppMemoryModel.processes(webContentPIDs: $0, helperParent: parent.pid) },
+        deadlines: mainDeadlines)
     /// The New Tab page on the app's one preload slot, which it installs on `webUI` (instant open, p13-webui-044).
     private(set) lazy var newTabSpares = NewTabPreload.app(self)
     /// The app's one preload slot (p13-webui.md 3.D), made here only and installed on `webUI`: New Tab and
