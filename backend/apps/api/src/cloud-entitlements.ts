@@ -1,5 +1,5 @@
 import type { Principal } from "@cmux/ownership"
-import { cloudPlanId, companyPlanKey, paidPlanLimits, type CloudEntitlements } from "./domains/cloud-plan.ts"
+import { CLOUD_RESTRICTED, cloudPlanId, companyPlanKey, paidPlanLimits, type CloudEntitlements } from "./domains/cloud-plan.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
 import type { Env } from "./env.ts"
 
@@ -74,7 +74,8 @@ export class CloudEntitlementStore implements CloudEntitlements {
     if (!answer.ok || !grant.ok) return undefined
     // The raw cmuxPlan, not the router's exact-match paid flag: classic normalizes it (" Max " is max) for machines.
     const own = cloudPlanId(answer.plan ?? null, grant.vm_plan)
-    return companyPlanKey(company, own) ?? (paidPlanLimits(own) ? own : null)
+    // A set plan that grants nothing (a restriction, an unknown id) is kept as such: it also blocks the stub plan.
+    return companyPlanKey(company, own) ?? (own === null ? null : paidPlanLimits(own) ? own : CLOUD_RESTRICTED)
   }
 
   private record(team: string, plan: string | null, at: number) {

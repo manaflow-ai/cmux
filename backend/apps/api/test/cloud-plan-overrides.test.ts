@@ -3,9 +3,9 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 // @ts-expect-error a Vite raw import of web's company domain list (the test runner bundles it; the Worker build never sees it)
 import webAccessText from "../../../../web/services/admin/access.ts?raw"
-import { storeVmPlan } from "../src/cloud-vm-plan.ts"
+import { cloudVmPlanOf, storeVmPlan } from "../src/cloud-vm-plan.ts"
 import { readVmPlanOverride } from "../src/stack-server.ts"
-import { cloudPlanId, COMPANY_EMAIL_DOMAINS, COMPANY_MAX_ACTIVE, companyPlanKey, isCompanyEmail, PAID_PLAN_LIMITS, paidPlanLimits } from "../src/domains/cloud-plan.ts"
+import { CLOUD_RESTRICTED, cloudPlanId, COMPANY_EMAIL_DOMAINS, COMPANY_MAX_ACTIVE, companyPlanKey, isCompanyEmail, PAID_PLAN_LIMITS, paidPlanLimits, STUB_PLAN, teamPlan, type CloudConfig } from "../src/domains/cloud-plan.ts"
 import { userIdFor } from "../src/domains/user.ts"
 import { storePlan } from "../src/inference/plan.ts"
 import { inDO, post, testEnv } from "./setup/inference-person.ts"
@@ -93,6 +93,13 @@ describe("cloudPlanId: classic's billingPlanIdFromMetadata", () => {
     expect(cloudPlanId("pro", readVmPlanOverride({ cmuxVmPlan: "" }))).toBe("free")
     expect(cloudPlanId("max", readVmPlanOverride({ cmuxVmPlan: 7 }))).toBe("free")
     expect(cloudPlanId("pro", readVmPlanOverride({}))).toBe("pro")
+  })
+
+  it("a restriction wins over the stub plan on an allowlisted team; no plan keeps the stub", () => {
+    const config = (plan: string | null): CloudConfig => ({ environment: "staging", allowedTeams: new Set(["team_a"]), prefix: null, image: null, entitlements: { enabled: true, plan: () => plan } })
+    expect(teamPlan(config(CLOUD_RESTRICTED), "team_a")).toBeNull()
+    expect(teamPlan(config(null), "team_a")).toEqual(STUB_PLAN)
+    expect(teamPlan(config("pro"), "team_a")).toEqual(PAID_PLAN_LIMITS.pro)
   })
 
   it("the company domains are web's admin domains", () => {
@@ -202,6 +209,18 @@ describe("Cloud machine grants", { timeout: 60_000 }, () => {
     expect(await planGet(y.t)).toMatchObject({ plan_id: "pro" })
     const answer = await (teamDO(y.team) as unknown as { inferencePlan(team: string, user: string, stackUser?: string): Promise<unknown> }).inferencePlan(y.team, userIdFor(testEnv.STACK_PROJECT_ID, "grant-padded-pro"), "grant-padded-pro")
     expect(answer).toMatchObject({ ok: true, paid: false })
+  })
+
+  it("an older grant answer never overwrites a newer one", async () => {
+    const x = await person("grant-vm-order", null, null)
+    await inDO(teamDO(x.team), async (i) => {
+      const sql = i.ctx.storage.sql as SqlStorage
+      sql.exec(`DELETE FROM cloud_vm_plan`)
+      storeVmPlan(sql, "pro", 2_000)
+      storeVmPlan(sql, "free", 1_000)
+      expect(sql.exec<{ vm_plan: string; checked_at: number }>(`SELECT vm_plan, checked_at FROM cloud_vm_plan WHERE id = 1`).one()).toEqual({ vm_plan: "pro", checked_at: 2_000 })
+      expect(await cloudVmPlanOf(sql, null, x.team, undefined, "grant-vm-order", 2_000 + 1)).toEqual({ ok: true, vm_plan: "pro" })
+    })
   })
 
   it("an unverified company address gets no grant", async () => {

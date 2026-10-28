@@ -43,8 +43,8 @@ export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, en
 
 const ensure = (sql: SqlStorage) => sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_plan (id INTEGER PRIMARY KEY CHECK (id = 1), vm_plan TEXT, checked_at INTEGER NOT NULL)`)
 
-/** Stores what the sign-in service answered at `at` (null = no grant). */
+/** Stores what the sign-in service answered at `at` (null = no grant); a read that started before a newer one never overwrites it. */
 export const storeVmPlan = (sql: SqlStorage, vmPlan: string | null, at: number) => {
   ensure(sql)
-  sql.exec(`INSERT INTO cloud_vm_plan (id, vm_plan, checked_at) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET vm_plan = excluded.vm_plan, checked_at = excluded.checked_at`, vmPlan, at)
+  sql.exec(`INSERT INTO cloud_vm_plan (id, vm_plan, checked_at) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET vm_plan = excluded.vm_plan, checked_at = excluded.checked_at WHERE excluded.checked_at >= cloud_vm_plan.checked_at`, vmPlan, at)
 }

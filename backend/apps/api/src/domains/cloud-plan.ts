@@ -155,10 +155,18 @@ export const STUB_PLAN_ENVIRONMENTS: ReadonlySet<string> = new Set(["development
 export const planFor = (environment: string, team: string | null | undefined, allowed: ReadonlySet<string>): PlanLimits | null =>
   STUB_PLAN_ENVIRONMENTS.has(environment) && team !== null && team !== undefined && allowed.has(team) ? STUB_PLAN : null
 
-/** The team's limits: its paid plan when entitlements are on and it has one, else the stub rule. */
+/**
+ * The entitlement key of a record whose plan is set but grants no machines: an operator restriction
+ * (`cmuxVmPlan` "free", blank or malformed) or an unknown plan id. Classic gives it zero machines,
+ * so it also wins over the stub plan.
+ */
+export const CLOUD_RESTRICTED = "restricted"
+
+/** The team's limits: its paid plan when entitlements are on and it has one, none when it is restricted, else the stub rule. */
 export const teamPlan = (config: CloudConfig, team: string | null | undefined): PlanLimits | null => {
-  const paid = config.entitlements?.enabled && team ? paidPlanLimits(config.entitlements.plan(team)) : null
-  return paid ?? planFor(config.environment, team, config.allowedTeams)
+  const key = config.entitlements?.enabled && team ? config.entitlements.plan(team) : null
+  if (key === CLOUD_RESTRICTED) return null
+  return paidPlanLimits(key) ?? planFor(config.environment, team, config.allowedTeams)
 }
 
 /** CLOUD_ALLOWED_TEAMS: comma-separated team ids; blanks dropped; unset or empty = nobody. */
