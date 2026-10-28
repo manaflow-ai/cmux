@@ -13,9 +13,10 @@ extension LayoutRootView {
     /// before that it joins the pane (cmuxterm-hq#1829: eager split targets).
     /// `joinsFrom`: the source pane of a terminal tab; the edge of the pane
     /// next to it that faces it joins that pane (bonsplit, #22287).
+    /// `lookups`: the drag's lookups on this layout, kept by the caller for the drag.
     @discardableResult
     public func updateTabDrag(_ tab: TabID, locationInWindow: NSPoint, removing: PaneID? = nil,
-                              joinsFrom: PaneID? = nil, edgeDwell: CFTimeInterval = 0) -> DropTarget? {
+                              joinsFrom: PaneID? = nil, edgeDwell: CFTimeInterval = 0, lookups: TabDropLookups? = nil) -> DropTarget? {
         dragTab = tab
         tabDragRemoving = removing
         tabDragJoinsFrom = joinsFrom
@@ -24,7 +25,7 @@ extension LayoutRootView {
             return nil
         }
         let local = view.convert(locationInWindow, from: nil)
-        guard var hit = view.dropTarget(at: local, removing: removing, joinsFrom: joinsFrom, previous: tabDropHit) else {
+        guard var hit = view.dropTarget(at: local, removing: removing, joinsFrom: joinsFrom, previous: tabDropHit, lookups: lookups) else {
             hideHighlight()
             return nil
         }
@@ -34,7 +35,7 @@ extension LayoutRootView {
             if tabDragEdge?.hit != hit.hit { tabDragEdge = (hit.hit, now) }
             let deadline = (tabDragEdge?.since ?? now) + edgeDwell
             if now < deadline, let held = view.dropTarget(at: local, removing: removing, joinsFrom: joinsFrom, previous: tabDropHit,
-                                                                   edgesArmed: false) {
+                                                                   edgesArmed: false, lookups: lookups) {
                 hit = held
                 tabDragDwellDeadline = deadline
             }

@@ -137,6 +137,7 @@ final class TabDragSession: NSObject {
     /// from the live strip model, not from the drag's start.
     func liveContext(_ drag: Drag) -> TabDragContext {
         guard let pane = drag.source.pane else { return drag.source.context }
+        drag.work.contextBuilds += 1
         var context = Self.context(of: pane, item: drag.source.item, draggedCount: drag.source.context.draggedTabCount)
         context.sourceWindowWorkspaceCount = drag.source.context.sourceWindowWorkspaceCount
         return context
@@ -189,6 +190,7 @@ final class TabDragSession: NSObject {
         guard let drag else { return }
         drag.point = point
         drag.samplePointer(point, at: CACurrentMediaTime())
+        drag.work.hitTests += 1
         if case .workspaces = drag.source.item { return updateWorkspaces(point, drag: drag) }
         let context = liveContext(drag)
         let hit = hitTest(point, drag: drag, context: context)
@@ -240,6 +242,7 @@ final class TabDragSession: NSObject {
     /// through (`TabDragWindowPick`).
     func window(at point: CGPoint) -> WindowController? {
         let controllers = services.windows.controllers
+        drag?.work.windowOrderReads += 1
         let ordered = NSApp.orderedWindows.map { window in
             TabDragWindowPick.Candidate(frame: window.frame,
                                         controllerID: controllers.first { $0.window === window }.map { $0.state.id },

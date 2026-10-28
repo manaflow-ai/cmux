@@ -13,8 +13,9 @@ extension ScreenContentView {
     /// held that edge (`LayoutRootView.updateTabDrag`'s dwell); `hit` stays the edge.
     /// `joinsFrom`: a terminal tab's source pane (`DropZoneGeometry.joiningSharedEdge`).
     func dropTarget(at localPoint: NSPoint, removing: PaneID? = nil, joinsFrom: PaneID? = nil, previous: DropTarget? = nil,
-                    edgesArmed: Bool = true)
+                    edgesArmed: Bool = true, lookups: TabDropLookups? = nil)
         -> (target: DropTarget, hit: DropTarget, highlight: CGRect, region: CGRect, companions: [CGRect])? {
+        lookups?.targets += 1
         // The top band starts below the tab bar of the pane under the pointer.
         let (topInset, bottomInset) = dockInsets(at: localPoint)
         if context.model.acceptsEdgeDockDrops,
@@ -24,6 +25,7 @@ extension ScreenContentView {
             return (dock, dock, rect, rect, [])
         }
         let (headers, footers) = paneChromeBands()
+        lookups?.frameMaps += 2
         guard var zoneHit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
                                                     headers: headers, footers: footers, style: context.style,
                                                     previous: previous) else { return nil }
@@ -35,18 +37,19 @@ extension ScreenContentView {
             zoneHit = .pane(pane, .center)
         }
         let hit = DropZoneGeometry.joiningSharedEdge(zoneHit, from: joinsFrom, frames: navigationFrames)
+        lookups?.frameMaps += 1
         let target: DropTarget
         if !edgesArmed, case let .pane(pane, zone) = hit, zone != .center {
             target = .pane(pane, .center)
         } else {
-            target = roomAdjusted(hit, removing: removing)
+            target = roomAdjusted(hit, removing: removing, lookups: lookups)
         }
         guard var rect = DropZoneGeometry.highlightRectInView(for: target, offset: scroll.value, geometry: geometry,
                                                               style: context.style) else { return nil }
         var companions: [CGRect] = []
         // An edge shows the layout the drop makes (DESIGN.md (c)1): the new pane filled, and every pane the
         // split resizes or moves outlined at its final frame.
-        if case let .pane(pane, zone) = target, zone != .center, let preview = finalLayoutPreview(splitting: pane, zone: zone, removing: removing) {
+        if case let .pane(pane, zone) = target, zone != .center, let preview = finalLayoutPreview(splitting: pane, zone: zone, removing: removing, lookups: lookups) {
             rect = preview.newPane
             companions = preview.resized
         } else if case let .pane(pane, zone) = target, let body = paneBody(pane, headers: headers, footers: footers) {
@@ -86,7 +89,8 @@ extension ScreenContentView {
     /// The new pane's rect and the final rects of the panes a split of `pane` at `zone` resizes or
     /// moves (view coordinates, inset 2 pt so neighbors read apart); nil when the layout cannot be
     /// predicted here, and the caller falls back to the half.
-    private func finalLayoutPreview(splitting pane: PaneID, zone: PaneDropZone, removing: PaneID?) -> (newPane: CGRect, resized: [CGRect])? {
+    private func finalLayoutPreview(splitting pane: PaneID, zone: PaneDropZone, removing: PaneID?,
+                                    lookups: TabDropLookups?) -> (newPane: CGRect, resized: [CGRect])? {
         // The drop sends this prediction's ratios once its move landed (`LayoutModel.dropSizingChanges`,
         // TabMoves.toNewSplit), so the preview shows exactly the layout that lands.
         guard let predicted = DropPreviewLayout(splitting: pane, zone: zone, in: layout, removing: removing,
@@ -96,6 +100,7 @@ extension ScreenContentView {
             return nil
         }
         let style = context.style
+        lookups?.geometryComputes += 1
         let after = ScreenGeometry.compute(predicted.layout, viewport: bounds.size, style: style, scale: window?.backingScaleFactor ?? 2)
         let offset = scroll.value
         func shown(_ cell: CGRect, _ pane: PaneID, in geometry: ScreenGeometry) -> CGRect {
@@ -127,8 +132,9 @@ extension ScreenContentView {
 
     /// An edge drop that cannot split for lack of room becomes a new column
     /// beside the pane's column (columns screen, side edge) or joins the pane.
-    private func roomAdjusted(_ target: DropTarget, removing: PaneID?) -> DropTarget {
+    private func roomAdjusted(_ target: DropTarget, removing: PaneID?, lookups: TabDropLookups?) -> DropTarget {
         guard case let .pane(pane, zone) = target, let axis = zone.splitAxis else { return target }
+        if !isCanvas, case .columns = layout { lookups?.geometryComputes += 1 }
         switch splitPlacement(splitting: pane, axis: axis, removing: removing == pane ? nil : removing) {
         case .split:
             return target

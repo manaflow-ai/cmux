@@ -118,6 +118,8 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
     /// The layout pane the drag empties (it closes in the same step): the
     /// split room is decided with it, once, and the commit runs that.
     var removingPane: LayoutPaneID?
+    /// This drag's drop-target lookups on the window's layouts.
+    let lookups = TabDropLookups()
 
     init(window: WindowController) {
         self.window = window
@@ -160,7 +162,7 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
         if touched !== layout { touched?.cancelTabDrag() }
         touched = layout
         guard let target = layout.updateTabDrag(LayoutTabID(dragKey), locationInWindow: windowPoint, removing: removingPane,
-                                                joinsFrom: joinsFrom, edgeDwell: DragTunables.splitDwell.value) else {
+                                                joinsFrom: joinsFrom, edgeDwell: DragTunables.splitDwell.value, lookups: lookups) else {
             return nil
         }
         // The ghost lands on the rect the layout's preview shows (R47).

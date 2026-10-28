@@ -44,6 +44,7 @@ extension TabDragSession {
 
     final class Drag {
         let source: Source
+        var work = TabDragWork()
         let lifecycle: TabDragLifecycle
         let ghost: TabDragGhostPanel
         var motion: TabDragGhostMotion

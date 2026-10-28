@@ -91,6 +91,7 @@ extension TabStripView {
         setHoveredChip(nil)
         hoverCards.dismiss(.action)
         if target.index != dropPlaceholderIndex || target.groupID != dropPlaceholderGroup || groupWidth != groups.phantomWidth {
+            phantomWork.relayouts += 1
             dropPlaceholderIndex = target.index
             dropPlaceholderGroup = target.groupID
             groups.phantomWidth = groupWidth
@@ -103,6 +104,7 @@ extension TabStripView {
     func updatePhantomPosition(at point: CGPoint) {
         let resolved = resolvePhantom(at: point, groupWidth: groups.phantomWidth)
         if resolved.index != dropPlaceholderIndex || resolved.groupID != dropPlaceholderGroup {
+            phantomWork.relayouts += 1
             dropPlaceholderIndex = resolved.index
             dropPlaceholderGroup = resolved.groupID
             relayout(animated: !reduceMotion)
@@ -121,6 +123,7 @@ extension TabStripView {
         let placeholder = TabLayoutItem(id: Self.placeholderID, groupID: resolved.groupID, fixedWidth: groupWidth)
         items.insertPlaceholder(placeholder, atTabIndex: resolved.index)
         let layout = TabLayoutEngine.layout(items: items, availableWidth: viewportWidth, style: model.style, metrics: metrics)
+        phantomWork.layouts += 1
         guard let slot = layout.slot(Self.placeholderID) else { return nil }
         let offset = TabScrollMath.clamp(scrollOffset, contentWidth: layout.contentWidth, viewportWidth: viewportWidth)
         let mapping = TabScrollMapping(result: layout, viewportWidth: viewportWidth, minimumScrollable: metrics.minActiveTabWidth, offset: offset)
@@ -143,6 +146,7 @@ extension TabStripView {
     /// group membership with hysteresis; groups only land between units.
     func resolvePhantom(at point: CGPoint, groupWidth: CGFloat?) -> TabGroupDropResolution {
         let base = TabLayoutEngine.layout(items: baseLayoutItems(), availableWidth: viewportWidth, style: model.style, metrics: metrics)
+        phantomWork.layouts += 1
         let pinnedCount = displayed.count(where: \.isPinned)
         let entries = base.slots.filter { !$0.isPinned }
         let start = entries.first?.x ?? (base.contentWidth + (pinnedCount > 0 ? metrics.pinnedGroupGap : 0))
@@ -162,4 +166,12 @@ extension TabStripView {
         )
         return TabGroupDropResolution(index: pinnedCount + resolved.index, groupID: resolved.groupID)
     }
+}
+
+/// The phantom's work for an external drag, for the drag's work budget (TabDragWorkTests).
+public struct TabPhantomWork: Equatable, Sendable {
+    /// Layout engine runs for the gap's hit test.
+    public internal(set) var layouts = 0
+    /// Strip relayouts for a gap that moved.
+    public internal(set) var relayouts = 0
 }

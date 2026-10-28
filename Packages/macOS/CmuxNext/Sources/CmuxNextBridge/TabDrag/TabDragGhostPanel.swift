@@ -1,9 +1,8 @@
-import AppKit
-import CmuxNextBridge
-import CmuxNextWakeups
+public import AppKit
 import CmuxNextDesign
-import QuartzCore
 import CmuxNextTabs
+public import CmuxNextWakeups
+import QuartzCore
 
 /// The drag ghost: one borderless, non-activating panel that ignores the
 /// mouse and floats above every window. It draws the dragged tab's image
@@ -16,8 +15,8 @@ import CmuxNextTabs
 ///
 /// The panel has a fixed size (the largest card plus shadow room) and only
 /// moves, so a frame costs one window move and a few layer frames.
-final class TabDragGhostPanel {
-    let panel: NSPanel
+public final class TabDragGhostPanel {
+    public let panel: NSPanel
     private let root: GhostRootView
     private let glass: GlassPanelView
     private let tabLayer = CALayer()
@@ -34,11 +33,14 @@ final class TabDragGhostPanel {
     private let inset: CGFloat
     /// The tab image stands on the glass (a translucent window): the glass shows at every
     /// cardness, and the glass edge, not a shadow, lifts it.
-    let onGlass: Bool
+    public let onGlass: Bool
+    /// Frames laid out and panel moves sent to the window server (TabDragWorkTests).
+    public private(set) var renders = 0
+    public private(set) var panelMoves = 0
 
     /// - Parameter onGlass: The image was rendered without a card (`WindowBackdrop.dragCardFill`)
     ///   in the scope it was lifted from, not the app's: a workspace can pin its own background.
-    init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat, onGlass: Bool) {
+    public init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat, onGlass: Bool) {
         self.onGlass = onGlass
         self.tabSize = tabSize
         self.grabOffset = grabOffset
@@ -96,29 +98,29 @@ final class TabDragGhostPanel {
     }
 
     /// The live content preview, when the snapshot arrives.
-    func setThumbnail(_ image: CGImage?) {
+    public func setThumbnail(_ image: CGImage?) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         thumbLayer.contents = image
         CATransaction.commit()
     }
 
-    func show() {
+    public func show() {
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
 
-    func close() {
+    public func close() {
         panel.orderOut(nil)
     }
 
     /// A frame client of the ghost panel's own FrameScheduler (its screen,
     /// 120 Hz on ProMotion).
-    func makeFrameClient(owner: String, onFrame: @escaping @MainActor (FrameTick) -> Bool) -> FrameClient {
+    public func makeFrameClient(owner: String, onFrame: @escaping @MainActor (FrameTick) -> Bool) -> FrameClient {
         FrameClient(owner: owner, view: root, onFrame: onFrame)
     }
 
     /// The ghost's screen geometry for `motion`.
-    func layout(_ motion: TabDragGhostMotion) -> TabDragGhostLayout {
+    public func layout(_ motion: TabDragGhostMotion) -> TabDragGhostLayout {
         TabDragGhostLayout(motion: motion, cardSize: cardSize, inset: inset, grabOffset: grabOffset, tabSize: tabSize)
     }
 
@@ -126,11 +128,13 @@ final class TabDragGhostPanel {
     /// (`TabDragGhostLayout`): the card unfolds around the tab image, which
     /// never moves under the pointer, and a shrink pivots on the grabbed
     /// point.
-    func render(_ motion: TabDragGhostMotion) {
+    public func render(_ motion: TabDragGhostMotion) {
         let layout = layout(motion)
         let tab = layout.tab
         let c = layout.cardness
         let origin = CGPoint(x: (tab.minX - pad).rounded(), y: (tab.maxY + pad - panelSize.height).rounded())
+        renders += 1
+        panelMoves += 1
         panel.setFrameOrigin(origin)
         panel.alphaValue = motion.presentedOpacity
 
