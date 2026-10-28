@@ -210,14 +210,16 @@ test("the wave moves no row: the transcript lays out as it does with no minimap"
   expect(wave.offset).toBe(off.offset);
 });
 
-test("the rail's list never draws a scroller of its own, and the rail takes no room", () => {
+test("the rail's list owns overflow without drawing a second visible scrollbar, and the rail takes no room", () => {
   const css = readFileSync(
     new URL("../src/agent-session/acpmux/threadMinimap/threadMinimap.css", import.meta.url),
     "utf8",
   ).replace(/\/\*[\s\S]*?\*\//g, "");
   const list = /\.acpmux-minimap__list\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
-  expect(list).toMatch(/overflow:\s*hidden/);
-  expect(list).not.toMatch(/overflow(-[xy])?:\s*(auto|scroll)/);
+  expect(list).toMatch(/overflow-y:\s*auto/);
+  expect(list).toMatch(/overscroll-behavior:\s*contain/);
+  expect(list).toMatch(/scrollbar-width:\s*none/);
+  expect(css).toMatch(/\.acpmux-minimap__list::-webkit-scrollbar\s*\{[^}]*display:\s*none/);
   // The rail sits over the transcript: sticky, no height of its own, so it takes no room in the layout.
   const shell = /\.acpmux-minimap\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
   expect(shell).toMatch(/position:\s*sticky/);

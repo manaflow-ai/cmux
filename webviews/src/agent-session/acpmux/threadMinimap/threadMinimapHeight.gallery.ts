@@ -48,7 +48,12 @@ export default agentPaneEntry({
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="40"]')) return;
         await ctx.scroll({ selector: ".acpmux-scroll" }, 3600);
-        await ctx.waitFor(() => ctx.document.querySelector('[data-tick="40"][aria-current="true"]'));
+        // Each arm reaches a different transcript landing row. The shared acceptance condition is
+        // the thing this gallery compares: the rail list has more tick content than its viewport.
+        await ctx.waitFor(() => {
+          const list = ctx.document.querySelector<HTMLElement>(".acpmux-minimap__list");
+          return !!list && list.scrollHeight > list.clientHeight;
+        });
       },
     },
   },

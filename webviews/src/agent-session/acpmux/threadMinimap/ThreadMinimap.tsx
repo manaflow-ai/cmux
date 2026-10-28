@@ -178,6 +178,9 @@ export function ThreadMinimap({
   /// The list's offset as the rail last set it or its scroll event reported it, so a commit reads no
   /// layout to place the list (reading `scrollTop` right after a commit lays out the whole transcript).
   const listOffset = useRef(0);
+  /// A wheel over the rail means the person is browsing its history. Keep their offset until a tick
+  /// click takes them back to the transcript; transcript scrolling must not snap the rail beneath them.
+  const railBrowsing = useRef(false);
   /// A row a key moves focus to that is not drawn yet (tickWindow.ts): drawn on the next commit,
   /// which focuses it.
   const [reveal, setReveal] = useState<number | undefined>(undefined);
@@ -279,6 +282,20 @@ export function ThreadMinimap({
     node.addEventListener("scroll", scrolled, { capture: true, passive: true });
     return () => node.removeEventListener("scroll", scrolled, { capture: true });
   }, [scroller]);
+
+  // React's delegated wheel listener runs after native listeners on the transcript scroller. Install
+  // this capture listener on the list itself so the rail claims the event before it can reach the
+  // transcript's wheel/glide handlers. Native default scrolling remains enabled for this list.
+  useEffect(() => {
+    const node = list.current;
+    if (!node || !overflow) return;
+    const wheel = (event: WheelEvent) => {
+      railBrowsing.current = true;
+      event.stopPropagation();
+    };
+    node.addEventListener("wheel", wheel, { capture: true, passive: true });
+    return () => node.removeEventListener("wheel", wheel, { capture: true });
+  }, [overflow, shown]);
 
   // The transcript's placement pass (its layout effect, after this rail's) has set the offset for
   // this commit: restored the reader's place over older turns, or left it. The band reads that
@@ -515,6 +532,7 @@ export function ThreadMinimap({
     // A hidden rail (too little room, too few prompts) unmounts its list, and the next one mounts at
     // its top: the cached offset goes with it, so the new list is placed from 0 like any other.
     if (!node) {
+      railBrowsing.current = false;
       if (listOffset.current === 0) return;
       listOffset.current = 0;
       setListTop(0);
@@ -522,6 +540,7 @@ export function ThreadMinimap({
     }
     // A list that no longer overflows (another chat, fewer prompts) starts at its top again.
     if (!overflow) {
+      railBrowsing.current = false;
       if (listOffset.current === 0) return;
       node.scrollTop = 0;
       listOffset.current = 0;
@@ -529,7 +548,7 @@ export function ThreadMinimap({
       return;
     }
     // The commit that added older turns placed the list itself, around the band.
-    if (scrubbing || holding.current) return;
+    if (scrubbing || holding.current || railBrowsing.current) return;
     const current = listOffset.current;
     const next = railScrollTop({ first: onScreen.first, last: onScreen.last }, turns.length, height, current);
     if (Math.abs(next - current) < 0.5) return;
@@ -608,6 +627,7 @@ export function ThreadMinimap({
           live.current.marks.toggle(turn);
           return;
         }
+        railBrowsing.current = false;
         setCardRow(index);
         jump(index, "click");
       },

@@ -35,19 +35,24 @@
     opacity: 0;
   }
 }
-/* The list moves only under the rail's own control (it keeps the band in view, a scrub reaches past
-   an edge, a focused row scrolls in), never by the wheel: `overflow: hidden` still scrolls from
-   script and focus but draws no scroller, so the transcript's shared one is the only one on screen
-   (SCROLLBARS-THIN; #23285 left this list a second visible scroller). */
+/* The rail owns its overflow once the taller height has room for more prompts. The scrollbar is hidden
+   in both engines, so the rail remains one quiet column rather than a second visible scroller. Wheel
+   propagation is stopped in ThreadMinimap.tsx; native scrolling still updates this list. */
 .acpmux-minimap__list {
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
   /* An ordered list (each prompt's place for assistive tech), with none of a list's own spacing. */
   margin: 0;
   padding: 0;
   list-style: none;
+}
+.acpmux-minimap__list::-webkit-scrollbar {
+  display: none;
 }
 /* A rail longer than its room fades at an edge with more rows past it: 2.5rem, less in a short rail
    (--acpmux-minimap-fade, model.ts railFade), and never over the prompts on screen (railFades). */

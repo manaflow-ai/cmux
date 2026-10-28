@@ -302,6 +302,33 @@ test("the rail never outgrows a short transcript", async () => {
   expect(railHeight(18, 720, 720, 720, 4, RAIL_HEIGHTS["initial-240-max-80"])).toBe(240);
 });
 
+test("wheel browsing belongs to the rail and is not snapped back by transcript scrolling", async () => {
+  const view = await mount(70);
+  try {
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    const before = view.scroller.scrollTop;
+    const heard: string[] = [];
+    view.scroller.addEventListener("wheel", () => heard.push("transcript"));
+    await act(async () => {
+      list.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true }));
+    });
+    expect(heard).toEqual([]);
+    expect(view.scroller.scrollTop).toBe(before);
+
+    // Simulate the browser's native list scroll, then move the transcript. The browsing latch keeps
+    // the user's rail offset instead of running the reader-following railScrollTop correction.
+    list.scrollTop = 240;
+    await act(async () => list.dispatchEvent(new dom.window.Event("scroll", { bubbles: true })));
+    await act(async () => {
+      view.scroller.scrollTop = 500;
+      view.scroller.dispatchEvent(new dom.window.Event("scroll"));
+    });
+    expect(list.scrollTop).toBe(240);
+  } finally {
+    await view.unmount();
+  }
+});
+
 test("a clicked row takes focus, as a clicked button does in Codex, so Tab goes on from the rail; the click does not hold the card open", async () => {
   const view = await mount(12);
   jest.useFakeTimers();
