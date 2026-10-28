@@ -209,6 +209,66 @@ mod tests {
         handle_command(mux, mux.local_test_client(0), command, &writer)
     }
 
+    fn browser_list(mux: &Arc<Mux>) -> Vec<Value> {
+        let envelope = json!({"protocol":"cmux.protocol/2","type":"request","id":"list",
+                              "operation":"browser.list",
+                              "params":{"machine":"current","session":"current"}});
+        let listed =
+            crate::resource_router::handle_resource_message(mux, &envelope.to_string()).unwrap();
+        assert_eq!(listed["ok"], true, "{listed}");
+        listed["result"].as_array().unwrap().clone()
+    }
+
+    /// u14806: "a browser tab has a camera/microphone thing but idk which
+    /// tab/workspace it is". The app reports what a page captures and
+    /// `browser.list` (the CLI, MCP, Chief) names the tab that does.
+    #[test]
+    fn cmux_next_browser_list_names_the_tab_using_the_camera_or_microphone() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&FRONTEND_BROWSER_MEDIA_CAPABILITY));
+        let terminal = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(terminal)).unwrap();
+        let created = run_json_command(
+            &mux,
+            json!({"cmd":"new-frontend-browser-tab","pane":pane,"url":"https://call.example.com","engine":"cef"}),
+        )
+        .unwrap();
+        let surface = created["surface"].as_u64().unwrap();
+        let quiet = json!({"camera": false, "microphone": false});
+        assert!(browser_list(&mux).iter().all(|browser| browser["media"] == quiet));
+
+        let set = run_json_command(
+            &mux,
+            json!({"cmd":"set-frontend-browser-media","surface":surface,"microphone":true}),
+        )
+        .unwrap();
+        assert_eq!(set["changed"], true);
+        let capturing: Vec<Value> = browser_list(&mux)
+            .into_iter()
+            .filter(|browser| browser["media"]["microphone"] == true)
+            .collect();
+        assert_eq!(capturing.len(), 1, "{capturing:?}");
+        assert_eq!(capturing[0]["url"], "https://call.example.com");
+        assert_eq!(capturing[0]["media"]["camera"], false);
+
+        let again = run_json_command(
+            &mux,
+            json!({"cmd":"set-frontend-browser-media","surface":surface,"microphone":true}),
+        )
+        .unwrap();
+        assert_eq!(again["changed"], false);
+        run_json_command(&mux, json!({"cmd":"set-frontend-browser-media","surface":surface}))
+            .unwrap();
+        assert!(browser_list(&mux).iter().all(|browser| browser["media"] == quiet));
+
+        let error = run_json_command(
+            &mux,
+            json!({"cmd":"set-frontend-browser-media","surface":terminal,"camera":true}),
+        )
+        .expect_err("a terminal has no page");
+        assert!(error.to_string().contains("not a frontend-rendered browser"), "{error}");
+    }
+
     #[test]
     fn cmux_next_frontend_browser_history_commands_round_trip() {
         let mux = test_mux();
