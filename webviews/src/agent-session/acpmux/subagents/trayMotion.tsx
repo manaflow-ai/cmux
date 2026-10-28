@@ -113,10 +113,11 @@ export function playTrayExit(card: HTMLElement): void {
     pointerEvents: "none",
   });
   host.appendChild(ghost);
-  // A tray that only moved (another placement mounts it in the same commit) did not leave: its copy
-  // goes before the frame paints.
+  // A tray that only moved within this host (another placement mounts it in the same commit) did not
+  // leave: its copy goes before the frame paints. Only this host counts: another chat's tray, shown
+  // or hidden, never cancels this exit.
   queueMicrotask(() => {
-    if (card.ownerDocument.querySelector(`.acpmux-running-tray:not(.${TRAY_GHOST})`)) leaving.get(ghost)?.done();
+    if (host.querySelector(`.acpmux-running-tray:not(.${TRAY_GHOST})`)) leaving.get(ghost)?.done();
   });
   const ms = animationMs(ghost);
   if (ms <= 0) {
@@ -137,6 +138,34 @@ export function playTrayExit(card: HTMLElement): void {
   ghost.addEventListener("animationcancel", ended);
   const timer = setTimeout(done, ms + 50);
   leaving.set(ghost, { host, done });
+}
+
+/// Calls `reduced` when the system's Reduce Motion turns on; returns the stop (none without matchMedia).
+function watchReducedMotion(node: Element, reduced: () => void): () => void {
+  const query = node.ownerDocument.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)");
+  if (!query || typeof query.addEventListener !== "function") return () => {};
+  const changed = (event: MediaQueryListEvent) => {
+    if (event.matches) reduced();
+  };
+  query.addEventListener("change", changed);
+  return () => query.removeEventListener("change", changed);
+}
+
+/// Finishes the finite animations on `node` and inside it (an entrance, a tick, a line rising in);
+/// spinners keep turning.
+function finishAnimations(node: Element): void {
+  const all = (node as Element & { getAnimations?: (options?: { subtree?: boolean }) => Animation[] }).getAnimations?.({
+    subtree: true,
+  });
+  for (const animation of all ?? []) {
+    const end = animation.effect?.getComputedTiming?.().endTime;
+    if (end === undefined || !Number.isFinite(Number(end))) continue;
+    try {
+      animation.finish();
+    } catch {
+      // One that cannot finish keeps running.
+    }
+  }
 }
 
 /// The tray card's ref: marks its entrance when it appears in a chat that `shown` already showed
@@ -175,7 +204,15 @@ export function useTrayMotion(
         node.addEventListener("animationend", ended);
         node.addEventListener("animationcancel", ended);
       }
+      // Reduce Motion turned on while the card shows: its entrance, its words' ticks and any copy of
+      // it still leaving finish now. One listener per card, removed with it.
+      const unwatch = watchReducedMotion(node, () => {
+        finishAnimations(node);
+        settle();
+        settleTrayExit(node.offsetParent instanceof HTMLElement ? node.offsetParent : null);
+      });
       return () => {
+        unwatch();
         // The copy is taken first, so a card leaving mid-entrance fades from where it is drawn.
         if (exitsRef.current && shown.current === chat) playTrayExit(node);
         settle();

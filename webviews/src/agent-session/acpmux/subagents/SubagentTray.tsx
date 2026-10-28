@@ -49,7 +49,7 @@ import { memo, useId, useRef, useState } from "react";
 import { useArrivals } from "../../../ui/presence";
 import { experimentArm } from "../../../experiments/experiment";
 import { foldMotion, useFold } from "../conversation/fold";
-import { isAgentMotionOff } from "../../shared/motion";
+import { entranceAllowed } from "../../shared/pageReveal";
 import { Spinner } from "../conversation/icons";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
@@ -139,8 +139,9 @@ export const SubagentTray = memo(function SubagentTray({
   const open = !headed || (opened ?? items.length <= TRAY_OPEN_MAX);
   // The list opens and folds on the shared fold, its height only (no fade in), from the header's
   // chevron or the list growing past TRAY_OPEN_MAX.
-  // A fold on a hidden page applies at once (WebKit would play it on return).
-  const fold = useFold(open, pageShown, false);
+  // A fold while the page is away (hidden, or in its first frames back) applies at once: the shared
+  // page-reveal gate (shared/pageReveal.ts), read only when the fold changes.
+  const fold = useFold(open, entranceMayRun, false);
   // Every line the tray has, drawn or not, and the ones drawn now.
   const keys = [...items.map(itemKey), ...finished.map(itemKey)];
   const drawnKeys = [
@@ -158,10 +159,10 @@ export const SubagentTray = memo(function SubagentTray({
   const known = seen.current;
   const fresh = keys.reduce((count, key) => count + (known.has(key) ? 0 : 1), 0);
   if (fresh > 0) seen.current = new Set(keys);
-  // A hidden page starts no entrance (WebKit would play it on return, shared/pageReveal.ts).
-  const pageHidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+  // A page that is away (hidden, or in its first frames back) starts no entrance: the shared
+  // page-reveal gate, read only when new lines came.
   const moves =
-    open && fresh <= ARRIVALS_PER_UPDATE && !pageHidden && !isAgentMotionOff() && !foldMotion.reducedMotion();
+    open && fresh > 0 && fresh <= ARRIVALS_PER_UPDATE && !foldMotion.reducedMotion() && entranceMayRun();
   const arrivals = useArrivals(keys, moves ? drawnKeys : NO_KEYS);
   const arrivalRefs = useRef(new Map<string, (node: HTMLElement | null) => (() => void) | undefined>());
   if (items.length === 0 && finished.length === 0) return null;
@@ -399,7 +400,9 @@ const NO_ITEMS: readonly TrayItem[] = [];
 const NO_KEYS: readonly string[] = [];
 /// The most lines that rise in from one update; a bigger burst is simply there.
 const ARRIVALS_PER_UPDATE = 3;
-const pageShown = () => typeof document === "undefined" || document.visibilityState !== "hidden";
+/// The shared gate on an entrance or a fold now: the page shows, its first frame back has passed, and
+/// the host's motion is on (shared/pageReveal.ts).
+const entranceMayRun = () => entranceAllowed();
 
 /// What a line says it does now is only for what still runs: an ended one never reads "Running …".
 const liveSession = (session: StartedSession) => session.state === "running" || session.state === "waiting";

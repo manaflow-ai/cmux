@@ -7,6 +7,7 @@ import { useRef, useState, type CSSProperties } from "react";
 import { trayItems } from "../../agent-session/acpmux/subagents/runningTray";
 import { SubagentTray } from "../../agent-session/acpmux/subagents/SubagentTray";
 import type { Subagent } from "../../agent-session/acpmux/subagents/subagentFold";
+import "./trayMotionArms.css";
 
 const NAMES = ["Explore update code", "Check the docs agree", "Review the diff", "Run the red/green tests"];
 const NO_WAITING: ReadonlySet<string> = new Set();
