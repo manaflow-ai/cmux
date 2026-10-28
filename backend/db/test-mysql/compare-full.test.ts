@@ -24,9 +24,9 @@ run("projection full compare", () => {
   // Every statement the pass sends is recorded; anything but a SELECT fails the test before it runs.
   const postgres = { query: (q: string, v?: Array<unknown>) => (sql.push(q), /^\s*select\s/i.test(q) ? pgc.query(q, v) : Promise.reject(new Error(`write: ${q}`))) }
   const mysqlDb = { query: (q: string, v?: Array<unknown>) => (sql.push(q), /^\s*select\s/i.test(q) ? my.query(q, v) : Promise.reject(new Error(`write: ${q}`))) }
-  const both = async (kind: string, payload: Record<string, unknown>, seq = 5) => {
-    const p = projectionStatement(kind, payload, "s:1", seq)!
-    const m = projectionStatementMysql(kind, payload, "s:1", seq)!
+  const both = async (kind: string, payload: Record<string, unknown>, seq = 5, stream = "s:1") => {
+    const p = projectionStatement(kind, payload, stream, seq)!
+    const m = projectionStatementMysql(kind, payload, stream, seq)!
     await pgc.query(p[0], p[1])
     await my.query(m[0], m[1])
   }
@@ -57,7 +57,8 @@ run("projection full compare", () => {
     for (const c of cases) await both(c.kind, c.payload(5))
     // Enough rows for several pages at pageSize 3, with ids and numeric keys whose text order differs from their order (n 2 < 10).
     for (let i = 0; i < 14; i++) await both("team.upsert", { id: `team_page_${String(i).padStart(2, "0")}`, kind: "personal", display_name: `Team ${i}` })
-    for (let n = 1; n <= 12; n++) await both("audit.append", audit("team_p1", n))
+    // (source_stream, source_seq) is unique in audit_events: each event its own stream.
+    for (let n = 1; n <= 12; n++) await both("audit.append", audit("team_p1", n), 1, `s:a${n}`)
   }, 60_000)
   afterAll(async () => {
     await pgc.end()
@@ -99,7 +100,7 @@ run("projection full compare", () => {
       await my.query("DELETE FROM teams WHERE id = 'team_page_10b'")
       await both("team.upsert", { id: "team_page_04", kind: "personal", display_name: "Team 4" }, 6)
       await both("team.upsert", { id: "team_page_09", kind: "personal", display_name: "Team 9" }, 6)
-      const m = projectionStatementMysql("audit.append", audit("team_p1", 10), "s:1", 5)!
+      const m = projectionStatementMysql("audit.append", audit("team_p1", 10), "s:a10", 1)!
       await my.query(m[0], m[1])
     }
   }, 60_000)
@@ -146,7 +147,7 @@ run("projection full compare", () => {
   }, 60_000)
 
   it("a 16-digit numeric key (text from Postgres, a number from MySQL) compares equal", async () => {
-    await both("audit.append", { ...audit("team_p1", 1), n: 1_000_000_000_000_000 })
+    await both("audit.append", { ...audit("team_p1", 1), n: 1_000_000_000_000_000 }, 1, "s:big16")
     try {
       const { table } = await pass()
       expect(table("audit_events")).toMatchObject({ outcome: "equal", diffs: 0 })
@@ -157,7 +158,7 @@ run("projection full compare", () => {
   }, 60_000)
 
   it("a numeric key past 2^53 fails its table instead of comparing rounded keys", async () => {
-    await both("audit.append", { ...audit("team_p1", 1), n: 2 ** 53 })
+    await both("audit.append", { ...audit("team_p1", 1), n: 2 ** 53 }, 1, "s:big53")
     try {
       const { table, done } = await pass()
       expect(table("audit_events")).toMatchObject({ outcome: "failed", level: "error" })
@@ -182,7 +183,7 @@ run("projection full compare", () => {
 
   it("measures a pass over a production-sized table (rows, wall and CPU time)", async () => {
     const N = 6000
-    for (let n = 13; n < 13 + N; n++) await both("audit.append", audit("team_p1", n))
+    for (let n = 13; n < 13 + N; n++) await both("audit.append", audit("team_p1", n), 1, `s:a${n}`)
     const cpu0 = process.cpuUsage()
     const t0 = performance.now()
     const { done, table } = await pass({ pageSize: 1000 })
