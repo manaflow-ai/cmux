@@ -156,12 +156,24 @@ struct SandboxRunNoticeTests {
         let runs = AgentPaneSandboxRuns()
         _ = await runs.run(task: "Fix it", key: "key-r1") { AgentPaneReply.failure(code: "timeout", message: "timeout") }
         let snapshot = try #require(try JSONSerialization.jsonObject(with: Data(Self.succeeded.utf8)) as? [String: Any])
-        #expect(!runs.settle(key: "other", snapshot: snapshot))
-        #expect(runs.settle(key: "key-r1", snapshot: snapshot))
-        // Settled once: a receipt is never replaced.
-        #expect(!runs.settle(key: "key-r1", snapshot: snapshot))
+        runs.settle(key: "other", snapshot: snapshot)
+        #expect(runs.settledLate == nil)
+        runs.settle(key: "key-r1", snapshot: snapshot)
+        #expect(runs.settledLate == "key-r1")
         let value = (await runs.state(wait: false))["value"] as? [String: Any]
         #expect(((value?["reply"] as? [String: Any])?["value"] as? [String: Any])?["receipt"] != nil)
+    }
+
+    @Test func aRunThatEndsWhileItsSendStillAnswersGivesTheSendItsReceipt() async throws {
+        let runs = AgentPaneSandboxRuns()
+        let snapshot = try #require(try JSONSerialization.jsonObject(with: Data(Self.succeeded.utf8)) as? [String: Any])
+        // The Run ends while the send is finishing with its deadline's timeout.
+        let reply = await runs.run(task: "Fix it", key: "key-r1") {
+            runs.settle(key: "key-r1", snapshot: snapshot)
+            return AgentPaneReply.failure(code: "timeout", message: "timeout")
+        }
+        #expect((reply["value"] as? [String: Any])?["receipt"] != nil)
+        #expect(runs.settledLate == nil)
     }
 
     @Test func anEndSavedButNotToldIsToldAtTheNextLaunchOnce() async throws {

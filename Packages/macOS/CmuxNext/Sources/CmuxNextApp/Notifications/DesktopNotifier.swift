@@ -119,6 +119,14 @@ final class DesktopNotifier: NSObject {
         }
     }
 
+    /// Whether banner `id` is in Notification Center (an automation launch has none).
+    func isDelivered(_ id: String) async -> Bool {
+        guard let center = configuredCenter() else { return posted.contains { $0.id == id } }
+        return await withCheckedContinuation { continuation in
+            center.getDeliveredNotifications { delivered in continuation.resume(returning: delivered.contains { $0.request.identifier == id }) }
+        }
+    }
+
     /// Removes banners whose notifications were read or ended, shown or still queued.
     func withdraw(_ ids: [String]) {
         guard !ids.isEmpty, let center else { return }

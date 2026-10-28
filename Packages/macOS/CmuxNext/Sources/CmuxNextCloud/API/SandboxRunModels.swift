@@ -36,6 +36,9 @@ public nonisolated struct SandboxRunEnd: Sendable {
     public enum Outcome: String, Codable, Sendable { case succeeded, failed, timedOut, cancelled }
     public var record: SandboxRunRecord
     public var outcome: Outcome
-    /// The terminal snapshot (`{run, attempts, artifacts, receipt}`) as the server sent it.
+    /// The terminal snapshot (`{run, attempts, artifacts, receipt}`) as the server sent it; a
+    /// replayed end carries the saved receipt alone (`{receipt}`).
     public var snapshot: Data
+    /// Told again at a launch: the last launch saved the end but may have died around its banner.
+    public var replayed = false
 }

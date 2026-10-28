@@ -190,9 +190,12 @@ public final class SandboxRunFollower {
     /// Tells the ends of `user`'s Runs that were saved but not told (the app quit or crashed between the two).
     private func tellUntold(of user: String) {
         for run in ended where !run.told && run.record.user == user {
-            tell(run.record.id, SandboxRunEnd(record: run.record, outcome: run.outcome, snapshot: run.card ?? Data()))
+            tell(run.record.id, SandboxRunEnd(record: run.record, outcome: run.outcome, snapshot: run.card ?? Data(), replayed: true))
         }
     }
+
+    /// Drops the ended Runs older than ``keptEnded`` and tells ``onForget`` (also at a banner's click).
+    public func forgetOld() { prune() }
 
     /// Drops the ended Runs older than ``keptEnded`` and tells ``onForget``.
     private func prune() {

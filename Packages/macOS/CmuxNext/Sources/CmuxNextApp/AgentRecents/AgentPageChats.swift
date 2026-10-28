@@ -95,12 +95,11 @@ final class AgentPageChats {
             guard services.cloud.isSignedIn else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
             // The send, its create's retry and its waits stay with the team it began with (and the
             // create's retry with its account: CloudAPIClient.runSandbox).
-            // The Run is followed for the account and team it was created under (SandboxRunNotices).
-            guard let user = services.cloud.auth.user?.id else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
+            // The Run is followed in the team it was created in (SandboxRunNotices).
             let team = await services.cloud.api.currentTeam()
             let api = services.cloud.api.pinningTeam(team)
             let follow: @Sendable (String) async throws -> Data = { id in
-                try await notices.follow(id: id, task: task, key: key, user: user, team: team)
+                try await notices.follow(id: id, task: task, key: key, team: team)
             }
             return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key, follow: follow) },
                                                 code: AgentPageChats.sandboxCode)
