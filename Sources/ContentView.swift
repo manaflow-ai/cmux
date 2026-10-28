@@ -10143,6 +10143,7 @@ struct ContentView: View {
         captureCommandPaletteRestoreFocusTarget()
         let model = app.makeRemoteTmuxFindWindowModel(
             focusedWorkspaceId: tabManager.selectedTabId,
+            jumper: remoteTmuxFindWindow.jumper,
             didJump: { dismissRemoteTmuxFindWindow(restoreFocus: false) }
         )
         remoteTmuxFindWindow.present(model)

@@ -16,7 +16,8 @@ final class RemoteTmuxFindWindowModel {
         /// Every searchable pane, focused workspace first.
         var candidates: @MainActor () -> [RemoteTmuxFindWindowCandidate]
         /// Reads one pane's history and screen; nil when it can't be read.
-        var readText: @MainActor (RemoteTmuxFindWindowCandidate) async -> RemoteTmuxPaneText?
+        /// Takes the text's bytes from the shared budget as they arrive.
+        var readText: @MainActor (RemoteTmuxFindWindowCandidate, RemoteTmuxFindWindowTextBudget) async -> RemoteTmuxPaneText?
         /// Goes to a result's tab and pane.
         var jump: @MainActor (RemoteTmuxFindWindowResult) -> Void
     }
@@ -50,7 +51,8 @@ final class RemoteTmuxFindWindowModel {
     @ObservationIgnored private let environment: Environment
     @ObservationIgnored private var candidates: [RemoteTmuxFindWindowCandidate] = []
     @ObservationIgnored private var texts: [RemoteTmuxFindWindowCandidate.ID: RemoteTmuxPaneText] = [:]
-    @ObservationIgnored private var textBytes = 0
+    @ObservationIgnored private let textBudgetBytes: Int
+    @ObservationIgnored private var textBudget: RemoteTmuxFindWindowTextBudget
     @ObservationIgnored private var search: RemoteTmuxFindWindowSearch?
     @ObservationIgnored private var nameResults: [RemoteTmuxFindWindowResult] = []
     @ObservationIgnored private var contentResults: [RemoteTmuxFindWindowCandidate.ID: [RemoteTmuxFindWindowResult]] = [:]
@@ -59,8 +61,10 @@ final class RemoteTmuxFindWindowModel {
     @ObservationIgnored private var paneSearchTasks: [Task<Void, Never>] = []
     @ObservationIgnored private var readTasks: [Task<Void, Never>] = []
 
-    init(environment: Environment) {
+    init(environment: Environment, maximumTextBytes: Int = RemoteTmuxFindWindowModel.maximumTextBytes) {
         self.environment = environment
+        self.textBudgetBytes = maximumTextBytes
+        self.textBudget = RemoteTmuxFindWindowTextBudget(bytes: maximumTextBytes)
     }
 
     /// Snapshots the panes, starts reading their text and runs the current query.
@@ -72,7 +76,7 @@ final class RemoteTmuxFindWindowModel {
         settledPaneCount = 0
         unreadPaneCount = 0
         texts = [:]
-        textBytes = 0
+        textBudget = RemoteTmuxFindWindowTextBudget(bytes: textBudgetBytes)
         runSearch()
         var hostOrder: [String] = []
         var panesByHost: [String: [RemoteTmuxFindWindowCandidate]] = [:]
@@ -122,12 +126,12 @@ final class RemoteTmuxFindWindowModel {
     }
 
     private func read(_ candidate: RemoteTmuxFindWindowCandidate) async {
-        guard textBytes < Self.maximumTextBytes else {
+        guard textBudget.remaining > 0 else {
             unreadPaneCount += 1
             settledPaneCount += 1
             return
         }
-        let text = await environment.readText(candidate)
+        let text = await environment.readText(candidate, textBudget)
         guard !Task.isCancelled else { return }
         settledPaneCount += 1
         guard let text else {
@@ -135,7 +139,6 @@ final class RemoteTmuxFindWindowModel {
             return
         }
         texts[candidate.id] = text
-        textBytes += text.byteCount
         searchContents(of: candidate, text: text)
     }
 

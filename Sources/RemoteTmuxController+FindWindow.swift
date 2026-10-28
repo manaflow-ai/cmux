@@ -49,7 +49,10 @@ extension RemoteTmuxController {
 
     /// Reads a candidate pane's full history and screen as plain text, over the
     /// stream that carries its session.
-    func readFindWindowText(for candidate: RemoteTmuxFindWindowCandidate) async -> RemoteTmuxPaneText? {
+    func readFindWindowText(
+        for candidate: RemoteTmuxFindWindowCandidate,
+        budget: RemoteTmuxFindWindowTextBudget
+    ) async -> RemoteTmuxPaneText? {
         guard let mirror = sessionMirrors.values.first(where: {
             !$0.connection.exited
                 && Self.findWindowHostKey($0.host) == candidate.id.hostKey
@@ -59,7 +62,7 @@ extension RemoteTmuxController {
         let reader = RemoteTmuxPaneTextReader(query: { command in
             await source.queryOutcome(command, timeout: 30)
         })
-        return await reader.read(paneId: candidate.paneId)
+        return await reader.read(paneId: candidate.paneId, budget: budget)
     }
 
     /// Identifies a tmux server: pane ids are unique only within one.

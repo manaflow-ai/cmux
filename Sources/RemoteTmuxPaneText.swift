@@ -10,23 +10,22 @@ struct RemoteTmuxPaneText: Equatable, Sendable {
     let lines: [String]
     /// The pane's width in columns when it was read, for counting the rows a line wraps onto.
     let paneWidth: Int
-    /// Whether tmux held more history than one read takes.
+    /// Whether history was left out: tmux held more rows than one read takes, or the
+    /// oldest rows did not fit the find-window text budget.
     let isTruncated: Bool
-    /// Total UTF-8 bytes in ``lines``, for the reader's memory budget.
-    let byteCount: Int
 
     init(lines: [String], paneWidth: Int, isTruncated: Bool) {
         self.lines = lines
         self.paneWidth = max(1, paneWidth)
         self.isTruncated = isTruncated
-        self.byteCount = lines.reduce(0) { $0 + $1.utf8.count }
     }
 
-    /// The most terminal rows `line` can take at ``paneWidth`` columns. A character
-    /// outside ASCII is counted as two columns, the most any character takes, so this
-    /// never comes out under the rows tmux wrapped the line onto.
+    /// The most terminal rows `line` can take at ``paneWidth`` columns. Each Unicode
+    /// scalar outside ASCII is counted as two columns, the most any character takes, so
+    /// this never comes out under the rows tmux wrapped the line onto. Scalars skip the
+    /// grapheme work of iterating characters, and count at least as many columns.
     func maximumRows(of line: String) -> Int {
-        let columns = line.reduce(0) { $0 + ($1.isASCII ? 1 : 2) }
+        let columns = line.unicodeScalars.reduce(0) { $0 + ($1.isASCII ? 1 : 2) }
         return max(1, (columns + paneWidth - 1) / paneWidth)
     }
 }
