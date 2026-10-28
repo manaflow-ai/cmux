@@ -13,6 +13,9 @@
 export const RELEASE_FEEDS = {
   "nightly-next": "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml",
   tip: "https://files.cmux.com/nightly-next/tip/appcast-arm64.xml",
+  // The bare NIGHTLY-identity appcast (no /next/ segment) that cmux nightly
+  // builds on the nightly-next channel read.
+  "nightly-next-legacy": "https://files-next.cmux.com/nightly-next/appcast-arm64.xml",
 } as const satisfies Record<string, string>;
 
 export type ReleaseFeedId = keyof typeof RELEASE_FEEDS;

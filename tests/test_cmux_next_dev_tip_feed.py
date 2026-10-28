@@ -131,7 +131,10 @@ runner = workflow[workflow.index("\n  runner:\n"):workflow.index("\n  verify:\n"
 check("python3 scripts/ci/e2e_runner_pool.py" in runner and "--queue-rounds" not in runner
       and "glaeda-*) ;;" in runner and "environment: release" in runner,
       "the placement job offers an owned Mac only when one is free now, with protected credentials")
-check(runner.count("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1") == 3,
+# The checkout runs on every attempt (the Blacksmith pick reads the same helpers); the token and
+# the owned pick are main's own first attempt only.
+check(runner.count("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1") == 2
+      and "ENABLED: '0'" in runner,
       "only main's own first attempt is offered an owned Mac")
 check("name: owned-pool-watch" in runner and "name: macos-pool-persistent-${{ github.run_id }}" in runner,
       "an owned pick uploads the rescue markers")
@@ -180,7 +183,8 @@ check(build_job["needs"] == ["sign", "runner"] and "verify" not in build_job["if
 # Owned Macs first, Blacksmith macOS last, never a hosted Mac in this repository: attempt 1 takes
 # the runner job's dmg_label (two owned machines free now) and every re-run takes Blacksmith.
 check(build_job["runs-on"] == "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-      "(github.run_attempt == 1 && needs.runner.outputs.dmg_label || 'blacksmith-6vcpu-macos-26') }}",
+      "(github.run_attempt == 1 && needs.runner.outputs.dmg_label || github.run_attempt > 1 && "
+      "needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}",
       "tip-dmg-build takes an owned pick on attempt 1 only, else Blacksmith macOS")
 runner_job = jobs["runner"]
 pick = next(step for step in runner_job["steps"] if step.get("id") == "pool")
@@ -552,7 +556,7 @@ check("SPARKLE_PREVIOUS_ARCHIVES_DIR" not in tip_dmg and "tip-previous/" not in 
       and 'grep -q "<sparkle:deltas>" "tip-out/$TIP_APPCAST"' in tip_dmg,
       "tip-dmg's appcast offers the full DMG alone, so the first feed write names no delta")
 delta_job = jobs["tip-deltas"]
-check(delta_job["needs"] == ["sign", "tip-dmg", "tip"] and "needs.tip.outputs.written == 'true'" in delta_job["if"]
+check(delta_job["needs"] == ["sign", "tip-dmg", "tip", "runner"] and "needs.tip.outputs.written == 'true'" in delta_job["if"]
       and jobs["tip"]["outputs"]["written"] == "${{ steps.feed.outputs.written }}"
       and tip.rstrip().endswith('echo "written=true" >> "$GITHUB_OUTPUT"'),
       "tip-deltas starts only after tip wrote the full-DMG feed")
@@ -800,7 +804,8 @@ check("CRATE_SHA256=f24e9ebdb70a2aee3ca1cea217009fb50776955f0d7678c31d22e48c1524
       "the signer builds the pinned crate with its own lock file and our patch")
 patch_text = (ROOT / "scripts/ci/rcodesign-0.29.0-dmg.patch").read_text()
 check("+++ b/src/dmg.rs" in patch_text and "team_name" in patch_text and "derive_designated_requirements" in patch_text
-      and "0x20200" in patch_text, "the signer patch carries the DMG signature")
+      and "0x20200" in patch_text and "builder.use_codesign_cms_encoding()?;" in patch_text,
+      "the signer patch carries the DMG signature")
 check(all(f"+++ b/src/{name}.rs" in patch_text for name in ("macho_signing", "signing_settings", "code_requirement", "bundle_signing"))
       and "CODESIGN_CMS_RESERVATION: usize = 18000" in patch_text and "Ok(16384)" in patch_text
       and "entitlements_xml_raw" in patch_text and "apple_text::format" in patch_text,

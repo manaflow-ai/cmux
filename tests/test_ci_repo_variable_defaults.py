@@ -87,6 +87,8 @@ GATE_EXEMPT_REPORTING_READS = {
         "reports each runner variable's value; gating would report empty",
     ("ci-repo-variables.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "validates each runner variable's value; gating would validate empty",
+    ("ci-repo-variables.yml", "CMUX_CI_RUNS_ON_VARIABLES"):
+        "checks each runs-on variable's value for one machine; gating would check empty",
     ("ci-cloud-overflow-probe.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "the overflow switch records each value to put back; gating would record empty",
 }
@@ -151,7 +153,7 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
         if any(default_chain_reaches_literal(expression, read.end()) for read in reads):
             continue
         # A last top-level `|| 'label'` is the fallback of the whole expression
-        # (build-nightly-app: trusted tuple || hosted 'macos-26').
+        # (build-nightly-app: trusted tuple || 'blacksmith-12vcpu-macos-26').
         if re.search(r"\|\|\s*'[^']+'\s*\}\}\s*(#.*)?$", line):
             continue
         errors.append(

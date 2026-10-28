@@ -11,7 +11,7 @@ mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser: async () => user }),
 }));
 
-const { runCloudClient, runCloudOrigin, RunSessionSetupError } = await import("../services/runs/cloudClient");
+const { runCloudClient, runCloudOrigin, RunSessionSetupError } = await import("../services/runs/legacy/cloudClient");
 const { projects } = await import("../scripts/cloud-vm/projects.mjs");
 const savedUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL;
 const savedProject = process.env.VERCEL_PROJECT_ID;

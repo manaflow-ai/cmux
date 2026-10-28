@@ -20,6 +20,9 @@ public struct BillingPlanState: Sendable, Equatable {
     public let isPro: Bool
     /// Whether the known account can manage billing through the hosted portal.
     public let canManageBilling: Bool
+    /// The selected team whose plan was used for this snapshot, or `nil` for
+    /// the personal scope.
+    public let teamID: String?
     /// The known account's effective tier, or `nil` while unknown.
     public let tier: CmuxPlanTier?
     /// Who bills the known account's personal plan, or `nil` while unknown.
@@ -39,12 +42,14 @@ public struct BillingPlanState: Sendable, Equatable {
         isPro: Bool,
         canManageBilling: Bool,
         tier: CmuxPlanTier? = nil,
+        teamID: String? = nil,
         billingSource: BillingSource? = nil
     ) {
         self.accountID = accountID
         self.isPro = isPro
         self.canManageBilling = canManageBilling
         self.tier = accountID == nil ? nil : (tier ?? (isPro ? .pro : .free))
+        self.teamID = accountID == nil ? nil : teamID
         self.billingSource = accountID == nil ? nil : billingSource
     }
 
@@ -57,6 +62,7 @@ public struct BillingPlanState: Sendable, Equatable {
         isPro: Bool,
         canManageBilling: Bool,
         tier: CmuxPlanTier? = nil,
+        teamID: String? = nil,
         billingSource: BillingSource? = nil
     ) -> Self {
         Self(
@@ -64,13 +70,19 @@ public struct BillingPlanState: Sendable, Equatable {
             isPro: isPro,
             canManageBilling: canManageBilling,
             tier: tier,
+            teamID: teamID,
             billingSource: billingSource
         )
     }
 
-    /// Retains an existing answer for the same account and clears other answers.
-    public func applyingFailure(for accountID: String) -> Self {
-        self.accountID == accountID ? self : .unknown
+    /// Reports whether this snapshot belongs to the requested account and team scope.
+    public func matches(accountID: String, teamID: String?) -> Bool {
+        self.accountID == accountID && self.teamID == teamID
+    }
+
+    /// Retains an existing answer for the requested account and team scope.
+    public func applyingFailure(for accountID: String, teamID: String?) -> Self {
+        matches(accountID: accountID, teamID: teamID) ? self : .unknown
     }
 }
 

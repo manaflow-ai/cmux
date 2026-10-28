@@ -391,8 +391,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       }
       return await driver.fork(vmId);
     }),
-  exec: (provider, vmId, command, options) =>
-    providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
+  exec: (provider, vmId, command, options) => options?.cancelOnInterrupt
+    ? Effect.tryPromise({
+      // Effect aborts this signal when the fiber is interrupted.
+      try: (signal) => getProvider(provider).exec(vmId, command, { ...options, signal }),
+      catch: (cause) => new VmProviderOperationError({ provider, operation: "exec", cause }),
+    })
+    : providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
   listFiles: (provider, vmId, path) => boundedProviderRead(provider, "listFiles", async (options) => {
     const impl = getProvider(provider);
     if (!impl.listFiles) throw new VmOperationUnsupportedError({ provider, operation: "listFiles" });
