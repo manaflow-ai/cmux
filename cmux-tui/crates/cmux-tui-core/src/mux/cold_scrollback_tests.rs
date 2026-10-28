@@ -305,3 +305,44 @@ fn cold_scrollback_psi_thresholds_match_the_pressure_source() {
     assert_eq!(psi_pressure(&psi(40.0, 15.0)), MemoryPressure::Critical);
     assert_eq!(psi_pressure("garbage"), MemoryPressure::Normal);
 }
+
+/// Ghostty 1.4 compresses idle scrollback pages in place (libghostty-vt's
+/// `ghostty_terminal_compress`, caller-driven). With the default features the
+/// daemon must drive it: a quiet terminal's history pages end up compressed,
+/// on every channel, without the cold codec (`coldScrollbackCompression`
+/// stays off by default).
+#[test]
+fn native_scrollback_compression_compresses_a_quiet_terminals_history_by_default() {
+    use cmux_features::{Channel, Snapshot};
+    let quiet = SurfaceOptions { command: Some(vec!["/bin/cat".into()]), ..Default::default() };
+    let mux = Mux::new_for_test("native-scrollback-compression", quiet);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let mut history = Vec::new();
+    for line in 0..20_000u32 {
+        history.extend_from_slice(
+            format!(
+                "{line:06} cargo build: compiling crate-{} v0.{}.{}\r\n",
+                line % 97,
+                line % 13,
+                line % 7
+            )
+            .as_bytes(),
+        );
+    }
+    surface.with_terminal(|terminal| terminal.vt_write(&history)).unwrap();
+    let compressed = || {
+        surface.with_terminal(|terminal| terminal.page_memory().unwrap().compressed_pages).unwrap()
+    };
+    assert_eq!(compressed(), 0, "nothing compressed before the daemon's pass");
+
+    mux.start_cold_scrollback(&Snapshot::defaults(Channel::Release)).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while compressed() == 0 {
+        assert!(
+            Instant::now() < deadline,
+            "the daemon never compressed the quiet terminal's history"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(!surface.terminal_is_cold(), "native compression keeps the terminal live, not cold");
+}
