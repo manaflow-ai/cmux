@@ -312,7 +312,7 @@ const composerControls = {
     currentModeId: "bypassPermissions",
     availableModes: [
       { id: "ask", name: "Ask before edits", description: "Review changes before they run" },
-      { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+      { id: "bypassPermissions", name: "Bypass permissions", description: "Run actions without approval" },
     ],
   },
 };
