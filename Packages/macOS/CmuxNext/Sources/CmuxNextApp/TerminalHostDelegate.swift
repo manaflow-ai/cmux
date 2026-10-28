@@ -126,7 +126,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// being dispatched, rather than `NSApp.currentEvent`, which is the last event AppKit
     /// dequeued and can be stale by the time Ghostty asks the delegate to open the link.
     private func linkRequest(_ session: TerminalSession) -> (option: Bool, other: Bool, tab: ActionTargetRef?) {
-        let flags = services?.inputDispatch.event?.modifierFlags ?? []
+        let flags = NSApp.currentEvent?.modifierFlags ?? []
         return (flags.contains(.option), LinkRouter.isOtherTarget(flags), services.flatMap { target(of: session, in: $0) })
     }
 
