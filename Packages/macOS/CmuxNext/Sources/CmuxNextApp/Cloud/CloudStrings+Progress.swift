@@ -42,7 +42,7 @@ extension CloudStrings {
     }
 
     static func progressFailed(_ reason: String) -> String {
-        String(format: text("cloud.progress.failed", "The Cloud machine did not start: %@"), reason)
+        String(format: text("cloud.progress.failed", "The Cloud machine did not start. Click Retry; Copy Error copies the details. Reason: %@"), reason)
     }
 
     static func elapsed(_ duration: Duration) -> String {
@@ -65,4 +65,52 @@ extension CloudStrings {
 
     /// The provider reported the machine failed.
     nonisolated static var machineFailed: String { text("cloud.progress.machineFailed", "cmux Cloud reports that the machine failed.") }
+
+    // How a started bootstrap ended (`CloudMachineBootstrap.Completion`), for the wizard and the creation view.
+
+    static func bootstrapNeedsGitHub(_ repo: String) -> String {
+        String(format: String(localized: "cloud.bootstrap.needsGitHub",
+                              defaultValue: "This machine has no GitHub access to %@, so it couldn't clone it.",
+                              table: "Cloud", bundle: .module), repo)
+    }
+
+    static func bootstrapRepoFailed(_ repo: String, log: String) -> String {
+        String(format: String(localized: "cloud.bootstrap.repoFailed",
+                              defaultValue: "Couldn't clone or update %1$@ on the machine. See the log at %2$@.",
+                              table: "Cloud", bundle: .module), repo, log)
+    }
+
+    static func bootstrapScriptFailed(_ code: Int, log: String) -> String {
+        String(format: String(localized: "cloud.bootstrap.scriptFailed",
+                              defaultValue: "The setup script failed with exit code %1$ld. See the log at %2$@.",
+                              table: "Cloud", bundle: .module), code, log)
+    }
+
+    static var bootstrapRunnerNeverCame: String {
+        String(localized: "cloud.bootstrap.runnerNeverCame", defaultValue: "The setup never started on the machine. Try again.",
+               table: "Cloud", bundle: .module)
+    }
+
+    static func bootstrapStopped(log: String) -> String {
+        String(format: String(localized: "cloud.bootstrap.stopped",
+                              defaultValue: "The setup stopped on the machine before it finished. See the log at %@.",
+                              table: "Cloud", bundle: .module), log)
+    }
+
+    static func bootstrapStillRunning(log: String) -> String {
+        String(format: String(localized: "cloud.bootstrap.stillRunning",
+                              defaultValue: "The setup is still running on the machine; see the log at %@.",
+                              table: "Cloud", bundle: .module), log)
+    }
+
+    static func bootstrapUnreachable(_ error: String) -> String {
+        String(format: String(localized: "cloud.bootstrap.unreachable",
+                              defaultValue: "Couldn't read the setup's progress from the machine: %@",
+                              table: "Cloud", bundle: .module), error)
+    }
+
+    static func bootstrapStartFailed(_ reason: String) -> String {
+        String(format: String(localized: "cloud.bootstrap.startFailed", defaultValue: "The setup couldn't start on the machine: %@",
+                              table: "Cloud", bundle: .module), reason)
+    }
 }

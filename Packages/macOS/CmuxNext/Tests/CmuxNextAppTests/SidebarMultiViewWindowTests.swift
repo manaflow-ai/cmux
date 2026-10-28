@@ -23,16 +23,17 @@ struct SidebarMultiViewWindowTests {
         let controller: WindowController
         let keys: [String]
 
-        init(keys: [String] = ["k0", "k1", "k2", "k3"], record: String? = nil) async throws {
+        init(keys: [String] = ["k0", "k1", "k2", "k3"], record: String? = nil, tree: DaemonTree? = nil, capabilities: [String] = []) async throws {
             _ = NSApplication.shared
             self.keys = keys
             services = AppServices(environment: AppEnvironment.current([:]))
             let store = services.machines.local.store
-            let json = #"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#
+            let caps = capabilities.map { "\"\($0)\"" }.joined(separator: ",")
+            let json = #"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1","capabilities":["# + caps + "]}"
             let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
             store.noteHandshake(identity)
             store.connectionState = .connected(identity)
-            store.apply(snapshot: Self.tree(keys))
+            store.apply(snapshot: tree ?? Self.tree(keys))
             if let record {
                 // A relaunch: the window's state comes from its saved record.
                 state = WindowState(record: try JSONDecoder().decode(WindowRecord.self, from: Data(record.utf8)))
@@ -139,11 +140,11 @@ struct SidebarMultiViewWindowTests {
         /// past the window-edge dock band and inside the pane's split band. Tests use the left and bottom edges: a
         /// CI host without a display clamps the window to its minimum size, where a pane is wider than its layout
         /// and its right edge is out of view.
-        func edgePoint(_ edge: TabDropEdge) throws -> CGPoint {
+        func edgePoint(_ edge: TabDropEdge, inset: CGFloat = 0.15, points: CGFloat? = nil) throws -> CGPoint {
             let layout = try #require(controller.content?.layoutView)
             let window = try #require(layout.window)
             let r = layout.convert(layout.bounds, to: nil)
-            let (dx, dy) = (r.width * 0.15, r.height * 0.15)
+            let (dx, dy) = (points ?? r.width * inset, points ?? r.height * inset)
             let point = switch edge {
             case .left: CGPoint(x: r.minX + dx, y: r.midY)
             case .right: CGPoint(x: r.maxX - dx, y: r.midY)
@@ -155,7 +156,7 @@ struct SidebarMultiViewWindowTests {
 
         /// A hold-then-drag of `id`'s sidebar row: pressed, lifted, carried out of the sidebar (the window drag
         /// takes it over there), over `edge`'s split zone of the shown workspace's pane, and released.
-        func dragRow(_ id: String, to edge: TabDropEdge, release: Bool = true) throws {
+        func dragRow(_ id: String, to edge: TabDropEdge, inset: CGFloat = 0.15, points: CGFloat? = nil, release: Bool = true) throws {
             let start = try rowPoint(id)
             list.mouseDown(with: try event(.leftMouseDown, at: start))
             for dy in [CGFloat(-6), -12, -18] {
@@ -166,7 +167,7 @@ struct SidebarMultiViewWindowTests {
             let inside = content.convert(content.bounds, to: nil)
             list.mouseDragged(with: try event(.leftMouseDragged, at: NSPoint(x: inside.midX, y: inside.midY)))
             #expect(services.dragSession.drag != nil, "the window drag did not take the row over")
-            let point = try edgePoint(edge)
+            let point = try edgePoint(edge, inset: inset, points: points)
             #expect(services.dragSession.window(at: point) === controller, "no window under the drag at \(point): \(geometry)")
             services.dragSession.update(point)
             frame()

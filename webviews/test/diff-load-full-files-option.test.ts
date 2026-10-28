@@ -32,6 +32,7 @@ test("a gap's chevron shows a few lines at a time, and nothing expands by itself
       layout: "unified",
       lineNumbers: true,
       showBackgrounds: true,
+      showBulkActions: true,
       wordDiffs: true,
       wordWrap: false,
     },

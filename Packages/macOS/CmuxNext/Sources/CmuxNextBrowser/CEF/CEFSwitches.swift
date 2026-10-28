@@ -4,6 +4,9 @@ import Foundation
 nonisolated struct CEFSwitches: Equatable, Sendable {
     /// `cmux_cef_api_version()`; 0 for stock CEF.
     var forkAPIVersion: Int32
+    /// The fork and shim have the renderer paths (`CEFForkFeatures.rendererPaths`): no tab keeps a
+    /// DevTools session, so the per-renderer reuse switch applies.
+    var rendererPaths = false
     /// Development builds share one ad hoc identity per tag; the real
     /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
     var useMockKeychain: Bool
@@ -19,6 +22,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Extra Chromium switches for diagnosis (development bundles only), for
     /// example `show-browser-frame-regions` or `enable-ui-devtools=9223`.
     var extraSwitches: [String] = []
+    /// Chromium's AsyncLiveResize (below fork API 27): off only for the Debug Settings "Synced live"
+    /// drag resize (`BrowserDragResize.synced`), which lets Chromium hold a frame for the page again.
+    var asyncLiveResize = true
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
@@ -62,8 +68,15 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // in a live resize of its own, so the async live-resize path it also turns on never runs.
         // From fork API 27 the fork's own default is no wait, and a layer-hosted page waits up to
         // the deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync.
-        if forkAPIVersion < Self.resizeSyncForkAPI { result.append("enable-features=AsyncLiveResize") }
+        if forkAPIVersion < Self.resizeSyncForkAPI, asyncLiveResize { result.append("enable-features=AsyncLiveResize") }
         result.append(contentsOf: Self.chromePromptOffSwitches)
+        // Chrome shares a renderer between at most 2 main frames of one site below its process
+        // limit (kProcessPerSiteUpToMainFrameThreshold), but Chromium 154 turns that off for the
+        // whole process once any frame ever had a DevTools agent (RenderFrameHostManager,
+        // WasEverAttachedToAnyFrame), which an agent's CDP session does. The fork's switch keeps
+        // the check per renderer only (a renderer with a DevTools agent is never shared), so one
+        // agent does not end sharing everywhere (fork API 29; tab-lifecycle.md "Renderer sharing").
+        if rendererPaths { result.append(Self.processReusePerRendererDevTools) }
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -125,6 +138,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// client in this build, so DICE is off), the outdated-build bubble
     /// (Google Chrome builds only) and the Privacy Sandbox ad privacy notice
     /// (removed in Chromium 154, kPrivacySandboxAdPrivacyUxDeprecation).
+    /// The fork's switch for per-renderer DevTools checks in main-frame process reuse (fork API 29).
+    static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
+
     static let chromePromptOffSwitches = [
         "no-first-run",
         "no-default-browser-check",
@@ -139,10 +155,12 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// see plans/cmux-next/browser.md ("Chromium diagnostics").
     static func current(
         forkAPIVersion: Int32,
+        rendererPaths: Bool = false,
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
-        keepsUnpackedEnabled: Bool = false
+        keepsUnpackedEnabled: Bool = false,
+        asyncLiveResize: Bool = true
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
@@ -157,11 +175,13 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         #endif
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
+            rendererPaths: rendererPaths,
             useMockKeychain: dev,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,
-            extraSwitches: extra
+            extraSwitches: extra,
+            asyncLiveResize: asyncLiveResize
         )
     }
 

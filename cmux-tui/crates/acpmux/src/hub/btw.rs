@@ -112,14 +112,18 @@ impl Hub {
                     effort: None,
                     adopt: None,
                     remote: meta.remote_origin,
+                    vm_boundary: meta.vm_boundary,
                     env: Default::default(),
                     // The side chat works in its chat's workspace (agent_displays.rs).
                     workspace_id: meta.workspace_id.clone(),
                     // Never the start mode (it may be full access): read-only is set below.
                     keep_harness_mode: true,
+                    starter: None,
                     route: None,
                     subsession: None,
+                    lineage: None,
                     disallowed_tools: Vec::new(),
+                    checked_cwd: None,
                 };
                 let side = match self.new_session(req.clone()).await {
                     // A default model the harness refuses: its own default instead.

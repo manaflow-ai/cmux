@@ -66,6 +66,8 @@ impl Hub {
             plan.started = true;
             (plan.end_agents, plan.keep.clone())
         };
+        // The log retention worker sees the shutdown begun and ends (`retention.rs`).
+        self.retention_wake.notify_one();
         let sessions = self.sessions();
         let mut children = Vec::new();
         let mut hosted = Vec::new();
@@ -148,12 +150,18 @@ impl Hub {
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
         }
+        // What peers' sessions streamed in the last seconds (`peer_snapshot.rs`): the shutdown's
+        // is its last step, after the teardown, and a shutdown past its budget calls it too.
+        self.peer_snapshots.flush_now();
     }
 }
 
+/// The refusal of a spawn once the shutdown has begun (`recovery.rs` types it).
+pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
+
 /// The refusal of a spawn once the shutdown has begun.
 pub(crate) fn shutting_down_error() -> RpcError {
-    RpcError::internal("acpmux is shutting down; no agent starts now")
+    RpcError::internal(SHUTTING_DOWN)
 }
 
 /// How long agents get between SIGTERM and SIGKILL when the daemon stops.

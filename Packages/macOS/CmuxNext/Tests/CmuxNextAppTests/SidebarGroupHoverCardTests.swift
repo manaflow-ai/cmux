@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the
 /// card, like summary stuff, and should be fully customizable too." Resting on a sidebar group's

@@ -8,8 +8,10 @@ import CmuxNextSidebar
 /// on SidebarBridge (SidebarBridge+Sections), which dispatches to these.
 enum SidebarContextMenus {
     /// Every sidebar menu draws its rows with a wash of `scope`'s accent (the sidebar's), not the
-    /// system's blue (#19754's follow-up); the workspace and group menus open with their name and colors.
-    static func menu(for target: SidebarContextTarget, model: SidebarModel, services: AppServices, scope: ThemeScope) -> NSMenu? {
+    /// system's blue (#19754's follow-up); the workspace and group menus open with their name and
+    /// colors. `trailing` rows end a workspace menu after a separator (a pinned tile's own rows).
+    static func menu(for target: SidebarContextTarget, model: SidebarModel, services: AppServices, scope: ThemeScope,
+                     trailing: [NSMenuItem] = []) -> NSMenu? {
         let registry = services.registry
         switch target {
         case .tab(let workspace, let tab):
@@ -35,8 +37,14 @@ enum SidebarContextMenus {
             let target = ActionTargetRef(kind: .workspace, id: first.rawValue)
             let menu = registry.makeContextMenu(for: .workspaceRow, target: target, entries: entries)
             // The name field renames the clicked row only, so a multi-row selection gets just the swatches.
-            MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : model.workspace(first)?.title ?? "",
+            // A pinned workspace's tile has no row in the list model; its name comes from the workspace.
+            let title = model.workspace(first)?.title ?? services.workspace(id: first.rawValue)?.displayName ?? ""
+            MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : title,
                                        rename: "renameWorkspace")
+            if !trailing.isEmpty {
+                menu.addItem(.separator())
+                for item in trailing { menu.addItem(item) }
+            }
             if selection { nameSelection(menu, ids, services) }
             menu.themeRows(in: scope)
             return menu

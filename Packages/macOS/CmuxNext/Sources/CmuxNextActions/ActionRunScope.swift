@@ -69,11 +69,13 @@ extension ActionRegistry {
         // later with this invocation does not report this press's age.
         var handed = invocation
         handed.inputTimestamp = nil
+        // The effect is settled inside the run's scopes, so the remote half it starts keeps the run's
+        // view-change permission and machine routing.
         ActionRunScope.$current.withValueInTask(run) {
             if let invocationScope {
-                invocationScope(handed) { action.run(handed) }
+                invocationScope(handed) { settle(action.run(handed), of: id, handed) }
             } else {
-                action.run(handed)
+                settle(action.run(handed), of: id, handed)
             }
         }
         runObserver?(id, handed)

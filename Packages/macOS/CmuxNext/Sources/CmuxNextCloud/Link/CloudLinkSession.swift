@@ -74,6 +74,18 @@ public actor CloudLinkSession {
         }
     }
 
+    /// The current connect's socket while its link is up, without handing it to a connection:
+    /// ``endpoint(_:)`` still serves it once. For another, short-lived client of the same machine
+    /// daemon (`cmux link machine update`), also while the app refused that daemon: the carrier
+    /// dials the machine once per connection it accepts (``CloudConnectOpResolver``). Nil before a
+    /// connect answered and once the link ended.
+    public var currentSocket: String? {
+        switch state {
+        case .ready(let socket), .attached(let socket): socket.path
+        case .idle, .connecting, .ended: nil
+        }
+    }
+
     /// The daemon connection's endpoint: the ticket's socket, once. Throws
     /// ``CloudLinkError`` otherwise; a current ticket's second call ends the
     /// link, an old ticket changes nothing.

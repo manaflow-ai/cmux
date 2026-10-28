@@ -122,6 +122,7 @@ import {
   devboxJournalResetCommand,
   devboxParkDaemonCommand,
   devboxSettleBeforeSnapshotCommand,
+  DEVBOX_MACHINE_HEALTH_PARKED_COMMAND,
   devboxPrepareTemplateTerminalCommand,
   devboxSnapshotClockCommand,
   devboxWaitForDaemonCommand,
@@ -153,6 +154,7 @@ import {
   metadataGuardRules,
   metadataGuardUnit,
 } from "../services/vms/images/metadataGuard";
+import { machineHealthBakeCommand, machineHealthFiles } from "./cmux-vm-image/machine-health";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -368,7 +370,11 @@ try {
   // echo-fed seed shells and test -s guards; see ../services/vms/images/devbox/Dockerfile).
   // Cache seeds cover root and the work user (uid 1000).
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
-  await step("vm-kind-default", "echo team > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
+  // agent-config.sh keeps a caller's model-plane env only on an `owner` record (an absent or
+  // team record is shared). The agent-config and agent-hooks checks below prove
+  // that owner path before /etc/cmux/model-plane.env exists. The bake holds
+  // `owner` through both checks, then writes the `team` boot default.
+  await step("vm-kind-bake-owner", "echo owner > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
   await put("cmux-prompt.bash", "/etc/cmux/prompt.bash");
   await step("python-completion-dir", "mkdir -p /usr/local/share/bash-completion/completions");
@@ -549,6 +555,15 @@ try {
       "echo agent-hooks-ok",
     ].join(" && "),
   );
+  // The record every machine boots with (cmux-vm-kind-sync and the create replace it).
+  // It comes after agent-hooks: that step's hook-merge login shell needs the
+  // owner path too (a team record keeps no provider block).
+  // On a team record a login shell keeps none of a caller's model-plane env
+  // (cmux_prepare_shared_machine_model_env).
+  await step(
+    "vm-kind-default",
+    "echo team > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind && rm -rf /tmp/team-kind-check && env HOME=/tmp/team-kind-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-team-kind-check bash -lc true && ! grep -rqs cmux-team-kind-check /tmp/team-kind-check && rm -rf /tmp/team-kind-check && echo team-kind-keeps-no-caller-env",
+  );
 
   // The Ghostty generation panes announce as TERM_PROGRAM_VERSION (the
   // supervisor exports it next to TERM_PROGRAM=ghostty; see cmux-devbox-boot).
@@ -647,6 +662,17 @@ try {
   // is wiped except the template terminal's host record.
   await step("cmux-tui-daemon-park", devboxParkDaemonCommand());
 
+  // cmux-machine-health (images/cmux-vm/machine-health), the same install as
+  // the cmux VM image: the script's own `install --no-start` (the 60 s timer
+  // enabled, not started; the guard drop-ins for login sessions, user.slice
+  // and the work user's manager) and one check-only pass, so no fix and no
+  // disk hygiene runs during the bake. Installed after the park, whose
+  // park_housekeeping already ran: the timer stays stopped into the snapshot
+  // and a clone starts it with the other HOUSEKEEPING_TIMERS
+  // (DEVBOX_MACHINE_HEALTH_PARKED_COMMAND).
+  for (const file of machineHealthFiles()) await vm.fs.writeFile(file.path, file.text, { mode: file.mode });
+  await step("machine-health", machineHealthBakeCommand());
+
   await step(
     "ghost-text-smoke",
     "tmux new-session -d -s ghost -x 100 -y 24 && sleep 2 && tmux send-keys -t ghost cl && sleep 2 && tmux capture-pane -pt ghost | grep -o 'claude --dangerously-skip-permissions' | head -1; rc=$?; tmux kill-session -t ghost 2>/dev/null; tmux kill-server 2>/dev/null; test $rc -eq 0",
@@ -689,6 +715,9 @@ try {
   // is the same bytes on every machine and stays; the verifier checks it.)
   await step("clean", `rm -rf /var/lib/apt/lists/* /root/.npm/_cacache ${WORK_HOME}/.npm/_cacache 2>/dev/null; rm -f /root/.claude.json ${WORK_HOME}/.claude.json; ${devboxJournalResetCommand}; sync; true`);
   await step("no-stale-claude-seed", `test ! -e /root/.claude.json && test ! -e ${WORK_HOME}/.claude.json && echo no-stale-claude-seed`);
+  // After the bake's last shell: the timer is enabled but stopped and the
+  // bake pass's files are gone, so a clone runs no pass until its re-arm.
+  await step("machine-health-parked", DEVBOX_MACHINE_HEALTH_PARKED_COMMAND);
   // Last guest step before the snapshot; see devboxSettleBeforeSnapshotCommand.
   await step("settle-before-snapshot", devboxSettleBeforeSnapshotCommand());
 } catch (error) {

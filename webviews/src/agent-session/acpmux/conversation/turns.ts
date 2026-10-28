@@ -13,7 +13,7 @@ import { findRowIndex } from "./chatFind";
 import { turnPreviewCardsOn, turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
-import { isSubagentGroup } from "../subagents/subagentRows";
+import { isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
@@ -21,6 +21,8 @@ import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
 import { tailStart } from "./ToolGroupRow";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
+import { acpmuxSendCall } from "./acpmuxSends";
+import { subsessionCall } from "./subsessionCalls";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -130,6 +132,8 @@ export type TurnView = {
   clockOffset: number;
   liveRuns: boolean;
   lineBelow: boolean;
+  working: boolean;
+  sessionStatus: boolean;
   /// Where the first prompt is: the rows before it draw as they are.
   lead: number;
   /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
@@ -164,6 +168,19 @@ export function turnViewFrom(
   } = {},
   previous?: TurnView,
 ): TurnView {
+  if (
+    previous &&
+    previous.source === rows &&
+    previous.expanded === expanded &&
+    previous.clockOffset === clockOffset &&
+    previous.liveRuns === liveRuns &&
+    previous.lineBelow === lineBelow &&
+    previous.working === working &&
+    previous.sessionStatus === sessionStatus &&
+    (!previous.starts.length ||
+      showsTimestamp(previous.times[0]!, undefined, now, previous.lead === 0) === previous.dated[0])
+  )
+    return previous;
   // The turn to shape from: the one holding the first changed row. The turn before it may
   // have ended there, and the last turn draws differently once another follows it.
   let reuse = 0;
@@ -176,9 +193,12 @@ export function turnViewFrom(
     previous.starts.length
   ) {
     const shared = previous.source;
-    let from = 0;
-    while (from < rows.length && from < shared.length && rows[from] === shared[from]) from += 1;
-    while (reuse < previous.starts.length && previous.starts[reuse]! < from) reuse += 1;
+    if (rows === shared) reuse = previous.starts.length;
+    else {
+      let from = 0;
+      while (from < rows.length && from < shared.length && rows[from] === shared[from]) from += 1;
+      while (reuse < previous.starts.length && previous.starts[reuse]! < from) reuse += 1;
+    }
     reuse = Math.max(0, reuse - 1);
   }
   // The first turn's line depends on `now`.
@@ -254,7 +274,21 @@ export function turnViewFrom(
       out.push(row);
     ends.push(out.length);
   }
-  return { source: rows, expanded, clockOffset, liveRuns, lineBelow, lead, starts, times, dated, ends, rows: out };
+  return {
+    source: rows,
+    expanded,
+    clockOffset,
+    liveRuns,
+    lineBelow,
+    working,
+    sessionStatus,
+    lead,
+    starts,
+    times,
+    dated,
+    ends,
+    rows: out,
+  };
 }
 
 /// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
@@ -369,6 +403,14 @@ function shapedTurn(
       ...held,
       ...line,
     ];
+    // Legacy/history turns can end without a turn_result. Keep the normal turn rhythm at the
+    // composer for the latest completed turn without restoring the permanent runway under every
+    // turn. The marker is consumed by the row estimator and CSS only for this terminal row.
+    if (last && !live && held.length === 0 && !turn.some((row) => row.kind === "turnSummary")) {
+      let final = shaped.length - 1;
+      while (final >= 0 && (shaped[final]!.kind === DATE || shaped[final]!.kind === "user")) final -= 1;
+      if (final >= 0) shaped[final] = { ...shaped[final]!, lastTurn: true };
+    }
   }
   if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, liveRuns, rows: shaped });
   return shaped;
@@ -667,6 +709,8 @@ const staysOut = (row: AcpmuxRow) =>
   row.kind === "sessionOffer" ||
   // A chat the turn started keeps its card in sight (started/startedSessions.ts).
   row.kind === STARTED_SESSIONS ||
+  // So does a Claude workflow it started (Labs, summary/WorkflowCard.tsx).
+  row.kind === WORKFLOW_CARD ||
   // What the person answered an agent's question, which shaped the rest of the turn.
   row.kind === QUESTION_RECORD;
 
@@ -750,7 +794,7 @@ function liveTurn(
     // the turn's last row and ticks from the prompt.
     if (plan && last?.kind !== "assistant") {
       const work = shown.filter((row) => row !== plan);
-      return [...work, plan, activityLine(user, work, plan, clockOffset)];
+      return [...work, plan, activityLine(user, work, plan, clockOffset, undefined, true)];
     }
     const status: AcpmuxRow = { id: LIVE_THINKING, version: 2, at, kind: WORKING, below: true };
     const doing = last && inFlightCall(last);
@@ -761,6 +805,7 @@ function liveTurn(
     // One running call reads once: not here while its own row names it (`ownRow`).
     if (doing && doing.row !== true) {
       status.doing = doing.title;
+      Object.assign(status, sendingTo(doing.tool));
       if (doing.row) Object.assign(status, { doingGroup: doing.row.key, doingGroupOpen: doing.row.open });
     }
     // Before any output it reads "Thinking"; a thought coming in labels itself (ThoughtRow.tsx).
@@ -784,6 +829,7 @@ function liveTurn(
     if (doing?.draft) status.doingDraft = true;
     if (doing && (liveRuns || doing.row !== true)) {
       status.doing = doing.title;
+      Object.assign(status, sendingTo(doing.tool));
       if (doing.row && doing.row !== true && !liveRuns)
         Object.assign(status, { doingGroup: doing.row.key, doingGroupOpen: doing.row.open });
     }
@@ -844,6 +890,7 @@ function codexLiveTurn(
     // A started command shows "⌃B to run in background" on the line, never on a transcript row
     // (Thinking.tsx; Leo, 2026-10-22: "this cmd b to run in background ... it should prob go down").
     if (call.kind === "execute" && !line.doingDraft) line.doingCommand = true;
+    Object.assign(line, sendingTo(call));
     line.doingAt = (call.startedAt ?? named.at) + clockOffset;
   } else if (last.kind === "assistant") line.quietKey = `${last.id}:${last.version}`;
   const answering = last.kind === "assistant";
@@ -863,6 +910,7 @@ function codexLiveTurn(
       plan,
       clockOffset,
       named?.tool,
+      true,
     ),
   ];
 }
@@ -917,6 +965,7 @@ function activityLine(
   plan: AcpmuxRow,
   clockOffset: number,
   named?: NonNullable<AcpmuxActivity["tool"]>,
+  below = false,
 ): AcpmuxRow {
   const running = named
     ? { kind: "tool", text: "", tool: named }
@@ -937,9 +986,26 @@ function activityLine(
     at: user.at + clockOffset,
     kind: ACTIVITY_LINE,
     text: label,
+    // The line below a plan occupies the footer's slot. Keeping the marker on that row lets the
+    // estimator and the DOM swap it for `turnSummary` without changing the rows above it.
+    ...(below && { below: true }),
   };
   if (command) line.doingCommand = true;
+  if (running?.tool) Object.assign(line, sendingTo(running.tool));
   return line;
+}
+
+/// The message a call in flight sends, for the live line: "Sending message to tests", never the
+/// raw `acpmux send …` line (Leo 2026-10-24: "sending message or sent message to X or Y").
+function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "doingSendTo" | "doingSendSession"> {
+  const send = acpmuxSendCall(tool);
+  // Only a send still going: one that failed in the background is not "Sending" any more.
+  if (send) return send.state === "sending" ? { doingSendTo: send.target } : {};
+  if (tool.kind === "execute" && tool.command) return {};
+  const call = subsessionCall(tool);
+  if (call?.tool !== "send") return {};
+  const id = call.sessionId;
+  return { doingSendTo: id.length > 12 ? `${id.slice(0, 8)}…` : id, doingSendSession: id };
 }
 
 /// A running call in one short line: a command as itself ("Ran …" would say it has finished), a
@@ -953,7 +1019,11 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
 
 /// The newest call still running in a live turn's latest row, by its title, and where the
 /// transcript draws its own row (`ownRow`).
-function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; draft: boolean; row: OwnRow } | undefined {
+function inFlightCall(
+  row: AcpmuxRow,
+):
+  | { title: string; command: boolean; draft: boolean; row: OwnRow; tool: NonNullable<AcpmuxActivity["tool"]> }
+  | undefined {
   if (row.kind !== "activity") return undefined;
   const items = row.items ?? [];
   for (let index = items.length - 1; index >= 0; index--) {
@@ -962,7 +1032,9 @@ function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; draft:
     // The row's own label, never the call's raw JSON input; a command reads as itself.
     const title = toolLabel(tool, "", (command) => command).trim();
     const draft = isDraftCall(tool);
-    return title ? { title, command: tool.kind === "execute", draft, row: ownRow(row, items[index]!) } : undefined;
+    return title
+      ? { title, command: tool.kind === "execute", draft, row: ownRow(row, items[index]!), tool }
+      : undefined;
   }
   return undefined;
 }
@@ -983,6 +1055,7 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   if (
     group.type === "item" ||
     group.type === "message" ||
+    group.type === "send" ||
     group.type === "subsession" ||
     group.type === "dispatch" ||
     (group.type === "mcp" && group.items.length === 1)

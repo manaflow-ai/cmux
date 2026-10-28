@@ -1381,3 +1381,23 @@ fn resize_narrowing_a_padded_two_line_prompt_leaves_no_copy_of_line_one() {
         );
     }
 }
+
+/// Cmd-K on a two-line prompt whose first line sits on the top row, with a
+/// prompt row already in history, must leave a clean screen: the prompt's
+/// first line goes too, and only the input line remains at the top.
+#[test]
+fn cmd_k_clears_multiline_prompt_that_starts_in_history() {
+    let mut term = Terminal::new(20, 2, 100, Callbacks::default()).unwrap();
+    term.vt_write(b"\x1b]133;A\x07one\r\n");
+    term.vt_write(b"\x1b]133;A\x07L1\r\n> \x1b]133;B\x07");
+    assert_eq!(term.history_rows(), 1, "setup must push one prompt row into history");
+
+    let _ = term.clear_history_preserving_prompt();
+
+    let text = term.viewport_text().unwrap();
+    assert!(!text.contains("L1"), "prompt's first line stayed on screen: {text:?}");
+    assert!(!text.contains("one"), "history stayed: {text:?}");
+    // viewport_text drops trailing spaces, so the input line reads as ">".
+    assert!(text.starts_with('>'), "input line did not move to the top: {text:?}");
+    assert_eq!(term.history_rows(), 0, "scrollback was not cleared");
+}

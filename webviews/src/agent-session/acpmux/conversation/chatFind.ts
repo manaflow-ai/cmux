@@ -17,6 +17,19 @@ import { stripsEnvelopeImages } from "../toolImages";
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
 
+export type FindMatchesCache = {
+  needle: string;
+  rows: readonly AcpmuxRow[];
+  matches: FindMatch[];
+};
+
+export type FindMatchesResult = {
+  matches: FindMatch[];
+  cache: FindMatchesCache;
+  /** Number of rows whose searchable text was inspected for this result. */
+  scannedRows: number;
+};
+
 /** The highlight names conversation.css styles. */
 export const FIND_HIGHLIGHT = "acpmux-find";
 export const FIND_ACTIVE_HIGHLIGHT = "acpmux-find-active";
@@ -91,18 +104,39 @@ function searchableText(row: AcpmuxRow): string | undefined {
 }
 
 /** Every match of `query` (case-insensitive) in the prompts, replies and work of `rows`, in order. */
-export function findMatches(rows: readonly AcpmuxRow[], query: string): FindMatch[] {
+export function findMatchesIncremental(
+  rows: readonly AcpmuxRow[],
+  query: string,
+  previous?: FindMatchesCache,
+): FindMatchesResult {
   const needle = query.toLocaleLowerCase();
-  if (!needle) return [];
-  const matches: FindMatch[] = [];
-  rows.forEach((row, rowIndex) => {
+  if (!needle) {
+    return { matches: [], cache: { needle, rows, matches: [] }, scannedRows: 0 };
+  }
+
+  let prefix = 0;
+  if (previous?.needle === needle) {
+    while (prefix < rows.length && prefix < previous.rows.length && rows[prefix] === previous.rows[prefix]) prefix += 1;
+  }
+
+  if (previous?.needle === needle && prefix === rows.length && rows.length === previous.rows.length) {
+    return { matches: previous.matches, cache: { needle, rows, matches: previous.matches }, scannedRows: 0 };
+  }
+
+  const matches = previous?.needle === needle ? previous.matches.filter(({ rowIndex }) => rowIndex < prefix) : [];
+  for (let rowIndex = prefix; rowIndex < rows.length; rowIndex += 1) {
+    const row = rows[rowIndex];
     const text = searchableText(row);
-    if (!text) return;
+    if (!text) continue;
     let occurrence = 0;
     for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length))
       matches.push({ rowIndex, rowId: row.id, occurrence: occurrence++ });
-  });
-  return matches;
+  }
+  return { matches, cache: { needle, rows, matches }, scannedRows: rows.length - prefix };
+}
+
+export function findMatches(rows: readonly AcpmuxRow[], query: string): FindMatch[] {
+  return findMatchesIncremental(rows, query).matches;
 }
 
 export type ChatFind = {
@@ -130,7 +164,13 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   const [query, setQueryState] = useState("");
   const [active, setActive] = useState(0);
   const [focusRequest, setFocusRequest] = useState(0);
-  const matches = useMemo(() => (open ? findMatches(rows, query) : []), [open, rows, query]);
+  const matchesCache = useRef<FindMatchesCache | undefined>(undefined);
+  const matches = useMemo(() => {
+    if (!open) return [];
+    const result = findMatchesIncremental(rows, query, matchesCache.current);
+    matchesCache.current = result.cache;
+    return result.matches;
+  }, [open, rows, query]);
   const count = matches.length;
   const current = count ? Math.min(active, count - 1) : 0;
   // Where focus was when the bar opened, so closing it puts the reader back there.

@@ -18,6 +18,7 @@ SCRIPTS = (
     'scripts/ci/pr_owned_findings.py',
     'scripts/cmux-next/check-concurrency.sh',
     'scripts/cmux-next/check-main-actor-work.py',
+    'scripts/cmux-next/swift_scope.py',
     'Packages/macOS/CmuxNext/Package.swift',
 )
 # The fixture starts with no grandfathered debt.
@@ -182,7 +183,8 @@ class GateTests(unittest.TestCase):
                         MANIFEST)
 
     def test_crash_class_pr_adding_a_target_dependency_owns_every_violation(self):
-        # The lint reads `.target(name:` anywhere in the manifest, dependency lists included.
+        # A line that opens a target call counts as the lint's code wherever it sits: the lint reads each
+        # target call by balanced parentheses, so it can change which call the lines after it belong to.
         manifest = self.manifest(APP_DEPENDENCY, APP_DEPENDENCY + '                .target(name: "CmuxNextAdded"),\n')
         checkout = self.checkout({f'{NEXT}/Owner.swift': ISOLATED_DEINIT}, {MANIFEST: manifest})
         self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), False, f'{NEXT}/Owner.swift')
@@ -192,6 +194,22 @@ class GateTests(unittest.TestCase):
         checkout = self.checkout({f'{NEXT}/Owner.swift': ISOLATED_DEINIT, '.gitattributes': f'{MANIFEST} -diff\n'},
                                  {MANIFEST: manifest})
         self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), False, f'{NEXT}/Owner.swift')
+
+    def test_crash_class_pr_making_a_type_generic_owns_the_classes_of_its_extensions(self):
+        # Only Ledger.swift changes; the class in the untouched Ledger+Cursor.swift becomes generic by context.
+        cursor = 'extension Ledger {\n    final class Cursor {\n        var index = 0\n    }\n}\n'
+        checkout = self.checkout({f'{NEXT}/Ledger.swift': 'struct Ledger {\n    var count = 0\n}\n',
+                                  f'{NEXT}/Ledger+Cursor.swift': cursor},
+                                 {f'{NEXT}/Ledger.swift': 'struct Ledger<Entry> {\n    var count = 0\n}\n'})
+        self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), False, f'{NEXT}/Ledger+Cursor.swift')
+
+    def test_crash_class_pr_changing_only_the_shared_detector_owns_every_violation(self):
+        # check-concurrency.sh's crash-class rules read scripts/cmux-next/swift_scope.py: a PR that changes
+        # only it changes the lint, so a violation in a file it does not touch is its own.
+        detector = 'scripts/cmux-next/swift_scope.py'
+        checkout = self.checkout({f'{NEXT}/Owner.swift': ISOLATED_DEINIT},
+                                 {detector: (ROOT / detector).read_text() + '# edited\n'})
+        self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), False, f'{NEXT}/Owner.swift', detector)
 
     def test_crash_class_without_pr_scope_fails_on_any_violation(self):
         checkout = self.checkout({f'{NEXT}/Owner.swift': ISOLATED_DEINIT})

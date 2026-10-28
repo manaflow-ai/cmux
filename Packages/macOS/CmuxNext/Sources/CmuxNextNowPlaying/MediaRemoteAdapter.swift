@@ -47,6 +47,8 @@ public protocol SystemNowPlayingAdapter: AnyObject {
 /// closes, which the kernel does however cmux exits (a quit or a crash), so it
 /// needs no quit hook of its own.
 public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
+    /// Spawns and stops the adapter's children off the main thread, in call order (a fork can take hundreds of ms).
+    private let launcher = ProcessLauncher(label: "com.cmuxterm.next.now-playing", priority: .userVisible)
     public let script: URL
     public let framework: URL
     private static let perl = URL(fileURLWithPath: "/usr/bin/perl")
@@ -115,7 +117,7 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         process = nil
         running?.terminationHandler = nil
         (running?.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
-        if running?.isRunning == true { running?.terminate() }
+        if let running { launcher.terminate(running) }
         try? lifeline?.fileHandleForWriting.close()
         lifeline = nil
     }
@@ -127,7 +129,7 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         once.standardInput = FileHandle.nullDevice
         once.standardOutput = FileHandle.nullDevice
         once.standardError = FileHandle.nullDevice
-        try? once.run()
+        launcher.launch(once)
     }
 
     private func launch() {
@@ -170,12 +172,15 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         }
         process = stream
         lifeline = stdin
-        do {
-            try stream.run()
-        } catch {
-            process = nil
-            lifeline = nil
+        // The spawn runs off main; a launch failure clears this run's state back on main.
+        launcher.launch(stream) { _ in
             stdout.fileHandleForReading.readabilityHandler = nil
+            Task { @MainActor [weak self] in
+                guard let self, self.run == current else { return }
+                self.process = nil
+                try? self.lifeline?.fileHandleForWriting.close()
+                self.lifeline = nil
+            }
         }
     }
 

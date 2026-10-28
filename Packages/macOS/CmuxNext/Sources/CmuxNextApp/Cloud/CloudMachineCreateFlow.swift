@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
 
@@ -34,8 +35,28 @@ struct CloudMachineCreateFlow {
         case agentRequest(Machine)
         /// The backend holds the create for the person's approval.
         case approval(request: String, Machine)
+        /// The plan cannot create a machine: one upgrade card, never a create confirm.
+        case upgrade(Upgrade)
     }
 
+    /// Why a create needs a plan upgrade.
+    struct Upgrade: Equatable, Sendable {
+        typealias Reason = CloudUpgradeReason
+        var reason: Reason
+    }
+
+    /// Whether the plan lets a create go out.
+    enum Gate: Equatable { case allowed, upgrade(Upgrade) }
+
+    /// The plan gate from the last known limits; unknown limits leave the decision to the server.
+    static func gate(_ limits: CloudMachineLimits?) -> Gate {
+        guard let limits else { return .allowed }
+        if limits.maxActiveVms == 0 || limits.planId?.lowercased() == "free" { return .upgrade(Upgrade(reason: .freePlan)) }
+        if let max = limits.maxActiveVms, limits.activeVmCount >= max { return .upgrade(Upgrade(reason: .atLimit(max))) }
+        return .allowed
+    }
+
+    // app-type-allow: an existing enum that gains one case (upgradeRequired)
     enum Failure: Error, Equatable {
         /// The person declined the confirmation; nothing was created.
         case declined
@@ -44,6 +65,8 @@ struct CloudMachineCreateFlow {
         case stillPending(request: String)
         /// A pending answer without its request id (a protocol break).
         case noApprovalRequest
+        /// The plan cannot create a machine; the upgrade card was shown and nothing was created.
+        case upgradeRequired
     }
 
     var run: CloudAppOp
@@ -67,7 +90,11 @@ struct CloudMachineCreateFlow {
     /// Creates a machine; `startedByPerson` is true for the person's own
     /// gesture in this app (click, menu, palette, key). Returns the machine
     /// record (contract 1.2). `askedBy`: the agent chat that asked, if one did.
-    func create(name: String?, startedByPerson: Bool, askedBy: String? = nil) async throws -> JSONValue {
+    func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, gate: Gate = .allowed) async throws -> JSONValue {
+        if case .upgrade(let need) = gate {
+            if startedByPerson { _ = await confirm(.upgrade(need)) }
+            throw Failure.upgradeRequired
+        }
         let machine = Self.named(name, askedBy: askedBy)
         var confirmed = !startedByPerson
         if confirmed { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
@@ -104,11 +131,25 @@ struct CloudMachineCreateFlow {
         throw Failure.stillPending(request: approved ?? "")
     }
 
-    /// The legacy `/api/vm` create (the default link): a create no person started asks first, as
-    /// ``create(name:startedByPerson:)`` does; a no sends nothing. The plan picks its size, so none shows.
-    static func legacy<T>(name: String?, startedByPerson: Bool, askedBy: String? = nil, confirm: @MainActor (Prompt) async -> Bool, create: @MainActor () async throws -> T) async throws -> T {
-        if !startedByPerson { guard await confirm(.agentRequest(named(name, sizeShown: false, askedBy: askedBy))) else { throw Failure.declined } }
-        return try await create()
+    /// The legacy `/api/vm` create (the default link). A plan that cannot create (`gate`, or the
+    /// server's 402) shows one upgrade card and sends nothing. Otherwise a create no person started
+    /// goes out at once; only the opt-in `askFirst` ("ask before creating", default off) asks first,
+    /// and a no sends nothing. The plan picks its size, so none shows.
+    static func legacy<T>(name: String?, startedByPerson: Bool, askedBy: String? = nil, askFirst: Bool = false, gate: @MainActor () -> Gate = { .allowed },
+                          confirm: @MainActor (Prompt) async -> Bool, create: @MainActor () async throws -> T) async throws -> T {
+        if case .upgrade(let need) = gate() {
+            // The upgrade card is for the person who asked for the machine; an agent's refused create
+            // only fails with the refusal, so the person is not prompted on every agent request.
+            if startedByPerson { _ = await confirm(.upgrade(need)) }
+            throw Failure.upgradeRequired
+        }
+        if !startedByPerson, askFirst { guard await confirm(.agentRequest(named(name, sizeShown: false, askedBy: askedBy))) else { throw Failure.declined } }
+        do {
+            return try await create()
+        } catch CloudAPIError.http(let status, _, _, _, _) where status == 402 {
+            _ = await confirm(.upgrade(Upgrade(reason: .server)))
+            throw Failure.upgradeRequired
+        }
     }
 
     /// 1, 2, 4 … 8 s between the same-key retries after the approval.
@@ -121,6 +162,7 @@ extension CloudMachineCreateFlow.Failure: CustomStringConvertible {
         case .declined: "declined"
         case .stillPending: CloudStrings.createStillPending
         case .noApprovalRequest: CloudStrings.createApproveInFeed
+        case .upgradeRequired: CloudStrings.upgradeRequired
         }
     }
 }

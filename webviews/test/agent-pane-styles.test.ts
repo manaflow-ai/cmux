@@ -1,6 +1,7 @@
-// The agent pane's bundle drops CSS: build-agent-pane-web.sh writes the page's one <style> from a
-// list of sheets. A sheet a component imports but the list leaves out ships no rules, so in the
-// app the component renders unstyled while the dev server (which loads imports) looks right.
+// The agent pane's bundle drops CSS: build-agent-pane-web.sh writes the page's one <style> from the
+// sheets the dev server's entry imports (bundle.mjs --css-inputs, in import order). A sheet a
+// component imports but the page leaves out ships no rules, so in the app the component renders
+// unstyled while the dev server (which loads imports) looks right.
 // That shipped New Tab's tools without their ghost-button geometry (cx-s6zvc), and the
 // Harnesses, Replay and Add Project screens without theirs.
 //
@@ -23,8 +24,13 @@ const built = fs.existsSync(page);
 if (!built && process.env.CI) throw new Error(`agent-pane-styles: ${page} is not built`);
 if (!built) console.warn("agent-pane-styles: skipping (run scripts/cmux-next/build-agent-pane-web.sh)");
 
-/** Trailing spaces are stripped from the page, so compare without them. */
-const normalize = (css: string) => css.replace(/[ \t]+$/gm, "").trim();
+/** Trailing spaces are stripped from the page, and a sheet's own @import lines (the page inlines
+ * the imported sheet before it), so compare without them. */
+const normalize = (css: string) =>
+  css
+    .replace(/^@import .*\n?/gm, "")
+    .replace(/[ \t]+$/gm, "")
+    .trim();
 
 describe.skipIf(!built)("agent pane page", () => {
   test("ships the rules of every stylesheet the pane imports", () => {

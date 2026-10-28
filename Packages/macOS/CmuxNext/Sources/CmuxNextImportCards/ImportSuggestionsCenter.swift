@@ -26,6 +26,8 @@ public final class ImportSuggestionsCenter {
     public internal(set) var ledger = ImportJobLedger()
     /// A scan is running.
     public private(set) var isScanning = false
+    /// The cards' source app icons, rendered off the main thread when a scan lands.
+    let icons = ImportAppIconCache()
 
     /// cmux comes forward this long after the last scan before the next one.
     public static let rescanInterval: TimeInterval = 10 * 60
@@ -37,6 +39,10 @@ public final class ImportSuggestionsCenter {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored let ledgerURL: URL
     @ObservationIgnored private var lastScan: Date?
+    /// The scan in flight, cancelled when `browser.import.enabled` turns off.
+    @ObservationIgnored private var scanning: Task<Void, Never>?
+    /// Bumped when a scan in flight is dropped, so its late answer changes nothing.
+    @ObservationIgnored private var scanGeneration = 0
     @ObservationIgnored var running: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
     @ObservationIgnored private var started = false
@@ -59,8 +65,24 @@ public final class ImportSuggestionsCenter {
             .appending(path: "import-jobs.json")
     }
 
-    /// Debug Settings `browserImport.suggestionCards` (on by default).
-    public var isEnabled: Bool { BrowserImportTunables.suggestionCards.value }
+    /// `browser.import.enabled` (on by default): off, no card shows and nothing scans or resumes.
+    /// Turned on again, the cards scan this Mac.
+    public var importEnabled = true {
+        didSet {
+            if importEnabled, !oldValue, started { scan { [weak self] in self?.resumeInterrupted() } }
+            // Off: a scan in flight stops before it reads another browser, and its findings are dropped;
+            // on again, the next scan starts at once.
+            if !importEnabled, isScanning {
+                scanning?.cancel()
+                scanning = nil
+                scanGeneration += 1
+                isScanning = false
+            }
+        }
+    }
+
+    /// `browser.import.enabled` and Debug Settings `browserImport.suggestionCards` (both on by default).
+    public var isEnabled: Bool { importEnabled && BrowserImportTunables.suggestionCards.value }
 
     /// Starts the cards once: the jobs a quit cut off, the first scan and the rescans.
     public func start(host: ImportCardsHost, registry: ActionRegistry) {
@@ -74,12 +96,14 @@ public final class ImportSuggestionsCenter {
                                                             queue: .main) { [weak self] _ in
             Task { @MainActor in self?.rescanIfStale() }
         }
-        scan { [weak self] in
-            // A job the quit cut off goes on by itself only when nothing it has left asks the person.
-            guard let self, isEnabled else { return }
-            for job in ledger.jobs where job.phase == .paused && job.pause == .interrupted && job.resumesQuietly {
-                try? perform(job.id, .resume)
-            }
+        scan { [weak self] in self?.resumeInterrupted() }
+    }
+
+    /// A job the quit cut off goes on by itself only when nothing it has left asks the person.
+    private func resumeInterrupted() {
+        guard isEnabled else { return }
+        for job in ledger.jobs where job.phase == .paused && job.pause == .interrupted && job.resumesQuietly {
+            try? perform(job.id, .resume)
         }
     }
 
@@ -103,12 +127,21 @@ public final class ImportSuggestionsCenter {
         guard isEnabled, !isScanning, let host else { then?(); return }
         isScanning = true
         lastScan = now()
-        let scanning = scanThisMac
-        Task { [weak self] in
-            let found = await scanning(host)
-            guard let self else { return }
-            findings = found
+        let scan = scanThisMac
+        let generation = scanGeneration
+        // task-owner: ImportSuggestionsCenter.scanning (cancelled when browser import turns off)
+        scanning = Task { [weak self] in
+            let found = await scan(host)
+            // Dropped while it ran (browser import turned off): what it found is not shown.
+            guard let self, generation == scanGeneration else { return }
             isScanning = false
+            scanning = nil
+            guard isEnabled else {
+                then?()
+                return
+            }
+            findings = found
+            icons.load(deck.list().cards.compactMap(\.app))
             then?()
         }
     }
@@ -120,10 +153,18 @@ public final class ImportSuggestionsCenter {
         let imported = await host.importedProfiles()
         // Classic's session file is up to 32 MB of JSON: read and planned off the main actor.
         let classic = await Task.detached(priority: .utility) { await ClassicWorkspaceCount().count() }.value
-        return await Task.detached(priority: .utility) {
-            ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
-                          importedProfiles: imported, classicWorkspaces: { classic }).scan()
-        }.value
+        // Browser import turned off meanwhile: no other browser's data is read. The scan itself
+        // runs detached, so the cancel reaches it through `stop`, checked before each source.
+        guard !Task.isCancelled else { return [] }
+        let stop = ImportScanStop()
+        return await withTaskCancellationHandler {
+            await Task.detached(priority: .utility) {
+                ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
+                              importedProfiles: imported, classicWorkspaces: { classic }, shouldStop: { stop.isSet }).scan()
+            }.value
+        } onCancel: {
+            stop.set()
+        }
     }
 
     // MARK: Cards
@@ -150,7 +191,7 @@ public final class ImportSuggestionsCenter {
     /// Settings › Import's list for the page's host lists (`import_suggestions`), with its empty text; null while the cards are off.
     public var settingsJSON: JSONValue {
         guard isEnabled else { return .null }
-        var value = ImportCardJSON.value(list(), keepEmpty: true)
+        var value = ImportCardJSON.value(list(), icons: icons, keepEmpty: true)
         if case .object(var members) = value {
             members["empty"] = .string(ImportSuggestionStrings.settingsEmpty)
             members["scanning"] = .bool(isScanning)
@@ -167,6 +208,8 @@ public final class ImportSuggestionsCenter {
     /// script cannot answer it), and an agent's cookie request always gets
     /// `browser.importCookies`' consent panel. Whatever the card opens runs as `caller`.
     public func perform(_ id: String, _ action: ImportCardAction, caller: ActionInvocation? = nil) throws {
+        // Off (`browser.import.enabled`, the Debug toggle): a row or dialog still on screen starts nothing.
+        guard isEnabled || action == .dismiss else { throw ImportCardsFailure.noSuchCard(id) }
         if action.startsWork, let caller, caller.origin != .user, let question = try question(id, action) {
             return ask(question, id: id, action: action, caller: caller)
         }

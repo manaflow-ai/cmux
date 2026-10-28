@@ -5,8 +5,7 @@ public import Foundation
 /// conforms with fakes so the bubble can be demoed and tested alone.
 public protocol PageInfoProviding: AnyObject {
     var pageInfoActivity: PageInfoActivity { get }
-    /// Stores shared by both engines (`SiteSettingsRegistry.shared` unless
-    /// the engine was given another).
+    /// Stores shared by both engines (the App's ``BrowserSharedStores``).
     var pageInfoSettings: SiteSettingsRegistry { get }
     /// Permissions this engine can enforce; Page Info lists only these.
     var supportedSitePermissions: Set<SitePermissionKind> { get }

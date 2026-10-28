@@ -1,0 +1,103 @@
+name: cmux_next_ macOS-only daemon tests (shadow)
+
+# The cmux_next_ daemon tests that gate nightly-next run on Blacksmith Linux
+# (cmux-tui-artifacts.yml cmux-next-daemon-tests; Leo, 2026-10-26: "I THOUGHT
+# THESE COULD JUST GO ON LINUX"). The tests that need macOS itself run here:
+# acpmux's Keychain and Seatbelt tests (no_keychain, router_no_keychain,
+# remote_sandbox, remote_sandbox_canary; whole files or tests gated
+# target_os = "macos", and no other CI job runs them) and idle_wakeups, whose
+# wakeup counter reads proc_pid_rusage only on macOS (Linux checks CPU and
+# context switches).
+#
+# A shadow in its own workflow: nothing waits for it. Inside the artifacts run
+# a queued Mac kept the tree-owner run in progress, and the runs deferring to
+# that owner gave up waiting, so failed-publication recovery stalled behind a
+# Mac queue. Here a red or queued run touches no promotion, publication or
+# marker (tests/test_cmux_tui_daemon_tests_gate.py).
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/**"
+      - "ghostty-next"
+      - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-next-daemon-macos-shadow.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+# One running and one waiting per ref: a newer push replaces only the waiting
+# one, never a started run.
+concurrency:
+  group: cmux-next-daemon-macos-shadow-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # libghostty-vt always builds from the ghostty-next gitlink: an empty
+  # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
+  # as unset).
+  CMUX_GHOSTTY_SRC: ""
+
+jobs:
+  cmux-next-daemon-macos-shadow:
+    name: cmux_next_ macOS-only daemon tests (shadow)
+    # Blacksmith macOS 15, never an owned pool: main's owned-pool rescue does
+    # not watch this workflow (tests/test_ci_owned_pool_sources.py), and a
+    # shadow that gates nothing takes no owned Mac from the promotion path.
+    # One running and one waiting per ref (concurrency above) bounds its use.
+    # No dispatch runner override: it could name the promote pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 60
+    env:
+      CARGO_NET_RETRY: "10"
+      CARGO_HTTP_TIMEOUT: "120"
+      CARGO_HTTP_MULTIPLEXING: "false"
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Use short temporary directory for macOS socket tests
+        run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty-next
+
+      - name: Cache the verified Zig tarball
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-zig-tarballs
+          key: cmux-zig-tarball-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/zig-tarballs.sha256') }}
+
+      - name: Install zig
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (retried)
+        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-macos
+          cache-all-crates: true
+
+      - name: cargo test the macOS-only daemon tests
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          cargo test --locked -p acpmux --test no_keychain --test router_no_keychain \
+            --test remote_sandbox --test remote_sandbox_canary || status=$?
+          cargo test --locked -p cmux-tui --test idle_wakeups || status=$?
+          exit "$status"

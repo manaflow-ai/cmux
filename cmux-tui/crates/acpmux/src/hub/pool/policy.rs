@@ -1,6 +1,9 @@
 //! The session pool's policy, apart from processes. Per cwd at most two
 //! entries are wanted: the harness used before the current one (`LastUsed`)
-//! and the one the pane hints at (`Hinted`). An entry no role wants is
+//! and the one the pane hints at (`Hinted`). Across folders a harness keeps
+//! at most `hinted_per_harness` hinted entries (default 1, the newest hint
+//! wins): typing in new chats in several folders never leaves a warm agent
+//! per folder. A hint can be released (`release`). An entry no role wants is
 //! evicted, an idle entry expires at its deadline, the whole pool stays
 //! under an RSS cap (the oldest entry goes first), and an entry whose key
 //! changed is discarded, never served. A remote-origin key is never pooled
@@ -66,6 +69,8 @@ struct Entry<T> {
     key: PoolKey,
     last_used: bool,
     hinted: bool,
+    /// When the newest hint for this key came (the per-harness cap keeps the newest).
+    hinted_at: Duration,
     slot: Slot<T>,
     deadline: Duration,
     /// When the entry became ready (eviction order under the RSS cap).
@@ -115,6 +120,8 @@ pub struct Pool<T> {
     entries: Vec<Entry<T>>,
     idle: Duration,
     next_generation: u64,
+    /// Most hinted entries one harness keeps across folders (at least 1).
+    hinted_per_harness: usize,
 }
 
 /// How one entry looks, for status replies and tests.
@@ -129,11 +136,16 @@ pub struct EntryView {
 
 impl<T> Pool<T> {
     pub fn new(idle: Duration) -> Self {
-        Self { entries: Vec::new(), idle, next_generation: 1 }
+        Self { entries: Vec::new(), idle, next_generation: 1, hinted_per_harness: 1 }
     }
 
     pub fn set_idle(&mut self, idle: Duration) {
         self.idle = idle;
+    }
+
+    /// Most hinted entries one harness keeps across folders (`pool.hintedPerHarness`); 0 counts as 1.
+    pub fn set_hinted_per_harness(&mut self, n: usize) {
+        self.hinted_per_harness = n.max(1);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -164,8 +176,16 @@ impl<T> Pool<T> {
         for e in self.entries.iter_mut().filter(|e| e.key.cwd == key.cwd) {
             match role {
                 Role::LastUsed => e.last_used = e.key == key,
-                Role::Hinted => e.hinted = e.key == key,
+                Role::Hinted => {
+                    e.hinted = e.key == key;
+                    if e.hinted {
+                        e.hinted_at = now;
+                    }
+                }
             }
+        }
+        if role == Role::Hinted {
+            self.cap_hinted(&key);
         }
         let idle = self.idle;
         let start = match self.entries.iter_mut().find(|e| e.key == key) {
@@ -186,6 +206,7 @@ impl<T> Pool<T> {
                 self.entries.push(Entry {
                     last_used: role == Role::LastUsed,
                     hinted: role == Role::Hinted,
+                    hinted_at: now,
                     key,
                     slot: Slot::Warming(generation),
                     deadline: now + idle,
@@ -197,6 +218,44 @@ impl<T> Pool<T> {
         };
         evicted.extend(self.drop_unwanted());
         Wanted { start, evicted }
+    }
+
+    /// `key` was just hinted: other folders' hinted entries of its harness beyond the cap lose
+    /// their hint, the oldest hint first (an entry no other role wants is then dropped).
+    fn cap_hinted(&mut self, key: &PoolKey) {
+        let mut others: Vec<(Duration, usize)> = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| {
+                e.hinted
+                    && e.key.cwd != key.cwd
+                    && e.key.origin == key.origin
+                    && e.key.harness == key.harness
+            })
+            .map(|(i, e)| (e.hinted_at, i))
+            .collect();
+        // Newest first; `key` itself holds one of the harness's places.
+        others.sort_by_key(|e| std::cmp::Reverse(e.0));
+        for (_, i) in others.into_iter().skip(self.hinted_per_harness - 1) {
+            self.entries[i].hinted = false;
+        }
+    }
+
+    /// Take back the hint on `cwd`'s entries (only `harness`'s when given): the person cleared
+    /// the prompt or closed the new chat. Returns how many entries lost their hint, and the
+    /// sessions no role wants any more, to end.
+    pub fn release(&mut self, cwd: &std::path::Path, harness: Option<&str>) -> (usize, Vec<T>) {
+        let mut released = 0;
+        for e in self
+            .entries
+            .iter_mut()
+            .filter(|e| e.hinted && e.key.cwd == cwd && harness.is_none_or(|h| e.key.harness == h))
+        {
+            e.hinted = false;
+            released += 1;
+        }
+        (released, self.drop_unwanted())
     }
 
     fn drop_unwanted(&mut self) -> Vec<T> {
@@ -357,6 +416,14 @@ impl<T> Pool<T> {
             .map(|e| e.settled.subscribe())
     }
 
+    /// Remove the ready session `pick` chooses; its key stays wanted but holds nothing.
+    pub fn remove_ready(&mut self, pick: impl Fn(&T) -> bool) -> Option<T> {
+        let e = self.entries.iter_mut().find(|e| matches!(&e.slot, Slot::Ready(t) if pick(t)))?;
+        let Slot::Ready(t) = std::mem::replace(&mut e.slot, Slot::Empty) else { return None };
+        e.settle();
+        Some(t)
+    }
+
     /// Empty the pool (config reload, shutdown); returns every ready session.
     pub fn clear(&mut self) -> Vec<T> {
         let mut out = Vec::new();
@@ -386,3 +453,7 @@ impl<T> Pool<T> {
             .collect()
     }
 }
+
+#[cfg(test)]
+#[path = "policy_tests.rs"]
+mod tests;

@@ -36,6 +36,8 @@ nonisolated enum FeedStrings {
     static var reportsEmptyBody: String { t("reports.emptyBody", "(empty report)") }
     static var reportsReplyPlaceholder: String { t("reports.replyPlaceholder", "Reply to this sending session…") }
     static var reportsReply: String { t("reports.reply", "Reply") }
+    /// Under the reply field when acpmux did not take the reply (the draft stays).
+    static var reportsNotSent: String { t("reports.notSent", "Not sent. Try again.") }
     /// The detail line under a report's sender: who sent it and when it arrived.
     static func reportFrom(_ sender: String, _ arrived: String) -> String {
         t("reports.from", "From \(sender) · \(arrived)")

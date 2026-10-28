@@ -121,6 +121,8 @@ public final class NotificationRouter {
 public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     public func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // The App Group resolves once, off the main thread (its lookup is a synchronous XPC).
+        PushAppGroup.prime()
         PushReplies.shared.registerCategories()
         #if DEBUG && targetEnvironment(simulator)
         SimulatedServiceExtension.deliverIfAsked()
@@ -141,10 +143,17 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         log.error("APNs registration failed: \(String(describing: error), privacy: .public)")
     }
 
-    public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+    /// A push while the app is in front. The completion handler form, called on
+    /// the main thread, like `didReceive`: the async form of a
+    /// UNUserNotificationCenterDelegate method calls UIKit's handler from a
+    /// background thread (NotificationDelegateThreadTests).
+    public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                                   withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
         let route = NotificationRoute(userInfo: notification.request.content.userInfo)
-        let showing = await MainActor.run { route.map { NotificationRouter.shared.isShowing($0) } ?? false }
-        return showing ? [] : [.banner, .list, .sound]
+        Task { @MainActor in
+            let showing = route.map { NotificationRouter.shared.isShowing($0) } ?? false
+            completionHandler(showing ? [] : [.banner, .list, .sound])
+        }
     }
 
     /// Taps and buttons. iOS keeps a background launch alive until the
@@ -152,7 +161,9 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
     /// first. The handler must run on the main thread: UIKit updates the app's
     /// snapshot in it and aborts off the main thread (verify/push-matrix.md,
     /// failure 2: the async form returned on a background thread and every
-    /// notification button crashed the app).
+    /// notification button crashed the app; TestFlight 1.2.0 (20261023213712)
+    /// crashed the same way on a plain tap). Never make this `async`:
+    /// NotificationDelegateThreadTests fails if the handler leaves the main thread.
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                                    withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
         // Only Sendable values cross to the main actor.
@@ -231,6 +242,11 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
 
     func removeThisPhoneFromMacs() async {
         await live?.removeThisPhoneFromMacs()
+    }
+
+    func openPairingCode(_ text: String) -> Bool {
+        guard let live, let invite = PairInvite(text: text) else { return false }
+        return live.accept(invite)
     }
 }
 #endif

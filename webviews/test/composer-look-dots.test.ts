@@ -14,7 +14,7 @@
 // - In a chat the same two dots sit in the composer's bottom area, unseen until the pointer is over
 //   that area. The second dot switches the chat composer's look: the form takes
 //   data-composer-look="codex", the mode and model move into the box, and the quiet row goes; the
-//   dots then sit in the band under the box and the first dot brings Claude's look back.
+//   dots then sit in the box's internal dead-space row and the first dot brings Claude's look back.
 //
 // Real Chromium on the gallery stage. CI fails the file when it cannot launch it
 // (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/composer-look-dots.test.ts
@@ -213,10 +213,15 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     expect(await page.$(`${form} .acpmux-composer-box .acpmux-access`)).not.toBeNull();
     expect(await page.$(`${form} .acpmux-composer-foot`)).toBeNull();
 
-    // Codex's look: the dots in the band under the box, shown on hover there; the first dot goes back.
+    // Codex's look: the dots sit in the box's internal dead-space row, shown on hover there; the first dot goes back.
     await page.mouse.move(1, 1);
     expect(await shown(page, form)).toBe(false);
-    const under = (await (await page.$(`${form} .acpmux-composer-under`))!.boundingBox())!;
+    const box = (await (await page.$(`${form} .acpmux-composer-box`))!.boundingBox())!;
+    const under = (await (await page.$(`${form} > .acpmux-composer-under`))!.boundingBox())!;
+    expect(Math.abs(under.x - box.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(under.width - box.width)).toBeLessThanOrEqual(1);
+    expect(under.y).toBeGreaterThanOrEqual(box.y);
+    expect(under.y + under.height).toBeLessThanOrEqual(box.y + box.height);
     await page.mouse.move(under.x + under.width * 0.35, under.y + under.height / 2);
     expect(await shown(page, form)).toBe(true);
     await pickDot(page, form, "claude");

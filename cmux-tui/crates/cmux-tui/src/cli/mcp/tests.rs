@@ -34,6 +34,20 @@ struct Fake {
     /// The app's `feed.list` and `snapshot.get` take this long, and fail
     /// when it is longer than the caller's timeout.
     app_delay: Option<Duration>,
+    /// What `Backend::caller` answers: `None` for a client with no caller
+    /// identity, `Some(Null)` for one the app cannot place.
+    caller: Option<Value>,
+    /// The app's `beside` with `caller`: the column right of the chat.
+    beside: Value,
+    /// What `Backend::focus` answers.
+    focus: Option<Value>,
+    /// The app's `computer_use.status` through `Backend::app_caller`; no
+    /// app caller when unset.
+    computer_use: Option<Value>,
+    /// The card's answer to `permissions.request`; `granted` when unset.
+    setup_outcome: Option<Value>,
+    /// `{method, params, thread}` of each request the app caller got.
+    app_calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -131,6 +145,21 @@ impl Fake {
 }
 
 impl Backend for Fake {
+    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
+        let status = self.computer_use.clone()?;
+        let outcome = self.setup_outcome.clone().unwrap_or_else(|| json!({"outcome": "granted"}));
+        let calls = self.app_calls.clone();
+        Some(std::sync::Arc::new(move |method: &str, params: Value, _timeout: Duration| {
+            calls.lock().unwrap().push(json!({"method": method, "params": params,
+                "thread": format!("{:?}", std::thread::current().id())}));
+            match method {
+                "computer_use.status" => Ok(status.clone()),
+                "permissions.request" => Ok(outcome.clone()),
+                other => panic!("unexpected app call {other}"),
+            }
+        }))
+    }
+
     fn resource(
         &self,
         session: Option<&str>,
@@ -298,6 +327,16 @@ impl Backend for Fake {
             "mutation": mutation,
         }));
         Ok(json!({"session": "default", "output": "ok\n", "truncated": false, "error": null}))
+    }
+
+    fn identity(&self) -> Result<Option<Value>, CallFailure> {
+        self.sent.borrow_mut().push(json!({"kind": "caller"}));
+        Ok(self.caller.clone().map(|caller| json!({"caller": caller, "beside": self.beside})))
+    }
+
+    fn focus(&self) -> Result<Option<Value>, CallFailure> {
+        self.sent.borrow_mut().push(json!({"kind": "focus"}));
+        Ok(self.focus.clone())
     }
 
     fn acpmux(
@@ -1361,6 +1400,7 @@ fn render_shows_a_page_in_the_chat_without_reaching_an_owner() {
 mod agent_events;
 mod agent_wait;
 
+mod caller_scope;
 mod catalog;
 mod machine_catalog;
 
