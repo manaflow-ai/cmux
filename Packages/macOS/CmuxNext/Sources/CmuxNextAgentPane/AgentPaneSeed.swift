@@ -31,6 +31,17 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var pastChat: String?
     /// The page opens on its Harnesses page (Integrate a Harness…, cx-uj5g8). Handed out once.
     public var showsHarnesses: Bool
+    /// A Sandboxed send that already ended, shown by this new page as its own (a Run notification's
+    /// click, ``AgentPaneSandboxRuns``).
+    public var sandboxResult: SandboxResult?
+
+    /// An ended Sandboxed send: its task, attempt key and final receipt (`{"receipt": …}` as JSON).
+    public nonisolated struct SandboxResult: Sendable, Equatable {
+        public var task: String
+        public var key: String
+        public var card: Data?
+        public init(task: String, key: String, card: Data?) { (self.task, self.key, self.card) = (task, key, card) }
+    }
 
     /// Who seeded a prompt that goes out by itself.
     public nonisolated enum PromptBy: Sendable, Equatable {
@@ -78,6 +89,8 @@ public final class AgentPaneSeedSource {
     /// session the page adds the workspace context to its first prompt, hidden from the
     /// transcript (`_meta.acpmux.context`). Held apart from the read seed, which a slow read drops.
     public var workspaceContext = false
+    /// A Sandboxed send that already ended, shown by this new page (``AgentPaneSeed/sandboxResult``).
+    public var sandboxResult: AgentPaneSeed.SandboxResult?
 
     public init(limit: Duration = .seconds(1), _ read: @escaping @MainActor @Sendable () async -> AgentPaneSeed?) {
         self.read = read
@@ -87,7 +100,7 @@ public final class AgentPaneSeedSource {
     /// The seed holds a folder and nothing else (a new workspace's first New Tab page): a page
     /// that takes its folder from its New Tab context can stand in for it.
     public var holdsOnlyFolder: Bool {
-        guard read == nil else { return false }
+        guard read == nil, sandboxResult == nil else { return false }
         guard let value else { return true }
         return value.draft == nil && value.prompt == nil && value.adopt == nil && value.surface == nil
             && value.harness == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
@@ -105,6 +118,7 @@ public final class AgentPaneSeedSource {
         value = seed
         limit = .zero
         surface = seed.surface
+        sandboxResult = seed.sandboxResult
     }
 
     /// The seed without taking its draft or prompt: where a chat on another machine starts

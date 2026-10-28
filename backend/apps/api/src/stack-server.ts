@@ -22,14 +22,17 @@ export interface StackServer {
   /**
    * The Stack team now, or null when Stack answers TEAM_NOT_FOUND (team webhooks, cx-3bi.43).
    * `plan` is the team's client_read_only_metadata.cmuxPlan (web billing's team plan mirror,
-   * inference-plans.ts), null when absent or not a string.
+   * inference-plans.ts), null when absent or not a string. `vm_plan` is its operator Cloud grant
+   * (client_read_only_metadata.cmuxVmPlan, cloud-plan.ts cloudPlanId), read for Cloud machine limits only.
    */
-  getTeam(teamId: string): Promise<{ display_name: string; plan: string | null; vm_personal_tenant?: boolean } | null>
+  getTeam(teamId: string): Promise<{ display_name: string; plan: string | null; vm_plan?: string | null; vm_personal_tenant?: boolean } | null>
   /**
    * A user's client_read_only_metadata.cmuxPlan (web billing's personal plan mirror,
    * inference-plans.ts): the plan id, null when absent, "user_gone" for USER_NOT_FOUND.
    */
   getUserPlan(userId: string): Promise<string | null | "user_gone">
+  /** A user's operator Cloud grant (client_read_only_metadata.cmuxVmPlan, as metadata text), null when absent; `gone` for USER_NOT_FOUND. Cloud machine limits only. */
+  getUserVmPlan(userId: string): Promise<{ readonly vm_plan: string | null } | { readonly gone: true }>
   /**
    * Every member Stack lists for the team now ("team_gone" for TEAM_NOT_FOUND), with each member's
    * team permission ids (GET /team-permissions?team_id&recursive=true, so contained permissions
@@ -68,6 +71,20 @@ const readOnlyPlan = (metadata: unknown): string | null => {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null
   const plan = (metadata as Record<string, unknown>).cmuxPlan
   return typeof plan === "string" && plan.length > 0 && plan.length <= 64 ? plan : null
+}
+
+/**
+ * The operator's `cmuxVmPlan` from client_read_only_metadata only (cloud-plan.ts cloudPlanId), for
+ * Cloud machine limits. Classic Cloud lets any present value win over `cmuxPlan` (`cmuxVmPlan ??
+ * cmuxPlan`), and one that is not a usable plan id (blank, not a string) then restricts the record to
+ * free. So absent or null is null, a string up to 64 characters is kept as written (blank included),
+ * and any other present value is "" (a restriction).
+ */
+export const readVmPlanOverride = (metadata: unknown): string | null => {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null
+  const value = (metadata as Record<string, unknown>).cmuxVmPlan
+  if (value === undefined || value === null) return null
+  return typeof value === "string" && value.length <= 64 ? value : ""
 }
 
 /**
@@ -156,11 +173,15 @@ export const stackServer = (
       // Server-only metadata: a cmux VM personal tenant (team-vm-api-personal-stack.ts) is never mirrored as a cmux team.
       const meta = r.server_metadata
       const vm_personal_tenant = !!meta && typeof meta === "object" && !Array.isArray(meta) && (meta as Record<string, unknown>)[PERSONAL_TENANT_METADATA_KEY] != null
-      return { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata), vm_personal_tenant }
+      return { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata), vm_plan: readVmPlanOverride(r.client_read_only_metadata), vm_personal_tenant }
     },
     getUserPlan: async (userId) => {
       const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])
       return isGone(r) ? "user_gone" : readOnlyPlan(r.client_read_only_metadata)
+    },
+    getUserVmPlan: async (userId) => {
+      const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])
+      return isGone(r) ? { gone: true as const } : { vm_plan: readVmPlanOverride(r.client_read_only_metadata) }
     },
     listTeamMembers: async (teamId) => {
       const out: Array<{ user_id: string; display_name: string | null; permissions: ReadonlyArray<string>; anonymous: boolean }> = []
