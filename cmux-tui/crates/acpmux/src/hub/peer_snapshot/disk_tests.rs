@@ -17,6 +17,13 @@ fn head(mux: &str) -> Head {
 }
 
 #[test]
+fn record_size_includes_its_line_terminator_without_building_a_vec() {
+    let value = json!({"sessionId": "m1", "seq": 1, "msg": "🙂"});
+    let expected = serde_json::to_vec(&value).unwrap().len() as u64 + 1;
+    assert_eq!(record_bytes(&value), expected);
+}
+
+#[test]
 fn names_are_lowercase_hex_so_ids_that_differ_in_case_never_share_a_file() {
     let root = Path::new("/r");
     let (lower, upper) = (path(root, &key("m1")).unwrap(), path(root, &key("M1")).unwrap());
