@@ -119,12 +119,12 @@ import Testing
         try expectAtNewest(view, "cold open, a pass later")
         // The newest bubble grows in place, as when its picture or link preview loads: still at the bottom.
         let demo = try #require(view.controller.demo)
-        let newest = try #require(demo.store.state.conversation.messages.last)
+        let newest = try #require(demo.store.state.conversation.messages.last { m in
+            m.parts.contains { if case .text = $0 { return true }; return false }
+        })
         let before = demo.pinnedOffset
-        let tall = Array(repeating: "a line that a picture or a preview makes taller", count: 30).joined(separator: "\n")
-        // The same part count (the reducer replaces parts one for one): the first part, much taller.
-        let grown = newest.parts.enumerated().map { $0.offset == 0 ? Part.text(tall, runs: []) : $0.element }
-        view.controller.dispatch(.cmuxSetParts(newest.id, grown))
+        let more = String(repeating: "\na line that a picture or a preview makes taller", count: 12)
+        view.controller.dispatch(.appendText(newest.id, more))
         frame(view)
         #expect(demo.pinnedOffset > before + 100, "the newest bubble grew")
         try expectAtNewest(view, "the newest bubble grew")
