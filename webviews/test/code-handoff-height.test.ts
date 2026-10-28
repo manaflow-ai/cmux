@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType } from "playwright";
 import type { FenceName, FenceReport } from "./browser/code-handoff-height.harness";
+import { devHighlightWorker } from "./support/devHighlightWorker";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -33,8 +34,6 @@ await requireBrowserLane("code-handoff-height.test.ts", async () => {
   }
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
-  const REAL_POOL = path.join(webviews, "src/agent-session/acpmux/conversation/highlightPool.ts");
-  const HARNESS_POOL = path.join(webviews, "test/browser/codeHandoffHighlightPool.ts");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
   beforeAll(async () => {
@@ -43,20 +42,8 @@ await requireBrowserLane("code-handoff-height.test.ts", async () => {
       configFile: path.join(webviews, "vite.config.ts"),
       server: { port: 0, host: "127.0.0.1", strictPort: false },
       logLevel: "error",
-      // The dev server serves no built highlight worker, so a transcript code card stays plain there
-      // (#25876). This page's pool runs Pierre's worker as a Vite module worker instead
-      // (browser/codeHandoffHighlightPool.ts), so the highlighted card it measures is drawn.
-      plugins: [
-        {
-          name: "code-handoff-highlight-pool",
-          enforce: "pre",
-          async resolveId(source, importer, options) {
-            if (!importer || importer === HARNESS_POOL || !source.endsWith("/highlightPool")) return null;
-            const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
-            return resolved?.id === REAL_POOL ? HARNESS_POOL : null;
-          },
-        },
-      ],
+      // The dev server serves no built highlight worker (#25876): the page runs Pierre's own.
+      plugins: [devHighlightWorker()],
     });
     await vite.listen();
     await warmViteServer(vite, "/test/browser/code-handoff-height.html");
