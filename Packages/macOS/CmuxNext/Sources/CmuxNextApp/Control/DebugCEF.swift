@@ -34,6 +34,11 @@ enum DebugCEF {
             "warmup_spare_windows": services.chromiumWarmup.startedPlacement.map { .bool($0.keepsSpareWindows) } ?? .null,
             // A window a spare would have served, built because none was ready.
             "window_built_on_key_turn": .number(Double(services.cache.cef.windowsBuiltOnKeyTurn)),
+            // Where the built-in extensions went (at_first_tab, at_start, off) and why: never a silent fallback.
+            "built_in_extensions": services.cache.cef.builtInExtensionsReport.map {
+                .object(["placement": .string($0.placement), "feature": .bool($0.feature), "fork_supports": .bool($0.forkSupports),
+                         "person_chose": .bool($0.personChose), "folders": .number(Double($0.folders))])
+            } ?? .null,
             "engine_start_main_ms": .number(milliseconds(services.cache.cef.engineStartMainThreadTime)),
             "start_steps": .array(services.cache.cef.startMarks.map {
                 .object(["name": .string($0.name), "start_uptime_ns": .number(Double($0.startUptimeNanos)), "ms": .number($0.milliseconds)])
