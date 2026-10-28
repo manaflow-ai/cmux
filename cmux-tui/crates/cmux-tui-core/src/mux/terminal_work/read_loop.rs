@@ -465,25 +465,31 @@ impl Shared {
 fn spawn_loop(shared: &Arc<Shared>) -> io::Result<()> {
     let shared = shared.clone();
     // Routing only: the loop waits in the poller and hands ready sources on.
-    cmux_threads::spawn(READ_LOOP_THREAD, crate::echo_thread::ECHO_PATH_QOS, move || {
-        let mut tokens = Vec::new();
-        loop {
-            if shared.poller.wait(&mut tokens).is_err() {
-                // Leave the sources to the workers already running; a poller
-                // that fails once fails every later wait too.
-                eprintln!("cmux-tui: the terminal read loop's poller failed");
-                return;
-            }
-            for &token in &tokens {
-                if token != WAKE_TOKEN {
-                    shared.ready(token);
+    crate::supervised::spawn_at(
+        READ_LOOP_THREAD,
+        crate::echo_thread::ECHO_PATH_QOS,
+        crate::supervised::Fatal,
+        crate::supervised::ShutdownBehavior::Continue,
+        move || {
+            let mut tokens = Vec::new();
+            loop {
+                if shared.poller.wait(&mut tokens).is_err() {
+                    // Leave the sources to the workers already running; a poller
+                    // that fails once fails every later wait too.
+                    eprintln!("cmux-tui: the terminal read loop's poller failed");
+                    return;
+                }
+                for &token in &tokens {
+                    if token != WAKE_TOKEN {
+                        shared.ready(token);
+                    }
+                }
+                if Shared::done(&shared.lock()) {
+                    return;
                 }
             }
-            if Shared::done(&shared.lock()) {
-                return;
-            }
-        }
-    })
+        },
+    )
     .map(drop)
 }
 

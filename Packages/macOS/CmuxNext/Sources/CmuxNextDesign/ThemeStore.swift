@@ -3,6 +3,7 @@ public import CmuxTheme
 public import Observation
 import CmuxNextCompat
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// A non-view object (controller, layer owner) that caches resolved theme
 /// colors and must refresh them on a theme change. Views need nothing: the
@@ -58,6 +59,8 @@ public final class ThemeStore {
     /// animate (`ColorTransition.current` is instant until then, so launch never fades in).
     @ObservationIgnored public private(set) var hasAppliedConfig = false
     @ObservationIgnored private let responders = NSHashTable<AnyObject>.weakObjects()
+    /// The design settings' repaint signal this store follows (``repaint(following:)``).
+    @ObservationIgnored private var repaintWatch: AppearanceSignals.Subscription?
 
     public init(input: ThemeInput = .ghosttyDefault) {
         self.input = input
@@ -194,6 +197,14 @@ public final class ThemeStore {
         for responder in responders.allObjects {
             (responder as? any ThemeResponsive)?.themeDidChange()
         }
+    }
+
+    /// Repaints every window on each ``AppearanceSignals/Signal/themeRepaint`` of `signals`: a
+    /// design setting every theme payload reads changed (calm mode, the terminal's face). The
+    /// composition root hands the app's store the app's design settings' signals; a later call
+    /// replaces the subscription.
+    public func repaint(following signals: AppearanceSignals) {
+        repaintWatch = signals.subscribe([.themeRepaint], owner: "ThemeStore") { [weak self] in self?.repaintAll() }
     }
 
     /// Calls `responder.themeDidChange()` after every change while it lives.

@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextInput
+public import CmuxNextDesignTokens
 
 /// The name-and-colors header of a right-click menu (Chrome's tab-group menu): a name field over a
 /// row of color swatches, inset as the menu's rows are. The app's `MenuIdentityHeader` builds it

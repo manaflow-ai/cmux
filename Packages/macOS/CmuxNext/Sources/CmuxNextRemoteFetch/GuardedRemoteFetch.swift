@@ -1,8 +1,5 @@
 public import Foundation
 import CmuxNextWakeups
-import class CmuxSafeConcurrency.OnceContinuation
-import enum CmuxSafeConcurrency.OnceContinuationError
-import func CmuxSafeConcurrency.withOnceContinuation
 
 /// A host fetch for page content whose URL is untrusted (markdown remote images; agent pane reply
 /// images and media). Every hop: https only, no URL credentials, no `localhost`, `.local` or
@@ -82,27 +79,9 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
 
     /// The body of a 2xx answer for `url`, following checked redirects.
     public func fetch(_ url: URL) async -> Result<RemoteFetchResponse, RemoteFetchFailure> {
-        let race = DeadlineRace()
-        let clock = clock
-        let timeout = timeout
-        return await withTaskCancellationHandler {
-            // A race dropped without an answer is a failed fetch.
-            (try? await withOnceContinuation {
-                (continuation: OnceContinuation<Result<RemoteFetchResponse, RemoteFetchFailure>, OnceContinuationError>) in
-                race.arm(continuation)
-                // task-owner: the fetch; the race resumes the caller with whichever ends first
-                let work = Task { race.finish(await follow(url)) }
-                // task-owner: the deadline; it cancels the fetch when it fires first
-                let deadline = Task {
-                    // wakeup-allow: deadline of one remote fetch: one side of the fetch's race (`race` owns both tasks), not a DemandTimer
-                    do { try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance) } catch { return }
-                    race.finish(.failure(.failed))
-                }
-                race.own(work, deadline)
-            }) ?? .failure(.failed)
-        } onCancel: {
-            race.finish(.failure(.failed))
-        }
+        // The fetch races its limit (R-timer's Deadline helper): the loser is cancelled and nothing waits for it; a
+        // limit or a cancellation first is a failed fetch.
+        await Deadline(timeout, clock: clock).value("remote-fetch") { await follow(url) } ?? .failure(.failed)
     }
 
     private func follow(_ start: URL) async -> Result<RemoteFetchResponse, RemoteFetchFailure> {
