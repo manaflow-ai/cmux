@@ -736,6 +736,59 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertIn('"size": "L"', text)
         self.git("merge", "--abort")
 
+    def test_chromium_host_ops_merges_entry_by_entry(self):
+        """Two branches that each append a different export or event to
+        chromium-host-ops.json (indent=2) merge cleanly, keeping both; the same
+        export changed two ways conflicts with markers."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.assertEqual(self.install().returncode, 0)
+        ops = self.repo / "plans/cmux-next/chromium-host-ops.json"
+        ops.parent.mkdir(parents=True, exist_ok=True)
+
+        def document(a_returns="void", exports=(), events=()):
+            return {"exports": [{"name": "cmux_a", "args": ["int"], "returns": a_returns},
+                                *({"name": name, "args": [], "returns": "void"} for name in exports)],
+                    "events": [{"kind": "CMUX_A", "value": 1},
+                               *({"kind": kind, "value": value} for kind, value in events)],
+                    "host_mode_rewrites": [{"site": "s1", "exports": ["cmux_a"]}]}
+
+        def write(doc):
+            ops.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+
+        write(document())
+        self.commit_all("base")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "-b", "lane")
+        write(document(exports=("cmux_b",), events=(("CMUX_B", 2),)))
+        self.commit_all("lane appends cmux_b")
+        self.git("checkout", "--quiet", "main")
+        write(document(exports=("cmux_c",), events=(("CMUX_C", 3),)))
+        self.commit_all("main appends cmux_c")
+        self.git("checkout", "--quiet", "lane")
+
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        expected = document(exports=("cmux_b", "cmux_c"), events=(("CMUX_B", 2), ("CMUX_C", 3)))
+        self.assertEqual(ops.read_text(encoding="utf-8"), json.dumps(expected, indent=2) + "\n")
+
+        self.git("checkout", "--quiet", "-b", "other", base)
+        write(document(a_returns="int"))
+        self.commit_all("other changes cmux_a")
+        self.git("checkout", "--quiet", "lane")
+        write(document(a_returns="bool", exports=("cmux_b", "cmux_c"), events=(("CMUX_B", 2), ("CMUX_C", 3))))
+        self.commit_all("lane changes cmux_a the other way")
+        clash = self.git("merge", "--no-edit", "other", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        text = ops.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("<<<<<<< ours\n"), text[:40])
+        self.assertIn("\n=======\n", text)
+        self.assertIn('"returns": "bool"', text)
+        self.assertIn('"returns": "int"', text)
+        self.assertTrue(text.endswith("\n>>>>>>> theirs\n"))
+        self.git("merge", "--abort")
+
     def test_repo_relative_python_is_rejected_without_execution(self):
         tools = self.repo / "tools"
         tools.mkdir()
