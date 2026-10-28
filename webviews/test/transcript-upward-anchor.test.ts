@@ -52,12 +52,8 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       // No warm fling: rows encountered above the viewport must still have estimated heights.
       const steps = Array.from({ length: 240 }, (_, frame) => -[18.25, 42.5, 27.75, 56.125][frame % 4]!);
       const result = await page.evaluate(traceUpwardAnchors, { steps });
-      const { samples, ...summary } = result;
-      const worst = samples
-        .filter((sample) => sample.drift !== null)
-        .sort((a, b) => Math.abs(b.drift!) - Math.abs(a.drift!))
-        .slice(0, 8);
-      console.log(`transcript-upward-anchor: ${JSON.stringify({ ...summary, worst })}`);
+      // Preserve the complete row-id/y trace in the hosted log, on both a pass and a failure.
+      console.log(`transcript-upward-anchor: ${JSON.stringify(result)}`);
       expect(result.cancelledWheels).toBe(0);
       expect(result.wheelPixels).toBeLessThan(-8_000);
       expect(result.compared).toBe(result.frames);
