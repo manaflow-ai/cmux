@@ -4,9 +4,13 @@ public import CmuxNextTrace
 import GhosttyNextKit
 
 /// Secure keyboard entry requested by Ghostty (`GHOSTTY_ACTION_SECURE_INPUT`: the toggle keybind, or a password
-/// prompt Ghostty detects). While any terminal holds it, the system's secure event input is on and the trace
-/// runtime's keystroke-timing gate is held closed (``TraceRuntime/KeyTimingHold/terminalSecureInput``,
-/// p09-observability-128), so no key timing is written, in the black box or a recording.
+/// prompt Ghostty detects). While any terminal holds a request, the trace runtime's keystroke-timing gate is held
+/// closed (``TraceRuntime/KeyTimingHold/terminalSecureInput``, p09-observability-128), so no key timing is written,
+/// in the black box or a recording. The system's secure event input is on only while a terminal that holds a
+/// request has keyboard focus (``setFocused(_:for:)``) and the app is active (``setAppActive(_:)``): it is
+/// process-wide and blocks other apps' key taps, so a password prompt in a background tab, another window or an
+/// inactive cmux never holds it. Ghostty scopes it the same way
+/// (`ghostty-next/macos/Sources/Features/Secure Input/SecureInput.swift`).
 ///
 /// HIToolbox counts secure event input per process, so the process has one: ``GhosttyRuntime/secureInput``,
 /// which each ``TerminalSession`` passes to its surfaces unless its owner injects another.
@@ -29,15 +33,22 @@ public final class TerminalSecureInput {
 
     /// The surface views that asked for secure input and still hold it.
     private var enabledViews: Set<ObjectIdentifier> = []
+    /// The surface views that have keyboard focus (first responder in the key window), as each reports it.
+    private var focusedViews: Set<ObjectIdentifier> = []
+    private var appActive: Bool
+    /// Whether this turned the system's secure event input on (every enable is balanced by one disable).
+    private var systemEnabled = false
     private let trace: TraceRuntime
     private let system: System
 
     /// - Parameters:
     ///   - trace: The runtime whose keystroke-timing gate this holds closed while secure input is on.
     ///   - system: The system's secure event input switch.
-    public init(trace: TraceRuntime, system: System = .carbon) {
+    ///   - appActive: Whether the app is active now; nil reads `NSApp.isActive`. ``setAppActive(_:)`` follows it.
+    public init(trace: TraceRuntime, system: System = .carbon, appActive: Bool? = nil) {
         self.trace = trace
         self.system = system
+        self.appActive = appActive ?? (NSApp?.isActive ?? false)
     }
 
     /// Whether any terminal holds secure input.
@@ -55,24 +66,39 @@ public final class TerminalSecureInput {
         default:
             if enabledViews.remove(view) == nil { enabledViews.insert(view) }
         }
-        guard isEnabled != wasEnabled else { return }
-        if isEnabled {
-            trace.setKeyTimingSuppressed(true, by: .terminalSecureInput)
-            system.enable()
-        } else {
-            lift()
-        }
+        if isEnabled && !wasEnabled { trace.setKeyTimingSuppressed(true, by: .terminalSecureInput) }
+        syncSystem()
+        if !isEnabled && wasEnabled { trace.setKeyTimingSuppressed(false, by: .terminalSecureInput) }
     }
 
-    /// Lets go of `view`'s request when the view goes away.
+    /// Records whether the surface view `view` has keyboard focus now (its `updateFocus`).
+    func setFocused(_ focused: Bool, for view: ObjectIdentifier) {
+        if focused { focusedViews.insert(view) } else { focusedViews.remove(view) }
+        syncSystem()
+    }
+
+    /// Follows the app's activation (`didBecomeActive` / `didResignActive`): an inactive app yields the
+    /// system's secure input to the app the person uses, and takes it back when it is active again.
+    func setAppActive(_ active: Bool) {
+        appActive = active
+        syncSystem()
+    }
+
+    /// Lets go of `view`'s request and focus when the view goes away.
     func release(_ view: ObjectIdentifier) {
-        guard enabledViews.remove(view) != nil, enabledViews.isEmpty else { return }
-        lift()
+        focusedViews.remove(view)
+        let held = enabledViews.remove(view) != nil
+        syncSystem()
+        if held, enabledViews.isEmpty { trace.setKeyTimingSuppressed(false, by: .terminalSecureInput) }
     }
 
-    private func lift() {
-        system.disable()
-        trace.setKeyTimingSuppressed(false, by: .terminalSecureInput)
+    /// Turns the system's secure event input on or off to match: on while the app is active and a focused
+    /// terminal holds a request.
+    private func syncSystem() {
+        let desired = appActive && !enabledViews.isDisjoint(with: focusedViews)
+        guard desired != systemEnabled else { return }
+        systemEnabled = desired
+        if desired { system.enable() } else { system.disable() }
     }
 }
 

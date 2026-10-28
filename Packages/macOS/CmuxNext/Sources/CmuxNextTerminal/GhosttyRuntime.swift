@@ -363,12 +363,16 @@ public final class GhosttyRuntime {
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated {
                 self?.setAppFocused(true)
+                self?.secureInput.setAppActive(true)
                 self?.inputSources.applicationDidBecomeActive()
             }
         }) // raw-observer-allow: the process's one observer of this notice for every terminal (the runtime starts before the app's AppEvents exists)
         observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
-            MainActor.assumeIsolated { self?.setAppFocused(false) }
+            MainActor.assumeIsolated {
+                self?.setAppFocused(false)
+                self?.secureInput.setAppActive(false)
+            }
         })
         // raw-observer-allow: the process's one observer of this notice for every terminal (the runtime starts before the app's AppEvents exists); Ghostty caches the keyboard layout for key translation, the key path the source's kind
         observers.append(center.addObserver(forName: NSTextInputContext.keyboardSelectionDidChangeNotification, object: nil, queue: .main) { [weak self] _ in

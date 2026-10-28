@@ -627,6 +627,7 @@ public final class TerminalSurfaceView: NSView {
         let focused = (firstResponder ?? isFirstResponder) && (window?.isKeyWindow ?? false)
         guard focused != lastFocus else { return }
         lastFocus = focused
+        secureInput.setFocused(focused, for: ObjectIdentifier(self))
         // SAFETY: the view's live surface (`surface`).
         unsafe ghostty_surface_set_focus(surface, focused)
         session?.model.isFocused = focused
