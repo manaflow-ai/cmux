@@ -43,6 +43,9 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.markWorkspaceRead": [p(.workspaceRow, .identity, 111, folder: .options)],
         "palette.markWorkspaceUnread": [p(.workspaceRow, .identity, 112, folder: .options)],
         "workspace.toggleAudioMute": [p(.workspaceRow, .identity, 115, folder: .options)],
+        // Workspace hibernation (workspace-hibernation-DESIGN.md): Hibernate now, or never on its own.
+        "workspace.hibernate": [p(.workspaceRow, .identity, 116, folder: .options)],
+        "workspace.toggleKeepAwake": [p(.workspaceRow, .identity, 117, folder: .options)],
         "palette.workspaceColor": [p(.workspaceRow, .identity, 104, folder: .appearance)],
         "palette.resetWorkspaceColor": [p(.workspaceRow, .identity, 105, folder: .appearance)],
         "workspace.removeAllColors": [p(.workspaceGroup, .identity, 103, folder: .options)],
@@ -129,8 +132,9 @@ nonisolated extension ActionSurfaceCatalog {
         // name, theme color, browser profile; New Group; Delete. The rest of
         // the space actions stay in the palette and the CLI (`.minimalMenu`).
         "space.new": [p(.sidebarBackground, .create, 6, folder: .new)],
+        "space.newIncognito": [p(.sidebarBackground, .create, 6, folder: .new)],
         "space.newWorkspace": [p(.profile, .create, 0, label: SpaceMenuLabels.newWorkspace)],
-        "space.newWindow": [p(.profile, .create, 1, label: SpaceMenuLabels.newWindow)],
+        "space.openInNewWindow": [p(.profile, .create, 1, label: SpaceMenuLabels.openInNewWindow)],
         "space.setIcon": [p(.profile, .identity, 100, label: IconMenuLabels.setIcon)],
         "space.clearIcon": [p(.profile, .identity, 100, label: IconMenuLabels.removeIcon)],
         "space.rename": [p(.profile, .identity, 101)],

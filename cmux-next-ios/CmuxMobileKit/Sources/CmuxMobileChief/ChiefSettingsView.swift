@@ -191,7 +191,7 @@ public struct ChiefSettingsView: View {
             .accessibilityIdentifier("chief.settings.call")
             if !session.runsInCloud {
                 ChiefQuickAction(symbol: "stop.fill", title: String(localized: "Stop"),
-                                 enabled: hasControl && session.isTyping && !stopping,
+                                 enabled: hasControl && session.isWorking && !stopping,
                                  busy: stopping) { Task { await stop() } }
                     .accessibilityIdentifier("chief.settings.stop")
             }
@@ -209,7 +209,8 @@ public struct ChiefSettingsView: View {
             return session.unavailableReason ?? String(localized: "Not connected to your Mac")
         }
         let mac = session.macName ?? String(localized: "your Mac")
-        if session.isTyping { return String(localized: "Working on \(mac)") }
+        // A run with tools and no typing is work too (``ChiefSession/isWorking``).
+        if session.isWorking { return String(localized: "Working on \(mac)") }
         return String(localized: "Runs on \(mac)")
     }
 
