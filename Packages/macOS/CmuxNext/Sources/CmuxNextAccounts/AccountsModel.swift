@@ -24,10 +24,10 @@ public final class AccountsModel {
     /// Providers whose login was started here; re-detected on activation.
     @ObservationIgnored private var pendingReauth: Set<AIProvider> = []
     @ObservationIgnored private var openingReauth: Set<AIProvider> = []
-    /// The refresh generation in which each local login started. A refresh
-    /// already in flight can finish after its tab opener returns; its stale
-    /// detection must not clear the row's re-authenticating phase.
-    @ObservationIgnored private var reauthStartGeneration: [AIProvider: Int] = [:]
+    /// The latest refresh generation that could have observed the provider
+    /// before its login tab opened. A refresh newer than this boundary may
+    /// reconcile the completed login; older results are stale.
+    @ObservationIgnored private var reauthCompletionGeneration: [AIProvider: Int] = [:]
     /// A detection has finished. Until then every row reads Checking… and
     /// refuses work, which the palette and CLI meet before the screen opens.
     @ObservationIgnored private var hasDetected = false
@@ -71,7 +71,7 @@ public final class AccountsModel {
             let found = await detecting.value, accounts = await loading.value
             guard let self, current == self.generation, !Task.isCancelled else { return }
             for detection in found where !self.openingReauth.contains(detection.provider)
-                && (self.reauthStartGeneration[detection.provider].map({ current > $0 }) ?? true) {
+                && (self.reauthCompletionGeneration[detection.provider].map({ current > $0 }) ?? true) {
                 self.apply(.detected(detection), to: detection.provider)
             }
             self.hasDetected = true
@@ -155,11 +155,11 @@ public final class AccountsModel {
 
     private func openProviderPlan(_ provider: AIProvider, plan: ReauthPlan) async -> String? {
         openingReauth.insert(provider)
-        reauthStartGeneration[provider] = generation
         defer { openingReauth.remove(provider) }
         guard await services.reauthenticate(provider, plan: plan) else { return nothingOpened(provider) }
         apply(.reauthStarted, to: provider)
         pendingReauth.insert(provider)
+        reauthCompletionGeneration[provider] = generation
         return nil
     }
 

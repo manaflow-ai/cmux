@@ -171,6 +171,12 @@ import Testing
         await model.settle()
         #expect(!model.isRefreshing)
         #expect(model.row(.codex).phase == .reauthenticating)
+
+        // A later, deliberate refresh is newer than the login-completion
+        // boundary and is allowed to reconcile the provider's new state.
+        model.refresh()
+        await model.settle()
+        #expect(model.row(.codex).phase == .idle)
     }
 
     @Test func aCodexConnectWithoutACodexSignInNamesCodexNotCmux() async {
