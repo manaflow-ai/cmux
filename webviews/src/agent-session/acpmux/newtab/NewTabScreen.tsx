@@ -16,10 +16,11 @@ import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
-import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
+import type { AttachmentError, ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
 import type { UploadResult } from "../cloudUploads";
 import {
   AttachmentStrip,
+  attachmentErrorText,
   backspacedAttachment,
   useAttachmentIntake,
   useSendWhenAttached,
@@ -33,7 +34,8 @@ import { OpenTabsList } from "./OpenTabsList";
 import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
 import { ArrowUpIcon, PaperclipIcon, PlusIcon } from "../ComposerPickers";
 import { PaletteMenu, paletteSections } from "../PaletteMenu";
-import { composerPlusRegistry, type ComposerPlusExtension } from "../composerPlusRegistry";
+import type { ComposerPlusExtension } from "../composerPlusRegistry";
+import { newTabCommandDraft, newTabPlusEntries, type NewTabPlusModePick, type NewTabPlusTarget } from "./plusActions";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
@@ -133,6 +135,10 @@ export type NewTabScreenActions = {
   onPaletteAction?(id: string): Promise<void> | void;
   plusExtensions?: readonly ComposerPlusExtension[];
   onPlusOpen?(): void;
+  /** The existing native composer.capture flow. Cancellation returns no file and keeps the draft. */
+  capture?(mode: "screen" | "window"): Promise<File | AttachmentError | undefined>;
+  /** The host uses its existing deferred chat starter, preserving this exact harness/model/target. */
+  onPlusMode?(pick: NewTabPlusModePick): Promise<void>;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
   /// The machine the page runs on and its chat starts on (the host's name for it), for the
@@ -511,6 +517,10 @@ export function NewTabScreen(props: Props) {
     const model = entry.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
     return { harness, agent: entry.name, ...(model ? { model } : {}) };
   }, [snapshot.catalog, harness, chipSnapshot.summary?.model]);
+  // The advertised command token owns this draft, including an empty argument list.
+  // Do not let the omnibar reinterpret `/review ` as the absolute file path `/review`.
+  const commandToken = text.trimStart().split(/\s/, 1)[0];
+  const commandPrompt = snapshot.commands?.some((command) => commandToken === `/${command.name}`) ?? false;
   const commandQuery = slashQuery(text, text.length);
   const commandMatches = commandQuery === undefined ? [] : matchCommands(snapshot.commands ?? [], commandQuery);
   const commandsOpen = commandQuery !== undefined && commandDismissed !== text && commandMatches.length > 0;
@@ -547,7 +557,7 @@ export function NewTabScreen(props: Props) {
   );
   const suggested = useMemo(
     () =>
-      touched && !shell && commandQuery === undefined
+      touched && !shell && !commandPrompt && commandQuery === undefined
         ? screenRows(text, {
             omnibar,
             home,
@@ -557,7 +567,7 @@ export function NewTabScreen(props: Props) {
             ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
           })
         : [],
-    [touched, shell, text, omnibar, home, ask, creates, commandQuery, props.suggestionOrder, nt],
+    [touched, shell, text, omnibar, home, ask, creates, commandPrompt, commandQuery, props.suggestionOrder, nt],
   );
   const rows = text !== dismissed ? suggested : [];
   // New tabs or pages from the host can shorten the rows under a highlight.
@@ -809,6 +819,7 @@ export function NewTabScreen(props: Props) {
     if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
     if (holdForAttachments(() => submitNow.current())) return;
+    if (commandPrompt) return harness ? askChat(harness, text.trim(), project, chipModel) : undefined;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
     const list = rows.length ? rows : suggested;
@@ -844,7 +855,7 @@ export function NewTabScreen(props: Props) {
     const prompt = shell ? "" : text.trim();
     const asked = askChat(
       harness,
-      prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
+      prompt && (commandPrompt || !isAddress(prompt, home)) && !pairingLinkRefused(prompt) ? prompt : "",
       project,
       chipModel,
     );
@@ -1118,6 +1129,56 @@ export function NewTabScreen(props: Props) {
   /// split draws the chat composer's box instead.
   const pill = template === "cards" && !split;
 
+  const plusTarget: NewTabPlusTarget | undefined = harness
+    ? {
+        harness,
+        ...(none ? { noProject: true as const } : {}),
+        ...((environment?.folder ?? machine?.folder ?? chatFolder)
+          ? { cwd: environment?.folder ?? machine?.folder ?? chatFolder }
+          : {}),
+        ...(chipSnapshot.summary?.model ? { model: chipSnapshot.summary.model } : {}),
+        ...(environment?.kind === "ssh" ? { peer: environment.host } : machine ? { peer: machine.peer } : {}),
+      }
+    : undefined;
+  const plusEntries = newTabPlusEntries({
+    snapshot,
+    target: plusTarget,
+    translate: t,
+    capture: Boolean(props.capture && !shell),
+    commands: !shell,
+    project: Boolean(props.onBrowseProject && !shell),
+    mode: Boolean(
+      props.onPlusMode &&
+      !shell &&
+      props.runMode?.mode !== "sandboxed" &&
+      !(environment?.kind === "local" && environment.worktree),
+    ),
+  });
+  const pickPlus = async (id: string): Promise<void | "keep"> => {
+    const entry = plusEntries.find((row) => row.id === id);
+    if (!entry) return "keep";
+    const action = entry.action;
+    if (action.kind === "slash") {
+      const next = newTabCommandDraft(action.command, field.current?.value ?? text);
+      touch();
+      setText(next);
+      requestAnimationFrame(() => {
+        field.current?.focus();
+        field.current?.setSelectionRange(next.length, next.length);
+      });
+    } else if (action.id === "composer.attachFiles") chooser.current?.click();
+    else if (action.id === "composer.attachScreenshot" || action.id === "composer.attachWindow") {
+      const file = await props.capture?.(action.id === "composer.attachWindow" ? "window" : "screen");
+      if (file && "reason" in file) throw new Error(attachmentErrorText(file, t));
+      if (file) await attach([file], true);
+    } else if (action.id === "composer.chooseProject") {
+      const choice = ++projectChoice.current;
+      const folder = await props.onBrowseProject?.();
+      if (folder && choice === projectChoice.current) pickProject(folder);
+    } else if (action.id === "composer.planMode" && action.modeId && plusTarget && props.onPlusMode) {
+      await props.onPlusMode({ ...plusTarget, modeId: action.modeId });
+    } else return "keep";
+  };
   const attachmentPicker = (
     <>
       <input
@@ -1135,7 +1196,18 @@ export function NewTabScreen(props: Props) {
         }}
       />
       <PaletteMenu
-        onOpen={props.onPlusOpen}
+        onOpen={() => {
+          props.onPlusOpen?.();
+          // The same lazy capability load as typing /, bound to the local deferred chat.
+          if (
+            harness &&
+            !snapshot.summary?.sessionId &&
+            !plusTarget?.peer &&
+            !(environment?.kind === "local" && environment.worktree) &&
+            props.runMode?.mode !== "sandboxed"
+          )
+            onCommands?.(harness, chatFolder);
+        }}
         label={t("composer.add")}
         tooltip={t("composer.addTooltip")}
         className={`acpmux-composer-plus acpmux-newtab-plus${split ? " nt-split-plus" : ""}`}
@@ -1145,17 +1217,14 @@ export function NewTabScreen(props: Props) {
         sections={[
           {
             title: t("composer.add"),
-            choices: composerPlusRegistry({ translate: t, canCapture: false })
-              .filter((entry) => entry.id === "add.files")
-              .map((entry) => ({
-                id: entry.id,
-                name: entry.name,
-                description: entry.description,
-                icon: <PaperclipIcon />,
-              })),
-            onPick: (id) => {
-              if (id === "add.files") chooser.current?.click();
-            },
+            choices: plusEntries.map((entry) => ({
+              id: entry.id,
+              name: entry.name,
+              description: entry.description,
+              keywords: entry.keywords,
+              icon: entry.id === "add.files" ? <PaperclipIcon /> : <Icon name={entry.icon} size={16} />,
+            })),
+            onPick: pickPlus,
           },
           ...paletteSections(
             (id) => {
