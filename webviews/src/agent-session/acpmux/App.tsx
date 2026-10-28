@@ -3204,6 +3204,9 @@ export function VirtualTranscript({
       // bottom offset would immediately snap the reader back. Once the event is acknowledged,
       // layout-only corrections use the stored offset because WebKit may already include a resize
       // adjustment in `live`.
+      // The acknowledged physical offset still belongs to the previous logical origin even
+      // when the browser already clamped its live offset. Retain it for this anchor calculation.
+      const previousOrigin = scrollOrigin(node);
       if (clamped) clearScrollOrigin(node);
       const top = scrollAnchorBase(live, scrolledTo.current.top, readerLeft);
       // Following is reader intent, not proximity. A token must not recapture a parked reader
@@ -3232,7 +3235,7 @@ export function VirtualTranscript({
         // so the row is found again by its id; at offset 0 too, when older history arrived above.
         // A row older history completed (a turn cut at the page's edge) has a new id: the next row
         // that kept its own anchors instead.
-        const logicalTop = top - scrollOrigin(node);
+        const logicalTop = top - previousOrigin;
         const nextTop = preserveScrollAnchorTop({
           oldLayout: old,
           newLayout: layout,
