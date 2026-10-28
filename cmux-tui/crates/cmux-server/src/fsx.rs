@@ -36,7 +36,7 @@ fn open_new(path: &Path, mode: u32) -> io::Result<File> {
     }
     #[cfg(not(unix))]
     let _ = mode;
-    options.open(path)
+    cmux_threads::checked::fs::open_with(&options, path)
 }
 
 /// Sets the permission bits of `path` (Unix only; a no-op elsewhere).
@@ -44,7 +44,7 @@ pub fn set_mode(path: &Path, mode: u32) -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        cmux_threads::checked::fs::set_permissions(path, fs::Permissions::from_mode(mode))
     }
     #[cfg(not(unix))]
     {
@@ -75,17 +75,17 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: u32) -> Result<()> {
     let result = (|| -> io::Result<()> {
         let mut file = open_new(&tmp, mode)?;
         file.write_all(bytes)?;
-        file.sync_all()?;
+        cmux_threads::checked::fs::sync_all(&file)?;
         drop(file);
         set_mode(&tmp, mode)?;
-        fs::rename(&tmp, path)?;
+        cmux_blocking::fs::rename(&tmp, path)?;
         if let Some(dir) = path.parent() {
             sys::fsync_dir(dir)?;
         }
         Ok(())
     })();
     if result.is_err() {
-        let _ = fs::remove_file(&tmp);
+        let _ = cmux_blocking::fs::remove_file(&tmp);
     }
     result.ctx(path.display())
 }
@@ -93,7 +93,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: u32) -> Result<()> {
 /// Like [`atomic_write`], but only when the content differs. Returns
 /// whether it wrote.
 pub fn write_if_changed(path: &Path, bytes: &[u8], mode: u32) -> Result<bool> {
-    match fs::read(path) {
+    match cmux_blocking::fs::read(path) {
         Ok(old) if old == bytes => {
             set_mode(path, mode).ctx(path.display())?;
             Ok(false)
@@ -110,7 +110,7 @@ pub fn write_if_changed(path: &Path, bytes: &[u8], mode: u32) -> Result<bool> {
 /// `cmux_server_core::access` are checked, and refused when wider, by
 /// [`crate::access`]).
 pub fn ensure_dir(path: &Path, mode: u32) -> Result<()> {
-    if fs::metadata(path).is_ok_and(|m| m.is_dir()) {
+    if cmux_blocking::fs::metadata(path).is_ok_and(|m| m.is_dir()) {
         return Ok(());
     }
     let builder = |recursive: bool| {
@@ -124,11 +124,16 @@ pub fn ensure_dir(path: &Path, mode: u32) -> Result<()> {
         builder
     };
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-        builder(true).create(parent).ctx(parent.display())?;
+        cmux_threads::checked::fs::create_dir_with(&builder(true), parent).ctx(parent.display())?;
     }
-    match builder(false).create(path) {
+    match cmux_threads::checked::fs::create_dir_with(&builder(false), path) {
         Ok(()) => set_mode(path, mode).ctx(path.display()),
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists && path.is_dir() => Ok(()),
+        Err(e)
+            if e.kind() == io::ErrorKind::AlreadyExists
+                && cmux_blocking::fs::metadata(path).is_ok_and(|m| m.is_dir()) =>
+        {
+            Ok(())
+        }
         Err(e) => Err(crate::error::Error::io(path.display(), e)),
     }
 }
@@ -175,12 +180,14 @@ fn swap(link: &Path, target: &Path, pin: bool) -> Result<()> {
     )));
     #[cfg(unix)]
     {
-        if pin && fs::symlink_metadata(link).is_ok_and(|m| m.file_type().is_symlink()) {
+        if pin
+            && cmux_blocking::fs::symlink_metadata(link).is_ok_and(|m| m.file_type().is_symlink())
+        {
             // Best effort: a file system without hard links still flips.
             let _ = hard_link_no_follow(link, &temp_sibling(link, "pin"));
         }
-        if let Err(e) = fs::rename(&tmp, link) {
-            let _ = fs::remove_file(&tmp);
+        if let Err(e) = cmux_blocking::fs::rename(&tmp, link) {
+            let _ = cmux_blocking::fs::remove_file(&tmp);
             return Err(crate::error::Error::io(link.display(), e));
         }
         if let Some(dir) = link.parent() {
@@ -210,19 +217,21 @@ fn hard_link_no_follow(existing: &Path, new: &Path) -> io::Result<()> {
 pub fn prune_pins(link: &Path, max_age: Duration, max_count: usize) -> Result<()> {
     let (Some(dir), Some(name)) = (link.parent(), link.file_name()) else { return Ok(()) };
     let prefix = format!(".{}.pin.", name.to_string_lossy());
-    let Ok(entries) = fs::read_dir(dir) else { return Ok(()) };
+    let Ok(entries) = cmux_blocking::fs::read_dir(dir) else { return Ok(()) };
     let now = SystemTime::now();
     let mut pins: Vec<(SystemTime, PathBuf)> = entries
         .flatten()
         .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
-        .filter_map(|e| fs::symlink_metadata(e.path()).ok().map(|m| (ctime(&m), e.path())))
+        .filter_map(|e| {
+            cmux_blocking::fs::symlink_metadata(e.path()).ok().map(|m| (ctime(&m), e.path()))
+        })
         .collect();
     // Newest first.
     pins.sort_by_key(|pin| std::cmp::Reverse(pin.0));
     for (i, (at, path)) in pins.iter().enumerate() {
         let old = now.duration_since(*at).unwrap_or(Duration::ZERO) >= max_age;
         if old || i >= max_count {
-            match fs::remove_file(path) {
+            match cmux_blocking::fs::remove_file(path) {
                 Ok(()) => {}
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
                 Err(e) => return Err(crate::error::Error::io(path.display(), e)),
@@ -249,10 +258,10 @@ fn ctime(meta: &fs::Metadata) -> SystemTime {
 /// Removes write permission from every file and directory under `root`
 /// (keeping execute bits), so a package is immutable after unpack.
 pub fn make_read_only(root: &Path) -> Result<()> {
-    for entry in fs::read_dir(root).ctx(root.display())? {
+    for entry in cmux_blocking::fs::read_dir(root).ctx(root.display())? {
         let entry = entry.ctx(root.display())?;
         let path = entry.path();
-        let meta = fs::symlink_metadata(&path).ctx(path.display())?;
+        let meta = cmux_blocking::fs::symlink_metadata(&path).ctx(path.display())?;
         if meta.is_dir() {
             make_read_only(&path)?;
         } else if meta.is_file() {
@@ -265,22 +274,22 @@ pub fn make_read_only(root: &Path) -> Result<()> {
 /// Removes `path` (file, symlink or tree). Read-only directories are made
 /// writable first; symlinks are removed, never followed. Missing is fine.
 pub fn remove_tree(path: &Path) -> Result<()> {
-    let meta = match fs::symlink_metadata(path) {
+    let meta = match cmux_blocking::fs::symlink_metadata(path) {
         Ok(meta) => meta,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(crate::error::Error::io(path.display(), e)),
     };
     if !meta.is_dir() {
-        return fs::remove_file(path).ctx(path.display());
+        return cmux_blocking::fs::remove_file(path).ctx(path.display());
     }
     set_mode(path, 0o700).ctx(path.display())?;
-    for entry in fs::read_dir(path).ctx(path.display())? {
+    for entry in cmux_blocking::fs::read_dir(path).ctx(path.display())? {
         remove_tree(&entry.ctx(path.display())?.path())?;
     }
-    fs::remove_dir(path).ctx(path.display())
+    cmux_threads::checked::fs::remove_dir(path).ctx(path.display())
 }
 
 /// True when `path` exists (without following a final symlink).
 pub fn exists_no_follow(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok()
+    cmux_blocking::fs::symlink_metadata(path).is_ok()
 }

@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDaemon
 public import CmuxNextDaemonService
+public import CmuxNextWakeups
 
 extension AgentCLIUpdateActions {
     /// The app's daemons, read when an update captures its owner.
@@ -19,9 +20,11 @@ extension AgentCLIUpdateActions {
 
     /// The palette's target machine, else the active daemon, while the app still routes to it.
     /// Recovery reattaches only the original machine/session; the ledger is the local owner's.
+    /// `mainWork` is the app's one main-thread scheduler: each route's terminal changes follow on it.
     public convenience init(daemons: Daemons, unsupported: @escaping @MainActor () -> String,
                             nothingToUpdate: @escaping @MainActor () -> String,
-                            stillUpdating: @escaping @MainActor (String) -> String, localMachine: String) {
+                            stillUpdating: @escaping @MainActor (String) -> String, localMachine: String,
+                            mainWork: MainWorkScheduler) {
         let registered: @MainActor (DaemonService) -> Bool = { daemons.machine($0.machineID) === $0 }
         let ledger: @MainActor () async throws -> (AgentCLIIntentLedger, @MainActor () -> Bool) = {
             guard let local = daemons.machine(localMachine) else { throw DaemonError.notConnected }
@@ -31,15 +34,15 @@ extension AgentCLIUpdateActions {
         self.init(capture: { invocation in
             if let target = invocation.target {
                 guard target.kind == .machine, let daemon = daemons.machine(target.id) else { throw DaemonError.notConnected }
-                return try Route.capture(daemon, registered: registered)
+                return try Route.capture(daemon, registered: registered, mainWork: mainWork)
             }
             guard let daemon = daemons.active() else { throw DaemonError.notConnected }
-            return try Route.capture(daemon, registered: registered)
+            return try Route.capture(daemon, registered: registered, mainWork: mainWork)
         }, persistence: .ledger(ledger), captureRecovered: { machine, session in
             guard let original = daemons.all().first(where: {
                 $0.identity?.machineResourceID == machine && $0.identity?.sessionResourceID == session
             }) else { throw DaemonError.notConnected }
-            return try Route.capture(original, registered: registered)
+            return try Route.capture(original, registered: registered, mainWork: mainWork)
         }, unsupported: unsupported, nothingToUpdate: nothingToUpdate, stillUpdating: stillUpdating, localMachine: localMachine)
     }
 }
@@ -82,8 +85,10 @@ extension AgentCLIUpdateActions.Route {
     }
 
     /// Captures one daemon's connected machine/session owner and connection epoch.
-    /// `registered` says whether the app still routes that machine to this daemon.
-    public static func capture(_ daemon: DaemonService, registered: @escaping @MainActor (DaemonService) -> Bool) throws -> Self {
+    /// `registered` says whether the app still routes that machine to this daemon; `mainWork` is the app's one
+    /// main-thread scheduler, where the route's terminal changes follow.
+    public static func capture(_ daemon: DaemonService, registered: @escaping @MainActor (DaemonService) -> Bool,
+                               mainWork: MainWorkScheduler) throws -> Self {
         let (connection, machine, session, current) = try connected(daemon, registered: registered)
         guard daemon.identity?.capabilities.contains("agent-cli-update-job-resolve-v1") == true else {
             throw DaemonError.missingCapabilities(["agent-cli-update-job-resolve-v1"])
@@ -106,6 +111,6 @@ extension AgentCLIUpdateActions.Route {
             start: { cli, key in try await captured().startUpdate(cli: cli, idempotencyKey: key) },
             observe: { receipt in try await captured().observe(receipt) },
             resolve: { cli, key in try await captured().resolveUpdate(cli: cli, idempotencyKey: key) },
-            changes: { AgentCLIUpdateActions.terminalChanges(sideEvents: sideEvents, stamp: stamp, current: current) })
+            changes: { AgentCLIUpdateActions.terminalChanges(sideEvents: sideEvents, stamp: stamp, on: mainWork, current: current) })
     }
 }

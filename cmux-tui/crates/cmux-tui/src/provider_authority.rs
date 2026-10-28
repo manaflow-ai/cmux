@@ -55,6 +55,7 @@ impl From<anyhow::Error> for CommandError {
 
 fn run(args: &[String]) -> Result<(), CommandError> {
     let args = parse(args).map_err(CommandError::Other)?;
+    // SAFETY: PR_SET_DUMPABLE takes integer arguments only and touches no memory of this process.
     let result = unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
     if result != 0 {
         return Err(CommandError::Other(io::Error::last_os_error().into()));
@@ -109,11 +110,11 @@ fn parse(args: &[String]) -> anyhow::Result<InstallArgs> {
 }
 
 fn open_authority(path: &Path) -> anyhow::Result<File> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-        .open(path)
-        .map_err(|error| anyhow::anyhow!("cannot open provider authority file: {error}"))?;
+    let file = crate::blocking::fs::open_with(
+        OpenOptions::new().read(true).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW),
+        path,
+    )
+    .map_err(|error| anyhow::anyhow!("cannot open provider authority file: {error}"))?;
     let metadata = file.metadata()?;
     if !metadata.is_file()
         || metadata.uid() != 0
@@ -167,7 +168,7 @@ mod tests {
 
     #[test]
     fn unavailable_live_management_protocol_is_retryable() {
-        if unsafe { libc::geteuid() } != 0 {
+        if cmux_tui_core::platform::effective_uid() != 0 {
             return;
         }
         let suffix = format!("{}-{}", std::process::id(), std::thread::current().name().unwrap());
@@ -200,7 +201,7 @@ mod tests {
     fn unresponsive_listener_is_retryable() {
         use std::os::unix::net::UnixListener;
 
-        if unsafe { libc::geteuid() } != 0 {
+        if cmux_tui_core::platform::effective_uid() != 0 {
             return;
         }
         let suffix = format!("old-{}", std::process::id());
@@ -237,7 +238,7 @@ mod tests {
         use std::io::{BufRead, BufReader};
         use std::os::unix::net::UnixListener;
 
-        if unsafe { libc::geteuid() } != 0 {
+        if cmux_tui_core::platform::effective_uid() != 0 {
             return;
         }
         let suffix = format!("future-{}", std::process::id());

@@ -296,7 +296,12 @@ fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::Joi
             // `is_finished` keeps the provider-facing path non-blocking even
             // if a platform leaves the pipe reader briefly behind the child.
             if reader.is_finished() {
-                let _ = reader.join();
+                #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+                let _ = cmux_blocking::scoped_blocking_call(
+                    "thread::join",
+                    cmux_blocking::BlockingKind::Join,
+                    || reader.join(),
+                );
             } else {
                 drop(reader);
             }
@@ -595,19 +600,26 @@ fn connect_before(
     let socket = socket.to_path_buf();
     let display = socket.display().to_string();
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    // supervise-allow: one-shot helper of this short-lived hook process; a panic drops its sender, so the bounded wait below ends.
     let connector = std::thread::Builder::new()
         .name("journal-hook-connect".into())
         .spawn(move || {
             let _ = sender.send(transport::connect(&socket));
         })
         .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
-    let result = match receiver.recv_timeout(remaining) {
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let received = cmux_blocking::scoped_blocking_call(
+        "sync::recv_timeout",
+        cmux_blocking::BlockingKind::Recv,
+        || receiver.recv_timeout(remaining),
+    );
+    let result = match received {
         Ok(result) => {
-            let _ = connector.join();
+            join_connector(connector);
             result
         }
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            let _ = connector.join();
+            join_connector(connector);
             return Err(AppendAttemptError::Retryable(anyhow!(
                 "journal socket connector stopped without a result"
             )));
@@ -634,6 +646,16 @@ fn connect_before(
             AppendAttemptError::Fatal(error)
         }
     })
+}
+
+/// Waits for the connector thread, which has sent its result or ended.
+#[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+fn join_connector(connector: std::thread::JoinHandle<()>) {
+    let _ = cmux_blocking::scoped_blocking_call(
+        "thread::join",
+        cmux_blocking::BlockingKind::Join,
+        || connector.join(),
+    );
 }
 
 fn write_before(
@@ -759,6 +781,7 @@ mod detach {
         // A reader thread plus a bounded channel wait gives one absolute
         // deadline on every platform (Windows pipe reads have no timeout).
         let (sender, receiver) = mpsc::channel();
+        // supervise-allow: one-shot helper of this short-lived hook process; a panic drops its sender, so the bounded wait below ends.
         let reader = std::thread::spawn(move || {
             let mut byte = [0_u8; 1];
             let outcome = match stdout.read(&mut byte) {
@@ -767,7 +790,13 @@ mod detach {
             };
             let _ = sender.send(outcome);
         });
-        let outcome = receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut);
+        #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+        let outcome = cmux_blocking::scoped_blocking_call(
+            "sync::recv_timeout",
+            cmux_blocking::BlockingKind::Recv,
+            || receiver.recv_timeout(handoff_wait),
+        )
+        .unwrap_or(Handoff::TimedOut);
         super::settle_detached_child(child, reader);
         Ok(outcome)
     }

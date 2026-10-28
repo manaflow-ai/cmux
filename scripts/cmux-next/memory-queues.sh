@@ -155,8 +155,29 @@ q_phys() {
   search -n 'physicalMemory' "$app" | sort
 }
 
+# A hit leaves MQ-STREAM once its line, or the comment block right above it,
+# says `memory: bounded-by <limit>` (the byte bound or credit that holds it).
 q_stream() {
-  search -n 'bufferingPolicy:\s*\.unbounded' "$app" | sort
+  local hits
+  hits="$(search -n 'bufferingPolicy:\s*\.unbounded' "$app")" || return
+  [[ -n "$hits" ]] || return 0
+  # shellcheck disable=SC2016 # the awk program is single-quoted on purpose.
+  printf '%s\n' "$hits" | awk -F: '
+    {
+      file = $1; line = $2 + 0; marked = 0; above = ""
+      n = 0
+      while ((getline text < file) > 0) {
+        n++
+        if (n < line) {
+          if (text ~ /^[[:space:]]*\/\//) above = above text "\n"; else above = ""
+        } else {
+          marked = ((above text) ~ /memory: bounded-by /)
+          break
+        }
+      }
+      close(file)
+      if (!marked) print
+    }' | sort
 }
 
 q_pageview() {

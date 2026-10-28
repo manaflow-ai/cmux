@@ -108,7 +108,7 @@ struct PageDiscardTests {
     private func chromiumView(root: URL) async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = FakeChromiumHosting()
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         view.frame = NSRect(x: 0, y: 0, width: 100, height: 80)
         view.loaded = true // its document finished: no loading keep reason
@@ -437,7 +437,7 @@ struct PageDiscardRestoreTests {
         let view = try #require(PageWebView(descriptor: descriptor, root: root,
                                             routes: [PageRoute(prefix: "test.discard.", provider: provider)],
                                             route: "#/a", chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         view.frame = NSRect(x: 0, y: 0, width: 200, height: 100)
         return view
     }
@@ -502,7 +502,7 @@ struct PageDiscardRestoreTests {
         #expect(view.webView.navigationDelegate === view)
     }
 
-    /// The pool's parked spare refuses (the pool owns its life); a pooled host a page claimed is a page
+    /// A page parked in the preload slot refuses (the slot owns its life); a parked page an open claimed is a page
     /// like any other: it discards, and its show brings it back.
     @Test func aClaimedPooledHostDiscardsAndTheParkedSpareRefuses() throws {
         let configuration = WKWebViewConfiguration()
@@ -512,7 +512,7 @@ struct PageDiscardRestoreTests {
                                chromium: nil)
         defer { view.close() }
         #expect(view.isPooled)
-        let parking = PageHostParking()
+        let parking = PagePreloadParkingView(frame: .zero)
         parking.addSubview(view)
         #expect(view.isParkedSpare)
         #expect(!view.discardPage(decoder: decoder))

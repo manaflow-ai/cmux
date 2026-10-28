@@ -141,7 +141,8 @@ fn parse(args: &[String]) -> Result<Request, String> {
             }
             "--instructions-file" => {
                 let path = value()?;
-                let text = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
+                let text =
+                    cmux_blocking::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
                 request.fields.insert("instructions".into(), json!(text));
             }
             "--tools" | "--harnesses" | "--self-edit" => {
@@ -269,7 +270,7 @@ const AGENT_READS: [&str; 5] = [
 /// (`refused` the word), and `cmux raw operation|command` naming a `chief.*`
 /// write (`refused` the operation). `None` for a read or a person.
 pub(in crate::cli) fn agent_control_refusal(command: &str, refused: &str) -> Option<Value> {
-    let marker = super::super::federation::agent_marker(|key| std::env::var(key).ok())?;
+    let marker = super::super::federation::agent_marker(super::super::caller_env::var)?;
     Some(json!({
         "code": "origin.forbidden",
         "message": text().control_refused.replace("{what}", command).replace("{marker}", marker),
@@ -305,8 +306,7 @@ pub(in crate::cli) fn agent_app_action_refusal(action: &str) -> Option<Value> {
     // `home.newChief` is available to a person-authorized agent, but a Chief
     // turn must still go through its own `chiefs` tool and grant.
     if action.trim() == "home.newChief" || action.trim() == "home new-chief" {
-        return std::env::var(super::super::chief_target::OWNER_KEY)
-            .ok()
+        return super::super::caller_env::var(super::super::chief_target::OWNER_KEY)
             .filter(|value| !value.trim().is_empty())
             .and_then(|_| agent_control_refusal("cmux action run home.newChief", action.trim()));
     }
@@ -343,7 +343,7 @@ fn relay_to_turn_host(request: &Request, output: OutputMode) -> Option<i32> {
         call.insert("chief".into(), json!(chief));
     }
     if let Some(path) = &request.avatar {
-        let absolute = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
+        let absolute = cmux_blocking::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
         call.insert("avatar_path".into(), json!(absolute.display().to_string()));
     }
     if request.clear_avatar {
@@ -704,11 +704,12 @@ fn resolve(records: &[Value], wanted: &str) -> Result<Value, String> {
 
 /// The picture at `path` and its media type, from its first bytes.
 fn read_avatar(path: &Path) -> Result<(&'static str, Vec<u8>), String> {
-    let size = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?.len();
+    let size =
+        cmux_blocking::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?.len();
     if size > MAX_AVATAR_BYTES {
         return Err(format!("{}: the picture is larger than 1 MiB", path.display()));
     }
-    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let bytes = cmux_blocking::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let media_type = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         "image/png"
     } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {

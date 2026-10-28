@@ -15,7 +15,8 @@ git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=m
 
 src="$TMP/src"
 mkdir -p "$src/scripts/cmux-next" "$src/cmux-tui/crates/acpmux" "$src/Native/OptChat/optchat-chief" "$TMP/bin"
-cp "$ROOT/scripts/cmux-next/build-acpmux.sh" "$ROOT/scripts/cmux-next/build-optchat-chief.sh" "$src/scripts/cmux-next/"
+cp "$ROOT/scripts/cmux-next/build-acpmux.sh" "$ROOT/scripts/cmux-next/build-optchat-chief.sh" \
+  "$ROOT/scripts/cmux-next/lipo-dsym.sh" "$src/scripts/cmux-next/"
 echo '[package]' > "$src/cmux-tui/crates/acpmux/Cargo.toml"
 echo '[package]' > "$src/Native/OptChat/optchat-chief/Cargo.toml"
 printf '[toolchain]\nchannel = "1.95.0"\n' > "$src/cmux-tui/rust-toolchain.toml"

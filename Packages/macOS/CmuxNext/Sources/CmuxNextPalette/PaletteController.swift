@@ -316,6 +316,11 @@ public final class PaletteController {
     /// The panel while the palette is open (`debug.key` target `palette`).
     public var visiblePanel: NSWindow? { isVisible ? panel : nil }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The open palette's result list (`debug.scroll_frames`).
+    public var debugResultsScrollView: NSScrollView? { isVisible ? contentView?.resultsScrollView : nil }
+    #endif
+
     /// Key-downs in the panel that reached `noResponder(for:)` (the system
     /// beep) since launch.
     public var unhandledKeyDowns: Int { panel?.unhandledKeyDowns ?? 0 }

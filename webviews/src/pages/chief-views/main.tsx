@@ -5,17 +5,24 @@
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { openPageState, restoredPageInputs } from "../shared/pageState";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { ChiefViewsPage } from "./ChiefViewsPage";
 import { MockChiefViewsProvider } from "./mockProvider";
 import { CHIEF_VIEWS } from "./registry";
-import { ChiefViewsStore } from "./store";
+import { CHIEF_VIEWS_PAGE, ChiefViewsStore, restoredChiefViewsInputs } from "./store";
 import "../shared/pageBase.css";
 import "./styles.css";
 
 export function mountChiefViewsPage(root: HTMLElement, client: PageClient | null = defaultClient()): ChiefViewsStore {
-  const store = new ChiefViewsStore(client, CHIEF_VIEWS);
+  const state = openPageState(client, CHIEF_VIEWS_PAGE);
+  const store = new ChiefViewsStore(
+    client,
+    CHIEF_VIEWS,
+    restoredChiefViewsInputs(restoredPageInputs(client, CHIEF_VIEWS_PAGE)),
+  );
+  state.keep(() => store.pageInputs());
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.title = strings.t("chiefViews.page.title");

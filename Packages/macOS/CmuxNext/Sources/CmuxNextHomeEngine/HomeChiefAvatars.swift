@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CmuxNextHome
 public import Foundation
 
@@ -11,8 +12,12 @@ public import Foundation
 /// registry once, after a copy of it and of profile.json goes to ``backupFolder``. Without a
 /// registry (a cloud Chief), or while the daemon cannot be reached, the Chief's files are read.
 ///
+/// Every file read and write runs on the files lane of the runner it is given (Chrome's
+/// `ThreadPool::PostTask` with `MayBlock`): reads for the screen at `.userVisible`, a picture the
+/// person just chose at `.userBlocking`, never on the main thread or the cooperative pool.
+///
 /// ```swift
-/// let avatars = HomeChiefAvatars(muxHome: home, registry: DaemonChiefAvatarRegistry(connection: connection))
+/// let avatars = HomeChiefAvatars(muxHome: home, registry: DaemonChiefAvatarRegistry(connection: connection), files: services.work)
 /// let shown = await avatars.read(chiefs: ["agent_mux", "agent_scout01"])
 /// ```
 public nonisolated struct HomeChiefAvatars: Sendable {
@@ -26,15 +31,20 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     private let registry: (any ChiefAvatarRegistry)?
     /// Where the registry's pictures are kept as files, by SHA-256, for the views that draw a file.
     private let cache: URL
+    /// The lanes the avatar files are read and written on.
+    private let lanes: any MayBlockRunner
 
     /// - Parameters:
     ///   - muxHome: the default Chief's mux home (`HomeBrainHost.muxHome(tag:)`).
     ///   - registry: the daemon's Chief registry; nil reads and writes the Chief's files only.
     ///   - cache: the folder the registry's pictures are written to as files.
-    public init(muxHome: URL, registry: (any ChiefAvatarRegistry)? = nil, cache: URL = HomeChiefAvatars.defaultCache) {
+    ///   - files: the lanes the avatar files are read and written on (the app's `work`).
+    public init(muxHome: URL, registry: (any ChiefAvatarRegistry)? = nil, cache: URL = HomeChiefAvatars.defaultCache,
+                files: any MayBlockRunner) {
         self.muxHome = muxHome
         self.registry = registry
         self.cache = cache
+        self.lanes = files
     }
 
     /// The app's cache folder for Chief pictures.
@@ -72,22 +82,32 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     public func headerAvatar(chief: String, fallback: URL?) async -> (text: String?, picture: Data?) {
         let avatar: (text: String?, picture: Data?)
         switch await read(chief: chief) {
-        case .picture(let url)?: avatar = (nil, await Task.detached { try? Data(contentsOf: url) }.value)
+        case .picture(let url)?: avatar = (nil, await Self.readFile(on: lanes) { try? Data(contentsOf: url) } ?? nil)
         case .text(let text)?: avatar = (text, nil)
         case nil: avatar = (nil, nil)
         }
-        return await Self.orFallback(avatar, fallback)
+        return await Self.orFallback(avatar, fallback, on: lanes)
     }
 
     /// The header's avatar from a Chief's files alone (a cloud Chief has no registry here), else
-    /// the bytes of `fallback`.
-    public static func headerAvatar(files: HomeChiefFiles, fallback: URL?) async -> (text: String?, picture: Data?) {
-        await orFallback(await Task.detached { files.headerAvatar() }.value, fallback)
+    /// the bytes of `fallback`, read on the files lane of `lanes`.
+    public static func headerAvatar(files: HomeChiefFiles, fallback: URL?,
+                                    on lanes: any MayBlockRunner) async -> (text: String?, picture: Data?) {
+        let own = await readFile(on: lanes) { files.headerAvatar() } ?? (nil, nil)
+        return await orFallback(own, fallback, on: lanes)
     }
 
-    private static func orFallback(_ avatar: (text: String?, picture: Data?), _ fallback: URL?) async -> (text: String?, picture: Data?) {
+    private static func orFallback(_ avatar: (text: String?, picture: Data?), _ fallback: URL?,
+                                   on lanes: any MayBlockRunner) async -> (text: String?, picture: Data?) {
         guard avatar.text == nil, avatar.picture == nil, let fallback else { return avatar }
-        return (nil, await Task.detached { try? Data(contentsOf: fallback) }.value)
+        return (nil, await readFile(on: lanes) { try? Data(contentsOf: fallback) } ?? nil)
+    }
+
+    /// `body`'s result, run on the files lane at `.userVisible` (the avatar shows soon); nil when the read
+    /// was dropped (the caller was cancelled or the app is quitting): the default avatar shows.
+    private static func readFile<T: Sendable>(on lanes: any MayBlockRunner, fileID: StaticString = #fileID, line: UInt = #line,
+                                          _ body: @escaping @Sendable () -> T) async -> T? {
+        try? await lanes.runFiles(.userVisible, fileID: fileID, line: line, body)
     }
 
     /// `refs`: the registry's pictures (nil: no registry, or it cannot be reached).
@@ -101,44 +121,44 @@ public nonisolated struct HomeChiefAvatars: Sendable {
                 return await show(moved)
             }
         }
-        return await Task.detached { files.tileAvatar() }.value
+        return await Self.readFile(on: lanes) { files.tileAvatar() } ?? nil
     }
 
     /// The cached file of the picture named `sha`, squared as the list draws it; nil when not cached.
     private func cached(_ sha: String) async -> HomeChiefAvatar? {
         let cache = cache
-        return await Task.detached { () -> HomeChiefAvatar? in
+        return await Self.readFile(on: lanes) { () -> HomeChiefAvatar? in
             let names = (try? FileManager.default.contentsOfDirectory(atPath: cache.path)) ?? []
             guard let name = names.first(where: { ($0 as NSString).deletingPathExtension == sha }) else { return nil }
             let file = cache.appendingPathComponent(name)
             return .picture(HomeChiefFiles.squared(file) ?? file)
-        }.value
+        } ?? nil
     }
 
     /// Writes `picture` into the cache (once per SHA-256) and returns it as the list draws it.
     private func show(_ picture: ChiefAvatarPicture) async -> HomeChiefAvatar? {
         let cache = cache
-        return await Task.detached { () -> HomeChiefAvatar? in
+        return await Self.readFile(on: lanes) { () -> HomeChiefAvatar? in
             let file = cache.appendingPathComponent("\(picture.sha256).\(picture.fileExtension)")
             if !FileManager.default.fileExists(atPath: file.path) {
                 try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
                 guard (try? picture.data.write(to: file, options: .atomic)) != nil else { return nil }
             }
             return .picture(HomeChiefFiles.squared(file) ?? file)
-        }.value
+        } ?? nil
     }
 
     /// Moves the picture profile.json still names into the registry, once: a backup of it and of
     /// profile.json first, then profile.json forgets it. Nil (nothing moved) when there is none,
     /// it is not a picture the registry keeps, or the registry refused it.
     private func move(_ files: HomeChiefFiles, chief: String, to registry: any ChiefAvatarRegistry) async -> ChiefAvatarPicture? {
-        let found = await Task.detached { () -> ChiefAvatarPicture? in
+        let found = await Self.readFile(on: lanes) { () -> ChiefAvatarPicture? in
             guard let file = files.legacyPictureFile(), let data = try? Data(contentsOf: file),
                   let type = registryMediaType(of: data) else { return nil }
             return ChiefAvatarPicture(mediaType: type, data: data)
-        }.value
+        } ?? nil
         guard let found, (try? await registry.setPicture(found, of: chief)) != nil else { return nil }
-        await Task.detached {
+        _ = await Self.readFile(on: lanes) {
             let folder = files.profileFile.deletingLastPathComponent()
             let backup = folder.appendingPathComponent(Self.backupFolder, isDirectory: true)
             try? FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
@@ -149,7 +169,7 @@ public nonisolated struct HomeChiefAvatars: Sendable {
                 }
             }
             files.clearPicture()
-        }.value
+        }
         return found
     }
 
@@ -160,12 +180,12 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     public func setPicture(from source: URL, chief: String) async throws {
         let files = files(chief)
         guard let registry else {
-            try await Task.detached { try files.writePicture(from: source) }.value
+            try await lanes.runFiles(.userBlocking) { try files.writePicture(from: source) }
             return
         }
-        let picture = try await Task.detached { try files.pictureData(from: source) }.value
+        let picture = try await lanes.runFiles(.userBlocking) { try files.pictureData(from: source) }
         try await registry.setPicture(picture, of: chief)
-        await Task.detached { files.clearPicture() }.value
+        try await lanes.runFiles(.userBlocking) { files.clearPicture() }
     }
 
     /// Puts Chief `chief` back on the default: no picture in the registry and no avatar in profile.json.
@@ -173,7 +193,7 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     public func clearPicture(chief: String) async throws {
         let files = files(chief)
         try await registry?.clearPicture(of: chief)
-        await Task.detached { files.clearPicture() }.value
+        try await lanes.runFiles(.userBlocking) { files.clearPicture() }
     }
 }
 

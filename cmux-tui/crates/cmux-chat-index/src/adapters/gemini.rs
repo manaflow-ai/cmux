@@ -278,19 +278,24 @@ fn read_checkpoint(path: &Path, stamp: FileStamp) -> io::Result<Option<ChatEntry
 
 /// `%XX` escapes (tags are `encodeURIComponent`-encoded since v0.1.22).
 fn percent_decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut at = 0;
-    while at < bytes.len() {
-        let hex = bytes.get(at + 1..at + 3).and_then(|pair| std::str::from_utf8(pair).ok());
-        match (bytes[at], hex.and_then(|hex| u8::from_str_radix(hex, 16).ok())) {
-            (b'%', Some(byte)) => {
-                out.push(byte);
-                at += 3;
+    let mut rest = text.as_bytes();
+    let mut out = Vec::with_capacity(rest.len());
+    while let Some((&byte, tail)) = rest.split_first() {
+        let escaped = match tail.split_at_checked(2) {
+            Some((pair, after)) if byte == b'%' => std::str::from_utf8(pair)
+                .ok()
+                .and_then(|hex| u8::from_str_radix(hex, 16).ok())
+                .map(|decoded| (decoded, after)),
+            _ => None,
+        };
+        match escaped {
+            Some((decoded, after)) => {
+                out.push(decoded);
+                rest = after;
             }
-            (byte, _) => {
+            None => {
                 out.push(byte);
-                at += 1;
+                rest = tail;
             }
         }
     }
@@ -358,4 +363,18 @@ struct Logged {
     first_ms: Option<i64>,
     last_ms: Option<i64>,
     title: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percent_decode_keeps_bad_and_cut_escapes() {
+        assert_eq!(percent_decode("fix%20the%20%E2%9C%93"), "fix the ✓");
+        assert_eq!(percent_decode("50%"), "50%");
+        assert_eq!(percent_decode("%4"), "%4");
+        assert_eq!(percent_decode("%g1%41"), "%g1A");
+        assert_eq!(percent_decode("%é"), "%é");
+    }
 }

@@ -40,6 +40,7 @@ public final class BookmarkManagerHostView: NSView, VisibilityGatedContent {
         resolveColors()
     }
 
+    // visibility-walk-allow: a few palette colors stored into the SwiftUI model only when they differ, in the change's turn so a shown manager never draws one frame in the old colors; one manager per window
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         resolveColors()

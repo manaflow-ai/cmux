@@ -74,6 +74,16 @@ public final class MainWorkScheduler {
     public nonisolated let wakeUps: MainWakeUpQueue
     /// The idle class's periods and queue (``postIdle(owner:maxDelay:node:file:line:_:)``).
     public let idle: IdleScheduler
+    /// The priority-ordered main executor this scheduler installed (task 202, default off), nil while none.
+    public private(set) var mainExecutorHook: MainExecutorHook?
+    /// What ``installMainExecutorHook(requested:)`` found (``MainExecutorHook/State/off`` until it is asked).
+    public private(set) var mainExecutorHookState: MainExecutorHook.State = .off
+    /// A layout plan applied in this run loop turn and not committed yet (``PlanApplyTurn``): the layout
+    /// notes it, the in-process CEF pump starts no slice inside it.
+    public let planApplies: PlanApplyTurn
+    /// The CPU-time budget of hidden nodes' work, on the budget's clock: every ``MainTaskQueue`` and
+    /// ``MainDeadline`` on this scheduler charges its hidden runs to this one pool.
+    public let hiddenBudget: CPUTimeBudgetPool
 
     /// Times the render pass after each frame's scheduled work while any link runs (nil in tests).
     private var renderPasses: RenderPassMeter?
@@ -97,6 +107,11 @@ public final class MainWorkScheduler {
     /// asks for it), so the tick render that closes the response comes even while no budgeted
     /// client has work.
     private let inputResponseTick: FrameClient
+    /// The after-commit placement's batch: the tick whose budgeted batch waits for its turn after the
+    /// tick's commit (nil: none waits), the turn it runs in, and a test's own turns (nil: the app's).
+    private var pendingBatch: FrameTick?
+    private lazy var budgetTurn = AfterFrameCommitTurn { [weak self] in self?.runBudgetTurn() }
+    var budgetTurns: TurnPerformer?
 
     /// - Parameters:
     ///   - budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
@@ -112,10 +127,14 @@ public final class MainWorkScheduler {
     ///   - startup: The launch's phases. The app's composition root passes a launching phase
     ///     (``StartupPhase/init(clock:ledger:timing:onHeldAwait:)``) with its reveal and references
     ///     wired; the default is settled, so a scheduler made after launch holds nothing.
-    public convenience init(budget: MainFrameBudget, displays: DisplayClock, startup: StartupPhase = .settled()) {
+    ///   - wakeUps: The main thread's one deadline queue, when the composition root made it first (the app's
+    ///     `main()` makes it before the main-thread watchdog, whose busy windows end on it); its energy source is
+    ///     this scheduler's ``energy``. Nil makes one on a new source.
+    public convenience init(budget: MainFrameBudget, displays: DisplayClock, startup: StartupPhase = .settled(),
+                            wakeUps: MainWakeUpQueue? = nil) {
         self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, displays: displays, budget: budget),
                   startup: startup, idleTimer: MainRunLoopPreciseTimer(), ledger: .shared, otherLinks: displays.unbudgetedLinks,
-                  measuresRenderPasses: true)
+                  measuresRenderPasses: true, sharedWakeUps: wakeUps)
     }
 
     /// A scheduler on a display clock of its own (tests and fixtures; the app passes its one clock),
@@ -125,26 +144,31 @@ public final class MainWorkScheduler {
     }
 
     private init(budget: MainFrameBudget, frames: FrameScheduler, startup: StartupPhase, idleTimer: any IdlePeriodTimer,
-                 ledger: WakeupLedger, otherLinks: any OtherFrameLinks, measuresRenderPasses: Bool) {
+                 ledger: WakeupLedger, otherLinks: any OtherFrameLinks, measuresRenderPasses: Bool, sharedWakeUps: MainWakeUpQueue? = nil) {
         self.budget = budget
         board = budget.board
         self.frames = frames
         self.startup = startup
         causes = ObservationCauses(budget: budget)
-        let energy = EnergyPolicySource()
+        planApplies = PlanApplyTurn(turns: budget.turns)
+        let wakeUps = sharedWakeUps ?? MainWakeUpQueue(energy: EnergyPolicySource())
+        let energy = wakeUps.energy
         self.energy = energy
-        wakeUps = MainWakeUpQueue(energy: energy)
+        self.wakeUps = wakeUps
         otherLinksRunning = otherLinks.anyRunning
         idle = IdleScheduler(budget: budget, timer: idleTimer, ledger: ledger, otherLinksRunning: otherLinks.anyRunning)
+        hiddenBudget = CPUTimeBudgetPool(uptimeNanos: budget.uptimeNanos)
         // Its own ambient clients follow the policy it owns, like the app's and the windows' (FrameScheduler+Energy.swift).
         frames.follow(energy)
-        inputResponseTick = FrameClient(owner: "MainFrameBudget.inputResponse", isAnimation: false, on: frames) { [weak budget] _ in
+        // frame-client: one tick while the input-response pass is open (the budget is main state); key to frame
+        inputResponseTick = FrameClient(owner: "MainFrameBudget.inputResponse", isAnimation: false, rate: .motion, on: frames) { [weak budget] _ in
             budget?.isInputResponseOpen ?? false
         }
         if measuresRenderPasses {
             renderPasses = RenderPassMeter { [weak self] nanos in self?.renderPassEnded(nanos: nanos) }
         }
         budget.requestTick = { [weak self] in self?.inputResponseTick.activate() }
+        if budget.placement == .afterCommit { frames.defersBudgeted = { [weak self] tick in self?.deferBudgeted(tick) } }
         // Its display's ticks own the budget's window while it is subscribed; an idle app times no pass.
         frames.onLinkChange = { [weak self] exists in
             guard let self else { return }
@@ -173,6 +197,8 @@ public final class MainWorkScheduler {
         idle.admitted = { [startup] in startup.admits(.idle) }
         startup.whenReached(.settled) { [weak idle = self.idle] in idle?.reschedule() }
         updateRenderPassMeter()
+        // The gate's test runs (`CMUX_MAIN_EXECUTOR_HOOK=1 swift test`): the process's first scheduler installs it.
+        if MainExecutorHook.launchEnvironmentAsks { installMainExecutorHook(requested: true) }
     }
 
     /// A scheduler on a fake link of its own display clock (tests): frames fire only through
@@ -191,6 +217,8 @@ public final class MainWorkScheduler {
     ///     budget reads its ticks as late.
     ///   - performTurn: Queues the posted work's run loop turns (``post(_:owner:file:line:_:)``); nil:
     ///     the main run loop's (``MainRunLoopBlock``). A test that runs the turns itself passes its queue.
+    ///   - budgetTurns: Queues the after-commit placement's budget turns; nil: the app's
+    ///     (``AfterFrameCommitTurn``). A test that runs them itself passes its queue.
     ///   - idleTimer: The idle period timer (tests: a fake fired by hand).
     ///   - otherLinks: The other schedulers' display links (hold long idle periods; their frames
     ///     open short ones). The default has none.
@@ -198,7 +226,8 @@ public final class MainWorkScheduler {
     public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = ContinuousClock(),
                                ledger: WakeupLedger = .shared, startup: StartupPhase = .settled(),
                                mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
-                               performTurn: TurnPerformer? = nil, idleTimer: any IdlePeriodTimer = MainRunLoopPreciseTimer(),
+                               performTurn: TurnPerformer? = nil, budgetTurns: TurnPerformer? = nil,
+                               idleTimer: any IdlePeriodTimer = MainRunLoopPreciseTimer(),
                                otherLinks: any OtherFrameLinks = UnbudgetedFrameLinks(),
                                makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {
         let work = MainWorkScheduler(budget: budget, frames: FrameScheduler.testing(name: "budgeted test", clock: clock, ledger: ledger,
@@ -207,6 +236,7 @@ public final class MainWorkScheduler {
                                      startup: startup, idleTimer: idleTimer, ledger: ledger, otherLinks: otherLinks,
                                      measuresRenderPasses: false)
         if let performTurn { work.posting.performTurn = performTurn }
+        work.budgetTurns = budgetTurns
         return work
     }
 
@@ -223,6 +253,31 @@ public final class MainWorkScheduler {
     /// the App's `InputDispatchContext` calls it around each one.
     public func noteDiscreteDispatch(began: Bool) {
         budget.noteDiscreteDispatch(began: began)
+        mainExecutorHook?.noteInputTurn(began: began)
+    }
+
+    /// Runs main-actor jobs by their task's priority (``MainExecutorHook``), yielding to the person's pending input
+    /// as this scheduler's budgeted classes do. The composition root calls it once with the feature's value
+    /// (``MainExecutorHook/isRequested(feature:environment:)``); a second call returns the first one's state.
+    ///
+    /// - Parameter requested: The launch asks for the hook; false installs nothing (``MainExecutorHook/State/off``).
+    /// - Returns: What the install found.
+    @discardableResult
+    public func installMainExecutorHook(requested: Bool) -> MainExecutorHook.State {
+        guard requested, mainExecutorHookState == .off else { return mainExecutorHookState }
+        let hook = MainExecutorHook(yieldsToInput: { [weak budget] in
+            guard let budget else { return false }
+            return Self.inputPendingNow(budget)
+        })
+        mainExecutorHookState = hook.install()
+        if mainExecutorHookState == .installed { mainExecutorHook = hook }
+        return mainExecutorHookState
+    }
+
+    /// Whether a person's input waits now: an injected key at the head of its connection, or input the window
+    /// server generated that AppKit has not dispatched (the budget's own check, without its per-frame counters).
+    private static func inputPendingNow(_ budget: MainFrameBudget) -> Bool {
+        budget.board.pendingInputCount > 0 || budget.pendingInput.hasPendingInput(uptime: Double(budget.nowNanos) / 1_000_000_000)
     }
 
     /// One display frame (tests call it directly; in the app the display's link ticks).
@@ -241,9 +296,33 @@ public final class MainWorkScheduler {
     /// - Parameter nanos: The pass's length.
     public func renderPassEnded(nanos: UInt64) {
         if frames.hasLink { budget.noteRenderPass(nanos: nanos) }
-        guard let vsync = nextVsyncNanos else { return }
+        // A tick whose batch waits for its own turn: the short idle period comes after that turn's pass.
+        guard let vsync = nextVsyncNanos, pendingBatch == nil else { return }
         nextVsyncNanos = nil
         idle.frameRendered(nextVsyncNanos: vsync, budgetedWorkHeld: frames.hasBudgetedWork)
+    }
+
+    /// Whether a tick's budgeted batch waits for its turn after the tick's commit (after-commit placement).
+    var isBudgetTurnPending: Bool { pendingBatch != nil }
+
+    /// The after-commit placement takes a tick's budgeted batch out of the tick: with budgeted work
+    /// queued, it asks for one turn after the tick's commit, which runs the newest tick's batch.
+    private func deferBudgeted(_ tick: FrameTick) {
+        guard frames.hasBudgetedWork else { return }
+        let requested = pendingBatch != nil
+        pendingBatch = tick
+        guard !requested else { return }
+        if let budgetTurns { budgetTurns { [weak self] in self?.runBudgetTurn() } } else { budgetTurn.request() }
+    }
+
+    /// The budget turn: the waiting tick's batch, in class order and under the budget, whose deadline
+    /// (the next vsync less the commit estimate) the tick placed (``MainFrameBudget/beginBudgetTurn()``).
+    private func runBudgetTurn() {
+        guard let tick = pendingBatch else { return }
+        pendingBatch = nil
+        budget.beginBudgetTurn()
+        frames.runBudgeted(tick)
+        budget.endBudgetTurn()
     }
 
     /// A link frame of any scheduler: the earliest next vsync bounds the short idle period after

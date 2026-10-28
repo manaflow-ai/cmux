@@ -9,6 +9,7 @@ import CmuxNextScreenshots
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
+import Observation
 
 /// Opens `cmux://screenshots` and makes its pages. Every page shares one
 /// thumbnail cache and follows the `screenshots.*` settings: a change finds
@@ -22,7 +23,7 @@ final class ScreenshotsPageService {
     private var thumbnailsMemory: AsyncMemoryConsumerRegistration?
     private let workspace = AppScreenshotsWorkspace()
     /// Drops, renames and trashes go through the Files pane's operations.
-    private let files = FileOperator()
+    private let files: FileOperator
     private let detector = ScreenshotSourceDetector(environment: SystemScreenshotEnvironment())
     /// Open pages by tab key.
     private var pages: [String: ScreenshotsPageTab] = [:]
@@ -33,10 +34,14 @@ final class ScreenshotsPageService {
     private var detectionGeneration: UInt64 = 0
     /// The `screenshots.*` settings, followed from the first page on (``followSettings()``).
     private var settingsWatch: FrameObservation<ScreenshotsSettings>?
+    /// The app's main-thread scheduler: each page's model lands its reads on it, and its grid follows the model on it.
+    private let mainWork: MainWorkScheduler
 
     init(services: AppServices) {
         self.services = services
+        mainWork = services.mainWork
         thumbnailsMemory = AppMemoryConsumers(services: services).registerFileGridThumbnails(thumbnails)
+        files = FileOperator(work: services.work)
     }
 
     /// Selects the active window's Screenshots tab, else opens one beside the
@@ -58,9 +63,9 @@ final class ScreenshotsPageService {
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> ScreenshotsPageTab {
-        let model = ScreenshotsModel()
+        let model = ScreenshotsModel(mainWork: mainWork)
         let page = ScreenshotsPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, model: model,
-                                      cache: thumbnails, workspace: workspace, files: files)
+                                      cache: thumbnails, workspace: workspace, files: files, mainWork: mainWork)
         page.onClose = { [weak self] in self?.pages.removeValue(forKey: key) }
         pages[key] = page
         followSettings()

@@ -1,5 +1,3 @@
-import CmuxNextDesign
-
 /// The Settings rows of `browser.links.*` (Browser > Links), kept out of
 /// `SettingsSchema` so its catalog stays within the type budget.
 nonisolated enum BrowserLinkClickSchema {

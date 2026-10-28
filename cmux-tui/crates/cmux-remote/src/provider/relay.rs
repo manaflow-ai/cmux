@@ -210,7 +210,7 @@ impl fmt::Debug for RelayCredential {
 
 async fn read_credential_file(path: &Path) -> Result<Zeroizing<String>, ProviderError> {
     let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
+    cmux_blocking::spawn_blocking(move || {
         crate::secret_file::read_owner_only_string(&path, MAX_RELAY_CREDENTIAL_BYTES)
     })
     .await
@@ -482,6 +482,7 @@ impl RelayCircuitLink {
             RelayCircuitFraming::Single => RelayCircuitSender::Direct(Mutex::new(sender)),
             RelayCircuitFraming::Batch => {
                 let (commands, receiver) = mpsc::channel(RELAY_BATCH_QUEUE_FRAMES);
+                // supervise-allow: the circuit's sender; it ends with the circuit, and a panic drops `receiver`, so every later send on this circuit fails.
                 tokio::spawn(run_batched_relay_sender(sender, receiver, terminal.clone()));
                 RelayCircuitSender::Batched(commands)
             }

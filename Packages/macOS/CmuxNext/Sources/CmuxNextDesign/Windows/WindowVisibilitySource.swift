@@ -41,7 +41,7 @@ import ObjectiveC
     private let family: WindowOcclusionFamily
     private var familyFlips: WindowOcclusionSubscription?
 
-    private static var associationKey: UInt8 = 0
+    private static let sources = ObjectAssociation<WindowVisibilitySource>()
 
     /// The notices that change a window's own state.
     public static let notices: [Notification.Name] = [
@@ -96,13 +96,13 @@ import ObjectiveC
                           read: @escaping Read = WindowVisibilitySource.appKitState(of:)) -> WindowVisibilitySource {
         if let existing = installed(on: window) { return existing }
         let source = WindowVisibilitySource(window: window, name: name, app: app, events: events ?? WindowEvents.of(window), read: read)
-        objc_setAssociatedObject(window, &associationKey, source, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        sources.set(source, on: window)
         return source
     }
 
     /// `window`'s source if one was made; nil makes nothing.
     public static func installed(on window: NSWindow) -> WindowVisibilitySource? {
-        objc_getAssociatedObject(window, &associationKey) as? WindowVisibilitySource
+        sources.value(on: window)
     }
 
     /// Reads the window's state again (the owner calls it after showing the window).

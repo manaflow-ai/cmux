@@ -124,8 +124,9 @@ public final class ChatIndicatorLaunch {
     }
 
     /// Posts one look, right after the first frame (in the next frames once it passed), at what the windows show;
-    /// each watch they show starts then instead of after startup. One look queued at a time; none once startup
-    /// completed (the watches' own posts then run) or both watches are needed.
+    /// each watch they show starts then instead of after startup. ``post()`` looks once; the app looks again when its
+    /// window restore ends, since the saved windows come after the first frame. One look queued at a time; none once
+    /// startup completed (the watches' own posts then run) or both watches are needed.
     public func checkShown() {
         guard !checkQueued, !(indicators.isNeeded && chief.isNeeded), let startup, startup.completion == nil else { return }
         checkQueued = true

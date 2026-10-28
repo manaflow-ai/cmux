@@ -68,6 +68,14 @@ public final class BrowserDownloadTempFiles {
     /// download that starts before the launch cleanup keeps the earlier
     /// leftovers in the record.
     private actor Store {
+        /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.browser.download-temp-files`): its record reads and writes block a thread of
+        /// its own, never a cooperative pool thread (the HomeCache pattern).
+        // executor: com.cmuxterm.next.browser.download-temp-files
+        private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.browser.download-temp-files", qos: .utility)
+
+        /// Runs the actor on ``queue``.
+        nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
         private let recordURL: URL
         private var paths: Set<String>?
         /// The paths this run added: the cleanup never deletes them.
@@ -119,7 +127,7 @@ public final class BrowserDownloadTempFiles {
         private static func deleteLeftover(_ path: String) {
             guard path.hasPrefix("/"), path.hasSuffix(".cmuxdownload") else { return }
             for candidate in [path, path + ".crdownload"] where isRegularFile(candidate) {
-                unlink(candidate)
+                _ = blockingUnlink(candidate)
             }
         }
 
@@ -127,7 +135,7 @@ public final class BrowserDownloadTempFiles {
         /// symlink (to anything), a directory or a missing path.
         private static func isRegularFile(_ path: String) -> Bool {
             var info = stat()
-            return lstat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFREG
+            return blockingLstat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFREG
         }
     }
 

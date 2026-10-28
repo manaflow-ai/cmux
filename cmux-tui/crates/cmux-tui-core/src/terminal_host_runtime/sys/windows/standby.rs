@@ -225,6 +225,7 @@ impl Drop for HostProcess {
         }
         // SAFETY: the exact process this value started and still owns.
         unsafe { TerminateProcess(self.process.as_raw_handle() as HANDLE, 1) };
+        // wakeup-allow: deadline the one bound on a terminated host's exit; the exit ends the wait first
         self.wait_timeout(Duration::from_secs(5));
     }
 }
@@ -560,9 +561,12 @@ pub(crate) struct SpawnedHostProcess {
     ends_with_daemon_job: bool,
 }
 
+/// No Windows host needs reaping: a committed host is detached.
+pub(crate) enum HostReaper {}
+
 impl SpawnedHostProcess {
     /// The launch is committed: the host lives on its own.
-    pub(crate) fn commit(mut self) {
+    pub(crate) fn commit(mut self, _reaper: Option<&HostReaper>) {
         if let Some(process) = self.process.take() {
             process.detach();
         }
@@ -570,6 +574,7 @@ impl SpawnedHostProcess {
 
     pub(crate) fn wait_timeout(&mut self, timeout: Duration) -> bool {
         let Some(process) = self.process.as_ref() else { return true };
+        // wakeup-allow: deadline the caller's one bound on the host's exit; the exit ends the wait first
         if process.wait_timeout(timeout) {
             self.process = None;
             return true;

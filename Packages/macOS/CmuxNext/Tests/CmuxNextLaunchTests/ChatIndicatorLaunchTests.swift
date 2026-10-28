@@ -10,7 +10,8 @@ import Testing
     private static let local = ["AgentTurnStates.start", "SidebarSessionTree.start", "SidebarChatHistory.start"]
 
     private static func launch(_ s: StartupTestScheduler, _ connects: Connects, shown: ChatIndicatorLaunch.Shown = .init()) -> ChatIndicatorLaunch {
-        ChatIndicatorLaunch(startup: s.startup, starts: .init(
+        connects.shown = shown
+        return ChatIndicatorLaunch(startup: s.startup, starts: .init(
             turnStates: { connects.names.append("AgentTurnStates.start") },
             sessionTree: { connects.names.append("SidebarSessionTree.start") },
             chatHistory: { connects.names.append("SidebarChatHistory.start") },
@@ -18,7 +19,7 @@ import Testing
             uploadSweep: {},
             shown: {
                 connects.looks += 1
-                return shown
+                return connects.shown
             }
         ))
     }
@@ -100,6 +101,27 @@ import Testing
         #expect(connects.names.count == 4, "a page after startup starts nothing twice")
     }
 
+    /// The first look comes before the window restore made the saved windows (no launch snapshot, or a Chief tab
+    /// only the restore brings back): it sees no chat tab. The look the restore's end posts sees the restored one,
+    /// and this Mac's watches start then, before startup completes.
+    @Test func aLookAfterTheRestoreStartsTheWatchesOfARestoredChatTab() {
+        let s = StartupTestScheduler(), connects = Connects()
+        let launch = Self.launch(s, connects)
+        launch.post()
+        s.startup.firstFrameCommitted()
+        for _ in 0..<6 { s.fire() }
+        #expect(connects.looks == 1)
+        #expect(connects.names.isEmpty, "the first look saw no chat tab")
+        connects.shown = .init(indicators: true)  // the restore made a window with one of this Mac's chat tabs
+        launch.checkShown()                       // `WindowManager.whenRestored`
+        for _ in 0..<8 { s.fire() }
+        #expect(connects.looks == 2, "one more look, after the restore")
+        #expect(connects.names == Self.local, "this Mac's watches start from the restored tab")
+        #expect(s.startup.completion == nil, "before startup completes")
+        #expect(!launch.chiefNeeded)
+        s.startup.beginQuit()
+    }
+
     @Test func quitConnectsNothing() {
         let s = StartupTestScheduler(), connects = Connects()
         let launch = Self.launch(s, connects, shown: .init(indicators: true, chief: true))
@@ -117,4 +139,6 @@ import Testing
 private final class Connects {
     var names: [String] = []
     var looks = 0
+    /// What the windows show at the next look.
+    var shown = ChatIndicatorLaunch.Shown()
 }

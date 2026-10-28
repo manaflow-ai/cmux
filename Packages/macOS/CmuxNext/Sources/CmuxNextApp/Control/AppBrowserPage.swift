@@ -3,6 +3,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
+import CmuxNextWakeups
 
 /// Browser page operations (`browser.page.*`, `cmux browser tab_…`) on the page a tab shows,
 /// creating the page when the tab was never shown.
@@ -49,7 +50,7 @@ enum AppBrowserPage {
         // anything else wakes it in the background and runs on the restored page.
         services.cache.hibernation?.noteAgentUse(tabID)
         if !answersWhileHibernated(operation) {
-            guard let live = await awakePage(tabID, page: page, cache: services.cache, within: actionWait) else { throw wakeFailed }
+            guard let live = await awakePage(tabID, page: page, cache: services.cache, within: actionWait) else { throw wakeError(tabID, cache: services.cache) }
             page = live
         }
         try rebuildStale(stale, tabID: tabID, for: operation, services: services)
@@ -88,13 +89,17 @@ enum AppBrowserPage {
                 throw ControlError(code: "js_error", message: String(describing: error))
             }
         case .screenshot(let capture):
-            return try await screenshot(page, tabID: tabID, capture)
+            return try await screenshot(page, tabID: tabID, capture, runner: services.work)
         case .cookies(let request):
             return try await cookies(page, request, work: services.work)
         case .input(let input):
             // Trusted input after the page's first load, as a script acts on the loaded document.
             _ = await awaitPendingNavigation(page, within: actionWait, work: services.mainWork)
             return try await services.browserNativeInputs.deliver(input, to: page, key: tabID)
+        }
+        // A step on a hibernated page runs once it wakes; a deferred wake keeps it for the tab's next show.
+        if page is HibernatedBrowserTab, let deferral = services.cache.hibernation?.deferral(of: tabID) {
+            return ["deferred": .string(deferral.rawValue)]
         }
         return [:]
     }

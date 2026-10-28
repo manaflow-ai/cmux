@@ -141,9 +141,12 @@ public struct DaemonLauncher: Sendable {
     /// environment at startup and honors it only inside its own app bundle, so no child inherits it (bead cx-e0cs).
     /// `resolvedTerminalEnvironment` adds the keys the app looks up on the disk off the main thread (Ghostty's `TERM`
     /// and resources), awaited when `server ensure` builds its environment, over `terminalEnvironment`.
+    /// `team` is this process's Team ID (``CodeSigningTeam``), read by the caller off the main thread: an
+    /// unsigned build (nil) proves itself with a `FrontendInstallKey`.
     public static func forApp(
         work: BackgroundWork,
         build: BuildIdentity,
+        team: String?,
         terminalEnvironment: [String: String],
         resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
         daemonEnvironment: [String: String] = [:], webSocketPageOrigins: [String] = [],
@@ -156,7 +159,7 @@ public struct DaemonLauncher: Sendable {
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
         let (session, stateDirectory) = appNames(build: build, applicationSupport: applicationSupport, log: true)
-        let keyStore = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)
+        let keyStore = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory, team: team)
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           rememberedSocket: socketMemory.socket(session: session),
                                           installKey: keyStore?.loadOrCreate(),
@@ -199,10 +202,11 @@ public struct DaemonLauncher: Sendable {
 
     /// The Chief owner's `server ensure` environment: the user's basic
     /// variables only, never a build's `CMUX_*` identity; the brain's tools socket (chief.*) and
-    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`).
+    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`); the app's pid
+    /// (`CMUX_TUI_OWNER_APP_PID`), after whose exit an owner nothing needs stops.
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
         let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
-                    "CMUX_TUI_CHIEF_BRAINS"]
+                    "CMUX_TUI_CHIEF_BRAINS", "CMUX_TUI_OWNER_APP_PID"]
         return base.filter { kept.contains($0.key) }
     }
 
@@ -237,15 +241,14 @@ public struct DaemonLauncher: Sendable {
     /// `CMUX_NEXT_TUI_BIN`, then `Contents/Resources/bin/cmux-tui`.
     public static func resolveBinary(bundle: Bundle, environment: [String: String]) throws -> URL {
         var searched: [String] = []
-        let fileManager = FileManager.default
         if let override = environment[binaryOverrideKey], !override.isEmpty {
             searched.append(override)
-            if fileManager.isExecutableFile(atPath: override) { return URL(fileURLWithPath: override) }
+            if FileManager.checked.isExecutableFile(atPath: override) { return URL(fileURLWithPath: override) }
         }
         if let resources = bundle.resourceURL {
             let bundled = resources.appendingPathComponent("bin/cmux-tui")
             searched.append(bundled.path)
-            if fileManager.isExecutableFile(atPath: bundled.path) { return bundled }
+            if FileManager.checked.isExecutableFile(atPath: bundled.path) { return bundled }
         }
         throw DaemonError.binaryNotFound(searched: searched)
     }

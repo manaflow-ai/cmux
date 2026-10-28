@@ -7,10 +7,15 @@
 //! connection writer, the outbound stream, the attach lifecycle) and with the
 //! queue it blocks on. Firing any source wakes the blocked receive, which
 //! then returns so the loop re-checks its conditions and exits.
+//!
+//! A consumer that runs as tasks on a sequence instead of a blocked thread
+//! (the daemon's attach streams, p05-ipc-079) does not wait on a source: it
+//! sets the source's [`ReadyHook`], which the source runs where it notifies
+//! its condition variable, and the hook posts the consumer's next task.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, TryRecvError, TrySendError};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 type Waker = Box<dyn Fn() + Send + Sync>;
@@ -93,6 +98,32 @@ impl InterruptSet {
     }
 }
 
+/// A source's "something is ready" callback for a consumer that does not
+/// block on it. Set once; a source without one only notifies its condition
+/// variable. The source runs it after it released its own lock, so the hook
+/// may take other locks (a sequence post takes the pool's).
+#[derive(Default)]
+pub struct ReadyHook(OnceLock<Box<dyn Fn() + Send + Sync>>);
+
+impl ReadyHook {
+    /// Installs `hook`; false when one is installed already (it stays).
+    pub fn set(&self, hook: impl Fn() + Send + Sync + 'static) -> bool {
+        self.0.set(Box::new(hook)).is_ok()
+    }
+
+    /// Whether a hook is installed.
+    pub fn is_set(&self) -> bool {
+        self.0.get().is_some()
+    }
+
+    /// Runs the hook, if any.
+    pub fn wake(&self) {
+        if let Some(hook) = self.0.get() {
+            hook();
+        }
+    }
+}
+
 /// Wakes `changed` under `lock` when `interrupt` fires, holding both weakly.
 pub(crate) fn wake_condvar_on<T: Send + 'static>(
     interrupt: &StreamInterrupt,
@@ -114,7 +145,8 @@ pub fn signal() -> (SignalSender, SignalReceiver) {
         Mutex::new(SignalState { pending: false, sender_alive: true, receiver_alive: true }),
         Condvar::new(),
     ));
-    (SignalSender { state: state.clone() }, SignalReceiver { state })
+    let ready = Arc::new(ReadyHook::default());
+    (SignalSender { state: state.clone(), ready: ready.clone() }, SignalReceiver { state, ready })
 }
 
 struct SignalState {
@@ -125,6 +157,7 @@ struct SignalState {
 
 pub struct SignalSender {
     state: Arc<(Mutex<SignalState>, Condvar)>,
+    ready: Arc<ReadyHook>,
 }
 
 impl SignalSender {
@@ -139,6 +172,7 @@ impl SignalSender {
         state.pending = true;
         drop(state);
         self.state.1.notify_all();
+        self.ready.wake();
         Ok(())
     }
 }
@@ -147,15 +181,23 @@ impl Drop for SignalSender {
     fn drop(&mut self) {
         self.state.0.lock().unwrap().sender_alive = false;
         self.state.1.notify_all();
+        self.ready.wake();
     }
 }
 
 pub struct SignalReceiver {
     state: Arc<(Mutex<SignalState>, Condvar)>,
+    ready: Arc<ReadyHook>,
 }
 
 impl SignalReceiver {
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Runs `hook` after each signal and when the sender is gone, for a
+    /// receiver that polls with `try_recv` instead of blocking. False when a
+    /// hook is set already.
+    pub fn on_ready(&self, hook: impl Fn() + Send + Sync + 'static) -> bool {
+        self.ready.set(hook)
+    }
+
     pub fn try_recv(&self) -> Result<(), TryRecvError> {
         let mut state = self.state.0.lock().unwrap();
         if std::mem::take(&mut state.pending) {
@@ -263,5 +305,23 @@ mod tests {
             receiver.recv_until_interrupted(&StreamInterrupt::default()),
             Err(RecvTimeoutError::Disconnected)
         );
+    }
+
+    #[test]
+    fn a_ready_hook_runs_for_each_signal_and_for_the_dropped_sender() {
+        use std::sync::atomic::AtomicUsize;
+        let (sender, receiver) = signal();
+        let runs = Arc::new(AtomicUsize::new(0));
+        let counted = runs.clone();
+        assert!(receiver.on_ready(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+        }));
+        assert!(!receiver.on_ready(|| {}), "the first hook stays");
+        assert!(sender.try_send(()).is_ok());
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+        assert_eq!(receiver.try_recv(), Ok(()));
+        drop(sender);
+        assert_eq!(runs.load(Ordering::SeqCst), 2);
+        assert_eq!(receiver.try_recv(), Err(TryRecvError::Disconnected));
     }
 }

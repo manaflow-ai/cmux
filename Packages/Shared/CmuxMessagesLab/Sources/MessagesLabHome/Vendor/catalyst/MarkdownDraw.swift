@@ -168,8 +168,10 @@ enum MarkdownDraw {
             case .quoteBar:
                 ctx.setFillColor(pal.bar.cgColor)
                 ctx.addPath(CGPath.roundedRect(b.rect, cornerWidth: 1.5, cornerHeight: 1.5)); ctx.fillPath()
-            case let .image(img):
+            case let .image(source, alt):
                 // Host-provided only (MarkdownImageProvider). The context is y-down: flip locally.
+                // cmux: asked at draw time (p07-memory-115): the layout keeps the source, not the pixels.
+                guard let img = MarkdownImages.provider?.markdownImage(source: source, alt: alt) else { break }
                 ctx.saveGState()
                 ctx.addPath(CGPath.roundedRect(b.rect, cornerWidth: 6, cornerHeight: 6)); ctx.clip()
                 ctx.translateBy(x: b.rect.minX, y: b.rect.maxY); ctx.scaleBy(x: 1, y: -1)

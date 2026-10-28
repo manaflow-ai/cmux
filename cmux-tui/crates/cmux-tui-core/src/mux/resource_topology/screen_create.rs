@@ -3,6 +3,7 @@
 //! reservation its environment and caller-chosen id).
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     #[track_caller]
@@ -54,7 +55,7 @@ impl Mux {
             }
         };
         let created = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let Some(workspace_index) = state.workspace_index(workspace) else {
                 drop(state);
                 self.fail_hosted_terminal_attachment(
@@ -66,7 +67,7 @@ impl Mux {
             };
             state.insert_pane(pane);
             stamp_pane_focus(self, &mut state, pane_id);
-            let workspace = &mut state.workspaces[workspace_index];
+            let workspace = state.workspace_at_mut(workspace_index)?;
             workspace.screens.push(Screen {
                 id: screen_id,
                 public_id,

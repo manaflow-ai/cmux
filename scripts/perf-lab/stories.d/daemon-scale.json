@@ -1,0 +1,22 @@
+{
+  "id": "daemon-scale",
+  "tier": "linux",
+  "description": "Terminal scale on a release cmux-tui built at the commit (cmux-tui/scripts/bench-scale.py): the daemon ramped to 100 then 1000 terminals, 5% printing; per step the create latency and rate, input echo, topology read and write under output, and per role (daemon, hosts, shells) memory each, threads, CPU and wakeups over an idle window.",
+  "command": ["cmux-tui/scripts/bench-scale.py", "--build", "--counts", "100,1000", "--busy-fraction", "0.05"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "daemon\\.scale\\.[0-9]+\\.(create|echo|topology_read|topology_write)", "unit": "ms", "better": "lower"},
+    {"name": "daemon\\.scale\\.[0-9]+\\.create_rate", "unit": "per_s", "better": "higher"},
+    {"name": "daemon\\.scale\\.[0-9]+\\.(daemon|hosts|shells)\\.memory_each", "unit": "bytes", "better": "lower"},
+    {"name": "daemon\\.scale\\.[0-9]+\\.(daemon|hosts|shells)\\.threads", "unit": "count", "better": "lower"},
+    {"name": "daemon\\.scale\\.[0-9]+\\.(daemon|hosts|shells)\\.cpu", "unit": "percent", "better": "lower"},
+    {"name": "daemon\\.scale\\.[0-9]+\\.(daemon|hosts|shells)\\.wakeups", "unit": "per_s", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 600,
+  "needs": ["file:cmux-tui/scripts/daemon_bench_lab.py"],
+  "owner": "PL-daemon",
+  "component": "Daemon>Scale"
+}

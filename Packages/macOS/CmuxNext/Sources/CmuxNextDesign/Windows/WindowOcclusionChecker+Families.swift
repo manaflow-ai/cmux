@@ -16,16 +16,20 @@ extension WindowOcclusionChecker {
     ///   - isAppHidden: Whether the app is hidden now.
     ///   - drawsWhenOccluded: Automation launches keep occluded windows drawing: no family is occluded.
     ///   - center: Window and application notifications.
+    ///   - workspaceEvents: The displays' sleep and wake: the app's events of NSWorkspace's center.
+    ///   - mainWork: The app's main-thread scheduler, where the coalesced pass is posted.
     /// - Returns: The checker, already started.
     public static func feedingFamilies(windows: @escaping @MainActor () -> [NSWindow] = { NSApp?.windows ?? [] },
                                        orderedWindows: @escaping @MainActor () -> [NSWindow] = { NSApp?.orderedWindows ?? [] },
                                        facts: @escaping @MainActor (NSWindow) -> WindowOcclusionFacts = WindowDrawPolicy.occlusionFacts(of:),
                                        isAppHidden: @escaping @MainActor () -> Bool = { NSApp?.isHidden ?? false },
                                        drawsWhenOccluded: Bool = WindowDrawPolicy.drawsWhenOccluded,
-                                       center: NotificationCenter = .default) -> WindowOcclusionChecker {
+                                       center: NotificationCenter = .default, workspaceEvents: AppEvents,
+                                       mainWork: MainWorkScheduler) -> WindowOcclusionChecker {
         let tracked: @MainActor () -> [NSWindow] = { windows().filter { WindowOcclusionFamily.installed(on: $0) != nil } }
         let checker = WindowOcclusionChecker(windows: tracked, orderedWindows: orderedWindows, facts: facts, isAppHidden: isAppHidden,
-                                             drawsWhenOccluded: drawsWhenOccluded, center: center)
+                                             drawsWhenOccluded: drawsWhenOccluded, center: center, workspaceEvents: workspaceEvents,
+                                             mainWork: mainWork)
         let report: @MainActor (ObjectIdentifier, Bool) -> Void = { id, offScreen in
             let window = tracked().first { ObjectIdentifier($0) == id }
             window.flatMap(WindowOcclusionFamily.installed(on:))?.set(occluded: offScreen)

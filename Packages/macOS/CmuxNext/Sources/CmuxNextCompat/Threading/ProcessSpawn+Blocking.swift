@@ -15,6 +15,7 @@ public import Darwin
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `posix_spawn` returns (0, or an error number).
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingPosixSpawn(_ pid: UnsafeMutablePointer<pid_t>?, _ path: UnsafePointer<CChar>,
                                _ fileActions: UnsafePointer<posix_spawn_file_actions_t?>?,
@@ -50,6 +51,7 @@ public func blockingPosixSpawn(_ pid: UnsafeMutablePointer<pid_t>?, _ path: Unsa
 ///   - line: The calling code's `#line`.
 /// - Returns: What `posix_spawn` returns (0, or an error number), or the error number of the attributes'
 ///   setup; the child is not started then.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingPosixSpawn(_ pid: UnsafeMutablePointer<pid_t>?, _ path: UnsafePointer<CChar>,
                                _ fileActions: UnsafePointer<posix_spawn_file_actions_t?>?,

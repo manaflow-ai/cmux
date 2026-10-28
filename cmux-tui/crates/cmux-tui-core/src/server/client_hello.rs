@@ -23,6 +23,27 @@
 //! and a refused proof is `client_hello.refused` (no retry). Either prover sets the
 //! connection's `verified_app`; neither changes its `peer_key`.
 //!
+//! Features (p12-perf-process-150): the daemon outlives the app, so a role
+//! `main` hello may carry the app's daemon features, `features: {hash,
+//! values: {name: bool}}` (its `daemon` and `both` features). The reply's
+//! `features: {hash, applied, pending}` says what the daemon did
+//! (`cmux_features::Live::reconcile`): a verified app's off for a
+//! `process=daemon` kill switch applies at once, every other difference is
+//! pending and the daemon keeps its own value for the session. A challenged
+//! step 1 reports with no kill; its step 2, once proved, reports again with
+//! the kills. Nothing here reads a file or the network.
+//!
+//! Bridges (p01-process-237, spec/transports.md "Framed IPC grants"): a byte
+//! bridge that splices a far client onto this socket may send `{cmd:
+//! "bridge-hello", features: [name]}` as the connection's very first line.
+//! With `bridge-frames-v1` it says that it reads each `0xFF` message by its
+//! frame header, so the connection may be granted frames but never
+//! descriptors (capabilities.rs `IpcPeer::FramedBridge`). The reply is
+//! `{features}`, the names the daemon took. The far client's own hello
+//! window stays open behind it. Anywhere else it is
+//! `bridge_hello.window_closed`; off a local Unix connection it is
+//! `bridge_hello.local_only`.
+//!
 //! A page relay connection carries only `cmux.protocol/2` requests (pages
 //! speak nothing else through the relay). Every other line on it is refused
 //! with `origin.forbidden {required: "agent", derived: "page"}` (default
@@ -31,16 +52,113 @@
 //! stream then carries only those events, cmd_subscribe.rs). This keeps
 //! every other legacy command away from page JS; page JS never sends the
 //! `subscribe` (the host does, in its relay handshake).
+//!
+//! Page streams (`page-streams-v1`, request-origin.md "Page streams"): a
+//! page relay hello with `streams: true` (and no `page`) makes one
+//! connection carry every page, a stream per page. The connection's own
+//! lines (stream 0) are then only `open-stream {stream, page}` and
+//! `close-stream {stream}`; every `cmux.protocol/2` request names its open
+//! stream in `origin.stream`. Any other connection refuses `open-stream`
+//! with `origin.forbidden {reason: page_stream_not_here}`: page streams
+//! never live on the main connection, whose origin is not page.
 
 use crate::panic_free::JsonFields;
+use cmux_features::Live;
 use cmux_link::app_caller::PeerToken;
 use cmux_local_auth::frontend_proof::{self, NONCE_LEN};
 use zeroize::Zeroizing;
 
 use super::*;
-use crate::request_origin::{HelloRole, RequestOrigin, page_router_table, valid_install_id};
+use std::num::NonZeroU16;
+
+use crate::request_origin::{
+    HelloRole, OpenStreamRefusal, RequestOrigin, page_router_table, valid_install_id,
+};
 
 const CLIENT_HELLO: &str = "client-hello";
+const BRIDGE_HELLO: &str = "bridge-hello";
+/// What both hellos' names end with: after the window closes, a line without
+/// it (or a page-stream command) is neither, so it skips the JSON parse.
+const HELLO_SUFFIX: &str = "-hello";
+/// Most feature names one bridge hello may carry.
+const MAX_BRIDGE_FEATURES: usize = 16;
+const OPEN_STREAM: &str = "open-stream";
+const CLOSE_STREAM: &str = "close-stream";
+/// Most feature values one hello may carry (the registry has far fewer).
+const MAX_HELLO_FEATURES: usize = 512;
+/// Longest feature name or hash a hello may carry.
+const MAX_FEATURE_TEXT: usize = 128;
+
+/// Installs the daemon's features, resolved once at start, that hellos
+/// reconcile against. False when they were installed already.
+pub fn install_daemon_features(mux: &Mux, features: Live) -> bool {
+    mux.control_clients.features.set(features).is_ok()
+}
+
+/// The daemon's features with the kill switches hellos turned off; None
+/// before [`install_daemon_features`].
+pub fn daemon_features(mux: &Mux) -> Option<&Live> {
+    mux.control_clients.features.get()
+}
+
+/// The app's daemon features from a role-main hello.
+struct HelloFeatures {
+    hash: Option<String>,
+    values: Vec<(String, bool)>,
+}
+
+impl HelloFeatures {
+    /// `features: {hash?, values: {name: bool}}`; None when absent or null.
+    fn parse(value: Option<&Value>) -> Result<Option<Self>, ()> {
+        let object = match value {
+            None | Some(Value::Null) => return Ok(None),
+            Some(Value::Object(object)) => object,
+            Some(_) => return Err(()),
+        };
+        if object.keys().any(|key| key != "hash" && key != "values") {
+            return Err(());
+        }
+        let hash = match object.get("hash") {
+            None => None,
+            Some(Value::String(hash)) if hash.len() <= MAX_FEATURE_TEXT => Some(hash.clone()),
+            Some(_) => return Err(()),
+        };
+        let Some(Value::Object(values)) = object.get("values") else { return Err(()) };
+        if values.len() > MAX_HELLO_FEATURES {
+            return Err(());
+        }
+        let values = values
+            .iter()
+            .map(|(name, enabled)| match enabled {
+                Value::Bool(enabled) if name.len() <= MAX_FEATURE_TEXT => {
+                    Ok((name.clone(), *enabled))
+                }
+                _ => Err(()),
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Some(Self { hash, values }))
+    }
+
+    /// The reply's `features`, after reconciling with the daemon's (kills
+    /// only for a `verified` app); None before the daemon installed its own.
+    fn reconcile(&self, mux: &Mux, verified: bool) -> Option<Value> {
+        daemon_features(mux).map(|live| self.report(live, verified))
+    }
+
+    /// The reply's `features` from `live` alone. The hello's values and the
+    /// daemon's in-memory features are all this step gets, so it can read
+    /// no file, no flags document and no network.
+    fn report(&self, live: &Live, verified: bool) -> Value {
+        let values = self.values.iter().map(|(name, enabled)| (name.as_str(), *enabled));
+        let reconciled = live.reconcile(self.hash.as_deref(), values, verified);
+        let pending: Vec<Value> = reconciled
+            .pending
+            .iter()
+            .map(|item| json!({"name": item.name, "app": item.app, "daemon": item.daemon}))
+            .collect();
+        json!({"hash": reconciled.hash, "applied": reconciled.applied, "pending": pending})
+    }
+}
 
 enum Window {
     /// Step 1 may come; `identified` once the one allowed `identify` came.
@@ -51,6 +169,8 @@ enum Window {
     Challenged {
         install_id: String,
         nonce: Zeroizing<[u8; NONCE_LEN]>,
+        /// Reconciled again, with kills, once step 2 proves the app.
+        features: Option<HelloFeatures>,
     },
     Closed,
 }
@@ -76,6 +196,9 @@ pub(super) struct HelloGate {
     transport: ClientTransport,
     window: Window,
     page_relay: bool,
+    /// A streamed page relay (`page-streams-v1`): its own lines are only
+    /// `open-stream` and `close-stream`.
+    page_streams: bool,
     /// A page relay whose page hears subscribe events (page-router.json
     /// `events`): its `subscribe` line goes to dispatch, which narrows the
     /// stream to those events.
@@ -84,6 +207,8 @@ pub(super) struct HelloGate {
     /// {page}`): only these raw commands reach dispatch; its
     /// `cmux.protocol/2` lines go on to the page's allow list.
     scoped_raw: Option<&'static [&'static str]>,
+    /// The first line was a `bridge-hello`; a second one is refused.
+    bridge_declared: bool,
 }
 
 /// The raw commands a page-bound credential's connection may send, by page:
@@ -126,8 +251,10 @@ impl HelloGate {
             transport,
             window: Window::Open { identified: false },
             page_relay: false,
+            page_streams: false,
             page_events: false,
             scoped_raw: None,
+            bridge_declared: false,
         }
     }
 
@@ -159,13 +286,17 @@ impl HelloGate {
         line: &str,
         peer: impl FnOnce() -> Peer,
     ) -> Option<Value> {
-        // After the window closes only a late hello, or any line of a page
-        // relay, is looked at here; the test is a superset of those cases.
+        // After the window closes only a late hello, a page stream command
+        // (refused off a streamed relay), or any line of a page relay, is
+        // looked at here; the test is a superset of those cases.
         if let Some(allowed) = self.scoped_raw {
             return scoped_refusal(line, allowed);
         }
         let open = !matches!(self.window, Window::Closed);
-        if !open && !self.page_relay && !line.contains(CLIENT_HELLO) {
+        let looked_at = open
+            || self.page_relay
+            || [HELLO_SUFFIX, OPEN_STREAM, CLOSE_STREAM].iter().any(|cmd| line.contains(cmd));
+        if !looked_at {
             return None;
         }
         let window = std::mem::replace(&mut self.window, Window::Closed);
@@ -196,14 +327,35 @@ impl HelloGate {
                     None,
                 )),
                 Window::Open { .. } => self.start(mux, client, &value, peer),
-                Window::Challenged { install_id, nonce } => {
-                    prove(mux, client, &value, &install_id, &nonce)
+                Window::Challenged { install_id, nonce, features } => {
+                    prove(mux, client, &value, &install_id, &nonce, features.as_ref())
                 }
             },
+            Some(BRIDGE_HELLO) => match window {
+                Window::Open { identified: false } if !self.bridge_declared => {
+                    // The far client's hello may still come: the window stays.
+                    self.window = Window::Open { identified: false };
+                    self.declare_bridge(mux, client, &value)
+                }
+                _ => Err((
+                    "bridge_hello.window_closed",
+                    "bridge-hello must be the connection's first line",
+                    None,
+                )),
+            },
+            // Page streams live only on a streamed page relay, never on the
+            // main connection (request-origin.md "Page streams").
+            Some(OPEN_STREAM | CLOSE_STREAM) if !self.page_streams => {
+                Err(page_stream_not_here(origin_gate::derived_origin(mux, client)))
+            }
+            Some(OPEN_STREAM) => open_stream(mux, client, &value),
+            Some(CLOSE_STREAM) => close_stream(mux, client, &value),
             Some("identify") if matches!(window, Window::Open { identified: false }) => {
                 self.window = Window::Open { identified: true };
                 return None;
             }
+            // Stream 0 of a streamed page relay opens and closes streams only.
+            _ if self.page_streams => return Some(stream_zero_refusal(id)),
             Some("identify") if self.page_relay => return None,
             Some("subscribe") if self.page_relay => {
                 return (!self.page_events || !page_relay_subscribe(&value))
@@ -225,6 +377,45 @@ impl HelloGate {
         })
     }
 
+    /// A bridge's first line: records `bridge-frames-v1` on the connection
+    /// when its kernel facts allow (origin_gate::declare_frame_bridge).
+    fn declare_bridge(&mut self, mux: &Mux, client: u64, value: &Value) -> Result<Value, Refusal> {
+        if !matches!(self.transport, ClientTransport::Unix) {
+            return Err((
+                "bridge_hello.local_only",
+                "bridge-hello needs a local Unix socket connection",
+                None,
+            ));
+        }
+        let bad = || {
+            (
+                "bridge_hello.bad_request",
+                "bridge-hello features must be an array of at most 16 names of at most 128 characters",
+                Some(json!({"field": "features"})),
+            )
+        };
+        let Some(Value::Array(features)) = value.get("features") else { return Err(bad()) };
+        if features.len() > MAX_BRIDGE_FEATURES {
+            return Err(bad());
+        }
+        let mut frames = false;
+        for feature in features {
+            match feature.as_str() {
+                Some(name) if name.len() <= MAX_FEATURE_TEXT => {
+                    frames |= name == capabilities::BRIDGE_FRAMES_FEATURE;
+                }
+                _ => return Err(bad()),
+            }
+        }
+        self.bridge_declared = true;
+        let taken: &[&str] = if frames && origin_gate::declare_frame_bridge(mux, client) {
+            &[capabilities::BRIDGE_FRAMES_FEATURE]
+        } else {
+            &[]
+        };
+        Ok(json!({"features": taken}))
+    }
+
     fn start(
         &mut self,
         mux: &Mux,
@@ -237,6 +428,12 @@ impl HelloGate {
                 "role" => "client-hello needs role main or page_relay",
                 "page" => {
                     "client-hello page is for role page_relay: 1-64 characters of a-z 0-9 -, starting with a letter"
+                }
+                "streams" => {
+                    "client-hello streams is a boolean, true only for role page_relay without a page"
+                }
+                "features" => {
+                    "client-hello features is for role main: {hash?: string, values: {name: bool}}, at most 512 values"
                 }
                 _ => "client-hello install_id must be 1-128 characters of A-Z a-z 0-9 _ -",
             };
@@ -262,14 +459,26 @@ impl HelloGate {
             }
             Some(_) => return Err(bad("page")),
         };
+        // One page relay connection for every page, a stream per page
+        // (page-streams-v1): its pages come with open-stream, not here.
+        let streams = match value.get("streams") {
+            None | Some(Value::Null | Value::Bool(false)) => false,
+            Some(Value::Bool(true)) if role == HelloRole::PageRelay && page.is_none() => true,
+            Some(_) => return Err(bad("streams")),
+        };
+        let features = HelloFeatures::parse(value.get("features")).map_err(|()| bad("features"))?;
+        if features.is_some() && role != HelloRole::Main {
+            return Err(bad("features"));
+        }
         let peer = peer();
         // Prover A, outside every lock: role main on a signed build.
         let signed =
             role == HelloRole::Main && mux.control_clients.app_trust.signature_proves(peer.token);
-        if !origin_gate::set_hello(mux, client, role, peer.key, signed, page.clone()) {
+        if !origin_gate::set_hello(mux, client, role, peer.key, signed, page.clone(), streams) {
             return Err(("client_hello.window_closed", "this connection already has a role", None));
         }
         self.page_relay = role == HelloRole::PageRelay;
+        self.page_streams = streams;
         self.page_events =
             page.as_deref().is_some_and(|page| !page_router_table::page_events(page).is_empty());
         let mut data = json!({
@@ -281,6 +490,14 @@ impl HelloGate {
             data.insert("page_operations", page_router_table::page_operations(page));
             data.insert("page_events", json!(page_router_table::page_events(page)));
         }
+        if streams {
+            data.insert("page_streams", json!(true));
+        }
+        // A signed app is verified now; an install-key app only after step 2.
+        if let Some(report) = features.as_ref().and_then(|features| features.reconcile(mux, signed))
+        {
+            data.insert("features", report);
+        }
         // Uniform nonce rule: role main with an install id always gets one,
         // known id or not and signed build or not (no oracle).
         let (HelloRole::Main, Some(install_id)) = (role, install_id.and_then(Value::as_str)) else {
@@ -290,7 +507,9 @@ impl HelloGate {
         // A connection whose nonce could not be made stays unverified.
         if getrandom::fill(nonce.as_mut_slice()).is_ok() {
             data.insert("nonce", Value::String(frontend_proof::hex(nonce.as_slice())));
-            self.window = Window::Challenged { install_id: install_id.to_string(), nonce };
+            let features = features.filter(|_| !signed);
+            self.window =
+                Window::Challenged { install_id: install_id.to_string(), nonce, features };
         }
         Ok(data)
     }
@@ -337,6 +556,93 @@ fn page_relay_refusal(id: Option<Value>) -> Value {
     })
 }
 
+/// The answer to any line of a streamed page relay's stream 0 that is not
+/// `open-stream`, `close-stream` or a `cmux.protocol/2` request.
+fn stream_zero_refusal(id: Option<Value>) -> Value {
+    json!({
+        "id": id,
+        "ok": false,
+        "error": "stream 0 of a streamed page relay only opens and closes page streams",
+        "error_code": "origin.forbidden",
+        "error_details": {"reason": "stream_zero", "derived": RequestOrigin::Page.wire_name()},
+    })
+}
+
+/// `open-stream` or `close-stream` on a connection that is not a streamed
+/// page relay (the main connection, a one-page relay, a WebSocket).
+fn page_stream_not_here(derived: RequestOrigin) -> Refusal {
+    (
+        "origin.forbidden",
+        "only a streamed page relay connection opens page streams",
+        Some(json!({"reason": "page_stream_not_here", "derived": derived.wire_name()})),
+    )
+}
+
+fn page_stream_bad_request(field: &str) -> Refusal {
+    let message = match field {
+        "stream" => "a page stream id is 1-65535 (stream 0 is the connection's own)",
+        "page" => "a page id is 1-64 characters of a-z 0-9 -, starting with a letter",
+        _ => "open-stream takes stream and page, close-stream takes stream",
+    };
+    ("page_stream.bad_request", message, Some(json!({"field": field})))
+}
+
+/// The line's `stream` once every member is one of `members`.
+fn stream_member(value: &Value, members: &[&str]) -> Result<NonZeroU16, Refusal> {
+    let object = value.as_object().ok_or_else(|| page_stream_bad_request("cmd"))?;
+    if let Some(unknown) = object.keys().find(|key| !members.contains(&key.as_str())) {
+        return Err(page_stream_bad_request(unknown));
+    }
+    object
+        .get("stream")
+        .and_then(Value::as_u64)
+        .and_then(|stream| u16::try_from(stream).ok())
+        .and_then(NonZeroU16::new)
+        .ok_or_else(|| page_stream_bad_request("stream"))
+}
+
+/// `open-stream {stream, page}`: the stream speaks for `page` until
+/// `close-stream`. The reply's `relay_id` is the stream's
+/// `relay_connection_id` for `origin.confirmation.issue`.
+fn open_stream(mux: &Mux, client: u64, value: &Value) -> Result<Value, Refusal> {
+    let stream = stream_member(value, &["cmd", "id", "stream", "page"])?;
+    let page = value
+        .get("page")
+        .and_then(Value::as_str)
+        .filter(|page| page_router_table::valid_page_id(page))
+        .ok_or_else(|| page_stream_bad_request("page"))?;
+    let relay_id =
+        origin_gate::open_page_stream(mux, client, stream, page.to_owned()).map_err(|refusal| {
+            match refusal {
+                OpenStreamRefusal::InUse => (
+                    "page_stream.in_use",
+                    "the page stream is open, and its page never changes: close it first",
+                    Some(json!({"stream": stream})),
+                ),
+                OpenStreamRefusal::Limit => (
+                    "page_stream.limit",
+                    "this page relay has as many open page streams as it may",
+                    Some(json!({"limit": MAX_SERVER_CONNECTIONS})),
+                ),
+                OpenStreamRefusal::NotStreamed => page_stream_not_here(RequestOrigin::Page),
+            }
+        })?;
+    Ok(json!({
+        "stream": stream,
+        "page": page,
+        "relay_id": relay_id.to_string(),
+        "page_operations": page_router_table::page_operations(page),
+    }))
+}
+
+/// `close-stream {stream}`: ends the stream and every token issued for it;
+/// idempotent (`closed: false` for a stream that was not open).
+fn close_stream(mux: &Mux, client: u64, value: &Value) -> Result<Value, Refusal> {
+    let stream = stream_member(value, &["cmd", "id", "stream"])?;
+    let closed = origin_gate::close_page_stream(mux, client, stream);
+    Ok(json!({"stream": stream, "closed": closed}))
+}
+
 /// A page relay's `subscribe`: the page's event stream only, so no member
 /// but `tree_events` (a `surface` output stream is a screen read).
 fn page_relay_subscribe(value: &Value) -> bool {
@@ -364,6 +670,7 @@ fn prove(
     value: &Value,
     install_id: &str,
     nonce: &[u8; NONCE_LEN],
+    features: Option<&HelloFeatures>,
 ) -> Result<Value, Refusal> {
     const REFUSED: Refusal = ("client_hello.refused", "client-hello refused", None);
     let field = |name: &str| value.get(name).and_then(Value::as_str);
@@ -375,12 +682,16 @@ fn prove(
     {
         return Err(REFUSED);
     }
-    Ok(json!({
+    let mut data = json!({
         "verified": true,
         "install_id": install_id,
         "connection_id": client.to_string(),
         "user_origin_allowed": user_origin_allowed(mux, client),
-    }))
+    });
+    if let Some(report) = features.and_then(|features| features.reconcile(mux, true)) {
+        data.insert("features", report);
+    }
+    Ok(data)
 }
 
 /// `user_origin_allowed` in both hello replies: whether an origin `user`

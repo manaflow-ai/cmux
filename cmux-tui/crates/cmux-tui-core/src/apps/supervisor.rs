@@ -553,6 +553,18 @@ impl Supervisor {
         guard
     }
 
+    /// Frees the storage database's unused page cache when it is open; one
+    /// not opened yet holds none and stays closed (`mux/sqlite_trim.rs`).
+    #[track_caller]
+    pub(super) fn release_storage_memory(&self) -> Result<(), super::storage::StorageError> {
+        let site = std::panic::Location::caller();
+        let guard = self
+            .storage_holder
+            .lock_mutex(STORAGE_LOCK_NAME, site, &self.storage)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.as_ref().map_or(Ok(()), Storage::release_memory)
+    }
+
     /// The threads waiting for the storage lock now.
     #[cfg(test)]
     pub(super) fn storage_waiting(&self) -> u32 {

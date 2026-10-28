@@ -1,0 +1,11 @@
+{
+    // note
+"notifications": {
+        // url: https://localhost/x
+"sources": {
+            "terminal": {
+                "dismissal": "never",
+            }
+        },
+    }
+}

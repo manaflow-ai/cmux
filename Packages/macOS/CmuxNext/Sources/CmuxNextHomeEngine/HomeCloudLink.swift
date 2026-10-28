@@ -1,6 +1,6 @@
 public import CmuxHomeCore
 public import CmuxNextDaemon
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Foundation
 
 /// The daemon side of the cloud: its proxy commands and its session lease.
@@ -53,7 +53,7 @@ public final class HomeCloudLink {
     private var retryDelay = HomeCloudLink.firstRetry
     /// The pending retry; cancelled by a new link, a lease that holds, or
     /// this link ending.
-    private let retry: DemandTimer
+    private let retry: MainDeadline
     /// The expiry of the lease this link set last.
     private var leasedExpiry: UInt64? {
         didSet {
@@ -78,7 +78,7 @@ public final class HomeCloudLink {
     /// ends. Its first `firstRetry` always runs: a proof only shortens the
     /// rest, so a lease one socket proves while another is refused under
     /// it cannot make forced renewals go back to back.
-    private let cooldown: DemandTimer
+    private let cooldown: MainDeadline
     /// The cooldown is in its first `firstRetry`.
     private var cooldownInFloor = false
     /// A proof came during that first part: the cooldown ends with it.
@@ -88,27 +88,29 @@ public final class HomeCloudLink {
     /// The hops and timer deadlines in flight, for tests to wait on.
     let probe = HomeCloudLinkProbe()
 
-    /// `clock` runs the retry backoff; tests pass a manual clock.
+    /// The retry backoff and the forced-renewal cooldown are `visible` deadlines on `deadlines` (the
+    /// app's one deadline scheduler: a lease that holds again brings the cloud chats back on screen).
+    /// The source's lease signals come off main and reach the link as `visible` tasks on its
+    /// ``MainDeadlineScheduler/work``.
     public init(lease: HomeCloudLease, source: CloudHomeSource, localID: ParticipantID, stackProjectID: String? = nil,
-         clock: any Clock<Duration> = ContinuousClock()) {
+                deadlines: MainDeadlineScheduler) {
         self.lease = lease
         self.source = source
         self.localID = localID
         self.stackProjectID = stackProjectID
-        retry = DemandTimer(owner: "App.homeCloud.leaseRetry", clock: clock)
-        cooldown = DemandTimer(owner: "App.homeCloud.renewCooldown", clock: clock)
+        retry = MainDeadline(owner: "App.homeCloud.leaseRetry", workClass: .visible, scheduler: deadlines)
+        cooldown = MainDeadline(owner: "App.homeCloud.renewCooldown", workClass: .visible, scheduler: deadlines)
+        let work = deadlines.work
         source.onLeaseMissing { [weak self, probe] in
             probe.hopStarted()
-            // task-owner: one hop to the main actor; ends at once
-            Task { @MainActor in
+            work.postFromAnyThread(.visible, owner: "HomeCloudLink.leaseMissing") {
                 self?.leaseMissing()
                 probe.hopEnded()
             }
         }
         source.onLeaseProven { [weak self, probe] in
             probe.hopStarted()
-            // task-owner: one hop to the main actor; ends at once
-            Task { @MainActor in
+            work.postFromAnyThread(.visible, owner: "HomeCloudLink.leaseProven") {
                 self?.leaseProven()
                 probe.hopEnded()
             }
@@ -277,7 +279,7 @@ public final class HomeCloudLink {
         let rest = forcedWait - Self.firstRetry
         cooldownInFloor = true
         provenInFloor = false
-        cooldown.scheduleOnMain(after: Self.firstRetry) { [weak self, probe] in
+        cooldown.schedule(after: Self.firstRetry) { [weak self, probe] in
             self?.cooldownFloorPassed(rest: rest)
             probe.fired()
         }
@@ -293,7 +295,7 @@ public final class HomeCloudLink {
             sendPendingForced()
             return
         }
-        cooldown.scheduleOnMain(after: rest) { [weak self, probe] in
+        cooldown.schedule(after: rest) { [weak self, probe] in
             self?.sendPendingForced()
             probe.fired()
         }
@@ -310,7 +312,7 @@ public final class HomeCloudLink {
             guard !retry.isScheduled else { return }
             let delay = retryDelay
             retryDelay = min(retryDelay * 2, Self.maxRetry)
-            retry.scheduleOnMain(after: delay) { [weak self, probe] in
+            retry.schedule(after: delay) { [weak self, probe] in
                 defer { probe.fired() }
                 guard let self, leasing == 0 else { return }
                 renew(reason: reason)

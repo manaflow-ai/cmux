@@ -44,6 +44,12 @@ import Foundation
 /// with the person's transient activation and the frame element is kept; while it is in the document
 /// and still silent, its edits are unknown and count as the person's input.
 ///
+/// Web Locks and IndexedDB (`lock`, `idb`): the recorder counts the locks this document was granted
+/// and holds (a `request` callback whose promise has not settled) and the IndexedDB connections it
+/// opened and has not closed, as Chrome counts them per frame (kHoldingWebLock, and
+/// kHoldingBlockingIndexedDBLock for which an open connection stands in). `navigator.locks.query()`
+/// would list every page of the origin, not this one. Only a freeze checks them.
+///
 /// A document nobody used whose script fills fields (a docs site's version menu, a wiki's appearance
 /// radios, a `<select>` with no default option) hibernates; those used to stay loaded forever (the
 /// 2026-10-14 hibernation audit: 7 of 20 sites, about 85 MB of renderer each).
@@ -68,9 +74,14 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
     /// The person moved into a child frame the recorder cannot read (no recorder in it: Chromium's
     /// cross-origin frames), still in the document.
     public var unreadableFrame: Bool
+    /// A Web Lock held in the tab's frames.
+    public var webLock: Bool
+    /// An open IndexedDB connection in the tab's frames.
+    public var indexedDB: Bool
 
     public init(audio: Bool = false, capturing: Bool = false, editedForm: Bool? = nil, beforeUnload: Bool = false,
-                unloadHandler: Bool = false, webRTC: Bool = false, connectedDevice: Bool = false, unreadableFrame: Bool = false) {
+                unloadHandler: Bool = false, webRTC: Bool = false, connectedDevice: Bool = false, unreadableFrame: Bool = false,
+                webLock: Bool = false, indexedDB: Bool = false) {
         self.audio = audio
         self.capturing = capturing
         self.editedForm = editedForm
@@ -79,27 +90,9 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
         self.webRTC = webRTC
         self.connectedDevice = connectedDevice
         self.unreadableFrame = unreadableFrame
+        self.webLock = webLock
+        self.indexedDB = indexedDB
     }
-
-    /// Unmuted media playing or a video in Picture in Picture (it plays on in
-    /// its floating window; `media`), unmuted media playing alone (`sound`), or
-    /// form fields whose value differs from the page's default (form interaction):
-    /// the fallback for a page without the recorder.
-    /// A page that does not answer within the deadline is treated as busy and kept.
-    package static let fieldProbeScript = """
-    (() => {
-      const sound = [...document.querySelectorAll('audio,video')].some(m => !m.paused && !m.ended && !m.muted && m.volume > 0);
-      const media = sound || !!document.pictureInPictureElement
-        || [...document.querySelectorAll('video')].some(v => v.webkitPresentationMode === 'picture-in-picture');
-      const form = [...document.querySelectorAll('input,textarea,select')].some(e => {
-        if (e.disabled || e.type === 'hidden' || e.type === 'submit' || e.type === 'button') return false;
-        if (e.tagName === 'SELECT') return [...e.options].some(o => o.selected !== o.defaultSelected);
-        if (e.type === 'checkbox' || e.type === 'radio') return e.checked !== e.defaultChecked;
-        return e.value !== e.defaultValue;
-      });
-      return JSON.stringify({media, sound, form});
-    })()
-    """
 
     static let recorderScript = #"""
     (() => {
@@ -114,6 +107,9 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
       const heldDevices = new Set(), seenDevices = new WeakSet(), opaque = new Set(), seenFrames = new WeakSet();
       // Editing hosts weakly, with the text each held when the person started typing in it.
       const editors = new Set(), started = new WeakMap();
+      // Web Locks granted and not yet released; IndexedDB connections weakly, and those closed.
+      let locks = 0;
+      const databases = new Set(), closedDatabases = new WeakSet();
       const live = (stream) => stream.getTracks().some((t) => t.readyState === 'live');
       // Fields' values at the person's first use; installed after a use (Chromium attaches late):
       // none, every field is compared with its default.
@@ -146,7 +142,13 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
       // `unload`: a child frame would ask; `handler`: this document may ask (`asks` says whether).
       const busy = () => {
         const state = { audio: false, capturing: Array.from(streams).some(live), form: false,
-                        unload: false, handler: hasUnloadHandler(), rtc: false, device: false, opaque: false };
+                        unload: false, handler: hasUnloadHandler(), rtc: false, device: false, opaque: false,
+                        lock: locks > 0, idb: false };
+        for (const ref of databases) {
+          const database = ref.deref();
+          if (!database || closedDatabases.has(database)) { databases.delete(ref); continue; }
+          state.idb = true;
+        }
         for (const entry of heldDevices) {
           const handle = entry.ref.deref();
           if (!handle) { heldDevices.delete(entry); continue; }
@@ -190,6 +192,8 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
           state.rtc = state.rtc || child.rtc;
           state.device = state.device || child.device;
           state.opaque = state.opaque || child.opaque;
+          state.lock = state.lock || child.lock;
+          state.idb = state.idb || child.idb;
         }
         return state;
       };
@@ -198,7 +202,7 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
       const report = () => {
         const state = busy();
         return { audio: state.audio, capturing: state.capturing, form: state.form, unload: state.unload || state.handler,
-                 rtc: state.rtc, device: state.device, opaque: state.opaque };
+                 rtc: state.rtc, device: state.device, opaque: state.opaque, lock: state.lock, idb: state.idb };
       };
       const post = (state) => {
         told = JSON.stringify(state);
@@ -235,6 +239,45 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
           },
         });
       }
+      // A lock is held from its grant (the callback runs with it) until the callback's promise settles;
+      // an `ifAvailable` request that got none runs the callback with null.
+      wrap(typeof LockManager === 'function' ? LockManager.prototype : null, 'request', {
+        apply(target, self, args) {
+          const last = args.length - 1, callback = args[last];
+          if (typeof callback !== 'function') return Reflect.apply(target, self, args);
+          const granted = (lock) => {
+            if (!lock) return callback(lock);
+            locks++;
+            tell();
+            const release = () => { locks--; tell(); };
+            let result;
+            try { result = callback(lock); } catch (error) { release(); throw error; }
+            Promise.resolve(result).then(release, release);
+            return result;
+          };
+          return Reflect.apply(target, self, [...args.slice(0, last), granted]);
+        },
+      });
+      const closeDatabase = (database) => { closedDatabases.add(database); tell(); };
+      wrap(typeof IDBDatabase === 'function' ? IDBDatabase.prototype : null, 'close', {
+        apply(target, self, args) {
+          const result = Reflect.apply(target, self, args);
+          if (self) closeDatabase(self);
+          return result;
+        },
+      });
+      wrap(typeof IDBFactory === 'function' ? IDBFactory.prototype : null, 'open', {
+        apply(target, self, args) {
+          const request = Reflect.apply(target, self, args);
+          request.addEventListener('success', () => {
+            const database = request.result;
+            databases.add(new WeakRef(database));
+            database.addEventListener('close', () => closeDatabase(database));
+            tell();
+          });
+          return request;
+        },
+      });
       // A device connection the page holds (Chrome keeps such tabs: kConnectedToUSB,
       // kConnectedToBluetooth): each open() or connect() keeps the object; the probe asks whether
       // it is still open. Chromium only; WebKit has none of these interfaces.
@@ -361,7 +404,7 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
         const report = data.cmuxPageBusy;
         children.set(from, { audio: report.audio === true, capturing: report.capturing === true, form: report.form === true,
                              unload: report.unload === true, rtc: report.rtc === true, device: report.device === true,
-                             opaque: report.opaque === true });
+                             opaque: report.opaque === true, lock: report.lock === true, idb: report.idb === true });
         tell();
       });
       // A frame that navigates keeps its window: its new document reports at once, and the
@@ -369,53 +412,10 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
       if (window !== parent) {
         post(report());
         addEventListener('pagehide', () => post({ audio: false, capturing: false, form: false, unload: false, rtc: false,
-                                                  device: false, opaque: false }));
+                                                  device: false, opaque: false, lock: false, idb: false }));
       }
       Object.defineProperty(window, key, { value: busy });
       Object.defineProperty(window, Symbol.for('cmux.pageBusy.asks'), { value: asks });
     })();
     """#
-
-    /// The probe's question, in the page's world: `{"audio", "capturing", "form", "unload", "handler", "rtc", "device",
-    /// "opaque"}` (Bools) as JSON, `{}` when the recorder is missing (a page loaded before it was installed). It runs
-    /// no page code.
-    static let probeScript = "(() => { const f = window[Symbol.for('cmux.pageBusy')]; return JSON.stringify(f ? f() : {}); })()"
-
-    /// Runs the top document's beforeunload handlers, as a close would, and answers whether one
-    /// cancels (`preventDefault()`, a `returnValue`, or an `onbeforeunload` that returns a message):
-    /// `true`/`false`, or `null` when the recorder is missing. Page code runs: see `BrowserTab.asksBeforeUnload()`.
-    static let askScript = "(() => { const f = window[Symbol.for('cmux.pageBusy.asks')]; return f ? f() : null; })()"
-}
-
-extension BrowserTab {
-    /// Asks the page's recorder (`BrowserPageBusy`); runs no page code and no user gesture
-    /// (`BrowserScriptGesture.cmux`), so the probe never counts as the person's activation. Throws
-    /// when the page does not answer, or `unsupported` where the engine cannot run a script without
-    /// a gesture (the probe then counts as unanswered: the page stays awake).
-    public func pageBusy() async throws -> BrowserPageBusy {
-        let value = try await evaluate(BrowserPageBusy.probeScript, world: .page, gesture: .cmux)
-        guard case .string(let json) = value, let data = json.data(using: .utf8),
-              let object = try JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else {
-            throw CocoaError(.coderReadCorrupt)
-        }
-        return BrowserPageBusy(audio: object["audio"] as? Bool ?? false, capturing: object["capturing"] as? Bool ?? false,
-                               editedForm: object["form"] as? Bool, beforeUnload: object["unload"] as? Bool ?? false,
-                               unloadHandler: object["handler"] as? Bool ?? false,
-                               webRTC: object["rtc"] as? Bool ?? false, connectedDevice: object["device"] as? Bool ?? false,
-                               unreadableFrame: object["opaque"] as? Bool ?? false)
-    }
-
-    /// Runs the top document's beforeunload handlers, as a close would, and answers whether the page
-    /// would ask ("Leave site?"). Page code runs (a handler may close a socket or send a beacon), so
-    /// the caller asks only right before it discards the page, and at most once while it stays
-    /// hidden. It runs without a user gesture: a handler cannot open a popup on cmux's behalf or see
-    /// the person's activation.
-    /// - Throws: `BrowserTabError.unsupported` when the engine cannot run a script without a user
-    ///   gesture, or when the page has no recorder; the page's own errors.
-    public func asksBeforeUnload() async throws -> Bool {
-        guard case .bool(let asks) = try await evaluate(BrowserPageBusy.askScript, world: .page, gesture: .cmux) else {
-            throw BrowserTabError.unsupported("no page recorder")
-        }
-        return asks
-    }
 }

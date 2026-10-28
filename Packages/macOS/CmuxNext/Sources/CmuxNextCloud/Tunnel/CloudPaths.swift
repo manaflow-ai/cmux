@@ -1,5 +1,7 @@
 import CryptoKit
 public import Foundation
+import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// Per-installation Cloud state: the WireGuard key, device id, completed
 /// config, hub socket, and cmux-tui link client state. Owner-only (0700
@@ -61,7 +63,7 @@ public struct CloudPaths: Sendable {
     func writeSecret(_ text: String, to url: URL) throws {
         let temporary = url.appendingPathExtension("tmp")
         FileManager.default.createFile(atPath: temporary.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600])
-        guard rename(temporary.path, url.path) == 0 else {
+        guard blockingRename(temporary.path, url.path) == 0 else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
         }
     }
@@ -90,5 +92,74 @@ public struct CloudPaths: Sendable {
         try prepare()
         try writeSecret(id + "\n", to: deviceIDFile)
         return id
+    }
+
+    /// ``loadOrCreateDeviceID()`` as a value a launch read gives the main thread (p08-startup-076). It blocks:
+    /// run it on a `BackgroundWork` files lane.
+    public func deviceIDResult() -> Result<String, CloudDeviceIDError> {
+        do {
+            return .success(try loadOrCreateDeviceID())
+        } catch {
+            return .failure(.unwritable(String(describing: error)))
+        }
+    }
+}
+
+/// Why this Mac's install id (`device-id`) is not known.
+public enum CloudDeviceIDError: Error, Equatable, Sendable {
+    /// Its launch read has not ended yet (or quit dropped it): the main thread never reads the file itself.
+    case notReadYet
+    /// There was no id and a new one could not be written; the file error's description.
+    case unwritable(String)
+}
+
+/// This Mac's install id as the launch's read of it has it (p08-startup-076): `main` reads (or makes) `device-id` on a
+/// launch lane with ``CloudPaths/deviceIDResult()``, and the main thread asks this, which never touches the disk.
+///
+/// ```swift
+/// let read = LaunchRead(in: sequence, dropped: .failure(.notReadYet)) { paths.deviceIDResult() }  // main()
+/// let source = CloudDeviceIDSource(paths: paths, read: read)
+/// let id = source.result(for: paths)?.get()                                                     // never waits
+/// source.whenEnded(on: mainWork, owner: "watch.start") { startWatch() }                         // once it ended
+/// ```
+public nonisolated struct CloudDeviceIDSource: Sendable {
+    /// The Cloud state whose id the read reads.
+    public let paths: CloudPaths
+    private let ended: @Sendable () -> Result<String, CloudDeviceIDError>?
+    /// The launch's read, when the source follows one (``whenEnded(on:owner:_:)`` waits for it).
+    private let read: LaunchRead<Result<String, CloudDeviceIDError>>?
+
+    /// - Parameters:
+    ///   - paths: The Cloud state whose id the read reads.
+    ///   - ended: The read's result once it ended, else nil; it must not block. ``whenEnded(on:owner:_:)`` does
+    ///     not wait for it.
+    public init(paths: CloudPaths, ended: @escaping @Sendable () -> Result<String, CloudDeviceIDError>?) {
+        self.paths = paths
+        self.ended = ended
+        read = nil
+    }
+
+    /// - Parameters:
+    ///   - paths: The Cloud state whose id the read reads.
+    ///   - read: The launch's read of it.
+    public init(paths: CloudPaths, read: LaunchRead<Result<String, CloudDeviceIDError>>) {
+        self.paths = paths
+        ended = { read.value }
+        self.read = read
+    }
+
+    /// Runs `body` on the main thread once the read has ended, so ``result(for:)`` is no longer
+    /// ``CloudDeviceIDError/notReadYet``: now when it has (or the source follows no read), else posted to `mainWork`
+    /// as `owner` when it lands (Chrome's `PostTaskAndReplyWithResult`, base/task/task_runner.h). It never waits.
+    @MainActor public func whenEnded(on mainWork: MainWorkScheduler, owner: String, _ body: @escaping @MainActor @Sendable () -> Void) {
+        guard let read else { return body() }
+        if read.valueNow(orPostTo: mainWork, class: .visible, owner: owner, { _ in body() }) != nil { body() }
+    }
+
+    /// The id of `paths` as the read has it: ``CloudDeviceIDError/notReadYet`` while it runs; nil when the read is
+    /// of other paths (the caller reads its own).
+    public func result(for paths: CloudPaths) -> Result<String, CloudDeviceIDError>? {
+        guard paths.root == self.paths.root else { return nil }
+        return ended() ?? .failure(.notReadYet)
     }
 }

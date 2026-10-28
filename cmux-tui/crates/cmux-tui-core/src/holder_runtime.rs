@@ -1,7 +1,8 @@
 //! Terminals held by the install's one holder process instead of a host
 //! process each (terminal-host-model-DESIGN.md, option D).
 //!
-//! The holder (`cmux-tui __holder`, crate `cmux-holder`) starts each shell on
+//! The holder (the standalone `cmux-holder`, else `cmux-tui-host __holder`;
+//! crate `cmux-holder`) starts each shell on
 //! a PTY, keeps the master in one poll set and a byte ring per terminal, and
 //! parses nothing. The daemon keeps a custody dup of every master, writes
 //! input and resizes on it directly, and parses the output the holder
@@ -11,12 +12,14 @@
 //! (`mux::holder_adoption`); a holder crash loses no shell, because the
 //! daemon still holds every master and hands them to a new holder.
 //!
-//! Behind the `terminalHolder` feature (`schemas/features/features.d`), off
-//! on every channel: the per-terminal hosts stay the default. The daemon
-//! installs its resolved features ([`install`]) before it builds the mux, so
-//! the managed policy and the signed document's `DisabledFeatures` turn it
-//! off as they turn off any feature. [`MODEL_ENV`] stays as an alias entry of
-//! the env lists.
+//! Behind the `terminalHolder` feature (`schemas/features/features.d`), on
+//! on every channel since holder item 5 (2026-10-23). The daemon installs its
+//! resolved features ([`install`]) before it builds the mux, so the managed
+//! policy and the signed document's `DisabledFeatures` turn it off as they
+//! turn off any feature. [`MODEL_ENV`] stays as an alias entry of the env
+//! lists: `CMUX_TUI_TERMINAL_HOST_MODEL=hosts` opts out to a terminal host
+//! process per terminal, kept for one release. Terminal hosts an older build
+//! started keep running and are adopted as before.
 
 mod service;
 mod sink;
@@ -33,7 +36,7 @@ pub(crate) use sink::HolderSink;
 pub(crate) use terminal::{HolderTerminal, holder_local_launch};
 
 /// The env switch that predates `terminalHolder`: `holder` enables the
-/// feature and `hosts` disables it.
+/// feature and `hosts` disables it (the opt-out kept for one release).
 pub(crate) const MODEL_ENV: &str = "CMUX_TUI_TERMINAL_HOST_MODEL";
 
 /// This process's holder model, fixed at its first read: a session never
@@ -48,7 +51,9 @@ pub fn install(features: &Snapshot) -> bool {
     *ENABLED.get_or_init(|| resolve(features, std::env::var(MODEL_ENV).ok().as_deref()))
 }
 
-/// New session-owned terminals run on the holder.
+/// New session-owned terminals run on the holder: the default (holder item
+/// 5). `CMUX_TUI_TERMINAL_HOST_MODEL=hosts` or a disable of `terminalHolder`
+/// opts out and starts a terminal host process per terminal, as before.
 pub(crate) fn enabled() -> bool {
     // A process that installs nothing (unit tests, a mux outside the daemon)
     // reads the env lists at the default of an unbundled build.
@@ -58,7 +63,15 @@ pub(crate) fn enabled() -> bool {
         let enable = env(cmux_features::ENABLE_ENV);
         let disable = env(cmux_features::DISABLE_ENV);
         let features = Snapshot::from_env(channel, enable.as_deref(), disable.as_deref());
-        resolve(&features, env(MODEL_ENV).as_deref())
+        let alias = env(MODEL_ENV);
+        if cfg!(test) {
+            // The daemon library's own unit tests start no holder binary:
+            // they keep the hosts unless they name the holder.
+            let named = features.source(TERMINAL_HOLDER) != Source::Default
+                || alias.as_deref().map(str::trim) == Some("holder");
+            return named && resolve(&features, alias.as_deref());
+        }
+        resolve(&features, alias.as_deref())
     })
 }
 
@@ -93,10 +106,11 @@ mod model_tests {
     }
 
     #[test]
-    fn the_default_is_the_terminal_hosts_on_every_channel() {
+    fn the_default_is_the_holder_on_every_channel() {
         for channel in [Channel::Dev, Channel::Nightly, Channel::Release] {
-            assert!(!resolve(&Snapshot::defaults(channel), None), "{channel:?}");
-            assert!(!resolve(&lists(channel, None, None), None), "{channel:?}");
+            assert!(resolve(&Snapshot::defaults(channel), None), "{channel:?}");
+            assert!(resolve(&lists(channel, None, None), None), "{channel:?}");
+            assert!(!resolve(&Snapshot::defaults(channel), Some("hosts")), "{channel:?} opt-out");
         }
     }
 
@@ -104,10 +118,12 @@ mod model_tests {
     fn the_feature_lists_turn_the_holder_on_and_off() {
         let on = lists(Channel::Release, Some("terminalHolder"), None);
         assert!(resolve(&on, None));
+        let off = lists(Channel::Release, None, Some("terminalHolder"));
+        assert!(!resolve(&off, None), "the disable list opts out");
         let both = lists(Channel::Release, Some("terminalHolder"), Some("terminalHolder"));
         assert!(!resolve(&both, None), "disable wins");
-        let hello = Snapshot::from_pairs(Channel::Release, [("terminalHolder", true)]);
-        assert!(resolve(&hello, None), "a hello's overrides resolve the same way");
+        let hello = Snapshot::from_pairs(Channel::Release, [("terminalHolder", false)]);
+        assert!(!resolve(&hello, None), "a hello's overrides resolve the same way");
     }
 
     #[test]
@@ -116,8 +132,9 @@ mod model_tests {
         assert!(resolve(&defaults, Some("holder")));
         assert!(resolve(&defaults, Some(" holder\n")));
         assert!(!resolve(&defaults, Some("hosts")));
-        assert!(!resolve(&defaults, Some("Holder")), "values are case-sensitive");
-        assert!(!resolve(&defaults, Some("")));
+        assert!(!resolve(&defaults, Some(" hosts\n")));
+        assert!(resolve(&defaults, Some("Hosts")), "values are case-sensitive");
+        assert!(resolve(&defaults, Some("")));
         let on = lists(Channel::Release, Some("terminalHolder"), None);
         assert!(!resolve(&on, Some("hosts")), "the alias's disable wins over an enable");
         assert!(resolve(&on, Some("anything else")), "an unknown value is ignored");

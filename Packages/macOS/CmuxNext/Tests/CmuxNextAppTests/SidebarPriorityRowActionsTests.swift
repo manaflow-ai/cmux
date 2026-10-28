@@ -5,6 +5,7 @@ import CmuxNextAgentActivity
 @testable import CmuxNextApp
 import CmuxNextPalette
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -75,7 +76,9 @@ struct SidebarPriorityRowActionsTests {
             guard bind else { return }
             let actions = SidebarPriorityRowActions(chats: chats)
             actions.bind(into: registry)
-            actions.bindArchive(into: registry) { _ in Issue.record("a Priority row's archive ran the focused chat's") }
+            actions.bindArchive(into: registry, mainWork: MainWorkScheduler(budget: MainFrameBudget())) { _ in
+                Issue.record("a Priority row's archive ran the focused chat's")
+            }
         }
 
         var marks: AgentPriorityMarks.State { chats.marks.state }
@@ -174,7 +177,7 @@ struct SidebarPriorityRowActionsTests {
         let focused = Counter()
         let actions = SidebarPriorityRowActions(chats: fixture.chats, unavailable: { reason })
         actions.bind(into: fixture.registry)
-        actions.bindArchive(into: fixture.registry) { _ in focused.count += 1 }
+        actions.bindArchive(into: fixture.registry, mainWork: MainWorkScheduler(budget: MainFrameBudget())) { _ in focused.count += 1 }
         for row in Row.allCases {
             let invocation = ActionInvocation(target: SidebarPriorityRowActions.target("done"))
             #expect(ActionTargetReasons.reason(for: row.actionID, invocation: invocation, in: fixture.registry) == reason, "\(row)")
@@ -215,7 +218,8 @@ struct SidebarPriorityRowActionsTests {
         return SidebarPriorityFeed(
             settings: .init(enabled: { true }, shown: { true }),
             hooks: .init(shortcut: { nil }, open: { _ in }, rowAction: { SidebarPriorityRowActions.perform($0, in: registry) }, toggleShown: {}),
-            chats: fixture.chats
+            chats: fixture.chats,
+            deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))
         )
     }
 

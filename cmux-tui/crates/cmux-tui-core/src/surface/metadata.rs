@@ -5,30 +5,30 @@ use super::*;
 
 impl Surface {
     pub fn set_name(&self, name: Option<String>) {
-        *self.name.lock().unwrap() = name;
+        *self.name.lock().recover_poison() = name;
     }
 
     pub fn name(&self) -> Option<String> {
-        self.name.lock().unwrap().clone()
+        self.name.lock().recover_poison().clone()
     }
 
     pub fn set_selection_text(&self, text: Option<String>) {
-        *self.selection.lock().unwrap() = text;
+        *self.selection.lock().recover_poison() = text;
     }
 
     pub fn selection_text(&self) -> Option<String> {
-        self.selection.lock().unwrap().clone()
+        self.selection.lock().recover_poison().clone()
     }
 
     pub fn title(&self) -> String {
         match self {
-            Surface::Pty(pty) => pty.title.lock().unwrap().clone(),
+            Surface::Pty(pty) => pty.title.lock().recover_poison().clone(),
             Surface::Browser(browser) => browser.title(),
         }
     }
 
     pub fn pwd(&self) -> Option<String> {
-        self.as_pty().and_then(|pty| pty.pwd.lock().unwrap().clone())
+        self.as_pty().and_then(|pty| pty.pwd.lock().recover_poison().clone())
     }
 
     pub fn local_cwd(&self) -> Option<String> {
@@ -37,7 +37,7 @@ impl Surface {
                 #[cfg(any(unix, windows))]
                 {
                     matches!(
-                        &*pty.runtime.lock().unwrap(),
+                        &*pty.runtime.lock().recover_poison(),
                         PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted
                     )
                 }
@@ -104,7 +104,7 @@ impl Surface {
     #[cfg(any(unix, windows))]
     pub(crate) fn release_pending_terminal_host_binding(&self) {
         if let Some(pty) = self.as_pty() {
-            pty.pending_host_binding.lock().unwrap().take();
+            pty.pending_host_binding.lock().recover_poison().take();
         }
     }
 
@@ -127,7 +127,7 @@ impl Surface {
         // host, before it can read the reply from the new stream.
         #[cfg(any(unix, windows))]
         if let Some(pty) = self.as_pty() {
-            let pending = match &*pty.runtime.lock().unwrap() {
+            let pending = match &*pty.runtime.lock().recover_poison() {
                 PtyRuntime::Hosted(host) => Some(host.begin_renderer_grant(ttl)),
                 PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => None,
             };

@@ -10,9 +10,12 @@
 //! one write and the file never goes back to an older state. `flush` waits for what is queued:
 //! before the daemon reads `config.json` back (`reload_catalog`) and at shutdown.
 
+use crate::daemon::hang_watch::{SyncThread, WRITE_ITEM};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
+
+use crate::supervised::{Fatal, OwnedThread, ShutdownBehavior, Supervisor};
 
 #[derive(Default)]
 struct State {
@@ -28,27 +31,35 @@ struct Shared {
     written: Condvar,
 }
 
+/// The writer thread's name, also its name in a hang record.
+const THREAD: &str = "acpmux-config-writer";
+
 pub(crate) struct ConfigWriter {
     shared: Arc<Shared>,
-    thread: Mutex<Option<std::thread::JoinHandle<()>>>,
-}
-
-impl Default for ConfigWriter {
-    fn default() -> Self {
-        let shared = Arc::new(Shared::default());
-        let worker = shared.clone();
-        let thread = std::thread::Builder::new()
-            .name("acpmux-config-writer".into())
-            .spawn(move || run(&worker))
-            .map_err(|e| {
-                tracing::error!("the config writer did not start; files are written in place: {e}")
-            })
-            .ok();
-        Self { shared, thread: Mutex::new(thread) }
-    }
+    thread: Mutex<Option<OwnedThread>>,
 }
 
 impl ConfigWriter {
+    /// Starts the writer thread under `supervisor`.
+    pub(crate) fn start(supervisor: &Supervisor) -> Self {
+        let shared = Arc::new(Shared::default());
+        let worker = shared.clone();
+        // A panic in the thread leaves its queue half-written and every `flush` waiting:
+        // Fatal. Continue on shutdown: the owner's drop writes what is queued and joins it.
+        let thread = crate::supervised::owned_thread(
+            supervisor,
+            THREAD,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || run(&worker),
+        )
+        .map_err(|e| {
+            tracing::error!("the config writer did not start; files are written in place: {e}")
+        })
+        .ok();
+        Self { shared, thread: Mutex::new(thread) }
+    }
+
     /// Queues `bytes` as the next content of `path`, replacing older queued bytes of it.
     pub(crate) fn queue(&self, path: PathBuf, bytes: Vec<u8>) {
         if !self.running() {
@@ -64,7 +75,8 @@ impl ConfigWriter {
     pub(crate) fn flush(&self) {
         let mut state = self.lock();
         while self.running() && (!state.queued.is_empty() || state.writing) {
-            state = self.shared.written.wait(state).unwrap_or_else(|e| e.into_inner());
+            state = cmux_blocking::sync::wait(&self.shared.written, state)
+                .unwrap_or_else(|e| e.into_inner());
         }
     }
 
@@ -83,25 +95,32 @@ impl Drop for ConfigWriter {
         self.lock().stop = true;
         self.shared.work.notify_one();
         if let Some(thread) = self.thread.get_mut().unwrap_or_else(|e| e.into_inner()).take() {
-            let _ = thread.join();
+            cmux_blocking::scoped_blocking_call(
+                "thread::join",
+                cmux_blocking::BlockingKind::Join,
+                || thread.join(),
+            );
         }
     }
 }
 
 fn run(shared: &Shared) {
+    let watched = SyncThread::register(THREAD, WRITE_ITEM);
     let mut state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
     loop {
         if state.queued.is_empty() {
             if state.stop {
                 return;
             }
-            state = shared.work.wait(state).unwrap_or_else(|e| e.into_inner());
+            state =
+                cmux_blocking::sync::wait(&shared.work, state).unwrap_or_else(|e| e.into_inner());
             continue;
         }
         let batch = std::mem::take(&mut state.queued);
         state.writing = true;
         drop(state);
         for (path, bytes) in batch {
+            let _item = watched.item();
             write(&path, &bytes);
         }
         state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -130,7 +149,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
-        let writer = ConfigWriter::default();
+        let writer = ConfigWriter::start(&crate::supervised::embedded());
         for i in 0..50 {
             writer.queue(path.clone(), format!("{{\"n\":{i}}}").into_bytes());
         }

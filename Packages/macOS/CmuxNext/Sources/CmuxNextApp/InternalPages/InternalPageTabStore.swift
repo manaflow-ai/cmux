@@ -9,6 +9,7 @@ import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettingsWindow
 import CmuxNextTabs
+import CmuxNextWakeups
 import Observation
 
 /// Internal page tabs and their views; provider registration is observed.
@@ -17,12 +18,21 @@ final class InternalPageTabStore {
     private var providers: [InternalPageID: any InternalPageProvider] = [:]
     private let tabsByPane = ObservedMap<String, [String]>()
     @ObservationIgnored private var views: [String: InternalPageView] = [:]
-    /// The main window each tab opened in, for its provider's theme scope.
-    @ObservationIgnored private var windows: [String: WindowController] = [:]
+    /// The main window each tab opened or last showed in, for its provider's theme scope. Held weakly: a
+    /// closed window goes with its parked workspaces while its page tabs stay restorable, as a Chrome tab
+    /// helper holds a `raw_ptr<Browser>` and never owns its window (chrome/browser/ui/browser_finder.cc).
+    @ObservationIgnored private var windows: [String: WeakWindow] = [:]
+    /// The live window whose panes list a page tab now, by provider key (``window(showing:among:)`` over the
+    /// app's windows; AppServices sets it): the tab's window again once the one it was in closed, as
+    /// `chrome::FindBrowserWithTab` walks the browser list (chrome/browser/ui/browser_finder.h).
+    @ObservationIgnored var findWindow: @MainActor (String) -> WindowController? = { _ in nil }
     /// The daemon tree each pane with page tabs belongs to; watched so the
     /// tabs of a pane closed out of sight close once the tree drops it.
     @ObservationIgnored private var paneStores: [String: DaemonStore] = [:]
-    @ObservationIgnored private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// One tab-list follower per store with page tabs (``watch(_:)``).
+    @ObservationIgnored private var watches: [ObjectIdentifier: ServiceObservation<UInt64?>] = [:]
+    /// The app's main-thread scheduler: the store followers flush on it.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
     /// Go Back (true) or Go Forward (false) from a page view's mouse buttons and swipes.
     @ObservationIgnored var navigate: ((Bool) -> Void)?
     /// Sends `new-conversation-tab` for a page tab (`page-tabs-v1`) on its
@@ -58,6 +68,11 @@ final class InternalPageTabStore {
     /// Whether the page tabs of one pane share one Chromium window (feature `pageTabsShareChromiumWindow`, ``place(_:in:)``).
     @ObservationIgnored var sharesChromiumWindows = false
 
+    /// `mainWork`: the app's main-thread scheduler (`AppServices.mainWork`); a test's own by default.
+    init(mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
+        self.mainWork = mainWork
+    }
+
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
     func keepsRoutes(_ daemon: DaemonService) -> Bool {
         daemon.supports(DaemonCapability.pageTabRoute.rawValue)
@@ -88,7 +103,7 @@ final class InternalPageTabStore {
             tabs.append(key)
         }
         tabsByPane[paneKey] = tabs.isEmpty ? nil : tabs
-        windows[key] = window
+        windows[key] = window.map { WeakWindow(controller: $0) }
         paneStores[paneKey] = store
         watch(store)
         return key
@@ -175,7 +190,7 @@ final class InternalPageTabStore {
             if let route = gone?.route { provider.restore(route, for: key) }
             if let gone { provider.willRemakeView(for: key, with: gone.state) }
             // The window the tab is in now: it may have moved since it opened.
-            let content = provider.makeView(for: key, in: self?.windows[key])
+            let content = provider.makeView(for: key, in: self?.window(of: key))
             let picture = gone == nil ? nil : self?.discardedPicture(of: tab)
             let standInTitle = self?.showsStandIns == true ? provider.title(for: key) : nil
             return InternalPageView.Parts(content: content, topBar: provider.makeTopBar(for: key),
@@ -196,6 +211,10 @@ final class InternalPageTabStore {
 
     /// The provider key of store page tab `id`, nil for any other tab.
     func storeKey(of id: String) -> String? { storeKeys[id] }
+
+    /// The strip id of the tab whose provider key is `key`, as the content cache names it (and its
+    /// visibility node): a store page tab's id, else `key` itself.
+    func stripTab(ofKey key: String) -> String { storeKeys.first { $0.value == key }?.key ?? key }
 
     /// `key`'s view with its content made: an app-only page tab's, or a store page tab's by its id.
     /// Nil for a tab that has not shown yet (its content waits, ``tabView(for:)``).
@@ -240,7 +259,7 @@ final class InternalPageTabStore {
                  window: WindowController?) -> InternalPageView? {
         if let key = storeKeys[tab.id], let view = views[key] {
             // The tab moved to another window: the same view shows there, and its window follows.
-            if let window { windows[key] = window }
+            if let window { windows[key] = WeakWindow(controller: window) }
             return view
         }
         guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)), let provider = providers[page] else { return nil }
@@ -306,6 +325,7 @@ final class InternalPageTabStore {
             }
         }
         let create = createStoreTab, handle = model.handle, paneKey = model.id
+        // main-hop-allow: the action's tracked work awaits the main-actor create seam and settles the store in its reply's job
         services.registry.track(Task { @MainActor [weak self, weak pane] () -> ActionWorkFailure? in
             do {
                 let (created, sequence) = try await create(handle, daemon, page.rawValue, route, transaction)
@@ -337,7 +357,7 @@ final class InternalPageTabStore {
         storeTabStores[real] = storeTabStores[provisional]
         // The provisional id resolves until the tree drops it.
         seenLive.insert(provisional)
-        for pane in windows[key]?.content?.panes.values.map({ $0 }) ?? []
+        for pane in window(of: key)?.content?.panes.values.map({ $0 }) ?? []
         where pane.stripModel.selectedID?.rawValue == provisional {
             pane.selectWhenReported(surface: surface)
         }
@@ -382,8 +402,28 @@ final class InternalPageTabStore {
     private func track(_ id: String, key: String, in store: DaemonStore, window: WindowController?) {
         storeKeys[id] = key
         storeTabStores[id] = store
-        if let window { windows[key] = window }
+        if let window { windows[key] = WeakWindow(controller: window) }
         watch(store)
+    }
+
+    /// The window page tab `key` (a provider key) is in: the one it opened or last showed in while that
+    /// window lives, else the live window whose panes list it now (``findWindow``), nil when none does.
+    func window(of key: String) -> WindowController? {
+        if let window = windows[key]?.controller { return window }
+        let found = findWindow(key)
+        windows[key] = found.map { WeakWindow(controller: $0) }
+        return found
+    }
+
+    /// The first of `controllers` whose mounted panes list page tab `key` (a provider key): an app-only
+    /// tab by its key, a store page tab by the key it shows under. O(windows x panes x tabs), only for a
+    /// tab whose window closed.
+    func window(showing key: String, among controllers: [WindowController]) -> WindowController? {
+        controllers.first { controller in
+            controller.content?.panes.values.contains { pane in
+                tabIDs(in: pane.paneKey).contains(key) || pane.pane.tabs.contains { storeKeys[$0.id] == key }
+            } == true
+        }
     }
 
     /// The tab closed: drop its view and tell its provider.
@@ -418,18 +458,29 @@ final class InternalPageTabStore {
         if let page = LocalPageTab.page(of: key) { providers[page]?.tabClosed(key) }
     }
 
+    /// Follows `store`'s tab list while it has page tabs: a model write (tabs close), so a service
+    /// observation that runs while no window shows the store, in the visible class. One observed
+    /// value: the tab-list revision changes when a tab or a pane comes, goes or moves. The current
+    /// list is checked in a posted task, never inside the open or track that started the watch.
     private func watch(_ store: DaemonStore) {
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }
-        // task-owner: stored in watches; cancelled once the store has no page tabs
-        watches[id] = Task { [weak self] in
-            // One observed value: the tab-list revision changes when a tab or a pane comes, goes or moves.
-            for await live in ObservationStream({ store.liveTabListRevision }) where live != nil {
-                guard let self else { return }
-                self.closeGonePanes(in: store)
-                self.closeGoneStoreTabs(in: store)
-            }
+        watches[id] = ServiceObservation(.visible, owner: "pages.store-tabs", on: mainWork) {
+            store.liveTabListRevision
+        } apply: { [weak self, weak store] live in
+            // The first value comes inside `init`, before the watch is stored: the post below checks it.
+            guard live != nil, let self, let store, self.watches[id] != nil else { return }
+            self.closeGone(in: store)
         }
+        mainWork.post(.visible, owner: "pages.store-tabs") { [weak self, weak store] in
+            guard let self, let store, self.watches[id] != nil, store.liveTabListRevision != nil else { return }
+            self.closeGone(in: store)
+        }
+    }
+
+    private func closeGone(in store: DaemonStore) {
+        closeGonePanes(in: store)
+        closeGoneStoreTabs(in: store)
     }
 
     private func forgetUnusedStores() {
@@ -439,6 +490,11 @@ final class InternalPageTabStore {
             watches.removeValue(forKey: id)?.cancel()
         }
     }
+}
+
+/// A page tab's window, held weakly (``InternalPageTabStore``).
+private struct WeakWindow {
+    weak var controller: WindowController?
 }
 
 /// The store tab a page tab's `new-conversation-tab` created.

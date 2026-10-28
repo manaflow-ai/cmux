@@ -28,8 +28,8 @@ public struct CookieSourceQuery: Sendable, Equatable {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw .empty }
         if let colon = trimmed.firstIndex(of: ":") {
-            browser = String(trimmed[..<colon]).trimmingCharacters(in: .whitespaces)
-            let rest = String(trimmed[trimmed.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            browser = String(trimmed.prefix(upTo: colon)).trimmingCharacters(in: .whitespaces)
+            let rest = String(trimmed.suffix(from: colon).dropFirst()).trimmingCharacters(in: .whitespaces)
             profile = rest.isEmpty ? nil : rest
         } else {
             browser = trimmed

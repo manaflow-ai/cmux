@@ -48,16 +48,27 @@ cmux (app)                          <App>.app/Contents/MacOS/<App> Chromium Host
   identity for TCC and the keychain (decision 3, Lawrence 2026-10-25: this layout, no fork patch). It loads the app's CEF framework from `Contents/Frameworks` with `cef_load_library` while it has one
   thread, so no zone race. It uses the same five helper apps as today (`browser_subprocess_path`), and Chromium's main
   bundle path is the outer app (`--main-bundle`). Prototype: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm`,
-  bundled by `scripts/cmux-next/embed-cef.sh` (Debug only).
+  bundled by `scripts/cmux-next/embed-cef.sh` in every configuration (Release since p01-process-088).
 - cmux no longer maps the framework. The shim becomes a client library of the wire (Swift, no CEF).
 - One host for every profile, as Chrome has one browser process. A host crash then reloads every Chromium page. One
   host per profile would contain a crash to that profile for about 60-90 MB more per profile (decision below).
 - Signing: hardened runtime, no JIT entitlement (the browser process does not JIT; Renderer and GPU keep `allow-jit`,
   `scripts/cmux-next/sign-cef.sh`). Sandbox: none for the browser process, as Chrome and today. Release signing
-  (`scripts/sign-cmux-bundle.sh`) signs the host with `sign-cef.sh`.
-- Keychain: Chromium's "Chromium Safe Storage" item encrypts cookies and passwords. Its ACL names the cmux app today.
-  The host is another code identity, so release builds must give the host the same keychain access group or migrate
-  the item once (open item). Dev builds use the mock keychain (`CEFSwitches.useMockKeychain`).
+  (`scripts/sign-cmux-bundle.sh`) signs the host with `sign-cef.sh` as nested code before the app, with the app's
+  bundle id as its code identifier (Chrome's browser process is the app's own executable,
+  `chrome/installer/mac/signing/parts.py`), so its designated requirement is the app's; the app's notarization covers
+  it. Its entitlements are the browser-process subset of the effective app entitlements, as Chrome's browser process
+  gets `chrome/app/app-entitlements.plist`: application and team identifiers, `keychain-access-groups` (the Touch ID
+  passkeys of `shim_passkeys.mm` run in the host and use that group), `web-browser.public-key-credential` when the
+  channel requests it (the platform passkey API checks the calling process), and the `device.*` and
+  `personal-information.*` keys; no `com.apple.security.cs.*` key. The app's provisioning profile covers the
+  restricted keys because the host has the app's identifier. `sign-cef.sh --verify-host` refuses a host without the
+  hardened runtime, with another identifier or team, or whose entitlements are not exactly that subset of the app's
+  signed ones (so any `allow-jit`, or a missing keychain group, fails release signing) (p01-process-088).
+- Keychain: Chromium's "Chromium Safe Storage" item encrypts cookies and passwords. Its ACL names the cmux app's
+  designated requirement, which the host's signature now satisfies (same identifier, same team), so a release host is
+  expected to read the item without a prompt; task 089 checks that on 14, 15, 26 and 27. Dev builds use the mock keychain
+  (`CEFSwitches.useMockKeychain`).
 
 ### 3.2 Lifecycle
 
@@ -73,8 +84,10 @@ cmux (app)                          <App>.app/Contents/MacOS/<App> Chromium Host
 - Crash: a thread blocked in `waitid(WEXITED | WNOWAIT)` reports the exit with its signal (SIGTRAP is a CHECK). The supervisor
   (prototype: `ChromiumHostSession`) clears every page's context (no stale pixels), restarts the host and reloads each
   page from the saved session: today's `cmux_shim_tab_navigation_state` / `tab_restore_navigation` (fork v7) per tab,
-  which `BrowserHistory` already saves on every commit (`S/CEFTab+RestoredHistory.swift`). The app's safe-restart rule
-  applies (`ChromiumHostRestartPolicy`): a host that ends again within 60 s stays ended; pages show "Reload".
+  which `BrowserHistory` already saves on every commit (`S/CEFTab+RestoredHistory.swift`). Chrome's GPU crash budget
+  applies (`ChromiumHostRestartPolicy`, `GpuProcessHost::RecordProcessCrash`): each 5 min forgives one crash, the 3rd
+  recent crash leaves the host ended and pages show "Reload"; quit, logout and updates spend nothing; a host that dies
+  before its `ready` cannot start (exit code and code-signature check) and is not retried.
 - The exit is read with `waitid(WNOWAIT)`: the host's pid stays a zombie until the supervisor reaps it, so a SIGKILL
   that cmux sends to a broken host (a bad frame, a flood, a full send buffer) can never reach a reused pid.
 
@@ -170,11 +183,11 @@ an active flag: no page window is ever key, so neither the key-state walk nor th
 change runs for a page focus. That needs the pin past API 24 (this design's host work needs 27). DevTools focus
 emulation in process is not a substitute: the page view then has no text input client, so IME breaks.
 
-## 4. Prototype (behind the feature `cefHelperHost`, default off; the host app is in Debug builds only)
+## 4. Prototype (behind the feature `cefHelperHost`, default off; the host is in every build, its Swift side in Debug and bench builds only)
 
 - Host: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm` (built by `scripts/cmux-next/build-chromium-host.sh`
   as `cmux-chromium-host` against the shim build's wrapper, with a cache key of its own, so a host edit changes neither the
-  shim's key nor the Chromium runtime pack's; bundled by `embed-cef.sh` as `Contents/MacOS/<Product> Chromium Host`, Debug only,
+  shim's key nor the Chromium runtime pack's; bundled by `embed-cef.sh` as `Contents/MacOS/<Product> Chromium Host` in every configuration,
   signed by `sign-cef.sh`). One Chrome-style page per host.
   Its parent view sits in a transparent, click-through, floating window of the host at the pane's screen rect; its
   `-cmuxOcclusionRects` covers the page, so the fork's tracker never lets the page window take the mouse. It calls

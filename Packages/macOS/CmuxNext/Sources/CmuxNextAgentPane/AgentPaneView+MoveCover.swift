@@ -9,8 +9,10 @@ extension AgentPaneView {
     /// A page whose frame is never reported (a hung web process) shows after `limit` all the same.
     public func hideMovedPage(limit: Duration = .seconds(3), until drawn: @escaping () -> Void) {
         pageContent.alphaValue = 0
-        let deadline = DemandTimer(owner: "newTab.moveCover.deadline")
-        deadline.scheduleOnMain(after: limit) { [weak self] in
+        // Visible: the person waits on the page this cover hides. The action holds the deadline until it runs or
+        // the frame cancels it (a released MainDeadline never fires).
+        let deadline = MainDeadline(owner: "newTab.moveCover.deadline", workClass: .visible, scheduler: model.deadlines)
+        deadline.schedule(after: limit) { [weak self] in
             withExtendedLifetime(deadline) {}
             self?.revealMovedPage()
         }

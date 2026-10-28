@@ -16,6 +16,10 @@ Nightly build, hardware class and features arm it reports (and again per field-t
 - action-latency histograms: the merged `action` signpost intervals, with interpolated p50, p95 and p99.
 - turn histograms when present: the `main_turn` and `input_queueing` intervals (task 031's histograms,
   sent by task 043 as interval entries).
+- the top main-thread blocking sites (task 226): schema 3's `blocking_sites[]`, the blocking detector's calls per
+  site since the client's last report (nightly-next builds compile the detector in). A site is only its id, the
+  first 8 bytes of SHA-256 over `Module/File.swift:line`, so no path leaves the Mac; `--sites-from CHECKOUT`
+  names each id by hashing every line of that checkout's Swift sources (check out the build's commit).
 
 The features arm is the report's `features_hash` (task 151). A Nightly field trial (task 152, FieldTrial.swift)
 puts the install in one arm of each study it runs. Task 151's `features[]` names every feature an input other
@@ -49,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import hashlib
 import json
 import math
 import os
@@ -85,6 +90,12 @@ ACTION_CATEGORY = "action"
 TURN_INTERVAL_NAMES = frozenset({"main_turn", "input_queueing"})
 PERCENTILES = (("p50", 0.50), ("p95", 0.95), ("p99", 0.99))
 NO_ARM = "unrecorded"
+# The blocking sites each group reports (most calls first), and the shapes of a `blocking_sites[]` entry
+# (wireSchema3.ts BlockingSiteCount).
+TOP_BLOCKING_SITES = 10
+_BLOCKING_SITE = re.compile(r"^[0-9a-f]{16}$")
+_BLOCKING_KIND = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+_NOT_SOURCE_DIRS = frozenset({"node_modules", "target", "build", "DerivedData"})
 WRITE_PRIVILEGES = ("INSERT", "UPDATE", "DELETE", "TRUNCATE")
 # The child gets these from the parent, then only the PG* values made from the URL.
 PASSTHROUGH_ENV = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR")
@@ -166,6 +177,7 @@ def reports_query(*, since_hours: int, channel: str) -> str:
                                 "'stall_histogram', payload->'stallHistogram'",
                                 "'intervals', payload->'intervals'",
                                 f"'features', {_FEATURES}",
+                                "'blocking_sites', payload->'blocking_sites'",
                                 "'active_seconds', COALESCE(payload->'activeSeconds', payload->'active_seconds')"])
     install_columns = ", ".join(["'kind', 'installs'", *key, "'installs', count(DISTINCT install_id)"])
     trial_name, trial_state = "trials.entry->>'name'", "trials.entry->>'state'"
@@ -402,6 +414,14 @@ class Group:
     active_seconds: float = 0.0
     action: dict[str, dict[tuple[int, int], int]] = field(default_factory=dict)
     turn: dict[str, dict[tuple[int, int], int]] = field(default_factory=dict)
+    # (site id, kind) -> [calls, total ms, reports that named it]
+    blocking: dict[tuple[str, str], list[int]] = field(default_factory=dict)
+
+    def top_blocking_sites(self) -> list[tuple[str, str, int, int, int]]:
+        """(site, kind, calls, total ms, reports) of the sites with the most calls, at most TOP_BLOCKING_SITES."""
+        ranked = sorted(self.blocking.items(), key=lambda item: (-item[1][0], -item[1][1], item[0]))
+        return [(site, kind, calls, total, reports) for (site, kind), (calls, total, reports)
+                in ranked[:TOP_BLOCKING_SITES]]
 
     @property
     def active_hours(self) -> float:
@@ -488,6 +508,65 @@ def add_report(group: Group, row: Mapping[str, Any]) -> None:
         else:
             continue
         merge(target.setdefault(name, {}), _buckets(interval.get("buckets")))
+    for site, kind, calls, total_ms in blocking_sites(row.get("blocking_sites")):
+        counts = group.blocking.setdefault((site, kind), [0, 0, 0])
+        counts[0] += calls
+        counts[1] += total_ms
+        counts[2] += 1
+
+
+def blocking_sites(value: object) -> list[tuple[str, str, int, int]]:
+    """(site, kind, calls, total ms) of a report's `blocking_sites[]`, one per site; a malformed entry is skipped."""
+    found: dict[tuple[str, str], tuple[int, int]] = {}
+    for entry in value if isinstance(value, list) else ():
+        if not isinstance(entry, Mapping):
+            continue
+        site, kind = entry.get("site"), entry.get("kind")
+        if not (isinstance(site, str) and _BLOCKING_SITE.match(site) and isinstance(kind, str)
+                and _BLOCKING_KIND.match(kind)):
+            continue
+        calls, total = _count(entry.get("count")), _count(entry.get("total_ms"))
+        if calls > 0:
+            before = found.get((site, kind), (0, 0))
+            found[(site, kind)] = (before[0] + calls, before[1] + total)
+    return [(site, kind, calls, total) for (site, kind), (calls, total) in found.items()]
+
+
+def site_id(location: str) -> str:
+    """The client's `HangReport.BlockingSiteCount.siteID`: SHA-256 of `Module/File.swift:line`, first 8 bytes."""
+    return hashlib.sha256(location.encode("utf-8")).digest()[:8].hex()
+
+
+def site_locations(root: Path, wanted: Iterable[str]) -> dict[str, str]:
+    """The `Module/File.swift:line` of each wanted site id found in the Swift sources under `root`
+    (`<package>/Sources/<Module>/.../<File>.swift`, whose `#fileID` is `Module/File.swift`)."""
+    wanted = set(wanted)
+    found: dict[str, str] = {}
+    if not wanted:
+        return found
+    for directory, subdirectories, files in os.walk(root):
+        # Hidden folders (other worktrees, caches) and dependency trees hold no cmux source.
+        subdirectories[:] = sorted(name for name in subdirectories
+                                   if not name.startswith(".") and name not in _NOT_SOURCE_DIRS)
+        parts = Path(directory).relative_to(root).parts
+        if "Sources" not in parts[:-1]:
+            continue
+        module = parts[parts.index("Sources") + 1]
+        for name in sorted(files):
+            if not name.endswith(".swift"):
+                continue
+            try:
+                lines = (Path(directory) / name).read_bytes().count(b"\n") + 1
+            except OSError:
+                continue
+            for line in range(1, lines + 1):
+                location = f"{module}/{name}:{line}"
+                identifier = site_id(location)
+                if identifier in wanted:
+                    found[identifier] = location
+            if len(found) == len(wanted):
+                return found
+    return found
 
 
 def field_rows(groups: Sequence[Group]) -> list[dict[str, Any]]:
@@ -511,10 +590,17 @@ def field_rows(groups: Sequence[Group]) -> list[dict[str, Any]]:
                 samples = sum(histogram.values())
                 for label, q in PERCENTILES:
                     add(group, f"{prefix}.{name}.{label}", percentile(histogram, q), "ms", samples)
+        for site, kind, calls, total, reports in group.top_blocking_sites():
+            add(group, f"blocking_site.{site}.{kind}", calls, "calls", reports)
+            add(group, f"blocking_site.{site}.{kind}.total_ms", total, "ms", reports)
     return rows
 
 
-def report(groups: Sequence[Group], *, since_hours: int | None, channel: str, source: str) -> dict[str, Any]:
+def report(groups: Sequence[Group], *, since_hours: int | None, channel: str, source: str,
+           locations: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """The JSON result; `locations` names blocking site ids (site_locations), else each `location` is null."""
+    locations = locations or {}
+
     def histograms(entries: Mapping[str, Mapping[tuple[int, int], int]]) -> dict[str, list[dict[str, int]]]:
         return {name: [{"lowMs": low, "highMs": high, "count": count} for (low, high), count in sorted(h.items())]
                 for name, h in sorted(entries.items())}
@@ -533,6 +619,9 @@ def report(groups: Sequence[Group], *, since_hours: int | None, channel: str, so
             "hangs_over_250ms_per_1000_active_hours": (None if group.hangs_per_1000_active_hours is None
                                                        else round(group.hangs_per_1000_active_hours, 4)),
             "action_histograms": histograms(group.action), "turn_histograms": histograms(group.turn),
+            "blocking_sites": [{"site": site, "kind": kind, "calls": calls, "total_ms": total, "reports": reports,
+                                "location": locations.get(site)}
+                               for site, kind, calls, total, reports in group.top_blocking_sites()],
         } for group in groups],
         "rows": field_rows(groups),
     }
@@ -589,6 +678,10 @@ def render_text(result: Mapping[str, Any]) -> str:
         if row["metric"].startswith(("action.", "turn.")) and row["value"] is not None:
             lines.append(f"    {row['build']}  {row['hardware_class']}  {row['metric']}: "
                          f"{row['value']:.1f} ms (n={row['samples']})")
+    for group in result["groups"]:
+        for site in group.get("blocking_sites", []):
+            lines.append(f"    {group['build']}  {group['hardware_class']}  blocking {site['location'] or site['site']} "
+                         f"{site['kind']}: {site['calls']} calls, {site['total_ms']} ms (n={site['reports']})")
     return "\n".join(lines)
 
 
@@ -603,13 +696,17 @@ def field_command(args: argparse.Namespace, *, runner: PsqlRunner = subprocess_r
             raise FieldError(f"cannot read the fixture: {error.strerror or error}") from None
         except UnicodeDecodeError as error:
             raise FieldError(f"the fixture is not UTF-8 (byte {error.start})") from None
-        result = report(aggregate(rows), since_hours=None, channel=args.channel, source="fixture")
+        groups = aggregate(rows)
+        result = report(groups, since_hours=None, channel=args.channel, source="fixture",
+                        locations=_locations(args, groups))
     else:
         since_hours = parse_since(args.since)
         credential = credential_from_environment(environ)
         rows = fetch_reports(since_hours=since_hours, channel=args.channel, credential=credential, runner=runner,
                              environ=environ)
-        result = report(aggregate(rows), since_hours=since_hours, channel=args.channel, source=SOURCE)
+        groups = aggregate(rows)
+        result = report(groups, since_hours=since_hours, channel=args.channel, source=SOURCE,
+                        locations=_locations(args, groups))
     text = json.dumps(result, indent=2, sort_keys=True)
     if args.out:
         try:
@@ -620,6 +717,16 @@ def field_command(args: argparse.Namespace, *, runner: PsqlRunner = subprocess_r
     return 0
 
 
+def _locations(args: argparse.Namespace, groups: Sequence[Group]) -> dict[str, str]:
+    """The blocking site ids of `groups` named from `--sites-from`, when given."""
+    root = getattr(args, "sites_from", None)
+    if not root:
+        return {}
+    if not Path(root).is_dir():
+        raise FieldError(f"--sites-from is not a directory: {root}")
+    return site_locations(Path(root), {site for group in groups for site, *_ in group.top_blocking_sites()})
+
+
 def add_arguments(command: str, parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--since", default="7d", help="the window, as Nd or Nh (default 7d)")
     parser.add_argument("--channel", default="nightly", choices=CHANNELS, help="the report channel (default nightly)")
@@ -627,6 +734,8 @@ def add_arguments(command: str, parser: argparse.ArgumentParser) -> None:
                                                            "instead of reading hang_reports")
     parser.add_argument("--out", metavar="PATH", help="also write the JSON report here (atomic replace)")
     parser.add_argument("--json", action="store_true", help="print JSON")
+    parser.add_argument("--sites-from", metavar="CHECKOUT", help="name each blocking site id by hashing every line "
+                                                                 "of this checkout's Swift sources")
 
 
 def run(command: str, args: argparse.Namespace) -> int:

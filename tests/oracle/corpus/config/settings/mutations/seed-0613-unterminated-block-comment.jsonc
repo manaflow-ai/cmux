@@ -1,0 +1,24 @@
+{
+  "sidebar": {
+    /* {"k": 1} */ "hoverCards": {
+      "groups": {
+        "sections": {
+          "activity": true
+        }
+      }
+    }
+  },
+  // a { brace
+"browser": {
+    "toolbar": {
+      /* {"k": 1} */ "extensions": false
+    }
+  },
+  /* block */ "editor": {
+    "fontFamily": null
+  },
+  "appearance": {
+    "background": "hokusai-great-wave"
+  }
+}
+/* not closed

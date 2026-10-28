@@ -29,7 +29,9 @@
 // named after the module, <module basename>-<hash>.js (build-pages.mjs, chunkNames), so a section is
 // lazy when that chunk is reachable only through import(). A section with no entry, or whose chunk is
 // in the first load, is in the first load; more than one of those is a finding. Other lazy chunks
-// (the glass lens every page imports) say nothing about the sections.
+// (the glass lens every page imports) say nothing about the sections. A lazy section paints with
+// one file (task 081): its chunk's static imports outside the first load load one after another,
+// so a section that loads more than one file after the first load is a finding too.
 //
 //   node scripts/cmux-next/page-bundle-report.mjs                    # the in-tree build output
 //   node scripts/cmux-next/page-bundle-report.mjs --root DIR         # a build-web-bundles.sh --out-root tree
@@ -167,6 +169,8 @@ export function measure(doc, sharedDir) {
     lazyChunks: 0,
     firstLoad: [],
     lazy: [],
+    // Each dynamic import() target: the files its import loads outside the first load, itself first.
+    lazyLoads: {},
     react: [],
     reactLazy: false,
     unresolved: [],
@@ -225,6 +229,9 @@ export function measure(doc, sharedDir) {
   const lazy = lazySources(lazyRoots, requested, doc, sharedDir, row);
   row.lazyChunks = lazy.size;
   row.lazy = [...lazy.keys()];
+  row.lazyLoads = Object.fromEntries(
+    [...new Set(lazyRoots)].filter((url) => lazy.has(url)).map((url) => [url, staticLoad(url, requested, lazy)]),
+  );
   // React in the first load, else in a lazy chunk (the diff page mounts React after boot); a
   // shared copy first, as it is the URL every document should name.
   const holders = (map) => [...map].filter(([, code]) => REACT_MARKER.test(code)).map(([key]) => key);
@@ -244,6 +251,17 @@ function largestLocale(dir, requested) {
     .filter((file) => !named.has(resolve(file)))
     .map((file) => statSync(file).size);
   return sizes.length === 0 ? null : Math.max(...sizes);
+}
+
+/** The files an import() of `url` loads outside the first load (`requested`): it and its static imports. */
+function staticLoad(url, requested, lazy) {
+  const files = [url];
+  for (let index = 0; index < files.length; index++)
+    for (const next of moduleImports(lazy.get(files[index])).static) {
+      const nextUrl = new URL(next, files[index]).href;
+      if (!requested.has(nextUrl) && lazy.has(nextUrl) && !files.includes(nextUrl)) files.push(nextUrl);
+    }
+  return files;
 }
 
 /** Chunks reachable through dynamic import() and their own imports, outside the first load. */
@@ -305,16 +323,32 @@ export function settingsSections(repo = REPO) {
   return sectionChunks(schema.page.categories, existsSync(lazyFile) ? readFileSync(lazyFile, "utf8") : null);
 }
 
+/** The URL in `urls` of the chunk esbuild wrote for the module `chunk` (<chunk>-<hash>.js). */
+function chunkUrl(urls, chunk) {
+  const pattern = new RegExp(`^${escapeRegExp(chunk)}-[A-Z0-9]+\\.js$`);
+  return urls.find((url) => pattern.test(basename(new URL(url).pathname)));
+}
+
+/**
+ * The lazy Settings sections whose import loads more than one file after the first load, each as
+ * "<id> loads <n> files (<names>)". The files a module imports load one after another (an import()
+ * fetches its static imports only once it has the file), so a section paints with one file only.
+ */
+function sectionWaterfalls(row, sections) {
+  return sections.flatMap(({ id, chunk }) => {
+    const url = chunk === null ? undefined : chunkUrl(Object.keys(row.lazyLoads), chunk);
+    const files = url ? row.lazyLoads[url] : [];
+    if (files.length <= 1) return [];
+    return [`${id} loads ${files.length} files (${files.map((file) => basename(new URL(file).pathname)).join(", ")})`];
+  });
+}
+
 /** The Settings sections a measured row's first load holds, each as "<id> (<why>)". */
 function firstLoadSections(row, sections) {
-  const named = (urls, chunk) => {
-    const pattern = new RegExp(`^${escapeRegExp(chunk)}-[A-Z0-9]+\\.js$`);
-    return urls.find((url) => pattern.test(basename(new URL(url).pathname)));
-  };
   return sections.flatMap(({ id, chunk }) => {
     if (chunk === null) return [`${id} (not in lazySections.ts)`];
-    if (named(row.lazy, chunk)) return [];
-    const first = named(row.firstLoad, chunk);
+    if (chunkUrl(row.lazy, chunk)) return [];
+    const first = chunkUrl(row.firstLoad, chunk);
     return [first ? `${id} (${first} loads first)` : `${id} (no lazy ${chunk}-<hash>.js chunk)`];
   });
 }
@@ -351,6 +385,8 @@ export function findings(rows, sections = settingsSections()) {
     if (first.length > 1) {
       out.push(`settings: the first load holds ${first.length} sections (D8 wants the navigation and one): ${first.join(", ")}`);
     }
+    for (const waterfall of sectionWaterfalls(settings, sections.sections))
+      out.push(`settings: section ${waterfall} after the first load (task 081 wants one)`);
   }
   return out;
 }

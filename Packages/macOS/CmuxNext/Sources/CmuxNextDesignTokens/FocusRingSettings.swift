@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// How the focused pane is marked (`focusRing.style` in cmux.json).
 public nonisolated enum FocusRingStyle: String, Hashable, Sendable, CaseIterable {

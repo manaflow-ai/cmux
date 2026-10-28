@@ -5,7 +5,7 @@ import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextSidebar
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -21,7 +21,7 @@ import Observation
 public final class SidebarSessionTreeFeed {
     public static let shared = SidebarSessionTreeFeed()
 
-    private var task: Task<Void, Never>?
+    private var observation: ServiceObservation<Pass?>?
     /// Also read by ``checksFailing(_:)``, the Priority view's Red CI.
     let pullRequests = SidebarPullRequestStore()
 
@@ -36,36 +36,37 @@ public final class SidebarSessionTreeFeed {
 
     /// Follows the setting, the lanes and every machine's `workspaces` from now on. `localHost` is
     /// this Mac's `install:<id>`: the lanes are this Mac's acpmux sessions. `reader` is the App's one
-    /// gh reader, whose runner the chat headers and reply cards share.
+    /// gh reader, whose runner the chat headers and reply cards share. `deadlines` is the app's one
+    /// deadline scheduler: the pass follows on its main-thread scheduler, and the pull request reads
+    /// recheck and land there.
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel], localHost: String?,
-                      reader: AgentChatPullRequestReader,
+                      reader: AgentChatPullRequestReader, deadlines: MainDeadlineScheduler,
                       lanes: AgentLaneStore = .shared, remote: RemoteAgentSessionLinks = .shared,
                       tree: SidebarSessionTree = .shared) {
-        guard task == nil else { return }
+        guard observation == nil else { return }
         let pullRequests = pullRequests
-        pullRequests.reader = reader
-        // task-owner: the app (one feed for the app's life); event-driven (Observation)
-        task = Task {
-            for await pass in ObservationStream({ () -> Pass? in
-                let sections = DesignSettings.shared.sidebarSections
-                guard Self.readsPullRequests(sections) || Self.readsBadges(sections) else { return nil }
-                // Each local session's links only (`AgentLaneStore.links(_:)`): an agent's new step or state passes nothing
-                // again; with the badges on this pass ran over every workspace on every agent event.
-                let chats = Self.chats(workspaces())
-                var links: [String: AgentLaneLinks] = [:]
-                for (_, refs) in chats {
-                    for ref in refs where ref.host == localHost {
-                        if let session = ref.session, let link = lanes.links(session) { links[session] = link }
-                    }
+        pullRequests.use(reader, deadlines: deadlines)
+        // A service observation: it writes the tree model and starts the pull request reads, shown or not.
+        // `visible`: an agent's or a workspace's change shows in the tree; a person's flushes before its frame.
+        observation = ServiceObservation(.visible, owner: "SidebarSessionTreeFeed.pass", on: deadlines.work) { () -> Pass? in
+            let sections = DesignSettings.shared.sidebarSections
+            guard Self.readsPullRequests(sections) || Self.readsBadges(sections) else { return nil }
+            // Each local session's links only (`AgentLaneStore.links(_:)`): an agent's new step or state passes nothing
+            // again; with the badges on this pass ran over every workspace on every agent event.
+            let chats = Self.chats(workspaces())
+            var links: [String: AgentLaneLinks] = [:]
+            for (_, refs) in chats {
+                for ref in refs where ref.host == localHost {
+                    if let session = ref.session, let link = lanes.links(session) { links[session] = link }
                 }
-                var pass = Self.pass(chats, links: links, remoteParents: remote.parents, localHost: localHost,
-                                     pullRequests: pullRequests.answers)
-                pass.showsTree = sections.sessionTree
-                return pass
-            }) {
-                Self.publish(pass, to: tree)
-                if let pass { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
             }
+            var pass = Self.pass(chats, links: links, remoteParents: remote.parents, localHost: localHost,
+                                 pullRequests: pullRequests.answers)
+            pass.showsTree = sections.sessionTree
+            return pass
+        } apply: { pass in
+            Self.publish(pass, to: tree)
+            if let pass { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
         }
     }
 
@@ -198,17 +199,32 @@ final class SidebarPullRequestStore {
     @ObservationIgnored private var failures: [String: Int] = [:]
     /// The most doublings of `freshness` a failing URL waits (5 minutes become 80).
     static let maximumBackoff = 4
-    /// The App's one gh reader, set when the feed starts; with none the store reads nothing.
-    @ObservationIgnored var reader: AgentChatPullRequestReader?
+    /// The App's one gh reader, set when the feed starts (``use(_:deadlines:)``); with none the store reads nothing.
+    @ObservationIgnored private(set) var reader: AgentChatPullRequestReader?
     /// What the tree showed last, read again by ``recheck``.
     @ObservationIgnored private var shown: Set<String> = []
-    /// Reads `shown` again once `freshness` passes, though nothing in the tree changed.
-    @ObservationIgnored private let recheck = DemandTimer(owner: "sidebar.pullRequests.recheck")
+    /// Reads `shown` again once `freshness` passes, though nothing in the tree changed. `background`: nobody waits
+    /// on the five-minute recheck; it exists from ``use(_:deadlines:)``.
+    @ObservationIgnored private var recheck: MainDeadline?
+    /// Where the reads' answers land, from ``use(_:deadlines:)``.
+    @ObservationIgnored private var mainWork: MainWorkScheduler?
     @ObservationIgnored private let freshness: Duration
 
-    init(reader: AgentChatPullRequestReader? = nil, freshness: Duration = .seconds(300)) {
-        self.reader = reader
+    /// A store that reads nothing until ``use(_:deadlines:)`` (the feed's, before it starts), or one that reads with
+    /// `reader` on `deadlines` at once (tests).
+    init(reader: AgentChatPullRequestReader? = nil, freshness: Duration = .seconds(300), deadlines: MainDeadlineScheduler? = nil) {
         self.freshness = freshness
+        if let reader, let deadlines { use(reader, deadlines: deadlines) }
+    }
+
+    /// Reads with `reader` from now on: the recheck on `deadlines`, the answers in one task each on its
+    /// main-thread scheduler.
+    func use(_ reader: AgentChatPullRequestReader, deadlines: MainDeadlineScheduler) {
+        self.reader = reader
+        mainWork = deadlines.work
+        if recheck == nil {
+            recheck = MainDeadline(owner: "SidebarPullRequestStore.recheck", workClass: .background, scheduler: deadlines)
+        }
     }
 
     /// Asks again for each of `asks` (a folder, or a pull request's `https://` URL) whose answer is
@@ -232,44 +248,57 @@ final class SidebarPullRequestStore {
             !asking.contains(key) && !isSettled(key) && (!onlyInFlight || inFlight(key)) && asked[key].map { ContinuousClock.now - $0 >= wait(key) } ?? true
         }
         let urls = stale.filter { $0.hasPrefix("https://") }.sorted()
-        guard let reader else { return }
-        for folder in stale.subtracting(urls).sorted() { ask(folder, with: reader) }
-        if !urls.isEmpty { ask(urls: urls, with: reader) }
+        guard let reader, let mainWork else { return }
+        for folder in stale.subtracting(urls).sorted() { ask(folder, with: reader, on: mainWork) }
+        if !urls.isEmpty { ask(urls: urls, with: reader, on: mainWork) }
     }
 
-    private func ask(_ folder: String, with reader: AgentChatPullRequestReader) {
+    // The reads run off main (gh is a child process); each answer lands as one `visible` task: the badges show it,
+    // and nobody's input waits on it.
+
+    private func ask(_ folder: String, with reader: AgentChatPullRequestReader, on mainWork: MainWorkScheduler) {
         asking.insert(folder)
         asked[folder] = .now
         // task-owner: one gh read per stale folder; its answer lands in `answers`.
-        Task { [weak self] in
+        Task { @concurrent [weak self] in
             let answer = await reader.read(in: folder)
-            guard let self else { return }
-            asking.remove(folder)
-            if answers[folder] != answer { answers[folder] = answer }
-            scheduleRecheck()
+            await mainWork.apply(.visible, owner: "SidebarPullRequestStore.folder") { [weak self] () -> Void in
+                self?.answered(folder, answer)
+            }
         }
     }
 
-    private func ask(urls: [String], with reader: AgentChatPullRequestReader) {
+    private func answered(_ folder: String, _ answer: AgentPanePullRequest?) {
+        asking.remove(folder)
+        if answers[folder] != answer { answers[folder] = answer }
+        scheduleRecheck()
+    }
+
+    private func ask(urls: [String], with reader: AgentChatPullRequestReader, on mainWork: MainWorkScheduler) {
         asking.formUnion(urls)
         for url in urls { asked[url] = .now }
         // task-owner: one batched gh read for every stale URL; the answers land in `answers`.
-        Task { [weak self] in
+        Task { @concurrent [weak self] in
             let read = await reader.read(urls: urls)
-            guard let self else { return }
-            asking.subtract(urls)
-            // A URL whose read failed keeps its last answer and waits longer; one GitHub has no pull
-            // request for clears.
-            for url in urls {
-                guard let answer = read[url] else {
-                    failures[url, default: 0] += 1
-                    continue
-                }
-                failures[url] = nil
-                if answers[url] != answer { answers[url] = answer }
+            await mainWork.apply(.visible, owner: "SidebarPullRequestStore.urls") { [weak self] () -> Void in
+                self?.answered(urls: urls, read)
             }
-            scheduleRecheck()
         }
+    }
+
+    private func answered(urls: [String], _ read: [String: AgentPanePullRequest?]) {
+        asking.subtract(urls)
+        // A URL whose read failed keeps its last answer and waits longer; one GitHub has no pull
+        // request for clears.
+        for url in urls {
+            guard let answer = read[url] else {
+                failures[url, default: 0] += 1
+                continue
+            }
+            failures[url] = nil
+            if answers[url] != answer { answers[url] = answer }
+        }
+        scheduleRecheck()
     }
 
     /// Keeps the recheck pending while the tree shows an open or draft pull request, else stops it.
@@ -277,22 +306,22 @@ final class SidebarPullRequestStore {
     /// shown pull request open, and the store reads it again then without waiting for the tree.
     private func scheduleRecheck() {
         if freshness > .zero, shown.contains(where: inFlight) {
-            recheck.scheduleOnMainIfIdle(after: freshness) { [weak self] in
+            recheck?.scheduleIfIdle(after: freshness) { [weak self] in
                 guard let self else { return }
                 refresh(shown, onlyInFlight: true)
             }
         } else {
-            recheck.cancel()
+            recheck?.cancel()
         }
     }
 
     /// Whether the five-minute recheck is pending.
-    var rechecks: Bool { recheck.isScheduled }
+    var rechecks: Bool { recheck?.isScheduled ?? false }
 
     /// Stops the recheck: the tree is off.
     func stop() {
         shown = []
-        recheck.cancel()
+        recheck?.cancel()
     }
 
     /// A merged pull request's URL: it never changes again, so it is not asked again. (A closed one

@@ -2,6 +2,8 @@
 /// scheme in the handshake (`linkScheme`, with the other bootstrap values); the page never hardcodes
 /// `cmux://`, so a tagged build copies links that open in itself.
 
+import { type PagePollSeams, startPagePoll } from "../../pages/shared/pagePoll";
+
 /// The Release scheme, for the mock page that runs without a cmux host.
 export const FALLBACK_LINK_SCHEME = "cmux";
 
@@ -80,6 +82,9 @@ export function scrollToRow(rowId: string, root: ParentNode = document): boolean
   return false;
 }
 
+/// How long a reveal waits, how often it looks, and the page's lifecycle and timers it waits on.
+export type RevealWaitOptions = { waitMs?: number; pollMs?: number } & PagePollSeams;
+
 /// Marks row `rowId` once the transcript draws it, which is not the frame it was asked for: the
 /// transcript virtualizes its rows, so a row far from the view scrolls first and mounts after.
 /// Gives up quietly when it never mounts, or when `stale` says the row's chat is no longer the one
@@ -89,57 +94,70 @@ export function scrollToRow(rowId: string, root: ParentNode = document): boolean
 function markWhenDrawn(
   rowId: string,
   root: ParentNode,
-  {
-    waitMs = REVEAL_WAIT_MS,
-    pollMs = REVEAL_POLL_MS,
-    stale,
-  }: { waitMs?: number; pollMs?: number; stale?: () => boolean } = {},
+  { stale, ...options }: RevealWaitOptions & { stale?: () => boolean } = {},
+): () => void {
+  // A stale chat ends the wait as a drawn row does: either way there is nothing more to look for.
+  return waitForReveal(
+    () => stale?.() === true || scrollToRow(rowId, root),
+    options,
+    () => undefined,
+  );
+}
+
+/// Runs `attempt` now, then every `pollMs` until it answers true or `waitMs` passes, then calls
+/// `done` with whether it did. The wait is a page poll (pages/shared/pagePoll.ts, p13-webui-069):
+/// a hidden page looks no more, and on show it looks once if the wait has time left. Returns the
+/// way to stop waiting, which calls `done` with false.
+function waitForReveal(
+  attempt: () => boolean,
+  { waitMs = REVEAL_WAIT_MS, pollMs = REVEAL_POLL_MS, lifecycle, timers }: RevealWaitOptions,
+  done: (revealed: boolean) => void,
 ): () => void {
   const deadline = Date.now() + waitMs;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const tick = () => {
-    timer = undefined;
-    if (stale?.() || scrollToRow(rowId, root) || Date.now() >= deadline) return;
-    timer = setTimeout(tick, pollMs);
+  let finished = false;
+  // Unset while the first look runs: a look that finishes stops the poll by answering false.
+  let stop: (() => void) | undefined;
+  const finish = (revealed: boolean) => {
+    if (finished) return;
+    finished = true;
+    stop?.();
+    done(revealed);
   };
-  tick();
-  return () => {
-    if (timer !== undefined) clearTimeout(timer);
-    timer = undefined;
-  };
+  stop = startPagePoll(
+    ({ resumed }) => {
+      // A reader away past the wait is not pulled to the row when they come back.
+      if (resumed && Date.now() >= deadline) finish(false);
+      else if (attempt()) finish(true);
+      else if (Date.now() >= deadline) finish(false);
+      return !finished;
+    },
+    pollMs,
+    { lifecycle, timers },
+  );
+  return () => finish(false);
 }
 
 let pendingReveal: (() => void) | undefined;
 /// The wait for a revealed row to be drawn, which outlives the reveal that asked for it.
 let pendingMark: (() => void) | undefined;
 
-/// Runs `attempt` now, then every `pollMs` until it succeeds or `waitMs` passes, giving up quietly.
-/// A later reveal replaces a pending one. Resolves whether it scrolled.
-function revealWhenShown(
-  attempt: () => boolean,
-  { waitMs = REVEAL_WAIT_MS, pollMs = REVEAL_POLL_MS }: { waitMs?: number; pollMs?: number } = {},
-): Promise<boolean> {
+/// Waits for `attempt` to succeed (waitForReveal), giving up quietly. A later reveal replaces a
+/// pending one. Resolves whether it scrolled.
+function revealWhenShown(attempt: () => boolean, options: RevealWaitOptions = {}): Promise<boolean> {
   pendingReveal?.();
   // An earlier reveal's row may still be waiting to be drawn; this one is the reader's now.
   pendingMark?.();
   pendingMark = undefined;
   return new Promise((resolve) => {
-    const deadline = Date.now() + waitMs;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const finish = (revealed: boolean) => {
-      if (timer !== undefined) clearTimeout(timer);
-      if (pendingReveal === cancel) pendingReveal = undefined;
+    let settled = false;
+    // Unset while the first look runs, when this wait cannot be the pending one yet.
+    let cancel: (() => void) | undefined;
+    cancel = waitForReveal(attempt, options, (revealed) => {
+      settled = true;
+      if (cancel !== undefined && pendingReveal === cancel) pendingReveal = undefined;
       resolve(revealed);
-    };
-    const cancel = () => finish(false);
-    const poll = () => {
-      timer = undefined;
-      if (attempt()) finish(true);
-      else if (Date.now() >= deadline) finish(false);
-      else timer = setTimeout(poll, pollMs);
-    };
-    pendingReveal = cancel;
-    poll();
+    });
+    if (!settled) pendingReveal = cancel;
   });
 }
 
@@ -149,7 +167,7 @@ function revealWhenShown(
 export function revealTurnWhenShown(
   turnId: string,
   root: ParentNode = document,
-  options: { waitMs?: number; pollMs?: number } = {},
+  options: RevealWaitOptions = {},
 ): Promise<boolean> {
   return revealWhenShown(() => scrollToTurn(turnId, root), options);
 }
@@ -167,7 +185,7 @@ export function revealMessageWhenShown(
   messageId: string,
   show: (messageId: string) => string | undefined,
   root: ParentNode = document,
-  options: { waitMs?: number; pollMs?: number; chat?: () => string | undefined } = {},
+  options: RevealWaitOptions & { chat?: () => string | undefined } = {},
 ): Promise<boolean> {
   const { chat } = options;
   return revealWhenShown(() => {

@@ -122,6 +122,7 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
         self.prewarmsAtInstall = prewarmsAtInstall
         imageCap = max(imageBytes, 0)
         elapsed = Self.stopwatch(clock)
+        // timer-class-allow: off-main: the idle release drops the diagram engine's context under the state lock (a nonisolated action of this nonisolated renderer on the injected clock) and posts no main-thread job
         idle = idleRelease.map { _ in DemandTimer(owner: "OndineMermaidRenderer.idle", clock: clock) }
         idleAfter = idleRelease ?? .zero
         self.contextReleased = contextReleased

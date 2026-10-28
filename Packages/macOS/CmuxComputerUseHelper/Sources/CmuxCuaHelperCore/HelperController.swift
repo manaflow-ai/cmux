@@ -52,7 +52,7 @@ public final class HelperController: Sendable {
         var buffer = HelperWire.LineBuffer()
         var bytes = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
-            let count = read(input, &bytes, bytes.count)
+            let count = HelperWire.read(input, into: &bytes)
             if count < 0, errno == EINTR { continue }
             if count <= 0 { break }
             guard let lines = buffer.append(Data(bytes[0..<count])) else { break }
@@ -128,15 +128,6 @@ public final class HelperController: Sendable {
     private func send(_ fields: [String: Any]) { write(HelperWire.line(fields)) }
 
     private func write(_ data: Data) {
-        writeLock.withLockUnchecked { _ in
-            data.withUnsafeBytes { raw in
-                var offset = 0
-                while offset < raw.count {
-                    let written = Darwin.write(output, raw.baseAddress! + offset, raw.count - offset)
-                    if written <= 0 { if errno == EINTR { continue }; return }
-                    offset += written
-                }
-            }
-        }
+        writeLock.withLockUnchecked { _ in HelperWire.writeAll(data, to: output) }
     }
 }

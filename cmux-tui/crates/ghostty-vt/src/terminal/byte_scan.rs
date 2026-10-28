@@ -33,16 +33,13 @@ fn find(
     matches: impl Fn(u8) -> bool,
 ) -> usize {
     let mut index = from;
-    while index + 8 <= data.len() {
-        let mut bytes = [0u8; 8];
-        bytes.copy_from_slice(&data[index..index + 8]);
-        let word = u64::from_le_bytes(bytes);
-        if word_may_match(word) {
+    while let Some(word) = data.get(index..).and_then(<[u8]>::first_chunk::<8>) {
+        if word_may_match(u64::from_le_bytes(*word)) {
             break;
         }
         index += 8;
     }
-    while index < data.len() && !matches(data[index]) {
+    while data.get(index).is_some_and(|byte| !matches(*byte)) {
         index += 1;
     }
     index
@@ -81,15 +78,16 @@ const INERT_CSI_FINALS: &[u8] = b"@ABCDEFGHIJKLMPSTXZ`abdefgm";
 /// or 0 when the bytes there are not one.
 #[inline]
 fn inert_csi_len(data: &[u8], at: usize) -> usize {
-    if data.get(at + 1) != Some(&b'[') {
+    let Some([_, b'[', after_introducer @ ..]) = data.get(at..) else {
         return 0;
-    }
-    let mut end = at + 2;
-    while end < data.len() && matches!(data[end], b'0'..=b'9' | b';' | b':') {
-        end += 1;
-    }
-    match data.get(end) {
-        Some(fin) if INERT_CSI_FINALS.contains(fin) => end + 1 - at,
+    };
+    let parameters = after_introducer
+        .iter()
+        .position(|byte| !matches!(byte, b'0'..=b'9' | b';' | b':'))
+        .unwrap_or(after_introducer.len());
+    match after_introducer.get(parameters) {
+        // ESC, `[`, the parameters and the final.
+        Some(fin) if INERT_CSI_FINALS.contains(fin) => parameters + 3,
         _ => 0,
     }
 }
@@ -99,7 +97,9 @@ fn inert_csi_len(data: &[u8], at: usize) -> usize {
 /// the second byte after E0, ED, F0 and F4 has the narrower ranges.
 #[inline]
 fn utf8_len(data: &[u8], at: usize) -> usize {
-    let lead = data[at];
+    let Some((lead, after_lead)) = data.get(at..).and_then(<[u8]>::split_first) else {
+        return 0;
+    };
     let (len, second) = match lead {
         0xc2..=0xdf => (2, 0x80..=0xbf),
         0xe0 => (3, 0xa0..=0xbf),
@@ -110,10 +110,14 @@ fn utf8_len(data: &[u8], at: usize) -> usize {
         0xf4 => (4, 0x80..=0x8f),
         _ => return 0,
     };
-    if at + len > data.len() || !second.contains(&data[at + 1]) {
+    let Some((second_byte, rest)) = after_lead.get(..len - 1).and_then(<[u8]>::split_first) else {
         return 0;
+    };
+    if second.contains(second_byte) && rest.iter().all(|b| matches!(b, 0x80..=0xbf)) {
+        len
+    } else {
+        0
     }
-    if data[at + 2..at + len].iter().all(|b| matches!(b, 0x80..=0xbf)) { len } else { 0 }
 }
 
 /// End of the longest run starting at `from` that leaves every VT tracker
@@ -134,13 +138,11 @@ pub(crate) fn neutral_run_end(data: &[u8], from: usize, line_ends_neutral: bool)
                 |byte| matches!(byte, 0x1b | b'\n' | 0x0b | 0x0c) || byte >= 0x80,
             )
         };
-        if at == data.len() {
-            return at;
-        }
-        let step = match data[at] {
-            0x1b => inert_csi_len(data, at),
-            byte if byte >= 0x80 => utf8_len(data, at),
-            _ => 0,
+        let step = match data.get(at) {
+            None => return at,
+            Some(0x1b) => inert_csi_len(data, at),
+            Some(byte) if *byte >= 0x80 => utf8_len(data, at),
+            Some(_) => 0,
         };
         if step == 0 {
             return at;

@@ -33,6 +33,10 @@
 //! (`Packages/macOS/CmuxNext/Sources/CmuxNextHistory`). The JSON fixtures in
 //! `tests/fixtures/` are shared, so the Swift tests can adopt them.
 
+// `deny`, not `forbid`: `page_cache::cache_used_bytes` is the one allowed
+// `unsafe` call (`sqlite3_db_status`, which rusqlite does not wrap).
+#![deny(unsafe_code)]
+
 mod entry;
 mod error;
 mod fold;
@@ -40,6 +44,7 @@ mod fold_agent;
 mod fold_command;
 mod hidden;
 mod journal;
+pub mod page_cache;
 mod query;
 mod search_index;
 mod visit_stores;

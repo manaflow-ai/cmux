@@ -1,16 +1,18 @@
 //! Browser providers: the browser runtime, provider registration, provider surface reconciliation, browser bootstrap and provider surface restart.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 impl Mux {
     pub(super) fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
-        let mut runtime = self.browser_runtime.lock().unwrap();
+        let mut runtime = self.browser_runtime.lock().recover_poison();
         if let Some(existing) = runtime.as_ref().filter(|existing| {
             !existing.is_closed() && existing.source() != crate::BrowserSource::Provider
         }) {
             return Ok(existing.clone());
         }
-        let opts = self.surface_options.lock().unwrap().clone();
+        let opts = self.surface_options.lock().recover_poison().clone();
         let created = BrowserRuntime::connect(&opts)?;
         *runtime = Some(created.clone());
         Ok(created)
@@ -83,7 +85,7 @@ impl Mux {
     #[track_caller]
     pub(super) fn reconcile_provider_browser_surfaces(self: &Arc<Self>) {
         let surfaces = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             state
                 .surfaces
                 .values()
@@ -107,7 +109,7 @@ impl Mux {
         &self,
         lease: &BrowserProviderTargetLease,
     ) -> anyhow::Result<Arc<BrowserRuntime>> {
-        let mut runtime = self.browser_runtime.lock().unwrap();
+        let mut runtime = self.browser_runtime.lock().recover_poison();
         if let Some(existing) = runtime.as_ref().filter(|existing| {
             !existing.is_closed()
                 && existing.matches_provider(&lease.endpoint, &lease.authentication, lease.hosting)
@@ -280,9 +282,7 @@ impl Mux {
         // (`server/request_wait.rs`).
         let started = if provider_bootstrap {
             let name = format!("browser-surface-{id}-bootstrap");
-            std::thread::Builder::new()
-                .name(name)
-                .spawn(run)
+            supervised::spawn(name, Fatal, ShutdownBehavior::Continue, run)
                 .map(drop)
                 .map_err(|error| format!("could not start browser bootstrap: {error}"))
         } else {

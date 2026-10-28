@@ -62,7 +62,8 @@ extension LayoutRootView {
 /// scrolled past its edge, a screen sliding in).
 extension LayoutRootView: PaneCardSource {
     public var paneCardsInWindow: [PaneCard] {
-        guard window != nil, !isHiddenOrHasHiddenAncestor, !isParkedOrHasParkedAncestor else { return [] }
+        // Live: in a window, not hidden and not parked (`setLive` keeps it at each transition, no walk here).
+        guard isLive else { return [] }
         let visible = convert(bounds, to: nil)
         return screenViews.values.filter { !$0.isHidden && $0.alphaValue > 0.01 }.flatMap { screen in
             screen.displayedHosts.filter { !$0.isHidden && $0.alphaValue > 0.01 }.compactMap { host in

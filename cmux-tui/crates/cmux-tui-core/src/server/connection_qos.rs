@@ -16,7 +16,7 @@
 //!
 //! The person's connections ([`ConnectionClass::Person`]) rest at the echo
 //! class on the reader (it reads the person's keys) and at user-initiated on
-//! the dispatcher. They are the verified app's connection and the app's
+//! their request tasks. They are the verified app's connection and the app's
 //! other connections without a hello (`terminal_attach`, `journal_read`,
 //! `agent_session_attach`, ...): the same process, by the kernel's peer
 //! fact fixed at accept (`ConnectionOrigin::peer_key`), as a verified app
@@ -28,8 +28,8 @@
 //! authorization reads the request origin (server/origin_gate.rs).
 //!
 //! A connection thread reads its class at one point of its loop
-//! ([`RestingClass::follow`]): the reader before each line it routes, the
-//! dispatcher before each request it runs. The class is entered as a
+//! ([`RestingClass::follow`]): the reader before each line it routes, a
+//! control task as it starts (connection_scheduler.rs). The class is entered as a
 //! [`WorkQos`], so a thread resting at utility is raised while it waits for
 //! or holds a ranked lock (`cmux_tui_platform::qos::LockBoost`), and a
 //! request's own class (`crate::request_qos`) nests inside it. The
@@ -49,6 +49,7 @@ use cmux_tui_platform::qos::WorkQos;
 use crate::request_origin::RequestOrigin;
 use crate::request_qos::RequestQos;
 use crate::server::ClientTransport;
+use crate::server::sequenced_pool::SequencePriority;
 use crate::thread_qos::ThreadType;
 
 /// Who a connection serves, which sets the class its threads rest at.
@@ -106,6 +107,24 @@ impl ConnectionClass {
         }
     }
 
+    /// The priority of an attach view's drain on the sequenced pool. The
+    /// person's views carry the echo on the input workers; automation's
+    /// views run on the utility workers, below them, so an agent's views
+    /// never take a worker the person's echo waits for, as Chrome runs a
+    /// background renderer's work below the foreground's
+    /// (base/task/thread_pool/thread_pool_impl.cc keeps separate foreground
+    /// and background thread groups). A connection not classed yet runs on
+    /// the control workers, at the user-initiated class it rests at. A view
+    /// keeps its priority for life; its bulk work (a snapshot viewer's READY
+    /// encode and history chunks) is utility whatever its class.
+    pub(in crate::server) const fn view_priority(self) -> SequencePriority {
+        match self {
+            Self::Person => SequencePriority::Input,
+            Self::Unclassified => SequencePriority::Control,
+            Self::Automation => SequencePriority::Utility,
+        }
+    }
+
     const fn from_u8(raw: u8) -> Self {
         match raw {
             1 => Self::Person,
@@ -120,7 +139,9 @@ impl ConnectionClass {
 pub(in crate::server) enum ConnectionThread {
     /// Reads and routes its lines (mux-conn, mux-remote-conn, mux-ws-conn).
     Reader,
-    /// Runs its queued requests (mux-control-dispatch, mux-surface-control).
+    /// Runs its queued requests: a control task on the sequenced pool (in a
+    /// scope, not resting). A clear-history request is a `Mux::work` item at
+    /// its cause's class (task 230), not a connection thread.
     Request,
 }
 

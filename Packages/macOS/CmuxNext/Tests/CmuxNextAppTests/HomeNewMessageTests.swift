@@ -284,7 +284,7 @@ struct HomeNewMessageTests {
     @Test func eachSuggestionShowsItsFullNameAndChiefsSayWhereTheyRun() throws {
         let cloud = HomeContact(id: ParticipantID("agent_cloud"), name: "Chief", source: .agent)
         let mac = HomeContact(id: ParticipantID("agent_mux"), name: "Chief", source: .agent)
-        let list = HomeRecipientSuggestionsView(frame: NSRect(x: 0, y: 0, width: 380, height: 200))
+        let list = HomeRecipientSuggestionsView(pictures: .testing(), frame: NSRect(x: 0, y: 0, width: 380, height: 200))
         list.look = { recipient in
             guard case .contact(let contact) = recipient, contact.source == .agent else { return HomeRecipientLook() }
             return HomeRecipientLook(avatar: .chiefDefault, tag: contact == cloud ? "Main \u{00B7} Cloud" : "This Mac")
@@ -302,7 +302,7 @@ struct HomeNewMessageTests {
         field.choose(.contact(Self.ada))
         field.addButton.performClick(nil)
         #expect(field.suggestions.items == [.contact(Self.alan), .contact(Self.grace), .contact(Self.chief)])
-        let empty = HomeRecipientField(frame: NSRect(x: 0, y: 0, width: 480, height: 44))
+        let empty = HomeRecipientField(pictures: .testing(), frame: NSRect(x: 0, y: 0, width: 480, height: 44))
         empty.browse()
         #expect(!empty.suggestions.isHidden, "with nobody to pick the + says how to reach someone")
         #expect(empty.suggestions.items.isEmpty)
@@ -393,7 +393,7 @@ struct HomeNewMessageTests {
     // MARK: Helpers
 
     static func field() -> HomeRecipientField {
-        let field = HomeRecipientField(frame: NSRect(x: 0, y: 0, width: 480, height: 44))
+        let field = HomeRecipientField(pictures: .testing(), frame: NSRect(x: 0, y: 0, width: 480, height: 44))
         field.contacts = { Self.contacts }
         return field
     }

@@ -38,7 +38,7 @@ pub(crate) async fn handle(origin: Origin, params: &Value) -> Result<Value, RpcE
     let dir = crate::config::home().join("trace");
     // The first start maps the recording file: off the runtime.
     let outcome =
-        tokio::task::spawn_blocking(move || cmux_trace::apply_control(op, &dir, Role::Acpmux))
+        crate::daemon::spawn_blocking(move || cmux_trace::apply_control(op, &dir, Role::Acpmux))
             .await
             .map_err(|error| RpcError::internal(error.to_string()))?;
     Ok(answer(std::process::id(), outcome))

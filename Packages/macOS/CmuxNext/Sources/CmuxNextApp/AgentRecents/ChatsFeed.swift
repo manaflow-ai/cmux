@@ -1,7 +1,6 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextCompat
-import CmuxNextLaunch
 import CmuxNextWakeups
 import Foundation
 
@@ -16,10 +15,10 @@ final class ChatsFeed {
     var chats: [AcpmuxChat] { store.chats }
     private(set) var isEnabled = true
     private(set) var isReady = false
-    /// acpmux's socket.
+    /// acpmux's socket: this Mac's turn-state watch watches it too.
     let socket: String
-    /// The launch's indicator watches (``postLaunchIndicators(for:startup:)``, p08-startup-097); nil until posted.
-    var launchIndicators: ChatIndicatorLaunch?
+    /// Opens this feed's connections; the launch's indicator watches open theirs with it too.
+    let connector: AgentActivityConnector
     private var observers: [(owner: () -> AnyObject?, changed: @MainActor () -> Void)] = []
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
@@ -47,8 +46,10 @@ final class ChatsFeed {
     ///   - socketPath: acpmux's socket.
     ///   - deadlines: The app's one deadline scheduler: the reconnect backoff and the socket folder's
     ///     notices run on its main-thread scheduler.
-    init(socketPath: String, deadlines: MainDeadlineScheduler) {
+    ///   - connector: Opens the watch's connection (`AppServices.acpmuxConnector`; a test's records it).
+    init(socketPath: String, deadlines: MainDeadlineScheduler, connector: AgentActivityConnector = .unixSocket) {
         socket = socketPath
+        self.connector = connector
         mainWork = deadlines.work
         reconnect = MainDeadline(owner: "ChatsFeed.reconnect", workClass: .background, scheduler: deadlines)
     }
@@ -87,7 +88,7 @@ final class ChatsFeed {
         directoryWatch?.cancel()
         directoryWatch = nil
         watchedDirectory = nil
-        let connection = AgentActivityLineConnection(path: socket)
+        let connection = connector.connection(to: socket)
         subscription = connection
         seq = nil // a restarted daemon numbers from 0 again
         pageInFlight = true

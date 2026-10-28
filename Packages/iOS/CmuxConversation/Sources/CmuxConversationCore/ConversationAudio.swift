@@ -99,7 +99,7 @@ public enum ConversationSyntheticSpeech {
             state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
             return Float(state >> 40) / Float(1 << 24)
         }
-        let count = Int(seconds * Double(sampleRate))
+        let count = max(0, Int(seconds * Double(sampleRate)))
         var output = [Float](repeating: 0, count: count)
         var position = 0
         var phase: Float = 0

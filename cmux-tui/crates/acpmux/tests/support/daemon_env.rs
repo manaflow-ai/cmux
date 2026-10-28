@@ -225,6 +225,14 @@ pub fn tokio_command(scratch: &Path, agents: Agents) -> tokio::process::Command 
     cmd
 }
 
+/// `acpmux-mcp-relay` (`src/mcp_relay.rs`), the package's other program,
+/// with the hermetic environment, agent launches denied.
+pub fn relay(scratch: &Path) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new(bin().with_file_name("acpmux-mcp-relay"));
+    cmd.env_clear().envs(vars(scratch, Agents::Deny, &[]));
+    cmd
+}
+
 /// Clears `cmd`'s environment and sets the hermetic one.
 pub fn apply<'c>(
     cmd: &'c mut Command,

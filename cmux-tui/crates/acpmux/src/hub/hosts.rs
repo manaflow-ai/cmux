@@ -79,7 +79,7 @@ impl Hub {
             if let Some(nonce) = &b.start_nonce
                 && agent_host::liveness(&dir, &b.session_id, nonce) == Liveness::Dead
             {
-                let _ = std::fs::remove_file(&b.path);
+                let _ = cmux_blocking::fs::remove_file(&b.path);
                 continue;
             }
             live.insert(b.session_id);
@@ -227,7 +227,9 @@ impl Hub {
     /// (a host this build cannot adopt, or one whose link was lost).
     pub(super) async fn end_unadopted_host(&self, session: &Session) {
         let dir = agent_host::hosts_dir();
-        let Ok((good, bad)) = agent_host::load_records(&dir) else { return };
+        let listed = dir.clone();
+        let loaded = cmux_blocking::spawn_blocking(move || agent_host::load_records(&listed)).await;
+        let Ok(Ok((good, bad))) = loaded else { return };
         let record = good.iter().find(|(_, r)| r.session_id == session.id).map(|(_, r)| r.clone());
         let host = record
             .as_ref()
@@ -239,10 +241,18 @@ impl Hub {
             });
         let Some((nonce, host_pid)) = host else { return };
         if end_host_blocking(dir.clone(), session.id.clone(), nonce, host_pid).await {
-            if let Some(record) = record {
-                agent_host::remove_artifacts(&dir, &record);
-            } else if let Some(b) = bad.iter().find(|b| b.session_id == session.id) {
-                let _ = std::fs::remove_file(&b.path);
+            let unreadable =
+                bad.iter().find(|b| b.session_id == session.id).map(|b| b.path.clone());
+            let removed = cmux_blocking::spawn_blocking(move || {
+                if let Some(record) = record {
+                    agent_host::remove_artifacts(&dir, &record);
+                } else if let Some(path) = unreadable {
+                    let _ = cmux_blocking::fs::remove_file(path);
+                }
+            })
+            .await;
+            if let Err(e) = removed {
+                tracing::warn!(session = %session.id, "removing its agent host record: {e}");
             }
             self.append(session, "mux", "host_ended", json!({}));
         } else {
@@ -298,6 +308,7 @@ impl Hub {
             Vec::new(),
             session.inbound_tx.clone(),
             tap,
+            &self.supervisor,
         )
         .await?;
         let (child, adopted) = match attached {
@@ -327,9 +338,7 @@ impl Hub {
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
+            self.start_inbound_loop(session, rx);
         }
         // Asked once the inbound loop drains the replay, which the answer comes behind.
         self.note_host_kind(session, &child, kind).await;
@@ -691,7 +700,7 @@ impl Hub {
                     let hub = self.clone();
                     let s = session.clone();
                     let c = child.clone();
-                    tokio::spawn(async move {
+                    self.supervise("hub.recover", Fatal, ShutdownBehavior::Skip, async move {
                         // New prompts queue behind the recovered turn.
                         let guard = s.turn_lock.lock().await;
                         let result = match (answer, rx) {
@@ -760,7 +769,7 @@ impl Hub {
             let hub = self.clone();
             let s = session.clone();
             let turn_id = turn_id.clone();
-            tokio::spawn(async move {
+            self.supervise("hub.agent-request", Fatal, ShutdownBehavior::Skip, async move {
                 hub.on_agent_request(s, id, m, params, epoch, turn_id, ask).await
             });
         }
@@ -807,7 +816,7 @@ impl Hub {
         let hub = self.clone();
         let s = session.clone();
         let c = child.clone();
-        tokio::spawn(async move {
+        self.supervise("hub.permission-answer", Fatal, ShutdownBehavior::Skip, async move {
             let outcome = rx.await.unwrap_or_else(|_| json!({"outcome": "cancelled"}));
             hub.append(
                 &s,
@@ -908,7 +917,8 @@ fn response_result(msg: &Value) -> Result<Value, RpcError> {
     }
 }
 
-/// `agent_host::terminate_unadoptable` off the async runtime.
+/// `agent_host::terminate_unadoptable` off the async runtime: signal graces and `ps`, a
+/// WILL_BLOCK item, unwatched (`daemon/hang_watch.rs`).
 pub(super) async fn end_host_blocking(
     dir: std::path::PathBuf,
     session_id: String,
@@ -1045,6 +1055,7 @@ impl Hub {
             Vec::new(),
             session.inbound_tx.clone(),
             tap,
+            &self.supervisor,
         )
         .await;
         match attached {

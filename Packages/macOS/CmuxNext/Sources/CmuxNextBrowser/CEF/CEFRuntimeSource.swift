@@ -1,3 +1,6 @@
+public import CmuxNextWakeups
+import Darwin
+
 /// Where ``CEFEngine`` finds the Chromium runtime: embedded in the app
 /// bundle, or a pack the app downloads on first use
 /// (plans/cmux-next/bundle-size-DESIGN.md section 6), and where its browser
@@ -24,6 +27,10 @@ public final class CEFRuntimeSource {
     /// show in cmux panels and panes (feature `chromiumHostWidgets`, set by the App). Read when the
     /// runtime adopts the source, before Chromium starts; in process it changes nothing.
     public var showsHostWidgets = false
+    /// Host mode: hosted pages' keys, clicks, moves and wheel ticks go through the host's input
+    /// ring, paced by its acks (feature `chromiumHostInputRing`, set by the App). Read when the
+    /// runtime adopts the source; in process it changes nothing.
+    public var routesHostInput = false
     /// Host mode: drags onto a page reach it with DragTarget calls (feature `chromiumHostDragIn`, set by
     /// the App; p01-process-050). Read when the runtime adopts the source; in process it changes nothing.
     public var takesHostDrags = false
@@ -39,10 +46,31 @@ public final class CEFRuntimeSource {
     /// Chromium's popup, which would open in the host (feature `chromiumHostSuggestions`, set by the App;
     /// p01-process-061). Read when the runtime adopts the source; in process it changes nothing.
     public var drawsHostSuggestions = false
+    /// Host mode: a page's color chooser, device choosers (Bluetooth, USB, HID, Serial) and screen-share picker
+    /// show in cmux, not in the host (feature `chromiumHostChoosers`, set by the App; ``ChromiumHostChoosers``,
+    /// p01-process-228). Read when the runtime adopts the source; in process it changes nothing.
+    public var drawsHostChoosers = false
     /// Host mode: a page's file chooser shows cmux's picker on the page's window, and the chosen files
     /// go to the host as paths (feature `chromiumHostFileDialogs`, set by the App; ``ChromiumHostFiles``).
     /// Nil leaves Chromium's own panel, which in host mode opens in the host. Read when the runtime adopts the source.
     public var hostFileDialogs: (any ChromiumFileDialogAnswering)?
+    /// Whose children the Chromium helpers are, for listings on any thread (task p01-process-225): this app in
+    /// process; in host mode none until the runtime that adopts this source attaches a host, then that host.
+    public let helperParent: ChromiumHelperParent
+    /// Host mode: input the Chromium Host's UI thread has not dispatched for 2 s puts "Chromium is busy",
+    /// with Wait and Reload Chromium, over the panes that show its pages (feature `chromiumHostHangBanner`,
+    /// set by the App; ``ChromiumHostHangMonitor``, p01-process-084). Read when the runtime adopts the source.
+    public var watchesHostHangs = false
+    /// Host mode, with ``watchesHostHangs``: each UI hang of the Chromium Host of 250 ms or more, for the
+    /// app's hang reports (set by the App). Read at each hang.
+    public var onHostHang: ((ChromiumHostHang) -> Void)?
+    /// Host mode: a page's pointer lock and keyboard lock are cmux's, and Escape ends them and the page's
+    /// fullscreen (feature `chromiumHostLocks`, set by the App; ``CEFHostLocks``). Read when the runtime
+    /// adopts the source; in process it changes nothing.
+    public var handlesHostLocks = false
+    /// The app's one ``AppEvents`` (`AppServices.appEvents`, set by the App): with ``handlesHostLocks``, a page's
+    /// pointer lock ends when the app resigns active. Read when the runtime adopts the source.
+    public var appEvents: AppEvents?
 
     /// Creates a source.
     ///
@@ -56,6 +84,7 @@ public final class CEFRuntimeSource {
         self.layout = layout
         self.pending = layout == nil ? pending : nil
         self.hostSupervisor = hostSupervisor
+        helperParent = ChromiumHelperParent(hostSupervisor == nil ? getpid() : nil)
     }
 
     /// Where Chromium's browser process runs: in the Chromium Host when the

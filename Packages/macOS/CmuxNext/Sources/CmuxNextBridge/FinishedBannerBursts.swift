@@ -1,5 +1,4 @@
 public import CmuxNextDaemon
-import CmuxNextWakeups
 
 /// Agent-finished banners that land in one burst, per workspace (cx-kz6m0.1, parity with the old
 /// app's coalescing queue; RFC #20891 proposal 3). The first finished turn in a workspace opens a
@@ -8,7 +7,11 @@ import CmuxNextWakeups
 /// workspace) and opens the newest. One agent finishing again is not a burst, and an agent the
 /// user read leaves it. The digest is filed under the newest agent's tab: reading that tab
 /// withdraws it, reading an older one leaves it. Approvals, questions and errors never come here,
-/// and the daemon's notification history keeps every row. The window is a one-shot `DemandTimer`.
+/// and the daemon's notification history keeps every row.
+///
+/// The window needs no timer (recipe R-timer, event first; plans/cmux-next/idle-wakeups.md): a burst
+/// records when its window ends on the caller's clock, and the next join, read or ``isOpen(workspace:)``
+/// finds it over. Nothing happens when a window ends, so nothing wakes for it.
 public final class FinishedBannerBursts {
     /// How long after a workspace's first finished turn others join its banner.
     public static let window: Duration = .seconds(10)
@@ -20,7 +23,8 @@ public final class FinishedBannerBursts {
     }
 
     private struct Burst {
-        let timer: DemandTimer
+        /// True once the window has ended (read on the clock of the join that opened it).
+        let ended: () -> Bool
         /// Unread tabs whose agents finished in this burst.
         var tabs: Set<String> = []
         /// The burst's banners still showing, with the tab each is filed under.
@@ -34,7 +38,7 @@ public final class FinishedBannerBursts {
     public init() {}
 
     /// Whether `workspace` has a burst open.
-    public func isOpen(workspace: String) -> Bool { bursts[workspace] != nil }
+    public func isOpen(workspace: String) -> Bool { bursts[workspace].map { !$0.ended() } ?? false }
 
     /// Adds `notification`, on `tab` in `workspace`, to the burst when it is a finished turn without
     /// a reply field, opening one if none is open. A digest only while another unread agent's
@@ -42,11 +46,8 @@ public final class FinishedBannerBursts {
     public func join(_ notification: DaemonNotification, workspace: String, tab: String, clock: any Clock<Duration>) -> Digest? {
         guard notification.isFinishedTurn, !notification.reply else { return nil }
         let banner = "cmux-notification-\(notification.notification.rawValue)"
-        var burst = bursts[workspace] ?? {
-            let timer = DemandTimer(owner: "notifications.finishedBurst", clock: clock)
-            timer.scheduleOnMain(after: Self.window) { [weak self] in self?.bursts[workspace] = nil }
-            return Burst(timer: timer)
-        }()
+        closeEnded()
+        var burst = bursts[workspace] ?? Burst(ended: Self.end(after: Self.window, on: clock))
         burst.tabs.insert(tab)
         let previous = burst.showing
         let others = previous.contains { $0.tab != tab }
@@ -59,16 +60,23 @@ public final class FinishedBannerBursts {
 
     /// The user read `tab`: its agent leaves its burst, and a burst left empty closes.
     public func read(tab: String) {
+        closeEnded()
         for (workspace, var burst) in bursts where burst.tabs.contains(tab) {
             burst.tabs.remove(tab)
             burst.showing.removeAll { $0.tab == tab }
-            if burst.tabs.isEmpty {
-                burst.timer.cancel()
-                bursts[workspace] = nil
-            } else {
-                bursts[workspace] = burst
-            }
+            bursts[workspace] = burst.tabs.isEmpty ? nil : burst
         }
+    }
+
+    /// Drops the bursts whose window ended: O(open bursts), at most one per workspace.
+    private func closeEnded() {
+        bursts = bursts.filter { !$0.value.ended() }
+    }
+
+    /// Whether `window` has passed since now on `clock`.
+    private static func end<C: Clock>(after window: Duration, on clock: C) -> () -> Bool where C.Duration == Duration {
+        let end = clock.now.advanced(by: window)
+        return { clock.now >= end }
     }
 }
 

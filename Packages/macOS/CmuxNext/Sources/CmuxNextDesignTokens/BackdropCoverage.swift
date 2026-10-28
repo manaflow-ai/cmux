@@ -1,5 +1,4 @@
-import CmuxNextCompat
-public import CoreGraphics
+public import CmuxNextCompat
 public import Foundation
 
 /// How much of a window other windows hide (cx-14vdf follow-up, after idlesse's coverage rest).
@@ -15,23 +14,7 @@ public import Foundation
 ///   menu bar, Dock, Control Center and other system chrome never do.
 public nonisolated struct BackdropCoverage: Sendable, Equatable {
     /// One window above the one measured, in global screen coordinates.
-    public struct Window: Sendable, Equatable {
-        public var bounds: CGRect
-        public var alpha: Double
-        public var owner: String
-        /// The window server's number for it, 0 when unknown.
-        public var number: Int
-        /// Its window layer; 0 is a normal app window.
-        public var layer: Int
-
-        public init(bounds: CGRect, alpha: Double = 1, owner: String = "", number: Int = 0, layer: Int = 0) {
-            self.bounds = bounds
-            self.alpha = alpha
-            self.owner = owner
-            self.number = number
-            self.layer = layer
-        }
-    }
+    public typealias Window = ListedWindow
 
     public static let restThreshold = 0.95
     public static let resumeThreshold = 0.85
@@ -86,15 +69,6 @@ public nonisolated struct BackdropCoverage: Sendable, Equatable {
     /// origin at the top left of the main display (CGWindowList's space). It waits for the window
     /// server: call it on a system lane, never on the main thread.
     public static func windows(above number: Int) -> [Window] {
-        guard number > 0,
-              let list = blockingWindowListCopyWindowInfo([.optionOnScreenAboveWindow, .excludeDesktopElements], CGWindowID(number)) as? [[String: Any]]
-        else { return [] }
-        return list.compactMap { info in
-            guard let bounds = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0 as CFDictionary) })
-            else { return nil }
-            return Window(bounds: bounds, alpha: info[kCGWindowAlpha as String] as? Double ?? 1,
-                          owner: info[kCGWindowOwnerName as String] as? String ?? "",
-                          number: info[kCGWindowNumber as String] as? Int ?? 0, layer: info[kCGWindowLayer as String] as? Int ?? 0)
-        }
+        WindowServerList().windows(above: number)
     }
 }

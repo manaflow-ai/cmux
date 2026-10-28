@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 
 use super::page_router_table::{self, PageGrant};
 use super::{RequestOrigin, forbidden};
+use crate::panic_free::JsonFields;
 use crate::resource::{ResourceError, ResourceOperation as Op};
 
 /// The classes of operations a page may not call.
@@ -425,7 +426,7 @@ pub(super) fn page_refusal(
     if hard {
         // The connection's own origin (a WebSocket page derives agent).
         let mut error = refusal(operation, params)?;
-        error.details["derived"] = json!(origin.wire_name());
+        error.details.insert("derived", json!(origin.wire_name()));
         return Some(error);
     }
     let grant = match page_router_table::grant(page, operation.wire_name()) {
@@ -470,7 +471,7 @@ pub(crate) fn page_forbidden(
     };
     let mut details = json!({"derived": origin.wire_name(), "reason": reason});
     if reason != "page_not_allowed" {
-        details["required"] = json!(RequestOrigin::User.wire_name());
+        details.insert("required", json!(RequestOrigin::User.wire_name()));
     }
     ResourceError::new(super::ORIGIN_FORBIDDEN, message, details, false)
 }

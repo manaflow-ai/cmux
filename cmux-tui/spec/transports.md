@@ -210,6 +210,21 @@ the connection with `bad_message` and the reason (`bad_magic`, `unknown_kind`,
 `frames_not_negotiated`, `line_too_long`, `invalid_utf8`, `truncated`).
 Nothing after the bad byte is interpreted.
 
+An INPUT frame (p05-ipc-078) is the raw bytes of a `send` to the surface of
+the attach stream it names, with no JSON and no base64. Its aux is the key
+press's flow id (0: none), which joins the daemon's flow hops to the echo, as
+`send`'s `flow` does. It runs on its stream's sequence after that stream's
+earlier items, is never parsed and is never answered. When its bytes do not
+reach the terminal, the stream gets the event `input-failed{stream, reason,
+bytes}` ([events.md](events.md#input-failed)); while the terminal stays ended,
+later INPUT on the same open of the stream sends no second event. INPUT obeys
+a line's gates: after a shutdown acknowledgement or a committed handoff it
+closes the connection, and during a pending handoff it is refused with
+`daemon_handoff`. INPUT sent right behind its stream's `attach-surface` waits
+for that reply ([events.md](events.md#attach-streams)). An INPUT frame on a
+stream the connection never announced is a bad message (`unknown_stream`),
+and so is one from a remote-relay client (`remote_input`).
+
 #### Bulk payloads: SNAPSHOT, SNAPSHOT_MORE, REPLAY
 
 A snapshot viewer's `snapshot` events (READY, local-history READY, history and
@@ -447,12 +462,15 @@ vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, ech
 
 ## Framed IPC grants
 
-Status: grant rule only. The daemon advertises and grants a capability only
-after its transport is in the daemon. No transport is in the daemon yet, so
-`identify` lists none of the four and `set-client-info` grants none. The
-task that adds a transport also turns on its capability: p05-ipc-061 for
-`ipc-frames-v2`, the stream task for `attach-streams-v1` and `cancel-stream`,
-and the ring task for `terminal-output-ring-v1`
+Status: `attach-streams-v1` is in the daemon (p05-ipc-074,
+[events.md](events.md#attach-streams)); the other three are a grant rule
+only. The daemon advertises and grants a capability only after its
+transport is in the daemon, so `identify` lists only `attach-streams-v1` of
+the four and `set-client-info` grants only it. A request that names a
+`stream` on a connection without the grant is refused with
+`streams_not_granted`. The task that adds a transport also turns on its
+capability: p05-ipc-061 for `ipc-frames-v2` and the ring task for
+`terminal-output-ring-v1`
 (`plans/cmux-next/chrome-parity/p05-ipc.md`, sections 3.1 and 3.2). Mojo
 works the same way: it exposes an interface only after its implementation
 is bound.
@@ -477,6 +495,8 @@ it does for any other capability, and the reply stays `{}`.
 | --- | --- |
 | Direct local peer on the Unix socket, with `api_revision` equal to the daemon's (declared in `set-client-info`) | all four |
 | Direct local peer at any other revision, or with no declared revision | `attach-streams-v1` |
+| Framed bridge (`bridge-hello` with `bridge-frames-v1`, below) with `api_revision` equal to the daemon's | `ipc-frames-v2`, `attach-streams-v1`, `attach-frames-v1` |
+| Framed bridge at any other revision, or with no declared revision | `attach-streams-v1` |
 | Bridge that the daemon identifies at accept | `attach-streams-v1` |
 | Unverified Unix peer | `attach-streams-v1` |
 | WebSocket | none |
@@ -507,12 +527,55 @@ it as a direct peer. The dialing client knows about the bridge, so it echoes
 only `attach-streams-v1` until the bridge can carry frames
 (`bridge-frames-v1`, p05-ipc-161).
 
+A bridge that reads frames says so on its own connection. When `identify`
+lists `bridge-hello-v1`, the bridge may send
+`{"cmd":"bridge-hello","features":["bridge-frames-v1"]}` as the
+connection's very first line. The reply is `{"features": [...]}`, the
+features that the daemon took. The far client's `client-hello` window stays
+open behind it. The daemon takes `bridge-frames-v1` only from a peer that
+the kernel showed to be of the daemon's user, with no role, and not the
+phone host's lane. The connection is then a framed bridge. It may get
+frames at the daemon's revision, but never `terminal-output-ring-v1`,
+because a bridge cannot pass a descriptor. A `bridge-hello` anywhere else
+is `bridge_hello.window_closed`, and off a local Unix connection it is
+`bridge_hello.local_only`. An error closes the hello window, as for
+`client-hello`. A daemon that does not list `bridge-hello-v1` would take
+the line as the connection's first line, so a bridge never sends it there.
+
+The SSH bridge (`cmux-remote`, service `mux-control`) can carry frames. Its
+remote end lists `bridge-frames-v1` in the open features of the mux stream,
+next to `mux-input-v1`. With it, both ends read a message that starts with
+`0xFF` by its 16-byte header, never as a line. A header that fails
+validation, or a payload over the line budget of its direction, ends the
+connection before any payload byte is read. Every item of one attach
+stream uses one lane per direction: frames, lines that name the stream, and
+replies to requests that name it. A `send` that names a stream stays a JSON
+line. The local end of a bridge whose remote end did not list the feature
+refuses a frame and closes the connection. The remote end opens its daemon
+connection with `bridge-hello` (above) when that daemon lists
+`bridge-hello-v1`, so the far client is a framed bridge there: the daemon
+grants it frames at its revision, and never the ring.
+
 Each `set-client-info` first removes every grant that the connection's
 current state does not allow, for example after an `api_revision` other
 than the daemon's. To get the grant again, the client must echo the
 capability again in a later `set-client-info`. A later page-relay
 `client-hello` also ends every grant. The daemon checks a grant again each
 time the grant is used.
+
+An equal `api_revision` does not prove that the two method tables are
+equal: a new command is additive and needs no new revision. A REQUEST frame
+with a method id or priority hint that the daemon's table does not have
+closes the connection. A method that the daemon serves only as a line gets
+the ERROR `method_not_framed` before it runs, so a retry would run it after
+the requests written behind it. So, on a connection that is offered
+`ipc-frames-v2`, `identify {revisions: true}` also returns
+`sdk_schema_digest` (FNV-1a 64 of the `sdk-schema.json` bytes that the
+daemon's method tables come from, as 16 lowercase hex digits) and
+`framed_methods` (the method ids that the daemon answers on frames, in id
+order). A client sends REQUEST frames only when its own table has the same
+digest, and only for the methods in `framed_methods`. It sends every other
+command as a line.
 
 ### Attach frames
 
@@ -617,7 +680,10 @@ to see that the schema is current. It never changes an existing id, family,
 advances each family's `next_ordinal` and never lowers it, so an id is never
 given twice, even after its command is removed. `clients` and
 `spawns_terminal` follow their sources on every run, so `--check` fails when
-a source changed and the schema did not.
+a source changed and the schema did not. The `ios` source is the iOS client's
+command table, `CmuxTUICommand` in `Packages/iOS/CmuxMobileSSH`; the Mac's phone
+lane generator (`scripts/cmux-next/gen-phone-lane-fields.py`) refuses a
+`clients: ios` command that `DaemonLanePolicy.allowedCommands` does not allow.
 
 `api-compat-check` (cmux-api-compat, `src/wire.rs`) compares the ids of
 `sdk-schema.json` and `resource-operations-v2.json` with the append-only

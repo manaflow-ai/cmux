@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextFeatures
 import CmuxNextHomeEngine
 import struct CmuxNextLayout.MainPaneLayout
+import CmuxNextWakeups
 import Foundation
 
 /// Agent chat tabs on the workspace store (cmux-tui/spec/commands.md, new-conversation-tab): the store
@@ -112,8 +113,10 @@ extension AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, work: services.work, webUI: services.webUI, input: services.inputTap, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel, warmup: services.agentPageWarmup,
                                  chromiumChat: services.agentChromiumChat,
-                                 mainWork: services.mainWork, chatStores: state.map { AgentPaneChatStores(directory: $0) } ?? .keepsNothing,
-                                 daemonFeatures: services.features.daemonEnvironment)
+                                 mainThread: AgentPaneMainThread(deadlines: services.mainDeadlines, appEvents: services.appEvents,
+                                                                 workspaceEvents: services.workspaceEvents),
+                                 chatStores: state.map { AgentPaneChatStores(directory: $0) } ?? .keepsNothing,
+                                 daemonFeatures: services.features.daemonEnvironment, launchStartup: services.launchStartup)
         (tabs.launchImages, tabs.pullRequestReader) = (services.launchImages, services.pullRequests.reader)
         tabs.pageShown = { [weak services] in if let services { ChatsFeed.pageShown(in: services) } }  // the New Tab feeds and indicators right after the first frame
         tabs.createTabs = services.cache.createTabs
@@ -122,7 +125,8 @@ extension AgentTabStore {
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = services.relaunchWake
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
-        let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag), local: tabs.host) { [weak services] in
+        let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag), local: tabs.host,
+                                    work: services.work) { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
         }
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
@@ -160,6 +164,7 @@ extension AgentTabStore {
             guard let id = try? services.cloud.localDeviceID() else { services.daemon.logger.error("agent tabs: no install id, new agent tabs are refused"); return nil }
             return AgentSessionRef.host(installID: id)
         }
+        tabs.awaitLocalHostRead = { [weak services] body in services?.cloud.whenLocalDeviceIDRead(owner: "AgentTabs.localHost", body) }
         tabs.openProcess = { [weak services] chat, viewer in
             guard let services else { return false }
             return AgentProcessTerminal(services: services).open(viewer, beside: chat)
@@ -234,7 +239,7 @@ extension AgentTabStore {
                 guard started else { return nil }
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
-            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, mainWork: services.mainWork, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.

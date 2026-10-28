@@ -15,6 +15,14 @@ import CmuxNextWakeups
 /// let newest = await journal.entries(ErrorQuery(limit: 10))
 /// ```
 public actor ErrorJournal {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.error-journal`): its segment and cursor reads and writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.error-journal
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.error-journal", qos: .utility)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     /// The folder of the segment files and harvest cursors.
     public nonisolated let directory: URL
     private let limits: ErrorJournalLimits
@@ -38,6 +46,7 @@ public actor ErrorJournal {
                 clock: any Clock<Duration> = ContinuousClock(), now: @escaping @Sendable () -> Date = { Date() }) {
         self.directory = directory
         self.limits = limits
+        // timer-class-allow: off-main: the batched write fires into this actor (ErrorJournal) and never wakes the main thread
         flushTimer = DemandTimer(owner: "error-journal.flush", clock: clock)
         self.now = now
         let normalizer = ErrorNormalizer(maxBytes: limits.maxMessageBytes)
@@ -175,23 +184,30 @@ public actor ErrorJournal {
     /// - Returns: New occurrences per source id.
     @discardableResult
     public func harvest(_ sources: [any ErrorHarvestSource]) async -> [String: Int] {
+        await harvestReport(sources).found
+    }
+
+    /// ``harvest(_:)``, also naming the sources that stopped at their bound.
+    @discardableResult
+    public func harvestReport(_ sources: [any ErrorHarvestSource]) async -> ErrorHarvestReport {
         var cursors = loadCursors()
-        var found: [String: Int] = [:]
+        var report = ErrorHarvestReport()
         for source in sources {
             do {
                 let harvest = try await source.collect(after: cursors[source.id])
                 for event in harvest.events { fold(event) }
                 if let cursor = harvest.cursor { cursors[source.id] = cursor }
-                found[source.id] = harvest.events.count
+                report.found[source.id] = harvest.events.count
+                if harvest.more { report.unfinished.insert(source.id) }
             } catch {
                 fold(ErrorEvent(source: "journal", level: .warning, message: "harvest of \(source.id) failed: \(error)",
                                 date: now()))
-                found[source.id] = 0
+                report.found[source.id] = 0
             }
         }
         saveCursors(cursors)
         flush()
-        return found
+        return report
     }
 
     // MARK: - Folding
@@ -286,4 +302,16 @@ public actor ErrorJournal {
             try? ErrorSegmentStore.protectFile(cursorsURL)
         }
     }
+}
+
+/// What one ``ErrorJournal/harvestReport(_:)`` read.
+public struct ErrorHarvestReport: Sendable, Equatable {
+    /// New occurrences per source id.
+    public var found: [String: Int] = [:]
+    /// The ids of the sources that stopped at the bound of one harvest (``ErrorHarvest/more``):
+    /// the next harvest reads the rest.
+    public var unfinished: Set<String> = []
+
+    /// An empty report.
+    public init() {}
 }

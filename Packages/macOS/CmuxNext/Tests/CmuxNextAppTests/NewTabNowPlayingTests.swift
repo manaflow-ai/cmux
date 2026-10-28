@@ -102,7 +102,7 @@ import UniformTypeIdentifiers
         source.nowPlaying = Self.shown()
         let newTab = Flag(false)
         let model = SidebarModel()
-        let feed = model.followNowPlaying(source, enabled: { true }, onNewTab: { newTab.on }, player: player)
+        let feed = model.followNowPlaying(source, enabled: { true }, onNewTab: { newTab.on }, player: player, on: linklessMainWork())
         defer { feed.cancel() }
         try await Self.until { model.nowPlaying != nil }
         #expect(model.nowPlaying?.title == "Weightless", "the sidebar card lost the track")
@@ -124,7 +124,7 @@ import UniformTypeIdentifiers
         source.nowPlaying = Self.shown()
         let newTab = Flag(true)
         let model = SidebarModel()
-        let feed = model.followNowPlaying(source, enabled: { false }, onNewTab: { newTab.on }, player: player)
+        let feed = model.followNowPlaying(source, enabled: { false }, onNewTab: { newTab.on }, player: player, on: linklessMainWork())
         defer { feed.cancel() }
         try await Self.until { player.track != nil }
         #expect(player.track?.title == "Weightless")

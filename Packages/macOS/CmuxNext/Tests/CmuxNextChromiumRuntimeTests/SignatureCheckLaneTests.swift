@@ -15,7 +15,7 @@ import Testing
         let work = BackgroundWork(label: "test.signature-check", onRan: { lane, _, _, _ in ran.yield(lane) })
 
         await #expect(throws: ChromiumRuntimeInstallError.signature("libunsigned.dylib")) {
-            try await SecCodeChromiumRuntimeSignatureChecker(work: work).check(item, teamID: "ABCDE12345", priority: .user)
+            try await SecCodeChromiumRuntimeSignatureChecker(work: work, isValid: Self.refuses).check(item, teamID: "ABCDE12345", priority: .user)
         }
 
         var first = lanes.makeAsyncIterator()
@@ -30,14 +30,14 @@ import Testing
         work.beginShutdown()
 
         await #expect(throws: ChromiumRuntimeInstallError.cancelled) {
-            try await SecCodeChromiumRuntimeSignatureChecker(work: work).check(item, teamID: "ABCDE12345", priority: .user)
+            try await SecCodeChromiumRuntimeSignatureChecker(work: work, isValid: Self.refuses).check(item, teamID: "ABCDE12345", priority: .user)
         }
     }
 
     @Test func aCheckWhoseCallerIsCancelledIsCancelledNotASignatureFailure() async throws {
         let folder = try TemporaryFolder()
         let item = try Self.unsignedItem(in: folder, named: "libcancelled.dylib")
-        let checker = SecCodeChromiumRuntimeSignatureChecker(work: BackgroundWork(label: "test.signature-cancel"))
+        let checker = SecCodeChromiumRuntimeSignatureChecker(work: BackgroundWork(label: "test.signature-cancel"), isValid: Self.refuses)
         let check = Task {
             withUnsafeCurrentTask { $0?.cancel() }
             try await checker.check(item, teamID: "ABCDE12345", priority: .user)
@@ -54,7 +54,7 @@ import Testing
         let item = try Self.unsignedItem(in: folder, named: "libprefetch.dylib")
         let (runs, ran) = AsyncStream.makeStream(of: WorkPriority.self)
         let work = BackgroundWork(label: "test.signature-priority", onRan: { _, priority, _, _ in ran.yield(priority) })
-        let checker = SecCodeChromiumRuntimeSignatureChecker(work: work)
+        let checker = SecCodeChromiumRuntimeSignatureChecker(work: work, isValid: Self.refuses)
         // Detached and not awaited until the item ran: awaiting it would escalate it to the test's priority.
         let check = Task.detached(priority: WorkPriority.bestEffort.taskPriority) {
             try? await checker.check(item, teamID: "ABCDE12345", priority: .background)
@@ -63,6 +63,9 @@ import Testing
         #expect(await first.next() == .bestEffort)
         _ = await check.value
     }
+
+    /// The injected check for an unsigned item: it is never valid.
+    private static let refuses: SecCodeChromiumRuntimeSignatureChecker.Validity = { _, _, _ in false }
 
     private static func unsignedItem(in folder: TemporaryFolder, named name: String) throws -> URL {
         let item = folder.url.appending(path: name)

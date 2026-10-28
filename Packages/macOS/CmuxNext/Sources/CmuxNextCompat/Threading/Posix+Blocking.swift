@@ -15,6 +15,7 @@ public import Darwin
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The descriptor, or -1 with `errno` set.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingOpen(_ path: UnsafePointer<CChar>, _ flags: Int32, _ mode: mode_t = 0,
                          fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
@@ -33,6 +34,7 @@ public func blockingOpen(_ path: UnsafePointer<CChar>, _ flags: Int32, _ mode: m
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `pread(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingPread(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?, _ count: Int, _ offset: off_t,
                           fileID: StaticString = #fileID, line: UInt = #line) -> Int {
@@ -51,6 +53,7 @@ public func blockingPread(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `pwrite(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingPwrite(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ count: Int, _ offset: off_t,
                            fileID: StaticString = #fileID, line: UInt = #line) -> Int {
@@ -66,6 +69,7 @@ public func blockingPwrite(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ c
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `fsync(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingFsync(_ descriptor: Int32, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     return blockingCall(.fileIO, fileID: fileID, line: line) { Darwin.fsync(descriptor) }
@@ -81,6 +85,7 @@ public func blockingFsync(_ descriptor: Int32, fileID: StaticString = #fileID, l
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `flock(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingFlock(_ descriptor: Int32, _ operation: Int32, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     return blockingCall(.fileIO, fileID: fileID, line: line) { () -> Int32 in flock(descriptor, operation) }
@@ -94,6 +99,7 @@ public func blockingFlock(_ descriptor: Int32, _ operation: Int32, fileID: Stati
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `ftruncate(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingFtruncate(_ descriptor: Int32, _ length: off_t, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     return blockingCall(.fileIO, fileID: fileID, line: line) { Darwin.ftruncate(descriptor, length) }
@@ -107,6 +113,7 @@ public func blockingFtruncate(_ descriptor: Int32, _ length: off_t, fileID: Stat
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `rename(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingRename(_ from: UnsafePointer<CChar>, _ to: UnsafePointer<CChar>,
                            fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
@@ -122,6 +129,7 @@ public func blockingRename(_ from: UnsafePointer<CChar>, _ to: UnsafePointer<CCh
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `unlink(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingUnlink(_ path: UnsafePointer<CChar>, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to unlink unchanged, only for the call; the caller's own `unsafe` states
@@ -137,6 +145,7 @@ public func blockingUnlink(_ path: UnsafePointer<CChar>, fileID: StaticString = 
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `stat(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingStat(_ path: UnsafePointer<CChar>, _ info: UnsafeMutablePointer<stat>,
                          fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
@@ -153,6 +162,7 @@ public func blockingStat(_ path: UnsafePointer<CChar>, _ info: UnsafeMutablePoin
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `lstat(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingLstat(_ path: UnsafePointer<CChar>, _ info: UnsafeMutablePointer<stat>,
                           fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
@@ -170,6 +180,7 @@ public func blockingLstat(_ path: UnsafePointer<CChar>, _ info: UnsafeMutablePoi
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The resolved path, or nil with `errno` set.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingRealpath(_ path: UnsafePointer<CChar>, _ resolved: UnsafeMutablePointer<CChar>?,
                              fileID: StaticString = #fileID, line: UInt = #line) -> UnsafeMutablePointer<CChar>? {
@@ -186,6 +197,7 @@ public func blockingRealpath(_ path: UnsafePointer<CChar>, _ resolved: UnsafeMut
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `access(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingAccess(_ path: UnsafePointer<CChar>, _ mode: Int32, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to access unchanged, only for the call; the caller's own `unsafe` states
@@ -201,6 +213,7 @@ public func blockingAccess(_ path: UnsafePointer<CChar>, _ mode: Int32, fileID: 
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `chmod(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingChmod(_ path: UnsafePointer<CChar>, _ mode: mode_t, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to chmod unchanged, only for the call; the caller's own `unsafe` states
@@ -216,6 +229,7 @@ public func blockingChmod(_ path: UnsafePointer<CChar>, _ mode: mode_t, fileID: 
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `mkdir(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingMkdir(_ path: UnsafePointer<CChar>, _ mode: mode_t, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to mkdir unchanged, only for the call; the caller's own `unsafe` states
@@ -230,6 +244,7 @@ public func blockingMkdir(_ path: UnsafePointer<CChar>, _ mode: mode_t, fileID: 
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `rmdir(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingRmdir(_ path: UnsafePointer<CChar>, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to rmdir unchanged, only for the call; the caller's own `unsafe` states
@@ -247,6 +262,7 @@ public func blockingRmdir(_ path: UnsafePointer<CChar>, fileID: StaticString = #
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The reaped child's pid, 0, or -1 with `errno` set.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingWaitpid(_ pid: pid_t, _ status: UnsafeMutablePointer<Int32>?, _ options: Int32,
                             fileID: StaticString = #fileID, line: UInt = #line) -> pid_t {
@@ -266,6 +282,7 @@ public func blockingWaitpid(_ pid: pid_t, _ status: UnsafeMutablePointer<Int32>?
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `waitid(2)` returns.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingWaitid(_ type: idtype_t, _ id: id_t, _ info: UnsafeMutablePointer<siginfo_t>, _ options: Int32,
                            fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {

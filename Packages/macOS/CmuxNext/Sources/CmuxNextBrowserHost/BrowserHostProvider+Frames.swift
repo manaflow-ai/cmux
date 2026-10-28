@@ -73,6 +73,7 @@ extension BrowserHostProvider {
         // A screenshot of a tab nobody sees renders it while the driver takes the picture.
         let vote = method == Self.screenshotMethod
             ? targetID.flatMap { capture?.captureVote(targetID: $0, reason: "agent.screenshot") } : nil
+        // main-hop-allow: driver.call is the WebKit driver's main-actor async API (the page answers); the task only sends its result on the link that asked
         Task { [weak self] in
             let frame: ProviderFrame
             do throws(DriverError) {
@@ -99,6 +100,7 @@ extension BrowserHostProvider {
             return
         }
         let link = connection
+        // main-hop-allow: openProviderTab is the app's main-actor async tab opener; the task only sends its answer on the link that asked
         Task { [weak self] in
             let frame: ProviderFrame
             var opened = false

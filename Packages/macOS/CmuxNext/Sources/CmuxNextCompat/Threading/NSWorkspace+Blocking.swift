@@ -12,6 +12,7 @@ extension NSWorkspace {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Returns: The app's URL, or nil.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingURLForApplication(withBundleIdentifier bundleIdentifier: String,
                                           fileID: StaticString = #fileID, line: UInt = #line) -> URL? {
@@ -25,6 +26,7 @@ extension NSWorkspace {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Returns: The app's URL, or nil.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingURLForApplication(toOpen url: URL, fileID: StaticString = #fileID, line: UInt = #line) -> URL? {
         return blockingCall(.systemCall, fileID: fileID, line: line) { urlForApplication(toOpen: url) }
@@ -37,6 +39,7 @@ extension NSWorkspace {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Returns: The app's URL, or nil.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingURLForApplication(toOpen contentType: UTType, fileID: StaticString = #fileID, line: UInt = #line) -> URL? {
         return blockingCall(.systemCall, fileID: fileID, line: line) { urlForApplication(toOpen: contentType) }
@@ -49,6 +52,7 @@ extension NSWorkspace {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Returns: The apps' URLs.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingURLsForApplications(toOpen url: URL, fileID: StaticString = #fileID, line: UInt = #line) -> [URL] {
         return blockingCall(.systemCall, fileID: fileID, line: line) { urlsForApplications(toOpen: url) }
@@ -61,6 +65,7 @@ extension NSWorkspace {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Returns: The apps' URLs.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingURLsForApplications(toOpen contentType: UTType, fileID: StaticString = #fileID, line: UInt = #line) -> [URL] {
         return blockingCall(.systemCall, fileID: fileID, line: line) { urlsForApplications(toOpen: contentType) }
@@ -73,6 +78,7 @@ extension NSWorkspace {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Returns: The icon.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingIcon(forFile path: String, fileID: StaticString = #fileID, line: UInt = #line) -> NSImage {
         return blockingCall(.systemCall, fileID: fileID, line: line) { icon(forFile: path) }
@@ -85,6 +91,7 @@ extension NSWorkspace {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Returns: The icon.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingIcon(for contentType: UTType, fileID: StaticString = #fileID, line: UInt = #line) -> NSImage {
         return blockingCall(.systemCall, fileID: fileID, line: line) { icon(for: contentType) }

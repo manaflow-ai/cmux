@@ -1,5 +1,5 @@
-import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 
 /// Releases the terminal surfaces and browser pages of tabs their daemon tree dropped (cx-x15rz). Closing a
 /// workspace tears its panes down, which only hides their terminals: each closed tab kept its
@@ -10,14 +10,28 @@ import CmuxNextDaemon
 /// tree, connected and loaded, has listed its tab and no longer does. While a daemon is away
 /// its terminals stay. Browser pages are tracked the same way: a tab the daemon closed
 /// (`cmux tab close`, another client) kept its page, and a Chromium page its renderer.
+///
+/// One ServiceObservation per store (p06-scheduler-303), whose apply only posts the walk as one
+/// background task per store: freeing memory is work nobody sees, so a burst of tab-list changes is
+/// one walk of the tracked tabs, after the person's and the visible work, whether or not any of those
+/// tabs shows. The observation applies a person's tab close in their input-response pass; only the
+/// post runs there, so no cause moves the walk or a release onto the key-to-frame path.
 @MainActor
 final class GoneTabWatch {
+    private let mainWork: MainWorkScheduler
     private var stores: [String: DaemonStore] = [:]
     private var seenLive: Set<String> = []
-    private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
+    private var watches: [ObjectIdentifier: ServiceObservation<UInt64?>] = [:]
+    /// Stores whose walk is posted and has not run: a burst of changes posts one.
+    private var walksPosted: Set<ObjectIdentifier> = []
     /// Tab records this watch examined since it was made, over every tree change it woke for: what a
     /// tree change costs it. Tests read it; it must follow the tabs it tracks, not the session.
     private(set) var tabsVisited = 0
+
+    /// `mainWork`: the app's one main-thread scheduler, which runs each store's walk.
+    init(mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
+    }
 
     /// Follows tab `key` in `store`'s tree; `release` lets it go once the tree drops it.
     func track(_ key: String, in store: DaemonStore, release: @escaping @MainActor (String) -> Void) {
@@ -28,12 +42,27 @@ final class GoneTabWatch {
         if store.liveTreeLists(tab: key) == true { seenLive.insert(key) }
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }
-        // task-owner: stored in watches; cancelled once no tracked terminal belongs to the store
-        watches[id] = Task { [weak self] in
-            for await revision in ObservationStream({ store.liveTabListRevision }) where revision != nil {
-                guard let self else { return }
-                for key in self.gone(in: store) { release(key) }
-            }
+        // Stored in watches; cancelled once no tracked terminal belongs to the store. The revision now is the
+        // tree this call just read: no walk for it.
+        let start = store.liveTabListRevision
+        watches[id] = ServiceObservation(.background, owner: "GoneTabWatch", on: mainWork) { [weak store] in
+            store?.liveTabListRevision
+        } apply: { [weak self, weak store] revision in
+            guard revision != nil, revision != start, let self, let store else { return }
+            postWalk(of: store, release: release)
+        }
+    }
+
+    /// Posts one walk of `store`'s tracked tabs as background work, unless one is posted already.
+    private func postWalk(of store: DaemonStore, release: @escaping @MainActor (String) -> Void) {
+        let id = ObjectIdentifier(store)
+        guard walksPosted.insert(id).inserted else { return }
+        // node-free: memory nobody sees is freed whether or not any tracked tab shows.
+        mainWork.post(.background, owner: "GoneTabWatch") { [weak self, weak store] in
+            guard let self else { return }
+            walksPosted.remove(id)
+            guard let store, watches[id] != nil else { return }
+            for key in gone(in: store) { release(key) }
         }
     }
 

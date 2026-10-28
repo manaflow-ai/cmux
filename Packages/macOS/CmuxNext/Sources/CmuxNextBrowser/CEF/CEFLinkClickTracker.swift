@@ -27,7 +27,9 @@ nonisolated struct CEFClickTarget: Equatable, Sendable {
 @MainActor
 final class CEFLinkClickTracker {
     /// cmux.json `browser.links.*`, set by the App.
-    var mapping: BrowserLinkClickMapping = .chrome
+    var mapping: BrowserLinkClickMapping = .chrome {
+        didSet { if mapping != oldValue { onChange() } }
+    }
     /// The last left or middle mouse-up on each Chromium page, by browser id.
     private(set) var clicks: [Int32: CEFLinkClickRecord] = [:]
     private var subscription: InputSubscription?
@@ -40,6 +42,9 @@ final class CEFLinkClickTracker {
     /// for downloads, so the app's own input events are the signal, as
     /// for WebKit (`WebKitWebView`).
     var onGesture: (Int32) -> Void = { _ in }
+    /// The mapping changed or a click was recorded: what a window request decides by
+    /// (`CEFWindowRequests` pushes it to the Chromium Host).
+    var onChange: () -> Void = {}
 
     /// The context for placing a tab Chromium wants to open now.
     func context() -> CEFLinkContext {
@@ -94,6 +99,7 @@ final class CEFLinkClickTracker {
         let button = event.type == .otherMouseUp ? event.buttonNumber : 0
         clicks[browser] = CEFLinkClickRecord(gesture: BrowserLinkGesture(flags: event.modifierFlags, button: button),
                                              timestamp: event.timestamp)
+        onChange()
     }
 
     func forget(opener: Int32) {

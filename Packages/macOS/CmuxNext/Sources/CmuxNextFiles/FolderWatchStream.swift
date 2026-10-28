@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import CoreServices
 import Foundation
 
@@ -15,13 +16,16 @@ private let folderWatchCallbacks = CallbackRegistry<FolderWatchStream>(capacity:
     private let folderPath: String
     private let latency: CFTimeInterval
     private let continuation: AsyncStream<FolderChange>.Continuation
+    /// The watch's record in the arm census (Debug and bench builds; nothing in Release).
+    private let census: ArmCensusWatch
     private let queue = DispatchQueue(label: "cmux.files.fsevents", qos: .userInitiated)
     private var stream: FSEventStreamRef?
     private var token: CallbackToken?
 
-    init(folder: URL, latency: CFTimeInterval, continuation: AsyncStream<FolderChange>.Continuation) {
+    init(folder: URL, latency: CFTimeInterval, census: ArmCensusWatch, continuation: AsyncStream<FolderChange>.Continuation) {
         self.folderPath = folder.path.hasSuffix("/") ? String(folder.path.dropLast()) : folder.path
         self.latency = latency
+        self.census = census
         self.continuation = continuation
     }
 
@@ -44,6 +48,7 @@ private let folderWatchCallbacks = CallbackRegistry<FolderWatchStream>(capacity:
             self.token = token
             unsafe FSEventStreamSetDispatchQueue(created, queue)
             unsafe FSEventStreamStart(created)
+            census.armed()
         }
     }
 
@@ -62,6 +67,7 @@ private let folderWatchCallbacks = CallbackRegistry<FolderWatchStream>(capacity:
     }
 
     fileprivate func deliver(paths: [String], flags: [FSEventStreamEventFlags]) {
+        census.fired()
         var items: [String] = []
         var rescan = false
         for (path, flag) in zip(paths, flags) {

@@ -24,7 +24,7 @@ pub(super) async fn make_inside_root(
     let mut base = None;
     for ancestor in path.ancestors().skip(1) {
         if let Some(found) = fs_spelling(&ancestor.to_string_lossy()).await
-            && found.is_dir()
+            && tokio::fs::metadata(&found).await.is_ok_and(|m| m.is_dir())
         {
             base = Some((ancestor, found));
             break;
@@ -43,7 +43,7 @@ pub(super) async fn make_inside_root(
     if !make {
         return Ok(None);
     }
-    let made = tokio::task::spawn_blocking(move || make_below(&found, &rest)).await;
+    let made = crate::daemon::spawn_blocking(move || make_below(&found, &rest)).await;
     if !matches!(made, Ok(Ok(()))) {
         return Err(Some(folder_refused("cwd")));
     }

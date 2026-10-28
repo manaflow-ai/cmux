@@ -42,6 +42,7 @@ where
 {
     let (out_tx, mut out_rx) = mpsc::channel::<Message>(QUEUE);
     let (in_tx, in_rx) = mpsc::channel::<Message>(QUEUE);
+    // supervise-allow: the connection's writer; its end, a panic included, drops `out_rx`, so the Transport's sends fail and the connection ends.
     tokio::spawn(async move {
         let mut writer = BufWriter::new(writer);
         'outer: while let Some(first) = out_rx.recv().await {
@@ -62,6 +63,7 @@ where
         let _ = writer.flush().await;
         let _ = writer.shutdown().await;
     });
+    // supervise-allow: the connection's reader; its end, a panic included, drops `in_tx`, so the Transport's receive ends and the connection closes.
     tokio::spawn(async move {
         while let Ok(Some(message)) = frame::read_message(&mut reader).await {
             if in_tx.send(message).await.is_err() {

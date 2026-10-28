@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -59,7 +60,7 @@ final class TopHomePageView: NSView {
     let visibility = ViewVisibility("topHome")
     /// The page's observations (recipe R-obs). Service observations write the Home model, start reads or pick the
     /// shown conversation, which must happen while the page hides too.
-    private typealias RowFacts = (all: [InboxRow], archived: Set<String>, owned: [HomeInboxRequest.Response?])
+    private typealias RowFacts = (landed: Bool, all: [InboxRow], archived: Set<String>, owned: [HomeInboxRequest.Response?])
     private var rowsObservation: ServiceObservation<RowFacts>?
     private var selectionObservation: ServiceObservation<(pending: ConversationID?, listed: [ConversationID])>?
     private var chiefObservation: ServiceObservation<String?>?
@@ -91,7 +92,7 @@ final class TopHomePageView: NSView {
         split.autoresizingMask = [.width, .height]
         addSubview(split)
         wireList(services)
-        observe(services.home, on: services.mainWork)
+        observe(services.home, auth: services.cloud.auth, on: services.mainWork)
         services.mainWork.post(.visible, owner: "TopHomePage.firstConversation") { [weak self, home = services.home] in
             guard let self else { return }
             picksConversation = true
@@ -120,7 +121,7 @@ final class TopHomePageView: NSView {
         // A conversation shown before the page had a window takes the keyboard as `show` gives it in a window.
         guard focusesOnWindow, let window else { return }
         focusesOnWindow = false
-        if window.firstResponder === window || window.firstResponder == nil { focusPrimaryInput() }
+        focusPrimaryInputUnasked(in: window)
     }
 
     var visibilityNode: VisibilityNode { visibility.node }
@@ -234,15 +235,15 @@ final class TopHomePageView: NSView {
     }
 
     /// Follows the inbox rows and the conversation an action asked to show once it is listed (recipe R-obs).
-    private func observe(_ home: HomeService, on work: MainWorkScheduler) {
-        let store = home.homeStore, sidebar = sidebar
+    private func observe(_ home: HomeService, auth: CloudAuth, on work: MainWorkScheduler) {
+        let store = home.homeStore, sidebar = sidebar, listLaunch = home.listLaunch
         rowsObservation = ServiceObservation(.visible, owner: "TopHomePage.rows", on: work) { () -> RowFacts in
             // Read for their changes: each redraws the list. A Chief's pet character is its avatar when it has none of
             // its own, the team is read after the page opens (its teammates are rows once it lands), and a rename of a
             // Chief redraws its tile.
             _ = (sidebar.query, sidebar.pins, sidebar.unreadMarks, home.chiefFaces, home.directory.chiefHarnesses, home.chiefRoster,
-                 home.services.settings?.snapshot.homeChiefPetMascot, home.directory.teamMembers, home.chiefNames)
-            return (all: store.rows, archived: home.directory.archivedChiefs, owned: sidebar.ownerRows)
+                 home.services?.settings?.snapshot.homeChiefPetMascot, home.directory.teamMembers, home.chiefNames)
+            return (landed: listLaunch.isLanded, all: store.rows, archived: home.directory.archivedChiefs, owned: sidebar.ownerRows)
         } apply: { [weak self] facts in
             self?.rowsChanged(facts, home: home)
         }
@@ -251,7 +252,6 @@ final class TopHomePageView: NSView {
         chiefObservation = ServiceObservation(.visible, owner: "TopHomePage.chief", on: work) { Self.chief(home) } apply: { [weak self] chief in
             self?.chiefChanged(chief, home: home)
         }
-        let auth = home.services.cloud.auth
         // Another account has its own pins.
         accountObservation = ServiceObservation(.visible, owner: "TopHomePage.account", on: work) { auth.user?.id } apply: { _ in
             sidebar.reloadPins()
@@ -263,7 +263,7 @@ final class TopHomePageView: NSView {
         }
         // The unread dot is the unread rings' color (`notifications.attention.color`, nil: the notification blue).
         unreadColorObservation = VisibleObservation(visibility.node, owner: "TopHomePage.unreadColor", on: work) {
-            home.services.settings?.snapshot.attention.color?.nsColor
+            home.services?.settings?.snapshot.attention.color?.nsColor
         } apply: { [weak self] color in
             self?.list.unreadDotColor = color
         }
@@ -294,6 +294,9 @@ final class TopHomePageView: NSView {
     /// The inbox rows changed: the Chiefs' engines and pictures are read again when their Chiefs or the owner's rows
     /// changed, the requests when a conversation came or went, and the list redraws.
     private func rowsChanged(_ facts: RowFacts, home: HomeService) {
+        // Until the last launch's list is read the page is the theme background; then the seeded list shows in one frame.
+        if split.isHidden == facts.landed { split.isHidden = !facts.landed }
+        guard facts.landed else { return }
         let store = home.homeStore
         let chiefs = Set(facts.all.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
         if chiefs != badgedChiefs {
@@ -350,7 +353,7 @@ final class TopHomePageView: NSView {
         host = view
         services.home.homeDidOpen(asked: true)
         if let window {
-            if window.firstResponder === window || window.firstResponder == nil { focusPrimaryInput() }
+            focusPrimaryInputUnasked(in: window)
         } else {
             focusesOnWindow = true
         }
@@ -381,6 +384,21 @@ final class TopHomePageView: NSView {
     /// A permalink: its conversation, and its message's thread at its branch (any depth).
     func show(_ link: HomeDockSelection) { show(ConversationID(link.conversation)); if let m = link.message, let host { HomePageTab.transcript(in: host)?.reveal(message: m) } }
 
+    /// A conversation nobody opened is shown (the default or the Chief's one, one shown before the page had a
+    /// window): Home's primary input takes the keyboard only while it is free for this page, now and when the
+    /// message box is installed (`NSWindow.keyboardIsFree(for:)`). In a pane that is the focus model's answer, so
+    /// a browser page focused beside Home keeps the keys (QA chrome-parity-v2-2-2 bug 1).
+    private func focusPrimaryInputUnasked(in window: NSWindow) {
+        if isComposingNewMessage {
+            if let target = newMessage?.focusTarget, window.keyboardIsFree(for: self) { window.makeFirstResponder(target) }
+            return
+        }
+        host?.takeKeyboardOnOpen { [weak self] in
+            guard let self, let window = self.window else { return false }
+            return window.keyboardIsFree(for: self)
+        }
+    }
+
     /// Home's primary input (the message box; To: on the New Message page) takes the keyboard:
     /// the message box at once or, while the shown conversation's first page loads, once it exists.
     func focusPrimaryInput() {
@@ -397,8 +415,8 @@ final class TopHomePageView: NSView {
     /// File menu, `cmux action run home.newMessage`): a selected "New
     /// Message" row at the top of the list and the New Message page in the
     /// transcript column, with the caret in To:. A kept draft comes back as
-    /// the person left it.
-    func presentNewMessage() {
+    /// the person left it. `focus` false leaves the keyboard where it is (a discarded page made again).
+    func presentNewMessage(focus: Bool = true) {
         guard let services else { return }
         let page = newMessage ?? makeNewMessage(services)
         if page.superview == nil {
@@ -414,7 +432,7 @@ final class TopHomePageView: NSView {
         page.needsLayout = true // invalidate: the page shows now; it lays out at the column's size before it takes focus.
         // sync-layout: the To: field takes focus below, at its frame in the shown page.
         page.layoutSubtreeIfNeeded()
-        window?.makeFirstResponder(page.focusTarget)
+        if focus { window?.makeFirstResponder(page.focusTarget) }
     }
 
     private func makeNewMessage(_ services: AppServices) -> HomeNewMessageView {

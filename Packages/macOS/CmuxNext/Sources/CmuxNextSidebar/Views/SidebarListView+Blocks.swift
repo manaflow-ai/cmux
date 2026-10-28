@@ -198,11 +198,11 @@ extension SidebarListViewComponents {
 
     /// A press on item `id` of block `section` moved: past the threshold the
     /// list's one drag lifts it (the tile's snapshot follows the pointer).
-    func dragTile(_ id: LayoutItemID, section: String, in region: SidebarRegionView, from start: NSPoint, _ event: NSEvent) -> Bool {
+    func dragTile(_ id: LayoutItemID, section: String, in region: SidebarRegionView, from start: NSPoint, to windowPoint: NSPoint) -> Bool {
         if drag == nil {
             abandonSettle()
             guard let doc = model.docDrag, !model.locksReorder, let view = region.itemView(id) else { return false }
-            let origin = convert(start, from: nil), point = convert(event.locationInWindow, from: nil)
+            let origin = convert(start, from: nil), point = convert(windowPoint, from: nil)
             guard SidebarPress.movedPastThreshold(from: origin, to: point) else { return false }
             endLanding()
             hoverCards.dismiss(.click)
@@ -231,7 +231,7 @@ extension SidebarListViewComponents {
             setHovered(nil)
             showDragLayout() // the tile's slot closes on the drag's spring
         }
-        updateDrag(windowPoint: event.locationInWindow)
+        updateDrag(windowPoint: windowPoint)
         return true
     }
 

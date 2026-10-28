@@ -348,7 +348,8 @@ import Testing
         let folder: URL
         /// The document scroll the engine reports.
         var scrollY = 0
-        private let pageClock = ManualClock()
+        /// Never fired: the pages' Chromium fallback never runs out.
+        private let pageDeadlines = MainDeadlineRig()
 
         init() throws {
             folder = FileManager.default.temporaryDirectory.appending(path: "page-discard-\(UUID().uuidString)")
@@ -369,7 +370,7 @@ import Testing
             guard let page = PageWebView(descriptor: PageDescriptor(id: "test.discard", resource: "discard", processGroup: .solo, namespaces: []),
                                          root: folder, routes: [], chromium: hosting) else { return NSView() }
             // The engine's no-message deadline never runs out here.
-            page.chromiumClock = pageClock
+            page.chromiumDeadlines = pageDeadlines.deadlines
             return page
         }
 

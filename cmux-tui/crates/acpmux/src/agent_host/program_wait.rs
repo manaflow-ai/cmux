@@ -47,7 +47,7 @@ pub async fn spawn_within(
 fn missing(program: &str) -> bool {
     let path = Path::new(program);
     path.is_absolute()
-        && matches!(std::fs::metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+        && matches!(cmux_blocking::fs::metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
 }
 
 /// Returns once `program` exists, or fails after `budget`. Watches the
@@ -118,7 +118,10 @@ fn watch_dirs(path: &Path) -> Vec<PathBuf> {
     let mut link = path.to_path_buf();
     // A bounded chain: a loop of links never resolves.
     for _ in 0..8 {
-        let Ok(target) = std::fs::read_link(&link) else { break };
+        #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+        let read =
+            scoped_blocking_call("fs::read_link", BlockingKind::Fs, || std::fs::read_link(&link));
+        let Ok(target) = read else { break };
         let target = match link.parent() {
             Some(parent) if target.is_relative() => parent.join(target),
             _ => target,
@@ -142,5 +145,8 @@ fn not_found(e: &notify::Error) -> bool {
 }
 
 fn nearest_existing_ancestor(path: &Path) -> Option<PathBuf> {
-    path.ancestors().skip(1).find(|dir| dir.is_dir()).map(Path::to_path_buf)
+    path.ancestors()
+        .skip(1)
+        .find(|dir| cmux_blocking::fs::metadata(dir).is_ok_and(|m| m.is_dir()))
+        .map(Path::to_path_buf)
 }

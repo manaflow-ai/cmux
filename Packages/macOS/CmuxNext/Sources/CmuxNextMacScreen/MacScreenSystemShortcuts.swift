@@ -1,6 +1,7 @@
 public import AppKit
 import ApplicationServices
 import CmuxNextRemoteView
+import CmuxNextWakeups
 public import Observation
 
 /// "Send System Shortcuts to the Remote Mac" (`macScreen.systemShortcuts`):
@@ -42,33 +43,39 @@ public final class MacScreenSystemShortcuts {
     @ObservationIgnored private let tap = RemoteSystemShortcutTap()
     @ObservationIgnored private let policy = RemoteSystemShortcuts()
     @ObservationIgnored private let host: MacScreenShareHost
-    @ObservationIgnored private var observers: [any NSObjectProtocol] = []
+    /// The app's one observer per notice (Chromium's app controller observes NSApp once,
+    /// chrome/browser/app_controller_mac.mm).
+    @ObservationIgnored private let appEvents: AppEvents
+    @ObservationIgnored private var subscriptions: [EventSubscription] = []
 
-    init(host: MacScreenShareHost) {
+    init(host: MacScreenShareHost, appEvents: AppEvents) {
         self.host = host
+        self.appEvents = appEvents
         tap.stillHolds = { [weak self] in self?.target() != nil }
         tap.onRemoved = { [weak self] in self?.tapInstalled = false }
     }
 
     /// At launch: follows app activation (rechecking Accessibility after
-    /// System Settings) and every window's key state.
+    /// System Settings) and every window's key state. No node: the tap must
+    /// come off the moment the app or the window loses focus, whatever shows.
     func start() {
         refreshAccessibility()
-        guard observers.isEmpty else { return }
-        let center = NotificationCenter.default
-        observers = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification].map { name in
-            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
-                let active = notification.name == NSApplication.didBecomeActiveNotification
-                MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    if active { self?.refreshAccessibility() }
-                    self?.update()
-                }
-            }
-        } + [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
-            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.update() } // main-proof: observer on queue: .main
-            }
-        }
+        guard subscriptions.isEmpty else { return }
+        subscriptions = [
+            appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "MacScreenSystemShortcuts.active") { [weak self] in
+                self?.refreshAccessibility()
+                self?.update()
+            },
+            appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "MacScreenSystemShortcuts.resign") { [weak self] in
+                self?.update()
+            },
+            appEvents.subscribe(NSWindow.didBecomeKeyNotification, owner: "MacScreenSystemShortcuts.key") { [weak self] in
+                self?.update()
+            },
+            appEvents.subscribe(NSWindow.didResignKeyNotification, owner: "MacScreenSystemShortcuts.resignKey") { [weak self] in
+                self?.update()
+            },
+        ]
     }
 
     /// Asks macOS for Accessibility; when it does not show its prompt, opens

@@ -1,15 +1,18 @@
+import CmuxNextCompat
 import Foundation
 import Security
 
 /// Strictly checks every executable item in a downloaded runtime against the
-/// Developer ID team embedded in the app's signed runtime pin.
+/// Developer ID team embedded in the app's signed runtime pin. Each item's
+/// answer is kept per version of it (``StaticCodeValidityCache``): the
+/// installer checked the same items before this load.
 struct SecCodeCEFCodeSignatureChecker: CEFCodeSignatureChecking {
     nonisolated func invalidItem(in layout: CEFRuntimeLayout, teamID: String) -> String? {
         guard !teamID.isEmpty,
               teamID.allSatisfy({ $0.isASCII && ($0.isUppercase || $0.isNumber) }) else {
             return "missing Developer ID team"
         }
-        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: layout.frameworksDirectory.path) else {
+        guard let entries = try? FileManager.checked.contentsOfDirectory(atPath: layout.frameworksDirectory.path) else {
             return layout.frameworksDirectory.lastPathComponent
         }
         let helpers = entries
@@ -18,19 +21,8 @@ struct SecCodeCEFCodeSignatureChecker: CEFCodeSignatureChecking {
             .map { layout.frameworksDirectory.appending(path: $0) }
         let items = [layout.frameworkDirectory, layout.shim] + helpers
         guard !helpers.isEmpty else { return layout.helperApp.lastPathComponent }
-        return items.first(where: { !isValid($0, teamID: teamID) })?.lastPathComponent
-    }
-
-    private nonisolated func isValid(_ item: URL, teamID: String) -> Bool {
-        var code: SecStaticCode?
-        // SAFETY: the call writes one retained SecStaticCode reference into `code`, an optional of that type.
-        guard unsafe SecStaticCodeCreateWithPath(item as CFURL, [], &code) == errSecSuccess, let code else { return false }
-        var requirement: SecRequirement?
-        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(teamID)\""
-        // SAFETY: the call writes one retained SecRequirement reference into `requirement`, an optional of that type.
-        guard unsafe SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess,
-              let requirement else { return false }
+        let requirement = "anchor apple generic and certificate leaf[subject.OU] = \"\(teamID)\""
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
-        return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
+        return items.first(where: { !StaticCodeValidityCache.process.isValid($0, flags: flags, requirement: requirement) })?.lastPathComponent
     }
 }

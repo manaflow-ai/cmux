@@ -19,6 +19,8 @@ extension AcpmuxHost {
                                             ledger: WakeupLedger = .shared) async throws {
         let step = max(min(backoff.next(), remaining), .zero)
         // wakeup-allow: backoff a bounded socket retry; the caller's 3 s deadline ends the retries.
+        // timer-class-allow: off main (a nonisolated static wait): one backoff step, flexible through Backoff's
+        // tolerance; it wakes no main-thread job, and the caller's deadline bounds the retries
         try await clock.sleep(for: step, tolerance: Backoff.tolerance(for: step))
         ledger.record("agent-pane.daemon-socket", reason: "backoff")
     }

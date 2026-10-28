@@ -15,12 +15,14 @@ public final class SnapshotRequestRequest implements WireValue {
     private final Field<SnapshotRequestHave> have;
     private final Field<String> reason;
     private final Field<String> requestId;
+    private final Field<Integer> stream;
     private final UInt64 surface;
 
     private SnapshotRequestRequest(Builder builder) {
         this.have = builder.have;
         this.reason = builder.reason;
         this.requestId = builder.requestId;
+        this.stream = builder.stream;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
     }
@@ -30,6 +32,7 @@ public final class SnapshotRequestRequest implements WireValue {
     public Field<SnapshotRequestHave> have() { return have; }
     public Field<String> reason() { return reason; }
     public Field<String> requestId() { return requestId; }
+    public Field<Integer> stream() { return stream; }
     public UInt64 surface() { return surface; }
 
     public static SnapshotRequestRequest fromWire(Object value) {
@@ -47,6 +50,10 @@ public final class SnapshotRequestRequest implements WireValue {
         if (!Wire.isMissing(rawRequestId)) {
             builder.requestId(rawRequestId == null ? null : Wire.string(rawRequestId, "SnapshotRequestRequest.request_id"));
         }
+        Object rawStream = Wire.optional(object, "stream");
+        if (!Wire.isMissing(rawStream)) {
+            builder.stream(rawStream == null ? null : Wire.uint16(rawStream, "SnapshotRequestRequest.stream"));
+        }
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "SnapshotRequestRequest.surface"));
         return builder.build();
@@ -58,6 +65,7 @@ public final class SnapshotRequestRequest implements WireValue {
         Wire.put(object, "have", have);
         Wire.put(object, "reason", reason);
         Wire.put(object, "request_id", requestId);
+        Wire.put(object, "stream", stream);
         Wire.put(object, "surface", surface);
         return Collections.unmodifiableMap(object);
     }
@@ -65,11 +73,11 @@ public final class SnapshotRequestRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SnapshotRequestRequest that)) return false;
-        return Objects.equals(have, that.have) && Objects.equals(reason, that.reason) && Objects.equals(requestId, that.requestId) && Objects.equals(surface, that.surface);
+        return Objects.equals(have, that.have) && Objects.equals(reason, that.reason) && Objects.equals(requestId, that.requestId) && Objects.equals(stream, that.stream) && Objects.equals(surface, that.surface);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(have, reason, requestId, surface); }
+    public int hashCode() { return Objects.hash(have, reason, requestId, stream, surface); }
 
     @Override
     public String toString() { return "SnapshotRequestRequest" + toWire(); }
@@ -78,6 +86,7 @@ public final class SnapshotRequestRequest implements WireValue {
         private Field<SnapshotRequestHave> have = Field.omitted();
         private Field<String> reason = Field.omitted();
         private Field<String> requestId = Field.omitted();
+        private Field<Integer> stream = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
 
@@ -91,6 +100,10 @@ public final class SnapshotRequestRequest implements WireValue {
         }
         public Builder requestId(String value) {
             this.requestId = Field.ofNullable(value);
+            return this;
+        }
+        public Builder stream(Integer value) {
+            this.stream = Field.ofNullable(value);
             return this;
         }
         public Builder surface(UInt64 value) {

@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "pageSpringResizeOnce",
+  "owner": "PL-cef-layer",
+  "description": "A page in a pane that springs (a split, a close, a zoom) takes its final size once at the spring's start, held at its top-left with the page color in the gap, and a page in its own window hides while its pane shows a render-server move.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["pane-bench", "motion"],
+  "sticky": false,
+  "runtimeMutable": false
+}

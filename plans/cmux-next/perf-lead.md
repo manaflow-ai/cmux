@@ -118,7 +118,7 @@ palette linear grouping (Aziz 59564e6e), WebKit title coalesce (Aziz ff167aa9).
 | F5 | Work follows what exists, not what changed | idle main wakes 27-107/s, 358 KB/s idle disk writes, 368 indicators per Cmd-Tab (fixed), sidebar 17 % CPU ticking at 400 ws | one observer per visible thing; no timers; writes only on new information | batch 2 |
 | F6 | One process per terminal | 392 processes heavy (172 terminal hosts), 8.2 MB per workspace | keep crash isolation another way: a holder keeps PTY fds + byte rings, VT parsing in a small worker pool that restarts from the ring (PL-daemon, terminal-host-model-DESIGN.md) | now: holder items 1-3 and the item 5 prerequisites landed (flag still off); item 4 GUI dogfood queued as exclusive measure steps (scripts/measure/holder-dogfood.sh, allowlisted in hq ebe0d8c61fc; aws-m4pro-9, cmuxs-Mac-mini-3, cmux12s); default on (item 5, branch pl-daemon-holder-6, 454518e270a, its suite green on the fleet) lands after the dogfood |
 | F7 | Creates wait for the daemon's echo; stand-ins added per command | terminals instant, browser tabs not | one intent + stand-in path for every create | PL-cef-tab now |
-| F8 | Hidden things keep full cost | hidden Chromium tab 55 MB, Home 793 MB vs ~70 MB floor | discard engines past a grace, keep a record and picture | batch 2 |
+| F8 | Hidden things keep full cost | hidden Chromium tab 55 MB, Home 793 MB vs ~70 MB floor | discard engines past a grace, keep a record and picture; budgets from RAM, one memory coordinator per process, renderer limit from RAM (PL-memory, [memory-DESIGN.md](memory-DESIGN.md); done checks DC1-DC18 there, results recorded here) | batch 2 |
 | F10 | Daemon requests are slow | split 107-112 ms p50, new terminal 114/660 ms p50/p95 loaded | profile each op, fix causes; local request < 2 ms (PL-daemon) | now |
 | F11 | Ghostty integration (audit) | 20 idle terminals 7.3 % CPU, 7.8 MB per terminal; possible double VT parsing (daemon + app) | ghostty-integration-DESIGN.md (PL-ghostty) | now |
 | F12 | Two web engines for browser tabs (every feature built twice) | WebKitEngine + CEFEngine, per-tab engine | Lawrence 2026-10-23: KEEP BOTH ENGINES. Every perf target applies to both; no removal | closed |
@@ -166,6 +166,32 @@ holder's live terminals, with the A3 reconcile notice. Target: every daemon op <
 
 Owners: D1-D8 cmux-b6 PL-daemon (speed) with PL-holder (cmux-4f) for the holder side; acpmux (A1-A3 and its share of D1-D8) end to end cmux-4f PL-acpmux, audit and fixes (lead decision 2026-10-23; OWNERS.md 8b1e64c6130; [acpmux-audit.md](acpmux-audit.md)). Every fix meets the brief's REVIEW AND FIX STANDARD and gets the deep review (cmux-next-deep-review).
 
+### Chrome runtime idle services (p13-webui-084)
+
+Rule (chrome-parity p13 F, "Home at the floor"): a Chrome runtime service cmux does not use does
+not run at Home. Census from the Chromium 154 sources (cef-154.0.28-cmux.28, Chromium 154.0.8037.58);
+each switch and its source is a constant in `CEFSwitches.swift` (`syncOffSwitch`, and
+`idleServiceOffFeatures` in the one `disable-features` entry), which the Chromium Host passes too. Not measured yet: the home bench and the browser automation suite run
+before and after on the fleet (test phase); the wake rates below are from the sources.
+
+| Service | Idle work at Home (source) | Decision |
+|---|---|---|
+| HangWatcher | a thread per Chromium process (app, GPU, network, renderers) wakes every 10 s, `base/threading/hang_watcher.cc` | off: `disable-features=EnableHangWatcher,EnableHangWatcherOnGpuProcess`; its dumps need Crashpad upload, cmux ships no `crash_reporter.cfg` |
+| Sync | SyncServiceImpl, engine and invalidations per profile, `components/sync/base/command_line_switches.h` | off: `disable-sync`; no Google sign-in, cmux owns bookmarks, password code is null-safe |
+| Optimization Hints | hints component registered with the component updater, `optimization_hints_component_installer.cc` | off: `disable-features=OptimizationHints` (Puppeteer and chrome-launcher do the same) |
+| Optimization guide models (`OptimizationTargetPrediction`) | model downloads through the optimization guide | kept: Safe Browsing client-side detection gets its model here (`client_side_detection_service.cc`) |
+| Component updater | first check 1 min after start, then every 5 h, `components/component_updater/configurator_impl.cc` | kept (written decision): it installs the Widevine CDM (browser.md, Lawrence 2026-10-17) and CRLSet |
+| Safe Browsing | list updates | kept (written decision): no change; phishing and malware protection stays on (p14-energy: "Safe Browsing and CRLSet stay") |
+| Variations seed fetch | none: a build without Chrome branding fetches only with `--variations-server-url`, `components/variations/service/variations_service.cc` IsFetchingEnabled | already off; `disable-field-trial-config` stays |
+| Media Router (Cast) | none before a Cast click: `kDelayMediaSinkDiscovery` is on by default, `chrome/browser/media/router/media_router_feature.cc` | kept: the page menu's Cast row works |
+| Translate | language detection after a page load, not at idle | kept: the page menu's Translate rows work |
+| GCM | delayed start; no app handler registers (`disable-notifications` turns off Push, sync is off) | no switch |
+| Network time | a timer every 360 s, a query at about 1.2 % of checks, `components/network_time/network_time_tracker.cc` | kept: it feeds the cert verifier's clock (`cert_verifier_service_time_updater.cc`); 0.003 wakes/s |
+| Domain Reliability | none without metrics consent, `chrome/browser/domain_reliability/service_factory.cc` | already off |
+
+Tell: the browser owner, PL-cefhost (OWNERS.md row for the CEF files; this task holds the `CEFSwitches.swift`
+lease, coordination/cefs-leases.md).
+
 ## 4. Workstreams (batch 1)
 
 Each workstream is one subagent in its own worktree, lands on feat-cmux-next (rebase, plain
@@ -198,6 +224,36 @@ push), and writes its before/after table into this file's section 5.
   [chrome-parity/p04-input.md](chrome-parity/p04-input.md).
 
 Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
+
+### One shared CEF fork train and pin (chrome-parity p07-memory 074)
+
+Every program's fork export ships in one manaflow-ai/cef build and one pin, as Chrome ships every
+feature of a milestone from one branch with one version number (chrome/VERSION). No program bumps
+`scripts/cmux-next/cef-manifest.json` alone.
+
+- The ledger is `scripts/cmux-next/cef-fork-train.json`: each export with its program, the fork API
+  number its cmux gate checks (null until the train numbers it) and its fork commit. The train branch
+  is `cp/p07-memory-074` on manaflow-ai/cef, started 2026-10-26 at the p01-process 178 train
+  (746f1220, API 31). Each program's train task merges its exports into it: p01-process 178 (176, 227),
+  p03-rendering 041/042 (API 32 resize fence), p13-webui 086 (011, 017, 018, 020, 077),
+  p14-energy 136 (037 and the rest of its bundle), and the p07 fork work (051 voter, 101 BFCache
+  flush, 069 PartitionAlloc purge; 046 rides on the API 29 renderer paths, 049 on p13-webui 011).
+- `scripts/cmux-next/cef-fork-train.py status --fork-repo <cef clone>` shows each export merged,
+  ready (pushed, not merged), pending (no fork commit) or deferred; `ready` is the build gate: every
+  export that is not deferred is merged and the train's `CMUX_CEF_API_VERSION` is the ledger's. A
+  deferred export may not keep a number at or below the train's, so no gate reads the build as
+  having it. `check` also refuses an app gate (`...ForkAPI = N` newer than the pin) that no export claims.
+- Hole at 2026-10-26: API 28 (cmux.34 capture) and 29 (cmux.35 renderer paths, the gate of
+  `CEFForkFeatures.rendererPathsForkAPI` and of p07-memory 046) have no commit on the fork remote.
+  The API 31 line lacks them, so with a pin of that line alone `CEFForkFeatures.rendererPaths`
+  would read the renderer paths as present on a fork without them. Before the cut, push them to the train or move their gates past its number.
+- The cut: one `cmux-ci build cef` of the train (arm64, x86_64, debug assets), one GitHub release,
+  then `cef-fork-train.py pin --tag <tag> --sums SHA256SUMS --chromium <version> --fork-repo <clone>`
+  writes the manifest and the pin commit message (fork API, features per program, checksums). The
+  one outside step is the R2 upload: a person with R2 write access runs
+  `scripts/cmux-next/publish-cef-r2.sh <tag> --manifest scripts/cmux-next/cef-manifest.json`, and
+  its r2 fields go in the same pin commit. `check-manifest` refuses any other bump. The runtime pack
+  pin (`cef-runtime.json`) names the build's `fork_api`.
 
 ## 5. Results log
 
@@ -291,7 +347,110 @@ Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
 | 2026-10-26 | p01-process-005 baseline (pending) | - | per-role memory split (light to heavy) | not measured. Earlier estimate, quoted as written (speed-of-sound-DESIGN.md gap 11; its parts are approximate and do not add up to its total): "Each workspace costs 8.2 MB: a terminal host process (2.3 MB) and a shell (2.3 MB) per terminal, ~1.5 MB in the daemon and ~3 MB in the app". No split by role with shared mappings counted once exists yet | - |
 | 2026-10-26 | p04-input-077 (day-1 input hotspots, queue MQ-input-hotspots) | perf/chrome-parity, this push (scripts only) | 5, 26: the main-thread stacks that own a key's or a click's time, light and STRESS | no per-stack view of input windows: trace.py summarizes stalls and key-flow hops, the benches report percentiles only | `scripts/cmux-next/input-hotspots.py run --app APP --out DIR` records typing-frame-bench (terminal, home, omnibar), home-perf, sidebar-churn-typing `--input real` (400 workspaces in light) and an every-action sweep of nextSurface and commandPalette, and its own `clicks` bench (40 tab clicks and 40 sidebar row clicks through `debug.mouse`, light and STRESS) under `trace.py record --bundle` with key-press flows (`BENCH_LAUNCH_TRACE_FLOWS`), then folds the main-thread samples of the app process that emitted each input window (key.flow to the echo commit, key.frame, a switch.tab or switch.workspace that a driven click caused, from the click's send; a person's action.commit) into artifacts/input-hotspots.json (`cmux-input-hotspots/v1`: one row per stack top that is the largest of a window over 4 ms, with surface, session, stack_top, file:line, share_ms_p95) and the click-to-commit gaps (prewarm candidate for p04-input-042 at p95 >= 30 ms over at least 20 clicks). Switches that automation caused (setup, restore) are left out and counted. plan.json keeps each recording's exit after each one; a failed, timed-out or empty recording sets `ok` false and `run` / `fold` exit 3. `--self-test` green (fixtures, Linux). **Not measured yet**: the GUI base run on a mini with the input grant is the next step; each row it prints is one fix task |
 | 2026-10-26 | p13-webui-052 (code cache spike for cmux pages) | perf/chrome-parity, this push (bench arm only); manaflow-ai/cef `cp/p13-webui-052` at `a65b72d6` (code at `c6af944a`; not built, not pinned) | F3: a cmux page's cold open (its renderer is new) | every cmux-page script compiles again in each new renderer: Chromium caches no custom-scheme script and makes no code cache for the off-the-record pages profile | **not measured** (it needs the split build of 049, which is on perf/chrome-parity: inline scripts get no code cache): `bench-webui.py open` with and without `--page-code-cache` on one mini, one build of the fork branch ([webui-DESIGN.md](webui-DESIGN.md) 5.4). No app code lands unless `settings.cold_open_ms` p95 gains beyond the off arm's spread and `settings.open_ms` (warm, the control) gets no worse. Cold open replaces the task's warm open: a live renderer already holds its scripts in V8, so no warm open can show this cache. Entries are keyed by the renderer's lock, so on this fork ref (one lock per page origin) two pages do not share a `cmux-page://cmux.shared/` chunk's entry; that needs 011's group lock and is not claimed |
+| 2026-10-26 | p04-input-075 (test phase, static half) | base 772cdfc45ac vs head 538844b3bd4 (perf/chrome-parity) | 5, 6, 26: DC6, DC7, DC14 of p04-input | 33 NSEvent monitors outside the tap, 28 `currentEvent` reads, 3 tracking loops, 153 non-Swift main hops, 53 per-event pointer handlers, 45 observation hops | 0, 0, 0 (DC6 and DC7 pass); DC14 fails: 101 unallowed main hops, 50 pointer handlers with no coalescer, 18 `resetCursorRects`, 4 global-state reads in NSEvent handlers; observation hops 0. Runtime DCs not measured (see [Input pipeline done checks](#input-pipeline-done-checks-p04-input-075)) |
+| 2026-10-26 | p02-threads-301 RUN-5 suites half (MQ-13, from p02-threads-303's run) | cp/p02-threads-303 at 96960323425 (has 210, 220, 225; not 211, 221, 231) | RUN-5: `cargo test -p cmux-tui-core -p cmux-tui`, daemon Debug in panic mode, 0 blocking panics on request or echo threads | - | **fail**: `RUN-5 fail panic_only_failures=254 shared_failures=215 blocking_panics=15 sites=21 mq13_tasks=204`; the 15 panic sites are the first fix tasks, the 204 record-mode rows are the MQ-13 list ([results/p02-threads-303](chrome-parity/results/p02-threads-303/README.md)). 360-core Linux VM (no macOS), Debug, ghostty-next 723c4ab93e7. **Missing, task 301 stays open**: RUN-5's bench half (`daemon-blocking-sweep.py bench`: perf-10x-lifecycle part=daemon, server.blocking sites and op p95 against the merge base) is not run by 303 or 301 |
+| 2026-10-27 | p02-threads-301 RUN-2 (blocking probe, MQ-11) (pending) | - | RUN-2: 0 main-thread waits >= 1 ms in cmux code and < 0.5 ms cmux main off-CPU per action at p99, every action light + STRESS; app_chromium total as an open number for p01-process | - | **not measured, task 301 stays open**. The controller refuses the run at cp/p02-threads-301 0a4eb3580a4 (2026-10-27, `invalid ci-step: script scripts/measure/blocking-probe.sh is not on the measurement list: an unlisted scripts/measure script runs only at a commit on feat-cmux-next or main`), and feat-cmux-next's blocking-probe.sh (91f2976c551) has no filing. Run it when this script is on the measurement list or at a feat-cmux-next commit that has it: `cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/blocking-probe.sh --ref SHA --key p02-threads-301 --artifact artifacts/blocking-probe.tar.gz --arg=--config=bench`; replace this row and the next with its `perf-lead-rows.md` (sha, host, macOS), and file `blocking-probe-filing.json`'s mq11 and mq13 tasks (mq13 tasks with `known` "known" are on the 303 list at the same path, line, kind and thread; "unknown" ones need a check against it). The probe sums each stack over the run, so the per-action p99 is not measured: RUN-2 passes only when the run's whole cmux main off-CPU time is under 0.5 ms |
+| 2026-10-27 | p02-threads-301 daemon request and echo threads (blocking probe, MQ-13; not RUN-5's server.blocking bench) (pending) | - | MQ-13 sites: the app session owner's request and echo threads under the same sweep, one task per (location, kind, thread) | - | **not measured**: the same run as the RUN-2 row above |
+| 2026-10-27 | p13-webui-079 (Mojo-like page push channel) | perf/chrome-parity, this push (default-off feature `pagePushChannel`); manaflow-ai/cef `cp/p13-webui-079` at `37353c1b` (API 39, not built, not pinned) | F3: host events into cmux pages, 10 Hz x 10 pages | every delivery is a script: one compile in the page per run of envelopes (`Runtime.evaluate`, or `tabEvaluate` on fork 29), and a DevTools reply per script | **not measured** (needs a fork build of 37353c1b in the train, 086): `bench-webui.py push` with and without `--enable-feature pagePushChannel` on one mini, one build: `push.round_trip_ms` p99 and `push.renderer_cpu_ms_per_1000`. The feature turns on by default only with a gain beyond the off arm's spread in one of them; otherwise it stays off and this row records the loss. With the channel, `push.script_deliveries.on` must read 0 |
+| 2026-10-26 | p08-startup-069 baseline (partial) | 772cdfc45ac (the p08-startup base); tools `cp/p08-startup-069` at 0be5a7f962a | how it runs | - | `scripts/cmux-next/startup-baseline.py` runs every part of task 069 against one bench build and prints these rows (one per number, p50 / p95 / p99 / max, each naming host, macOS, refresh, display, sha and config): bench-startup warm x20 and cold x10 (realistic profile; when the base cannot seed it, task 072's 24-workspace terminal session, and the row says so), trace.py launch-warm x5 (startup-queue profile, Q6), startup-queue blocking / mainjobs / globaljobs / arms (Q5, Q11, Q12, Q13), xctrace App Launch x5, the STRESS session restored by bench-startup warm x10, and startup-queue gaps (Q7). The base is measured from a scratch ref, 772cdfc45ac with only the tools' Python files laid over it (`cp/p08-startup-069-m772c`, c53cc72f2cc). Fleet: `cmux-ci run --class exclusive --measurement --label measure --pool perf-lead --script scripts/measure/split-spring.sh --ref c53cc72f2cc8539dcc8e05fdca326f4849565538 --artifact artifacts/split-spring/report.json --arg=--config=bench --arg=--vdisplay=120 --arg=--vdisplay-hold=7200 --arg=--suite=startup-baseline --arg=--measured-sha=772cdfc45ac399e8557215eb68e720bb3c51a66b`; the rows are in the log between ROWS-BEGIN and ROWS-END. Task 070 runs the same at the tip with `--until-mark=startup_complete` |
+| 2026-10-26 | p08-startup-069 baseline (partial) | 772cdfc45ac | App Launch x5 (xctrace `App Launch --launch`), the closed life-cycle periods in table order (period names not read: the parser of that run took the column title `States`; fixed in 0be5a7f962a, which keeps the first rows of each export) | period 1 (the first; its length matches the 2.9 s before `main_start` of task 072) p50 2761.1 / p95 2792.9 / p99 2794.3 / max 2794.6 ms; period 2 p50 43.9 / p95 53.5 / max 54.9; period 3 p50 49.4 / p95 60.9 / max 62.5; period 4 p50 6.4 / p95 8.5 / max 8.7; period 5 p50 7365.3 / max 9768.5 (n 5 each). Launch 5 had period 1 of 306.2 ms, launches 1-4 2749-2795 ms: the 2.9 s before `main_start` that task 072 found is not fixed per launch, so it is not the executable's own work (open: which system check it is). Host cmux19-perf, macOS 27.0 (26A425), 120 Hz, display virtual (CGVirtualDisplay, main) 1920x1200, sha 772cdfc45ac, config bench (an unstamped bench-hooks bundle: reload.sh at 772cdfc45ac has no CMUXBuildConfiguration stamp; the executable has the bench-hooks marker and no .debug.dylib); fleet step efd3a6cf8049a616f232e8e0 | - |
+| 2026-10-26 | p08-startup-069 baseline (partial) | 772cdfc45ac | launch warm and cold, first live terminal frame (24-workspace terminal seed, no agent chat) | warm n 1: 3345 ms since process start; cold n 1 (daemon stopped, file cache NOT purged: cmux19-perf has no `sudo -n purge` right): 3304 ms. The realistic profile cannot be seeded at 772cdfc45ac (`the seeding launch never drew a terminal`), and bench-startup refused its own run 2 (a quit app's Chromium helpers outlive it for a moment); fixed in 0be5a7f962a (one bench-startup invocation per run, the tag's app processes stopped first). For 10 warm runs at this sha see startup-DESIGN.md section 11 (task 072: `main_start` to `first_window_frame_committed` p50 270.6 ms, p95 280.3, cmux22-perf). Same host, macOS, display, sha, config and step as the row above | - |
+| 2026-10-26 | p08-startup-069 baseline (partial) | 772cdfc45ac | not measured at 772cdfc45ac, with the reason | Q6 profile (trace.py launch-warm x5 ran, 280 s): startup-queue read no run, because the traces have no `first_window_frame_committed` or `first_terminal_frame` mark (cause not checked). Q5, Q11, Q12, Q13 live: each stopped at run 1 because `first_terminal_frame` did not arrive in 60 s (the restored focus was not a terminal); 0be5a7f962a waits for `first_window_frame_committed` instead. Even then, Q11-Q13 read `debug.startup`, which has no handler at this sha (`git grep debug.startup 772cdfc45ac` finds none), and Q5 needs a blocking detector, which a `--config bench` build may not have (a `--config bench-checks` build is the input). STRESS x10: the builder's launch waited for `first_content`, which this sha does not send (fixed in 0be5a7f962a). `startup_complete` and `cef.initialize_started`: not sent by this sha. Same host and step as above | - |
+| 2026-10-26 | p08-startup-069 baseline (partial) | 772cdfc45ac | the rerun with the fixed tools | not run: each perf host was under reload.sh's 40 GiB free-home floor when its build started (steps 44d8a88957633f3fa4a8705a cmux22-perf and 4a1527187638a2687e24542d cmux21-perf: 38 GiB free; the worker list showed 30-41 GiB on cmux17-24-perf), and the controller does not allow `CMUX_NEXT_MIN_FREE_GIB` on a ci-step. Rerun the command in the first row when a perf host has 43 GiB or more free (the step's checkout takes about 3 GiB before the check) | - |
+| 2026-10-26 | p08-startup-070 (after numbers, done check 1 of 15) | perf/chrome-parity at `5ac4dd1680c` | 18: warm launch, first frame p50 <= 150 ms, p95 <= 180 ms; startup_complete p50 <= 800 ms | no 069 baseline on the branch; last on record, before the program: first frame 217-263 ms, live tree 351-936 ms at 24 workspaces (#17587) | **not measured** (no fleet GUI run at this sha); `bench-startup.py --mode warm --profile realistic --runs 20 --require-optimized`. All 15 rows with evidence: [startup-DESIGN.md](startup-DESIGN.md) section 14 |
+| 2026-10-26 | p08-startup-070 (done check 2) | perf/chrome-parity at `5ac4dd1680c` | 18: cold launch, first frame p50 <= 300 ms, p95 <= 360 ms; startup_complete p50 <= 1500 ms | no 069 baseline | **not measured**; `bench-startup.py --mode cold --temperature cold --runs 10` (host with `sudo -n purge`) |
+| 2026-10-26 | p08-startup-070 (done check 3) | perf/chrome-parity at `5ac4dd1680c` | 18: first frame is the picture (`first_commit_layer_tree`, `views_built == 0`) | - | **FAIL (tree)**: `debug.startup` has neither field (0 hits in `Packages/`); no run can pass it at this sha |
+| 2026-10-26 | p08-startup-070 (done check 4) | perf/chrome-parity at `5ac4dd1680c` | 18: main thread at launch | - | **FAIL (tree)**: allowlist 14 (<= 15, pass); `main_cpu_ms_to_first_frame` is not a `debug.startup` field; `startup-lint.py` (104) is not in the tree |
+| 2026-10-26 | p08-startup-070 (done check 5) | perf/chrome-parity at `5ac4dd1680c` | 18: no hangs at launch, 20 warm + 10 cold | - | **not measured**; `debug.hangs` on the runs of checks 1 and 2 |
+| 2026-10-26 | p08-startup-070 (done check 6) | perf/chrome-parity at `5ac4dd1680c` | 18: no blocking at launch | - | **not measured**; `startup-queue.py blocking --runs 5` on a `--config bench-checks` app, `blocking-probe.sh --until-mark first_window_frame_committed` |
+| 2026-10-26 | p08-startup-070 (done check 7) | perf/chrome-parity at `5ac4dd1680c` | 18: Chromium at launch, STRESS, 20 runs | - | **not measured**; the check's `RestoredPageLoader` is `TabContentCache.defersRestoredPages` at this sha |
+| 2026-10-26 | p08-startup-070 (done check 8) | perf/chrome-parity at `5ac4dd1680c` | 18: static counts | Q1b 41 of 46 marked | **FAIL**: Q1 3 (pass); Q1b 46 of 46 marked (pass, table refreshed by this task); Q3 1 call + 1 timer (`LaunchSettle.settled(within:)`, AppDelegate.swift:397; target 0); startup-lint.py not in the tree |
+| 2026-10-26 | p08-startup-070 (done check 9) | perf/chrome-parity at `5ac4dd1680c` | 18: order file >= 90 % resolved; cold A/B pageins -30 %, first frame -10 % | - | **FAIL (tree)**: `Resources/build/cmux-next.order` has 0 symbols and no profdata sha (the 054 refresh has not run); A/B not run |
+| 2026-10-26 | p08-startup-070 (done check 10) | perf/chrome-parity at `5ac4dd1680c` | 18: PGO in Release; A/B first frame p50 -5 % | Linux Rust A/B (startup-DESIGN.md section 12): no gain | **FAIL (tree)**: `cmux-next.pgo.conf` `use=0`, no Swift profile pinned, no Rust `pgo.txt` pointer; no Release build gets `-profile-use` or `-Cprofile-use`; A/B not run |
+| 2026-10-26 | p08-startup-070 (done check 11) | perf/chrome-parity at `5ac4dd1680c` | 18: startup tracing (`CMUX_TRACE_STARTUP=5`, Perfetto, kill -9) | - | **not measured**; tool tests on Linux: `test_trace_launch` 1 error (fixture lacks `release`, read since `6f8e82441cf`) |
+| 2026-10-26 | p08-startup-070 (done check 12) | perf/chrome-parity at `5ac4dd1680c` | 18: field launch histograms (Nightly opt-in) | - | **not measured**; the Swift suites (`LaunchHistogramTests`, `MetricKitPayloadFuzzTests`) did not run (no Swift build on the Linux VM) |
+| 2026-10-26 | p08-startup-070 (done check 13) | perf/chrome-parity at `5ac4dd1680c` | 18: launch correctness matrix, 16 cases | - | **FAIL (tree)**: task 071's cases are not in `relaunch-e2e.py` or `restore-trace.py` |
+| 2026-10-26 | p08-startup-070 (done check 14) | perf/chrome-parity at `5ac4dd1680c` | 18: idle after launch, 3 restored Chromium tabs | - | **not measured**; `bench-idle.sh`, then `startup-queue.py arms` |
+| 2026-10-26 | p08-startup-070 (done check 15) | perf/chrome-parity at `5ac4dd1680c` | 18: edge launches (no-activate, quit at 100 ms) | - | **not measured** |
+| 2026-10-26 | p07-memory-067 (F8 done checks DC1-DC18) | perf/chrome-parity fb08b6548fe (docs only) | F8: DC1-DC18 of chrome-parity/p07-memory.md section 5 | no hour-0 baseline: task 075 is not on perf/chrome-parity, so every "today" value is the spec's quoted number, not a same-base A/B | static and Linux parts measured at fb08b6548fe (table "Memory done checks" below): DC2 kernel sources pass, DC2 observe and DC3 fail with named hits, DC1 static 86 -> 44 files; every fleet run NOT run (no build of this sha, no 075 base) |
+| 2026-10-26 | p13-webui-060 (testing phase, partial: static rows only) | perf/chrome-parity at 3ffd2c7bcb3 (doc only) | p13-webui.md D1-D12 | - | **Static rows measured** (host cmux-orchestrator-1, Linux, no job id: local git grep and `build-web-bundles.sh --out-root` + `node scripts/cmux-next/page-bundle-report.mjs --root`). D7 FAIL: `PageWebView(` outside CmuxNextPages 0 (pass); MQ10 10 (want 0: AgentPaneNowPlaying.shared, PageRelayChannel.channels, PageProcessPool.shared, PageRegistry views/serials/nextSerial, PageWebView chromiumHosting/openPanel, WebBundleServedViews.shared, WebDevOverrideWatcher.shared; follow-ups 010, 066, 071, 073); pools 2 (want 0: PageHostPool, follow-up 045; AgentPageRetirer, follow-up 064); `memoryPressure.observe` 0 (pass); `setInterval(` 4 (want 1: ChiefViewsPage.tsx:224, RunCard.tsx:113, acpmux/streamDebug.ts:61; follow-up 036); MQ3 15 `devTools(` hits in CmuxNextPages, not only the fork < 29 fallback (follow-up 078); MQ13 0 (pass). D8 FAIL, 39 findings: 8-34 first-load requests per page (cap 4) on every page; own JS over 250 KB on apps 467, cloud 321, settings 1907, home-channels 1490, agent pane 3896; shared JS over 400 KB on history, icon-picker, settings, changelog, home-channels, debug-settings; two React URLs (agent pane `cmux.agent/chunks/`, follow-up 053); `lazySections.ts` missing, so the Settings first load holds 15 sections (follow-up 081); the request-count and shared-size findings have no task yet. **Not run**: D1-D6, D9-D12 and the Tart 14/15 smoke. Each needs a tagged fleet build of the program head and GUI bench runs on aws-m4pro-1..9; agents in this loop run no fleet build (the lead runs one compile per round). Dependency 061 is not on perf/chrome-parity yet, so D11 cannot pass. To run: `cmux-ci build cmux --ref SHA`, then `bench-webui.py home`, `pages10`, `open`, `crash`, `priority`, light and STRESS, on macOS 26 and 27, and `scripts/cmux-next/os-matrix.sh --build JOB --os 14,15` |
+| 2026-10-27 | p02-threads 306 (inventory zero, test phase) | a7373a1d0e5..27253d4cc9f (perf/chrome-parity; source counts, no build) | p02-threads done checks INV-1..INV-5, RUN-11, RUN-13, RUN-2 Chromium open number; full table in [threading-model.md](threading-model.md#inventory-results-p02-threads-306) | INV-1 raw-blocking 1097, raw-blocking-ext 652, main-blocking 135, pool-blocking 241, maybe-main 26, task-priority 243, thread-doc 6, cpu-intensive 91, sync-inversion 5, once-blocking 17, awaited-low-priority 20; INV-2 132 lines; INV-3 36; INV-4 1 Swift reason, 0 escapes, 2 Rust variants; INV-5 41 | INV-1 raw-blocking 890, raw-blocking-ext 612, main-blocking 65, pool-blocking 211, maybe-main 12, task-priority 172, cpu-intensive 1; thread-doc, sync-inversion, once-blocking and awaited-low-priority 0; INV-2 48 (Security family only); INV-3 0; INV-4 Swift 9 escapes (limit 3), Rust 2 variants within limit; INV-5 7 lines, 3 over the audio-tap exception. Met: INV-3, INV-4 Rust, four INV-1 rules. Not met: INV-1 (other rules), INV-2, INV-4 Swift, INV-5. RUN-11 and RUN-13 not measured (fleet Mac needed); the RUN-2 app_chromium number stays OPEN |
+| 2026-10-27 | p13-webui-086 (p13 exports in the fork train) | perf/chrome-parity, this push; manaflow-ai/cef `cp/p13-webui-086` at `845d0aab` (not built, not pinned) | D1, D3, D12 "train" rows: the p13 fork exports need one numbered dist | each p13 export kept `CMUX_CEF_API_VERSION` 27 on its own branch (no number), and the app claimed 32 for page sharing, which is p03-rendering-042's resize fence | one train ref on the API 31 line with 017, 018, 077, 020, 055 and 011 merged, one number per export (38-42, 43 reserved; table below); the app's gates follow it: page sharing 42, surface copy and native mouse move 40 (p13-webui-078 had claimed 38), page push 43 (p13-webui-079 had claimed 39). Not done: the dist (`cmux-ci build cef` of `845d0aab`, both arches), the release tag, the R2 upload and the pin bump of cef-manifest.json and remote-browser-host.pin.json |
 | | | | | | |
+
+### Fork API numbers of the p13 exports (p13-webui-086)
+
+One number per export, max + 1 of every number a fork branch or the app claimed on 2026-10-27 (24-37: 28 and 29
+cmux.34/35, 30 helper app, 31 the p01-process-178 train, 32 p03-rendering-042, 33 p14-energy-136, 34
+p03-rendering-058, 35 p03-rendering-056, 36 p03-rendering-044, 37 p06-scheduler-212). The train ref is
+manaflow-ai/cef `cp/p13-webui-086` at `845d0aab`: `cp/p01-process-178` (`2b65db9f`, API 31) with each p13 branch
+merged and numbered in `include/cef_cmux.h`. It lacks 28, 29 and 32-37 (other lines), so its pin records
+`missing_api: [28, 29, 32, 33, 34, 35, 36, 37]`. The next number for any other fork change is 44.
+
+| API | Export | Task | Fork commit merged | App gate |
+|---|---|---|---|---|
+| 38 | `CMUX_EXTRA_INFO_NO_RENDERER`, `cmux_tab_renderer_state` (renderer-less placeholder) | p13-webui-017 | `dfdbea5a` | dlsym of `cmux_tab_renderer_state` (019) |
+| 39 | `cmux_tab_discard`, `cmux_tab_was_discarded` (in-place discard) | p13-webui-018 | `f844f729` | `cmux_shim_tab_discard`, ops `fork_api` 39 (031) |
+| 40 | `cmux_browser_capture`, `cmux_tab_devtools_state` (page pictures without DevTools) | p13-webui-077 | `d110ee57` | `CEFForkFeatures.surfaceCopyForkAPI` 40 (with it `mouseMoveForkAPI`), ops `fork_api` 40 of `cmux_shim_tab_copy_surface` and `cmux_shim_tab_send_mouse_move` (078) |
+| 41 | `cmux_ext_load_command_line_async` (built-in extensions at a profile's first tab) | p13-webui-055 | `cbe3c745` | dlsym (055) |
+| 42 | `cmux_page_scheme_set_group`, reader of `--cmux-page-scheme-process-per-site` (page process groups) | p13-webui-011 | `17a7f8ff` | `CEFForkFeatures.pageSiteSharingForkAPI` 42, ops `fork_api` 42 (012) |
+| 43 | `cmux_tab_page_push`, `cmuxPageListen` (page push channel; reserved: not merged into the train ref yet) | p13-webui-079 | `37353c1b` on `cp/p06-scheduler-212` (its header says 38; the train renumbers it 43 when it merges it) | `CEFForkFeatures.pagePushForkAPI` 43 |
+| - | `--cmux-spare-renderer-after-first-tab` (a switch: no number) | p13-webui-020 | `5d16aa91` | `chromiumSpareAfterFirstTab` feature |
+
+Status: merged and numbered, header checked with `-std=c99` and `-std=c++17 -Wall -Wextra -Werror`; nothing built or
+run. Remaining for "one dist, one pin bump": `cmux-ci build cef` of `845d0aab` (arm64 and x86_64), `ceftests
+--gtest_filter=CmuxPlaceholderTest.*:CmuxDiscardTest.*:CmuxTabSurfaceTest.*:CmuxPageProcessTest.*`,
+`scripts/test-cmux-embedder.sh <cef> placeholder placeholder-shared`, the release tag, the R2 upload (the fork
+owner's write key), then `cef_release_pin.py pin <tag> --accept-missing-api 28,29,32,33,34,35,36,37` (p01-process-178's
+tool, not on perf/chrome-parity yet), the matching
+remote-browser-host pin, `ensure-cef.sh fetch` and `compile-check --app` at the new pin.
+
+### Memory done checks (F8, p07-memory-067)
+
+The done checks DC1-DC18 of [chrome-parity/p07-memory.md](chrome-parity/p07-memory.md) section 5, run
+2026-10-26 at perf/chrome-parity `fb08b6548fe`. `memory-DESIGN.md` (task 007) is not on perf/chrome-parity
+yet, so this table is the one record; 007's section 8 points here.
+
+Two rules for this run:
+
+- There is no hour-0 baseline. Task 075 is not on perf/chrome-parity, so there is no same-base A/B. Each
+  "today" value is the spec's quoted number at 772cdfc45ac, not a measurement at a base sha.
+- This run did no fleet run. A fleet run needs a build of this sha, and the lead does the one fleet compile
+  per round. So every check that needs the app, the daemon or a Mac is "Not run". Each such row names the
+  command for the run.
+
+Static checks ran on a Linux host (360 cores, load 63-115) with `rg` 14 and
+`scripts/cmux-next/memory-queues.sh all` (exit 0). Rust tests ran with `cargo test`, Linux, Debug.
+
+| DC | Check | Today (spec) | Measured at fb08b6548fe | Result |
+|---|---|---|---|---|
+| DC1 caches | MQ-CACHE prints 0 files; each cache > 1 MB at STRESS is a registered consumer | 86 files | 44 files (23 in Packages/Shared). The STRESS half: Not run (needs `memory-report.py --pid APP` on a fleet GUI host, STRESS session) | static: open, 86 -> 44; runtime: Not run |
+| DC2 one source per process | `makeMemoryPressureSource` only in KernelMemoryPressureSource.swift; `_dispatch_source_type_memorypressure` only in cmux-memory/src/pressure_macos.rs; `memoryPressure.observe` only in CmuxNextMemory | 3 files / - / 3 hits | 1 file, KernelMemoryPressureSource.swift; 1 file, pressure_macos.rs; 1 hit, `CmuxNextInput/IntentPrewarmService.swift:105` (outside CmuxNextMemory) | sources: pass; observe: fail, 1 hit left (task 047) |
+| DC3 budgets from RAM | `physicalMemory` only in SubsystemBudget.swift and HardwareClass.swift; MQ-CAPS 0 outside SubsystemBudget.swift; MQ-RUST-CAPS literals only in cmux-memory budget.rs or derived; budget tables pass at 8/16/24/32/64/128 GB | 2 / 34 / 37 hits | `physicalMemory`: 3 code reads, also `CmuxNextBridge/WarmSetBudget.swift:33` (fail). MQ-CAPS: 38 hits, all outside SubsystemBudget.swift (9 in Packages/Shared; several are trace rings, not memory caps). MQ-RUST-CAPS: 54 hits; the definitions in cmux-holder, ghostty-vt and cmux-tui-core derive from `cmux_memory::budget`, but `cmux-holder-v3/src/holder.rs:30,33` keep the literals `RING_BYTES = 1 << 20` and `LINK_QUEUE_BYTES = 1 << 20` (fail). `cargo test -p cmux-memory`: 26 passed, incl. `budget_table_at_8_16_24_32_64_128_gb`. SubsystemBudgetTests (Swift): Not run (no Swift on Linux) | fail: WarmSetBudget read, 38 MQ-CAPS, 2 holder-v3 literals; Rust table: pass |
+| DC4 every kind discardable | ContentDiscardPlannerTests and InternalPageDiscardPolicyCoverageTests pass; STRESS idle 35 min, toggles on: 0 live+eligible rows past their timeout | 33 / 7 / 13 | the queues the coverage test must cover: MQ-PAGES 33, MQ-CONTENT 7, MQ-BROWSERTAB 13 (same as the spec). The test files exist. Suites: Not run (Swift). STRESS idle: Not run; no script reads `debug.discards` rows for this rule yet | Not run |
+| DC5 hidden cost after discard | Chromium tab, WebKit tab, agent page, internal page, cmux page tab each <= 0.1 MB without the picture | 55 / 29 / 75 MB | Not run: `bench_hibernation.py` and `bench_memory.py --pressure critical` on a fleet GUI host, Release | Not run |
+| DC6 hidden workspace | `bench_memory.py --hidden-workspaces 100 --grace 960`, holder on: app <= 0.1 MB, daemon <= 0.3 MB, no process per workspace | 8.2 MB | Not run: needs a Release build and `CMUX_TUI_TERMINAL_HOST_MODEL=holder` on a fleet GUI host | Not run |
+| DC7 Home idle | 0 renderers for unshown cmux pages, <= 1 for shown, no icon picker, <= 1 spare; final tree <= 250 MB, app <= 120 MB | 793 / 361 MB | Not run: `bench_memory.py --app APP --workspaces 1 --settle 30 --top 50`. The interim target ("075 baseline minus removed items") has no base, as 075 has not run | Not run |
+| DC8 heavy session | 60 ws STRESS and 150 ws heavy, 35 min idle: cmux-owned <= 600 MB, threads <= 300 | 3,538 MB tree | Not run: `perf-stress-session.py` 60 ws and budgets-heavy 150 ws on cmux20-bench | Not run |
+| DC9 renderer limit | `bench_renderer_sharing.py --tabs 100 --sites 20` (both engines) and `bench_memory.py --tabs 60 --urls local` vs Chrome | 11.8 vs 7.4 GB (#20856) | Not run on a Mac. Its logic tests: `tests/test_bench_renderer_sharing.py` 25 passed (Linux) | Not run |
+| DC10 pressure response | override and kernel pressure critical: >= 80 % of managed bytes freed in 5 s, consumers at limit in 1 s / 2 s, 0 main turns > 4 ms, daemon and acpmux in 1 s | - | Not run: `bench_memory.py --pressure critical` and `--kernel-pressure critical`. Phase logic tests: `test_bench_memory_phases.py` 14, `test_bench_memory_cold.py` 30, `test_bench_memory_slope.py` 34 passed (Linux) | Not run |
+| DC11 terminal GPU | 30 hidden terminals + 1 minimized window of 6: `terminal.hidden_nonvolatile_iosurface_bytes == 0` | - | Not run: needs a GhosttyNextKit pin with `ghostty_surface_set_gpu_resident` (task 037 gates on it) and a fleet GUI host | Not run |
+| DC12 leaks | `memory-soak.sh` 2 h STRESS: <= 5 / 5 / 2 MB/h app / daemon / acpmux, renderers within 5 %, MQ-LEAK empty | - | Not run: `cmux-ci run --class exclusive --script scripts/measure/memory-soak.sh --ref SHA`. `memory-soak.py --self-test`: ok (Linux) | Not run |
+| DC13 idle | 60 s idle: 0 wakeups owned by MemoryCoordinator, ContentDiscardPlanner or a consumer; daemon `idle_wakeups` and acpmux `daemon_idle` green | - | WakeupLedger: Not run (app). acpmux `daemon_idle` (Linux, `--test-threads=1`, private TMPDIR with umask 077, memoryAcpmuxPressure on): `has_no_periodic_wakeups` passed; `with_a_pending_wait` failed, daemon about 22 context switches per 10 s window (budget 5); `with_a_watched_transcript` failed, about 126 per window. The test does not name the thread; the plain-idle case has the same memory source on and passes, so the memory source is not the likely owner. The red is on a loaded Linux host, so the macOS verdict is still open. cmux-tui `idle_wakeups`: Not run (ghostty-next submodule empty in this checkout) | acpmux: red on Linux (2 of 3); rest Not run |
+| DC14 latency not worse | browser wake p95 <= 100 ms, picture in first frame; discarded page first frame p99 <= 16.7 ms; unmounted ws p99 <= 16.7 ms, remount p95 <= 50 ms | - | Not run: `bench-tab-switch.sh` and anim ws-switch, light and STRESS, fleet GUI host | Not run |
+| DC15 attribution | `memory-report.py --pid APP`: unattributed <= 10 % | - | Not run on a Mac. `test_memory_report.py`: 43 passed (Linux) | Not run |
+| DC16 macOS 14/15 | `os-matrix.sh --build JOB --os 14,15` runs the coordinator, kernel source, hibernation, purgeable IOSurface and parked suites | - | Not run: needs a fleet build job of this sha | Not run |
+| DC17 flapping | override warning/normal 20x a minute: <= 1 release pass per consumer per minute, 0 dropped frames | - | Not run: needs the app and an anim sidebar run | Not run |
+| DC18 per agent | `acpmux-overhead.sh` with 100 fake agents: acpmux <= 2 MB per agent, relays <= 1 MB, 2 fewer processes, <= 8 MB total | about 64 MB | Not run: the script measures time against real harness CLIs (and `bench=daemon` budgets); it has no 100-fake-agent memory mode yet | Not run; tool missing |
+
+What blocks the rest of the table, in order:
+
+1. Task 075 (hour-0 baseline at a base sha on reserved exclusive minis). Without it no row has a same-base A/B.
+2. A fleet build of the perf/chrome-parity sha, then the exclusive runs above on cmux20-bench (light and
+   STRESS), each with host, macOS, Hz, sha and step ID.
+3. Missing tools: a `debug.discards` check for DC4 and a fake-agent memory mode for DC18.
+4. Static findings for their tasks: the WarmSetBudget `physicalMemory` read (DC3), the IntentPrewarmService
+   observe (DC2, task 047), the cmux-holder-v3 literals (DC3), MQ-CAPS (DC3) and MQ-CACHE (DC1).
 
 ### Process-model baseline and per-role budgets (p01-process-005)
 
@@ -335,3 +494,173 @@ plans/cmux-next/perf-lead.md` fails when a group does not sum to its target or t
 |  | wire | doorbell to the host's UI thread dispatch (`hop_us`) | 0.6 ms | p95 1.96 ms (prototype, sandbox off, 2026-10-25) |
 |  | chromium_host | host UI thread dispatch to the renderer's input queue | 0.2 ms | not measured |
 | Processes in the heavy session (done check 13) | app 1, daemon 1, holder 1, vt_worker <= 4 (+1 per extra trust class), terminal_host 0, chromium_host 1 | | | 392 processes, 172 terminal hosts |
+
+### p06 scheduler test phase (task p06-scheduler-160)
+
+Status 2026-10-27: the fleet runs are not done, and no fleet number here is invented. Before sha: `772cdfc45ac`
+(the merge-base of perf/chrome-parity and feat-cmux-next, where the p06 queues were cut). After sha: the program head.
+At `bd61faade91` (perf/chrome-parity) task 034 and most of the program are in, but tasks 347 (queue close-out),
+223 (ordered drain by cause) and 227 (visibility-scoped frontend subscription) are not. An after run there gives an
+interim number, not the program's. Rows 11 and 12 are static counts, taken at both shas with git (no host).
+
+How to run. Make one `cmux-ci build cmux --ref SHA` per sha. Run the benches from a checkout at the after sha against
+both builds, so that before and after use the same harness; an instrument that the base app does not have gives no
+before number. Hosts: macOS 27 on aws-m4pro-1..4 and macOS 26 on aws-m4pro-5..9, each with `--vdisplay=120` (a
+VDISPLAY-FALLBACK voids a frame number). Run before and after of one row on the same host. macOS 14 and 15:
+`scripts/cmux-next/os-matrix.sh --build JOB --os 14,15`, function only. Every result records sha, host, OS, refresh
+rate and repeat count.
+
+| Done check | Command (light and STRESS unless noted) | Instrument at `bd61faade91` | Before | After |
+|---|---|---|---|---|
+| 1 key to frame | `sidebar-churn-typing.py --input real`; `automation-typing-bench.py --input real`; a `script-storm-bench.py` or `bench_cli_storm.py` storm in parallel | churn bench `--input real`: yes; automation bench `--input real`: no (task 230, not landed) | not run | not run |
+| 2 automation isolation | the check 1 sessions: storm p99 minus idle p99, same session and host | yes, from check 1 | not run | not run |
+| 3 `debug.main_budget` in the STRESS storm | `cli-storm-session.py` reads it after a reset | turns, `unattributed_share`, `yielded_to_input_response`, `input_response_cap_hits`, owners with `posted_from`: yes (008, 009, 206); `input_response_pass.applies` and `late_person_applies`: no (follow-up Q12-c) | not run | not run |
+| 4 hidden-workspace storm | `script-storm-bench.py --hidden 50`, 1000 CLI ops | `--hidden` and `hidden_workspace_layouts`: yes (150, 229); hidden mailbox events: no (227) | not run | not run |
+| 5 observers per event | `sidebar-stress-bench.py`, 400 workspaces | `debug.observations` and `row_maps_per_change`: yes (029, 152) | not run | not run |
+| 6 idle | `bench_idle.py --scenarios mixed-hidden`, 60 s, window visible and app hidden | `mixed-hidden` and `main_wakeups_per_s`: yes; daemon thread wakeups: no (228) | not run | not run |
+| 7 launch | `bench_launch.py` cold, warm and `open -g` | `launch.order_ok` and `launch.revealed`: yes (007) | not run | not run |
+| 8 every-action sweep | `every-action-sweep.py` STRESS at 120 Hz, 3 repeats | the sweep, and `task_class` in stall records: yes (009, 203) | not run | not run |
+| 9 daemon | `cmux-ci run --class exclusive --measurement --script scripts/measure/perf-10x-daemon.sh --ref SHA --arg=storm=64` (10 request clients and 64 automation clients) | `debug.daemon_locks`: yes (226). The base script has no `storm`: run the after sha's script against the base daemon | not run | not run |
+| 10 switch and theme | `bench_tab_switch.py` with 12 panes at 400 workspaces; a theme toggle at 50 workspaces | `bench_tab_switch.py` has `--tabs` and `--workspaces` only, no pane layout; no theme-toggle bench; `appearance_applies`: no (215) | not run | not run |
+| 11 ratchet counts | `python3 scripts/cmux-next/p06_queue.py --rev SHA --json`, hits added over the 47 WORK.tsv groups | yes | `772cdfc45ac`: 2788 hits, 47 of 47 groups open. Q1 472, Q1b 772 (heuristic), Q1c 53, Q2 285, Q3 58, Q4 257, Q5 213, Q6 261, Q7 66, Q8 85, Q10 22, Q11 137, QA 157 | `bd61faade91` (interim): 1382 hits, 105 settled, 28 of 47 groups open. Q1 213, Q1b 435, Q1c 23, Q2 119, Q3 11, Q4 106, Q5 124, Q6 175, Q7 12, Q8 41, Q10 8, Q11 42, QA 90. Task 347 is not in; 42 hits in 15 files at the cut are in no group (`--residual`) |
+| 12 budgeted clients | `git grep -c -E 'FrameBatcher\(owner: "[^"]+"' SHA -- Packages/macOS/CmuxNext/Sources` | yes. The section 6 Q9 query ends in `\)` and matches 0 at head, because each constructor now also takes a scheduler or a class | 3 | 6 (interim): SidebarRows (visible), ContentPresentation (visible), Control.frames (automation), DaemonStore.drain, ContentPresentation.nextFrame, NewTabPage.close |
+| 13 unit suites | fleet `swift test --filter <suite>` for each suite in the "Test phase" lines of p06-scheduler.md section 8, macOS 26 and 27, Tart 14 and 15; cmux-tui `cmux-tui-rust-check.sh test <name>` | the suites of the landed tasks exist; 223, 227 and 347 add theirs | not run | not run |
+| 14 hang soak | 30 min STRESS with `bench_cli_storm.py`; `debug.hangs` | `task_owner` and `task_class` per record (203), `stall.render_starved` (004), `debug.main_budget` `top_unattributed_turns`: yes | not run | not run |
+
+Follow-up tasks (misses found while the runs were prepared):
+
+- Q12-a: give `perf-10x-daemon.sh` a request-client count, so that the 64 clients of done check 9 are one argument.
+  Today `storm` counts automation clients only.
+- Q12-b: give `bench_tab_switch.py` a pane layout (`--panes 12`), and add a theme-toggle bench at 50 workspaces that
+  reads `appearance_applies` (with task 215). Done check 10 has no command until then.
+- Q12-c: add `input_response_pass.applies` and `late_person_applies` to `debug.main_budget` (done check 3).
+- Q12-d: change the Q9 query in p06-scheduler.md section 6 to the row 12 query. It reads 0 at head.
+- Q12-e: split WORK.tsv rows 300, 306, 307, 324 and 342 (over 70 hits at the cut), and give the 15 files with no row
+  a row (`p06_queue.py` plan problems; task 347).
+- Q12 owners: from the after run's `debug.main_budget owners` (each owner over 1 ms p99 with no class), its
+  `top_unattributed_turns`, and its hang records with no `task_owner`, one task each. None yet, because the after
+  run is not done.
+
+### Input pipeline done checks (p04-input-075)
+
+The before/after table for the done checks DC1-DC14 of [chrome-parity/p04-input.md](chrome-parity/p04-input.md)
+(section 5). Base: `772cdfc45ac`, the sha the p04 spec was written against. Head: `538844b3bd4`
+(perf/chrome-parity on 2026-10-26, with tasks 070, 071 and 072 merged). Status: the static checks are measured; the
+runtime checks are not.
+
+The static rows read git objects only, so host, macOS, refresh and session do not apply. Reproduce them at any sha
+with `python3 scripts/cmux-next/input-queues.py 772cdfc45ac <sha>` (about 25 s, no checkout, no build). The base
+column gives the same counts the spec checked by hand (33, 7, 28, 3, 153, 53, 45, 17), so the script's queries are the
+spec's. "Counted" is the hits that fail the check: for DC14 the hits without the closing task's allow comment or
+coalescer call; hits on comment lines are not code and are not counted.
+
+| DC | Check | Host / macOS / refresh / session | Pass | Base `772cdfc45ac` hits / counted | Head `538844b3bd4` hits / counted | Result |
+|---|---|---|---|---|---|---|
+| DC6 | `NSEvent.add(Local\|Global)MonitorForEvents` outside CmuxNextInput | cmux-orchestrator-1, Linux, git objects / - / - / - | 0 | 33 / 33 | 0 / 0 | pass |
+| DC6 | `inputObserver` in CmuxNextApp | same | 0 | 7 / 7 | 0 / 0 | pass |
+| DC7 | `NSApp.currentEvent` reads outside the dispatch context | same | 0 | 28 / 28 | 0 / 0 | pass |
+| DC7 | `nextEvent(matching` tracking loops | same | 0 | 3 / 3 | 0 / 0 (1 doc comment in the tap) | pass |
+| DC14 | MQ-main-nonswift without `main-hop-allow` / `input-hop-allow` | same | 0 | 153 / 153 | 101 / 101 | **fail** |
+| DC14 | MQ-pointer-per-event without a coalescer call or `input-coalesce: native` | same | 0 | 53 / 53 | 62 / 50 | **fail** |
+| DC14 | MQ-observation-hop (`withObservationTracking` then `Task {`) | same | 0 | 59 / 45 | 20 / 0 | pass |
+| DC14 | MQ-global-input-state inside a func that takes an NSEvent | same | 0 | 38 / 8 | 36 / 4 | **fail** |
+| DC14 | MQ-cursor-rects (`func resetCursorRects`) | same | 0 | 17 / 17 | 18 / 18 | **fail** |
+| DC9 (part) | `pthread_set_qos_class_self_np` in cmux-tui | same | runtime: DC9 taskinfo | 0 / 0 | 5 / 5 | judged at runtime |
+| DC1 | key to presented frame, real HID keys, 7 surfaces | not run | p50 <= 8.3 ms, p99 <= 16.7 ms | not measured | not measured | open |
+| DC2 | DC1 with `--storm cli=10hz,sidebar-churn=400` | not run | terminal and Home p99 <= 16.7 ms, gate wait <= 1 ms | not measured | not measured | open |
+| DC3 | glass check, terminal, home, omnibar | not run (capture mini) | \|glass - presented\| p95 <= 1 refresh | not measured | not measured | open |
+| DC4 | scroll jank, 8 targets, `--stall none,50ms/100ms` | not run | 0 delayed and 0 dropped frames with no stall | not measured | not measured | open |
+| DC5 | coalescing during DC4 and a 1000 Hz drag | not run | <= 2 deliveries per frame | not measured | not measured | open |
+| DC8 | `CMUX_BENCH=1` UNIT(KeyRouterBench), Release | not run | printable key p99 <= 20 us, 0 allocations | not measured | not measured | open |
+| DC9 | typing-frame-bench terminal lanes, taskinfo | not run | <= 2 handoffs, p99 <= 0.3 ms | not measured | not measured | open |
+| DC10 | main-thread job gate after DC2 | not run | held jobs > 0, 0 deferred over 1 frame | gate not on the branch | gate not on the branch (task 021) | blocked on 021 |
+| DC11 | UNIT(InputResamplerTests, PredictiveEchoTests, IntentPrewarmTests), drag ghost | not run | ghost p95 <= 2 pt at 120 Hz | not measured | not measured | open |
+| DC12 | field data after 10 min STRESS, Nightly config | not run | buckets sum, PrivacyLeakScanner passes | not measured | not measured | open |
+| DC13 | Chromium helper input (browserHost.helper on) | not run | key to page paint p95 <= in process + 1 ms | not measured | not measured | open |
+
+Why the runtime rows are empty: this test phase ran on a Linux VM, where the Swift app does not build and no GUI
+runs, and the lead runs the one fleet build of perf/chrome-parity for each round. The bench self-tests ran green on
+the head: `input-latency-bench.py --self-test` (304 rows), `scroll-jank-bench.py --self-test` (8 targets x 2
+conditions), `input-glass-check.py --self-test` (0 failing), `hid_input.py --self-test`. A self-test proves the
+parsers and the report fields, not a number.
+
+Old and new benches on the base: not compared yet. `typing-frame-bench.py` and `input-latency-bench.py` share
+`hid_input.py` (the HID poster and the probe parser), so the comparison is the same terminal key row from both
+benches on one base app, light, in one GUI session.
+
+os-matrix 14/15 launch and typing smoke for the MainJobGate hook: not run. The hook (task 021) is not on
+perf/chrome-parity, so the smoke has nothing to check yet.
+
+Release default of `debug.mainJobGate`: stays off. The gate and its setting are not on the branch (task 021), and DC2
+has no A/B. Turn it on in Release only after a DC2 A/B on the fleet shows a win and no regression.
+
+To fill the runtime rows, run each command on the head and on a scratch ref of the head that takes
+`Packages/macOS/CmuxNext` and `cmux-tui` from `772cdfc45ac` and keeps the head's `scripts/` (split-spring.sh times an
+older commit this way). On a perf-lead pool mini, macOS 26 and 27, light and STRESS:
+
+```
+cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref <sha> \
+  --artifact artifacts/split-spring/report.json --arg=--vdisplay=120 --arg=--suite=input-latency \
+  --arg=--input=real --arg=--surfaces=terminal,home,omnibar,agent-pane,chromium-page,webkit-page,palette \
+  --arg=--sessions=light,stress --arg=--keys=400                                   # DC1; add --arg=--storm=cli=10hz,sidebar-churn=400 for DC2
+#   --arg=--drag=divider,tab,pane-swap,canvas-pane,strip-scrollbar --arg=--rate=1000  # DC5
+#   --arg=--suite=scroll-jank --arg=--sessions=light,stress --arg=--stall=none,50ms/100ms  # DC4
+```
+
+DC3 runs `input-glass-check.py` on a capture mini with the Screen Recording grant; DC8, DC11 and DC12 are the UNIT
+and Nightly commands of section 5 as written. Each runtime row over its share becomes one MQ-input-latency-rows task.
+
+Failing rows, published as tasks. Each row is one task of the shape the spec gives; the counts are per package at
+the head (`input-queues.py <sha> --list <queue>` prints the file:line of each hit).
+
+| Queue | Hits at head | Task |
+|---|---|---|
+| MQ-main-nonswift | CmuxNextApp 16, CmuxNextDesign 16, CmuxNextTerminal 11, CmuxNextBrowser 9, CmuxNextMacScreen 8, CmuxNextPhone 7, CmuxNextSidebar 7, CmuxNextPages 5, CmuxNextCompat 4, CmuxNextTasks 4, CmuxNextLayout 3, CmuxNextWakeups 3, CmuxNextAgentActivity 2, one each in CmuxNextAgentLanes, CmuxNextControl, CmuxNextHomeEngine, CmuxNextImportCards, CmuxNextMobileHost, CmuxNextTabs | helpers 080, batches 081 and 082 (not started), then one generated task per package |
+| MQ-pointer-per-event | CmuxNextSidebar 9, CmuxNextBrowser 8, CmuxNextDesign 6, CmuxNextLayout 4, CmuxNextRemoteBrowser 4, CmuxNextRemoteView 4, CmuxNextLaunch 3, CmuxNextPalette 3, CmuxNextTabs 3, one each in CmuxNextAgentPermissions, CmuxNextApp, CmuxNextBookmarks, CmuxNextFloating, CmuxNextOnboarding, CmuxNextPages | forwarders 088 and 089 (not started), then one generated task per package |
+| MQ-cursor-rects | CmuxNextBrowser 6, CmuxNextFloating 2, CmuxNextHomeEngine 2, CmuxNextLayout 2, one each in CmuxNextApp, CmuxNextChiefPetWiring, CmuxNextDesign, CmuxNextRemoteBrowser, CmuxNextSidebar, CmuxNextTerminal | 090 (not started; it needs p03-109). The base had 17; one was added since |
+| MQ-global-input-state | `CmuxNextApp/UIInspectorController.swift:194`, `CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:414`, `CmuxNextTabs/Demo/DemoDragSession.swift:153`, `CmuxNextTabs/TabClosingModeWatch.swift:106` | 095 closed its batch-1 files; one generated task each for CmuxNextApp, CmuxNextSidebar and CmuxNextTabs |
+| MQ-input-latency-rows, MQ-input-turn-hops, MQ-input-hotspots | none yet | they come from the first GUI run above |
+
+### Process-model done checks: before and after (p01-process-161, interim snapshot)
+
+**This table is an interim snapshot. It does not complete p01-process-161.** The task's acceptance is
+"each done check has a number", and 15 of the 22 rows have no "after" number yet (rows 3-13, 17 and
+19-21; rows 18 and 22 have a number for one part only). The task depends on
+tasks 100 (host mode in DEV), 137 (VT worker processes in DEV) and 241 (the app draws screens), and none
+of them is on perf/chrome-parity at 5121ebcdb33. So p01-process-161 stays open. Its second pass runs
+after 100, 137 and 241 land: it runs each named fleet run, light and STRESS, and puts its number, host,
+macOS version, display Hz and sha in the "After" cell. It also adds 241's spike numbers to
+[terminal-host-model-DESIGN.md](terminal-host-model-DESIGN.md) section 8.
+
+One row for each done check of [chrome-parity/p01-process.md](chrome-parity/p01-process.md) section 5. The
+design record is [terminal-host-model-DESIGN.md](terminal-host-model-DESIGN.md) section 8. "Before" is the
+program base 772cdfc45ac (spec section 2) or the earlier fleet run that the row names. "After" is
+perf/chrome-parity 611363dd393. Static checks ran on Linux (the generator, `rg`, `git grep`). The cargo rows
+ran on Linux x86_64 in a VM, not on the fleet. "Not measured" means the row needs a fleet GUI or macOS
+run that has not happened yet. That run is named in the last column, and its own numbers replace the
+"not measured" cell.
+
+| # | Check | Before | After (611363dd393) | Status | Run that fills it |
+|---|---|---|---|---|---|
+| 1 | `gen-chromium-host-wire.py --check` | no generator, no `chromium-host-ops.json`. SHIMH: 143 exports and 48 event kinds, 0 classified | `--check-ops` exit 0: 183/183 exports classified (+17 optional), 54/54 event kinds (+6 optional), 0 `sync`, 24 host-mode rewrites. `--check` exit 1: 5 `local` exports have no hand-written client (`set_color_chooser_handler`, `set_device_chooser_handler`, `set_desktop_media_handler`, `set_lock_handler`, `tab_page_state_watch`). `--check-return-use` exit 1: 3 `post` results are read (`CEFTab+BackForwardList.swift:37`, `CEFTab+PasswordFill.swift:28`, `CEFTab.swift:298`). `--check-pre-attach` exit 0 | red: 8 findings | the same commands after the owners of those 8 sites fix them |
+| 2 | `--check-view-parity` | 0 mojoms vendored, 0 methods mapped | exit 1: 8 mojoms at Chromium 154.0.8037.98, 206 methods (35 `[Sync]`), 183 mapped (op 35, event 37, wire 33, not_needed 78), 23 pending. 15 are on tasks that have not landed: 047 x8 (edit commands, speech, Look Up), 063 x3 (alerts), 228 x2, 229 x2. 8 are on tasks that have landed, so a later run of the same command does not clear them: 066 x3 (`NativeWidgetNSWindow.SetCursor`, `.UpdateTooltip`, `NativeWidgetNSWindowHost.GetTooltipTextAt`: no cursor or tooltip path for a hosted widget exists, only the page view's 045/054 path); 069 x3 (`Menu.Cancel`, `Menu.UpdateMenuItem`: no `CONTEXT_MENU_DISMISSED` or `CONTEXT_MENU_ITEM` event exists; `NativeWidgetNSWindow.ShowEmojiPanel`: no `orderFrontCharacterPalette:` call exists); 220 x2 (`OnWindowMiniaturizedChanged`, `OnSpaceActivationChanged`: the code is there, `ChromiumHostPageView+Visibility.swift` sends HIDDEN on minimize and OCCLUDED on an occlusion change, so the two tags are stale) | red: 23 pending (15 on tasks not landed, 8 on landed tasks) | the same command after 047, 063, 228 and 229 for the first 15. For the other 8: a fix task for 066's hosted-widget cursor and tooltip (3 methods); a fix task for 069's menu cancel, menu item update and emoji panel (3 methods); a tag correction in `chromium-host-view-parity.json` that maps the 2 methods of 220 to the op `cmux_shim_browser_set_page_visibility`. The lead files these three; none is filed at 5121ebcdb33 |
+| 3 | host mode, 10 tabs: CEF framework mapped in the app == 0, `CefDoMessageLoopWork` samples == 0 | in process: the app maps the framework and pumps CEF on main, 3.3 pump wakes/s idle and 31.4/s while scrolling (2026-10-25 PL-cefhost row: cmuxs-Mac-mini, macOS 27, 60 Hz, 7bbabfa026b) | not measured: `cefHelperHost` is bench-only and off in all channels (task 100 not landed) | open | `vmmap` / `sample` on a DEV build with 100 |
+| 4 | `--kill-host` TRAP, SEGV, ABRT, KILL | a browser-process CHECK ends cmux: 1 crash = app exit, every page lost. Prototype (2026-10-23 PL-cef-helper row): a SIGKILLed host is reported and cmux keeps running, ChromiumHostProcessTests 3/3 on aws-m4pro-5/6/7, macOS 27 | not measured | open | `chromium-host-bench.py --kill-host --signals TRAP,SEGV,ABRT,KILL` on macOS 26 and 27 |
+| 5 | `--stall 50/100`: 120 Hz, 0 dropped frames | not measured (p01-process-005 "stall 9a" rows pending) | not measured | open | `chromium-host-bench.py --stall 50/100`, then the same after 10 min idle |
+| 6 | key and click to paint: p50 <= 8.3, p99 <= 16.7, p95 <= in process + 1.0 ms; first wheel out < 0.5 ms | in process, in-page clock: click to rAF p50 1.2 ms, p95 7 ms. Host input hop only (prototype, sandbox off, 2026-10-25): p50 35 us, p95 1.96 ms, p99 6.6 ms | not measured | open | `chromium-host-bench.py` light and STRESS at 120 Hz |
+| 7 | ordering: 10,000 keys with focus, IME and resize across 2 pages | two channels with no barrier: 0 keys checked | 092 (ctl_seq barrier) has landed. The ordering run: not measured | open | ChromiumHostInputRingTests ordering case on the fleet, bench click-after-resize row |
+| 8 | `--ime` on 14, 15, 26, 27: 100% pass, firstRect < 0.1 ms, `ime_sync_requests` == 0 | in process only, no host IME path | not measured | open | `chromium-host-bench.py --ime`, Tart (`os-matrix.sh --os 14,15`) and fleet 26/27 |
+| 9 | `--ax`: remote AX children, probe h1 readable | in process only | not measured | open | `chromium-host-bench.py --ax` |
+| 10 | `--native-ui`: 100% pass, host never frontmost, 0 visible host windows | in process only | not measured (060, 061, 064, 066, 069, 070, 220 and 230 have landed) | open | `chromium-host-bench.py --native-ui` |
+| 11 | `--hang 5000`: banner at 2000 +/- 100 ms, cmux main turn p99 <= 4 ms | in process: a hang of the browser UI thread is a hang of cmux's main thread | not measured (084 not landed) | open | `chromium-host-bench.py --hang 5000` |
+| 12 | `bench_idle.py`, 10 tabs: app main <= 0.5 wakes/s; all cmux roles <= 1.0/s | app 89/s kernel wakeups, 1 tab, app visible (2026-10-25). Heavy session, tabs hidden: 69/s, app 36 (speed-of-sound-DESIGN.md section 7, cmux20, macOS 27.0, 7eeba1d596c) | not measured | open | `bench_idle.py --scenarios app-hidden,app-visible,workspace-hidden --chromium-tabs 10` |
+| 13 | census heavy: `__terminal-host` == 0, holder == 1, VT workers <= 4, daemon threads <= 64, cmux threads <= 400, RSS per hidden terminal <= 1.5 MB | 392 processes, 172 terminal hosts, 3,300 threads, daemon 797, 7.8 MB per hidden terminal (cmux20, macOS 27.0, Release, 7eeba1d596c) | not measured. `process-model-census.py` (004) has landed. `terminalHolder` is off in dev, nightly and release; no vt-pool or workers yet | open | `process-model-census.py --session heavy`, also `--sample-ms 50 --during agent-burst` and `--during daemon-restart` |
+| 14 | `rg 'name\(format!\("[^"]*\{(id\|terminal_id\|surface_id)\}' CORE` only in the hosts opt-out module; census 0 per-terminal threads | 9 sites in CORE (31 with the wider pattern of spec section 2, all cmux-tui crates) | 2 sites in CORE, both per browser surface, not per terminal: `browser/worker.rs:14` `browser-surface-{id}-events`, `:246` `browser-surface-{id}-worker`. 22 with the wider pattern. Census: not measured | red: 2 sites outside the opt-out module | the same `rg` after those 2 become jobs; census heavy |
+| 15 | fleet cargo: `spawn_race` (10,000 receive-plus-spawn iterations, 0 leaked fds) on macOS 26/27; `holder_terminals`, `vt_worker_restart`, `vt_worker_bad_message` | `raw-spawn-baseline.tsv` 67 rows, 168 raw spawn sites in 67 files (the spawn race blocks a default-on holder). `holder_terminals` green on aws-m4pro-5 (2026-10-23 PL-daemon holder rows) | `raw-spawn-baseline.tsv` header only (0 rows; 200-202 have landed). Linux VM: `spawn_race` 3/3 pass (200 children while frames arrive, 0 inherited descriptors). This test cannot give the number of check 15: it spawns 200 children (`const CHILDREN: usize = 200`, `spawn_race.rs:177`), and the check needs 10,000 iterations. Linux VM, debug test build: `holder_terminals` 1 of 10 pass. 9 fail because the daemon's debug blocking detector panics its `mux-conn` thread (an fs call at `server/origin_gate.rs:478`) and `mux-line-out` (a condvar wait at `server/outbound_batch.rs:57`), so every test request waits out its 60 s read timeout. This is a defect in the base, not in a holder row, and no holder row was measured. `vt_worker_restart` and `vt_worker_bad_message` do not exist yet (134, 211 not landed) | red on Linux (base defect); open on macOS; no 10,000-iteration case exists | first a follow-up task (to file) that adds a 10,000-iteration case to `spawn_race.rs`, as an `#[ignore]` test or an iteration-count parameter. Then `cmux-ci run --class isolated` `cargo test -p cmux-holder --test spawn_race -- --include-ignored` on macOS 26 and 27. A pass of the current 200-child test on macOS shows 0 leaked fds but does not meet the check. The two worker suites after 134 and 211 |
+| 16 | VT worker sandbox: `open`, `fork`, `socket(AF_INET)`, pasteboard lookup fail (macOS); seccomp on Linux | no worker (the daemon parses with full privilege) | no `cmux-vt-worker` crate (133 not landed): 0 of 4 calls denied | open | `cargo test -p cmux-vt-worker` on macOS 26/27 and Linux |
+| 17 | perf-10x-lifecycle part=daemon with process workers: new tab, split p95 < 2 ms; read-screen p95 < 1 ms | hosts to holder, send to reply p50/p95 (aws-m4pro-7, no workers): new tab 31.9/56.9 to 13.2/55.6 ms, unsized split 25.7/47.8 to 13.5/14.9 ms | not measured (no process workers) | open | `perf-10x-lifecycle` part=daemon with `CMUX_TUI_VT_WORKERS=process` |
+| 18 | split-latency step 4: attach handshakes per split == 0; `LineTransport(` in CmuxNextDaemon/Terminal and /AgentSession == 0 | 2 sites (`TerminalAttachment.swift:113`, `AgentSessionAttachClient.swift:247`); 8 in the app | 1 site (`AgentSessionAttachClient.swift:249`); 4 in the app. Handshakes: not measured (D3, task 126, not landed) | red: 1 site | `split-latency-bench.py`; the same `rg` after 126 |
+| 19 | bench-typing 10 printing terminals STRESS + agent flood: p50 <= 8.3, p99 <= 16.7 ms; <= 1 copy per chunk, 0 base64, 0 JSON | output is base64 in JSON, 3 parses per byte. Terminal at a prompt in STRESS: key to frame p95 48-59 ms (typing-frame-bench, cmux8s, 60 Hz; issue 5) | not measured. The app still gets base64 JSON (126 and 131 not landed) | open | `bench-typing.py` STRESS in phase A and phase B |
+| 20 | kill -9 app, relaunch (`survivesAppCrash`): screens within 300 ms, pages not reloaded, CDP alive, children running | an app crash ends every page, and the app-spawned long-lived children (shell-mode runs, remote-browser hosts, VS Code serve-web) die with it: 35 app files spawn processes | not measured (150-152 not landed) | open | the kill -9 row on a DEV build with 150 |
+| 21 | acpmux stress.tree 27 chats: <= 3 processes, <= 12 threads per chat | 5-8 processes and 40-80 threads per chat (acpmux-audit.md finding 10). Stand-in agent: 54 processes, 108 threads for 27 chats | not measured | open | acpmux `stress.tree` with real harnesses |
+| 22 | every new thread label in threading-model.md with its QoS; census QoS matches | 2 of 11 labels in the doc (`chromium-host.exit`, `holder-link`) | 5 of 11: `com.cmuxterm.chromium-host.control`, `.input` (doorbell reader), `.exit`, the hang watcher (`mux-hang-watch`, `mux-request-watchdog`), `holder-link`. Not there: `vt-pool-v-N`, `vt-pool-h-N`, `child-exit`, `pty-writer`, `mux-io` (no code yet), and `browser-runtime-events` (in code, `browser/runtime.rs:442`, not in the doc). QoS column: not measured | red: 6 labels missing | `process-model-census.py --check-thread-doc` on a live heavy session |

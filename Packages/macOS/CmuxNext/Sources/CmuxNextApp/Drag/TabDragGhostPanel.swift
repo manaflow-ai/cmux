@@ -149,6 +149,9 @@ final class TabDragGhostPanel {
         tabLayer.contentsGravity = .resize
         tabLayer.contentsScale = scale
         tabLayer.shadowColor = ThemeScope.app.perform { Palette.shadow.cgColor }
+        // shadow: alpha-derived: the image's alpha is the shape (a tab or chip pill, a sidebar row, a
+        // multi-tab strip; none for a row handed off with no image), and the layer has no sublayers, so
+        // only its own contents are read.
         // The raised elevation step (PopupStyle.elevation2): a tight lift, not a dark halo.
         tabLayer.shadowOpacity = onGlass ? 0 : Float(PopupStyle.elevation2.alpha)
         tabLayer.shadowRadius = PopupStyle.elevation2.layerRadius
@@ -195,7 +198,9 @@ final class TabDragGhostPanel {
     /// A frame client of the ghost's own FrameScheduler (its screen, 120 Hz
     /// on ProMotion).
     func makeFrameClient(owner: String, onFrame: @escaping @MainActor (FrameTick) -> Bool) -> FrameClient {
-        FrameClient(owner: owner, view: root, onFrame: onFrame)
+        // The CPU ghost's spring (render-server ghost off) ticks for the drag; on the render server only these wake it.
+        // input-driven: a tab drag's edge autoscroll and the dwell while the pointer rests (TabDragSession.wake)
+        FrameClient(owner: owner, rate: .motion, view: root, onFrame: onFrame)
     }
 
     /// The ghost's screen geometry for `motion`.

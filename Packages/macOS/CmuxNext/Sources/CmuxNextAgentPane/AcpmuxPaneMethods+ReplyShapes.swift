@@ -62,7 +62,7 @@ nonisolated extension AcpmuxPaneMethods {
                 return object[source].flatMap { filtered($0, to: field) }.map { (key, $0) }
             }
             // An object with none of its fields is dropped (a peer with no name renders nothing).
-            return kept.isEmpty ? nil : Dictionary(uniqueKeysWithValues: kept)
+            return kept.isEmpty ? nil : Dictionary(kept, uniquingKeysWith: { first, _ in first })
         }
     }
 

@@ -4,7 +4,9 @@ import { createMemoryHistory } from "@tanstack/react-router";
 import { act } from "react";
 import { fileURLToPath } from "node:url";
 import type { Root } from "react-dom/client";
+import { categories } from "./categories";
 import { SettingsPage } from "./components/SettingsPage";
+import { createSectionLoader } from "./lazySections";
 import { createMockClient, type MockOptions, type MockSettingsProvider } from "./mockProvider";
 import { SettingsStore } from "./store";
 import { setLocale } from "./strings";
@@ -50,8 +52,11 @@ export async function renderPage(
   const mock = createMockClient(options.mock);
   options.setup?.(mock.provider);
   const store = new SettingsStore(mock.client);
+  // Every section's chunk is loaded before the page draws, so a test that opens a section finds
+  // its cards (claimPaint.test.tsx covers the page that loads them on demand).
+  const sections = createSectionLoader();
   await act(async () => {
-    await store.start();
+    await Promise.all([store.start(), ...categories.map((category) => sections.load(category.id))]);
   });
   const history = createMemoryHistory({ initialEntries: [options.path ?? "/settings/general"] });
   const container = document.createElement("div");
@@ -60,7 +65,7 @@ export async function renderPage(
   let root: Root | null = null;
   await act(async () => {
     root = createRoot(container);
-    root.render(<SettingsPage store={store} history={history} />);
+    root.render(<SettingsPage store={store} sections={sections} history={history} />);
   });
   await settle();
   return {
@@ -71,6 +76,7 @@ export async function renderPage(
     unmount() {
       act(() => root?.unmount());
       container.remove();
+      sections.dispose();
       store.dispose();
       mock.close();
     },

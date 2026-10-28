@@ -158,6 +158,7 @@ extension SimulatorSurfaceServer {
             connection.start(ended: { [weak self] in self?.end() })
             let inputs = inputs
             // task-owner: the session's one input applier; ends with the stream in end()
+            // main-hop-allow: the phone's input lines apply one at a time in arrival order, each awaiting the main-actor HID send
             applying = Task { [weak self] in
                 for await line in inputs {
                     guard let self, !self.closed else { return }

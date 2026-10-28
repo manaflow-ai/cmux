@@ -25,6 +25,18 @@
 
 namespace cmux_shim {
 
+// One underline of an IME composition as the fork reads it: its
+// cmux_ime_span_t (include/cef_cmux.h, Chrome's ExtractUnderlines): [start,
+// end) in the composition text in UTF-16 units, thick 1 for the selected
+// clause, colors 0xAARRGGBB (0: the page's text color).
+struct ForkImeSpan {
+  int start;
+  int end;
+  int thick;
+  uint32_t underline_color;
+  uint32_t background_color;
+};
+
 // Fork C API resolved with dlsym (include/cef_cmux.h in the artifact).
 struct ForkApi {
   int version = 0;
@@ -81,6 +93,9 @@ struct ForkApi {
   int (*browser_attach_view)(int, void*) = nullptr;
   // API version 37: a tab's visibility and capture from the app.
   int (*tab_set_visibility)(int, int, int) = nullptr;
+  // API version 43 (the fork train p13-webui-086's number for p13-webui-079): a
+  // string to a cmux-page document's receiver (the page push channel).
+  int (*tab_page_push)(int, const char*, size_t) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;
@@ -163,7 +178,15 @@ struct ForkApi {
   // as data, drawn by the app (shim_password_core.mm; suggestion_rows.h).
   int (*browser_set_suggestion_handler)(int, const ForkSuggestionHandler*) = nullptr;
   int (*browser_suggestion_action)(int, int64_t, int, int) = nullptr;
-  // No API number yet (p13-webui-017; the fork train numbers it): its
+  // API version 31 (task p01-process-170): IME of a detached page and its
+  // composition bounds (shim_helper_host.mm). Used only when `version` >=
+  // kDetachedImeForkApi.
+  int (*browser_ime_set_composition)(int, const char*, const ForkImeSpan*, int, int, int, int, int) = nullptr;
+  int (*browser_ime_commit_text)(int, const char*, int, int) = nullptr;
+  int (*browser_ime_finish_composing)(int) = nullptr;
+  int (*browser_ime_cancel)(int) = nullptr;
+  int (*browser_composition_bounds_watch)(int, void (*)(void*, int, const void*), void*) = nullptr;
+  // API 38 (p13-webui-017, numbered by the fork train p13-webui-086): its
   // presence says the fork honors CMUX_EXTRA_INFO_NO_RENDERER.
   int (*tab_renderer_state)(int) = nullptr;
   // No API number yet (p14-energy-046; the fork bundle p14-energy-136 numbers
@@ -178,7 +201,35 @@ struct ForkApi {
   // No API number yet (p07-memory-051; the fork train p07-memory-074 numbers
   // it): cmux's voter in Chromium's MultiSourceMemoryPressureMonitor.
   int (*memory_pressure_vote)(int) = nullptr;
+  // No API number yet (p03-rendering-116; the fork train numbers it): the
+  // slice of the next CefDoMessageLoopWork call only, in microseconds.
+  void (*set_message_loop_time_slice)(int64_t) = nullptr;
 };
+
+// The fork API that has the detached-page IME calls (task p01-process-170).
+inline constexpr int kDetachedImeForkApi = 31;
+
+}  // namespace cmux_shim
+
+// The detached page's IME ops (shim_helper_host.mm): optional exports of the
+// shim that cmux_cef_shim.h does not declare (plans/cmux-next/chromium-host-ops.json
+// optional_exports; the Chromium Host resolves them by name and names them in
+// its hello). Text is UTF-16LE, clauses are task p04-input-064's kIme layout
+// (per clause i32 start, i32 end, u32 color 0xAARRGGBB, u32 thick, little
+// endian), offsets UTF-16 units, -1, -1 no replacement range. Each does nothing
+// for a fork below API 31, a page that is not detached or a malformed buffer.
+extern "C" {
+CMUX_SHIM_EXPORT void cmux_shim_browser_ime_set_composition(int browser_id, const uint8_t* text, int text_length,
+                                                            const uint8_t* clauses, int clauses_length,
+                                                            int selection_start, int selection_end,
+                                                            int replace_start, int replace_end);
+CMUX_SHIM_EXPORT void cmux_shim_browser_ime_commit_text(int browser_id, const uint8_t* text, int text_length,
+                                                        int replace_start, int replace_end);
+CMUX_SHIM_EXPORT void cmux_shim_browser_ime_finish_composing(int browser_id);
+CMUX_SHIM_EXPORT void cmux_shim_browser_ime_cancel_composition(int browser_id);
+}  // extern "C"
+
+namespace cmux_shim {
 
 struct Host {
   void* ctx = nullptr;
@@ -230,6 +281,8 @@ void ApplyPopupMenus(int browser_id);
 // The live DevTools browsers' identifiers (shim_devtools.mm, UI thread): they
 // are not in browsers(), and their <select> popups go to the host too.
 std::vector<int> DevToolsBrowserIds();
+// The live DevTools browsers themselves (same thread and set).
+std::vector<CefRefPtr<CefBrowser>> DevToolsBrowsers();
 
 // The file chooser handler (shim_file_dialog.mm); CancelFileDialogs cancels
 // the pending choosers of a browser that closed or crashed (UI thread).
@@ -239,6 +292,13 @@ void CancelFileDialogs(int browser_id);
 // Live browsers by identifier (UI thread only).
 std::map<int, CefRefPtr<CefBrowser>>& browsers();
 CefRefPtr<CefBrowser> BrowserById(int browser_id);
+
+// A frame of browser_id attached to its renderer, left it or became the main
+// frame (CefFrameHandler): FRAME_RENDERERS follows once the task's changes are
+// done, when the renderers of its frames changed (shim_browser.mm,
+// frame_renderers.h). ForgetFrameRenderers at its close. UI thread only.
+void NoteFrameRenderersChanged(int browser_id);
+void ForgetFrameRenderers(int browser_id);
 
 // DevTools protocol traffic of the host (shim_devtools_protocol.mm, UI
 // thread). The next id for a shim-internal call of browser_id (1 ..

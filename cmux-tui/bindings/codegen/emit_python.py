@@ -154,12 +154,18 @@ def _plain(value: Any) -> Any:
     return value
 
 
+# Wire names separate words with "-", "_" or "." (the fs.* commands); any
+# character that cannot appear in a Python identifier is a word break.
+_WORD_BREAK = re.compile(r"[^A-Za-z0-9]+")
+_NOT_IDENTIFIER = re.compile(r"[^A-Za-z0-9_]")
+
+
 def _pascal(value: str) -> str:
-    return "".join(part[:1].upper() + part[1:] for part in re.split(r"[-_]", value) if part)
+    return "".join(part[:1].upper() + part[1:] for part in _WORD_BREAK.split(value) if part)
 
 
 def _snake(value: str) -> str:
-    name = value.replace("-", "_")
+    name = _NOT_IDENTIFIER.sub("_", value)
     if keyword.iskeyword(name):
         return name + "_"
     if name == "bytes":

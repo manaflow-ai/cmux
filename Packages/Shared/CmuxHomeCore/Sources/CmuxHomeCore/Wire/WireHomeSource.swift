@@ -243,8 +243,10 @@ public actor WireHomeSource: HomeSource {
                                      displayName: info.displayName.isEmpty ? displayName : info.displayName)
                 } catch {
                     setConnection(.offline(since: Date()))
-                    // A bounded, cancellable retry delay (the server is down or Tailscale is off).
-                    do { try await clock.sleep(for: reconnectDelay(attempt: attempt)) } catch { return }
+                    let delay = reconnectDelay(attempt: attempt)
+                    // wakeup-allow: backoff 1 s doubling to 30 s while the server is down or Tailscale is off;
+                    // `shutdown` cancels it
+                    do { try await clock.sleep(for: delay, tolerance: HomeWakeLeeway(delay: delay).tolerance) } catch { return }
                     attempt += 1
                 }
             }
@@ -409,9 +411,10 @@ public actor WireHomeSource: HomeSource {
 
     /// The UTF-16 range of `length` characters from character `start` of `text`.
     static func utf16Range(in text: String, characterStart start: Int, length: Int) -> Range<Int>? {
-        guard start >= 0, start + length <= text.count else { return nil }
-        let lower = text.index(text.startIndex, offsetBy: start)
-        let upper = text.index(lower, offsetBy: length)
+        guard start >= 0, length >= 0,
+              let lower = text.index(text.startIndex, offsetBy: start, limitedBy: text.endIndex),
+              let upper = text.index(lower, offsetBy: length, limitedBy: text.endIndex)
+        else { return nil }
         let from = text.utf16.distance(from: text.utf16.startIndex, to: lower)
         return from..<(from + text.utf16.distance(from: lower, to: upper))
     }

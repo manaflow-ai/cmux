@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CmuxNextDaemon
 import Darwin
 public import Foundation
@@ -23,14 +24,17 @@ public final class ChiefBrainKeeper {
     private let connection: Connection
     private let resolveHost: ResolveHost
     private let mint: MintToken
+    /// The app's blocking-work lanes, handed to each host start.
+    private let runner: any MayBlockRunner
     /// A start is in flight.
     private var starting = false
     private var watch: ChiefBrainWatch?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
     public init(home: ChiefHome, connection: @escaping Connection, resolveHost: @escaping ResolveHost,
-                mint: @escaping MintToken) {
+                mint: @escaping MintToken, runner: any MayBlockRunner) {
         self.home = home
+        self.runner = runner
         self.connection = connection
         self.resolveHost = resolveHost
         self.mint = mint
@@ -85,6 +89,7 @@ public final class ChiefBrainKeeper {
         guard !starting, let connection = connection() else { return }
         starting = true
         // task-owner: reads the endpoint, then spawns the detached host once
+        // main-hop-allow: resolveHost is the app's main-actor async seam (its endpoint read runs off main) and `starting` is this keeper's main-actor state; this task only starts the launch and watches its pid in the resume
         Task { [weak self] in
             guard let self else { return }
             // The start is over either way: a later ask may start again.
@@ -118,7 +123,7 @@ public final class ChiefBrainKeeper {
     private func launch(_ host: HomeBrainHost, connection: DaemonConnection) async -> pid_t? {
         let mint = mint
         do {
-            let outcome = try await host.start { try await mint(connection) }
+            let outcome = try await host.start(runner: runner) { try await mint(connection) }
             logger.info("mux host: \(String(describing: outcome), privacy: .public)")
             return outcome.pid
         } catch {

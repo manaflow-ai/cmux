@@ -141,7 +141,7 @@ impl AuthCache {
     }
 
     fn file_part(&self, path: &Path, reader: Reader) -> u64 {
-        let Ok(md) = std::fs::metadata(path) else { return 0 };
+        let Ok(md) = cmux_blocking::fs::metadata(path) else { return 0 };
         let (len, mtime) = (md.len(), md.modified().ok());
         if reader == Reader::Stat {
             // Present or not: the harness rewrites it on every token refresh,
@@ -156,7 +156,8 @@ impl AuthCache {
         {
             return part;
         }
-        let part = std::fs::read(path).map(|bytes| account_part(reader, &bytes)).unwrap_or(0);
+        let part =
+            cmux_blocking::fs::read(path).map(|bytes| account_part(reader, &bytes)).unwrap_or(0);
         // A file written within the timestamp's resolution of this read may
         // change again with the same size and mtime: never trust such a
         // parse later (git's racy-entry rule).

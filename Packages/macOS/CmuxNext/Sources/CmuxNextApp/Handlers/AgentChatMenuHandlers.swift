@@ -47,36 +47,37 @@ enum AgentChatMenuHandlers {
                 return context.refuse(MiscHandlerStrings.noAgentChat)
             }
             let daemon = context.services.daemon(for: pane)
-            let mark = AgentChatMarkUnread(
-                acpmux: {
-                    guard view.model.sessionId == session, tab.agentSession?.session == session else { return false }
-                    let marked = await AgentPaneMarkUnread(view.model).run()
-                    // A session switch while the socket was in flight invalidates the tab fallback.
-                    guard view.model.sessionId == session, tab.agentSession?.session == session else { return false }
-                    return marked
-                },
-                daemon: {
-                    guard view.model.sessionId == session, tab.agentSession?.session == session else {
-                        throw ActionFailure(message: MiscHandlerStrings.noAgentChat)
-                    }
-                    try TabUnreadMark.set(true, tab: tab, daemon: daemon)
-                }
-            )
             // The action's owner is this one mark request. CLI/MCP callers await the registry's
             // tracked work; a palette or menu invocation receives the same refusal if both paths fail.
-            registry.track(Task { @MainActor in
-                guard view.model.sessionId == session, tab.agentSession?.session == session else {
-                    return ActionWorkFailure(refusal: .unavailable, reason: MiscHandlerStrings.noAgentChat)
-                }
-                do {
-                    try await mark.run()
-                    return nil
-                } catch {
-                    let reason = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-                    return ActionWorkFailure(refusal: .unavailable, reason: reason)
-                }
-            })
+            // A session switch before the request makes both paths refuse with noAgentChat.
+            registry.trackWork(owner: "AgentChatMenuHandlers.markUnread", on: context.services.mainWork) {
+                try await markUnread(view: view, tab: tab, session: session, daemon: daemon)
+            } then: { result in
+                guard case .failure(let error) = result else { return nil }
+                let reason = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                return ActionWorkFailure(refusal: .unavailable, reason: reason)
+            }
         })
+    }
+
+    /// Marks `session`'s chat in `view` unread: acpmux's mark, else the tab's daemon mark. Both refuse once the
+    /// chat shows another session.
+    private static func markUnread(view: AgentPaneView, tab: TabModel, session: String, daemon: DaemonService) async throws {
+        try await AgentChatMarkUnread(
+            acpmux: {
+                guard view.model.sessionId == session, tab.agentSession?.session == session else { return false }
+                let marked = await AgentPaneMarkUnread(view.model).run()
+                // A session switch while the socket was in flight invalidates the tab fallback.
+                guard view.model.sessionId == session, tab.agentSession?.session == session else { return false }
+                return marked
+            },
+            daemon: {
+                guard view.model.sessionId == session, tab.agentSession?.session == session else {
+                    throw ActionFailure(message: MiscHandlerStrings.noAgentChat)
+                }
+                try TabUnreadMark.set(true, tab: tab, daemon: daemon)
+            }
+        ).run()
     }
 
     private static func bindRevealCwd(into registry: ActionRegistry, context: AppActionContext) {

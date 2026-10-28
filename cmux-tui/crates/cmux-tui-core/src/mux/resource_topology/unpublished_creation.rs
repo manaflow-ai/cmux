@@ -34,7 +34,12 @@ impl Mux {
         // the receipt's evidence is a closed terminal, whose settlement
         // already rolls the workspace back. A rollback that fails leaves the
         // effect indeterminate, as before.
-        let rolled_back = match recovery.intent["terminal_reservation"]["terminal_id"].as_str() {
+        let rolled_back = match recovery
+            .intent
+            .get("terminal_reservation")
+            .and_then(|value| value.get("terminal_id"))
+            .and_then(Value::as_str)
+        {
             Some(terminal_id) => self.close_unpublished_terminal(terminal_id),
             None => Ok(()),
         }

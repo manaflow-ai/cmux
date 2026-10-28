@@ -1,5 +1,6 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
+import { hiddenRowKeys } from "../availability";
 import { useSettingsRouter, useSettingsState, useStore } from "../context";
 import { installKeyboard, runPageCommand } from "../keyboard";
 import { parseLocation, sectionHref } from "../router";
@@ -119,13 +120,14 @@ export function SettingsApp() {
       valueOf: (key) => valueOf(state, key),
       isChanged,
       devBuild: state.host?.dev_build === true,
+      hidden: hiddenRowKeys(state.host),
     })[0]?.rows[0];
     if (first) reveal(first.key);
   };
 
   return (
     <div className="settings" ref={keyboardRef}>
-      <aside className="sidebar">
+      <aside className="sidebar" data-page-scroll="sections">
         <SearchField
           query={query}
           onQuery={setQuery}
@@ -136,7 +138,7 @@ export function SettingsApp() {
         />
         <SectionList current={searching ? null : section} onSelect={clearField} />
       </aside>
-      <main className="content">
+      <main className="content" data-page-scroll="content">
         <div className="column">
           {!state.connected ? (
             <ReadOnlyBanner />

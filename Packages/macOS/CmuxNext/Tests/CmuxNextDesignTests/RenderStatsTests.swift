@@ -428,6 +428,36 @@ import Testing
         #expect(!stats.isArmed)
         #expect(hookedIMPs() == original)
     }
+
+    /// A producer that presents its own frames (a terminal renderer, p03-rendering-093).
+    nonisolated final class PresentingProducer: NSObject {}
+
+    /// p03-rendering-093: frames a producer presents itself, off the main thread and through no `setContents:`,
+    /// count as contents sets of their owner only while the stats count, from many threads without a data race
+    /// (run under TSan: `swift test --sanitize=thread`).
+    @Test func presentedFramesCountAsContentsSetsOfTheirOwnerWhileCounting() async {
+        let stats = RenderStats()
+        await Self.present(stats.presentedFrames, threads: 4, framesPerThread: 10)
+        #expect(count(stats, .contentsSets, owner: PresentingProducer.self) == 0, "not armed: nothing counts")
+        _ = await armed(stats)
+        await Self.present(stats.presentedFrames, threads: 8, framesPerThread: 50)
+        #expect(count(stats, .contentsSets, owner: PresentingProducer.self) == 8 * 50)
+        await release(stats)
+        await Self.present(stats.presentedFrames, threads: 4, framesPerThread: 10)
+        #expect(count(stats, .contentsSets, owner: PresentingProducer.self) == 8 * 50, "disarmed: nothing more counts")
+    }
+
+    /// `threads` threads off the main thread each present `framesPerThread` frames of a ``PresentingProducer``.
+    nonisolated static func present(_ frames: RenderStats.PresentedFrames, threads: Int, framesPerThread: Int) async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                DispatchQueue.concurrentPerform(iterations: threads) { _ in
+                    for _ in 0..<framesPerThread { frames.framePresented(by: PresentingProducer.self) }
+                }
+                continuation.resume()
+            }
+        }
+    }
     #endif
 
     @Test func infiniteAnimationsCountOnlyWhereNobodySeesThem() {

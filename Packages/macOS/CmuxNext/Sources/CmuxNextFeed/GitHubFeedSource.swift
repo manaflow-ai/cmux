@@ -6,38 +6,67 @@ public import CmuxNextWakeups
 /// ETags and the detail cache are client state; item lifecycle, dedupe, and
 /// triage remain owned by the feed owner.
 ///
-/// Each wait is the interval times the Energy Saver's ``EnergyPolicy/pollStretch``. While no cmux
-/// window shows (``ShownWindows``) no refresh is booked; a window showing again books the next one
-/// an interval after the last, at once when that has passed (p14-energy-032), as Chromium stops a
-/// hidden page's timers and runs what came due once it shows (`content/public/browser/visibility.h`).
+/// The poll is a repeating ``BackgroundActivity`` (`NSBackgroundActivityScheduler` in the app): every
+/// interval times the Energy Saver's ``EnergyPolicy/pollStretch``, with a quarter of that as tolerance,
+/// so macOS batches the wake with others and defers it while the Mac is busy (p14-energy-066b). Each
+/// run posts one main-actor intent that starts a refresh; an intent of an activity replaced since it
+/// was posted starts nothing. While no feed surface shows (the ``ShownWindows`` over the nodes of the
+/// feed's page tabs, panel and sidebar sections) the activity is invalidated; a surface showing again
+/// refreshes an interval after the last refresh, at once when that has passed, and schedules the
+/// activity anew then (p14-energy-032), as Chromium stops a hidden page's timers and runs what came due
+/// once it shows (`content/public/browser/visibility.h`).
+///
+/// No deadline of the poll waits while the app is hidden: the activity is the system's to coalesce (its
+/// tolerance), and the catch-up waits only while a feed surface shows, so the Blink-style whole-second
+/// alignment of hidden wakes (p06-scheduler-344) has nothing left to align here.
 @MainActor
 public final class GitHubFeedSource: GitHubFeedDetailProviding {
     public static let defaultInterval: Duration = .seconds(120)
     public static let supportedNotificationReasons: Set<String> = ["assign", "ci_activity", "mention", "review_requested"]
+    /// The owner of the poll activity's runs (an `allowed_periodic` owner of idle-budget.json) and of
+    /// the one refresh a show inside the interval waits for.
+    static let refreshOwner = "GitHubFeedSource.refresh"
+
+    /// The poll activity's identifier for the app build `bundleID` (nil: the main bundle's): one per
+    /// build, as `NSBackgroundActivityScheduler` asks.
+    public static func refreshActivityIdentifier(bundleID: String?) -> String {
+        "\(bundleID ?? Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next").github-feed.refresh"
+    }
 
     private let owner: any FeedPostingSource
     private let client: any GitHubFeedAPI
     private var interval: Duration
-    /// The app's Energy Saver policy, read at each booking.
+    /// The app's Energy Saver policy, read when the poll activity is scheduled.
     private let energy: EnergyPolicySource
-    /// Whether a cmux window shows; nil polls whether or not one does.
-    private let shown: ShownWindows?
-    private var shownObservation: ShownWindowsObservation?
-    /// Between ``start()`` and ``stop()``: the poll runs, or waits for a window to show.
+    private var energyObservation: MainActorEnergyObservation?
+    /// Whether a feed surface shows; nil polls whether or not one does.
+    private let surfaces: ShownWindows?
+    private var surfacesObservation: ShownWindowsObservation?
+    /// Schedules the repeating poll activity; each run posts its intent to the main actor.
+    private let activities: MainIntentBackgroundActivities
+    private let activityIdentifier: String
+    /// The poll activity while it runs, the interval it was scheduled with, and its serial: a run's
+    /// intent starts a refresh only while the activity that posted it is this one.
+    private var activity: (run: any BackgroundActivityRun, interval: Duration, serial: Int)?
+    /// Counts the activities scheduled, never reset (a restart's activity gets a new serial too).
+    private var activitySerial = 0
+    /// After a show inside the interval: the one refresh at the interval's end, which then schedules the activity.
+    private let catchUp: MainDeadline
+    /// Between ``start()`` and ``stop()``: the poll runs, or waits for a feed surface to show.
     private var polling = false
-    /// A refresh of the poll runs now; it books the next one itself when it ends.
+    /// A refresh of the poll runs now; a run of the activity meanwhile starts none.
     private var pollRefreshing = false
-    /// The time since the last poll refresh of this generation ended, on the injected clock; nil
+    /// When the last poll refresh of this generation ended, in the deadline scheduler's uptime; nil
     /// before its first, so a start while hidden refreshes on the first show.
-    private var sinceLastRefresh: (@MainActor () -> Duration)?
-    /// Starts a stopwatch on the injected clock (opened once, in ``init``, so its instants stay typed).
-    private let startStopwatch: @MainActor () -> @MainActor () -> Duration
+    private var lastRefreshEnded: Duration?
     private let now: @MainActor () -> Date
     /// The poll's running refresh, which ``stop()`` cancels (that ends its `gh` child). Set from
     /// ``start()`` until ``stop()``; tests read it to await a refresh they stopped.
     private(set) var runner: Task<Void, Never>?
-    /// The next refresh, one deadline at a time: set after each refresh finishes.
-    private let nextRefresh: DemandTimer
+    /// When the refresh a show inside the interval waits for is due, on the deadlines' uptime; tests read it.
+    var catchUpDue: Duration? { catchUp.plannedWake?.due }
+    /// The app's one deadline scheduler: its uptime times the interval since the last refresh.
+    private let deadlines: MainDeadlineScheduler
     /// Bumped by every start and stop: a refresh of an older generation posts, stores and
     /// schedules nothing (``stop()`` may land while its `gh` call runs).
     private var pollGeneration = 0
@@ -49,24 +78,34 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     private(set) public var lastError: String?
     public private(set) var githubDetails: [String: GitHubFeedDetail] = [:]
 
+    /// - Parameters:
+    ///   - activities: Schedules the repeating poll activity (`.system(work:)` in the app).
+    ///   - activityIdentifier: The poll activity's identifier (``refreshActivityIdentifier(bundleID:)``).
+    ///   - deadlines: The app's one deadline scheduler (`AppServices.mainDeadlines`): the catch-up is a
+    ///     background deadline on it, and its uptime times the interval since the last refresh.
     public init(
         owner: any FeedPostingSource,
         client: any GitHubFeedAPI = GitHubCLIClient(),
         interval: Duration = GitHubFeedSource.defaultInterval,
         energy: EnergyPolicySource,
-        shown: ShownWindows?,
-        now: @escaping @MainActor () -> Date = { Date() },
-        clock: any Clock<Duration> = ContinuousClock()
+        surfaces: ShownWindows?,
+        activities: MainIntentBackgroundActivities,
+        activityIdentifier: String,
+        deadlines: MainDeadlineScheduler,
+        now: @escaping @MainActor () -> Date = { Date() }
     ) {
         self.owner = owner
         self.client = client
         self.interval = interval
         self.energy = energy
-        self.shown = shown
+        self.surfaces = surfaces
+        self.activities = activities
+        self.activityIdentifier = activityIdentifier
         self.now = now
-        startStopwatch = GitHubFeedSource.stopwatches(on: clock)
-        nextRefresh = DemandTimer(owner: "GitHubFeedSource.refresh", clock: clock)
-        shownObservation = shown?.observe { [weak self] anyShown in self?.shownChanged(anyShown) }
+        self.deadlines = deadlines
+        catchUp = MainDeadline(owner: Self.refreshOwner, workClass: .background, scheduler: deadlines)
+        surfacesObservation = surfaces?.observe { [weak self] anyShown in self?.shownChanged(anyShown) }
+        energyObservation = MainActorEnergyObservation(energy) { [weak self] _ in self?.energyChanged() }
     }
 
     /// The wait between two refreshes now: the interval stretched by the Energy Saver.
@@ -88,60 +127,103 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         return githubDetails[item.id]
     }
 
-    /// Starts the poll: a refresh now while a window shows, else once one shows.
+    /// Starts the poll: a refresh now while a feed surface shows, else once one shows.
     public func start() {
         stop()
         polling = true
-        if isShown { beginRefresh(pollGeneration) }
+        resume(pollGeneration)
     }
 
     public func stop() {
         polling = false
         pollRefreshing = false
         pollGeneration += 1
-        sinceLastRefresh = nil
+        lastRefreshEnded = nil
         runner?.cancel()
         runner = nil
-        nextRefresh.cancel()
+        pause()
     }
 
-    /// Whether a window shows (always, with no ``ShownWindows``).
-    private var isShown: Bool { shown?.anyShown ?? true }
+    /// Whether a feed surface shows (always, with no ``ShownWindows``).
+    private var isShown: Bool { surfaces?.anyShown ?? true }
 
-    /// The last window went away: the booked refresh goes (a running one books none). A window
-    /// showing again books the next one an interval after the last, at once when that has passed.
+    /// The last feed surface went away: the activity and a waiting catch-up go (a running refresh
+    /// finishes). A surface showing again refreshes an interval after the last refresh, at once when
+    /// that has passed, and schedules the activity then; while a refresh runs it only schedules it.
     private func shownChanged(_ anyShown: Bool) {
-        guard polling, !pollRefreshing else { return }
-        guard anyShown else { return nextRefresh.cancel() }
+        guard polling else { return }
+        guard anyShown else { return pause() }
+        guard activity == nil, !catchUp.isScheduled else { return }
         let generation = pollGeneration
-        let wait = currentInterval - (sinceLastRefresh?() ?? currentInterval)
-        guard wait > .zero else { return beginRefresh(generation) }
-        nextRefresh.scheduleOnMain(after: wait) { [weak self] in self?.beginRefresh(generation) }
+        let sinceLast = lastRefreshEnded.map { deadlines.uptime - $0 } ?? currentInterval
+        let rest: Duration = pollRefreshing ? .zero : currentInterval - sinceLast
+        guard rest > .zero else { return resume(generation) }
+        catchUp.schedule(after: rest) { [weak self] in self?.resume(generation) }
     }
 
-    /// Runs one refresh of the poll `generation` in ``runner``, so ``stop()`` cancels it, and
-    /// arms the next one ``currentInterval`` after it ends while a window shows (Chromium's
-    /// self-reposting delayed task).
+    /// A show of the poll `generation`, or the end of the interval it came inside: the activity is
+    /// scheduled and one refresh starts, unless one runs.
+    private func resume(_ generation: Int) {
+        guard generation == pollGeneration, polling, isShown else { return }
+        scheduleActivity()
+        beginRefresh(generation)
+    }
+
+    /// Nothing of the poll stays scheduled: the activity and the catch-up go.
+    private func pause() {
+        catchUp.cancel()
+        invalidateActivity()
+    }
+
+    /// The Energy Saver turned on or off: a running activity is scheduled anew at the new stretch, and
+    /// a waiting catch-up is booked again for the rest of the new interval.
+    private func energyChanged() {
+        if catchUp.isScheduled {
+            catchUp.cancel()
+            return shownChanged(isShown)
+        }
+        guard let activity, activity.interval != currentInterval else { return }
+        scheduleActivity()
+    }
+
+    /// Schedules the poll activity at ``currentInterval`` with a quarter of it as tolerance, in place
+    /// of the one running, under a new serial.
+    private func scheduleActivity() {
+        invalidateActivity()
+        let interval = currentInterval
+        activitySerial += 1
+        let serial = activitySerial
+        let spec = BackgroundActivity(identifier: activityIdentifier, owner: Self.refreshOwner,
+                                      interval: interval, tolerance: interval / 4)
+        let run = activities.schedule(spec) { [weak self] in self?.activityRan(serial) }
+        activity = (run, interval, serial)
+    }
+
+    private func invalidateActivity() {
+        activity?.run.invalidate()
+        activity = nil
+    }
+
+    /// A run of the activity `serial` reached the main thread: one refresh while that activity is
+    /// still the scheduled one. A stop, a hide (also one followed by a show) or a reschedule since it
+    /// was posted replaced or invalidated it, so it starts nothing; nor does it while a refresh runs.
+    private func activityRan(_ serial: Int) {
+        guard polling, isShown, activity?.serial == serial else { return }
+        beginRefresh(pollGeneration)
+    }
+
+    /// Runs one refresh of the poll `generation` in ``runner``, so ``stop()`` cancels it.
     private func beginRefresh(_ generation: Int) {
-        guard generation == pollGeneration else { return }
+        guard generation == pollGeneration, !pollRefreshing else { return }
         pollRefreshing = true
+        // task-owner: `runner`; one poll refresh; stop() cancels it (that ends its `gh` child)
+        // main-hop-allow: refresh is the source's main-actor poll (its awaits are the `gh` calls); its posts and ETags apply in order on the feed owner
         runner = Task { @MainActor [weak self] in
             guard let self else { return }
             await refresh()
             guard generation == pollGeneration else { return }
             pollRefreshing = false
-            sinceLastRefresh = startStopwatch()
-            guard isShown else { return }
-            // wakeup-allow: periodic GitHubFeedSource.refresh (GitHub has no push for the feed; stretched by the saver, none while no window shows; task 066b moves it to NSBackgroundActivityScheduler)
-            nextRefresh.scheduleOnMain(after: currentInterval) { [weak self] in self?.beginRefresh(generation) }
-        }
-    }
-
-    /// Starts stopwatches on `clock`: each call reads the time since that call, later.
-    private static func stopwatches<C: Clock<Duration>>(on clock: C) -> @MainActor () -> @MainActor () -> Duration {
-        {
-            let start = clock.now
-            return { start.duration(to: clock.now) }
+            lastRefreshEnded = deadlines.uptime
         }
     }
 

@@ -70,7 +70,7 @@ function SessionRow({
 }
 function EventList({ state }: { state: ActivityState }) {
   return (
-    <div className="events">
+    <div className="events" data-page-scroll="events">
       {selectedEvents(state)
         .slice()
         .reverse()
@@ -100,7 +100,7 @@ function Split({ state, dispatch }: { state: ActivityState; dispatch: (a: any) =
   };
   return (
     <div className="split">
-      <aside>
+      <aside data-page-scroll="sessions">
         <div className="groups">
           {groups(state).map((group) => (
             <section key={group.id}>
@@ -162,7 +162,7 @@ function Split({ state, dispatch }: { state: ActivityState; dispatch: (a: any) =
 function Timeline({ state, dispatch }: { state: ActivityState; dispatch: (a: any) => void }) {
   const sessions = groups(state).flatMap((g) => g.sessions);
   return (
-    <div className="timeline">
+    <div className="timeline" data-page-scroll="timeline">
       {sessions.map((session) => (
         <div className="lane" key={session.id}>
           <SessionRow session={session} state={state} dispatch={dispatch} />
@@ -183,7 +183,7 @@ function Timeline({ state, dispatch }: { state: ActivityState; dispatch: (a: any
 }
 function Grid({ state, dispatch }: { state: ActivityState; dispatch: (a: any) => void }) {
   return (
-    <div className="grid">
+    <div className="grid" data-page-scroll="grid">
       {groups(state)
         .flatMap((g) => g.sessions)
         .map((session) => (
