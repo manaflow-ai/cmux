@@ -41,12 +41,13 @@ extension ActionRegistry {
         return ran
     }
 
-    /// `invocation` with the window its run acts in (``ActionInvocation/windowID``): the one the
-    /// entrypoint named, else the window of the run this one is nested in, else the App's resolver
-    /// (``windowResolver``), asked once, now, while the input that started the run is dispatched.
+    /// `invocation` with the window its run acts in (``ActionInvocation/windowID``): the App's resolver
+    /// (``windowResolver``), asked once, now, while the input that started the run is dispatched. It
+    /// takes the window the input named (the entrypoint's, a window target) before the window of the
+    /// run this one is nested in; with no resolver, the outer run's window.
     func resolvingWindow(_ invocation: ActionInvocation) -> ActionInvocation {
-        guard invocation.windowID == nil else { return invocation }
-        guard let windowID = ActionRunScope.current?.windowID ?? windowResolver?(invocation) else { return invocation }
+        guard let windowID = windowResolver?(invocation) ?? invocation.windowID ?? ActionRunScope.current?.windowID,
+              windowID != invocation.windowID else { return invocation }
         var resolved = invocation
         resolved.windowID = windowID
         return resolved

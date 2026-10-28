@@ -92,6 +92,8 @@ public final class ActionRegistry {
     public let turnObserver: (any ActionRunObserver)?
     /// How deep the perform turns heard by ``turnObserver`` nest now; only the outermost is reported.
     @ObservationIgnored var observedPerformDepth = 0
+    /// Outermost action runs so far: each run's ``ActionRunScope/runID``.
+    @ObservationIgnored var runCount: UInt64 = 0
     /// The end of the gate interval open now (`ActionRegistry+Signposts`), ended before anything
     /// else is timed so a gate never encloses the run it lets through.
     @ObservationIgnored var openGateEnd: (@MainActor () -> Void)?

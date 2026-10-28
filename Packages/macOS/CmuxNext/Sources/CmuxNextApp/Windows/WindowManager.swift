@@ -36,6 +36,9 @@ final class WindowManager {
     private(set) weak var lastActive: WindowController?
     /// The cmux window the event in dispatch came from (`dispatching(eventFrom:_:)`).
     var eventOrigin: EventOrigin?
+    /// The window each recent action run's own code brought forward, by ``ActionRunScope/runID``
+    /// (`runDidBringForward`, WindowTarget.swift); the oldest go first past a small limit.
+    var runForwards: [(run: UInt64, window: String)] = []
     /// Called after a window is ordered in (the restart notice attaches).
     var onPresent: ((WindowController) -> Void)?
     /// Writes the window records (WindowRecordSaver).
@@ -140,7 +143,7 @@ final class WindowManager {
     func windowDidOrder(_ window: NSWindow, inFront: Bool) {
         services.cache.hibernation?.windowsDidReorder() // an order without a key change posts nothing
         services.windowOcclusionFamilies?.windowsDidReorder()
-        if inFront { eventDidBringForward(window) }
+        if inFront { eventDidBringForward(window); runDidBringForward(window) }
         guard !keepsOrder, let id = controllers.first(where: { $0.window === window })?.state.id else { return }
         registry.apply { if inFront { $0.activate(id) } else { $0.moveToBack(id) }; return WindowRegistry.Changes() }
     }
@@ -160,6 +163,7 @@ final class WindowManager {
 
     func didActivate(_ controller: WindowController) {
         lastActive = controller
+        if let window = controller.window { runDidBringForward(window) }
         if keepsOrder { return }
         registry.apply { $0.activate(controller.state.id); return WindowRegistry.Changes() }
     }

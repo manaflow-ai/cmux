@@ -29,12 +29,18 @@ public nonisolated struct ActionRunScope: Sendable, Hashable {
     /// A task the handler starts inherits it, so work that ends after a daemon reply lands in the
     /// window the person pressed the key in, even after they moved to another window.
     public var windowID: String?
+    /// The outermost action run this scope belongs to (0: none, a scope made outside a run). The App
+    /// keys the window a run's own code brought forward by it (`WindowManager.runDidBringForward`),
+    /// so the run's later work follows the window it opened (New Window, Select Next Window, Move to
+    /// New Window), as an event's dispatch follows the window its action brought forward.
+    public var runID: UInt64 = 0
 
-    public init(origin: ActionOrigin, allowsViewChange: Bool, inputTimestamp: Double? = nil, windowID: String? = nil) {
+    public init(origin: ActionOrigin, allowsViewChange: Bool, inputTimestamp: Double? = nil, windowID: String? = nil, runID: UInt64 = 0) {
         self.origin = origin
         self.allowsViewChange = allowsViewChange
         self.inputTimestamp = origin == .user ? inputTimestamp : nil
         self.windowID = windowID
+        self.runID = runID
     }
 
     /// The scope of a run of an action described as `focuses` (or not), answering the person's
@@ -51,7 +57,8 @@ public nonisolated struct ActionRunScope: Sendable, Hashable {
     public func nested(in outer: ActionRunScope?) -> ActionRunScope {
         guard let outer else { return self }
         return ActionRunScope(origin: outer.origin, allowsViewChange: outer.allowsViewChange && allowsViewChange,
-                              inputTimestamp: inputTimestamp ?? outer.inputTimestamp, windowID: windowID ?? outer.windowID)
+                              inputTimestamp: inputTimestamp ?? outer.inputTimestamp, windowID: windowID ?? outer.windowID,
+                              runID: outer.runID == 0 ? runID : outer.runID)
     }
 }
 
@@ -85,8 +92,12 @@ extension ActionRegistry {
         // The press the run answers, as its `action.*` row reads it (ActionRegistry+Signposts): kept in the run's
         // scope, which its tasks inherit, so a switch it makes in a later turn answers the same press.
         let press = Self.inputTimestamp(of: dispatchingInputEvent()) ?? invocation.inputTimestamp
-        let run = ActionRunScope(invocation, focuses: descriptor(for: id)?.focuses ?? false, inputTimestamp: press)
+        var run = ActionRunScope(invocation, focuses: descriptor(for: id)?.focuses ?? false, inputTimestamp: press)
             .nested(in: ActionRunScope.current)
+        if run.runID == 0 {
+            runCount &+= 1
+            run.runID = runCount
+        }
         for observer in willRunObservers { observer(id, run.origin) }
         // The run's timing has read the press and its scope keeps it; the handler's invocation gets none, so an
         // action it performs later with this invocation does not report this press's age as its own row's.

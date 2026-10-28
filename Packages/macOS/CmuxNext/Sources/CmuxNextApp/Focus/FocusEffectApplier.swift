@@ -264,7 +264,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         let parent: ChildWindowKeyRule.Parent = other.parent === window ? .thisWindow : other.parent == nil ? .none : .other
         return ChildWindowKeyRule.Facts(parent: parent, isPanel: other is NSPanel, isChromiumPage: Self.isChromiumPageWindow(other),
                                         isDevTools: isDevTools, clicked: clicked, overPane: overPane,
-                                        thisWindowIsActive: controller.services.windows.active === controller)
+                                        thisWindowIsActive: controller.services.windows.personWindow === controller)
     }
 
     private func setPageFocus(_ page: any BrowserTab, _ focused: Bool) {
@@ -399,7 +399,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// Only the active window publishes into the (app-wide) registry.
     private func publish(_ context: FocusState.Context) {
         let services = controller.services
-        guard services.windows.active === controller else { return }
+        guard services.windows.personWindow === controller else { return }
         let registry = services.registry
         if context.agent, case .agentPage(_, let tab) = controller.focus.state.underlying {
             services.agentTabs.setCheckpointFocus(tab)

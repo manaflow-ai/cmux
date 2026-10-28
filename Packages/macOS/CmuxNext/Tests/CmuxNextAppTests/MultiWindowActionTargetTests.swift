@@ -127,6 +127,7 @@ import Testing
             ran += 1
             world.personMoves(to: world.w3)
             await world.probe.drain()
+            #expect(world.probe.pending == 0, "\(entry): \(id.rawValue)'s task never ran")
             if world.probe.now[id] != expected.state.id { wrongNow.append("\(id.rawValue) -> \(world.name(world.probe.now[id]))") }
             if let later = world.probe.later[id], later != expected.state.id { wrongLater.append("\(id.rawValue) -> \(world.name(later))") }
         }
@@ -257,6 +258,36 @@ import Testing
         #expect(wrong.isEmpty, "\(wrong.count) of \(ran) CLI runs acted in another window than the person's last one: \(wrong.prefix(12))")
     }
 
+    /// A run's own code brings window 3 forward (New Window, Select Next Window, Move to New Window):
+    /// the run's later work acts in window 3, and window 3 is the window the person is in (it publishes
+    /// the app's focus context), as an event's dispatch follows the window its action brought forward.
+    @Test func aRunFollowsTheWindowItsOwnCodeBroughtForward() async throws {
+        let world = try Self.world()
+        defer { world.close() }
+        let shell2 = try #require(world.w2.window)
+        let windows = world.services.windows
+        @MainActor final class Seen { var after: String?, person: String? }
+        let seen = Seen()
+        let registry = world.services.registry, services = world.services, w3 = world.w3
+        registry.bind("zoomWindow", invoke: { _ in
+            // task-owner: the test's own continuation, awaited below
+            Task { @MainActor in
+                await Task.yield()
+                // The run's code made window 3 key.
+                let shell3 = w3.window
+                services.keyWindowSource = { shell3 }
+                services.windows.didActivate(w3)
+                seen.after = windows.active?.state.id
+                seen.person = windows.personWindow?.state.id
+            }
+        })
+        world.services.keyWindowSource = { shell2 }
+        windows.dispatching(eventFrom: shell2) { _ = registry.perform("zoomWindow", invocation: ActionInvocation(origin: .user)) }
+        for _ in 0..<2000 where seen.after == nil { await Task.yield() }
+        #expect(seen.after == world.w3.state.id, "the run's work after it brought window 3 forward acted in \(world.name(seen.after))")
+        #expect(seen.person == world.w3.state.id, "the window the person is in is \(world.name(seen.person)), not window 3")
+    }
+
     // MARK: Home and the sidebar, real handlers
 
     private struct HomeWorld {
@@ -317,6 +348,22 @@ import Testing
         _ = world.services.registry.perform("home.show", invocation: ActionInvocation(origin: .user))
         #expect(world.shown() == ["mwh-1", HomeWorld.home, "mwh-3"],
                 "Home from the menu in window 2: windows 1, 2, 3 show \(world.shown().map { $0 ?? "nothing" })")
+    }
+
+    /// Window 1 lists only Home: Home asked for in window 2 brings window 1 forward instead of taking Home
+    /// from it (that would close window 1, which the person did not ask for).
+    @Test func homeNeverClosesTheWindowThatListsOnlyHome() throws {
+        let world = try Self.homeWorld()
+        defer { world.close() }
+        let windows = world.services.windows
+        _ = windows.moveWorkspaces(["mwh-1"], toWindow: world.w3.state.id, select: false)
+        let listed = windows.registry.members(of: world.w1.state.id)
+        try #require(listed == [HomeWorld.home], "window 1 lists \(listed)")
+        let shell2 = world.w2.window
+        world.services.keyWindowSource = { shell2 }
+        _ = world.services.registry.perform("home.show", invocation: ActionInvocation(origin: .user))
+        #expect(windows.controllers.contains { $0 === world.w1 }, "Home asked for in window 2 closed window 1")
+        #expect(world.w1.state.workspaceID == HomeWorld.home && world.w2.state.workspaceID == "mwh-2")
     }
 
     /// A workspace row clicked in window 2's sidebar (the row of a workspace window 1 lists): window 2 shows

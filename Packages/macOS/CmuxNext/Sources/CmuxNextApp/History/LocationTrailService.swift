@@ -120,7 +120,7 @@ final class LocationTrailService {
     func focusDidSettle(_ state: FocusState, in controller: WindowController) {
         guard let services else { return }
         // Under a top page the workspace's focus is not where the user is.
-        guard services.windows.active === controller, controller.shownTopPage == nil else {
+        guard services.windows.personWindow === controller, controller.shownTopPage == nil else {
             return log.skipped(controller.shownTopPage == nil ? "inactive window" : "top page shown", window: controller.state.id,
                                workspace: state.topology.workspace)
         }
@@ -173,7 +173,7 @@ final class LocationTrailService {
     /// recorded first so Go Back leaves the page (`+PageOrigin`).
     func pageDidShow(_ route: TopPageRoute, title: String, origin: HistoryLocation? = nil, in controller: WindowController) {
         guard let services else { return }
-        guard services.windows.active === controller else { return }
+        guard services.windows.personWindow === controller else { return }
         let location = HistoryLocation.page(route.rawValue, window: controller.state.id, title: title,
                                             isIncognito: services.windows.isIncognito(window: controller.state.id))
         let time = now()

@@ -43,8 +43,9 @@ extension WindowManager {
 }
 
 // The window a command runs against (`WindowTarget`, CmuxNextActions), resolved ONCE at its entrypoint from
-// the input itself (multiwindow.md). This file is the one place that reads AppKit's window state to decide a
-// window (`guardrails.py` implicit-window: `IMPLICIT_WINDOW_RESOLVERS`). Everything else gets a window from its
+// the input itself (multiwindow.md). For action runs, this file is the one place that reads AppKit's window state
+// to decide a window (`guardrails.py` implicit-window: `IMPLICIT_WINDOW_RESOLVERS`); the lookups other code still
+// makes are counted in implicit-window-baseline.tsv and go in later slices. Everything else gets a window from its
 // input: `ActionInvocation.windowID` (set here when the run starts and kept for the run's tasks in
 // `ActionRunScope.windowID`), the view's own window, or an explicit argument.
 
@@ -62,7 +63,7 @@ extension WindowManager {
         if let target = invocation.target, target.kind == .window, isTargetable(target.id) {
             return WindowTarget(id: target.id, source: .named)
         }
-        if let id = ActionRunScope.current?.windowID, isTargetable(id) { return WindowTarget(id: id, source: .named) }
+        if let id = runWindow(), isTargetable(id) { return WindowTarget(id: id, source: .named) }
         if let origin = eventOriginWindow { return WindowTarget(id: origin.state.id, source: .event) }
         if invocation.origin == .user, let key = services.keyWindowSource(), let controller = owner(of: key) {
             return WindowTarget(id: controller.state.id, source: .keyWindowAtEntry)
@@ -74,11 +75,13 @@ extension WindowManager {
     /// The window of code that runs with no input of its own (a timer, an observation, a page's
     /// message): the window of the action run it belongs to, else the event in dispatch, else the
     /// window the person used last, else the front one. Never the key window read at a later time.
+    /// A task started in a run keeps the run's window while that window is open (`isTargetable`);
+    /// long-lived work (a service loop, an observation) must not start inside a run's scope.
     func ambientTarget() -> WindowTarget? {
         if let origin = eventOrigin, origin.forwarded, let controller = eventOriginWindow {
             return WindowTarget(id: controller.state.id, source: .event)
         }
-        if let id = ActionRunScope.current?.windowID, isTargetable(id) { return WindowTarget(id: id, source: .named) }
+        if let id = runWindow(), isTargetable(id) { return WindowTarget(id: id, source: .named) }
         if let origin = eventOriginWindow { return WindowTarget(id: origin.state.id, source: .event) }
         if let lastActive, controllers.contains(where: { $0 === lastActive }) {
             return WindowTarget(id: lastActive.state.id, source: .lastPersonActive)
@@ -103,6 +106,37 @@ extension WindowManager {
     /// The id of the window actions without an explicit target act in (``active``'s). Before the launch
     /// window has a controller (its saved picture shows), the window it stands for.
     var activeWindowID: String? { ambientTarget()?.id }
+
+    /// The window the person is in, for app-wide state only one window publishes (the registry's focus
+    /// context, the location trail, the key rule for child windows): the window of the event in
+    /// dispatch, else the window that last became key, as it recorded it. Never an action run's
+    /// window: a run in window A that brings window B forward makes B the window the person is in.
+    var personWindow: WindowController? {
+        if let origin = eventOriginWindow { return origin }
+        if let lastActive, controllers.contains(where: { $0 === lastActive }) { return lastActive }
+        return ambientTarget().flatMap { controller(for: $0.id) }
+    }
+
+    /// The current action run's window: the window its own code brought forward since it started
+    /// (`runDidBringForward`), else the window resolved at its entrypoint. Nil outside a run.
+    private func runWindow() -> String? {
+        guard let scope = ActionRunScope.current else { return nil }
+        if scope.runID != 0, let forwarded = runForwards.last(where: { $0.run == scope.runID })?.window, isTargetable(forwarded) {
+            return forwarded
+        }
+        return scope.windowID
+    }
+
+    /// `window` came in front or became key while an action run (or a task it started) runs: the run's
+    /// own code asked for it (New Window, Select Next Window, Move to New Window, Reopen), so the run's
+    /// later work acts there, as an event's dispatch follows the window its action brought forward.
+    /// A person's key change never happens inside a run's task-local scope.
+    func runDidBringForward(_ window: NSWindow) {
+        guard let scope = ActionRunScope.current, scope.runID != 0, let controller = owner(of: window) else { return }
+        runForwards.removeAll { $0.run == scope.runID }
+        runForwards.append((scope.runID, controller.state.id))
+        if runForwards.count > 32 { runForwards.removeFirst(runForwards.count - 32) }
+    }
 
     /// Installs ``resolveTarget(for:)`` as the registry's window resolver: every action run gets its
     /// window once, at its entrypoint.

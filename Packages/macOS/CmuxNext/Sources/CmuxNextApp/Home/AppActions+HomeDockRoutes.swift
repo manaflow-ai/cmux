@@ -30,12 +30,21 @@ extension AppActions {
             return false
         }
         if !classic, let active = services.windows.active {
-            let origin: ShowOrigin = (ActionRunScope.current?.origin ?? .user) == .user ? .thisWindow : .anywhere
-            services.windows.show(workspaceID: home.id, in: active.state, from: origin)
+            services.windows.show(workspaceID: home.id, in: active.state, from: homeOrigin(home.id, in: active.state.id, services))
         } else {
             services.windows.reveal(workspaceID: home.id)
         }
         return true
+    }
+
+    /// Where a Home request shows Home: a person's in the window they asked in (`.thisWindow`), unless the
+    /// window that lists Home lists nothing else (taking Home would close that window): then that window
+    /// comes forward, as a request from elsewhere (the CLI, a script) always does.
+    private static func homeOrigin(_ home: String, in window: String, _ services: AppServices) -> ShowOrigin {
+        guard (ActionRunScope.current?.origin ?? .user) == .user else { return .anywhere }
+        let registry = services.windows.registry
+        guard let owner = registry.value.owner(of: home), owner != window else { return .thisWindow }
+        return registry.members(of: owner).count > 1 ? .thisWindow : .anywhere
     }
 
     /// Runs `body` on the docked Home's view: Home shown, the dock tab selected, the view made

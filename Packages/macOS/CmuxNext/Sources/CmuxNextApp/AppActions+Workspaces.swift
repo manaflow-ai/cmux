@@ -177,7 +177,9 @@ extension AppActions {
         // the CLI's, MCP's or the socket's new workspace with focus is made and listed without being shown, and the window
         // shows it once it exists only if no text input has the person's keyboard then (`hasTextInputKeyboard`): decided
         // when it would show, so a person who started typing meanwhile keeps their input.
-        let quiet = !byPerson && show && hasOpenWindow ? ActionRunScope(origin: ActionRunScope.current?.origin ?? invocation.origin, allowsViewChange: false) : nil
+        let quiet = !byPerson && show && hasOpenWindow
+            ? ActionRunScope(origin: ActionRunScope.current?.origin ?? invocation.origin, allowsViewChange: false,
+                             windowID: invocation.windowID, runID: ActionRunScope.current?.runID ?? 0) : nil
         // In this turn: the row, and for Cmd-N's page the workspace itself, show before any daemon reply.
         let create: () async throws -> String = BenchSpans.measure("cmdN.start") {
             guard let quiet else { return windows.startWorkspace(spawn, on: daemon, into: target) }
@@ -198,7 +200,7 @@ extension AppActions {
                 if let quiet, let made, let target, windows.controller(for: target)?.hasTextInputKeyboard != true {
                     // Claimed again, out loud: shown now when the store has it, else when it lists it (reconcile).
                     windows.quietClaims.remove(made)
-                    let shows = ActionRunScope(origin: quiet.origin, allowsViewChange: true)
+                    let shows = ActionRunScope(origin: quiet.origin, allowsViewChange: true, windowID: quiet.windowID, runID: quiet.runID)
                     ActionRunScope.carrying(shows) {
                         windows.claimNew(workspaceID: made, window: target)
                         if focus.activatesApp { focusWindow(windows, target) }

@@ -4,8 +4,8 @@
 /// class"). Chrome runs every command against an explicit `Browser*` (`BrowserWindowInterface`),
 /// the window the input came from; it never asks "which window is current" later. This is that.
 ///
-/// The App's one resolver (`WindowManager.resolveTarget(for:)`, CmuxNextApp/Windows/WindowTarget.swift) is
-/// the only place that reads AppKit's window state to decide a window. Everything else gets a window
+/// The App's one resolver (`WindowManager.resolveTarget(for:)`, CmuxNextApp/Windows/WindowTarget.swift) is,
+/// for action runs, the only place that reads AppKit's window state to decide a window. Everything else gets a window
 /// from its input: ``ActionInvocation/windowID`` (set when the run starts and kept for the run's tasks
 /// in ``ActionRunScope/windowID``), the view's own window, or an explicit argument.
 public nonisolated struct WindowTarget: Hashable, Sendable {
