@@ -140,10 +140,11 @@ fn stall_left(idle: Duration, sent: bool) -> Duration {
     (if sent { UPLOAD_REPLY } else { UPLOAD_STALL }).saturating_sub(idle)
 }
 
-/// How long the slot's reply body may take to arrive once its head came:
-/// `streamed` for a file body (the slot answers after committing it).
-fn reply_body_window(streamed: bool) -> Duration {
-    if streamed { UPLOAD_REPLY } else { UPLOAD_STALL }
+/// How long the slot's reply body may take to arrive once its head came. A
+/// slot answers after it stored the bytes, a streamed file or a derived image
+/// alike.
+fn reply_body_window() -> Duration {
+    UPLOAD_REPLY
 }
 
 /// Resolves once [`stall_left`] says the upload stalled. It ends with its
@@ -229,7 +230,6 @@ impl CloudBackend for RemoteCloudBackend {
         for (name, value) in headers {
             request = request.header(name.as_str(), value.as_str());
         }
-        let streamed = matches!(body, PutBody::File { .. });
         self.runtime.block_on(async move {
             let response = match body {
                 PutBody::Bytes(bytes) => request.timeout(UPLOAD_TIMEOUT).body(bytes).send().await,
@@ -258,7 +258,7 @@ impl CloudBackend for RemoteCloudBackend {
             };
             let response = response.map_err(|error| transport(&error))?;
             let status = response.status().as_u16();
-            let bytes = tokio::time::timeout(reply_body_window(streamed), response.bytes())
+            let bytes = tokio::time::timeout(reply_body_window(), response.bytes())
                 .await
                 .map_err(|_| TransportError("the upload reply did not finish".into()))?
                 .map_err(|error| transport(&error))?;
@@ -504,7 +504,7 @@ mod tests {
     /// read within the stall window, not the reply window.
     #[test]
     fn a_streamed_uploads_reply_body_has_the_reply_window() {
-        assert_eq!(reply_body_window(true), UPLOAD_REPLY);
+        assert_eq!(reply_body_window(), UPLOAD_REPLY);
     }
 
     /// Review of #26498 at d79ff855: a derived image's (bytes) reply body was
@@ -512,7 +512,7 @@ mod tests {
     /// request has UPLOAD_TIMEOUT (10 min).
     #[test]
     fn a_byte_uploads_reply_body_has_the_reply_window_too() {
-        assert_eq!(reply_body_window(false), UPLOAD_REPLY);
+        assert_eq!(reply_body_window(), UPLOAD_REPLY);
     }
 
     /// Serves one raw HTTP/1.1 exchange and hands back the request head.
