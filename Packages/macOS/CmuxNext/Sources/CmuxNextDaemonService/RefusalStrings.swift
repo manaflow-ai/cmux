@@ -202,6 +202,12 @@ public nonisolated enum RefusalStrings {
     public static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
     /// A Close Tab press aimed at a pane the press before it emptied (`PaneCloseAim` in the app).
     public static var closeAimedAtClosedPane: String { text("handlers.refusal.closeAimedAtClosedPane", "That pane closed. Press again to close a tab in this pane.") }
+    /// A Close Tab press while every tab of the pane is already closing (quick presses ahead of the daemon).
+    public static var everyTabClosing: String { text("handlers.refusal.everyTabClosing", "Every tab in this pane is already closing.") }
+    /// A key repeat of a held Cmd-W at the pane's last tab: closing the pane takes a new press.
+    public static var heldCloseStopsAtLastTab: String { text("handlers.refusal.heldCloseStopsAtLastTab", "Release and press again to close the last tab.") }
+    /// A Close Tab press while that close's question is open: the question answers it.
+    public static var closeAlreadyAsking: String { text("handlers.refusal.closeAlreadyAsking", "Answer the open question to close this tab.") }
     public static var pinnedTabKept: String { text("handlers.refusal.pinnedTabKept", "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it.") }
     public static var sessionLocalCannotPin: String { text("handlers.refusal.sessionLocalCannotPin", "session-local tabs cannot be pinned") }
     public static var neverHibernateNoSite: String { text("handlers.refusal.neverHibernateNoSite", "This tab shows no website.") }

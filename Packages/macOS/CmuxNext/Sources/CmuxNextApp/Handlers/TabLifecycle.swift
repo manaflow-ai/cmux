@@ -404,7 +404,15 @@ enum TabLifecycle {
             }
             guard let (pane, selected) = ctx.tab(invocation) else { return }
             // A Cmd-W while the last one's close still asks the daemon closes the next tab (TabCloseGuard).
-            guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane) : selected else { return }
+            guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane) : selected else {
+                // Every tab of the pane is already closing (or asking): this press has nothing left to close here.
+                return ctx.refuse(RefusalStrings.everyTabClosing)
+            }
+            // Key repeat never crosses a boundary (hold-shortcuts-ux.md 3): a held Cmd-W closes the pane's tabs
+            // and stops before its last one; closing the pane (or the workspace) takes a new press.
+            if invocation.origin == .user, press.isRepeat, TabCloseGuard.empties(pane, closing: [id]) {
+                return ctx.refuse(RefusalStrings.heldCloseStopsAtLastTab)
+            }
             // The user's Cmd-W closes a pinned tab, as Chrome's does, unless `tabs.cmdWClosesPinnedTabs`
             // is off (then it keeps it, PINNED-ITEMS-END-TO-END P3); the tab menu, the CLI and MCP close it either way.
             if invocation.origin == .user {

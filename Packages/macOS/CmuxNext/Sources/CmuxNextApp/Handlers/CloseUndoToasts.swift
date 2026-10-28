@@ -37,8 +37,11 @@ final class CloseUndoToasts {
         weak var window: NSWindow?
         var daemonItems: [String] = []
         var daemonTabs = 0
-        /// `CloseToastRule`'s answer, read before the close (`decideFirst`).
+        /// `CloseToastRule`'s answer (`decideFirst`).
         var costly: Bool
+        /// The answer is still being read (a terminal reports no shell state): the toast waits for it
+        /// (``decided(_:costly:)``) even once every record is in.
+        var deciding = false
     }
 
     /// The close toast showing in a window, which a quick next close joins.
@@ -178,7 +181,7 @@ final class CloseUndoToasts {
         let panes = parts.map { part in (pane: { @MainActor [weak pane = part.pane] in pane }, ids: part.ids) }
         // One gesture, one daemon close and one closed group (`PaneController.close(_:)`): one Reopen
         // Closed brings every pane's tabs back, and one undo toast counts them all.
-        let closeAll = { @MainActor (undo: CloseUndoToasts?, costly: Bool) in
+        let closeAll = { @MainActor (undo: CloseUndoToasts?, costly: Bool?) in
             var closing: [(pane: PaneController, ids: [StripTabID])] = [], deciding: [(pane: PaneController, ids: [StripTabID])] = []
             for part in panes {
                 guard let pane = part.pane() else { continue }
@@ -213,29 +216,50 @@ final class CloseUndoToasts {
         }
     }
 
-    /// `CloseToastRule`'s answer for `tabs`, read before their close runs: a
-    /// closed terminal ends, and could no longer say what it ran (cx-lb4al).
-    /// `asked` holds terminals the close's question already asked; when it
-    /// covers every terminal the rule asks about, the close runs at once.
+    /// `CloseToastRule`'s answer for `tabs`; `run` closes them in the caller's turn, always (Lawrence 2026-10-28:
+    /// N quick Cmd-W presses close N tabs, each from the strip as the press before left it). `asked` holds terminals
+    /// the close's question already asked; the daemon's pushed shell state (``TabCloseGuard/pushedPrograms(_:)``)
+    /// answers for the rest. Only a terminal that reports no state is read: its process-info request goes out
+    /// before the close (a closed terminal is detached and reaped after the daemon's grace, cx-lb4al), `run` gets
+    /// nil (deciding) and the toast waits for the read (``decided(_:costly:)``).
     func decideFirst(_ tabs: [TabModel], on daemon: DaemonService, asked: RunningPrograms = [:],
-                     then run: @escaping @MainActor (_ costly: Bool) -> Void) {
+                     then run: @escaping @MainActor (_ costly: Bool?) -> Void) {
         switch services.map({ CloseToastRule(services: $0).decide(tabs) }) ?? .skip {
         case .show: run(true)
         case .skip: run(false)
         case .askTerminals(let terminals) where asked.covers(terminals):
             run(terminals.contains { asked[$0.surface].flatMap { $0 } != nil })
         case .askTerminals(let terminals):
-            // task-owner: one bounded process-info read per terminal (1 s each, concurrent), then the close
-            // main-hop-allow: the person's close waits on it (userBlocking, p06 rule 2): it awaits the main-actor process-info reads; post has no userBlocking class (task 208)
-            Task { @MainActor in run(!(await DestructiveConfirmation.runningPrograms(of: terminals, on: daemon)).isEmpty) }
+            if let pushed = TabCloseGuard.pushedPrograms(terminals.filter { !asked.covers([$0]) }) {
+                return run(terminals.contains { (asked[$0.surface] ?? pushed[$0.surface]).flatMap { $0 } != nil })
+            }
+            let ids = Set(tabs.map(\.id))
+            // The read is started before the close is sent (the toast must know what the terminal ran), but the close
+            // does not wait for it: the tabs leave the strip in this turn.
+            // task-owner: one bounded process-info read per terminal (1 s each, concurrent), then the toast decision
+            // main-hop-allow: the toast decision only (the close ran in the person's turn): it awaits the main-actor process-info reads
+            Task { @MainActor [weak self] in
+                let costly = !(await DestructiveConfirmation.runningPrograms(of: terminals, on: daemon)).isEmpty
+                self?.decided(ids, costly: costly)
+            }
+            run(nil)
         }
+    }
+
+    /// The toast decision of a close whose tabs `ids` closed while it was read (``decideFirst(_:on:asked:then:)``):
+    /// its toast shows now if it is costly and every record is in, or when the last record comes.
+    func decided(_ ids: Set<String>, costly: Bool) {
+        guard let position = expected.firstIndex(where: { $0.deciding && $0.tabs.contains { ids.contains($0.id) } }) else { return }
+        expected[position].deciding = false
+        expected[position].costly = costly
+        if expected[position].daemonTabs >= expected[position].tabs.count { finish(at: position) }
     }
 
     /// No action run (a click in the strip) or a user-origin run.
     static var isUserClose: Bool { (ActionRunScope.current?.origin ?? .user) == .user }
 
-    /// The user is closing tabs `ids` of `pane` in one gesture; `costly` is `decideFirst`'s answer.
-    func expectGroup(_ ids: [StripTabID], in pane: PaneController, costly: Bool) {
+    /// The user is closing tabs `ids` of `pane` in one gesture; `costly` is `decideFirst`'s answer (nil: still deciding).
+    func expectGroup(_ ids: [StripTabID], in pane: PaneController, costly: Bool?) {
         expectGroup(tabs: ids.compactMap(pane.tab), in: pane.pane, window: pane.view.window, costly: costly)
     }
 
@@ -243,7 +267,7 @@ final class CloseUndoToasts {
     /// close of one daemon (`PaneController.close(_:)`) stores one closed
     /// group for all of them, so the gesture waits for one item from any of
     /// those panes. Parts on several daemons each wait for their own.
-    func expectGroup(_ parts: [(pane: PaneController, ids: [StripTabID])], costly: Bool) {
+    func expectGroup(_ parts: [(pane: PaneController, ids: [StripTabID])], costly: Bool?) {
         guard let daemon = parts.first?.pane.daemon, parts.count > 1, parts.allSatisfy({ $0.pane.daemon === daemon }) else {
             for part in parts { expectGroup(part.ids, in: part.pane, costly: costly) }
             return
@@ -254,11 +278,11 @@ final class CloseUndoToasts {
 
     /// The user is closing `tabs` of `pane` in one gesture (a tab group
     /// that may not be shown; `window` is where the toast goes).
-    func expectGroup(tabs: [TabModel], in pane: PaneModel, window: NSWindow?, costly: Bool) {
+    func expectGroup(tabs: [TabModel], in pane: PaneModel, window: NSWindow?, costly: Bool?) {
         expectGroup([(tabs: tabs, pane: pane)], window: window, costly: costly)
     }
 
-    private func expectGroup(_ parts: [(tabs: [TabModel], pane: PaneModel)], window: NSWindow?, costly: Bool) {
+    private func expectGroup(_ parts: [(tabs: [TabModel], pane: PaneModel)], window: NSWindow?, costly: Bool?) {
         let entries = parts.flatMap { part in
             part.tabs.compactMap { tab in part.pane.tabs.firstIndex { $0 === tab }.map { (id: tab.id, index: $0) } }
         }
@@ -270,7 +294,7 @@ final class CloseUndoToasts {
         guard !entries.contains(where: { pending.contains($0.id) }) else { return }
         let title = tabs.count == 1 ? Self.title(of: tabs[0], titles: services.map { TabTitleResolver(services: $0) } ?? TabTitleResolver()) : ""
         expected.append(Expected(tabs: entries.sorted { $0.index < $1.index }, paneResourceIDs: Set(parts.compactMap(\.pane.resourceID)),
-                                 title: title, window: window, costly: costly))
+                                 title: title, window: window, costly: costly ?? false, deciding: costly == nil))
         if expected.count > 16 { expected.removeFirst(expected.count - 16) }
     }
 
@@ -304,17 +328,21 @@ final class CloseUndoToasts {
             guard let entry, let position else { continue }
             expected[position].daemonItems.append(id)
             expected[position].daemonTabs += max(entry.item.tabs.count, 1)
-            guard expected[position].daemonTabs >= expected[position].tabs.count else { continue }
-            // Every record of the gesture is in: show its toast (a costly close) or drop it.
-            let close = expected.remove(at: position)
-            guard close.costly else { continue }
-            show(close) { [weak services] in
-                guard let services else { return }
-                // Each item holds the position it had when it closed: reopen the last closed first.
-                for id in close.daemonItems.reversed() {
-                    guard let entry = DaemonClosedHistory.entry(id, in: services) else { continue }
-                    DaemonClosedHistory.reopen(entry, services: services)
-                }
+            guard expected[position].daemonTabs >= expected[position].tabs.count, !expected[position].deciding else { continue }
+            finish(at: position)
+        }
+    }
+
+    /// Every record of the gesture at `position` is in and its decision made: show its toast (a costly close) or drop it.
+    private func finish(at position: Int) {
+        let close = expected.remove(at: position)
+        guard close.costly else { return }
+        show(close) { [weak services] in
+            guard let services else { return }
+            // Each item holds the position it had when it closed: reopen the last closed first.
+            for id in close.daemonItems.reversed() {
+                guard let entry = DaemonClosedHistory.entry(id, in: services) else { continue }
+                DaemonClosedHistory.reopen(entry, services: services)
             }
         }
     }

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextFocus
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTabs
 
@@ -21,20 +22,38 @@ enum TabCloseGuard {
         case agent(String)
         /// Foreground programs in the closing terminals, unique and sorted.
         case programs([String])
+        /// A command runs in a closing terminal, its program not named yet.
+        case running
     }
 
     /// Runs `close` at once, or after the person confirms the question.
     /// `close` gets what the question asked the terminals, so the close's undo
     /// toast decision does not ask them again (one daemon read per Cmd-W, not two).
+    ///
+    /// The daemon pushes each terminal's shell state (``pushedState(_:)``): terminals that sit at their prompt
+    /// close in the person's own turn with no read, and a running command asks in that turn, so a quick next
+    /// Cmd-W goes to the question and never closes an idle neighbour behind it (Lawrence 2026-10-28, shortcut
+    /// spam). Only a terminal whose shell reports no state (no shell integration) is read first.
     static func close(_ tabs: [TabModel], on daemon: DaemonService, services: AppServices, window: NSWindow?,
                       close: @escaping @MainActor (_ asked: RunningPrograms) -> Void) {
         guard CloseUndoToasts.isUserClose, window != nil, asks(tabs, services: services) else { return close([:]) }
-        // A second close of tabs this close is already asking about (a double click on a close button) is the same close.
-        guard tabs.contains(where: { !asking.contains($0.id) }) else { return }
+        // A second close of tabs this close is already asking about (a double click on a close button, a Cmd-W
+        // behind the question) is the same close: it goes to the question.
+        guard tabs.contains(where: { !asking.contains($0.id) }) else {
+            // The question on screen is this press's answer (quiet: the question is what the person sees).
+            return services.registry.refuse(RefusalStrings.closeAlreadyAsking, quiet: true)
+        }
         let ids = Set(tabs.map(\.id)), terminals = askedTerminals(closing: tabs, services: services)
         // No terminal to ask (the program warning is off, or only agents work): the close, or the agent's
         // question, in the person's own turn.
         guard !terminals.isEmpty else { return answer(tabs, ids: ids, asked: [:], window: window, services: services, close: close) }
+        // Every asked terminal's state is pushed: the close, or the question, in the person's own turn.
+        if let pushed = pushedPrograms(terminals) {
+            guard pushed.values.contains(where: { $0 != nil }) else {
+                return answer(tabs, ids: ids, asked: pushed, window: window, services: services, close: close)
+            }
+            return askNow(tabs, ids: ids, terminals: terminals, pushed: pushed, on: daemon, window: window, services: services, close: close)
+        }
         asking.formUnion(ids)
         reading.formUnion(ids)
         // Only the daemon's read is awaited, off main; the close or the question is the person's completion, one
@@ -62,6 +81,74 @@ enum TabCloseGuard {
             asking.subtract(ids)
             if $0 { close(asked) }
         }
+    }
+
+    /// A terminal's shell state as the daemon pushes it (OSC 133 marks of its shell integration).
+    enum PushedState: Equatable {
+        /// At its prompt: nothing runs in the foreground.
+        case idle
+        /// A command runs.
+        case busy
+        /// No state reported (a shell without integration, a program spawned directly, a terminal just made).
+        case unknown
+    }
+
+    /// `tab`'s pushed shell state (``TabModel/commandSinceMs``, ``TabModel/promptSinceMs``).
+    static func pushedState(_ tab: TabModel) -> PushedState {
+        if tab.commandSinceMs != nil { return .busy }
+        return tab.promptSinceMs != nil ? .idle : .unknown
+    }
+
+    /// What `terminals` run, from their pushed states alone: nil for an idle one, an empty name for a running
+    /// command (its name comes from a read), or nil overall when one reports no state.
+    static func pushedPrograms(_ terminals: [TabModel]) -> RunningPrograms? {
+        var programs: RunningPrograms = [:]
+        for tab in terminals {
+            switch pushedState(tab) {
+            case .idle: programs[tab.surface] = .some(nil)
+            case .busy: programs[tab.surface] = .some(RunningPrograms.unnamed)
+            case .unknown: return nil
+            }
+        }
+        return programs
+    }
+
+    /// A running command asks in the person's own turn (`pushed`); the read names the programs and updates the
+    /// question in place. The person's answer closes with the newest names known.
+    private static func askNow(_ tabs: [TabModel], ids: Set<String>, terminals: [TabModel], pushed: RunningPrograms, on daemon: DaemonService,
+                               window: NSWindow?, services: AppServices, close: @escaping @MainActor (_ asked: RunningPrograms) -> Void) {
+        guard let prompt = question(closing: tabs, asked: pushed, services: services) else {
+            return close(pushed)
+        }
+        asking.formUnion(ids)
+        let known = NamedPrograms(pushed)
+        let dialog = DestructiveConfirmation.present(prompt, in: window, settings: services.settings) {
+            asking.subtract(ids)
+            known.answered = true
+            if $0 { close(known.asked) }
+        }
+        guard let dialog else { return }
+        // Only the names are read, off main; the question is already up.
+        let busy = terminals.filter { pushedState($0) == .busy }
+        let end = services.registry.completion(on: services.mainWork)
+        end.start {
+            let read = await DestructiveConfirmation.runningPrograms(bySurface: busy, on: daemon)
+            end.post(owner: "TabCloseGuard.askNow") {
+                // Answered already: nothing to name. A command that ended meanwhile still asked; the read only
+                // names what still runs.
+                guard !known.answered else { return }
+                for (surface, program) in read { if let program { known.asked[surface] = .some(program) } }
+                guard let prompt = question(closing: tabs, asked: known.asked, services: services) else { return }
+                CmuxDialogCenter.shared.update(dialog, spec: DestructiveConfirmation.spec(prompt))
+            }
+        }
+    }
+
+    /// What the terminals of one open pushed-state question run (``askNow``), named as the read answers.
+    private final class NamedPrograms {
+        var asked: RunningPrograms
+        var answered = false
+        init(_ asked: RunningPrograms) { self.asked = asked }
     }
 
     /// The tabs whose close is still asking (the daemon's read, then the question): they
@@ -157,14 +244,16 @@ enum TabCloseGuard {
         let terminals = tabs.filter { $0.kind == .pty && !$0.dead }
         guard warnTab || warnAgent, !terminals.isEmpty else { return nil }
         let agents = terminals.compactMap(workingAgent)
-        return warning(agents: agents, programs: asked.programNames, warnTab: warnTab, warnAgent: warnAgent)
+        return warning(agents: agents, programs: asked.programNames, unnamed: asked.hasUnnamedProgram, warnTab: warnTab, warnAgent: warnAgent)
             .map { prompt($0, closing: tabs) }
     }
 
-    /// The question for these closing terminals, or nil to close at once.
-    static func warning(agents: [String], programs: [String], warnTab: Bool, warnAgent: Bool) -> Warning? {
+    /// The question for these closing terminals, or nil to close at once. `unnamed`: a command runs whose
+    /// program is not named yet (pushed state, before the read).
+    static func warning(agents: [String], programs: [String], unnamed: Bool = false, warnTab: Bool, warnAgent: Bool) -> Warning? {
         if warnAgent, let agent = agents.first { return .agent(agent) }
         if warnTab, !programs.isEmpty { return .programs(programs) }
+        if warnTab, unnamed { return .running }
         return nil
     }
 
@@ -177,6 +266,9 @@ enum TabCloseGuard {
         case .programs(let programs):
             return .init(title: title,
                          body: ConfirmationStrings.stillRunning(programs.joined(separator: ", ")),
+                         button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
+        case .running:
+            return .init(title: title, body: ConfirmationStrings.programStillRunning,
                          button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
         }
     }

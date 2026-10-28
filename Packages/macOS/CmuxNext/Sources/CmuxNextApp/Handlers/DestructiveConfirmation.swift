@@ -165,10 +165,12 @@ enum DestructiveConfirmation {
     /// A cmux dialog on `window` (Return confirms, Escape cancels). With no
     /// window there is nobody to ask, so the action does not run.
     /// A confirmed answer with "Don't ask again" checked turns the prompt's toggle off.
+    /// Returns the dialog's id (nil without a window).
+    @discardableResult
     static func present(_ prompt: Prompt, in window: NSWindow?, settings: SettingsController? = nil,
-                        done: @escaping (Bool) -> Void) {
-        guard let window else { return done(false) }
-        CmuxDialogCenter.shared.present(spec(prompt), in: .window(window)) { answer in
+                        done: @escaping (Bool) -> Void) -> Int? {
+        guard let window else { done(false); return nil }
+        return CmuxDialogCenter.shared.present(spec(prompt), in: .window(window)) { answer in
             let confirmed = answer.button == confirmID
             if confirmed, answer.values[suppressID]?.bool == true, let path = prompt.suppresses { turnOff(path, settings) }
             done(confirmed)
