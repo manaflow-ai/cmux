@@ -69,6 +69,7 @@ public final class ResourceSummaryView: NSView {
         applyColors()
     }
 
+    // visibility-walk-allow: the body only sets its labels' text colors (no layout, no view work to defer)
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

@@ -1,6 +1,7 @@
 public import AppKit
 import QuartzCore
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// The hover, pressed, selected and keyboard-focus look shared by chrome
 /// controls (sidebar rows and buttons, tab strip buttons, onboarding rows):

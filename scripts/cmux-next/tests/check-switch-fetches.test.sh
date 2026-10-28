@@ -33,12 +33,17 @@ fail "$VIEW" "a re-read on window focus" 'window.addEventListener("focus", rerea
 fail "$VIEW" "a re-read on pageshow" "window.addEventListener?.('pageshow', reread);"
 fail "$VIEW" "a re-read on resume" 'document.addEventListener("resume", reread);'
 fail "$VIEW" "a re-read on a page lifecycle change" 'const stop = onPageLifecycleChange(() => void callNative("chats.page"));'
+fail "$VIEW" "a read keyed on the lifecycle state" $'const state = usePageLifecycle();\nuseEffect(() => {\n  if (state === "active") void callNative("chats.page");\n}, [state]);'
+fail "$VIEW" "a re-read in a lifecycle observer" 'pageLifecycleFor().observe(() => void callNative("chats.page"));'
+fail "$VIEW" "a re-read on an interval's catch-up on show" 'usePageInterval(() => void callNative("chats.page"), 60000, { catchUpOnShow: true });'
 fail "$VIEW" "a read on every mount" $'useEffect(() => {\n  void callNative("chats.page");\n}, []);'
 fail "$VIEW" "a read whose only dependency is the read itself" $'useEffect(() => {\n  fetchPage("", undefined);\n}, [fetchPage]);'
 fail "$ACPMUX/conversation/Fixture.tsx" "a layout effect read" $'useLayoutEffect(() => {\n  void loadRows();\n}, [loadRows]);'
 
 pass "$ACPMUX/direct.ts" "a listed listener" 'document.addEventListener("visibilitychange", this.showChanged);'
 pass "$ACPMUX/direct.ts" "a listed lifecycle observer" 'this.stop = onPageLifecycleChange(this.showChanged);'
+pass "$ACPMUX/subagents/SubagentGroup.tsx" "a listed clock that catches up on show" 'usePageInterval(tick, 1000, { catchUpOnShow: true });'
+pass "$VIEW" "an interval that does not catch up" 'usePageInterval(tick, 1000, { catchUpOnShow: false });'
 pass "$VIEW" "a marked mount read" $'// mount-read: the spare\'s model is wired only now\nuseEffect(() => {\n  void callNative("project.list");\n}, []);'
 pass "$VIEW" "a read keyed by its data" $'useEffect(() => {\n  void callNative("chat.read", { id });\n}, [id]);'
 pass "$VIEW" "a read in a comment" $'useEffect(() => {\n  // callNative("x") was here\n}, []);'
