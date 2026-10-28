@@ -43,7 +43,16 @@ struct AgentPaneCloudStartTests {
         #expect(starts.seen.first?.harness == "codex")
         #expect(starts.seen.first?.model == "gpt-6-astra")
         #expect(starts.heldDuringRun == true)
-        // The hold ends with the run: a later hand-off may take it.
+        // A chat that started on the machine keeps the hold: this pane starts nothing more.
+        #expect(!model.transport.replacements.beginSandbox())
+    }
+
+    @Test func aRefusedStartReleasesTheHoldSoTheSendMayBeTriedAgain() async {
+        let model = AgentPaneModel(host: NoHost())
+        model.onCloudStartChat = { _ in AgentPaneReply.failure(code: "cloud_start_failed", message: "no machine") }
+        model.transport.gestures.record()
+        let reply = await model.respond(to: Self.start(Self.good))
+        #expect(reply["ok"] as? Bool == false)
         #expect(model.transport.replacements.beginSandbox())
     }
 

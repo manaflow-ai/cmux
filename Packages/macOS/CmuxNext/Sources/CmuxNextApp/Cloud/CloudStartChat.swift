@@ -56,7 +56,11 @@ struct CloudStartChat {
 
     /// The start; returns the machine's name.
     private func run(_ start: AgentPaneCloudStart, tab: TabModel) async throws -> String {
-        guard let chat = start.cwd ?? tab.cwd, let folder = CloudMoveFolder(chat: chat) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
+        // The folder the page named, as Move to Cloud's `path` takes one: an existing folder, never
+        // the home folder or the disk's root. A page could already start a chat on this Mac in it.
+        var isFolder: ObjCBool = false
+        guard let chat = start.cwd ?? tab.cwd, FileManager.default.fileExists(atPath: chat, isDirectory: &isFolder), isFolder.boolValue,
+              let folder = CloudMoveFolder(chat: chat) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard !folder.isTooBroad else { throw CloudMove.Failure(message: CloudMoveStrings.homeFolder) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let move = CloudMove(services: services)

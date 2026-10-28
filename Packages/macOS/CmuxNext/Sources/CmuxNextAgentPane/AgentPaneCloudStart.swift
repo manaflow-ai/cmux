@@ -56,13 +56,16 @@ struct AgentPaneHandOff {
     func cloud(_ start: AgentPaneCloudStart) async -> [String: Any] {
         guard let run = model.onCloudStartChat else { return AgentPaneModel.unsupported("cloud.startChat") }
         return await held("cloud.startChat") { replacements in
-            defer { replacements.endSandbox() }
-            return await run(start)
+            let reply = await run(start)
+            // A chat that started on the machine keeps the hold: this pane never starts one too,
+            // also when the App could not close it.
+            if reply["ok"] as? Bool != true { replacements.endSandbox() }
+            return reply
         }
     }
 
     /// The shared guards, then `body` with the replacements held (it ends the hold).
-    private func held(_ method: String, _ body: (AcpmuxPaneReplacements) async -> [String: Any]) async -> [String: Any] {
+    private func held(_ method: String, _ body: @MainActor (AcpmuxPaneReplacements) async -> [String: Any]) async -> [String: Any] {
         guard model.sessionId == nil else { return AgentPaneModel.unsupported(method) }
         let notNow = AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
         let transport = model.transport
