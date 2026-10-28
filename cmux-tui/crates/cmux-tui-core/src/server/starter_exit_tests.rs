@@ -32,7 +32,7 @@ fn shutdown_within(mux: &Arc<Mux>, limit: Duration) -> bool {
 }
 
 #[test]
-fn the_owner_ends_its_terminals_and_stops_when_its_starter_exits() {
+fn exit_with_process_ends_the_terminals_and_stops_the_owner() {
     let mux = mux("exits");
     let surface = mux.new_workspace(Some("job".into()), Some((80, 24))).unwrap();
     let terminal = mux.resource_terminal_host_identity(&surface).unwrap().terminal_id;
@@ -56,7 +56,7 @@ fn the_owner_ends_its_terminals_and_stops_when_its_starter_exits() {
 }
 
 #[test]
-fn a_starter_that_already_exited_stops_the_owner_at_once() {
+fn exit_with_process_of_an_exited_starter_stops_at_once() {
     let mux = mux("gone");
     let mut starter = std::process::Command::new("true").spawn().unwrap();
     let pid = starter.id();
@@ -66,7 +66,7 @@ fn a_starter_that_already_exited_stops_the_owner_at_once() {
 }
 
 #[test]
-fn a_running_handoff_keeps_the_exit_from_racing_it() {
+fn exit_with_process_never_races_a_running_handoff() {
     let mux = mux("handoff");
     let surface = mux.new_workspace(Some("job".into()), Some((80, 24))).unwrap();
     let terminal = mux.resource_terminal_host_identity(&surface).unwrap().terminal_id;
