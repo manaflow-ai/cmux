@@ -60,6 +60,31 @@ import Testing
         #expect(!CaptureSpy.methods.contains("Page.captureScreenshot"), "a page was pictured after quit began: \(CaptureSpy.methods)")
     }
 
+    /// A screenshot of a hidden page still waiting when quit begins ends then with `closed` (no wait for the quit's
+    /// browser closes or its timeout): the engine is stopping and will never answer it.
+    @Test func aScreenshotWaitingWhenQuitBeginsEndsAtOnce() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        tab.setContentVisible(false)
+        let picture = Task { @MainActor () -> (any Error)? in
+            do { _ = try await tab.snapshot(); return nil } catch { return error }
+        }
+        var deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while CaptureSpy.methods.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        try #require(CaptureSpy.methods == ["Page.captureScreenshot"])
+        // The browser never closes (the spy reports no close): the quit waits out its timeout.
+        let quit = Task { await rig.runtime.shutdown(timeout: .seconds(2)) }
+        deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        let ended = Flag()
+        let watcher = Task { _ = await picture.value; ended.isSet = true }
+        while !ended.isSet, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(ended.isSet, "the screenshot still waited a second after quit began")
+        #expect(await picture.value as? BrowserTabError == .closed)
+        watcher.cancel()
+        await quit.value
+    }
+
     @Test func aClosedPageIsNeverPictured() async throws {
         let rig = try Rig()
         defer { rig.close() }
@@ -97,6 +122,11 @@ import Testing
             try? FileManager.default.removeItem(at: root)
         }
     }
+}
+
+/// Set by a task the test watches (all on the main actor).
+@MainActor private final class Flag {
+    var isSet = false
 }
 
 /// The DevTools methods a CEFTab sends; each gets a message id and no answer.
