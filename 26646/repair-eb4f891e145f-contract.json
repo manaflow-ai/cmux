@@ -1,0 +1,187 @@
+{
+  "schema": "nx-transcript-chevron-audit-contract.v2",
+  "repository": "manaflow-ai/cmux",
+  "pull_request": "https://github.com/manaflow-ai/cmux/pull/26646",
+  "base_sha": "83c919d5176a669a6a1ab84cab7414727eb623a3",
+  "head_sha": "eb4f891e145f19701f7442987389a46e09787aad",
+  "scope": "Folded thought header uses the existing shared tool grid. No floating-copy markup or CSS changes are introduced.",
+  "copy_owner": {
+    "pull_request": "https://github.com/manaflow-ai/cmux/pull/26096",
+    "head_sha": "5971858b50b717a212763fec9b056eb2ed78c334",
+    "behavior": "Removes the duplicate floating transcript Copy; Copy remains in message actions and output/Shell blocks."
+  },
+  "fixture": {
+    "gallery_id": "agent-pane.transcript-chevron-column",
+    "entry_path": "src/agent-session/acpmux/conversation/ChevronColumn.gallery.tsx",
+    "variant": "shipped",
+    "root_selector": "[data-chevron-column]",
+    "row_selector": ".chevron-column-gallery__row[data-label]",
+    "chevron_selector": "[data-chevron-column] .cv-tool__chevron",
+    "meta_selector": "[data-label=\"command\"] .cv-command__meta",
+    "copy_selector": "[data-label=\"command\"] .cv-shell__actions button[aria-label=\"Copy\"]",
+    "covered_rows": [
+      "SessionStartNote",
+      "ToolRun",
+      "CommandRow",
+      "ToolGroupRow",
+      "ThoughtRow"
+    ],
+    "collapsed_chevron_count": 5,
+    "expanded_chevron_count": 9,
+    "out_of_scope_shared_surfaces": [
+      ".cv-received-actions",
+      ".cv-turn-actions",
+      "subagent cards"
+    ]
+  },
+  "cases": [
+    {
+      "width": 760,
+      "before": [
+        758,
+        758,
+        758,
+        758,
+        758
+      ],
+      "after": [
+        758,
+        758,
+        758,
+        758,
+        758
+      ],
+      "expanded": [
+        758,
+        758,
+        758,
+        758,
+        758,
+        758,
+        758,
+        758,
+        758
+      ],
+      "action": {
+        "meta": {
+          "x": 690.8125,
+          "y": 105,
+          "width": 45.1875,
+          "height": 20,
+          "top": 105,
+          "right": 736,
+          "bottom": 125,
+          "left": 690.8125
+        },
+        "chevron": {
+          "x": 744,
+          "y": 108,
+          "width": 14,
+          "height": 14,
+          "top": 108,
+          "right": 758,
+          "bottom": 122,
+          "left": 744
+        }
+      },
+      "baseline_x_end": [
+        758,
+        758,
+        758,
+        758,
+        114.3
+      ]
+    },
+    {
+      "width": 420,
+      "before": [
+        418,
+        418,
+        418,
+        418,
+        418
+      ],
+      "after": [
+        418,
+        418,
+        418,
+        418,
+        418
+      ],
+      "expanded": [
+        418,
+        418,
+        418,
+        418,
+        418,
+        418,
+        418,
+        418,
+        418
+      ],
+      "action": {
+        "meta": {
+          "x": 350.8125,
+          "y": 105,
+          "width": 45.1875,
+          "height": 20,
+          "top": 105,
+          "right": 396,
+          "bottom": 125,
+          "left": 350.8125
+        },
+        "chevron": {
+          "x": 404,
+          "y": 108,
+          "width": 14,
+          "height": 14,
+          "top": 108,
+          "right": 418,
+          "bottom": 122,
+          "left": 404
+        }
+      },
+      "baseline_x_end": [
+        418,
+        418,
+        418,
+        418,
+        114.3
+      ]
+    }
+  ],
+  "checks": {
+    "focused": "11 passed; 47 assertions across transcript-codex-turn and transcript-chevron-column on the exact head",
+    "red": "Without the two CSS declarations, 3 focused tests fail, including browser geometry at 760px and 420px",
+    "web_check": "bun run check passed",
+    "web_lint": "scripts/web-lint.sh --base 83c919d5176a669a6a1ab84cab7414727eb623a3 --head HEAD passed",
+    "prepush": "python3 scripts/cmux-next/prepush-gate.py --repo . --base 83c919d5176a669a6a1ab84cab7414727eb623a3 --head HEAD passed",
+    "broad_browser": "4-file expansion run terminated with SIGTERM; narrow sequential recovery passed"
+  },
+  "integration": {
+    "copy_owner_merge_tree": "318559d4de83c225afb07e200a4ed4d4aba0fd3a",
+    "copy_owner_merge_result": "clean",
+    "parser_head": "3d6ad017c3638358816a21f363ae7b400047bf63",
+    "parser_own_files_merge_result": "conversation.css and transcript-codex-turn.test.tsx merge cleanly; merged CSS has no floating-copy rule",
+    "parser_unrelated_conflicts": [
+      "summary/summary.css",
+      "test/agent-pane-column-edges.test.ts"
+    ]
+  },
+  "artifacts": {
+    "note": "After is exact repaired head. Before is the same real-control fixture with the two thought-grid declarations removed. No private capture is published.",
+    "before": [
+      "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26646/repair-eb4f891e145f-before-760.png",
+      "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26646/repair-eb4f891e145f-before-420.png"
+    ],
+    "after": [
+      "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26646/repair-eb4f891e145f-after-760.png",
+      "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26646/repair-eb4f891e145f-after-420.png"
+    ],
+    "rects": [
+      "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26646/repair-eb4f891e145f-rects-760.json",
+      "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26646/repair-eb4f891e145f-rects-420.json"
+    ],
+    "contract": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26646/repair-eb4f891e145f-contract.json"
+  }
+}
